@@ -8,6 +8,7 @@ from _Framework.ControlSurface import ControlSurface
 
 from .capabilities import build_capability_document
 from .executor import MainThreadExecutor
+from .listeners import LomListenerManager
 from .registry import CommandRegistry
 from .server import RemoteScriptServer
 from .system_commands import register_system_commands
@@ -19,6 +20,7 @@ class RuntimeContext(object):
         self.application = application
         self.song = song
         self.schedule_message = schedule_message
+        self.project_revision = 0
 
 
 class AbletonAgentControlSurface(ControlSurface):
@@ -43,8 +45,13 @@ class AbletonAgentControlSurface(ControlSurface):
             logger=self.log_message,
         )
         self._server.start()
+        self._listeners = LomListenerManager(
+            context, self._server.publish_event, logger=self.log_message
+        )
+        self._listeners.start()
 
     def disconnect(self):
+        self._listeners.stop()
         self._server.stop()
         self._executor.close()
         ControlSurface.disconnect(self)

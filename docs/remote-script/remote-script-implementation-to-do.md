@@ -65,15 +65,15 @@ Companion specification: [Remote Script](remote-script.md)
   breadth-first search with node/result/depth/time limits, a 512-entry
   runtime-reference cache, exact path/URI revalidation, and verified built-in
   device loading on selected identity-bound regular tracks.
-- [ ] Implement selected low-frequency LOM listeners and cleanup.
+- [x] Implement selected low-frequency LOM listeners and cleanup.
 
 ## Tests
 
 - [~] Build fake Song, Track, Clip, Device, Browser, and Application objects.
 - [~] Unit-test every handler's validation, success, and LOM failure paths.
 - [~] Unit-test main-thread scheduling and timeout behavior.
-- [ ] Unit-test listener registration and removal.
-- [ ] Run Python protocol contract fixtures.
+- [x] Unit-test listener registration and removal.
+- [x] Run Python protocol contract fixtures.
 - [ ] Add real-Live tests for each uncertain API and supported version.
   - [ ] Validate cue-point object identity, create/delete return behavior,
     naming, loop setter ordering, and rollback against supported Live versions.
@@ -94,5 +94,5 @@ Companion specification: [Remote Script](remote-script.md)
 
 - [x] No model, cloud, MCP, or third-party dependency exists in the script.
 - [ ] All commands are registered, validated, scheduled, and tested.
-- [ ] Disconnect leaves no listeners, sockets, or active client threads.
+- [x] Disconnect leaves no listeners, sockets, or active client threads.
 - [ ] Supported Live versions produce an accurate capability report.

@@ -29,8 +29,8 @@ def validate_request(message):
     return None
 
 
-def success(request, result, warnings=None):
-    return {
+def success(request, result, warnings=None, project_revision=None):
+    message = {
         "protocolVersion": PROTOCOL_VERSION,
         "kind": "response",
         "requestId": request.get("requestId", "00000000-0000-0000-0000-000000000000"),
@@ -38,6 +38,22 @@ def success(request, result, warnings=None):
         "result": result,
         "warnings": warnings or [],
     }
+    if project_revision is not None:
+        message["projectRevision"] = project_revision
+    return message
+
+
+def event(name, sequence, payload, project_revision=None):
+    message = {
+        "protocolVersion": PROTOCOL_VERSION,
+        "kind": "event",
+        "event": name,
+        "sequence": sequence,
+        "payload": payload,
+    }
+    if project_revision is not None:
+        message["projectRevision"] = project_revision
+    return message
 
 
 def failure(request, code, message, retryable=False, details=None):

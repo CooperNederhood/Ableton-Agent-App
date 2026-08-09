@@ -3089,6 +3089,44 @@ class ServerTests(unittest.TestCase):
     def test_server_runs_on_background_thread(self):
         self.assertNotEqual(self.server._thread.ident, threading.current_thread().ident)
 
+    def test_stop_releases_client_server_and_thread(self):
+        self.server.stop()
+
+        self.assertIsNone(self.server._thread)
+        self.assertIsNone(self.server._client_socket)
+        self.assertIsNone(self.server._server_socket)
+
+    def test_publishes_only_subscribed_events_with_sequences(self):
+        self.exchange(
+            request(
+                "system.hello",
+                {
+                    "authenticationToken": self.token,
+                    "supportedProtocolVersions": [PROTOCOL_VERSION],
+                    "appVersion": "test",
+                    "eventSubscriptions": ["project.changed"],
+                },
+            )
+        )
+
+        self.assertFalse(
+            self.server.publish_event("transport.tick", {"beat": 1}, 3)
+        )
+        self.assertTrue(
+            self.server.publish_event(
+                "project.changed", {"reason": "tempo"}, 4
+            )
+        )
+        message = self.exchange(request("system.ping"))
+        if message["kind"] == "response":
+            messages = self.decoder.push(self.client.recv(65536))
+            message = messages[0]
+
+        self.assertEqual(message["kind"], "event")
+        self.assertEqual(message["event"], "project.changed")
+        self.assertEqual(message["sequence"], 0)
+        self.assertEqual(message["projectRevision"], 4)
+
     def test_send_failure_does_not_escape_outbound_flush(self):
         class FailingClient(object):
             def sendall(self, _payload):
@@ -3097,6 +3135,21 @@ class ServerTests(unittest.TestCase):
         self.server._enqueue({"message": "will fail"})
 
         self.assertFalse(self.server._flush_outbound(FailingClient()))
+
+    def test_drops_outbound_messages_from_an_old_client_generation(self):
+        class RecordingClient(object):
+            def __init__(self):
+                self.payloads = []
+
+            def sendall(self, payload):
+                self.payloads.append(payload)
+
+        client = RecordingClient()
+        self.server._enqueue({"message": "old"}, self.server._client_generation)
+        self.server._client_generation += 1
+
+        self.assertTrue(self.server._flush_outbound(client))
+        self.assertEqual(client.payloads, [])
 
 
 if __name__ == "__main__":

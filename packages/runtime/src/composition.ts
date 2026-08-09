@@ -126,6 +126,7 @@ export function createAbletonService(
         authenticationToken: settings.token,
         events,
         port: settings.port,
+        eventSubscriptions: ["project.changed"],
       }),
       configured: true,
     };

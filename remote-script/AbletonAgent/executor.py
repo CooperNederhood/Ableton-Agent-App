@@ -79,13 +79,29 @@ class MainThreadExecutor(object):
                 result = command.execute(self._context, request["params"])
                 if isinstance(result, DeferredResult):
                     result.start(
-                        lambda value: callback(success(request, value)),
+                        lambda value: callback(
+                            success(
+                                request,
+                                value,
+                                project_revision=getattr(
+                                    self._context, "project_revision", None
+                                ),
+                            )
+                        ),
                         lambda exc: callback(
                             failure(request, "lom_error", str(exc))
                         ),
                     )
                 else:
-                    callback(success(request, result))
+                    callback(
+                        success(
+                            request,
+                            result,
+                            project_revision=getattr(
+                                self._context, "project_revision", None
+                            ),
+                        )
+                    )
             except ProtocolFailure as exc:
                 callback(
                     failure(

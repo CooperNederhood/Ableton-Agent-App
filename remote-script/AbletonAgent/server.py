@@ -10,7 +10,7 @@ try:
 except ImportError:  # pragma: no cover - Python 2 compatibility
     import Queue as queue
 
-from .messages import PROTOCOL_VERSION, failure, success, validate_request
+from .messages import PROTOCOL_VERSION, event, failure, success, validate_request
 from .protocol import FrameDecodeError, FrameDecoder, encode_frame
 
 LOOPBACK_HOST = "127.0.0.1"
@@ -36,6 +36,11 @@ class RemoteScriptServer(object):
         self._thread = None
         self._server_socket = None
         self._client_socket = None
+        self._client_authenticated = False
+        self._event_subscriptions = set()
+        self._client_generation = 0
+        self._event_sequence = 0
+        self._event_lock = threading.Lock()
 
     @property
     def port(self):
@@ -72,6 +77,8 @@ class RemoteScriptServer(object):
             self._thread.join(timeout=1.0)
         self._thread = None
         self._client_socket = None
+        self._client_authenticated = False
+        self._event_subscriptions = set()
         self._server_socket = None
 
     def _run(self):
@@ -83,6 +90,9 @@ class RemoteScriptServer(object):
             except OSError:
                 break
             self._client_socket = client
+            self._client_generation += 1
+            self._client_authenticated = False
+            self._event_subscriptions = set()
             try:
                 self._serve_client(client)
             finally:
@@ -91,8 +101,11 @@ class RemoteScriptServer(object):
                 except OSError:
                     pass
                 self._client_socket = None
+                self._client_authenticated = False
+                self._event_subscriptions = set()
 
     def _serve_client(self, client):
+        generation = self._client_generation
         client.settimeout(0.05)
         decoder = FrameDecoder()
         authenticated = False
@@ -118,11 +131,17 @@ class RemoteScriptServer(object):
                     continue
                 if not authenticated:
                     authenticated = self._handle_hello(request)
+                    self._client_authenticated = authenticated
                     continue
                 if request["command"] == "system.hello":
                     self._enqueue(failure(request, "invalid_request", "Handshake already completed"))
                     continue
-                self._executor.submit(request, self._enqueue)
+                self._executor.submit(
+                    request,
+                    lambda message, active_generation=generation: self._enqueue(
+                        message, active_generation
+                    ),
+                )
         self._flush_outbound(client)
 
     def _handle_hello(self, request):
@@ -143,21 +162,51 @@ class RemoteScriptServer(object):
             )
             return False
         self._enqueue(success(request, self._capability_document))
+        self._event_subscriptions = set(
+            params.get("eventSubscriptions", [])
+        )
         return True
 
-    def _enqueue(self, message):
+    def publish_event(self, name, payload, project_revision=None):
+        if (
+            not self._client_authenticated
+            or (
+                name not in self._event_subscriptions
+                and "*" not in self._event_subscriptions
+            )
+        ):
+            return False
+        with self._event_lock:
+            sequence = self._event_sequence
+            self._event_sequence += 1
+        self._enqueue(
+            event(name, sequence, payload, project_revision),
+            self._client_generation,
+        )
+        return True
+
+    def _enqueue(self, message, generation=None):
         try:
-            self._outbound.put_nowait(message)
+            self._outbound.put_nowait(
+                (
+                    self._client_generation
+                    if generation is None
+                    else generation,
+                    message,
+                )
+            )
         except queue.Full:
             self._logger("Dropping response because outbound queue is full")
 
     def _flush_outbound(self, client):
         while True:
             try:
-                message = self._outbound.get_nowait()
+                generation, message = self._outbound.get_nowait()
             except queue.Empty:
                 return True
             try:
+                if generation != self._client_generation:
+                    continue
                 client.sendall(encode_frame(message))
             except OSError:
                 return False

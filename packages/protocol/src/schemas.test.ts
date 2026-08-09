@@ -5,7 +5,11 @@ import {
   deleteCuePointParamsSchema,
   duplicateClipToArrangementParamsSchema,
   duplicateSessionClipParamsSchema,
+  inspectDeviceParametersParamsSchema,
+  inspectDevicesParamsSchema,
   launchSessionClipParamsSchema,
+  setDeviceEnabledParamsSchema,
+  setDeviceParameterParamsSchema,
   setArrangementLoopParamsSchema,
   setArrangementClipPropertiesParamsSchema,
   setSessionClipPropertiesParamsSchema,
@@ -48,6 +52,65 @@ describe("Arrangement operation schemas", () => {
         expectedTime: 32,
       }),
     ).toMatchObject({ expectedName: "", expectedTime: 32 });
+  });
+
+  describe("Device operation schemas", () => {
+    const deviceTarget = {
+      ...identity,
+      deviceIndex: 0,
+      expectedDeviceReference: "00000000-0000-4000-8000-000000000040",
+      expectedDeviceName: "Drum Rack",
+    };
+
+    it("bounds device and parameter inspection pages", () => {
+      expect(inspectDevicesParamsSchema.parse(identity)).toEqual({
+        ...identity,
+        offset: 0,
+        limit: 32,
+      });
+      expect(
+        inspectDevicesParamsSchema.safeParse({ ...identity, limit: 129 })
+          .success,
+      ).toBe(false);
+      expect(inspectDeviceParametersParamsSchema.parse(deviceTarget)).toEqual({
+        ...deviceTarget,
+        offset: 0,
+        limit: 64,
+      });
+      expect(
+        inspectDeviceParametersParamsSchema.safeParse({
+          ...deviceTarget,
+          limit: 257,
+        }).success,
+      ).toBe(false);
+    });
+
+    it("requires exact device and parameter identities for mutations", () => {
+      expect(
+        setDeviceEnabledParamsSchema.parse({
+          ...deviceTarget,
+          enabled: false,
+        }),
+      ).toMatchObject({ enabled: false });
+      expect(
+        setDeviceParameterParamsSchema.parse({
+          ...deviceTarget,
+          parameterIndex: 2,
+          expectedParameterReference: "00000000-0000-4000-8000-000000000041",
+          expectedParameterName: "Dry/Wet",
+          normalizedValue: 0.75,
+        }),
+      ).toMatchObject({ parameterIndex: 2, normalizedValue: 0.75 });
+      expect(
+        setDeviceParameterParamsSchema.safeParse({
+          ...deviceTarget,
+          parameterIndex: 2,
+          expectedParameterReference: "00000000-0000-4000-8000-000000000041",
+          expectedParameterName: "Dry/Wet",
+          normalizedValue: 1.1,
+        }).success,
+      ).toBe(false);
+    });
   });
 
   it("accepts identity-bound Session clip duplication parameters", () => {

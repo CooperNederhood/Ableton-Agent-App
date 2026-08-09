@@ -2529,3 +2529,6 @@ def register_system_commands(registry):
         capability="arrangement.set_clip_properties",
         validator=_set_arrangement_clip_properties_params,
     )
+    from .device_commands import register_device_commands
+
+    register_device_commands(registry)

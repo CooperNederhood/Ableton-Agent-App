@@ -39,11 +39,19 @@ import type {
   InspectArrangementResult,
   InspectArrangementTransportParams,
   InspectArrangementTransportResult,
+  InspectDeviceParametersParams,
+  InspectDeviceParametersResult,
+  InspectDevicesParams,
+  InspectDevicesResult,
   SessionSnapshot,
   SetPlayingResult,
   SetTempoResult,
   SetTrackMixerParams,
   SetTrackMixerResult,
+  SetDeviceEnabledParams,
+  SetDeviceEnabledResult,
+  SetDeviceParameterParams,
+  SetDeviceParameterResult,
   TrackMutationResult,
 } from "@ableton-agent/protocol";
 import type {
@@ -92,6 +100,16 @@ export interface AbletonService {
   deleteTrack(params: DeleteTrackParams): Promise<TrackMutationResult>;
   renameTrack(params: RenameTrackParams): Promise<RenameTrackResult>;
   setTrackMixer(params: SetTrackMixerParams): Promise<SetTrackMixerResult>;
+  inspectDevices(params: InspectDevicesParams): Promise<InspectDevicesResult>;
+  inspectDeviceParameters(
+    params: InspectDeviceParametersParams,
+  ): Promise<InspectDeviceParametersResult>;
+  setDeviceEnabled(
+    params: SetDeviceEnabledParams,
+  ): Promise<SetDeviceEnabledResult>;
+  setDeviceParameter(
+    params: SetDeviceParameterParams,
+  ): Promise<SetDeviceParameterResult>;
   createMidiClip(params: CreateMidiClipParams): Promise<CreateMidiClipResult>;
   replaceMidiNotes(
     params: ReplaceMidiNotesParams,
@@ -176,6 +194,18 @@ export interface CopilotAgentServiceOptions {
   deleteTrack: (params: DeleteTrackParams) => Promise<TrackMutationResult>;
   renameTrack: (params: RenameTrackParams) => Promise<RenameTrackResult>;
   setTrackMixer: (params: SetTrackMixerParams) => Promise<SetTrackMixerResult>;
+  inspectDevices: (
+    params: InspectDevicesParams,
+  ) => Promise<InspectDevicesResult>;
+  inspectDeviceParameters: (
+    params: InspectDeviceParametersParams,
+  ) => Promise<InspectDeviceParametersResult>;
+  setDeviceEnabled: (
+    params: SetDeviceEnabledParams,
+  ) => Promise<SetDeviceEnabledResult>;
+  setDeviceParameter: (
+    params: SetDeviceParameterParams,
+  ) => Promise<SetDeviceParameterResult>;
   createMidiClip: (
     params: CreateMidiClipParams,
   ) => Promise<CreateMidiClipResult>;
@@ -260,6 +290,10 @@ export class CopilotAgentService implements AgentService {
       deleteTrack: this.options.deleteTrack,
       renameTrack: this.options.renameTrack,
       setTrackMixer: this.options.setTrackMixer,
+      inspectDevices: this.options.inspectDevices,
+      inspectDeviceParameters: this.options.inspectDeviceParameters,
+      setDeviceEnabled: this.options.setDeviceEnabled,
+      setDeviceParameter: this.options.setDeviceParameter,
       createMidiClip: this.options.createMidiClip,
       replaceMidiNotes: this.options.replaceMidiNotes,
       launchSessionClip: this.options.launchSessionClip,
@@ -496,6 +530,30 @@ export class HeadlessApplication {
     params: SetTrackMixerParams,
   ): Promise<SetTrackMixerResult> {
     return this.services.ableton.setTrackMixer(params);
+  }
+
+  public inspectDevices(
+    params: InspectDevicesParams,
+  ): Promise<InspectDevicesResult> {
+    return this.services.ableton.inspectDevices(params);
+  }
+
+  public inspectDeviceParameters(
+    params: InspectDeviceParametersParams,
+  ): Promise<InspectDeviceParametersResult> {
+    return this.services.ableton.inspectDeviceParameters(params);
+  }
+
+  public setDeviceEnabled(
+    params: SetDeviceEnabledParams,
+  ): Promise<SetDeviceEnabledResult> {
+    return this.services.ableton.setDeviceEnabled(params);
+  }
+
+  public setDeviceParameter(
+    params: SetDeviceParameterParams,
+  ): Promise<SetDeviceParameterResult> {
+    return this.services.ableton.setDeviceParameter(params);
   }
 
   public createMidiClip(

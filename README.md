@@ -29,6 +29,8 @@ export ABLETON_AGENT_TOKEN="<token>"
 node apps/cli/dist/main.js doctor
 node apps/cli/dist/main.js snapshot
 node apps/cli/dist/main.js transport
+node apps/cli/dist/main.js devices 1
+node apps/cli/dist/main.js parameters 1 1
 node apps/cli/dist/main.js chat
 ```
 
@@ -65,6 +67,21 @@ creation; cue-point deletion is destructive and requires the stable runtime
 reference, name, and time returned by a recent inspection. Cue references are
 stable only for the current Remote Script runtime because Live does not expose
 persistent cue-point IDs.
+Top-level devices on identity-bound regular tracks can be inspected in bounded
+pages, and parameters are fetched only for one exact device in a separate
+bounded page. Device and parameter references are stable only for the current
+Remote Script runtime. Return tracks, group tracks, rack chains, Drum Rack pad
+chains, and recursive device traversal remain out of scope for this stage.
+Device enable/disable uses the documented first `Device On` parameter when it
+is exposed. Parameter updates accept normalized `0..1` values, map through the
+parameter's current minimum and maximum, snap quantized parameters to the
+nearest discrete value, reject disabled or known non-writable parameters, and
+verify or restore the prior value after failure.
+
+Real-Live validation still required: confirm `Device On` naming and ordering
+across supported Live versions and localized installations, plug-in and native
+device writability behavior, quantized `value_items` mapping, setter exception
+timing, and rollback verification.
 
 For development without Ableton:
 

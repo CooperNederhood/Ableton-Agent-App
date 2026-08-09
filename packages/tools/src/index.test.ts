@@ -422,6 +422,118 @@ function services() {
           verified: true as const,
         }),
     ),
+    inspectDevices: vi.fn(
+      (params: Parameters<AbletonToolServices["inspectDevices"]>[0]) =>
+        Promise.resolve({
+          devices: [
+            {
+              reference: "00000000-0000-4000-8000-000000000040",
+              trackReference: params.expectedReference,
+              trackIndex: params.index,
+              index: 0,
+              name: "Operator",
+              className: "Operator",
+              classDisplayName: "Operator",
+              enabled: true,
+              parameterCount: 2,
+            },
+          ],
+          total: 1,
+          offset: params.offset,
+          limit: params.limit,
+        }),
+    ),
+    inspectDeviceParameters: vi.fn(
+      (params: Parameters<AbletonToolServices["inspectDeviceParameters"]>[0]) =>
+        Promise.resolve({
+          device: {
+            reference: params.expectedDeviceReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            index: params.deviceIndex,
+            name: params.expectedDeviceName,
+            className: "Operator",
+            classDisplayName: "Operator",
+            enabled: true,
+            parameterCount: 2,
+          },
+          parameters: [
+            {
+              reference: "00000000-0000-4000-8000-000000000041",
+              deviceReference: params.expectedDeviceReference,
+              index: 1,
+              name: "Filter Freq",
+              value: 0.5,
+              normalizedValue: 0.5,
+              min: 0,
+              max: 1,
+              isQuantized: false,
+              isEnabled: true,
+              valueItemCount: 0,
+            },
+          ],
+          total: 2,
+          offset: params.offset,
+          limit: params.limit,
+        }),
+    ),
+    setDeviceEnabled: vi.fn(
+      (params: Parameters<AbletonToolServices["setDeviceEnabled"]>[0]) =>
+        Promise.resolve({
+          device: {
+            reference: params.expectedDeviceReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            index: params.deviceIndex,
+            name: params.expectedDeviceName,
+            className: "Operator",
+            classDisplayName: "Operator",
+            enabled: params.enabled,
+            parameterCount: 2,
+          },
+          beforeEnabled: !params.enabled,
+          afterEnabled: params.enabled,
+          verified: true as const,
+        }),
+    ),
+    setDeviceParameter: vi.fn(
+      (params: Parameters<AbletonToolServices["setDeviceParameter"]>[0]) => {
+        const parameter = {
+          reference: params.expectedParameterReference,
+          deviceReference: params.expectedDeviceReference,
+          index: params.parameterIndex,
+          name: params.expectedParameterName,
+          value: 0.5,
+          normalizedValue: 0.5,
+          min: 0,
+          max: 1,
+          isQuantized: false,
+          isEnabled: true,
+          valueItemCount: 0,
+        };
+        return Promise.resolve({
+          device: {
+            reference: params.expectedDeviceReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            index: params.deviceIndex,
+            name: params.expectedDeviceName,
+            className: "Operator",
+            classDisplayName: "Operator",
+            enabled: true,
+            parameterCount: 2,
+          },
+          before: parameter,
+          after: {
+            ...parameter,
+            value: params.normalizedValue,
+            normalizedValue: params.normalizedValue,
+          },
+          requestedNormalizedValue: params.normalizedValue,
+          verified: true as const,
+        });
+      },
+    ),
   };
 }
 
@@ -457,6 +569,10 @@ describe("Ableton tools", () => {
       "custom:ableton_arrangement_replace_notes",
       "custom:ableton_arrangement_duplicate_clip",
       "custom:ableton_arrangement_set_clip_properties",
+      "custom:ableton_devices_inspect",
+      "custom:ableton_device_parameters_inspect",
+      "custom:ableton_device_set_enabled",
+      "custom:ableton_device_set_parameter",
     ]);
     expect(abletonToolMetadata.map((metadata) => metadata.risk)).toEqual([
       "read",
@@ -481,6 +597,10 @@ describe("Ableton tools", () => {
       "read",
       "destructive",
       "destructive",
+      "reversible",
+      "reversible",
+      "read",
+      "read",
       "reversible",
       "reversible",
     ]);
@@ -690,6 +810,42 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
+    const deviceTarget = {
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000001",
+      expectedName: "Drums",
+      deviceIndex: 0,
+      expectedDeviceReference: "00000000-0000-4000-8000-000000000040",
+      expectedDeviceName: "Operator",
+    };
+    await toolSet.tools[24].handler?.(
+      {
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Drums",
+        offset: 0,
+        limit: 10,
+      },
+      invocation,
+    );
+    await toolSet.tools[25].handler?.(
+      { ...deviceTarget, offset: 0, limit: 10 },
+      invocation,
+    );
+    await toolSet.tools[26].handler?.(
+      { ...deviceTarget, enabled: false },
+      invocation,
+    );
+    await toolSet.tools[27].handler?.(
+      {
+        ...deviceTarget,
+        parameterIndex: 1,
+        expectedParameterReference: "00000000-0000-4000-8000-000000000041",
+        expectedParameterName: "Filter Freq",
+        normalizedValue: 0.75,
+      },
+      invocation,
+    );
 
     expect(ports.getConnectionStatus).toHaveBeenCalledOnce();
     expect(ports.inspectSession).toHaveBeenCalledOnce();
@@ -848,6 +1004,29 @@ describe("Ableton tools", () => {
       name: "Chorus",
       muted: true,
       looping: false,
+    });
+    expect(ports.inspectDevices).toHaveBeenCalledWith({
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000001",
+      expectedName: "Drums",
+      offset: 0,
+      limit: 10,
+    });
+    expect(ports.inspectDeviceParameters).toHaveBeenCalledWith({
+      ...deviceTarget,
+      offset: 0,
+      limit: 10,
+    });
+    expect(ports.setDeviceEnabled).toHaveBeenCalledWith({
+      ...deviceTarget,
+      enabled: false,
+    });
+    expect(ports.setDeviceParameter).toHaveBeenCalledWith({
+      ...deviceTarget,
+      parameterIndex: 1,
+      expectedParameterReference: "00000000-0000-4000-8000-000000000041",
+      expectedParameterName: "Filter Freq",
+      normalizedValue: 0.75,
     });
   });
 

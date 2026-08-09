@@ -41,6 +41,7 @@ class FakeTrack(object):
         self.solo = False
         self.arm = True
         self.mixer_device = FakeMixerDevice()
+        self.devices = [FakeDevice("Instrument Rack")]
         self.playing_slot_index = -1
         self.clip_slots = [
             FakeClipSlot(self, 0),
@@ -77,8 +78,69 @@ class FakeTrack(object):
 
 
 class FakeParameter(object):
-    def __init__(self, value):
-        self.value = value
+    def __init__(
+        self,
+        value,
+        name="Parameter",
+        minimum=0.0,
+        maximum=1.0,
+        quantized=False,
+        enabled=True,
+        value_items=(),
+    ):
+        self.name = name
+        self.original_name = name
+        self.min = minimum
+        self.max = maximum
+        self.is_quantized = quantized
+        self.is_enabled = enabled
+        self.is_writable = True
+        self._value_items = value_items
+        self._value = value
+        self.fail_next_set_after_mutation = False
+
+    @property
+    def value(self):
+        return self._value
+
+    @property
+    def value_items(self):
+        if not self.is_quantized:
+            raise RuntimeError(
+                "value_items is unavailable for continuous parameters"
+            )
+        return self._value_items
+
+    @value.setter
+    def value(self, value):
+        self._value = value
+        if self.fail_next_set_after_mutation:
+            self.fail_next_set_after_mutation = False
+            raise RuntimeError("simulated parameter setter failure")
+
+
+class FakeDevice(object):
+    def __init__(self, name):
+        self.name = name
+        self.class_name = "InstrumentGroupDevice"
+        self.class_display_name = "Instrument Rack"
+        self.parameters = [
+            FakeParameter(
+                1.0,
+                name="Device On",
+                quantized=True,
+                value_items=("Off", "On"),
+            ),
+            FakeParameter(0.25, name="Dry/Wet"),
+            FakeParameter(
+                1.0,
+                name="Mode",
+                minimum=0.0,
+                maximum=2.0,
+                quantized=True,
+                value_items=("A", "B", "C"),
+            ),
+        ]
 
 
 class FakeMixerDevice(object):
@@ -1061,6 +1123,224 @@ class ExecutorTests(unittest.TestCase):
         scheduled.pop()()
 
         self.assertEqual(responses[0]["error"]["code"], "conflict")
+
+    def test_devices_are_bounded_identity_bound_and_mutated_safely(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        context._track_references = [
+            (context.song.tracks[0], track_reference)
+        ]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+        track_target = {
+            "index": 0,
+            "expectedReference": track_reference,
+            "expectedName": "Drums",
+        }
+
+        executor.submit(
+            request(
+                "devices.inspect",
+                dict(track_target, offset=0, limit=1),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        device = responses[-1]["result"]["devices"][0]
+        self.assertEqual(responses[-1]["result"]["total"], 1)
+        self.assertEqual(device["parameterCount"], 3)
+        self.assertTrue(device["enabled"])
+
+        device_target = dict(
+            track_target,
+            deviceIndex=0,
+            expectedDeviceReference=device["reference"],
+            expectedDeviceName=device["name"],
+        )
+        executor.submit(
+            request(
+                "devices.inspect_parameters",
+                dict(device_target, offset=1, limit=2),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        parameter_page = responses[-1]["result"]
+        self.assertEqual(parameter_page["total"], 3)
+        self.assertEqual(len(parameter_page["parameters"]), 2)
+        dry_wet = parameter_page["parameters"][0]
+        mode = parameter_page["parameters"][1]
+
+        executor.submit(
+            request(
+                "devices.set_parameter",
+                dict(
+                    device_target,
+                    parameterIndex=2,
+                    expectedParameterReference=mode["reference"],
+                    expectedParameterName="Mode",
+                    normalizedValue=0.6,
+                ),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        self.assertEqual(responses[-1]["result"]["after"]["value"], 1.0)
+        self.assertEqual(
+            responses[-1]["result"]["after"]["normalizedValue"], 0.5
+        )
+
+        executor.submit(
+            request(
+                "devices.set_enabled",
+                dict(device_target, enabled=False),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        self.assertFalse(responses[-1]["result"]["afterEnabled"])
+
+        context.song.tracks[0].devices[0].parameters[1].is_enabled = False
+        executor.submit(
+            request(
+                "devices.set_parameter",
+                dict(
+                    device_target,
+                    parameterIndex=1,
+                    expectedParameterReference=dry_wet["reference"],
+                    expectedParameterName="Dry/Wet",
+                    normalizedValue=0.75,
+                ),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        self.assertEqual(responses[-1]["error"]["code"], "conflict")
+
+        context.song.tracks[0].devices[0].parameters[1].is_enabled = True
+        context.song.tracks[0].devices[0].parameters[1].is_writable = False
+        executor.submit(
+            request(
+                "devices.set_parameter",
+                dict(
+                    device_target,
+                    parameterIndex=1,
+                    expectedParameterReference=dry_wet["reference"],
+                    expectedParameterName="Dry/Wet",
+                    normalizedValue=0.75,
+                ),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        self.assertEqual(responses[-1]["error"]["code"], "conflict")
+
+        executor.submit(
+            request(
+                "devices.set_parameter",
+                dict(
+                    device_target,
+                    parameterIndex=1,
+                    expectedParameterReference=dry_wet["reference"],
+                    expectedParameterName="Changed",
+                    normalizedValue=0.75,
+                ),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        self.assertEqual(responses[-1]["error"]["code"], "stale_reference")
+
+        removed = context.song.tracks[0].devices[0]
+        context.song.tracks[0].devices.append(FakeDevice("Second"))
+        context.song.tracks[0].devices.pop(0)
+        executor.submit(
+            request(
+                "devices.inspect",
+                dict(track_target, offset=0, limit=1),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        second = responses[-1]["result"]["devices"][0]
+        executor.submit(
+            request(
+                "devices.inspect_parameters",
+                dict(
+                    track_target,
+                    deviceIndex=0,
+                    expectedDeviceReference=second["reference"],
+                    expectedDeviceName="Second",
+                    offset=0,
+                    limit=1,
+                ),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        self.assertFalse(
+            any(
+                candidate is removed
+                for candidate, _reference in context._device_references
+            )
+        )
+        self.assertFalse(
+            any(
+                parameter in removed.parameters
+                for parameter, _reference in context._parameter_references
+            )
+        )
+
+    def test_device_parameter_rolls_back_partial_setter_failure(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        track = context.song.tracks[0]
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        device_reference = "00000000-0000-4000-8000-000000000040"
+        parameter_reference = "00000000-0000-4000-8000-000000000041"
+        context._track_references = [(track, track_reference)]
+        context._device_references = [(track.devices[0], device_reference)]
+        parameter = track.devices[0].parameters[1]
+        context._parameter_references = [(parameter, parameter_reference)]
+        parameter.fail_next_set_after_mutation = True
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "devices.set_parameter",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "deviceIndex": 0,
+                    "expectedDeviceReference": device_reference,
+                    "expectedDeviceName": "Instrument Rack",
+                    "parameterIndex": 1,
+                    "expectedParameterReference": parameter_reference,
+                    "expectedParameterName": "Dry/Wet",
+                    "normalizedValue": 0.75,
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["error"]["code"], "lom_error")
+        self.assertEqual(parameter.value, 0.25)
 
     def test_midi_clip_creation_rolls_back_when_summary_is_unsupported(self):
         scheduled = []

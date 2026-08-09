@@ -15,6 +15,8 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [x] Register the first read-only Ableton session inspection tool.
 - [x] Register bounded Arrangement transport inspection and risk-classified
   loop/cue-point mutation tools.
+- [x] Register bounded device/parameter reads and reversible verified
+  device-enable and normalized-parameter tools.
 
 ## Agent behavior
 

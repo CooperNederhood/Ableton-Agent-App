@@ -74,7 +74,10 @@ relevant validation pass.
   primitives.
 - [ ] Add project snapshots, revisions, stable references, and change sets.
 - [ ] Add verification and recovery behavior.
-- [ ] Add device, rack, browser, and plug-in features.
+- [~] Add device, rack, browser, and plug-in features.
+  - [x] Add bounded top-level device/parameter inspection and verified
+    enable/disable plus normalized parameter mutation for regular tracks.
+  - [ ] Add return/group/rack-chain traversal, Drum Rack, browser, and loading.
 - [ ] Complete unit, contract, simulator, and real-Live tests for each command.
 
 ### Stage 5: React product superset

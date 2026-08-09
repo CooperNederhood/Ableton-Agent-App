@@ -22,6 +22,8 @@ Companion specification: [Test Strategy](test-strategy.md)
   simulator bridge parity.
 - [x] Cover Arrangement loop finite bounds and rollback, runtime-stable cue
   references, reversible creation, destructive deletion, and simulator parity.
+- [x] Cover bounded device/parameter pages, exact identity guards, quantized
+  normalized mapping, disabled parameters, rollback, and simulator parity.
 - [ ] Implement CLI transcript tests.
 - [ ] Implement Playwright Electron harness.
 - [ ] Create real-Live test project and manual runner.
@@ -30,6 +32,8 @@ Companion specification: [Test Strategy](test-strategy.md)
     availability.
   - [ ] Record real-Live results for Arrangement loop setters, cue-point
     identity stability, naming, creation rollback, and deletion verification.
+  - [ ] Record real-Live results for Device On discovery, native/plug-in
+    parameter writability, quantized values, setter failures, and rollback.
 
 ## CI
 

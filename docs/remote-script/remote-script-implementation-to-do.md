@@ -51,7 +51,14 @@ Companion specification: [Remote Script](remote-script.md)
   - [x] Duplicate identity-bound Session clips to non-overlapping Arrangement
     destinations with verification and rollback.
   - [x] Update supported Arrangement clip properties with full rollback.
-- [ ] Implement device, rack, Drum Rack, and parameter handlers.
+- [~] Implement device, rack, Drum Rack, and parameter handlers.
+  - [x] Inspect top-level regular-track devices and exact-device parameters
+    with independent bounded pages and runtime-stable references.
+  - [x] Enable/disable devices through the exposed `Device On` parameter and
+    set exact enabled/writable parameters from normalized values with
+    quantization, verification, and rollback.
+  - [ ] Add return/group tracks, rack chains, Drum Rack pads, and recursive
+    traversal after safe identity models are defined.
 - [ ] Implement paginated browser handlers and loading.
 - [ ] Implement selected low-frequency LOM listeners and cleanup.
 
@@ -65,6 +72,9 @@ Companion specification: [Remote Script](remote-script.md)
 - [ ] Add real-Live tests for each uncertain API and supported version.
   - [ ] Validate cue-point object identity, create/delete return behavior,
     naming, loop setter ordering, and rollback against supported Live versions.
+  - [ ] Validate Device On identity/order/localization, parameter writability,
+    quantized value mapping, setter failures, and rollback in supported Live
+    versions.
 - [ ] Test that browser operations remain bounded and responsive.
 
 ## Exit criteria

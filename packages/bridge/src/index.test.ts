@@ -67,6 +67,10 @@ describe("AbletonBridgeService", () => {
         "tracks.delete": true,
         "tracks.rename": true,
         "tracks.set_mixer": true,
+        "devices.inspect": true,
+        "devices.inspect_parameters": true,
+        "devices.set_enabled": true,
+        "devices.set_parameter": true,
         "clips.create_midi": true,
         "clips.replace_notes": true,
         "clips.launch": true,
@@ -222,6 +226,90 @@ describe("AbletonBridgeService", () => {
       index: 0,
       before: { isMuted: false, volume: 0.85, pan: 0 },
       after: { isMuted: true, volume: 0.65, pan: 0.2 },
+      verified: true,
+    });
+    const devices = await service.inspectDevices({
+      index: 0,
+      expectedReference: drums?.reference ?? "",
+      expectedName: "Main Drums",
+      offset: 0,
+      limit: 1,
+    });
+    expect(devices).toMatchObject({
+      total: 1,
+      devices: [
+        {
+          name: "Drum Rack",
+          enabled: true,
+          parameterCount: 3,
+        },
+      ],
+    });
+    const device = devices.devices[0];
+    expect(device).toBeDefined();
+    const parameters = await service.inspectDeviceParameters({
+      index: 0,
+      expectedReference: drums?.reference ?? "",
+      expectedName: "Main Drums",
+      deviceIndex: device?.index ?? 0,
+      expectedDeviceReference: device?.reference ?? "",
+      expectedDeviceName: device?.name ?? "",
+      offset: 1,
+      limit: 2,
+    });
+    expect(parameters).toMatchObject({
+      total: 3,
+      parameters: [
+        { name: "Dry/Wet", normalizedValue: 0.5 },
+        { name: "Mode", isQuantized: true },
+      ],
+    });
+    const mode = parameters.parameters[1];
+    await expect(
+      service.setDeviceParameter({
+        index: 0,
+        expectedReference: drums?.reference ?? "",
+        expectedName: "Main Drums",
+        deviceIndex: device?.index ?? 0,
+        expectedDeviceReference: device?.reference ?? "",
+        expectedDeviceName: device?.name ?? "",
+        parameterIndex: mode?.index ?? 0,
+        expectedParameterReference: "00000000-0000-4000-8000-000000000099",
+        expectedParameterName: mode?.name ?? "",
+        normalizedValue: 0.6,
+      }),
+    ).rejects.toMatchObject({ code: "stale_reference" });
+    await expect(
+      service.setDeviceParameter({
+        index: 0,
+        expectedReference: drums?.reference ?? "",
+        expectedName: "Main Drums",
+        deviceIndex: device?.index ?? 0,
+        expectedDeviceReference: device?.reference ?? "",
+        expectedDeviceName: device?.name ?? "",
+        parameterIndex: mode?.index ?? 0,
+        expectedParameterReference: mode?.reference ?? "",
+        expectedParameterName: mode?.name ?? "",
+        normalizedValue: 0.6,
+      }),
+    ).resolves.toMatchObject({
+      requestedNormalizedValue: 0.6,
+      after: { value: 1, normalizedValue: 0.5 },
+      verified: true,
+    });
+    await expect(
+      service.setDeviceEnabled({
+        index: 0,
+        expectedReference: drums?.reference ?? "",
+        expectedName: "Main Drums",
+        deviceIndex: device?.index ?? 0,
+        expectedDeviceReference: device?.reference ?? "",
+        expectedDeviceName: device?.name ?? "",
+        enabled: false,
+      }),
+    ).resolves.toMatchObject({
+      beforeEnabled: true,
+      afterEnabled: false,
       verified: true,
     });
     const createdClip = await service.createMidiClip({

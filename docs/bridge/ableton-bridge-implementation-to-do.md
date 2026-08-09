@@ -37,6 +37,8 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
   - [x] Implement guarded Session-to-Arrangement duplication and clip properties.
   - [x] Implement capability-gated, schema-validated Session launch,
     duplication, deletion, and property clients.
+  - [x] Implement capability-gated bounded regular-track device/parameter
+    inspection and serialized verified device/parameter mutations.
   - [ ] Implement remaining track, clip, arrangement, device, and browser clients.
 - [ ] Add pagination and filtering for large browser/parameter results.
 

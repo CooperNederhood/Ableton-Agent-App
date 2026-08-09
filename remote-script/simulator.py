@@ -58,6 +58,7 @@ class SimulatorState(object):
                 "clips": [None, None],
                 "arrangementClips": [],
                 "playingSceneIndex": None,
+                "devices": [self.simulated_device("Drum Rack")],
             },
             {
                 "reference": str(
@@ -74,8 +75,53 @@ class SimulatorState(object):
                 "clips": [None, None],
                 "arrangementClips": [],
                 "playingSceneIndex": None,
+                "devices": [self.simulated_device("Operator")],
             },
         ]
+
+    def simulated_device(self, name):
+        reference = str(uuid.uuid4())
+        return {
+            "reference": reference,
+            "name": name,
+            "className": name.replace(" ", ""),
+            "classDisplayName": name,
+            "parameters": [
+                {
+                    "reference": str(uuid.uuid4()),
+                    "name": "Device On",
+                    "value": 1.0,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "isQuantized": True,
+                    "isEnabled": True,
+                    "isWritable": True,
+                    "valueItemCount": 2,
+                },
+                {
+                    "reference": str(uuid.uuid4()),
+                    "name": "Dry/Wet",
+                    "value": 0.5,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "isQuantized": False,
+                    "isEnabled": True,
+                    "isWritable": True,
+                    "valueItemCount": 0,
+                },
+                {
+                    "reference": str(uuid.uuid4()),
+                    "name": "Mode",
+                    "value": 0.0,
+                    "min": 0.0,
+                    "max": 2.0,
+                    "isQuantized": True,
+                    "isEnabled": True,
+                    "isWritable": True,
+                    "valueItemCount": 3,
+                },
+            ],
+        }
 
     def session_tracks(self):
         return [
@@ -85,7 +131,12 @@ class SimulatorState(object):
                     key: value
                     for key, value in track.items()
                     if key
-                    not in ("clips", "arrangementClips", "playingSceneIndex")
+                    not in (
+                        "clips",
+                        "arrangementClips",
+                        "playingSceneIndex",
+                        "devices",
+                    )
                 }
             )
             for index, track in enumerate(self.tracks)
@@ -119,6 +170,47 @@ class SimulatorState(object):
             for scene_index, clip in enumerate(track["clips"])
             if clip is not None
         ]
+
+    def device_summary(self, track_index, device_index, device):
+        track = self.tracks[track_index]
+        enabled = None
+        if (
+            device["parameters"]
+            and device["parameters"][0]["name"] == "Device On"
+        ):
+            enabled = device["parameters"][0]["value"] >= 0.5
+        return {
+            "reference": device["reference"],
+            "trackReference": track["reference"],
+            "trackIndex": track_index,
+            "index": device_index,
+            "name": device["name"],
+            "className": device["className"],
+            "classDisplayName": device["classDisplayName"],
+            "enabled": enabled,
+            "parameterCount": len(device["parameters"]),
+        }
+
+    def parameter_summary(self, device, index, parameter):
+        span = parameter["max"] - parameter["min"]
+        normalized = (
+            0.0
+            if span == 0
+            else (parameter["value"] - parameter["min"]) / span
+        )
+        return {
+            "reference": parameter["reference"],
+            "deviceReference": device["reference"],
+            "index": index,
+            "name": parameter["name"],
+            "value": parameter["value"],
+            "normalizedValue": min(1.0, max(0.0, normalized)),
+            "min": parameter["min"],
+            "max": parameter["max"],
+            "isQuantized": parameter["isQuantized"],
+            "isEnabled": parameter["isEnabled"],
+            "valueItemCount": parameter["valueItemCount"],
+        }
 
 
 def response(request, result):
@@ -185,6 +277,10 @@ def handle(request, token, state):
                     "tracks.delete": True,
                     "tracks.rename": True,
                     "tracks.set_mixer": True,
+                    "devices.inspect": True,
+                    "devices.inspect_parameters": True,
+                    "devices.set_enabled": True,
+                    "devices.set_parameter": True,
                     "clips.create_midi": True,
                     "clips.replace_notes": True,
                     "clips.launch": True,
@@ -469,6 +565,7 @@ def handle(request, token, state):
             "clips": [None, None],
             "arrangementClips": [],
             "playingSceneIndex": None,
+            "devices": [],
         }
         state.tracks.append(track)
         return response(
@@ -582,6 +679,202 @@ def handle(request, token, state):
                 "index": index,
                 "before": before,
                 "after": after,
+                "verified": True,
+            },
+        )
+    if command in (
+        "devices.inspect",
+        "devices.inspect_parameters",
+        "devices.set_enabled",
+        "devices.set_parameter",
+    ):
+        index = params.get("index")
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or index < 0
+            or index >= len(state.tracks)
+        ):
+            return failure(request, "not_found", "Track index is out of range")
+        track = state.tracks[index]
+        if (
+            track["reference"] != params.get("expectedReference")
+            or track["name"] != params.get("expectedName")
+        ):
+            return failure(
+                request,
+                "stale_reference",
+                "Track identity changed before device operation",
+            )
+        if command == "devices.inspect":
+            offset = params.get("offset", 0)
+            limit = params.get("limit", 32)
+            if (
+                isinstance(offset, bool)
+                or not isinstance(offset, int)
+                or offset < 0
+                or isinstance(limit, bool)
+                or not isinstance(limit, int)
+                or limit < 1
+                or limit > 128
+            ):
+                return failure(
+                    request,
+                    "invalid_params",
+                    "offset and limit must describe a bounded device page",
+                )
+            devices = track["devices"]
+            return response(
+                request,
+                {
+                    "devices": [
+                        state.device_summary(index, device_index, device)
+                        for device_index, device in enumerate(
+                            devices[offset : offset + limit], start=offset
+                        )
+                    ],
+                    "total": len(devices),
+                    "offset": offset,
+                    "limit": limit,
+                },
+            )
+        device_index = params.get("deviceIndex")
+        if (
+            isinstance(device_index, bool)
+            or not isinstance(device_index, int)
+            or device_index < 0
+            or device_index >= len(track["devices"])
+        ):
+            return failure(request, "not_found", "Device index is out of range")
+        device = track["devices"][device_index]
+        if (
+            device["reference"] != params.get("expectedDeviceReference")
+            or device["name"] != params.get("expectedDeviceName")
+        ):
+            return failure(
+                request,
+                "stale_reference",
+                "Device identity changed before operation",
+            )
+        if command == "devices.inspect_parameters":
+            offset = params.get("offset", 0)
+            limit = params.get("limit", 64)
+            if (
+                isinstance(offset, bool)
+                or not isinstance(offset, int)
+                or offset < 0
+                or isinstance(limit, bool)
+                or not isinstance(limit, int)
+                or limit < 1
+                or limit > 256
+            ):
+                return failure(
+                    request,
+                    "invalid_params",
+                    "offset and limit must describe a bounded parameter page",
+                )
+            parameters = device["parameters"]
+            return response(
+                request,
+                {
+                    "device": state.device_summary(index, device_index, device),
+                    "parameters": [
+                        state.parameter_summary(
+                            device, parameter_index, parameter
+                        )
+                        for parameter_index, parameter in enumerate(
+                            parameters[offset : offset + limit], start=offset
+                        )
+                    ],
+                    "total": len(parameters),
+                    "offset": offset,
+                    "limit": limit,
+                },
+            )
+        if command == "devices.set_enabled":
+            enabled = params.get("enabled")
+            if not isinstance(enabled, bool):
+                return failure(request, "invalid_params", "enabled is required")
+            if (
+                not device["parameters"]
+                or device["parameters"][0]["name"] != "Device On"
+            ):
+                return failure(
+                    request,
+                    "unsupported_capability",
+                    "Device does not expose a documented Device On parameter",
+                )
+            parameter = device["parameters"][0]
+            if not parameter["isEnabled"] or not parameter["isWritable"]:
+                return failure(
+                    request, "conflict", "Device On parameter is not writable"
+                )
+            before = parameter["value"] >= 0.5
+            parameter["value"] = 1.0 if enabled else 0.0
+            return response(
+                request,
+                {
+                    "device": state.device_summary(index, device_index, device),
+                    "beforeEnabled": before,
+                    "afterEnabled": enabled,
+                    "verified": True,
+                },
+            )
+        parameter_index = params.get("parameterIndex")
+        if (
+            isinstance(parameter_index, bool)
+            or not isinstance(parameter_index, int)
+            or parameter_index < 0
+            or parameter_index >= len(device["parameters"])
+        ):
+            return failure(
+                request, "not_found", "Parameter index is out of range"
+            )
+        parameter = device["parameters"][parameter_index]
+        if (
+            parameter["reference"] != params.get("expectedParameterReference")
+            or parameter["name"] != params.get("expectedParameterName")
+        ):
+            return failure(
+                request,
+                "stale_reference",
+                "Parameter identity changed before mutation",
+            )
+        normalized = params.get("normalizedValue")
+        if (
+            isinstance(normalized, bool)
+            or not isinstance(normalized, (int, float))
+            or not math.isfinite(normalized)
+            or normalized < 0
+            or normalized > 1
+        ):
+            return failure(
+                request,
+                "invalid_params",
+                "normalizedValue must be between 0 and 1",
+            )
+        if not parameter["isEnabled"] or not parameter["isWritable"]:
+            return failure(request, "conflict", "Parameter is not writable")
+        before = state.parameter_summary(device, parameter_index, parameter)
+        if parameter["isQuantized"]:
+            steps = max(1, parameter["valueItemCount"] - 1)
+            step_index = int(math.floor(normalized * steps + 0.5))
+            parameter["value"] = parameter["min"] + (
+                (parameter["max"] - parameter["min"]) * step_index / steps
+            )
+        else:
+            parameter["value"] = parameter["min"] + (
+                parameter["max"] - parameter["min"]
+            ) * normalized
+        return response(
+            request,
+            {
+                "device": state.device_summary(index, device_index, device),
+                "before": before,
+                "after": state.parameter_summary(
+                    device, parameter_index, parameter
+                ),
+                "requestedNormalizedValue": normalized,
                 "verified": True,
             },
         )

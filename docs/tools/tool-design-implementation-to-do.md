@@ -15,7 +15,9 @@ Companion specification: [Tool Design](tool-design.md)
 
 - [~] Implement project overview and capability tools.
 - [ ] Implement track, clip, arrangement, and transport inspection.
-- [ ] Implement device/parameter, rack, Drum Rack, and browser inspection.
+- [~] Implement device/parameter, rack, Drum Rack, and browser inspection.
+  - [x] Add read-risk bounded top-level device and exact-device parameter
+    inspection for identity-bound regular tracks.
 - [ ] Implement external plug-in search with bounded cached results.
 
 ## Primitive mutation tools
@@ -39,7 +41,10 @@ Companion specification: [Tool Design](tool-design.md)
   - [x] Implement destructive bounded Arrangement MIDI note replacement.
   - [x] Implement reversible Session-to-Arrangement clip duplication.
   - [x] Implement reversible identity-bound Arrangement clip properties.
-- [ ] Implement browser/device load and parameter operations.
+- [~] Implement browser/device load and parameter operations.
+  - [x] Add reversible verified device enable/disable and normalized parameter
+    mutation with quantized-value handling and rollback.
+  - [ ] Add browser loading, device deletion, racks, Drum Rack, and plug-ins.
 - [x] Implement transport, loop, and cue-point operations.
   - [x] Auto-approve bounded loop/cue inspection, classify loop updates and cue
     creation as reversible, and classify identity-bound cue deletion as

@@ -21,6 +21,10 @@ import type {
   InspectArrangementResult,
   InspectArrangementTransportParams,
   InspectArrangementTransportResult,
+  InspectDeviceParametersParams,
+  InspectDeviceParametersResult,
+  InspectDevicesParams,
+  InspectDevicesResult,
   LaunchSessionClipParams,
   LaunchSessionClipResult,
   RenameTrackResult,
@@ -41,6 +45,10 @@ import type {
   SetTempoResult,
   SetTrackMixerParams,
   SetTrackMixerResult,
+  SetDeviceEnabledParams,
+  SetDeviceEnabledResult,
+  SetDeviceParameterParams,
+  SetDeviceParameterResult,
   TrackMutationResult,
 } from "@ableton-agent/protocol";
 import type { ConnectionStatus } from "@ableton-agent/shared";
@@ -79,6 +87,16 @@ export interface AbletonToolServices {
   deleteTrack(params: DeleteTrackParams): Promise<TrackMutationResult>;
   renameTrack(params: RenameTrackParams): Promise<RenameTrackResult>;
   setTrackMixer(params: SetTrackMixerParams): Promise<SetTrackMixerResult>;
+  inspectDevices(params: InspectDevicesParams): Promise<InspectDevicesResult>;
+  inspectDeviceParameters(
+    params: InspectDeviceParametersParams,
+  ): Promise<InspectDeviceParametersResult>;
+  setDeviceEnabled(
+    params: SetDeviceEnabledParams,
+  ): Promise<SetDeviceEnabledResult>;
+  setDeviceParameter(
+    params: SetDeviceParameterParams,
+  ): Promise<SetDeviceParameterResult>;
   createMidiClip(params: CreateMidiClipParams): Promise<CreateMidiClipResult>;
   replaceMidiNotes(
     params: ReplaceMidiNotesParams,
@@ -283,6 +301,34 @@ export const abletonToolMetadata = [
     duration: "short",
     requiredCapability: "arrangement.set_clip_properties",
   },
+  {
+    name: "ableton_devices_inspect",
+    title: "Inspect track devices",
+    risk: "read",
+    duration: "short",
+    requiredCapability: "devices.inspect",
+  },
+  {
+    name: "ableton_device_parameters_inspect",
+    title: "Inspect device parameters",
+    risk: "read",
+    duration: "short",
+    requiredCapability: "devices.inspect_parameters",
+  },
+  {
+    name: "ableton_device_set_enabled",
+    title: "Enable or disable device",
+    risk: "reversible",
+    duration: "short",
+    requiredCapability: "devices.set_enabled",
+  },
+  {
+    name: "ableton_device_set_parameter",
+    title: "Set normalized device parameter",
+    risk: "reversible",
+    duration: "short",
+    requiredCapability: "devices.set_parameter",
+  },
 ] as const satisfies readonly AbletonToolMetadata[];
 
 export interface ToolApprovalRequest {
@@ -351,6 +397,10 @@ export interface AbletonToolSet {
     Tool<ReplaceArrangementMidiNotesParams>,
     Tool<DuplicateClipToArrangementParams>,
     Tool<SetArrangementClipPropertiesParams>,
+    Tool<InspectDevicesParams>,
+    Tool<InspectDeviceParametersParams>,
+    Tool<SetDeviceEnabledParams>,
+    Tool<SetDeviceParameterParams>,
   ];
   availableTools: string[];
 }
@@ -762,6 +812,75 @@ export function createAbletonTools(
       handler: async (params) => services.setArrangementClipProperties(params),
     },
   );
+  const inspectDevicesTool = defineTool("ableton_devices_inspect", {
+    description:
+      "Returns one bounded page of top-level devices on an exact regular track. Return tracks, group tracks, rack chains, and recursive device traversal are not included.",
+    parameters: z
+      .object({
+        index: z.number().int().nonnegative(),
+        expectedReference: z.string().uuid(),
+        expectedName: z.string().min(1),
+        offset: z.number().int().nonnegative().default(0),
+        limit: z.number().int().min(1).max(128).default(32),
+      })
+      .strict(),
+    handler: async (params) => services.inspectDevices(params),
+  });
+  const inspectDeviceParametersTool = defineTool(
+    "ableton_device_parameters_inspect",
+    {
+      description:
+        "Returns one bounded page of parameters for an exact runtime-identity-bound top-level device on a regular track.",
+      parameters: z
+        .object({
+          index: z.number().int().nonnegative(),
+          expectedReference: z.string().uuid(),
+          expectedName: z.string().min(1),
+          deviceIndex: z.number().int().nonnegative(),
+          expectedDeviceReference: z.string().uuid(),
+          expectedDeviceName: z.string(),
+          offset: z.number().int().nonnegative().default(0),
+          limit: z.number().int().min(1).max(256).default(64),
+        })
+        .strict(),
+      handler: async (params) => services.inspectDeviceParameters(params),
+    },
+  );
+  const setDeviceEnabledTool = defineTool("ableton_device_set_enabled", {
+    description:
+      "Enables or disables an exact top-level device through its documented Device On parameter, with before/after verification and rollback.",
+    parameters: z
+      .object({
+        index: z.number().int().nonnegative(),
+        expectedReference: z.string().uuid(),
+        expectedName: z.string().min(1),
+        deviceIndex: z.number().int().nonnegative(),
+        expectedDeviceReference: z.string().uuid(),
+        expectedDeviceName: z.string(),
+        enabled: z.boolean(),
+      })
+      .strict(),
+    handler: async (params) => services.setDeviceEnabled(params),
+  });
+  const setDeviceParameterTool = defineTool("ableton_device_set_parameter", {
+    description:
+      "Sets a writable enabled parameter on an exact top-level device using normalized 0..1 input mapped through its current min/max range. Quantized parameters snap to the nearest discrete value; the update is verified and rolled back on failure.",
+    parameters: z
+      .object({
+        index: z.number().int().nonnegative(),
+        expectedReference: z.string().uuid(),
+        expectedName: z.string().min(1),
+        deviceIndex: z.number().int().nonnegative(),
+        expectedDeviceReference: z.string().uuid(),
+        expectedDeviceName: z.string(),
+        parameterIndex: z.number().int().nonnegative(),
+        expectedParameterReference: z.string().uuid(),
+        expectedParameterName: z.string(),
+        normalizedValue: z.number().finite().min(0).max(1),
+      })
+      .strict(),
+    handler: async (params) => services.setDeviceParameter(params),
+  });
 
   return {
     tools: [
@@ -789,6 +908,10 @@ export function createAbletonTools(
       replaceArrangementMidiNotesTool,
       duplicateClipToArrangementTool,
       setArrangementClipPropertiesTool,
+      inspectDevicesTool,
+      inspectDeviceParametersTool,
+      setDeviceEnabledTool,
+      setDeviceParameterTool,
     ],
     availableTools: abletonToolMetadata.map(
       (metadata) => `custom:${metadata.name}`,

@@ -174,6 +174,67 @@ function application(
         verified: true as const,
       }),
     ),
+    inspectDevices: vi.fn(
+      async (params: Parameters<AbletonService["inspectDevices"]>[0]) => ({
+        devices: [
+          {
+            reference: "00000000-0000-4000-8000-000000000040",
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            index: 0,
+            name: "Drum Rack",
+            className: "InstrumentGroupDevice",
+            classDisplayName: "Instrument Rack",
+            enabled: true,
+            parameterCount: 2,
+          },
+        ].slice(params.offset, params.offset + params.limit),
+        total: 1,
+        offset: params.offset,
+        limit: params.limit,
+      }),
+    ),
+    inspectDeviceParameters: vi.fn(
+      async (
+        params: Parameters<AbletonService["inspectDeviceParameters"]>[0],
+      ) => ({
+        device: {
+          reference: params.expectedDeviceReference,
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          index: params.deviceIndex,
+          name: params.expectedDeviceName,
+          className: "InstrumentGroupDevice",
+          classDisplayName: "Instrument Rack",
+          enabled: true,
+          parameterCount: 2,
+        },
+        parameters: [
+          {
+            reference: "00000000-0000-4000-8000-000000000041",
+            deviceReference: params.expectedDeviceReference,
+            index: 1,
+            name: "Dry/Wet",
+            value: 0.5,
+            normalizedValue: 0.5,
+            min: 0,
+            max: 1,
+            isQuantized: false,
+            isEnabled: true,
+            valueItemCount: 0,
+          },
+        ],
+        total: 2,
+        offset: params.offset,
+        limit: params.limit,
+      }),
+    ),
+    setDeviceEnabled: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    setDeviceParameter: vi.fn(async () => {
+      throw new Error("not used");
+    }),
     createMidiClip: vi.fn(
       async (params: Parameters<AbletonService["createMidiClip"]>[0]) => ({
         clip: {
@@ -381,6 +442,21 @@ describe("CLI", () => {
     expect(parseArgs(["chat"])).toEqual({ name: "chat", json: false });
   });
 
+  it("parses one-based device inspection commands", () => {
+    expect(parseArgs(["devices", "2", "--json"])).toEqual({
+      name: "devices",
+      trackNumber: 2,
+      json: true,
+    });
+    expect(parseArgs(["parameters", "1", "3"])).toEqual({
+      name: "parameters",
+      trackNumber: 1,
+      deviceNumber: 3,
+      json: false,
+    });
+    expect(() => parseArgs(["devices", "0"])).toThrow(CliUsageError);
+  });
+
   it("renders bounded Arrangement transport inspection", async () => {
     const out = output();
     const exitCode = await runCommand(
@@ -397,6 +473,39 @@ describe("CLI", () => {
     expect(exitCode).toBe(0);
     expect(out.lines[0]).toContain("Arrangement loop: enabled");
     expect(out.lines[0]).toContain("32: Chorus");
+  });
+
+  it("renders bounded regular-track devices and parameters", async () => {
+    const deviceOutput = output();
+    const fixture = application({
+      state: "connected",
+      liveVersion: "12.1",
+      remoteScriptVersion: "0.2.0",
+      projectId: "project",
+    });
+    await expect(
+      runCommand(
+        { name: "devices", trackNumber: 1, json: false },
+        fixture.application,
+        deviceOutput.io,
+      ),
+    ).resolves.toBe(0);
+    expect(deviceOutput.lines[0]).toContain("1. Drum Rack");
+
+    const parameterOutput = output();
+    await expect(
+      runCommand(
+        {
+          name: "parameters",
+          trackNumber: 1,
+          deviceNumber: 1,
+          json: false,
+        },
+        fixture.application,
+        parameterOutput.io,
+      ),
+    ).resolves.toBe(0);
+    expect(parameterOutput.lines[0]).toContain("Dry/Wet: 0.500");
   });
 
   it("rejects missing prompts", () => {

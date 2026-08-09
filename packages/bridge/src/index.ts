@@ -23,6 +23,10 @@ import {
   deleteTrackParamsSchema,
   deleteSessionClipParamsSchema,
   deleteSessionClipResultSchema,
+  inspectDeviceParametersParamsSchema,
+  inspectDeviceParametersResultSchema,
+  inspectDevicesParamsSchema,
+  inspectDevicesResultSchema,
   encodeFrame,
   pingResultSchema,
   sessionSnapshotSchema,
@@ -48,6 +52,10 @@ import {
   setSessionClipPropertiesResultSchema,
   setTrackMixerParamsSchema,
   setTrackMixerResultSchema,
+  setDeviceEnabledParamsSchema,
+  setDeviceEnabledResultSchema,
+  setDeviceParameterParamsSchema,
+  setDeviceParameterResultSchema,
   setTempoParamsSchema,
   setTempoResultSchema,
   trackMutationResultSchema,
@@ -69,6 +77,10 @@ import {
   type DeleteTrackParams,
   type DeleteSessionClipParams,
   type DeleteSessionClipResult,
+  type InspectDeviceParametersParams,
+  type InspectDeviceParametersResult,
+  type InspectDevicesParams,
+  type InspectDevicesResult,
   type MessageEnvelope,
   type PingResult,
   type RequestEnvelope,
@@ -95,6 +107,10 @@ import {
   type SetSessionClipPropertiesResult,
   type SetTrackMixerParams,
   type SetTrackMixerResult,
+  type SetDeviceEnabledParams,
+  type SetDeviceEnabledResult,
+  type SetDeviceParameterParams,
+  type SetDeviceParameterResult,
   type SetTempoResult,
   type TrackMutationResult,
 } from "@ableton-agent/protocol";
@@ -312,6 +328,46 @@ export class AbletonBridgeService implements AbletonService {
     const validated = setTrackMixerParamsSchema.parse(params);
     return setTrackMixerResultSchema.parse(
       await this.#mutationRequest("tracks.set_mixer", validated),
+    );
+  }
+
+  public async inspectDevices(
+    params: InspectDevicesParams,
+  ): Promise<InspectDevicesResult> {
+    this.#requireCapability("devices.inspect");
+    const validated = inspectDevicesParamsSchema.parse(params);
+    return inspectDevicesResultSchema.parse(
+      await this.#request("devices.inspect", validated),
+    );
+  }
+
+  public async inspectDeviceParameters(
+    params: InspectDeviceParametersParams,
+  ): Promise<InspectDeviceParametersResult> {
+    this.#requireCapability("devices.inspect_parameters");
+    const validated = inspectDeviceParametersParamsSchema.parse(params);
+    return inspectDeviceParametersResultSchema.parse(
+      await this.#request("devices.inspect_parameters", validated),
+    );
+  }
+
+  public async setDeviceEnabled(
+    params: SetDeviceEnabledParams,
+  ): Promise<SetDeviceEnabledResult> {
+    this.#requireCapability("devices.set_enabled");
+    const validated = setDeviceEnabledParamsSchema.parse(params);
+    return setDeviceEnabledResultSchema.parse(
+      await this.#mutationRequest("devices.set_enabled", validated),
+    );
+  }
+
+  public async setDeviceParameter(
+    params: SetDeviceParameterParams,
+  ): Promise<SetDeviceParameterResult> {
+    this.#requireCapability("devices.set_parameter");
+    const validated = setDeviceParameterParamsSchema.parse(params);
+    return setDeviceParameterResultSchema.parse(
+      await this.#mutationRequest("devices.set_parameter", validated),
     );
   }
 

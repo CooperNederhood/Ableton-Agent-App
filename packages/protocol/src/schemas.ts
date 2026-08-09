@@ -318,6 +318,89 @@ export const setTrackMixerResultSchema = z.object({
   verified: z.literal(true),
 });
 
+export const deviceTargetSchema = trackTargetSchema.extend({
+  deviceIndex: z.number().int().nonnegative(),
+  expectedDeviceReference: z.string().uuid(),
+  expectedDeviceName: z.string(),
+});
+
+export const deviceSummarySchema = z.object({
+  reference: z.string().uuid(),
+  trackReference: z.string().uuid(),
+  trackIndex: z.number().int().nonnegative(),
+  index: z.number().int().nonnegative(),
+  name: z.string(),
+  className: z.string(),
+  classDisplayName: z.string(),
+  enabled: z.boolean().nullable(),
+  parameterCount: z.number().int().nonnegative(),
+});
+
+export const inspectDevicesParamsSchema = trackTargetSchema.extend({
+  offset: z.number().int().nonnegative().default(0),
+  limit: z.number().int().min(1).max(128).default(32),
+});
+
+export const inspectDevicesResultSchema = z.object({
+  devices: z.array(deviceSummarySchema).max(128),
+  total: z.number().int().nonnegative(),
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().min(1).max(128),
+});
+
+export const deviceParameterSummarySchema = z.object({
+  reference: z.string().uuid(),
+  deviceReference: z.string().uuid(),
+  index: z.number().int().nonnegative(),
+  name: z.string(),
+  value: z.number().finite(),
+  normalizedValue: z.number().min(0).max(1),
+  min: z.number().finite(),
+  max: z.number().finite(),
+  isQuantized: z.boolean(),
+  isEnabled: z.boolean(),
+  valueItemCount: z.number().int().nonnegative(),
+});
+
+export const inspectDeviceParametersParamsSchema = deviceTargetSchema.extend({
+  offset: z.number().int().nonnegative().default(0),
+  limit: z.number().int().min(1).max(256).default(64),
+});
+
+export const inspectDeviceParametersResultSchema = z.object({
+  device: deviceSummarySchema,
+  parameters: z.array(deviceParameterSummarySchema).max(256),
+  total: z.number().int().nonnegative(),
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().min(1).max(256),
+});
+
+export const setDeviceEnabledParamsSchema = deviceTargetSchema.extend({
+  enabled: z.boolean(),
+});
+
+export const setDeviceEnabledResultSchema = z.object({
+  device: deviceSummarySchema,
+  beforeEnabled: z.boolean(),
+  afterEnabled: z.boolean(),
+  verified: z.literal(true),
+});
+
+export const setDeviceParameterParamsSchema = deviceTargetSchema.extend({
+  parameterIndex: z.number().int().nonnegative(),
+  expectedParameterReference: z.string().uuid(),
+  expectedParameterName: z.string(),
+  normalizedValue: z.number().finite().min(0).max(1),
+});
+
+export const setDeviceParameterResultSchema = z.object({
+  device: deviceSummarySchema,
+  before: deviceParameterSummarySchema,
+  after: deviceParameterSummarySchema,
+  requestedNormalizedValue: z.number().min(0).max(1),
+  verified: z.literal(true),
+});
+
 export const createMidiClipParamsSchema = trackTargetSchema.extend({
   sceneIndex: z.number().int().nonnegative(),
   length: z.number().positive().max(4096),
@@ -573,6 +656,30 @@ export type RenameTrackParams = z.infer<typeof renameTrackParamsSchema>;
 export type RenameTrackResult = z.infer<typeof renameTrackResultSchema>;
 export type SetTrackMixerParams = z.infer<typeof setTrackMixerParamsSchema>;
 export type SetTrackMixerResult = z.infer<typeof setTrackMixerResultSchema>;
+export type DeviceSummary = z.infer<typeof deviceSummarySchema>;
+export type InspectDevicesParams = z.infer<typeof inspectDevicesParamsSchema>;
+export type InspectDevicesResult = z.infer<typeof inspectDevicesResultSchema>;
+export type DeviceParameterSummary = z.infer<
+  typeof deviceParameterSummarySchema
+>;
+export type InspectDeviceParametersParams = z.infer<
+  typeof inspectDeviceParametersParamsSchema
+>;
+export type InspectDeviceParametersResult = z.infer<
+  typeof inspectDeviceParametersResultSchema
+>;
+export type SetDeviceEnabledParams = z.infer<
+  typeof setDeviceEnabledParamsSchema
+>;
+export type SetDeviceEnabledResult = z.infer<
+  typeof setDeviceEnabledResultSchema
+>;
+export type SetDeviceParameterParams = z.infer<
+  typeof setDeviceParameterParamsSchema
+>;
+export type SetDeviceParameterResult = z.infer<
+  typeof setDeviceParameterResultSchema
+>;
 export type CreateMidiClipParams = z.infer<typeof createMidiClipParamsSchema>;
 export type CreateMidiClipResult = z.infer<typeof createMidiClipResultSchema>;
 export type ReplaceMidiNotesParams = z.infer<

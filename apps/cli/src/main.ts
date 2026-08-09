@@ -48,6 +48,10 @@ import type {
   InspectArrangementResult,
   InspectArrangementTransportParams,
   InspectArrangementTransportResult,
+  InspectDeviceParametersParams,
+  InspectDeviceParametersResult,
+  InspectDevicesParams,
+  InspectDevicesResult,
   LaunchSessionClipParams,
   LaunchSessionClipResult,
   SessionSnapshot,
@@ -55,6 +59,10 @@ import type {
   SetTempoResult,
   SetTrackMixerParams,
   SetTrackMixerResult,
+  SetDeviceEnabledParams,
+  SetDeviceEnabledResult,
+  SetDeviceParameterParams,
+  SetDeviceParameterResult,
   TrackMutationResult,
 } from "@ableton-agent/protocol";
 
@@ -147,6 +155,18 @@ class UnconfiguredAbletonService implements AbletonService {
     throw new Error("Ableton bridge is not configured");
   }
   public async setTrackMixer(): Promise<SetTrackMixerResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async inspectDevices(): Promise<InspectDevicesResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async inspectDeviceParameters(): Promise<InspectDeviceParametersResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async setDeviceEnabled(): Promise<SetDeviceEnabledResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async setDeviceParameter(): Promise<SetDeviceParameterResult> {
     throw new Error("Ableton bridge is not configured");
   }
   public async createMidiClip(): Promise<CreateMidiClipResult> {
@@ -246,6 +266,14 @@ async function main(): Promise<number> {
       renameTrack: (params: RenameTrackParams) => ableton.renameTrack(params),
       setTrackMixer: (params: SetTrackMixerParams) =>
         ableton.setTrackMixer(params),
+      inspectDevices: (params: InspectDevicesParams) =>
+        ableton.inspectDevices(params),
+      inspectDeviceParameters: (params: InspectDeviceParametersParams) =>
+        ableton.inspectDeviceParameters(params),
+      setDeviceEnabled: (params: SetDeviceEnabledParams) =>
+        ableton.setDeviceEnabled(params),
+      setDeviceParameter: (params: SetDeviceParameterParams) =>
+        ableton.setDeviceParameter(params),
       createMidiClip: (params: CreateMidiClipParams) =>
         ableton.createMidiClip(params),
       replaceMidiNotes: (params: ReplaceMidiNotesParams) =>

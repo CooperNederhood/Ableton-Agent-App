@@ -127,6 +127,19 @@ def build_capability_document(
     for name, supported in transport_support.items():
         if name in capabilities:
             capabilities[name] = supported
+    device_support = {
+        "devices.inspect": not tracks
+        or any(hasattr(track, "devices") for track in tracks),
+        "devices.inspect_parameters": not tracks
+        or any(hasattr(track, "devices") for track in tracks),
+        "devices.set_enabled": not tracks
+        or any(hasattr(track, "devices") for track in tracks),
+        "devices.set_parameter": not tracks
+        or any(hasattr(track, "devices") for track in tracks),
+    }
+    for name, supported in device_support.items():
+        if name in capabilities:
+            capabilities[name] = supported
     return {
         "selectedProtocolVersion": PROTOCOL_VERSION,
         "liveVersion": live_version,

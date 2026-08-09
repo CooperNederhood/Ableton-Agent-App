@@ -158,6 +158,73 @@ function arrangementTransportServices() {
   };
 }
 
+function deviceServices() {
+  const device = {
+    reference: "00000000-0000-4000-8000-000000000040",
+    trackReference: "00000000-0000-4000-8000-000000000001",
+    trackIndex: 0,
+    index: 0,
+    name: "Operator",
+    className: "Operator",
+    classDisplayName: "Operator",
+    enabled: true,
+    parameterCount: 2,
+  };
+  const parameter = {
+    reference: "00000000-0000-4000-8000-000000000041",
+    deviceReference: device.reference,
+    index: 1,
+    name: "Filter Freq",
+    value: 0.5,
+    normalizedValue: 0.5,
+    min: 0,
+    max: 1,
+    isQuantized: false,
+    isEnabled: true,
+    valueItemCount: 0,
+  };
+  return {
+    inspectDevices: async (
+      params: Parameters<AbletonService["inspectDevices"]>[0],
+    ) => ({
+      devices: [device],
+      total: 1,
+      offset: params.offset,
+      limit: params.limit,
+    }),
+    inspectDeviceParameters: async (
+      params: Parameters<AbletonService["inspectDeviceParameters"]>[0],
+    ) => ({
+      device,
+      parameters: [parameter],
+      total: 1,
+      offset: params.offset,
+      limit: params.limit,
+    }),
+    setDeviceEnabled: async (
+      params: Parameters<AbletonService["setDeviceEnabled"]>[0],
+    ) => ({
+      device: { ...device, enabled: params.enabled },
+      beforeEnabled: !params.enabled,
+      afterEnabled: params.enabled,
+      verified: true as const,
+    }),
+    setDeviceParameter: async (
+      params: Parameters<AbletonService["setDeviceParameter"]>[0],
+    ) => ({
+      device,
+      before: parameter,
+      after: {
+        ...parameter,
+        value: params.normalizedValue,
+        normalizedValue: params.normalizedValue,
+      },
+      requestedNormalizedValue: params.normalizedValue,
+      verified: true as const,
+    }),
+  };
+}
+
 function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
   const agent: AgentService = {
     start: vi.fn(async () => undefined),
@@ -251,6 +318,7 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
         verified: true as const,
       }),
     ),
+    ...deviceServices(),
     createMidiClip: vi.fn(
       async (params: Parameters<AbletonService["createMidiClip"]>[0]) => ({
         clip: {
@@ -542,6 +610,7 @@ describe("CopilotAgentService", () => {
           },
           verified: true,
         }),
+      ...deviceServices(),
       createMidiClip: (params) =>
         Promise.resolve({
           clip: {
@@ -719,8 +788,12 @@ describe("CopilotAgentService", () => {
       "custom:ableton_arrangement_replace_notes",
       "custom:ableton_arrangement_duplicate_clip",
       "custom:ableton_arrangement_set_clip_properties",
+      "custom:ableton_devices_inspect",
+      "custom:ableton_device_parameters_inspect",
+      "custom:ableton_device_set_enabled",
+      "custom:ableton_device_set_parameter",
     ]);
-    expect(config?.tools).toHaveLength(24);
+    expect(config?.tools).toHaveLength(28);
     await expect(
       config?.onPermissionRequest?.(
         {
@@ -819,6 +892,7 @@ describe("CopilotAgentService", () => {
           },
           verified: true,
         }),
+      ...deviceServices(),
       createMidiClip: (params) =>
         Promise.resolve({
           clip: {

@@ -13,6 +13,8 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
     conservative property request/result schemas.
   - [x] Define bounded Arrangement transport inspection, verified loop update,
     and identity-bound cue-point mutation schemas.
+  - [x] Define bounded regular-track device/parameter inspection, verified
+    device enable, and normalized parameter mutation schemas.
 - [ ] Export JSON Schema and representative fixtures for Python tests.
 
 ## Framing and negotiation

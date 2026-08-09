@@ -4,19 +4,27 @@ Companion specification: [Delivery Roadmap](roadmap.md)
 
 ## Project tracking
 
-- [ ] Convert roadmap phases into GitHub milestones.
-- [ ] Create labels for component, risk, test layer, platform, and Live version.
-- [ ] Create issue templates requiring acceptance criteria and test plans.
+- [x] Convert roadmap phases into GitHub milestones.
+- [x] Create labels for component, risk, test layer, platform, and Live version.
+- [x] Create issue templates requiring acceptance criteria and test plans.
 - [ ] Link every implementation checklist item to an issue before execution.
-- [ ] Maintain dependency links and milestone exit criteria.
+- [x] Maintain dependency links and milestone exit criteria.
+
+Remaining release work is grouped into:
+
+- [Real-Live compatibility matrix](https://github.com/CooperNederhood/Ableton-Agent-App/issues/1)
+- [Signed release pipeline](https://github.com/CooperNederhood/Ableton-Agent-App/issues/2)
+- [Desktop E2E and performance](https://github.com/CooperNederhood/Ableton-Agent-App/issues/3)
+- [Safety hardening](https://github.com/CooperNederhood/Ableton-Agent-App/issues/4)
+- [Release documentation and audit](https://github.com/CooperNederhood/Ableton-Agent-App/issues/5)
 
 ## Phase execution
 
-- [ ] Complete Phase 0 foundation prototype and architecture decisions.
-- [ ] Complete Phase 1 protocol, Remote Script, bridge, and simulator.
-- [ ] Complete Phase 2 reference CLI and core production operations.
-- [ ] Complete Phase 3 devices, browser, racks, and plug-ins.
-- [ ] Complete Phase 4 React superset and deterministic workflows.
+- [x] Complete Phase 0 foundation prototype and architecture decisions.
+- [x] Complete Phase 1 protocol, Remote Script, bridge, and simulator.
+- [x] Complete Phase 2 reference CLI and core production operations.
+- [x] Complete Phase 3 devices, browser, racks, and plug-ins.
+- [x] Complete Phase 4 React superset and deterministic workflows.
 - [ ] Complete Phase 5 packaging, compatibility, security, and release.
 
 ## Review cadence

@@ -1,0 +1,43 @@
+name: Implementation task
+description: Track a specification or implementation-plan item
+title: "[Implementation]: "
+labels: ["implementation"]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Agent
+        - Bridge
+        - CLI
+        - Desktop
+        - Protocol
+        - Remote Script
+        - Safety
+        - Testing
+        - Tools
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Link the exact documentation checklist items this closes.
+      placeholder: |
+        - [ ] docs/path/plan.md:line
+        - [ ] Observable behavior and failure behavior
+    validations:
+      required: true
+  - type: textarea
+    id: test-plan
+    attributes:
+      label: Test plan
+      description: Include unit, integration, simulator, Electron, or real-Live coverage as applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks and rollback
+      description: Identify destructive behavior, compatibility impact, and rollback strategy.

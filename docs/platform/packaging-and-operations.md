@@ -22,6 +22,10 @@ pnpm desktop:dist
 `electron-builder.yml` produces DMG/ZIP artifacts for Intel and Apple Silicon
 macOS and an assisted, per-user NSIS installer for 64-bit Windows. Signing and
 notarization are intentionally supplied only by the release environment.
+macOS release jobs provide `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`,
+`APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`; Windows release jobs
+provide the appropriate `CSC_LINK` and `CSC_KEY_PASSWORD`. Unsigned pull-request
+builds must never receive those secrets.
 
 The same Remote Script artifact is bundled in the desktop resources and can be
 managed independently:
@@ -148,3 +152,46 @@ and project content. Complete the pending manual check groups in that JSON
 after testing clips, Arrangement/cue points, devices, racks, Browser loading,
 and native undo. Attach the evidence files to the release candidate; a release
 must not claim a Live/platform combination without a passing evidence file.
+
+## Installation
+
+1. Install the desktop artifact for the current release.
+2. Run the bundled Remote Script installer, or use
+   `pnpm --filter @ableton-agent/desktop remote-script install --confirm`.
+3. Restart Ableton Live and select `AbletonAgent` as a Control Surface.
+4. Restart the desktop app, open Diagnostics, and confirm the bridge,
+   compatibility, and agent-session checks.
+
+The Remote Script token remains in the installed `AbletonAgent` directory and
+is preserved across managed updates. Do not paste it into issues or support
+bundles.
+
+## Troubleshooting
+
+| Symptom | Action |
+| --- | --- |
+| Bridge remains disconnected | Confirm the Control Surface is selected, Live was restarted after installation, and the app port matches the Remote Script port. |
+| Authentication fails | Reinstall/update the Remote Script to preserve or regenerate its token, then restart the desktop app. |
+| Compatibility check fails | Update the Remote Script first; if Live is outside the supported matrix, do not force mutations. |
+| Agent session does not start | Confirm GitHub Copilot authentication, inspect Diagnostics, and export a redacted support bundle. |
+| Renderer recovers or restarts | Preserve the support bundle; the isolated main-process session should remain available after reload. |
+| Upgrade behaves unexpectedly | Restore the timestamped Remote Script backup from `.ableton-agent-backups` and attach version evidence to the issue. |
+
+## Privacy
+
+All Ableton control traffic stays on authenticated loopback TCP. The renderer
+cannot access Node, Electron, sockets, or credentials. Telemetry is disabled by
+default and no telemetry transport is configured. Logs and support bundles
+redact tokens, credentials, prompts, paths, labels, notes, and project content.
+Users should still inspect any artifact before sharing it.
+
+## Release notes
+
+Each release must publish:
+
+- Desktop, Remote Script, protocol, database, and minimum-compatible versions.
+- Supported Live/OS matrix with links to recorded evidence.
+- User-visible tool, workflow, safety, and recovery changes.
+- Known limitations and unsupported LOM behavior.
+- Installation or migration steps and rollback instructions.
+- Artifact checksums and signing/notarization status.

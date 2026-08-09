@@ -42,7 +42,7 @@ Remaining release work is grouped into:
 - [ ] Complete supported-platform install matrix.
 - [ ] Complete real-Live compatibility matrix.
 - [ ] Resolve or document all known critical/high issues.
-- [ ] Publish installation, troubleshooting, privacy, and release notes.
+- [x] Publish installation, troubleshooting, privacy, and release notes.
 
 ## Tests
 

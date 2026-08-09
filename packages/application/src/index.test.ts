@@ -136,6 +136,23 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
         verified: true as const,
       }),
     ),
+    createArrangementMidiClip: vi.fn(
+      async (
+        params: Parameters<AbletonService["createArrangementMidiClip"]>[0],
+      ) => ({
+        clip: {
+          reference: "00000000-0000-4000-8000-000000000020",
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          name: params.name ?? "",
+          startTime: params.startTime,
+          endTime: params.startTime + params.length,
+          length: params.length,
+          noteCount: 0,
+        },
+        verified: true as const,
+      }),
+    ),
   };
   const events = new InMemoryEventPublisher();
   return { agent, ableton, events, logger: noopLogger };
@@ -303,6 +320,20 @@ describe("CopilotAgentService", () => {
           afterNoteCount: params.notes.length,
           verified: true,
         }),
+      createArrangementMidiClip: (params) =>
+        Promise.resolve({
+          clip: {
+            reference: "00000000-0000-4000-8000-000000000020",
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            name: params.name ?? "",
+            startTime: params.startTime,
+            endTime: params.startTime + params.length,
+            length: params.length,
+            noteCount: 0,
+          },
+          verified: true,
+        }),
       requestToolApproval,
       clientFactory: () => ({
         createSession: (received) => {
@@ -333,8 +364,9 @@ describe("CopilotAgentService", () => {
       "custom:ableton_tracks_set_mixer",
       "custom:ableton_clips_create_midi",
       "custom:ableton_clips_replace_notes",
+      "custom:ableton_arrangement_create_midi_clip",
     ]);
-    expect(config?.tools).toHaveLength(10);
+    expect(config?.tools).toHaveLength(11);
     await expect(
       config?.onPermissionRequest?.(
         {
@@ -458,6 +490,20 @@ describe("CopilotAgentService", () => {
           },
           beforeNoteCount: 0,
           afterNoteCount: params.notes.length,
+          verified: true,
+        }),
+      createArrangementMidiClip: (params) =>
+        Promise.resolve({
+          clip: {
+            reference: "00000000-0000-4000-8000-000000000020",
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            name: params.name ?? "",
+            startTime: params.startTime,
+            endTime: params.startTime + params.length,
+            length: params.length,
+            noteCount: 0,
+          },
           verified: true,
         }),
       clientFactory: () => ({

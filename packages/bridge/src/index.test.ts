@@ -65,6 +65,7 @@ describe("AbletonBridgeService", () => {
         "tracks.set_mixer": true,
         "clips.create_midi": true,
         "clips.replace_notes": true,
+        "arrangement.create_midi_clip": true,
       },
     });
     await expect(service.ping()).resolves.toEqual({ pong: true });
@@ -199,6 +200,41 @@ describe("AbletonBridgeService", () => {
         notes: [],
       }),
     ).rejects.toMatchObject({ code: "conflict", retryable: false });
+    await expect(
+      service.createArrangementMidiClip({
+        index: 0,
+        expectedReference: drums?.reference ?? "",
+        expectedName: "Main Drums",
+        startTime: 8,
+        length: 4,
+        name: "Verse",
+      }),
+    ).resolves.toMatchObject({
+      clip: {
+        trackReference: drums?.reference,
+        trackIndex: 0,
+        name: "Verse",
+        startTime: 8,
+        endTime: 12,
+        length: 4,
+        noteCount: 0,
+      },
+      verified: true,
+    });
+    const vocals = afterDelete.tracks.find((track) => track.name === "Vocals");
+    expect(vocals).toBeDefined();
+    await expect(
+      service.createArrangementMidiClip({
+        index: 1,
+        expectedReference: vocals?.reference ?? "",
+        expectedName: "Vocals",
+        startTime: 8,
+        length: 4,
+      }),
+    ).rejects.toMatchObject({
+      code: "unsupported_capability",
+      retryable: false,
+    });
     await service.stop();
   });
 

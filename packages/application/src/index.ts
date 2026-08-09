@@ -3,6 +3,8 @@ import { join } from "node:path";
 
 import type {
   CapabilityDocument,
+  CreateArrangementMidiClipParams,
+  CreateArrangementMidiClipResult,
   CreateMidiClipParams,
   CreateMidiClipResult,
   CreateTrackParams,
@@ -61,6 +63,9 @@ export interface AbletonService {
   replaceMidiNotes(
     params: ReplaceMidiNotesParams,
   ): Promise<ReplaceMidiNotesResult>;
+  createArrangementMidiClip(
+    params: CreateArrangementMidiClipParams,
+  ): Promise<CreateArrangementMidiClipResult>;
 }
 
 export interface ApplicationServices {
@@ -105,6 +110,9 @@ export interface CopilotAgentServiceOptions {
   replaceMidiNotes: (
     params: ReplaceMidiNotesParams,
   ) => Promise<ReplaceMidiNotesResult>;
+  createArrangementMidiClip: (
+    params: CreateArrangementMidiClipParams,
+  ) => Promise<CreateArrangementMidiClipResult>;
   requestToolApproval?: ToolApprovalRequester;
   clientFactory?: () => CopilotClientAdapter;
   baseDirectory?: string;
@@ -151,6 +159,7 @@ export class CopilotAgentService implements AgentService {
       setTrackMixer: this.options.setTrackMixer,
       createMidiClip: this.options.createMidiClip,
       replaceMidiNotes: this.options.replaceMidiNotes,
+      createArrangementMidiClip: this.options.createArrangementMidiClip,
     });
 
     try {
@@ -363,6 +372,12 @@ export class HeadlessApplication {
     params: ReplaceMidiNotesParams,
   ): Promise<ReplaceMidiNotesResult> {
     return this.services.ableton.replaceMidiNotes(params);
+  }
+
+  public createArrangementMidiClip(
+    params: CreateArrangementMidiClipParams,
+  ): Promise<CreateArrangementMidiClipResult> {
+    return this.services.ableton.createArrangementMidiClip(params);
   }
 
   public subscribe(listener: (event: AppEvent) => void): () => void {

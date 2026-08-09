@@ -178,6 +178,23 @@ function application(
         verified: true as const,
       }),
     ),
+    createArrangementMidiClip: vi.fn(
+      async (
+        params: Parameters<AbletonService["createArrangementMidiClip"]>[0],
+      ) => ({
+        clip: {
+          reference: "00000000-0000-4000-8000-000000000020",
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          name: params.name ?? "",
+          startTime: params.startTime,
+          endTime: params.startTime + params.length,
+          length: params.length,
+          noteCount: 0,
+        },
+        verified: true as const,
+      }),
+    ),
   };
   return {
     application: new HeadlessApplication({

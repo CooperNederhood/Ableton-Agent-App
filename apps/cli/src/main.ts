@@ -14,6 +14,8 @@ import {
 } from "@ableton-agent/shared";
 import type {
   CapabilityDocument,
+  CreateArrangementMidiClipParams,
+  CreateArrangementMidiClipResult,
   CreateMidiClipParams,
   CreateMidiClipResult,
   CreateTrackParams,
@@ -116,6 +118,9 @@ class UnconfiguredAbletonService implements AbletonService {
   public async replaceMidiNotes(): Promise<ReplaceMidiNotesResult> {
     throw new Error("Ableton bridge is not configured");
   }
+  public async createArrangementMidiClip(): Promise<CreateArrangementMidiClipResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
 }
 
 const io: CliIo = {
@@ -172,6 +177,8 @@ async function main(): Promise<number> {
         ableton.createMidiClip(params),
       replaceMidiNotes: (params: ReplaceMidiNotesParams) =>
         ableton.replaceMidiNotes(params),
+      createArrangementMidiClip: (params: CreateArrangementMidiClipParams) =>
+        ableton.createArrangementMidiClip(params),
       ...(terminal === undefined
         ? {}
         : {

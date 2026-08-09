@@ -42,6 +42,18 @@ class FakeTrack(object):
         self.arm = True
         self.mixer_device = FakeMixerDevice()
         self.clip_slots = [FakeClipSlot(), FakeClipSlot()]
+        self.arrangement_clips = []
+        self.fail_arrangement_create_after_mutation = False
+
+    def create_midi_clip(self, start_time, length):
+        clip = FakeClip(length, start_time=start_time)
+        self.arrangement_clips.append(clip)
+        if self.fail_arrangement_create_after_mutation:
+            raise RuntimeError("simulated arrangement create failure")
+        return clip
+
+    def delete_clip(self, clip):
+        self.arrangement_clips.remove(clip)
 
 
 class FakeParameter(object):
@@ -56,8 +68,10 @@ class FakeMixerDevice(object):
 
 
 class FakeClip(object):
-    def __init__(self, length):
+    def __init__(self, length, start_time=0.0):
         self.length = length
+        self.start_time = start_time
+        self.end_time = start_time + length
         self.name = ""
         self.notes = []
         self.fail_next_add = False
@@ -859,6 +873,80 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(len(clip.notes), 1)
         self.assertEqual(clip.notes[0].pitch, 48)
 
+    def test_arrangement_midi_clip_creation_guards_overlap(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        track = context.song.tracks[0]
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        context._track_references = [(track, track_reference)]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+        params = {
+            "index": 0,
+            "expectedReference": track_reference,
+            "expectedName": "Drums",
+            "startTime": 8.0,
+            "length": 4.0,
+            "name": "Verse",
+        }
+
+        executor.submit(
+            request("arrangement.create_midi_clip", params),
+            responses.append,
+        )
+        scheduled.pop()()
+        executor.submit(
+            request("arrangement.create_midi_clip", params),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["result"]["clip"]["startTime"], 8.0)
+        self.assertEqual(responses[0]["result"]["clip"]["endTime"], 12.0)
+        self.assertTrue(responses[0]["result"]["verified"])
+        self.assertEqual(responses[1]["error"]["code"], "conflict")
+        self.assertEqual(len(track.arrangement_clips), 1)
+
+    def test_arrangement_creation_rolls_back_when_create_raises(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        track = context.song.tracks[0]
+        track.fail_arrangement_create_after_mutation = True
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        context._track_references = [(track, track_reference)]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "arrangement.create_midi_clip",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "startTime": 8.0,
+                    "length": 4.0,
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["error"]["code"], "lom_error")
+        self.assertEqual(track.arrangement_clips, [])
+
 
 class CapabilityAndTokenTests(unittest.TestCase):
     def test_capabilities_reflect_registry(self):
@@ -870,7 +958,19 @@ class CapabilityAndTokenTests(unittest.TestCase):
 
         self.assertEqual(document["liveVersion"], "12.1-test")
         self.assertTrue(document["capabilities"]["session.inspect"])
+        self.assertTrue(
+            document["capabilities"]["arrangement.create_midi_clip"]
+        )
         self.assertEqual(len(document["projectId"]), 24)
+
+        legacy_song = FakeSong()
+        legacy_song.tracks = [object()]
+        legacy_document = build_capability_document(
+            FakeApplication(), legacy_song, registry
+        )
+        self.assertFalse(
+            legacy_document["capabilities"]["arrangement.create_midi_clip"]
+        )
 
     def test_token_is_created_once(self):
         with tempfile.TemporaryDirectory() as directory:

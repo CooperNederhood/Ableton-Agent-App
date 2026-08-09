@@ -17,14 +17,20 @@ def build_capability_document(application, song, registry, max_batch_items=128):
     )
     project_source = str(project_source)
     project_id = hashlib.sha256(project_source.encode("utf-8")).hexdigest()[:24]
+    capabilities = {name: True for name in registry.metadata()}
+    if "arrangement.create_midi_clip" in capabilities:
+        capabilities["arrangement.create_midi_clip"] = any(
+            hasattr(track, "arrangement_clips")
+            and hasattr(track, "create_midi_clip")
+            and hasattr(track, "delete_clip")
+            for track in song.tracks
+        )
     return {
         "selectedProtocolVersion": PROTOCOL_VERSION,
         "liveVersion": live_version,
         "remoteScriptVersion": REMOTE_SCRIPT_VERSION,
         "projectId": project_id,
-        "capabilities": {
-            name: True for name in registry.metadata()
-        },
+        "capabilities": capabilities,
         "limits": {
             "maxFrameBytes": DEFAULT_MAX_FRAME_BYTES,
             "maxBatchItems": max_batch_items,

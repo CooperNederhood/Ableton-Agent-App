@@ -268,6 +268,28 @@ export const replaceMidiNotesResultSchema = z.object({
   verified: z.literal(true),
 });
 
+export const createArrangementMidiClipParamsSchema = trackTargetSchema.extend({
+  startTime: z.number().nonnegative().max(1576800),
+  length: z.number().positive().max(4096),
+  name: z.string().trim().min(1).max(128).optional(),
+});
+
+export const arrangementClipSummarySchema = z.object({
+  reference: z.string().uuid(),
+  trackReference: z.string().uuid(),
+  trackIndex: z.number().int().nonnegative(),
+  name: z.string(),
+  startTime: z.number().nonnegative(),
+  endTime: z.number().positive(),
+  length: z.number().positive(),
+  noteCount: z.number().int().nonnegative(),
+});
+
+export const createArrangementMidiClipResultSchema = z.object({
+  clip: arrangementClipSummarySchema,
+  verified: z.literal(true),
+});
+
 export type HelloParams = z.infer<typeof helloParamsSchema>;
 export type CapabilityDocument = z.infer<typeof capabilityDocumentSchema>;
 export type PingResult = z.infer<typeof pingResultSchema>;
@@ -290,4 +312,10 @@ export type ReplaceMidiNotesParams = z.infer<
 >;
 export type ReplaceMidiNotesResult = z.infer<
   typeof replaceMidiNotesResultSchema
+>;
+export type CreateArrangementMidiClipParams = z.infer<
+  typeof createArrangementMidiClipParamsSchema
+>;
+export type CreateArrangementMidiClipResult = z.infer<
+  typeof createArrangementMidiClipResultSchema
 >;

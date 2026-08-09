@@ -6,6 +6,8 @@ import {
   FrameDecoder,
   PROTOCOL_VERSION,
   capabilityDocumentSchema,
+  createArrangementMidiClipParamsSchema,
+  createArrangementMidiClipResultSchema,
   createMidiClipParamsSchema,
   createMidiClipResultSchema,
   createTrackParamsSchema,
@@ -25,6 +27,8 @@ import {
   setTempoResultSchema,
   trackMutationResultSchema,
   type CapabilityDocument,
+  type CreateArrangementMidiClipParams,
+  type CreateArrangementMidiClipResult,
   type CreateMidiClipParams,
   type CreateMidiClipResult,
   type CreateTrackParams,
@@ -234,6 +238,16 @@ export class AbletonBridgeService implements AbletonService {
     const validated = replaceMidiNotesParamsSchema.parse(params);
     return replaceMidiNotesResultSchema.parse(
       await this.#request("clips.replace_notes", validated, false),
+    );
+  }
+
+  public async createArrangementMidiClip(
+    params: CreateArrangementMidiClipParams,
+  ): Promise<CreateArrangementMidiClipResult> {
+    this.#requireCapability("arrangement.create_midi_clip");
+    const validated = createArrangementMidiClipParamsSchema.parse(params);
+    return createArrangementMidiClipResultSchema.parse(
+      await this.#request("arrangement.create_midi_clip", validated, false),
     );
   }
 

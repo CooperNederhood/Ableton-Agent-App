@@ -2,6 +2,8 @@ import type {
   CreateTrackParams,
   CreateMidiClipParams,
   CreateMidiClipResult,
+  CreateArrangementMidiClipParams,
+  CreateArrangementMidiClipResult,
   DeleteTrackParams,
   RenameTrackParams,
   RenameTrackResult,
@@ -48,6 +50,9 @@ export interface AbletonToolServices {
   replaceMidiNotes(
     params: ReplaceMidiNotesParams,
   ): Promise<ReplaceMidiNotesResult>;
+  createArrangementMidiClip(
+    params: CreateArrangementMidiClipParams,
+  ): Promise<CreateArrangementMidiClipResult>;
 }
 
 export const abletonToolMetadata = [
@@ -120,6 +125,13 @@ export const abletonToolMetadata = [
     duration: "short",
     requiredCapability: "clips.replace_notes",
   },
+  {
+    name: "ableton_arrangement_create_midi_clip",
+    title: "Create Arrangement MIDI clip",
+    risk: "reversible",
+    duration: "short",
+    requiredCapability: "arrangement.create_midi_clip",
+  },
 ] as const satisfies readonly AbletonToolMetadata[];
 
 export interface ToolApprovalRequest {
@@ -174,6 +186,7 @@ export interface AbletonToolSet {
     Tool<SetTrackMixerParams>,
     Tool<CreateMidiClipParams>,
     Tool<ReplaceMidiNotesParams>,
+    Tool<CreateArrangementMidiClipParams>,
   ];
   availableTools: string[];
 }
@@ -321,6 +334,27 @@ export function createAbletonTools(
       .strict(),
     handler: async (params) => services.replaceMidiNotes(params),
   });
+  const createArrangementMidiClipTool = defineTool(
+    "ableton_arrangement_create_midi_clip",
+    {
+      description:
+        "Creates an empty MIDI clip in a non-overlapping Arrangement range on an identity-bound MIDI track.",
+      parameters: z
+        .object({
+          index: z.number().int().nonnegative(),
+          expectedReference: z.string().uuid(),
+          expectedName: z.string().min(1),
+          startTime: z.number().nonnegative().max(1576800),
+          length: z.number().positive().max(4096),
+          name: z.string().trim().min(1).max(128).optional(),
+        })
+        .strict()
+        .refine((params) => params.startTime + params.length <= 1576800, {
+          message: "Arrangement clip end exceeds Live's maximum time",
+        }),
+      handler: async (params) => services.createArrangementMidiClip(params),
+    },
+  );
 
   return {
     tools: [
@@ -334,6 +368,7 @@ export function createAbletonTools(
       setTrackMixerTool,
       createMidiClipTool,
       replaceMidiNotesTool,
+      createArrangementMidiClipTool,
     ],
     availableTools: abletonToolMetadata.map(
       (metadata) => `custom:${metadata.name}`,

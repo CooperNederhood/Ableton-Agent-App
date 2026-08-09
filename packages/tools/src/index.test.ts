@@ -143,6 +143,24 @@ function services() {
           verified: true as const,
         }),
     ),
+    createArrangementMidiClip: vi.fn(
+      (
+        params: Parameters<AbletonToolServices["createArrangementMidiClip"]>[0],
+      ) =>
+        Promise.resolve({
+          clip: {
+            reference: "00000000-0000-4000-8000-000000000020",
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            name: params.name ?? "",
+            startTime: params.startTime,
+            endTime: params.startTime + params.length,
+            length: params.length,
+            noteCount: 0,
+          },
+          verified: true as const,
+        }),
+    ),
   };
 }
 
@@ -164,6 +182,7 @@ describe("Ableton tools", () => {
       "custom:ableton_tracks_set_mixer",
       "custom:ableton_clips_create_midi",
       "custom:ableton_clips_replace_notes",
+      "custom:ableton_arrangement_create_midi_clip",
     ]);
     expect(abletonToolMetadata.map((metadata) => metadata.risk)).toEqual([
       "read",
@@ -176,6 +195,7 @@ describe("Ableton tools", () => {
       "reversible",
       "reversible",
       "destructive",
+      "reversible",
     ]);
   });
 
@@ -256,6 +276,17 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
+    await toolSet.tools[10].handler?.(
+      {
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Drums",
+        startTime: 8,
+        length: 4,
+        name: "Verse",
+      },
+      invocation,
+    );
 
     expect(ports.getConnectionStatus).toHaveBeenCalledOnce();
     expect(ports.inspectSession).toHaveBeenCalledOnce();
@@ -308,6 +339,14 @@ describe("Ableton tools", () => {
           mute: false,
         },
       ],
+    });
+    expect(ports.createArrangementMidiClip).toHaveBeenCalledWith({
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000001",
+      expectedName: "Drums",
+      startTime: 8,
+      length: 4,
+      name: "Verse",
     });
   });
 

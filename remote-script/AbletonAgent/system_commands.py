@@ -41,6 +41,11 @@ def _clip_reference(context, clip):
         for slot in track.clip_slots
         if slot.has_clip
     ]
+    current_clips.extend(
+        clip
+        for track in context.song.tracks
+        for clip in getattr(track, "arrangement_clips", [])
+    )
     references = [
         (candidate, reference)
         for candidate, reference in getattr(context, "_clip_references", [])
@@ -810,6 +815,127 @@ def replace_midi_notes(context, params):
     return result
 
 
+def _create_arrangement_midi_clip_params(params):
+    error = _validate_track_target(
+        params, ["startTime", "length", "name"]
+    )
+    if error:
+        return error
+    start_time = params.get("startTime")
+    length = params.get("length")
+    if (
+        isinstance(start_time, bool)
+        or not isinstance(start_time, (int, float))
+        or start_time < 0
+        or start_time > 1576800
+    ):
+        return "startTime must be between 0 and 1576800 beats"
+    if (
+        isinstance(length, bool)
+        or not isinstance(length, (int, float))
+        or length <= 0
+        or length > 4096
+    ):
+        return "length must be greater than zero and at most 4096 beats"
+    if start_time + length > 1576800:
+        return "Arrangement clip end must not exceed 1576800 beats"
+    name = params.get("name")
+    if name is not None and (
+        not isinstance(name, str) or not name.strip() or len(name) > 128
+    ):
+        return "name must be a non-empty string of at most 128 characters"
+    return None
+
+
+def create_arrangement_midi_clip(context, params):
+    track = _resolve_track(context, params)
+    if (
+        not hasattr(track, "arrangement_clips")
+        or not hasattr(track, "create_midi_clip")
+        or not hasattr(track, "delete_clip")
+    ):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "This Live version does not support Arrangement clip creation",
+        )
+    if not getattr(track, "has_midi_input", False):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "Arrangement MIDI clips require a MIDI track",
+        )
+    start_time = params["startTime"]
+    end_time = start_time + params["length"]
+    for existing in track.arrangement_clips:
+        if start_time < existing.end_time and end_time > existing.start_time:
+            raise ProtocolFailure(
+                "conflict",
+                "Arrangement range overlaps an existing clip",
+                details={
+                    "existingStartTime": existing.start_time,
+                    "existingEndTime": existing.end_time,
+                },
+            )
+    before_clips = list(track.arrangement_clips)
+    clip = None
+    try:
+        clip = track.create_midi_clip(start_time, params["length"])
+        if params.get("name") is not None:
+            clip.name = params["name"].strip()
+        if (
+            not any(candidate is clip for candidate in track.arrangement_clips)
+            or abs(clip.start_time - start_time) >= 0.000001
+            or abs(clip.end_time - end_time) >= 0.000001
+            or (
+                params.get("name") is not None
+                and clip.name != params["name"].strip()
+            )
+        ):
+            raise ProtocolFailure(
+                "conflict",
+                "Arrangement clip creation completed but verification failed",
+            )
+        result = {
+            "clip": {
+                "reference": _clip_reference(context, clip),
+                "trackReference": _track_reference(context, track),
+                "trackIndex": params["index"],
+                "name": clip.name,
+                "startTime": clip.start_time,
+                "endTime": clip.end_time,
+                "length": clip.length,
+                "noteCount": len(_clip_notes(clip)),
+            },
+            "verified": True,
+        }
+    except Exception as exc:
+        try:
+            created_clips = [
+                candidate
+                for candidate in track.arrangement_clips
+                if not any(candidate is before for before in before_clips)
+            ]
+            for created in created_clips:
+                track.delete_clip(created)
+            if any(
+                not any(candidate is before for before in before_clips)
+                for candidate in track.arrangement_clips
+            ):
+                raise RuntimeError("arrangement clip remained present")
+        except Exception as recovery_exc:
+            raise ProtocolFailure(
+                "lom_error",
+                "Arrangement clip creation and recovery both failed",
+                details={
+                    "operationError": str(exc),
+                    "recoveryError": str(recovery_exc),
+                },
+            )
+        if isinstance(exc, ProtocolFailure):
+            raise exc
+        raise
+    return result
+
+
 def register_system_commands(registry):
     registry.register("system.ping", ping, validator=_no_params)
     registry.register("session.inspect", inspect_session, validator=_no_params)
@@ -868,4 +994,11 @@ def register_system_commands(registry):
         mutates=True,
         capability="clips.replace_notes",
         validator=_replace_midi_notes_params,
+    )
+    registry.register(
+        "arrangement.create_midi_clip",
+        create_arrangement_midi_clip,
+        mutates=True,
+        capability="arrangement.create_midi_clip",
+        validator=_create_arrangement_midi_clip_params,
     )

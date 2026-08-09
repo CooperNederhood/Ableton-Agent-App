@@ -30,6 +30,7 @@ class SimulatorState(object):
                 "volume": 0.85,
                 "pan": 0.0,
                 "clips": [None, None],
+                "arrangementClips": [],
             },
             {
                 "reference": str(
@@ -44,6 +45,7 @@ class SimulatorState(object):
                 "volume": 0.75,
                 "pan": -0.1,
                 "clips": [None, None],
+                "arrangementClips": [],
             },
         ]
 
@@ -54,7 +56,7 @@ class SimulatorState(object):
                 **{
                     key: value
                     for key, value in track.items()
-                    if key != "clips"
+                    if key not in ("clips", "arrangementClips")
                 }
             )
             for index, track in enumerate(self.tracks)
@@ -123,6 +125,7 @@ def handle(request, token, state):
                     "tracks.set_mixer": True,
                     "clips.create_midi": True,
                     "clips.replace_notes": True,
+                    "arrangement.create_midi_clip": True,
                 },
                 "limits": {
                     "maxFrameBytes": 4 * 1024 * 1024,
@@ -201,6 +204,7 @@ def handle(request, token, state):
             "volume": 0.85,
             "pan": 0.0,
             "clips": [None, None],
+            "arrangementClips": [],
         }
         state.tracks.append(track)
         return response(
@@ -413,6 +417,56 @@ def handle(request, token, state):
                 "verified": True,
             },
         )
+    if command == "arrangement.create_midi_clip":
+        index = params.get("index")
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or index < 0
+            or index >= len(state.tracks)
+        ):
+            return failure(request, "not_found", "Track index is out of range")
+        track = state.tracks[index]
+        if (
+            track["reference"] != params.get("expectedReference")
+            or track["name"] != params.get("expectedName")
+        ):
+            return failure(
+                request,
+                "stale_reference",
+                "Track identity changed before mutation",
+            )
+        if track["kind"] != "midi":
+            return failure(
+                request,
+                "unsupported_capability",
+                "Arrangement MIDI clips require a MIDI track",
+            )
+        start_time = params.get("startTime")
+        length = params.get("length")
+        end_time = start_time + length
+        if any(
+            start_time < existing["endTime"]
+            and end_time > existing["startTime"]
+            for existing in track["arrangementClips"]
+        ):
+            return failure(
+                request,
+                "conflict",
+                "Arrangement range overlaps an existing clip",
+            )
+        clip = {
+            "reference": str(uuid.uuid4()),
+            "trackReference": track["reference"],
+            "trackIndex": index,
+            "name": params.get("name") or "",
+            "startTime": start_time,
+            "endTime": end_time,
+            "length": length,
+            "noteCount": 0,
+        }
+        track["arrangementClips"].append(clip)
+        return response(request, {"clip": clip, "verified": True})
     return failure(request, "unknown_command", "Unknown command: {0}".format(command))
 
 

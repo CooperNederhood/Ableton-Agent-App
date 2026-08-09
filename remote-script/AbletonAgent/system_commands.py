@@ -20,6 +20,13 @@ def _track_kind(track):
     return "midi" if getattr(track, "has_midi_input", False) else "audio"
 
 
+def _safe_lom_getattr(value, name, default=None):
+    try:
+        return getattr(value, name)
+    except (AttributeError, RuntimeError):
+        return default
+
+
 def _is_finite_number(value):
     return (
         not isinstance(value, bool)
@@ -55,7 +62,7 @@ def _clip_reference(context, clip):
     current_clips.extend(
         clip
         for track in context.song.tracks
-        for clip in getattr(track, "arrangement_clips", [])
+        for clip in _safe_lom_getattr(track, "arrangement_clips", [])
     )
     references = [
         (candidate, reference)
@@ -166,10 +173,19 @@ def _track_mixer_state(track):
     return {
         "isMuted": bool(track.mute),
         "isSoloed": bool(track.solo),
-        "isArmed": bool(getattr(track, "arm", False)),
+        "isArmed": _track_arm_state(track),
         "volume": mixer.volume.value,
         "pan": mixer.panning.value,
     }
+
+
+def _track_arm_state(track):
+    try:
+        if not bool(getattr(track, "can_be_armed", False)):
+            return False
+        return bool(track.arm)
+    except (AttributeError, RuntimeError):
+        return False
 
 
 def _resolve_track(context, params, allow_group=False):
@@ -245,7 +261,7 @@ def inspect_session(context, _params):
                 "color": getattr(track, "color", None),
                 "isMuted": bool(track.mute),
                 "isSoloed": bool(track.solo),
-                "isArmed": bool(getattr(track, "arm", False)),
+                "isArmed": _track_arm_state(track),
                 "volume": track.mixer_device.volume.value,
                 "pan": track.mixer_device.panning.value,
             }
@@ -884,7 +900,7 @@ def _set_track_mixer_params(params):
 def set_track_mixer(context, params):
     track = _resolve_track(context, params, allow_group=True)
     if "isArmed" in params and not bool(
-        getattr(track, "can_be_armed", hasattr(track, "arm"))
+        getattr(track, "can_be_armed", False)
     ):
         raise ProtocolFailure(
             "unsupported_capability",
@@ -1918,7 +1934,7 @@ def _arrangement_clip_summary(context, track, track_index, clip):
 
 def _resolve_arrangement_clip(context, track, params, operation):
     target = None
-    for clip in getattr(track, "arrangement_clips", []):
+    for clip in _safe_lom_getattr(track, "arrangement_clips", []):
         if _clip_reference(context, clip) == params["expectedClipReference"]:
             target = clip
             break
@@ -1952,7 +1968,7 @@ def _inspect_arrangement_params(params):
 def inspect_arrangement(context, params):
     clip_records = []
     for track_index, track in enumerate(context.song.tracks):
-        for clip in getattr(track, "arrangement_clips", []):
+        for clip in _safe_lom_getattr(track, "arrangement_clips", []):
             clip_records.append(
                 (clip.start_time, track_index, track, clip)
             )

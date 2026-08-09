@@ -93,10 +93,14 @@ The Remote Script creates this file inside its installed directory:
 AbletonAgent/.ableton-agent-token
 ```
 
-Copy its contents into the shell that will launch the CLI or desktop app:
+Load its contents into the shell that will launch the CLI or desktop app. Using
+command substitution avoids accidentally copying zsh's trailing `%` marker,
+which is not part of the token:
 
 ```bash
-export ABLETON_AGENT_TOKEN="<contents of .ableton-agent-token>"
+export ABLETON_AGENT_TOKEN="$(
+  cat "$HOME/Music/Ableton/User Library/Remote Scripts/AbletonAgent/.ableton-agent-token"
+)"
 ```
 
 On Windows PowerShell:
@@ -107,6 +111,10 @@ $env:ABLETON_AGENT_TOKEN = "<contents of .ableton-agent-token>"
 
 Do not commit or share this token. Set `ABLETON_AGENT_PORT` only if you have
 also configured the Remote Script to use a non-default port.
+
+After installing or updating the Remote Script, fully quit and reopen Ableton
+Live. Toggling the Control Surface off and on does not reliably reload Python
+modules that Live has already imported.
 
 ## Quickstart
 

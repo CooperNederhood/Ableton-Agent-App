@@ -616,6 +616,52 @@ class ExecutorTests(unittest.TestCase):
             responses[0]["result"]["clips"][0]["noteCount"]
         )
 
+    def test_session_inspection_ignores_live_eleven_group_arm_error(self):
+        class LiveElevenGroupTrack(FakeTrack):
+            @property
+            def arm(self):
+                raise RuntimeError(
+                    "Master and Return Tracks have no 'Arm' state!"
+                )
+
+            @arm.setter
+            def arm(self, _value):
+                pass
+
+            @property
+            def arrangement_clips(self):
+                raise RuntimeError(
+                    "Master, Group and Return Tracks have no arrangement clips"
+                )
+
+            @arrangement_clips.setter
+            def arrangement_clips(self, _value):
+                pass
+
+        responses = []
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        context = FakeContext()
+        context.song.tracks = [
+            LiveElevenGroupTrack("Group", midi=False, group=True),
+            FakeTrack("MIDI"),
+        ]
+        context.song.tracks[1].clip_slots[0].clip = FakeClip(1.0)
+        scheduled = []
+        executor = MainThreadExecutor(
+            lambda delay, callback: scheduled.append((delay, callback)),
+            registry,
+            context,
+        )
+
+        executor.submit(request("session.inspect"), responses.append)
+        scheduled[0][1]()
+
+        self.assertTrue(responses[0]["ok"])
+        self.assertFalse(
+            responses[0]["result"]["tracks"][0]["isArmed"]
+        )
+
     def test_rejects_unknown_commands(self):
         responses = []
         executor = MainThreadExecutor(
@@ -3005,6 +3051,30 @@ class CapabilityAndTokenTests(unittest.TestCase):
         )
         self.assertFalse(
             browserless_document["capabilities"]["browser.load_item"]
+        )
+
+        class LiveElevenGroupTrack(object):
+            @property
+            def arrangement_clips(self):
+                raise RuntimeError(
+                    "Master, Group and Return Tracks have no arrangement clips"
+                )
+
+        live_eleven_song = FakeSong()
+        live_eleven_song.tracks = [
+            LiveElevenGroupTrack(),
+            FakeTrack("MIDI", midi=True),
+        ]
+        live_eleven_document = build_capability_document(
+            FakeApplication(),
+            live_eleven_song,
+            registry,
+            note_editing_supported=True,
+        )
+        self.assertTrue(
+            live_eleven_document["capabilities"][
+                "arrangement.create_midi_clip"
+            ]
         )
 
     def test_token_is_created_once(self):

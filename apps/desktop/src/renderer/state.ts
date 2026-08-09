@@ -188,6 +188,12 @@ function reduceEvent(
       };
     case "sessions.changed":
       return { ...state, sessions: event.sessions };
+    case "session.context_restored":
+      return {
+        ...state,
+        mode: event.session.mode,
+        plan: event.session.productionPlan,
+      };
     case "preferences.changed":
       return { ...state, preferences: event.preferences };
     case "approval.requested":

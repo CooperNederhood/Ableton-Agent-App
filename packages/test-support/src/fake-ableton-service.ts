@@ -1,6 +1,6 @@
 import type { AbletonService } from "@ableton-agent/ableton-contracts";
 import type * as Protocol from "@ableton-agent/protocol";
-import type { ConnectionStatus } from "@ableton-agent/shared";
+import { PRODUCT_VERSIONS, type ConnectionStatus } from "@ableton-agent/shared";
 
 /** Raised for operations the fake deliberately does not simulate. */
 export class UnsupportedByFakeError extends Error {
@@ -35,13 +35,13 @@ export function defaultFakeState(): FakeAbletonState {
     status: {
       state: "connected",
       liveVersion: "12.1",
-      remoteScriptVersion: "0.2.0",
+      remoteScriptVersion: PRODUCT_VERSIONS.remoteScript,
       projectId: "project-fake",
     },
     capabilities: {
-      selectedProtocolVersion: 2,
+      selectedProtocolVersion: PRODUCT_VERSIONS.protocol,
       liveVersion: "12.1",
-      remoteScriptVersion: "0.2.0",
+      remoteScriptVersion: PRODUCT_VERSIONS.remoteScript,
       projectId: "project-fake",
       capabilities: { "session.inspect": true, "transport.set_tempo": false },
       limits: { maxFrameBytes: 262_144, maxBatchItems: 64 },

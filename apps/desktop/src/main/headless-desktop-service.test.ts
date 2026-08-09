@@ -228,17 +228,49 @@ describe("desktop adapter over the shared application", () => {
     await first.service.start();
     const sessionId = await first.service.createSession();
     expect(first.fake.agent.sessionId).toBe(sessionId);
+    const plan = [
+      {
+        id: "section-1",
+        name: "Intro",
+        startBar: 1,
+        endBar: 8,
+        tracks: ["track-1"],
+        status: "proposed" as const,
+      },
+    ];
+    await first.service.updatePlan(plan);
+    await first.service.send("Use arrangement mode", [], "arrange");
+    await settle();
     await first.service.stop();
 
     const restarted = build();
+    const events: DesktopAppEvent[] = [];
+    restarted.service.subscribe((event) => events.push(event));
     await restarted.service.start();
 
     // A cold start continues the newest stored conversation instead of
     // silently opening a different one.
     expect(restarted.fake.agent.sessionId).toBe(sessionId);
     await expect(restarted.service.getSessions()).resolves.toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: sessionId })]),
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: sessionId,
+          mode: "arrange",
+          productionPlan: plan,
+        }),
+      ]),
     );
+    const restoredContext = events.find(
+      (event) => event.type === "session.context_restored",
+    );
+    expect(restoredContext?.type).toBe("session.context_restored");
+    if (restoredContext?.type === "session.context_restored") {
+      expect(restoredContext.session).toMatchObject({
+        id: sessionId,
+        mode: "arrange",
+        productionPlan: plan,
+      });
+    }
     await expect(
       restarted.service.resumeSession(sessionId),
     ).resolves.toBeUndefined();
@@ -407,6 +439,10 @@ describe("desktop adapter over the shared application", () => {
         }),
         expect.objectContaining({ label: "Ableton bridge", status: "pass" }),
         expect.objectContaining({
+          label: "Product compatibility",
+          status: "pass",
+        }),
+        expect.objectContaining({
           label: "Operation recovery",
           status: "warn",
         }),
@@ -427,7 +463,7 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
-  it("pins context into later prompts and keeps plans presentation-only", async () => {
+  it("pins context into later prompts and persists plans", async () => {
     const { service, agent, events } = await harness();
     await service.start();
 
@@ -453,7 +489,7 @@ describe("desktop adapter over the shared application", () => {
     ).toBe(true);
     expect(
       messages.some((message) =>
-        message.startsWith("Production plan validated with 1 section(s)"),
+        message.startsWith("Production plan saved with 1 section(s)"),
       ),
     ).toBe(true);
 

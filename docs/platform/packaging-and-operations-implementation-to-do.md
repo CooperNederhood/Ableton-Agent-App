@@ -14,7 +14,10 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 ## Version and update management
 
 - [x] Define app, Remote Script, protocol, and database version sources.
-- [ ] Implement compatibility checks and upgrade prompts.
+- [~] Implement compatibility checks and upgrade prompts.
+  - [x] Surface Live, protocol, and Remote Script compatibility in desktop
+    diagnostics.
+  - [ ] Add one-click Remote Script upgrade prompts in the renderer.
 - [ ] Implement signed desktop updates.
 - [x] Implement Remote Script artifact updates independently.
 - [ ] Test upgrade from the previous supported version.
@@ -45,6 +48,6 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 ## Exit criteria
 
 - [ ] Signed builds install on clean supported systems.
-- [ ] App and Remote Script compatibility is visible and recoverable.
+- [~] App and Remote Script compatibility is visible and recoverable.
 - [x] Support bundles contain diagnostics without musical content or secrets.
 - [ ] Release artifacts and checksums are reproducible and published.

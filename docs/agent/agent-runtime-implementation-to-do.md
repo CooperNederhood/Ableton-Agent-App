@@ -32,9 +32,9 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 
 ## Session management
 
-- [ ] Persist application session metadata and Copilot session IDs.
-- [ ] Restore project association, mode, and production plan on resume.
-- [ ] Handle project switches without leaking stale context.
+- [x] Persist application session metadata and Copilot session IDs.
+- [x] Restore project association, mode, and production plan on resume.
+- [x] Handle project switches without leaking stale context.
 - [ ] Implement context compaction/refresh strategy for long sessions.
 
 ## Tests

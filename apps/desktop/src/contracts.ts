@@ -121,6 +121,9 @@ export const sessionSchema = z.object({
   title: z.string(),
   updatedAt: z.string(),
   projectName: z.string(),
+  projectId: z.string().optional(),
+  mode: z.enum(modes).default("explore"),
+  productionPlan: z.array(planSectionSchema).default([]),
 });
 export type DesktopSession = z.infer<typeof sessionSchema>;
 
@@ -169,6 +172,10 @@ export const appEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("sessions.changed"),
     sessions: z.array(sessionSchema),
+  }),
+  z.object({
+    type: z.literal("session.context_restored"),
+    session: sessionSchema,
   }),
   z.object({
     type: z.literal("preferences.changed"),

@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 
 import type { HeadlessApplication } from "@ableton-agent/application";
 import type { SessionSnapshot } from "@ableton-agent/protocol";
-import type { AppEvent, ConnectionStatus } from "@ableton-agent/shared";
+import {
+  checkProductCompatibility,
+  PRODUCT_VERSIONS,
+  type AppEvent,
+  type ConnectionStatus,
+} from "@ableton-agent/shared";
 
 import {
   preferencesSchema,
@@ -173,6 +178,7 @@ export class HeadlessDesktopService implements DesktopService {
     const turn: ActiveTurn = { messageId, cancelRequested: false };
     this.#turn = turn;
     const selection = this.#withPinnedContext(context);
+    await this.#updateActiveSession({ mode });
     this.emit({
       type: "operation.changed",
       operation: {
@@ -312,6 +318,11 @@ export class HeadlessDesktopService implements DesktopService {
       }
       await this.#application.resumeAgentSession(sessionId);
       await this.#touchSession(sessionId);
+      const session = this.#sessions.find((item) => item.id === sessionId);
+      if (session !== undefined) {
+        this.#pinnedContext = [];
+        this.emit({ type: "session.context_restored", session });
+      }
       this.emit({
         type: "diagnostic",
         level: "info",
@@ -353,6 +364,10 @@ export class HeadlessDesktopService implements DesktopService {
     const snapshot = await this.#application.inspectSession();
     const trackDevices = await this.#readTrackDevices(snapshot);
     const desktopSnapshot = toDesktopSnapshot(snapshot, status, trackDevices);
+    await this.#syncProjectAssociation(
+      desktopSnapshot.id,
+      desktopSnapshot.name,
+    );
     this.emit({
       type: "project.snapshot_changed",
       snapshot: desktopSnapshot,
@@ -413,6 +428,20 @@ export class HeadlessDesktopService implements DesktopService {
   > {
     const status = await this.#application.getStatus();
     const sessionId = this.#application.agentSessionId;
+    const compatibility =
+      status.state === "connected"
+        ? checkProductCompatibility({
+            liveVersion: status.liveVersion,
+            protocolVersion: PRODUCT_VERSIONS.protocol,
+            remoteScriptVersion: status.remoteScriptVersion,
+          })
+        : undefined;
+    const compatibilityDetail =
+      status.state !== "connected"
+        ? "Connect to Ableton Live to verify the Live and Remote Script versions"
+        : compatibility?.compatible === true
+          ? `Live ${status.liveVersion} and Remote Script ${status.remoteScriptVersion} are supported`
+          : compatibility?.message;
     return [
       {
         label: "Desktop security",
@@ -428,6 +457,18 @@ export class HeadlessDesktopService implements DesktopService {
         label: "Ableton bridge",
         status: this.#connectionCheckStatus(status),
         detail: this.#connectionDetail(status),
+      },
+      {
+        label: "Product compatibility",
+        status:
+          compatibility === undefined
+            ? "warn"
+            : compatibility.compatible
+              ? "pass"
+              : "fail",
+        detail:
+          compatibilityDetail ??
+          "Compatibility could not be determined from the connection",
       },
       {
         label: "Agent session",
@@ -519,10 +560,11 @@ export class HeadlessDesktopService implements DesktopService {
   }
 
   public async updatePlan(sections: PlanSection[]): Promise<void> {
+    await this.#updateActiveSession({ productionPlan: sections });
     this.emit({
       type: "diagnostic",
       level: "info",
-      message: `Production plan validated with ${sections.length} section(s). Plans are renderer state: they are not persisted by the application and are not applied to Live.`,
+      message: `Production plan saved with ${sections.length} section(s). It is restored with this session but is not automatically applied to Live.`,
     });
   }
 
@@ -595,6 +637,12 @@ export class HeadlessDesktopService implements DesktopService {
       try {
         await this.#application.resumeAgentSession(latest.id);
         await this.#touchSession(latest.id);
+        const restored = this.#sessions.find(
+          (session) => session.id === latest.id,
+        );
+        if (restored !== undefined) {
+          this.emit({ type: "session.context_restored", session: restored });
+        }
         return;
       } catch (error) {
         this.emit({
@@ -620,6 +668,8 @@ export class HeadlessDesktopService implements DesktopService {
       title,
       updatedAt: new Date().toISOString(),
       projectName: projectLabel(await this.#application.getStatus()),
+      mode: "explore",
+      productionPlan: [],
     };
     this.#sessions = [
       session,
@@ -636,6 +686,61 @@ export class HeadlessDesktopService implements DesktopService {
       ...this.#sessions.filter((session) => session.id !== sessionId),
     ];
     await this.#persistSessions();
+  }
+
+  async #updateActiveSession(
+    update: Partial<
+      Pick<
+        DesktopSession,
+        "mode" | "productionPlan" | "projectId" | "projectName"
+      >
+    >,
+  ): Promise<void> {
+    const sessionId = this.#application.agentSessionId;
+    if (sessionId === undefined) return;
+    const current = this.#sessions.find((session) => session.id === sessionId);
+    if (current === undefined) return;
+    this.#sessions = [
+      { ...current, ...update, updatedAt: new Date().toISOString() },
+      ...this.#sessions.filter((session) => session.id !== sessionId),
+    ];
+    await this.#persistSessions();
+  }
+
+  async #syncProjectAssociation(
+    projectId: string,
+    projectName: string,
+  ): Promise<void> {
+    const sessionId = this.#application.agentSessionId;
+    const current = this.#sessions.find((session) => session.id === sessionId);
+    if (current === undefined) return;
+    if (current.projectId !== undefined && current.projectId !== projectId) {
+      this.#pinnedContext = [];
+      await this.#updateActiveSession({
+        projectId,
+        projectName,
+        productionPlan: [],
+      });
+      const updated = this.#sessions.find(
+        (session) => session.id === sessionId,
+      );
+      if (updated !== undefined) {
+        this.emit({ type: "session.context_restored", session: updated });
+      }
+      this.emit({
+        type: "diagnostic",
+        level: "warning",
+        message:
+          "Ableton project changed; pinned selections and the production plan were cleared to prevent stale context.",
+      });
+      return;
+    }
+    if (
+      current.projectId !== projectId ||
+      current.projectName !== projectName
+    ) {
+      await this.#updateActiveSession({ projectId, projectName });
+    }
   }
 
   async #persistSessions(): Promise<void> {

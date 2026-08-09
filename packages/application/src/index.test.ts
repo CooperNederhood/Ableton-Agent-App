@@ -1020,6 +1020,31 @@ describe("CopilotAgentService", () => {
       ),
     ).resolves.toEqual({ kind: "approve-once" });
     expect(requestToolApproval).toHaveBeenCalledOnce();
+    requestToolApproval.mockResolvedValueOnce(false);
+    const deniedArgs = { tempo: 140 };
+    await expect(
+      config?.onPermissionRequest?.(
+        {
+          kind: "custom-tool",
+          toolName: "ableton_transport_set_tempo",
+          toolDescription: "Set tempo",
+          args: deniedArgs,
+        },
+        { sessionId: "session" },
+      ),
+    ).resolves.toMatchObject({ kind: "reject" });
+    expect(
+      config?.hooks?.onPreToolUse?.(
+        {
+          sessionId: "session",
+          timestamp: new Date(),
+          workingDirectory: "/tmp",
+          toolName: "ableton_transport_set_tempo",
+          toolArgs: deniedArgs,
+        },
+        { sessionId: "session" },
+      ),
+    ).toMatchObject({ permissionDecision: "deny" });
     expect(sendAndWait).toHaveBeenCalledWith("Check the connection");
     expect(disconnect).toHaveBeenCalledOnce();
     expect(stop).toHaveBeenCalledOnce();

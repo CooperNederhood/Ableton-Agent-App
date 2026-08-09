@@ -92,6 +92,16 @@ import {
   type SessionEvent,
 } from "@github/copilot-sdk";
 
+import { createAgentPolicy } from "./agent-policy.js";
+
+export {
+  compactProjectContext,
+  createAgentHooks,
+  createAgentPolicy,
+  retryGuidance,
+  structuredErrorCode,
+} from "./agent-policy.js";
+
 export interface AgentService {
   /** Identifier of the current agent conversation, when one is open. */
   readonly sessionId: string | undefined;
@@ -315,6 +325,15 @@ export class CopilotAgentService implements AgentService {
       setArrangementClipProperties: this.options.setArrangementClipProperties,
     });
 
+    const agentPolicy = createAgentPolicy({
+      getAbletonStatus: this.options.getAbletonStatus,
+      inspectSession: this.options.inspectSession,
+    });
+    const permissionHandler = createAbletonPermissionHandler(
+      this.options.requestToolApproval,
+      this.options.askForReadApproval,
+    );
+
     return {
       clientName: "ableton-agent-app",
       ...(this.options.model === undefined
@@ -325,10 +344,18 @@ export class CopilotAgentService implements AgentService {
         : { reasoningEffort: this.options.reasoningEffort }),
       tools: toolSet.tools,
       availableTools: toolSet.availableTools,
-      onPermissionRequest: createAbletonPermissionHandler(
-        this.options.requestToolApproval,
-        this.options.askForReadApproval,
-      ),
+      onPermissionRequest: async (request, invocation) => {
+        const result = await permissionHandler(request, invocation);
+        if (result.kind === "reject" && request.kind === "custom-tool") {
+          agentPolicy.blockAttempt(
+            request.toolName,
+            request.args ?? {},
+            "Do not retry or rephrase this denied operation. Wait for a new user request.",
+          );
+        }
+        return result;
+      },
+      hooks: agentPolicy.hooks,
       systemMessage: {
         mode: "replace",
         content: BASE_SYSTEM_MESSAGE,

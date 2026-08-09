@@ -6,10 +6,10 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 
 - [x] Add the Node.js Copilot SDK and pin a tested version.
 - [ ] Implement `CopilotService` lifecycle and authentication diagnostics.
-- [ ] Implement session create, resume, send, cancel, event subscription, and
+- [x] Implement session create, resume, send, cancel, event subscription, and
   idle detection.
 - [x] Configure a restricted tool environment with explicit allowlists.
-- [ ] Define model and reasoning configuration with validated defaults.
+- [x] Define model and reasoning configuration with validated defaults.
 - [x] Normalize SDK events into application-owned `AppEvent` values.
 
 - [x] Register the first read-only Ableton session inspection tool.
@@ -23,10 +23,10 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 ## Agent behavior
 
 - [x] Write and version the base Ableton system message.
-- [ ] Define compact project-context injection.
-- [ ] Implement session-start, prompt, pre-tool, post-tool, and failure hooks.
-- [ ] Add retry guidance based on structured error codes.
-- [ ] Prevent retry loops for denial, unsupported capability, and stale targets.
+- [x] Define compact project-context injection.
+- [x] Implement session-start, prompt, pre-tool, post-tool, and failure hooks.
+- [x] Add retry guidance based on structured error codes.
+- [x] Prevent retry loops for denial, unsupported capability, and stale targets.
 - [ ] Define task modes and mode-specific context.
 - [ ] Add specialized agents only after parent-agent workflows are stable.
 
@@ -40,7 +40,7 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 ## Tests
 
 - [~] Unit-test event normalization and context generation.
-- [ ] Unit-test hook decisions for every risk and error class.
+- [x] Unit-test hook decisions for every risk and error class.
 - [x] Test system-message/tool compatibility with deterministic fixtures.
 - [ ] Integration-test custom tool invocation through the Copilot SDK.
 - [ ] Integration-test cancellation, idle completion, resume, and SDK failure.
@@ -48,7 +48,7 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 
 ## Exit criteria
 
-- [ ] Agent can inspect, mutate, verify, and report through custom tools.
+- [x] Agent can inspect, mutate, verify, and report through custom tools.
 - [x] No unrelated built-in tools are available.
 - [ ] Session resume restores useful app context.
-- [ ] CLI and React receive identical normalized events.
+- [x] CLI and React receive identical normalized events.

@@ -29,6 +29,66 @@ def _track_reference(context, track):
     return reference
 
 
+def _track_mixer_state(track):
+    mixer = track.mixer_device
+    return {
+        "isMuted": bool(track.mute),
+        "isSoloed": bool(track.solo),
+        "isArmed": bool(getattr(track, "arm", False)),
+        "volume": mixer.volume.value,
+        "pan": mixer.panning.value,
+    }
+
+
+def _resolve_track(context, params, allow_group=False):
+    song = context.song
+    index = params["index"]
+    if index >= len(song.tracks):
+        raise ProtocolFailure("not_found", "Track index is out of range")
+    track = song.tracks[index]
+    if not allow_group and getattr(track, "is_foldable", False):
+        raise ProtocolFailure(
+            "conflict",
+            "Group tracks are not supported by this operation",
+            details={"index": index, "name": track.name},
+        )
+    reference = _track_reference(context, track)
+    if (
+        reference != params["expectedReference"]
+        or track.name != params["expectedName"]
+    ):
+        raise ProtocolFailure(
+            "stale_reference",
+            "Track identity changed before mutation",
+            details={
+                "index": index,
+                "expectedReference": params["expectedReference"],
+                "actualReference": reference,
+                "expectedName": params["expectedName"],
+                "actualName": track.name,
+            },
+        )
+    return track
+
+
+def _validate_track_target(params, extra_keys=None):
+    required = set(["index", "expectedReference", "expectedName"])
+    accepted = required | set(extra_keys or [])
+    if set(params.keys()) - accepted or not required.issubset(params.keys()):
+        return "index, expectedReference, and expectedName are required"
+    index = params.get("index")
+    if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+        return "index must be a non-negative integer"
+    try:
+        uuid.UUID(params.get("expectedReference"))
+    except (AttributeError, TypeError, ValueError):
+        return "expectedReference must be a UUID"
+    expected_name = params.get("expectedName")
+    if not isinstance(expected_name, str) or not expected_name:
+        return "expectedName must be a non-empty string"
+    return None
+
+
 def _no_params(params):
     if params:
         return "Command does not accept parameters"
@@ -53,6 +113,8 @@ def inspect_session(context, _params):
                 "isMuted": bool(track.mute),
                 "isSoloed": bool(track.solo),
                 "isArmed": bool(getattr(track, "arm", False)),
+                "volume": track.mixer_device.volume.value,
+                "pan": track.mixer_device.panning.value,
             }
         )
     return {
@@ -208,30 +270,14 @@ def delete_track(context, params):
             "conflict", "Cannot delete the last remaining track"
         )
     index = params["index"]
-    if index >= before_count:
-        raise ProtocolFailure("not_found", "Track index is out of range")
-    track = song.tracks[index]
-    if getattr(track, "is_foldable", False):
-        raise ProtocolFailure(
-            "conflict",
-            "Group tracks require a broad deletion operation",
-            details={"index": index, "name": track.name},
-        )
+    track = _resolve_track(context, params)
     kind = _track_kind(track)
-    if (
-        _track_reference(context, track) != params["expectedReference"]
-        or track.name != params["expectedName"]
-        or kind != params["expectedKind"]
-    ):
+    if kind != params["expectedKind"]:
         raise ProtocolFailure(
             "stale_reference",
             "Track identity changed before deletion",
             details={
                 "index": index,
-                "expectedReference": params["expectedReference"],
-                "actualReference": _track_reference(context, track),
-                "expectedName": params["expectedName"],
-                "actualName": track.name,
                 "expectedKind": params["expectedKind"],
                 "actualKind": kind,
             },
@@ -257,6 +303,112 @@ def delete_track(context, params):
         "beforeTrackCount": before_count,
         "afterTrackCount": after_count,
         "track": deleted,
+        "verified": True,
+    }
+
+
+def _rename_track_params(params):
+    error = _validate_track_target(params, ["name"])
+    if error:
+        return error
+    name = params.get("name")
+    if not isinstance(name, str) or not name.strip() or len(name) > 128:
+        return "name must be a non-empty string of at most 128 characters"
+    return None
+
+
+def rename_track(context, params):
+    track = _resolve_track(context, params, allow_group=True)
+    reference = _track_reference(context, track)
+    before = track.name
+    requested = params["name"].strip()
+    track.name = requested
+    after = track.name
+    if after != requested:
+        raise ProtocolFailure(
+            "conflict",
+            "Track rename completed but postcondition verification failed",
+            details={"beforeName": before, "afterName": after},
+        )
+    return {
+        "reference": reference,
+        "index": params["index"],
+        "beforeName": before,
+        "afterName": after,
+        "verified": True,
+    }
+
+
+def _set_track_mixer_params(params):
+    fields = ["isMuted", "isSoloed", "isArmed", "volume", "pan"]
+    error = _validate_track_target(params, fields)
+    if error:
+        return error
+    if not any(field in params for field in fields):
+        return "At least one mixer property is required"
+    for field in ("isMuted", "isSoloed", "isArmed"):
+        if field in params and not isinstance(params[field], bool):
+            return "{0} must be a boolean".format(field)
+    for field, lower, upper in (("volume", 0.0, 1.0), ("pan", -1.0, 1.0)):
+        if field in params:
+            value = params[field]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return "{0} must be a number".format(field)
+            if value < lower or value > upper:
+                return "{0} must be between {1} and {2}".format(
+                    field, lower, upper
+                )
+    return None
+
+
+def set_track_mixer(context, params):
+    track = _resolve_track(context, params, allow_group=True)
+    if "isArmed" in params and not bool(
+        getattr(track, "can_be_armed", hasattr(track, "arm"))
+    ):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "This track cannot be armed",
+        )
+    before = _track_mixer_state(track)
+    if "isMuted" in params:
+        track.mute = params["isMuted"]
+    if "isSoloed" in params:
+        track.solo = params["isSoloed"]
+    if "isArmed" in params:
+        track.arm = params["isArmed"]
+    if "volume" in params:
+        track.mixer_device.volume.value = params["volume"]
+    if "pan" in params:
+        track.mixer_device.panning.value = params["pan"]
+    after = _track_mixer_state(track)
+    expected = dict(before)
+    for param, result_key in (
+        ("isMuted", "isMuted"),
+        ("isSoloed", "isSoloed"),
+        ("isArmed", "isArmed"),
+        ("volume", "volume"),
+        ("pan", "pan"),
+    ):
+        if param in params:
+            expected[result_key] = params[param]
+    verified = all(
+        abs(after[key] - value) < 0.000001
+        if isinstance(value, float)
+        else after[key] == value
+        for key, value in expected.items()
+    )
+    if not verified:
+        raise ProtocolFailure(
+            "conflict",
+            "Track mixer update completed but verification failed",
+            details={"before": before, "after": after},
+        )
+    return {
+        "reference": _track_reference(context, track),
+        "index": params["index"],
+        "before": before,
+        "after": after,
         "verified": True,
     }
 
@@ -291,4 +443,18 @@ def register_system_commands(registry):
         mutates=True,
         capability="tracks.delete",
         validator=_delete_track_params,
+    )
+    registry.register(
+        "tracks.rename",
+        rename_track,
+        mutates=True,
+        capability="tracks.rename",
+        validator=_rename_track_params,
+    )
+    registry.register(
+        "tracks.set_mixer",
+        set_track_mixer,
+        mutates=True,
+        capability="tracks.set_mixer",
+        validator=_set_track_mixer_params,
     )

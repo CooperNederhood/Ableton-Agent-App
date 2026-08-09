@@ -36,7 +36,8 @@ Read-only tools are approved automatically. Interactive chat asks for
 per-invocation confirmation before reversible mutations; non-interactive
 commands deny mutations by default and return exit code `4`.
 Current mutations include tempo, playback, MIDI/audio track creation, and
-identity-bound non-group track deletion with last-track protection.
+identity-bound track rename, normalized mixer controls, and non-group track
+deletion with last-track protection.
 
 For development without Ableton:
 

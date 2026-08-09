@@ -16,10 +16,14 @@ import type {
   CapabilityDocument,
   CreateTrackParams,
   DeleteTrackParams,
+  RenameTrackParams,
+  RenameTrackResult,
   PingResult,
   SessionSnapshot,
   SetPlayingResult,
   SetTempoResult,
+  SetTrackMixerParams,
+  SetTrackMixerResult,
   TrackMutationResult,
 } from "@ableton-agent/protocol";
 
@@ -96,6 +100,12 @@ class UnconfiguredAbletonService implements AbletonService {
   public async deleteTrack(): Promise<TrackMutationResult> {
     throw new Error("Ableton bridge is not configured");
   }
+  public async renameTrack(): Promise<RenameTrackResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async setTrackMixer(): Promise<SetTrackMixerResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
 }
 
 const io: CliIo = {
@@ -145,6 +155,9 @@ async function main(): Promise<number> {
       setPlaying: (isPlaying) => ableton.setPlaying(isPlaying),
       createTrack: (params: CreateTrackParams) => ableton.createTrack(params),
       deleteTrack: (params: DeleteTrackParams) => ableton.deleteTrack(params),
+      renameTrack: (params: RenameTrackParams) => ableton.renameTrack(params),
+      setTrackMixer: (params: SetTrackMixerParams) =>
+        ableton.setTrackMixer(params),
       ...(terminal === undefined
         ? {}
         : {

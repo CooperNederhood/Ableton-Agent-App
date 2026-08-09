@@ -1,11 +1,15 @@
 import type {
   CreateTrackParams,
   DeleteTrackParams,
+  RenameTrackParams,
+  RenameTrackResult,
   SessionSnapshot,
   SetPlayingParams,
   SetPlayingResult,
   SetTempoParams,
   SetTempoResult,
+  SetTrackMixerParams,
+  SetTrackMixerResult,
   TrackMutationResult,
 } from "@ableton-agent/protocol";
 import type { ConnectionStatus } from "@ableton-agent/shared";
@@ -34,6 +38,8 @@ export interface AbletonToolServices {
   setPlaying(isPlaying: boolean): Promise<SetPlayingResult>;
   createTrack(params: CreateTrackParams): Promise<TrackMutationResult>;
   deleteTrack(params: DeleteTrackParams): Promise<TrackMutationResult>;
+  renameTrack(params: RenameTrackParams): Promise<RenameTrackResult>;
+  setTrackMixer(params: SetTrackMixerParams): Promise<SetTrackMixerResult>;
 }
 
 export const abletonToolMetadata = [
@@ -77,6 +83,20 @@ export const abletonToolMetadata = [
     risk: "destructive",
     duration: "short",
     requiredCapability: "tracks.delete",
+  },
+  {
+    name: "ableton_tracks_rename",
+    title: "Rename Ableton track",
+    risk: "reversible",
+    duration: "short",
+    requiredCapability: "tracks.rename",
+  },
+  {
+    name: "ableton_tracks_set_mixer",
+    title: "Set Ableton track mixer",
+    risk: "reversible",
+    duration: "short",
+    requiredCapability: "tracks.set_mixer",
   },
 ] as const satisfies readonly AbletonToolMetadata[];
 
@@ -128,6 +148,8 @@ export interface AbletonToolSet {
     Tool<SetPlayingParams>,
     Tool<CreateTrackParams>,
     Tool<DeleteTrackParams>,
+    Tool<RenameTrackParams>,
+    Tool<SetTrackMixerParams>,
   ];
   availableTools: string[];
 }
@@ -193,6 +215,45 @@ export function createAbletonTools(
       .strict(),
     handler: async (params) => services.deleteTrack(params),
   });
+  const renameTrackTool = defineTool("ableton_tracks_rename", {
+    description:
+      "Renames the exact Ableton track identified by a recent session inspection.",
+    parameters: z
+      .object({
+        index: z.number().int().nonnegative(),
+        expectedReference: z.string().uuid(),
+        expectedName: z.string().min(1),
+        name: z.string().trim().min(1).max(128),
+      })
+      .strict(),
+    handler: async (params) => services.renameTrack(params),
+  });
+  const setTrackMixerTool = defineTool("ableton_tracks_set_mixer", {
+    description:
+      "Updates mute, solo, arm, normalized volume, or pan for an identity-bound Ableton track.",
+    parameters: z
+      .object({
+        index: z.number().int().nonnegative(),
+        expectedReference: z.string().uuid(),
+        expectedName: z.string().min(1),
+        isMuted: z.boolean().optional(),
+        isSoloed: z.boolean().optional(),
+        isArmed: z.boolean().optional(),
+        volume: z.number().min(0).max(1).optional(),
+        pan: z.number().min(-1).max(1).optional(),
+      })
+      .strict()
+      .refine(
+        (params) =>
+          params.isMuted !== undefined ||
+          params.isSoloed !== undefined ||
+          params.isArmed !== undefined ||
+          params.volume !== undefined ||
+          params.pan !== undefined,
+        { message: "At least one mixer property is required" },
+      ),
+    handler: async (params) => services.setTrackMixer(params),
+  });
 
   return {
     tools: [
@@ -202,6 +263,8 @@ export function createAbletonTools(
       setPlayingTool,
       createTrackTool,
       deleteTrackTool,
+      renameTrackTool,
+      setTrackMixerTool,
     ],
     availableTools: abletonToolMetadata.map(
       (metadata) => `custom:${metadata.name}`,

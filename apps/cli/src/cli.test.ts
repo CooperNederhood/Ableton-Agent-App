@@ -77,6 +77,8 @@ function application(
           isMuted: false,
           isSoloed: false,
           isArmed: false,
+          volume: 0.8,
+          pan: 0,
         },
       ],
     })),
@@ -114,6 +116,36 @@ function application(
           kind: "midi" as const,
         },
         verified: true,
+      }),
+    ),
+    renameTrack: vi.fn(
+      async (params: Parameters<AbletonService["renameTrack"]>[0]) => ({
+        reference: params.expectedReference,
+        index: params.index,
+        beforeName: params.expectedName,
+        afterName: params.name,
+        verified: true as const,
+      }),
+    ),
+    setTrackMixer: vi.fn(
+      async (params: Parameters<AbletonService["setTrackMixer"]>[0]) => ({
+        reference: params.expectedReference,
+        index: params.index,
+        before: {
+          isMuted: false,
+          isSoloed: false,
+          isArmed: false,
+          volume: 0.8,
+          pan: 0,
+        },
+        after: {
+          isMuted: params.isMuted ?? false,
+          isSoloed: params.isSoloed ?? false,
+          isArmed: params.isArmed ?? false,
+          volume: params.volume ?? 0.8,
+          pan: params.pan ?? 0,
+        },
+        verified: true as const,
       }),
     ),
   };

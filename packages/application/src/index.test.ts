@@ -76,6 +76,36 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
         verified: true,
       }),
     ),
+    renameTrack: vi.fn(
+      async (params: Parameters<AbletonService["renameTrack"]>[0]) => ({
+        reference: params.expectedReference,
+        index: params.index,
+        beforeName: params.expectedName,
+        afterName: params.name,
+        verified: true as const,
+      }),
+    ),
+    setTrackMixer: vi.fn(
+      async (params: Parameters<AbletonService["setTrackMixer"]>[0]) => ({
+        reference: params.expectedReference,
+        index: params.index,
+        before: {
+          isMuted: false,
+          isSoloed: false,
+          isArmed: false,
+          volume: 0.8,
+          pan: 0,
+        },
+        after: {
+          isMuted: params.isMuted ?? false,
+          isSoloed: params.isSoloed ?? false,
+          isArmed: params.isArmed ?? false,
+          volume: params.volume ?? 0.8,
+          pan: params.pan ?? 0,
+        },
+        verified: true as const,
+      }),
+    ),
   };
   const events = new InMemoryEventPublisher();
   return { agent, ableton, events, logger: noopLogger };
@@ -187,6 +217,34 @@ describe("CopilotAgentService", () => {
           },
           verified: true,
         }),
+      renameTrack: (params) =>
+        Promise.resolve({
+          reference: params.expectedReference,
+          index: params.index,
+          beforeName: params.expectedName,
+          afterName: params.name,
+          verified: true,
+        }),
+      setTrackMixer: (params) =>
+        Promise.resolve({
+          reference: params.expectedReference,
+          index: params.index,
+          before: {
+            isMuted: false,
+            isSoloed: false,
+            isArmed: false,
+            volume: 0.8,
+            pan: 0,
+          },
+          after: {
+            isMuted: params.isMuted ?? false,
+            isSoloed: params.isSoloed ?? false,
+            isArmed: params.isArmed ?? false,
+            volume: params.volume ?? 0.8,
+            pan: params.pan ?? 0,
+          },
+          verified: true,
+        }),
       requestToolApproval,
       clientFactory: () => ({
         createSession: (received) => {
@@ -213,8 +271,10 @@ describe("CopilotAgentService", () => {
       "custom:ableton_transport_set_playing",
       "custom:ableton_tracks_create",
       "custom:ableton_tracks_delete",
+      "custom:ableton_tracks_rename",
+      "custom:ableton_tracks_set_mixer",
     ]);
-    expect(config?.tools).toHaveLength(6);
+    expect(config?.tools).toHaveLength(8);
     await expect(
       config?.onPermissionRequest?.(
         {
@@ -281,6 +341,34 @@ describe("CopilotAgentService", () => {
             reference: params.expectedReference,
             name: "Track",
             kind: "midi" as const,
+          },
+          verified: true,
+        }),
+      renameTrack: (params) =>
+        Promise.resolve({
+          reference: params.expectedReference,
+          index: params.index,
+          beforeName: params.expectedName,
+          afterName: params.name,
+          verified: true,
+        }),
+      setTrackMixer: (params) =>
+        Promise.resolve({
+          reference: params.expectedReference,
+          index: params.index,
+          before: {
+            isMuted: false,
+            isSoloed: false,
+            isArmed: false,
+            volume: 0.8,
+            pan: 0,
+          },
+          after: {
+            isMuted: params.isMuted ?? false,
+            isSoloed: params.isSoloed ?? false,
+            isArmed: params.isArmed ?? false,
+            volume: params.volume ?? 0.8,
+            pan: params.pan ?? 0,
           },
           verified: true,
         }),

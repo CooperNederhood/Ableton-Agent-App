@@ -112,6 +112,8 @@ export const trackSummarySchema = z.object({
   isMuted: z.boolean(),
   isSoloed: z.boolean(),
   isArmed: z.boolean(),
+  volume: z.number().min(0).max(1),
+  pan: z.number().min(-1).max(1),
 });
 
 export const sessionSnapshotSchema = z.object({
@@ -171,6 +173,58 @@ export const trackMutationResultSchema = z.object({
   verified: z.boolean(),
 });
 
+export const trackTargetSchema = z.object({
+  index: z.number().int().nonnegative(),
+  expectedReference: z.string().uuid(),
+  expectedName: z.string().min(1),
+});
+
+export const renameTrackParamsSchema = trackTargetSchema.extend({
+  name: z.string().trim().min(1).max(128),
+});
+
+export const renameTrackResultSchema = z.object({
+  reference: z.string().uuid(),
+  index: z.number().int().nonnegative(),
+  beforeName: z.string(),
+  afterName: z.string(),
+  verified: z.literal(true),
+});
+
+export const trackMixerStateSchema = z.object({
+  isMuted: z.boolean(),
+  isSoloed: z.boolean(),
+  isArmed: z.boolean(),
+  volume: z.number().min(0).max(1),
+  pan: z.number().min(-1).max(1),
+});
+
+export const setTrackMixerParamsSchema = trackTargetSchema
+  .extend({
+    isMuted: z.boolean().optional(),
+    isSoloed: z.boolean().optional(),
+    isArmed: z.boolean().optional(),
+    volume: z.number().min(0).max(1).optional(),
+    pan: z.number().min(-1).max(1).optional(),
+  })
+  .refine(
+    (params) =>
+      params.isMuted !== undefined ||
+      params.isSoloed !== undefined ||
+      params.isArmed !== undefined ||
+      params.volume !== undefined ||
+      params.pan !== undefined,
+    { message: "At least one mixer property is required" },
+  );
+
+export const setTrackMixerResultSchema = z.object({
+  reference: z.string().uuid(),
+  index: z.number().int().nonnegative(),
+  before: trackMixerStateSchema,
+  after: trackMixerStateSchema,
+  verified: z.literal(true),
+});
+
 export type HelloParams = z.infer<typeof helloParamsSchema>;
 export type CapabilityDocument = z.infer<typeof capabilityDocumentSchema>;
 export type PingResult = z.infer<typeof pingResultSchema>;
@@ -182,3 +236,7 @@ export type SetPlayingResult = z.infer<typeof setPlayingResultSchema>;
 export type CreateTrackParams = z.infer<typeof createTrackParamsSchema>;
 export type DeleteTrackParams = z.infer<typeof deleteTrackParamsSchema>;
 export type TrackMutationResult = z.infer<typeof trackMutationResultSchema>;
+export type RenameTrackParams = z.infer<typeof renameTrackParamsSchema>;
+export type RenameTrackResult = z.infer<typeof renameTrackResultSchema>;
+export type SetTrackMixerParams = z.infer<typeof setTrackMixerParamsSchema>;
+export type SetTrackMixerResult = z.infer<typeof setTrackMixerResultSchema>;

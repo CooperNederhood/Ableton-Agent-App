@@ -35,10 +35,23 @@ class FakeTrack(object):
         self.name = name
         self.has_midi_input = midi
         self.is_foldable = group
+        self.can_be_armed = not group
         self.color = 10
         self.mute = False
         self.solo = False
         self.arm = True
+        self.mixer_device = FakeMixerDevice()
+
+
+class FakeParameter(object):
+    def __init__(self, value):
+        self.value = value
+
+
+class FakeMixerDevice(object):
+    def __init__(self):
+        self.volume = FakeParameter(0.8)
+        self.panning = FakeParameter(0.0)
 
 
 class FakeSong(object):
@@ -347,6 +360,91 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(responses[0]["error"]["code"], "stale_reference")
         self.assertEqual(responses[1]["error"]["code"], "conflict")
         self.assertEqual(len(context.song.tracks), 2)
+
+    def test_track_rename_and_mixer_updates_are_verified(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        reference = "00000000-0000-4000-8000-000000000002"
+        context._track_references = [(context.song.tracks[1], reference)]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "tracks.set_mixer",
+                {
+                    "index": 1,
+                    "expectedReference": reference,
+                    "expectedName": "Bass",
+                    "isMuted": True,
+                    "volume": 0.6,
+                    "pan": 0.25,
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        executor.submit(
+            request(
+                "tracks.rename",
+                {
+                    "index": 1,
+                    "expectedReference": reference,
+                    "expectedName": "Bass",
+                    "name": "Sub Bass",
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertTrue(responses[0]["result"]["after"]["isMuted"])
+        self.assertEqual(responses[0]["result"]["after"]["volume"], 0.6)
+        self.assertEqual(responses[0]["result"]["after"]["pan"], 0.25)
+        self.assertEqual(responses[1]["result"]["beforeName"], "Bass")
+        self.assertEqual(responses[1]["result"]["afterName"], "Sub Bass")
+        self.assertEqual(context.song.tracks[1].name, "Sub Bass")
+
+    def test_track_mixer_rejects_unarmable_track_before_other_changes(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        context.song.tracks[0] = FakeTrack("Group", group=True)
+        reference = "00000000-0000-4000-8000-000000000001"
+        context._track_references = [(context.song.tracks[0], reference)]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "tracks.set_mixer",
+                {
+                    "index": 0,
+                    "expectedReference": reference,
+                    "expectedName": "Group",
+                    "isMuted": True,
+                    "isArmed": True,
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(
+            responses[0]["error"]["code"], "unsupported_capability"
+        )
+        self.assertFalse(context.song.tracks[0].mute)
 
 
 class CapabilityAndTokenTests(unittest.TestCase):

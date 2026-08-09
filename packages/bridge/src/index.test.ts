@@ -61,6 +61,8 @@ describe("AbletonBridgeService", () => {
         "transport.set_playing": true,
         "tracks.create": true,
         "tracks.delete": true,
+        "tracks.rename": true,
+        "tracks.set_mixer": true,
       },
     });
     await expect(service.ping()).resolves.toEqual({ pong: true });
@@ -106,6 +108,39 @@ describe("AbletonBridgeService", () => {
         name: "Bass",
         kind: "midi",
       },
+      verified: true,
+    });
+    const afterDelete = await service.inspectSession();
+    const drums = afterDelete.tracks.find((track) => track.name === "Drums");
+    expect(drums).toBeDefined();
+    await expect(
+      service.renameTrack({
+        index: 0,
+        expectedReference: drums?.reference ?? "",
+        expectedName: "Drums",
+        name: "Main Drums",
+      }),
+    ).resolves.toEqual({
+      reference: drums?.reference,
+      index: 0,
+      beforeName: "Drums",
+      afterName: "Main Drums",
+      verified: true,
+    });
+    await expect(
+      service.setTrackMixer({
+        index: 0,
+        expectedReference: drums?.reference ?? "",
+        expectedName: "Main Drums",
+        isMuted: true,
+        volume: 0.65,
+        pan: 0.2,
+      }),
+    ).resolves.toMatchObject({
+      reference: drums?.reference,
+      index: 0,
+      before: { isMuted: false, volume: 0.85, pan: 0 },
+      after: { isMuted: true, volume: 0.65, pan: 0.2 },
       verified: true,
     });
     await service.stop();

@@ -5,10 +5,14 @@ import type {
   CapabilityDocument,
   CreateTrackParams,
   DeleteTrackParams,
+  RenameTrackParams,
+  RenameTrackResult,
   PingResult,
   SessionSnapshot,
   SetPlayingResult,
   SetTempoResult,
+  SetTrackMixerParams,
+  SetTrackMixerResult,
   TrackMutationResult,
 } from "@ableton-agent/protocol";
 import type {
@@ -47,6 +51,8 @@ export interface AbletonService {
   setPlaying(isPlaying: boolean): Promise<SetPlayingResult>;
   createTrack(params: CreateTrackParams): Promise<TrackMutationResult>;
   deleteTrack(params: DeleteTrackParams): Promise<TrackMutationResult>;
+  renameTrack(params: RenameTrackParams): Promise<RenameTrackResult>;
+  setTrackMixer(params: SetTrackMixerParams): Promise<SetTrackMixerResult>;
 }
 
 export interface ApplicationServices {
@@ -83,6 +89,8 @@ export interface CopilotAgentServiceOptions {
   setPlaying: (isPlaying: boolean) => Promise<SetPlayingResult>;
   createTrack: (params: CreateTrackParams) => Promise<TrackMutationResult>;
   deleteTrack: (params: DeleteTrackParams) => Promise<TrackMutationResult>;
+  renameTrack: (params: RenameTrackParams) => Promise<RenameTrackResult>;
+  setTrackMixer: (params: SetTrackMixerParams) => Promise<SetTrackMixerResult>;
   requestToolApproval?: ToolApprovalRequester;
   clientFactory?: () => CopilotClientAdapter;
   baseDirectory?: string;
@@ -125,6 +133,8 @@ export class CopilotAgentService implements AgentService {
       setPlaying: this.options.setPlaying,
       createTrack: this.options.createTrack,
       deleteTrack: this.options.deleteTrack,
+      renameTrack: this.options.renameTrack,
+      setTrackMixer: this.options.setTrackMixer,
     });
 
     try {
@@ -315,6 +325,16 @@ export class HeadlessApplication {
 
   public deleteTrack(params: DeleteTrackParams): Promise<TrackMutationResult> {
     return this.services.ableton.deleteTrack(params);
+  }
+
+  public renameTrack(params: RenameTrackParams): Promise<RenameTrackResult> {
+    return this.services.ableton.renameTrack(params);
+  }
+
+  public setTrackMixer(
+    params: SetTrackMixerParams,
+  ): Promise<SetTrackMixerResult> {
+    return this.services.ableton.setTrackMixer(params);
   }
 
   public subscribe(listener: (event: AppEvent) => void): () => void {

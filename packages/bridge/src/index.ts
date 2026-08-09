@@ -13,6 +13,10 @@ import {
   sessionSnapshotSchema,
   setPlayingParamsSchema,
   setPlayingResultSchema,
+  renameTrackParamsSchema,
+  renameTrackResultSchema,
+  setTrackMixerParamsSchema,
+  setTrackMixerResultSchema,
   setTempoParamsSchema,
   setTempoResultSchema,
   trackMutationResultSchema,
@@ -25,6 +29,10 @@ import {
   type ResponseEnvelope,
   type SessionSnapshot,
   type SetPlayingResult,
+  type RenameTrackParams,
+  type RenameTrackResult,
+  type SetTrackMixerParams,
+  type SetTrackMixerResult,
   type SetTempoResult,
   type TrackMutationResult,
 } from "@ableton-agent/protocol";
@@ -178,6 +186,26 @@ export class AbletonBridgeService implements AbletonService {
     const validated = deleteTrackParamsSchema.parse(params);
     return trackMutationResultSchema.parse(
       await this.#request("tracks.delete", validated, false),
+    );
+  }
+
+  public async renameTrack(
+    params: RenameTrackParams,
+  ): Promise<RenameTrackResult> {
+    this.#requireCapability("tracks.rename");
+    const validated = renameTrackParamsSchema.parse(params);
+    return renameTrackResultSchema.parse(
+      await this.#request("tracks.rename", validated, false),
+    );
+  }
+
+  public async setTrackMixer(
+    params: SetTrackMixerParams,
+  ): Promise<SetTrackMixerResult> {
+    this.#requireCapability("tracks.set_mixer");
+    const validated = setTrackMixerParamsSchema.parse(params);
+    return setTrackMixerResultSchema.parse(
+      await this.#request("tracks.set_mixer", validated, false),
     );
   }
 

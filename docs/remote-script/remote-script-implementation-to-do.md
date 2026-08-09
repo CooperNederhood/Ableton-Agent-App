@@ -27,7 +27,8 @@ Companion specification: [Remote Script](remote-script.md)
 - [~] Implement track and mixer handlers.
   - [x] Create MIDI/audio tracks with optional names and verified postconditions.
   - [x] Delete identity-bound non-group tracks with last-track protection.
-  - [ ] Implement rename, routing, mixer, and group-aware operations.
+  - [x] Rename identity-bound tracks and update verified mixer state.
+  - [ ] Implement routing and group-aware structural operations.
 - [ ] Implement session clip and MIDI-note handlers.
 - [ ] Implement arrangement handlers.
 - [ ] Implement device, rack, Drum Rack, and parameter handlers.

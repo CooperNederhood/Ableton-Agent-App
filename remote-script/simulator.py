@@ -27,6 +27,8 @@ class SimulatorState(object):
                 "isMuted": False,
                 "isSoloed": False,
                 "isArmed": False,
+                "volume": 0.85,
+                "pan": 0.0,
             },
             {
                 "reference": str(
@@ -38,6 +40,8 @@ class SimulatorState(object):
                 "isMuted": False,
                 "isSoloed": False,
                 "isArmed": True,
+                "volume": 0.75,
+                "pan": -0.1,
             },
         ]
 
@@ -106,6 +110,8 @@ def handle(request, token, state):
                     "transport.set_playing": True,
                     "tracks.create": True,
                     "tracks.delete": True,
+                    "tracks.rename": True,
+                    "tracks.set_mixer": True,
                 },
                 "limits": {
                     "maxFrameBytes": 4 * 1024 * 1024,
@@ -181,6 +187,8 @@ def handle(request, token, state):
             "isMuted": False,
             "isSoloed": False,
             "isArmed": False,
+            "volume": 0.85,
+            "pan": 0.0,
         }
         state.tracks.append(track)
         return response(
@@ -229,6 +237,71 @@ def handle(request, token, state):
                     "name": track["name"],
                     "kind": track["kind"],
                 },
+                "verified": True,
+            },
+        )
+    if command in ("tracks.rename", "tracks.set_mixer"):
+        index = params.get("index")
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or index < 0
+            or index >= len(state.tracks)
+        ):
+            return failure(request, "not_found", "Track index is out of range")
+        track = state.tracks[index]
+        if (
+            track["reference"] != params.get("expectedReference")
+            or track["name"] != params.get("expectedName")
+        ):
+            return failure(
+                request,
+                "stale_reference",
+                "Track identity changed before mutation",
+            )
+        if command == "tracks.rename":
+            name = params.get("name")
+            if not isinstance(name, str) or not name.strip():
+                return failure(request, "invalid_params", "name is required")
+            before = track["name"]
+            track["name"] = name.strip()
+            return response(
+                request,
+                {
+                    "reference": track["reference"],
+                    "index": index,
+                    "beforeName": before,
+                    "afterName": track["name"],
+                    "verified": True,
+                },
+            )
+        before = {
+            key: track[key]
+            for key in ("isMuted", "isSoloed", "isArmed", "volume", "pan")
+        }
+        updates = {
+            key: params[key]
+            for key in ("isMuted", "isSoloed", "isArmed", "volume", "pan")
+            if key in params
+        }
+        if not updates:
+            return failure(
+                request,
+                "invalid_params",
+                "At least one mixer property is required",
+            )
+        track.update(updates)
+        after = {
+            key: track[key]
+            for key in ("isMuted", "isSoloed", "isArmed", "volume", "pan")
+        }
+        return response(
+            request,
+            {
+                "reference": track["reference"],
+                "index": index,
+                "before": before,
+                "after": after,
                 "verified": True,
             },
         )

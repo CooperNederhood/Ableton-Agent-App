@@ -67,6 +67,49 @@ function services() {
           verified: true,
         }),
     ),
+    renameTrack: vi.fn(
+      (params: {
+        index: number;
+        expectedReference: string;
+        expectedName: string;
+        name: string;
+      }) =>
+        Promise.resolve({
+          reference: params.expectedReference,
+          index: params.index,
+          beforeName: params.expectedName,
+          afterName: params.name,
+          verified: true as const,
+        }),
+    ),
+    setTrackMixer: vi.fn(
+      (params: {
+        index: number;
+        expectedReference: string;
+        expectedName: string;
+        isMuted?: boolean;
+        volume?: number;
+      }) =>
+        Promise.resolve({
+          reference: params.expectedReference,
+          index: params.index,
+          before: {
+            isMuted: false,
+            isSoloed: false,
+            isArmed: false,
+            volume: 0.8,
+            pan: 0,
+          },
+          after: {
+            isMuted: params.isMuted ?? false,
+            isSoloed: false,
+            isArmed: false,
+            volume: params.volume ?? 0.8,
+            pan: 0,
+          },
+          verified: true as const,
+        }),
+    ),
   };
 }
 
@@ -84,6 +127,8 @@ describe("Ableton tools", () => {
       "custom:ableton_transport_set_playing",
       "custom:ableton_tracks_create",
       "custom:ableton_tracks_delete",
+      "custom:ableton_tracks_rename",
+      "custom:ableton_tracks_set_mixer",
     ]);
     expect(abletonToolMetadata.map((metadata) => metadata.risk)).toEqual([
       "read",
@@ -92,6 +137,8 @@ describe("Ableton tools", () => {
       "reversible",
       "reversible",
       "destructive",
+      "reversible",
+      "reversible",
     ]);
   });
 
@@ -122,6 +169,25 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
+    await toolSet.tools[6].handler?.(
+      {
+        index: 1,
+        expectedReference: "00000000-0000-4000-8000-000000000002",
+        expectedName: "Bass",
+        name: "Sub Bass",
+      },
+      invocation,
+    );
+    await toolSet.tools[7].handler?.(
+      {
+        index: 1,
+        expectedReference: "00000000-0000-4000-8000-000000000002",
+        expectedName: "Sub Bass",
+        isMuted: true,
+        volume: 0.6,
+      },
+      invocation,
+    );
 
     expect(ports.getConnectionStatus).toHaveBeenCalledOnce();
     expect(ports.inspectSession).toHaveBeenCalledOnce();
@@ -136,6 +202,19 @@ describe("Ableton tools", () => {
       expectedReference: "00000000-0000-4000-8000-000000000002",
       expectedName: "Bass",
       expectedKind: "midi",
+    });
+    expect(ports.renameTrack).toHaveBeenCalledWith({
+      index: 1,
+      expectedReference: "00000000-0000-4000-8000-000000000002",
+      expectedName: "Bass",
+      name: "Sub Bass",
+    });
+    expect(ports.setTrackMixer).toHaveBeenCalledWith({
+      index: 1,
+      expectedReference: "00000000-0000-4000-8000-000000000002",
+      expectedName: "Sub Bass",
+      isMuted: true,
+      volume: 0.6,
     });
   });
 

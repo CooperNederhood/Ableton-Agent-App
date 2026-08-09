@@ -34,7 +34,7 @@ Request:
 
 ```json
 {
-  "protocolVersion": 1,
+  "protocolVersion": 2,
   "kind": "request",
   "requestId": "uuid",
   "command": "clips.add_notes",
@@ -47,7 +47,7 @@ Success:
 
 ```json
 {
-  "protocolVersion": 1,
+  "protocolVersion": 2,
   "kind": "response",
   "requestId": "uuid",
   "ok": true,
@@ -61,7 +61,7 @@ Failure:
 
 ```json
 {
-  "protocolVersion": 1,
+  "protocolVersion": 2,
   "kind": "response",
   "requestId": "uuid",
   "ok": false,
@@ -78,7 +78,7 @@ Event:
 
 ```json
 {
-  "protocolVersion": 1,
+  "protocolVersion": 2,
   "kind": "event",
   "event": "tracks.changed",
   "sequence": 104,
@@ -138,4 +138,3 @@ Do not rely on manually synchronized interfaces.
 - Framing, envelope, or semantic changes require a new protocol version.
 - Capability negotiation handles Live-version differences separately from
   protocol versions.
-

@@ -94,6 +94,9 @@ export type CliCommand =
       json: boolean;
     }
   | { name: "run"; prompt: string; json: boolean }
+  | { name: "session-new"; json: boolean }
+  | { name: "session-resume"; sessionId: string; json: boolean }
+  | { name: "session-current"; json: boolean }
   | { name: "help"; json: false };
 
 export class CliUsageError extends Error {}
@@ -111,6 +114,18 @@ export function parseArgs(args: readonly string[]): CliCommand {
       throw new CliUsageError("chat does not accept arguments or --json");
     }
     return { name: "chat", json: false };
+  }
+  if (command === "session-new" || command === "session-current") {
+    if (positional.length !== 1) {
+      throw new CliUsageError(`${command} does not accept arguments`);
+    }
+    return { name: command, json };
+  }
+  if (command === "session-resume") {
+    if (positional.length !== 2 || !positional[1]?.trim()) {
+      throw new CliUsageError("session-resume requires a Copilot session ID");
+    }
+    return { name: command, sessionId: positional[1], json };
   }
   if (
     command === "status" ||
@@ -421,6 +436,46 @@ export interface InteractiveInput {
   readLine(): Promise<string | undefined>;
 }
 
+export interface InteractiveApprovalRequest {
+  metadata: {
+    name?: string;
+    title: string;
+    risk: string;
+    duration: string;
+    requiredCapability?: string;
+  };
+  arguments: Readonly<Record<string, unknown>>;
+}
+
+export async function requestInteractiveApproval(
+  request: InteractiveApprovalRequest,
+  input: InteractiveInput,
+  io: CliIo,
+): Promise<boolean> {
+  io.write(
+    `Approval required: ${request.metadata.title} (${request.metadata.risk})`,
+  );
+  io.writeRaw("Approve once? [y/N/d for details] ");
+  while (true) {
+    const answer = (await input.readLine())?.trim().toLowerCase();
+    if (answer === "y" || answer === "yes") return true;
+    if (answer === "d" || answer === "details") {
+      io.write(
+        [
+          `Title: ${request.metadata.title}`,
+          `Risk: ${request.metadata.risk}`,
+          `Duration: ${request.metadata.duration}`,
+          `Capability: ${request.metadata.requiredCapability ?? "none"}`,
+          `Arguments: ${JSON.stringify(request.arguments)}`,
+        ].join("\n"),
+      );
+      io.writeRaw("Approve once? [y/N] ");
+      continue;
+    }
+    return false;
+  }
+}
+
 /**
  * Renders a shared application event as a single line of terminal output.
  * Pass a `Colorizer` (see terminal.ts) to apply ANSI color to the status
@@ -492,6 +547,9 @@ export async function runCommand(
         "  ableton-agent pad-chains <track-number> <device-number> <pad-number> [--offset N] [--limit N] [--json]",
         "  ableton-agent pad-chain-devices <track-number> <device-number> <pad-number> <chain-number> [--offset N] [--limit N] [--json]",
         "  ableton-agent run <prompt> [--json]",
+        "  ableton-agent session-current [--json]",
+        "  ableton-agent session-new [--json]",
+        "  ableton-agent session-resume <session-id> [--json]",
         "",
         "Global flags:",
         "  --json    Emit structured JSON instead of human-readable text.",
@@ -511,7 +569,13 @@ export async function runCommand(
     return runInteractive(application, io, input, options);
   }
 
-  await application.start({ startAgent: command.name === "run" });
+  await application.start({
+    startAgent:
+      command.name === "run" ||
+      command.name === "session-new" ||
+      command.name === "session-resume" ||
+      command.name === "session-current",
+  });
   const operationFailures: Array<
     Extract<AppEvent, { type: "operation.failed" }>
   > = [];
@@ -521,6 +585,34 @@ export async function runCommand(
     }
   });
   try {
+    if (command.name === "session-current") {
+      const payload = { sessionId: application.agentSessionId };
+      io.write(
+        command.json
+          ? JSON.stringify(payload)
+          : `Session: ${payload.sessionId ?? "none"}`,
+      );
+      return EXIT_CODES.SUCCESS;
+    }
+    if (command.name === "session-new") {
+      const payload = { sessionId: await application.createAgentSession() };
+      io.write(
+        command.json
+          ? JSON.stringify(payload)
+          : `Session created: ${payload.sessionId}`,
+      );
+      return EXIT_CODES.SUCCESS;
+    }
+    if (command.name === "session-resume") {
+      await application.resumeAgentSession(command.sessionId);
+      const payload = { sessionId: application.agentSessionId };
+      io.write(
+        command.json
+          ? JSON.stringify(payload)
+          : `Session resumed: ${payload.sessionId ?? command.sessionId}`,
+      );
+      return EXIT_CODES.SUCCESS;
+    }
     if (command.name === "status") {
       const status = await application.getStatus();
       const payload = {
@@ -1148,6 +1240,9 @@ export async function runInteractive(
             "/doctor    Ping the Remote Script",
             "/snapshot  Inspect the current Live set",
             "/transport Inspect Arrangement loop and cue points",
+            "/session   Show the current Copilot session",
+            "/session new",
+            "/session resume <session-id>",
             "/exit      End the chat session",
           ].join("\n"),
         );
@@ -1179,6 +1274,28 @@ export async function runInteractive(
           });
           io.write(
             `Transport: loop ${transport.loop.enabled ? "enabled" : "disabled"}, ${transport.totalCuePoints} cue points`,
+          );
+          continue;
+        }
+        if (line === "/session") {
+          io.write(`Session: ${application.agentSessionId ?? "none"}`);
+          continue;
+        }
+        if (line === "/session new") {
+          io.write(
+            `Session created: ${await application.createAgentSession()}`,
+          );
+          continue;
+        }
+        if (line.startsWith("/session resume ")) {
+          const sessionId = line.slice("/session resume ".length).trim();
+          if (!sessionId) {
+            io.writeError("session resume requires a session ID");
+            continue;
+          }
+          await application.resumeAgentSession(sessionId);
+          io.write(
+            `Session resumed: ${application.agentSessionId ?? sessionId}`,
           );
           continue;
         }

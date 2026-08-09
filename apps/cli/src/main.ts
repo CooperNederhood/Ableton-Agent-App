@@ -8,7 +8,13 @@ import {
   RuntimeConfigurationError,
 } from "@ableton-agent/runtime";
 
-import { CliUsageError, parseArgs, runCommand, type CliIo } from "./cli.js";
+import {
+  CliUsageError,
+  parseArgs,
+  requestInteractiveApproval,
+  runCommand,
+  type CliIo,
+} from "./cli.js";
 import type { InteractiveInput } from "./cli.js";
 import { EXIT_CODES, exitCodeForError } from "./exit-codes.js";
 import { shouldUseColor } from "./terminal.js";
@@ -84,13 +90,7 @@ async function main(): Promise<number> {
         ? {}
         : {
             requestToolApproval: async (request) => {
-              io.write(
-                `Approval required: ${request.metadata.title} (${request.metadata.risk})`,
-              );
-              io.write(`Arguments: ${JSON.stringify(request.arguments)}`);
-              io.writeRaw("Approve once? [y/N] ");
-              const answer = await terminal.readLine();
-              return answer?.trim().toLowerCase() === "y";
+              return requestInteractiveApproval(request, terminal, io);
             },
           }),
     });

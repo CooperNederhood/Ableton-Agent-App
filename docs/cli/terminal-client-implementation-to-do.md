@@ -20,11 +20,11 @@ Companion specification: [Terminal Client](terminal-client.md)
 - [x] Render operation start, progress, completion, and failure events.
 - [~] Implement `/help`, `/status`, `/connect`, `/snapshot`, `/mode`,
   `/session`, `/verbose`, `/cancel`, `/doctor`, and `/exit`.
-- [ ] Implement interactive approval, denial, and detail inspection.
+- [x] Implement interactive approval, denial, and detail inspection.
 - [~] Handle Ctrl+C as cancellation first and process exit second. (Ctrl+C
   now reliably exits with code 130 from any mode; it does not yet attempt a
   graceful in-flight operation cancellation before exiting.)
-- [ ] Support session selection and resume.
+- [x] Support session selection and resume.
 
 ## Non-interactive client
 

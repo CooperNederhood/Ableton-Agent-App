@@ -15,6 +15,7 @@ import { createFakeApplication } from "@ableton-agent/test-support";
 import {
   CliUsageError,
   parseArgs,
+  requestInteractiveApproval,
   renderEvent,
   runCommand,
   runInteractive,
@@ -32,11 +33,13 @@ function application(
 ) {
   const events = new InMemoryEventPublisher();
   const agentStart = vi.fn(async () => undefined);
+  const createSession = vi.fn(async () => "cli-session");
+  const resumeSession = vi.fn(async () => undefined);
   const agent: AgentService = {
     sessionId: "cli-session",
     cancel: vi.fn(async () => false),
-    createSession: vi.fn(async () => "cli-session"),
-    resumeSession: vi.fn(async () => undefined),
+    createSession,
+    resumeSession,
     start: agentStart,
     stop: vi.fn(async () => undefined),
     send: vi.fn(async () => {
@@ -728,6 +731,9 @@ function application(
       logger: noopLogger,
     }),
     agentStart,
+    agent,
+    createSession,
+    resumeSession,
     events,
   };
 }
@@ -762,6 +768,72 @@ describe("CLI", () => {
 
   it("parses interactive chat", () => {
     expect(parseArgs(["chat"])).toEqual({ name: "chat", json: false });
+  });
+
+  it("parses session control commands", () => {
+    expect(parseArgs(["session-current", "--json"])).toEqual({
+      name: "session-current",
+      json: true,
+    });
+    expect(parseArgs(["session-new"])).toEqual({
+      name: "session-new",
+      json: false,
+    });
+    expect(parseArgs(["session-resume", "session-42"])).toEqual({
+      name: "session-resume",
+      sessionId: "session-42",
+      json: false,
+    });
+    expect(() => parseArgs(["session-resume"])).toThrow(CliUsageError);
+  });
+
+  it("shows approval details before accepting or denying", async () => {
+    const out = output();
+    const approved = await requestInteractiveApproval(
+      {
+        metadata: {
+          name: "ableton_tracks_delete",
+          title: "Delete track",
+          risk: "destructive",
+          duration: "short",
+          requiredCapability: "tracks.delete",
+        },
+        arguments: { index: 2 },
+      },
+      interactiveInput(["d", "y"]),
+      out.io,
+    );
+
+    expect(approved).toBe(true);
+    expect(out.lines.join("\n")).toContain("Capability: tracks.delete");
+    expect(out.lines.join("\n")).toContain('"index":2');
+  });
+
+  it("creates and resumes Copilot sessions non-interactively", async () => {
+    const out = output();
+    const fixture = application({ state: "disconnected" });
+
+    await expect(
+      runCommand(
+        { name: "session-new", json: true },
+        fixture.application,
+        out.io,
+      ),
+    ).resolves.toBe(EXIT_CODES.SUCCESS);
+    await expect(
+      runCommand(
+        {
+          name: "session-resume",
+          sessionId: "session-42",
+          json: false,
+        },
+        fixture.application,
+        out.io,
+      ),
+    ).resolves.toBe(EXIT_CODES.SUCCESS);
+
+    expect(fixture.createSession).toHaveBeenCalledOnce();
+    expect(fixture.resumeSession).toHaveBeenCalledWith("session-42");
   });
 
   it("parses one-based device inspection commands", () => {

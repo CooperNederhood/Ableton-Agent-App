@@ -22,7 +22,7 @@ Companion specification: [Tool Design](tool-design.md)
     pad/chain/device inspection without recursive expansion.
   - [x] Add read-risk Browser root/direct-child inspection and deterministic
     bounded search with explicit truncation reporting.
-- [ ] Implement external plug-in search with bounded cached results.
+- [x] Implement external plug-in search with bounded runtime-cached results.
 
 ## Primitive mutation tools
 
@@ -58,17 +58,17 @@ Companion specification: [Tool Design](tool-design.md)
 
 ## Workflow tools
 
-- [ ] Define a deterministic workflow transaction interface.
-- [ ] Implement drum-pattern and chord-progression workflows.
-- [ ] Implement song-section creation and variation.
-- [ ] Implement mix change-set and preset audition workflows.
-- [ ] Capture before-state, approval, execution, verification, and recovery.
+- [x] Define a deterministic workflow transaction interface.
+- [x] Implement drum-pattern and chord-progression workflows.
+- [x] Implement song-section creation and variation.
+- [x] Implement mix change-set and preset audition workflows.
+- [x] Capture before-state, approval, execution, verification, and recovery.
 
 ## Tests
 
 - [x] Unit-test schemas and formatting for every tool.
 - [x] Unit-test risk and capability metadata completeness.
-- [ ] Unit-test workflow ordering, partial failure, and compensation.
+- [x] Unit-test workflow ordering, partial failure, and compensation.
 - [ ] Integration-test tools against fake and simulated bridges.
 - [~] Add Copilot SDK invocation tests for representative tools.
 - [ ] Validate every mutation against real Live before marking supported.

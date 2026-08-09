@@ -34,7 +34,7 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
     bound every independently requested page without recursion.
 - [ ] Validate file imports and supported media.
 - [ ] Report all clamping and coercion.
-- [ ] Add workflow mutation-count and duration budgets.
+- [x] Add workflow mutation-count and duration budgets.
 - [ ] Investigate and capability-gate native Live undo grouping.
 
 ## Verification and recovery
@@ -54,9 +54,9 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
     remove cue points created by failed creation.
   - [x] Restore prior device-enable and parameter values after failed mutation
     or verification.
-- [ ] Define non-reversible operation metadata.
-- [ ] Stop dependent workflow steps after failure.
-- [ ] Refresh affected state before reporting partial outcomes.
+- [x] Define non-reversible operation metadata.
+- [x] Stop dependent workflow steps after failure.
+- [x] Refresh affected state before reporting partial outcomes.
 
 ## Tests
 

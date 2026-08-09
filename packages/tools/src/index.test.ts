@@ -920,6 +920,7 @@ describe("Ableton tools", () => {
       "custom:ableton_browser_roots_inspect",
       "custom:ableton_browser_children_inspect",
       "custom:ableton_browser_search",
+      "custom:ableton_browser_search_external_plugins",
       "custom:ableton_browser_load_item",
     ]);
     expect(abletonToolMetadata.map((metadata) => metadata.risk)).toEqual([
@@ -956,6 +957,7 @@ describe("Ableton tools", () => {
       "read",
       "reversible",
       "reversible",
+      "read",
       "read",
       "read",
       "read",
@@ -1271,6 +1273,16 @@ describe("Ableton tools", () => {
     );
     await toolSet.tools[36].handler?.(
       {
+        query: "serum",
+        maxNodes: 64,
+        maxResults: 10,
+        maxDepth: 4,
+        maxDurationMs: 100,
+      },
+      invocation,
+    );
+    await toolSet.tools[37].handler?.(
+      {
         index: 0,
         expectedReference: "00000000-0000-4000-8000-000000000001",
         expectedName: "Drums",
@@ -1500,6 +1512,14 @@ describe("Ableton tools", () => {
       maxNodes: 32,
       maxResults: 5,
       maxDepth: 3,
+      maxDurationMs: 100,
+    });
+    expect(ports.searchBrowser).toHaveBeenCalledWith({
+      query: "serum",
+      roots: ["plugins"],
+      maxNodes: 64,
+      maxResults: 10,
+      maxDepth: 4,
       maxDurationMs: 100,
     });
     expect(ports.loadBrowserItem).toHaveBeenCalledWith({

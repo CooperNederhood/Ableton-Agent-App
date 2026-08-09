@@ -997,9 +997,10 @@ describe("CopilotAgentService", () => {
       "custom:ableton_browser_roots_inspect",
       "custom:ableton_browser_children_inspect",
       "custom:ableton_browser_search",
+      "custom:ableton_browser_search_external_plugins",
       "custom:ableton_browser_load_item",
     ]);
-    expect(config?.tools).toHaveLength(37);
+    expect(config?.tools).toHaveLength(38);
     await expect(
       config?.onPermissionRequest?.(
         {

@@ -1,0 +1,23 @@
+{
+  "name": "@ableton-agent/workflows",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "format:check": "prettier --check package.json tsconfig.json \"src/**/*.ts\"",
+    "lint": "eslint src",
+    "test": "vitest run src",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ableton-agent/project-state": "workspace:*"
+  }
+}

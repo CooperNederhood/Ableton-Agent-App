@@ -173,6 +173,8 @@ export interface AbletonToolServices {
   ): Promise<SetArrangementClipPropertiesResult>;
 }
 
+export type ExternalPluginSearchParams = Omit<SearchBrowserParams, "roots">;
+
 export const abletonToolMetadata = [
   {
     name: "ableton_connection_status",
@@ -426,6 +428,13 @@ export const abletonToolMetadata = [
     requiredCapability: "browser.search",
   },
   {
+    name: "ableton_browser_search_external_plugins",
+    title: "Search installed external plug-ins",
+    risk: "read",
+    duration: "short",
+    requiredCapability: "browser.search",
+  },
+  {
     name: "ableton_browser_load_item",
     title: "Load built-in Ableton browser item",
     risk: "reversible",
@@ -512,6 +521,7 @@ export interface AbletonToolSet {
     Tool<Record<string, never>>,
     Tool<InspectBrowserChildrenParams>,
     Tool<SearchBrowserParams>,
+    Tool<ExternalPluginSearchParams>,
     Tool<LoadBrowserItemParams>,
   ];
   availableTools: string[];
@@ -1189,6 +1199,24 @@ export function createAbletonTools(
       .strict(),
     handler: async (params) => services.searchBrowser(params),
   });
+  const searchExternalPluginsTool = defineTool(
+    "ableton_browser_search_external_plugins",
+    {
+      description:
+        "Searches only Ableton's Plug-ins browser root using bounded breadth-first traversal. Results use runtime-cached identity references for inspection and selection; this tool does not load a plug-in.",
+      parameters: z
+        .object({
+          query: z.string().trim().min(1).max(128),
+          maxNodes: z.number().int().min(1).max(256).default(128),
+          maxResults: z.number().int().min(1).max(32).default(20),
+          maxDepth: z.number().int().min(0).max(6).default(4),
+          maxDurationMs: z.number().int().min(10).max(250).default(100),
+        })
+        .strict(),
+      handler: async (params) =>
+        services.searchBrowser({ ...params, roots: ["plugins"] }),
+    },
+  );
   const loadBrowserItemTool = defineTool("ableton_browser_load_item", {
     description:
       "Loads one explicitly selected, exact runtime identity-bound built-in instrument, audio effect, or MIDI effect onto one exact regular track. It rejects plug-ins, arbitrary paths, folders, incompatible tracks, and active hotswap; captures bounded before/after device and clip state and succeeds only after observing added top-level devices.",
@@ -1241,6 +1269,7 @@ export function createAbletonTools(
       inspectBrowserRootsTool,
       inspectBrowserChildrenTool,
       searchBrowserTool,
+      searchExternalPluginsTool,
       loadBrowserItemTool,
     ],
     availableTools: abletonToolMetadata.map(

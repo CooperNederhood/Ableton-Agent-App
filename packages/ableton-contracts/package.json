@@ -2,6 +2,9 @@
   "name": "@ableton-agent/ableton-contracts",
   "version": "0.1.0",
   "private": true,
+  "abletonAgent": {
+    "testOwnership": "type-only"
+  },
   "type": "module",
   "exports": {
     ".": {

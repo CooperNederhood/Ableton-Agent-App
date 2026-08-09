@@ -13,7 +13,7 @@ Companion specification: [Test Strategy](test-strategy.md)
 
 ## Coverage implementation
 
-- [ ] Add unit-test requirements to every package template.
+- [x] Add unit-test requirements to every package template.
 - [x] Implement cross-language protocol contract test runner.
 - [~] Implement bridge fault-injection tests.
   - [x] Cover fragmentation, malformed frames, disconnects, reconnects,

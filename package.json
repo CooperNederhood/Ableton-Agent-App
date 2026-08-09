@@ -14,7 +14,7 @@
   },
   "scripts": {
     "build": "pnpm -r build",
-    "check": "pnpm format:check && pnpm lint && pnpm docs:check && pnpm versions:check && pnpm contracts:check && pnpm contracts:compat:self-test && pnpm typecheck && pnpm test",
+    "check": "pnpm format:check && pnpm lint && pnpm docs:check && pnpm tests:ownership && pnpm versions:check && pnpm contracts:check && pnpm contracts:compat:self-test && pnpm typecheck && pnpm test",
     "clean": "pnpm -r clean",
     "contracts:check": "pnpm --filter @ableton-agent/protocol contracts:check",
     "contracts:compat": "node scripts/check-protocol-compatibility.mjs",
@@ -29,6 +29,7 @@
     "test:electron": "pnpm build && playwright test --project=electron",
     "test:ts": "vitest run",
     "test:python": "python3 -m unittest discover -s remote-script/tests -p 'test_*.py'",
+    "tests:ownership": "node scripts/check-package-tests.mjs",
     "typecheck": "pnpm -r typecheck",
     "versions:check": "node scripts/generate-product-versions.mjs --check",
     "versions:generate": "node scripts/generate-product-versions.mjs",

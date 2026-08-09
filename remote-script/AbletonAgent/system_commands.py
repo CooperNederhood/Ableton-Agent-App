@@ -2532,3 +2532,6 @@ def register_system_commands(registry):
     from .device_commands import register_device_commands
 
     register_device_commands(registry)
+    from .browser_commands import register_browser_commands
+
+    register_browser_commands(registry)

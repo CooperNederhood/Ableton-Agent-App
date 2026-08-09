@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  inspectBrowserChildrenParamsSchema,
+  loadBrowserItemParamsSchema,
+  searchBrowserParamsSchema,
   createCuePointParamsSchema,
   deleteCuePointParamsSchema,
   deviceSummarySchema,
@@ -189,6 +192,68 @@ describe("Arrangement operation schemas", () => {
         inspectDrumRackPadsParamsSchema.safeParse({
           ...deviceTarget,
           limit: 129,
+        }).success,
+      ).toBe(false);
+    });
+  });
+
+  describe("Browser operation schemas", () => {
+    const item = {
+      expectedItemReference: "00000000-0000-4000-8000-000000000050",
+      expectedItemRoot: "instruments" as const,
+      expectedItemPath: [
+        { index: 0, name: "Synths" },
+        { index: 1, name: "Operator" },
+      ],
+      expectedItemName: "Operator",
+      expectedItemUri: "ableton://instruments/operator",
+    };
+
+    it("strictly bounds browser pages and deterministic searches", () => {
+      expect(inspectBrowserChildrenParamsSchema.parse(item)).toMatchObject({
+        offset: 0,
+        limit: 32,
+      });
+      expect(
+        inspectBrowserChildrenParamsSchema.safeParse({
+          ...item,
+          limit: 65,
+        }).success,
+      ).toBe(false);
+      expect(searchBrowserParamsSchema.parse({ query: "operator" })).toEqual({
+        query: "operator",
+        roots: ["instruments", "audio_effects", "midi_effects"],
+        maxNodes: 128,
+        maxResults: 20,
+        maxDepth: 4,
+        maxDurationMs: 100,
+      });
+      expect(
+        searchBrowserParamsSchema.safeParse({
+          query: "operator",
+          maxNodes: 257,
+        }).success,
+      ).toBe(false);
+      expect(
+        searchBrowserParamsSchema.safeParse({
+          query: "operator",
+          roots: ["instruments", "instruments"],
+        }).success,
+      ).toBe(false);
+    });
+
+    it("requires exact track and browser item identities for loading", () => {
+      expect(
+        loadBrowserItemParamsSchema.parse({ ...identity, ...item }),
+      ).toMatchObject({
+        expectedReference: identity.expectedReference,
+        expectedItemReference: item.expectedItemReference,
+      });
+      expect(
+        loadBrowserItemParamsSchema.safeParse({
+          ...identity,
+          ...item,
+          filesystemPath: "/Library/Audio/Plug-Ins/example.vst3",
         }).success,
       ).toBe(false);
     });

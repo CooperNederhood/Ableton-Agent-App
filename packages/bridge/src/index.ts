@@ -27,6 +27,14 @@ import {
   inspectDeviceParametersResultSchema,
   inspectDevicesParamsSchema,
   inspectDevicesResultSchema,
+  inspectBrowserRootsParamsSchema,
+  inspectBrowserRootsResultSchema,
+  inspectBrowserChildrenParamsSchema,
+  inspectBrowserChildrenResultSchema,
+  searchBrowserParamsSchema,
+  searchBrowserResultSchema,
+  loadBrowserItemParamsSchema,
+  loadBrowserItemResultSchema,
   inspectDrumPadChainDevicesParamsSchema,
   inspectDrumPadChainDevicesResultSchema,
   inspectDrumPadChainsParamsSchema,
@@ -91,6 +99,13 @@ import {
   type InspectDeviceParametersResult,
   type InspectDevicesParams,
   type InspectDevicesResult,
+  type InspectBrowserRootsResult,
+  type InspectBrowserChildrenParams,
+  type InspectBrowserChildrenResult,
+  type SearchBrowserParams,
+  type SearchBrowserResult,
+  type LoadBrowserItemParams,
+  type LoadBrowserItemResult,
   type InspectDrumPadChainDevicesParams,
   type InspectDrumPadChainDevicesResult,
   type InspectDrumPadChainsParams,
@@ -358,6 +373,46 @@ export class AbletonBridgeService implements AbletonService {
     const validated = inspectDevicesParamsSchema.parse(params);
     return inspectDevicesResultSchema.parse(
       await this.#request("devices.inspect", validated),
+    );
+  }
+
+  public async inspectBrowserRoots(): Promise<InspectBrowserRootsResult> {
+    this.#requireCapability("browser.inspect_roots");
+    return inspectBrowserRootsResultSchema.parse(
+      await this.#request(
+        "browser.inspect_roots",
+        inspectBrowserRootsParamsSchema.parse({}),
+      ),
+    );
+  }
+
+  public async inspectBrowserChildren(
+    params: InspectBrowserChildrenParams,
+  ): Promise<InspectBrowserChildrenResult> {
+    this.#requireCapability("browser.inspect_children");
+    const validated = inspectBrowserChildrenParamsSchema.parse(params);
+    return inspectBrowserChildrenResultSchema.parse(
+      await this.#request("browser.inspect_children", validated),
+    );
+  }
+
+  public async searchBrowser(
+    params: SearchBrowserParams,
+  ): Promise<SearchBrowserResult> {
+    this.#requireCapability("browser.search");
+    const validated = searchBrowserParamsSchema.parse(params);
+    return searchBrowserResultSchema.parse(
+      await this.#request("browser.search", validated),
+    );
+  }
+
+  public async loadBrowserItem(
+    params: LoadBrowserItemParams,
+  ): Promise<LoadBrowserItemResult> {
+    this.#requireCapability("browser.load_item");
+    const validated = loadBrowserItemParamsSchema.parse(params);
+    return loadBrowserItemResultSchema.parse(
+      await this.#mutationRequest("browser.load_item", validated),
     );
   }
 

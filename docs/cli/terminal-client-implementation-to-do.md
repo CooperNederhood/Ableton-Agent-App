@@ -32,6 +32,8 @@ Companion specification: [Terminal Client](terminal-client.md)
   identity-bound regular-track inspection.
 - [x] Implement paginated one-based rack-chain, chain-device, Drum Rack pad,
   pad-chain, and pad-chain-device read commands.
+- [x] Implement Browser root/category inspection, bounded deterministic search,
+  and explicitly approved selection-by-result built-in loading.
 - [x] Implement explicit non-interactive approval policies.
 - [x] Return structured JSON operation and final-result data.
 - [x] Ensure diagnostics avoid model invocation where possible.

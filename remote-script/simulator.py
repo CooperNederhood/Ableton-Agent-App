@@ -7,6 +7,7 @@ import json
 import math
 import socket
 import uuid
+from collections import deque
 
 from AbletonAgent.protocol import FrameDecoder, encode_frame
 
@@ -78,6 +79,152 @@ class SimulatorState(object):
                 "devices": [self.simulated_device("Operator")],
             },
         ]
+        self.browser_roots = self.create_browser_roots()
+
+    def browser_item(
+        self, name, uri, children=None, loadable=False, device=False, source=""
+    ):
+        return {
+            "reference": str(uuid.uuid5(uuid.NAMESPACE_URL, uri)),
+            "name": name,
+            "uri": uri,
+            "isFolder": children is not None,
+            "isLoadable": loadable,
+            "isDevice": device,
+            "source": source,
+            "children": list(children or []),
+        }
+
+    def create_browser_roots(self):
+        operator = self.browser_item(
+            "Operator",
+            "ableton://instruments/operator",
+            loadable=True,
+            device=True,
+            source="instrument",
+        )
+        analog = self.browser_item(
+            "Analog",
+            "ableton://instruments/analog",
+            loadable=True,
+            device=True,
+            source="instrument",
+        )
+        synths = self.browser_item(
+            "Synths",
+            "ableton://instruments/synths",
+            [operator, analog],
+        )
+        roots = {
+            "instruments": self.browser_item(
+                "Instruments", "ableton://instruments", [synths]
+            ),
+            "audio_effects": self.browser_item(
+                "Audio Effects",
+                "ableton://audio-effects",
+                [
+                    self.browser_item(
+                        "Echo",
+                        "ableton://audio-effects/echo",
+                        loadable=True,
+                        device=True,
+                        source="audio_effect",
+                    )
+                ],
+            ),
+            "midi_effects": self.browser_item(
+                "MIDI Effects",
+                "ableton://midi-effects",
+                [
+                    self.browser_item(
+                        "Arpeggiator",
+                        "ableton://midi-effects/arpeggiator",
+                        loadable=True,
+                        device=True,
+                        source="midi_effect",
+                    )
+                ],
+            ),
+        }
+        for key, name in (
+            ("sounds", "Sounds"),
+            ("drums", "Drums"),
+            ("max_for_live", "Max for Live"),
+            ("plugins", "Plug-ins"),
+            ("clips", "Clips"),
+            ("samples", "Samples"),
+            ("packs", "Packs"),
+            ("user_library", "User Library"),
+            ("current_project", "Current Project"),
+        ):
+            roots[key] = self.browser_item(
+                name, "ableton://{0}".format(key), []
+            )
+        return roots
+
+    def browser_item_summary(self, root, path, item):
+        source = item["source"].strip().casefold().replace(" ", "_")
+        uri = item["uri"].strip().casefold()
+        return {
+            "reference": item["reference"],
+            "root": root,
+            "path": path,
+            "name": item["name"],
+            "uri": item["uri"],
+            "isFolder": item["isFolder"],
+            "isLoadable": item["isLoadable"],
+            "isDevice": item["isDevice"],
+            "source": item["source"],
+            "isBuiltInDevice": item["isDevice"]
+            and root in ("instruments", "audio_effects", "midi_effects")
+            and not any(
+                marker in source
+                for marker in ("user", "project", "plugin", "vst", "audio_unit")
+            )
+            and uri.startswith("ableton://")
+            and not any(
+                marker in uri
+                for marker in ("user", "plugin", "vst", "audio_unit", "external")
+            ),
+        }
+
+    def resolve_browser_item(self, root, path):
+        item = self.browser_roots.get(root)
+        if item is None:
+            return None
+        for segment in path:
+            index = segment.get("index")
+            if (
+                not item["isFolder"]
+                or not isinstance(index, int)
+                or index < 0
+                or index >= len(item["children"])
+            ):
+                return None
+            item = item["children"][index]
+            if item["name"] != segment.get("name"):
+                return None
+        return item
+
+    def browser_load_state(self, track):
+        occupied = [
+            index
+            for index, clip in enumerate(track["clips"])
+            if clip is not None
+        ]
+        return {
+            "deviceCount": len(track["devices"]),
+            "deviceReferences": [
+                device["reference"] for device in track["devices"][:128]
+            ],
+            "deviceNames": [
+                device["name"] for device in track["devices"][:128]
+            ],
+            "devicesTruncated": len(track["devices"]) > 128,
+            "sessionClipCount": len(occupied),
+            "occupiedSessionSlots": occupied[:128],
+            "clipsTruncated": len(occupied) > 128,
+        }
 
     def simulated_device(self, name):
         device = self.simulated_leaf_device(name)
@@ -365,7 +512,7 @@ def handle(request, token, state):
             {
                 "selectedProtocolVersion": PROTOCOL_VERSION,
                 "liveVersion": "12.1-simulator",
-                "remoteScriptVersion": "0.3.0",
+                "remoteScriptVersion": "0.4.0",
                 "projectId": "simulated-project",
                 "capabilities": {
                     "system.ping": True,
@@ -389,6 +536,10 @@ def handle(request, token, state):
                     "devices.inspect_drum_pad_chain_devices": True,
                     "devices.set_enabled": True,
                     "devices.set_parameter": True,
+                    "browser.inspect_roots": True,
+                    "browser.inspect_children": True,
+                    "browser.search": True,
+                    "browser.load_item": True,
                     "clips.create_midi": True,
                     "clips.replace_notes": True,
                     "clips.launch": True,
@@ -420,6 +571,290 @@ def handle(request, token, state):
                 "trackCount": len(state.tracks),
                 "tracks": state.session_tracks(),
                 "clips": state.session_clips(),
+            },
+        )
+    if command == "browser.inspect_roots":
+        if params:
+            return failure(
+                request,
+                "invalid_params",
+                "Command does not accept parameters",
+            )
+        root_order = (
+            "sounds",
+            "drums",
+            "instruments",
+            "audio_effects",
+            "midi_effects",
+            "max_for_live",
+            "plugins",
+            "clips",
+            "samples",
+            "packs",
+            "user_library",
+            "current_project",
+        )
+        return response(
+            request,
+            {
+                "roots": [
+                    state.browser_item_summary(
+                        root, [], state.browser_roots[root]
+                    )
+                    for root in root_order
+                ],
+                "cacheLimit": 512,
+            },
+        )
+    if command in ("browser.inspect_children", "browser.load_item"):
+        root = params.get("expectedItemRoot")
+        path = params.get("expectedItemPath")
+        item = (
+            state.resolve_browser_item(root, path)
+            if isinstance(path, list)
+            else None
+        )
+        if item is None:
+            return failure(
+                request,
+                "stale_reference",
+                "Browser item path changed",
+            )
+        if (
+            item["reference"] != params.get("expectedItemReference")
+            or item["name"] != params.get("expectedItemName")
+            or item["uri"] != params.get("expectedItemUri")
+        ):
+            return failure(
+                request,
+                "stale_reference",
+                "Browser item identity changed",
+            )
+        summary = state.browser_item_summary(root, path, item)
+        if command == "browser.inspect_children":
+            if not item["isFolder"]:
+                return failure(
+                    request,
+                    "conflict",
+                    "The targeted browser item is not a folder",
+                )
+            offset = params.get("offset", 0)
+            limit = params.get("limit", 32)
+            if (
+                isinstance(offset, bool)
+                or not isinstance(offset, int)
+                or offset < 0
+                or isinstance(limit, bool)
+                or not isinstance(limit, int)
+                or limit < 1
+                or limit > 64
+            ):
+                return failure(
+                    request,
+                    "invalid_params",
+                    "offset and limit must describe a bounded browser page",
+                )
+            return response(
+                request,
+                {
+                    "parent": summary,
+                    "items": [
+                        state.browser_item_summary(
+                            root,
+                            path
+                            + [{"index": index, "name": child["name"]}],
+                            child,
+                        )
+                        for index, child in enumerate(
+                            item["children"][offset : offset + limit],
+                            start=offset,
+                        )
+                    ],
+                    "total": len(item["children"]),
+                    "hasMore": offset + limit < len(item["children"]),
+                    "offset": offset,
+                    "limit": limit,
+                },
+            )
+        if not summary["isBuiltInDevice"]:
+            return failure(
+                request,
+                "conflict",
+                "Only built-in device items may be loaded",
+            )
+        if not item["isLoadable"] or item["isFolder"]:
+            return failure(
+                request,
+                "conflict",
+                "The selected browser item is not directly loadable",
+            )
+        index = params.get("index")
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or index < 0
+            or index >= len(state.tracks)
+        ):
+            return failure(request, "not_found", "Track index is out of range")
+        track = state.tracks[index]
+        if (
+            track["reference"] != params.get("expectedReference")
+            or track["name"] != params.get("expectedName")
+        ):
+            return failure(
+                request,
+                "stale_reference",
+                "Track identity changed before browser load",
+            )
+        if root in ("instruments", "midi_effects") and track["kind"] != "midi":
+            return failure(
+                request,
+                "conflict",
+                "The selected browser item requires a MIDI track",
+            )
+        before = state.browser_load_state(track)
+        device = state.simulated_device(item["name"])
+        track["devices"].append(device)
+        after = state.browser_load_state(track)
+        return response(
+            request,
+            {
+                "track": {
+                    "index": index,
+                    "reference": track["reference"],
+                    "name": track["name"],
+                    "kind": track["kind"],
+                },
+                "item": summary,
+                "before": before,
+                "after": after,
+                "addedDevices": [
+                    state.device_summary(index, len(track["devices"]) - 1, device)
+                ],
+                "addedDevicesTruncated": False,
+                "verified": True,
+            },
+        )
+    if command == "browser.search":
+        query = params.get("query")
+        roots = params.get(
+            "roots", ["instruments", "audio_effects", "midi_effects"]
+        )
+        max_nodes = params.get("maxNodes", 128)
+        max_results = params.get("maxResults", 20)
+        max_depth = params.get("maxDepth", 4)
+        max_duration_ms = params.get("maxDurationMs", 100)
+        if (
+            not isinstance(query, str)
+            or not query.strip()
+            or len(query) > 128
+            or not isinstance(roots, list)
+            or not roots
+            or len(set(roots)) != len(roots)
+            or any(root not in state.browser_roots for root in roots)
+            or isinstance(max_nodes, bool)
+            or not isinstance(max_nodes, int)
+            or max_nodes < 1
+            or max_nodes > 256
+            or isinstance(max_results, bool)
+            or not isinstance(max_results, int)
+            or max_results < 1
+            or max_results > 32
+            or isinstance(max_depth, bool)
+            or not isinstance(max_depth, int)
+            or max_depth < 0
+            or max_depth > 6
+            or isinstance(max_duration_ms, bool)
+            or not isinstance(max_duration_ms, int)
+            or max_duration_ms < 10
+            or max_duration_ms > 250
+        ):
+            return failure(
+                request,
+                "invalid_params",
+                "Browser search parameters exceed bounded limits",
+            )
+        root_order = (
+            "sounds",
+            "drums",
+            "instruments",
+            "audio_effects",
+            "midi_effects",
+            "max_for_live",
+            "plugins",
+            "clips",
+            "samples",
+            "packs",
+            "user_library",
+            "current_project",
+        )
+        queue = deque()
+        node_limit_truncated = False
+        for root in root_order:
+            if root not in roots:
+                continue
+            if len(queue) >= max_nodes:
+                node_limit_truncated = True
+                continue
+            queue.append((root, state.browser_roots[root], [], 0))
+        items = []
+        visited = 0
+        stop_reason = "complete"
+        depth_limit_truncated = False
+        normalized_query = query.strip().casefold()
+        while queue:
+            if visited >= max_nodes:
+                stop_reason = "node_limit"
+                break
+            root, item, path, depth = queue.popleft()
+            visited += 1
+            if path and normalized_query in item["name"].casefold():
+                items.append(state.browser_item_summary(root, path, item))
+                if len(items) >= max_results:
+                    stop_reason = "result_limit"
+                    break
+            if not item["isFolder"]:
+                continue
+            if depth >= max_depth:
+                if item["children"]:
+                    depth_limit_truncated = True
+                continue
+            for child_index, child in enumerate(item["children"]):
+                if visited + len(queue) >= max_nodes:
+                    node_limit_truncated = True
+                    break
+                queue.append(
+                    (
+                        root,
+                        child,
+                        path
+                        + [{"index": child_index, "name": child["name"]}],
+                        depth + 1,
+                    )
+                )
+        if stop_reason == "complete" and node_limit_truncated:
+            stop_reason = "node_limit"
+        elif stop_reason == "complete" and depth_limit_truncated:
+            stop_reason = "depth_limit"
+        return response(
+            request,
+            {
+                "query": query.strip(),
+                "items": items,
+                "visitedNodes": visited,
+                "truncated": (
+                    stop_reason != "complete"
+                    or bool(queue)
+                    or node_limit_truncated
+                    or depth_limit_truncated
+                ),
+                "stopReason": stop_reason,
+                "limits": {
+                    "maxNodes": max_nodes,
+                    "maxResults": max_results,
+                    "maxDepth": max_depth,
+                    "maxDurationMs": max_duration_ms,
+                },
             },
         )
     if command == "transport.set_tempo":

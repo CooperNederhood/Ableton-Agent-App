@@ -185,6 +185,21 @@ function deviceServices() {
     isEnabled: true,
     valueItemCount: 0,
   };
+  const browserItem = {
+    reference: "00000000-0000-4000-8000-000000000050",
+    root: "instruments" as const,
+    path: [
+      { index: 0, name: "Synths" },
+      { index: 0, name: "Operator" },
+    ],
+    name: "Operator",
+    uri: "ableton://instruments/operator",
+    isFolder: false,
+    isLoadable: true,
+    isDevice: true,
+    source: "instrument",
+    isBuiltInDevice: true,
+  };
   return {
     inspectDevices: async (
       params: Parameters<AbletonService["inspectDevices"]>[0],
@@ -202,6 +217,91 @@ function deviceServices() {
       total: 1,
       offset: params.offset,
       limit: params.limit,
+    }),
+    inspectBrowserRoots: async () => ({
+      roots: [
+        {
+          ...browserItem,
+          path: [],
+          name: "Instruments",
+          uri: "ableton://instruments",
+          isFolder: true,
+          isLoadable: false,
+          isDevice: false,
+          source: "",
+          isBuiltInDevice: false,
+        },
+      ],
+      cacheLimit: 512,
+    }),
+    inspectBrowserChildren: async (
+      params: Parameters<AbletonService["inspectBrowserChildren"]>[0],
+    ) => ({
+      parent: {
+        ...browserItem,
+        reference: params.expectedItemReference,
+        root: params.expectedItemRoot,
+        path: params.expectedItemPath,
+        name: params.expectedItemName,
+        uri: params.expectedItemUri,
+        isFolder: true,
+        isLoadable: false,
+        isDevice: false,
+        source: "",
+        isBuiltInDevice: false,
+      },
+      items: [browserItem],
+      total: 1,
+      hasMore: false,
+      offset: params.offset,
+      limit: params.limit,
+    }),
+    searchBrowser: async (
+      params: Parameters<AbletonService["searchBrowser"]>[0],
+    ) => ({
+      query: params.query,
+      items: [browserItem],
+      visitedNodes: 3,
+      truncated: false,
+      stopReason: "complete" as const,
+      limits: {
+        maxNodes: params.maxNodes,
+        maxResults: params.maxResults,
+        maxDepth: params.maxDepth,
+        maxDurationMs: params.maxDurationMs,
+      },
+    }),
+    loadBrowserItem: async (
+      params: Parameters<AbletonService["loadBrowserItem"]>[0],
+    ) => ({
+      track: {
+        index: params.index,
+        reference: params.expectedReference,
+        name: params.expectedName,
+        kind: "midi" as const,
+      },
+      item: browserItem,
+      before: {
+        deviceCount: 1,
+        deviceReferences: [device.reference],
+        deviceNames: [device.name],
+        devicesTruncated: false,
+        sessionClipCount: 0,
+        occupiedSessionSlots: [],
+        clipsTruncated: false,
+      },
+      after: {
+        deviceCount: 2,
+        deviceReferences: [device.reference, browserItem.reference],
+        deviceNames: [device.name, browserItem.name],
+        devicesTruncated: false,
+        sessionClipCount: 0,
+        occupiedSessionSlots: [],
+        clipsTruncated: false,
+      },
+      addedDevices: [{ ...device, name: browserItem.name }],
+      addedDevicesTruncated: false,
+      verified: true as const,
     }),
     inspectRackChains: async (
       params: Parameters<AbletonService["inspectRackChains"]>[0],
@@ -894,8 +994,12 @@ describe("CopilotAgentService", () => {
       "custom:ableton_drum_pad_chain_devices_inspect",
       "custom:ableton_device_set_enabled",
       "custom:ableton_device_set_parameter",
+      "custom:ableton_browser_roots_inspect",
+      "custom:ableton_browser_children_inspect",
+      "custom:ableton_browser_search",
+      "custom:ableton_browser_load_item",
     ]);
-    expect(config?.tools).toHaveLength(33);
+    expect(config?.tools).toHaveLength(37);
     await expect(
       config?.onPermissionRequest?.(
         {

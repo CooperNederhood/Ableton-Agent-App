@@ -43,6 +43,13 @@ import type {
   InspectDeviceParametersResult,
   InspectDevicesParams,
   InspectDevicesResult,
+  InspectBrowserRootsResult,
+  InspectBrowserChildrenParams,
+  InspectBrowserChildrenResult,
+  SearchBrowserParams,
+  SearchBrowserResult,
+  LoadBrowserItemParams,
+  LoadBrowserItemResult,
   InspectDrumPadChainDevicesParams,
   InspectDrumPadChainDevicesResult,
   InspectDrumPadChainsParams,
@@ -111,6 +118,14 @@ export interface AbletonService {
   renameTrack(params: RenameTrackParams): Promise<RenameTrackResult>;
   setTrackMixer(params: SetTrackMixerParams): Promise<SetTrackMixerResult>;
   inspectDevices(params: InspectDevicesParams): Promise<InspectDevicesResult>;
+  inspectBrowserRoots(): Promise<InspectBrowserRootsResult>;
+  inspectBrowserChildren(
+    params: InspectBrowserChildrenParams,
+  ): Promise<InspectBrowserChildrenResult>;
+  searchBrowser(params: SearchBrowserParams): Promise<SearchBrowserResult>;
+  loadBrowserItem(
+    params: LoadBrowserItemParams,
+  ): Promise<LoadBrowserItemResult>;
   inspectDeviceParameters(
     params: InspectDeviceParametersParams,
   ): Promise<InspectDeviceParametersResult>;
@@ -222,6 +237,14 @@ export interface CopilotAgentServiceOptions {
   inspectDevices: (
     params: InspectDevicesParams,
   ) => Promise<InspectDevicesResult>;
+  inspectBrowserRoots: () => Promise<InspectBrowserRootsResult>;
+  inspectBrowserChildren: (
+    params: InspectBrowserChildrenParams,
+  ) => Promise<InspectBrowserChildrenResult>;
+  searchBrowser: (params: SearchBrowserParams) => Promise<SearchBrowserResult>;
+  loadBrowserItem: (
+    params: LoadBrowserItemParams,
+  ) => Promise<LoadBrowserItemResult>;
   inspectDeviceParameters: (
     params: InspectDeviceParametersParams,
   ) => Promise<InspectDeviceParametersResult>;
@@ -331,6 +354,10 @@ export class CopilotAgentService implements AgentService {
       renameTrack: this.options.renameTrack,
       setTrackMixer: this.options.setTrackMixer,
       inspectDevices: this.options.inspectDevices,
+      inspectBrowserRoots: this.options.inspectBrowserRoots,
+      inspectBrowserChildren: this.options.inspectBrowserChildren,
+      searchBrowser: this.options.searchBrowser,
+      loadBrowserItem: this.options.loadBrowserItem,
       inspectDeviceParameters: this.options.inspectDeviceParameters,
       inspectRackChains: this.options.inspectRackChains,
       inspectRackChainDevices: this.options.inspectRackChainDevices,
@@ -581,6 +608,28 @@ export class HeadlessApplication {
     params: InspectDevicesParams,
   ): Promise<InspectDevicesResult> {
     return this.services.ableton.inspectDevices(params);
+  }
+
+  public inspectBrowserRoots(): Promise<InspectBrowserRootsResult> {
+    return this.services.ableton.inspectBrowserRoots();
+  }
+
+  public inspectBrowserChildren(
+    params: InspectBrowserChildrenParams,
+  ): Promise<InspectBrowserChildrenResult> {
+    return this.services.ableton.inspectBrowserChildren(params);
+  }
+
+  public searchBrowser(
+    params: SearchBrowserParams,
+  ): Promise<SearchBrowserResult> {
+    return this.services.ableton.searchBrowser(params);
+  }
+
+  public loadBrowserItem(
+    params: LoadBrowserItemParams,
+  ): Promise<LoadBrowserItemResult> {
+    return this.services.ableton.loadBrowserItem(params);
   }
 
   public inspectDeviceParameters(

@@ -12,7 +12,7 @@ except ImportError:  # pragma: no cover - available only inside Live
 from .messages import PROTOCOL_VERSION
 from .protocol import DEFAULT_MAX_FRAME_BYTES
 
-REMOTE_SCRIPT_VERSION = "0.3.0"
+REMOTE_SCRIPT_VERSION = "0.4.0"
 
 
 def build_capability_document(
@@ -147,6 +147,43 @@ def build_capability_document(
         or any(hasattr(track, "devices") for track in tracks),
     }
     for name, supported in device_support.items():
+        if name in capabilities:
+            capabilities[name] = supported
+    browser = getattr(application, "browser", None)
+    browser_roots = (
+        "sounds",
+        "drums",
+        "instruments",
+        "audio_effects",
+        "midi_effects",
+        "max_for_live",
+        "plugins",
+        "clips",
+        "samples",
+        "packs",
+        "user_library",
+        "current_project",
+    )
+    browser_inspection_supported = browser is not None and any(
+        getattr(browser, root, None) is not None for root in browser_roots
+    )
+    browser_load_supported = (
+        browser_inspection_supported
+        and hasattr(browser, "load_item")
+        and getattr(song, "view", None) is not None
+        and hasattr(song.view, "selected_track")
+        and any(
+            getattr(browser, root, None) is not None
+            for root in ("instruments", "audio_effects", "midi_effects")
+        )
+    )
+    browser_support = {
+        "browser.inspect_roots": browser_inspection_supported,
+        "browser.inspect_children": browser_inspection_supported,
+        "browser.search": browser_inspection_supported,
+        "browser.load_item": browser_load_supported,
+    }
+    for name, supported in browser_support.items():
         if name in capabilities:
             capabilities[name] = supported
     return {

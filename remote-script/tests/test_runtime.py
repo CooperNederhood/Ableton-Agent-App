@@ -366,6 +366,11 @@ class FakeCuePoint(object):
         self.name = name
 
 
+class FakeSongView(object):
+    def __init__(self):
+        self.selected_track = None
+
+
 class FakeSong(object):
     def __init__(self):
         self.tempo = 124.0
@@ -384,6 +389,8 @@ class FakeSong(object):
             FakeCuePoint(16.0, "Verse"),
         ]
         self.tracks = [FakeTrack("Drums"), FakeTrack("Bass")]
+        self.view = FakeSongView()
+        self.view.selected_track = self.tracks[0]
 
     @property
     def loop(self):
@@ -449,7 +456,120 @@ class FakeSong(object):
         return cue_point
 
 
+class FakeBrowserItem(object):
+    def __init__(
+        self,
+        name,
+        uri,
+        children=None,
+        loadable=False,
+        folder=None,
+        device=False,
+        source="",
+    ):
+        self.name = name
+        self.uri = uri
+        self.children = list(children or [])
+        self.is_folder = bool(self.children) if folder is None else folder
+        self.is_loadable = loadable
+        self.is_device = device
+        self.source = source
+
+    def iter_children(self):
+        return iter(self.children)
+
+
+class FakeBrowser(object):
+    def __init__(self, song=None):
+        self.song = song
+        self.hotswap_target = None
+        self.fail_after_load = False
+        operator = FakeBrowserItem(
+            "Operator",
+            "ableton://instruments/operator",
+            loadable=True,
+            device=True,
+            source="instrument",
+        )
+        analog = FakeBrowserItem(
+            "Analog",
+            "ableton://instruments/analog",
+            loadable=True,
+            device=True,
+            source="instrument",
+        )
+        instruments_folder = FakeBrowserItem(
+            "Synths",
+            "ableton://instruments/synths",
+            [operator, analog],
+            folder=True,
+        )
+        self.instruments = FakeBrowserItem(
+            "Instruments",
+            "ableton://instruments",
+            [instruments_folder],
+            folder=True,
+        )
+        self.audio_effects = FakeBrowserItem(
+            "Audio Effects",
+            "ableton://audio-effects",
+            [
+                FakeBrowserItem(
+                    "Echo",
+                    "ableton://audio-effects/echo",
+                    loadable=True,
+                    device=True,
+                    source="audio_effect",
+                )
+            ],
+            folder=True,
+        )
+        self.midi_effects = FakeBrowserItem(
+            "MIDI Effects",
+            "ableton://midi-effects",
+            [
+                FakeBrowserItem(
+                    "Arpeggiator",
+                    "ableton://midi-effects/arpeggiator",
+                    loadable=True,
+                    device=True,
+                    source="midi_effect",
+                )
+            ],
+            folder=True,
+        )
+        for root, name in (
+            ("sounds", "Sounds"),
+            ("drums", "Drums"),
+            ("max_for_live", "Max for Live"),
+            ("plugins", "Plug-ins"),
+            ("clips", "Clips"),
+            ("samples", "Samples"),
+            ("packs", "Packs"),
+            ("user_library", "User Library"),
+            ("current_project", "Current Project"),
+        ):
+            setattr(
+                self,
+                root,
+                FakeBrowserItem(
+                    name, "ableton://{0}".format(root), folder=True
+                ),
+            )
+
+    def load_item(self, item):
+        if self.song is None or self.song.view.selected_track is None:
+            raise RuntimeError("no selected track")
+        self.song.view.selected_track.devices.append(FakeDevice(item.name))
+        if self.fail_after_load:
+            self.fail_after_load = False
+            raise RuntimeError("simulated browser load failure")
+
+
 class FakeApplication(object):
+    def __init__(self, song=None):
+        self.browser = FakeBrowser(song)
+
     def get_version_string(self):
         return "12.1-test"
 
@@ -457,7 +577,7 @@ class FakeApplication(object):
 class FakeContext(object):
     def __init__(self):
         self.song = FakeSong()
-        self.application = FakeApplication()
+        self.application = FakeApplication(self.song)
         self.scheduled = []
         self.midi_note_factory = FakeMidiNoteSpecification
 
@@ -2420,6 +2540,296 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(second.get_notes_calls, 0)
 
 
+class BrowserCommandTests(unittest.TestCase):
+    def setUp(self):
+        self.context = FakeContext()
+        self.registry = CommandRegistry()
+        register_system_commands(self.registry)
+
+    def execute(self, command, params=None):
+        return self.registry.get(command).execute(self.context, params or {})
+
+    def test_inspection_and_search_are_bounded_and_deterministic(self):
+        roots = self.execute("browser.inspect_roots")
+        instruments = next(
+            root for root in roots["roots"] if root["root"] == "instruments"
+        )
+        page = self.execute(
+            "browser.inspect_children",
+            {
+                "expectedItemReference": instruments["reference"],
+                "expectedItemRoot": instruments["root"],
+                "expectedItemPath": instruments["path"],
+                "expectedItemName": instruments["name"],
+                "expectedItemUri": instruments["uri"],
+                "offset": 0,
+                "limit": 1,
+            },
+        )
+        self.assertEqual(page["total"], 1)
+        self.assertEqual(page["items"][0]["name"], "Synths")
+
+        first = self.execute(
+            "browser.search",
+            {
+                "query": "operator",
+                "roots": ["instruments"],
+                "maxNodes": 8,
+                "maxResults": 2,
+                "maxDepth": 3,
+                "maxDurationMs": 100,
+            },
+        )
+        second = self.execute(
+            "browser.search",
+            {
+                "query": "operator",
+                "roots": ["instruments"],
+                "maxNodes": 8,
+                "maxResults": 2,
+                "maxDepth": 3,
+                "maxDurationMs": 100,
+            },
+        )
+        self.assertEqual(first["visitedNodes"], 4)
+        self.assertEqual(first["items"][0]["name"], "Operator")
+        self.assertEqual(
+            first["items"][0]["reference"],
+            second["items"][0]["reference"],
+        )
+
+        limited = self.execute(
+            "browser.search",
+            {
+                "query": "not-present",
+                "roots": ["instruments"],
+                "maxNodes": 1,
+                "maxResults": 2,
+                "maxDepth": 3,
+                "maxDurationMs": 100,
+            },
+        )
+        self.assertTrue(limited["truncated"])
+        self.assertEqual(limited["stopReason"], "node_limit")
+        shallow = self.execute(
+            "browser.search",
+            {
+                "query": "operator",
+                "roots": ["instruments"],
+                "maxNodes": 8,
+                "maxResults": 2,
+                "maxDepth": 0,
+                "maxDurationMs": 100,
+            },
+        )
+        self.assertTrue(shallow["truncated"])
+        self.assertEqual(shallow["stopReason"], "depth_limit")
+
+    def test_loads_only_exact_built_in_items_to_exact_regular_track(self):
+        track = self.context.song.tracks[0]
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        self.context._track_references = [(track, track_reference)]
+        item = self.execute(
+            "browser.search",
+            {
+                "query": "operator",
+                "roots": ["instruments"],
+                "maxNodes": 8,
+                "maxResults": 1,
+                "maxDepth": 3,
+                "maxDurationMs": 100,
+            },
+        )["items"][0]
+        result = self.execute(
+            "browser.load_item",
+            {
+                "index": 0,
+                "expectedReference": track_reference,
+                "expectedName": track.name,
+                "expectedItemReference": item["reference"],
+                "expectedItemRoot": item["root"],
+                "expectedItemPath": item["path"],
+                "expectedItemName": item["name"],
+                "expectedItemUri": item["uri"],
+            },
+        )
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["before"]["deviceCount"], 1)
+        self.assertEqual(result["after"]["deviceCount"], 2)
+        self.assertEqual(result["addedDevices"][0]["name"], "Operator")
+
+    def test_rejects_external_plugins_and_stale_browser_paths(self):
+        roots = self.execute("browser.inspect_roots")["roots"]
+        plugins = next(root for root in roots if root["root"] == "plugins")
+        plugins_item = self.context.application.browser.plugins
+        plugins_item.children.append(
+            FakeBrowserItem(
+                "External Synth",
+                "ableton://plugins/external-synth",
+                loadable=True,
+            )
+        )
+        child = self.execute(
+            "browser.inspect_children",
+            {
+                "expectedItemReference": plugins["reference"],
+                "expectedItemRoot": plugins["root"],
+                "expectedItemPath": plugins["path"],
+                "expectedItemName": plugins["name"],
+                "expectedItemUri": plugins["uri"],
+                "offset": 0,
+                "limit": 1,
+            },
+        )["items"][0]
+        track = self.context.song.tracks[0]
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        self.context._track_references = [(track, track_reference)]
+        params = {
+            "index": 0,
+            "expectedReference": track_reference,
+            "expectedName": track.name,
+            "expectedItemReference": child["reference"],
+            "expectedItemRoot": child["root"],
+            "expectedItemPath": child["path"],
+            "expectedItemName": child["name"],
+            "expectedItemUri": child["uri"],
+        }
+        with self.assertRaisesRegex(Exception, "Only trusted built-in device"):
+            self.execute("browser.load_item", params)
+        plugins_item.children[0].name = "Changed"
+        with self.assertRaisesRegex(Exception, "path name changed"):
+            self.execute("browser.load_item", params)
+
+    def test_browser_reference_cache_is_bounded_and_prunes_old_items(self):
+        browser = self.context.application.browser
+        browser.instruments.children = [
+            FakeBrowserItem(
+                "Item {0}".format(index),
+                "ableton://instruments/item-{0}".format(index),
+                loadable=True,
+            )
+            for index in range(520)
+        ]
+        bounded = self.execute(
+            "browser.search",
+            {
+                "query": "not-present",
+                "roots": ["instruments"],
+                "maxNodes": 8,
+                "maxResults": 4,
+                "maxDepth": 2,
+                "maxDurationMs": 100,
+            },
+        )
+        self.assertEqual(bounded["visitedNodes"], 8)
+        self.assertTrue(bounded["truncated"])
+        self.assertEqual(bounded["stopReason"], "node_limit")
+        roots = self.execute("browser.inspect_roots")["roots"]
+        instruments = next(
+            root for root in roots if root["root"] == "instruments"
+        )
+        first_reference = None
+        for offset in range(0, 520, 64):
+            page = self.execute(
+                "browser.inspect_children",
+                {
+                    "expectedItemReference": instruments["reference"],
+                    "expectedItemRoot": instruments["root"],
+                    "expectedItemPath": instruments["path"],
+                    "expectedItemName": instruments["name"],
+                    "expectedItemUri": instruments["uri"],
+                    "offset": offset,
+                    "limit": 64,
+                },
+            )
+            if offset == 0:
+                first_reference = page["items"][0]["reference"]
+        self.assertLessEqual(
+            len(self.context._browser_reference_cache), 512
+        )
+        first_again = self.execute(
+            "browser.inspect_children",
+            {
+                "expectedItemReference": instruments["reference"],
+                "expectedItemRoot": instruments["root"],
+                "expectedItemPath": instruments["path"],
+                "expectedItemName": instruments["name"],
+                "expectedItemUri": instruments["uri"],
+                "offset": 0,
+                "limit": 1,
+            },
+        )["items"][0]
+        self.assertNotEqual(first_again["reference"], first_reference)
+
+    def test_surfaces_indeterminate_load_after_partial_lom_failure(self):
+        track = self.context.song.tracks[0]
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        self.context._track_references = [(track, track_reference)]
+        item = self.execute(
+            "browser.search",
+            {
+                "query": "operator",
+                "roots": ["instruments"],
+                "maxNodes": 8,
+                "maxResults": 1,
+                "maxDepth": 3,
+                "maxDurationMs": 100,
+            },
+        )["items"][0]
+        self.context.application.browser.fail_after_load = True
+        params = {
+            "index": 0,
+            "expectedReference": track_reference,
+            "expectedName": track.name,
+            "expectedItemReference": item["reference"],
+            "expectedItemRoot": item["root"],
+            "expectedItemPath": item["path"],
+            "expectedItemName": item["name"],
+            "expectedItemUri": item["uri"],
+        }
+        with self.assertRaises(Exception) as raised:
+            self.execute("browser.load_item", params)
+        self.assertEqual(raised.exception.code, "lom_error")
+        self.assertEqual(
+            raised.exception.details["outcome"], "indeterminate"
+        )
+        self.assertEqual(raised.exception.details["before"]["deviceCount"], 1)
+        self.assertEqual(raised.exception.details["after"]["deviceCount"], 2)
+
+    def test_rejects_active_hotswap_and_incompatible_track(self):
+        item = self.execute(
+            "browser.search",
+            {
+                "query": "operator",
+                "roots": ["instruments"],
+                "maxNodes": 8,
+                "maxResults": 1,
+                "maxDepth": 3,
+                "maxDurationMs": 100,
+            },
+        )["items"][0]
+        track = self.context.song.tracks[0]
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        self.context._track_references = [(track, track_reference)]
+        params = {
+            "index": 0,
+            "expectedReference": track_reference,
+            "expectedName": track.name,
+            "expectedItemReference": item["reference"],
+            "expectedItemRoot": item["root"],
+            "expectedItemPath": item["path"],
+            "expectedItemName": item["name"],
+            "expectedItemUri": item["uri"],
+        }
+        self.context.application.browser.hotswap_target = object()
+        with self.assertRaisesRegex(Exception, "hotswap"):
+            self.execute("browser.load_item", params)
+        self.context.application.browser.hotswap_target = None
+        track.has_midi_input = False
+        with self.assertRaisesRegex(Exception, "requires a MIDI track"):
+            self.execute("browser.load_item", params)
+
+
 class CapabilityAndTokenTests(unittest.TestCase):
     def test_capabilities_reflect_registry(self):
         registry = CommandRegistry()
@@ -2469,6 +2879,10 @@ class CapabilityAndTokenTests(unittest.TestCase):
                 "devices.inspect_drum_pad_chain_devices"
             ]
         )
+        self.assertTrue(document["capabilities"]["browser.inspect_roots"])
+        self.assertTrue(document["capabilities"]["browser.inspect_children"])
+        self.assertTrue(document["capabilities"]["browser.search"])
+        self.assertTrue(document["capabilities"]["browser.load_item"])
         self.assertEqual(len(document["projectId"]), 24)
 
         legacy_transport_song = FakeSong()
@@ -2574,6 +2988,23 @@ class CapabilityAndTokenTests(unittest.TestCase):
         )
         self.assertTrue(
             empty_document["capabilities"]["arrangement.inspect"]
+        )
+
+        class BrowserlessApplication(object):
+            def get_version_string(self):
+                return "11-test"
+
+        browserless_document = build_capability_document(
+            BrowserlessApplication(),
+            FakeSong(),
+            registry,
+            note_editing_supported=True,
+        )
+        self.assertFalse(
+            browserless_document["capabilities"]["browser.inspect_roots"]
+        )
+        self.assertFalse(
+            browserless_document["capabilities"]["browser.load_item"]
         )
 
     def test_token_is_created_once(self):

@@ -1,4 +1,5 @@
 import type { HeadlessApplication } from "@ableton-agent/application";
+import type { BrowserRootKey } from "@ableton-agent/protocol";
 import type { AppEvent } from "@ableton-agent/shared";
 
 export type CliCommand =
@@ -8,6 +9,36 @@ export type CliCommand =
   | { name: "capabilities"; json: boolean }
   | { name: "snapshot"; json: boolean }
   | { name: "transport"; json: boolean }
+  | { name: "browser-roots"; json: boolean }
+  | {
+      name: "browser-category";
+      root: BrowserRootKey;
+      offset: number;
+      limit: number;
+      json: boolean;
+    }
+  | {
+      name: "browser-search";
+      query: string;
+      roots: BrowserRootKey[];
+      maxNodes: number;
+      maxResults: number;
+      maxDepth: number;
+      maxDurationMs: number;
+      json: boolean;
+    }
+  | {
+      name: "browser-load";
+      trackNumber: number;
+      query: string;
+      resultNumber: number;
+      roots: BrowserRootKey[];
+      maxNodes: number;
+      maxResults: number;
+      maxDepth: number;
+      maxDurationMs: number;
+      json: boolean;
+    }
   | { name: "devices"; trackNumber: number; json: boolean }
   | {
       name: "parameters";
@@ -83,7 +114,8 @@ export function parseArgs(args: readonly string[]): CliCommand {
     command === "doctor" ||
     command === "capabilities" ||
     command === "snapshot" ||
-    command === "transport"
+    command === "transport" ||
+    command === "browser-roots"
   ) {
     if (positional.length !== 1) {
       throw new CliUsageError(
@@ -91,6 +123,57 @@ export function parseArgs(args: readonly string[]): CliCommand {
       );
     }
     return { name: command, json };
+  }
+  if (command === "browser-category") {
+    const page = parsePageArgs(positional, 32, 64);
+    if (page.positional.length !== 2) {
+      throw new CliUsageError("browser-category requires a browser root key");
+    }
+    return {
+      name: command,
+      root: parseBrowserRoot(page.positional[1] ?? ""),
+      offset: page.offset,
+      limit: page.limit,
+      json,
+    };
+  }
+  if (command === "browser-search") {
+    const search = parseBrowserSearchArgs(positional);
+    if (search.positional.length !== 2) {
+      throw new CliUsageError(
+        "browser-search requires one quoted search query",
+      );
+    }
+    return {
+      name: command,
+      query: search.positional[1] ?? "",
+      ...search.options,
+      json,
+    };
+  }
+  if (command === "browser-load") {
+    const approved = positional.includes("--approve");
+    const search = parseBrowserSearchArgs(
+      positional.filter((argument) => argument !== "--approve"),
+    );
+    if (search.positional.length !== 4) {
+      throw new CliUsageError(
+        "browser-load requires track number, quoted query, and result number",
+      );
+    }
+    if (!approved) {
+      throw new CliUsageError(
+        "browser-load requires --approve for this reversible mutation",
+      );
+    }
+    return {
+      name: command,
+      trackNumber: parsePositiveIndex(search.positional[1] ?? "", "track"),
+      query: search.positional[2] ?? "",
+      resultNumber: parsePositiveIndex(search.positional[3] ?? "", "result"),
+      ...search.options,
+      json,
+    };
   }
   if (command === "devices") {
     if (positional.length !== 2) {
@@ -212,6 +295,7 @@ function parsePageArgs(
       positional.push(argument ?? "");
       continue;
     }
+
     const value = Number(args[index + 1]);
     if (
       !Number.isInteger(value) ||
@@ -232,6 +316,96 @@ function parsePageArgs(
     index += 1;
   }
   return { positional, offset, limit };
+}
+
+const browserRootKeys = [
+  "sounds",
+  "drums",
+  "instruments",
+  "audio_effects",
+  "midi_effects",
+  "max_for_live",
+  "plugins",
+  "clips",
+  "samples",
+  "packs",
+  "user_library",
+  "current_project",
+] as const;
+
+function parseBrowserRoot(value: string): BrowserRootKey {
+  if (!(browserRootKeys as readonly string[]).includes(value)) {
+    throw new CliUsageError(`unknown browser root: ${value}`);
+  }
+  return value as BrowserRootKey;
+}
+
+function parseBrowserSearchArgs(args: readonly string[]): {
+  positional: string[];
+  options: {
+    roots: BrowserRootKey[];
+    maxNodes: number;
+    maxResults: number;
+    maxDepth: number;
+    maxDurationMs: number;
+  };
+} {
+  const positional: string[] = [];
+  const roots: BrowserRootKey[] = [];
+  let maxNodes = 128;
+  let maxResults = 20;
+  let maxDepth = 4;
+  let maxDurationMs = 100;
+  const numeric = {
+    "--max-nodes": { minimum: 1, maximum: 256 },
+    "--limit": { minimum: 1, maximum: 32 },
+    "--depth": { minimum: 0, maximum: 6 },
+    "--duration-ms": { minimum: 10, maximum: 250 },
+  } as const;
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument === "--root") {
+      roots.push(parseBrowserRoot(args[index + 1] ?? ""));
+      index += 1;
+      continue;
+    }
+    if (argument && argument in numeric) {
+      const bounds = numeric[argument as keyof typeof numeric];
+      const value = Number(args[index + 1]);
+      if (
+        !Number.isInteger(value) ||
+        value < bounds.minimum ||
+        value > bounds.maximum
+      ) {
+        throw new CliUsageError(
+          `${argument} must be an integer from ${bounds.minimum} to ${bounds.maximum}`,
+        );
+      }
+      if (argument === "--max-nodes") maxNodes = value;
+      if (argument === "--limit") maxResults = value;
+      if (argument === "--depth") maxDepth = value;
+      if (argument === "--duration-ms") maxDurationMs = value;
+      index += 1;
+      continue;
+    }
+    positional.push(argument ?? "");
+  }
+  if (new Set(roots).size !== roots.length) {
+    throw new CliUsageError("browser roots must be unique");
+  }
+  return {
+    positional,
+    options: {
+      roots:
+        roots.length > 0
+          ? roots
+          : ["instruments", "audio_effects", "midi_effects"],
+      maxNodes,
+      maxResults,
+      maxDepth,
+      maxDurationMs,
+    },
+  };
 }
 
 export interface CliIo {
@@ -281,6 +455,10 @@ export async function runCommand(
         "  ableton-agent capabilities [--json]",
         "  ableton-agent snapshot [--json]",
         "  ableton-agent transport [--json]",
+        "  ableton-agent browser-roots [--json]",
+        "  ableton-agent browser-category <root-key> [--offset N] [--limit N] [--json]",
+        '  ableton-agent browser-search "<query>" [--root KEY] [--max-nodes N] [--limit N] [--depth N] [--duration-ms N] [--json]',
+        '  ableton-agent browser-load <track-number> "<query>" <result-number> --approve [browser search options] [--json]',
         "  ableton-agent devices <track-number> [--json]",
         "  ableton-agent parameters <track-number> <device-number> [--json]",
         "  ableton-agent rack-chains <track-number> <device-number> [--offset N] [--limit N] [--json]",
@@ -362,6 +540,113 @@ export async function runCommand(
               .filter(([, supported]) => supported)
               .map(([name]) => name)
               .join("\n"),
+      );
+      return 0;
+    }
+
+    if (command.name === "browser-roots") {
+      const result = await application.inspectBrowserRoots();
+      io.write(
+        command.json
+          ? JSON.stringify(result)
+          : [
+              `Browser roots: ${result.roots.length}`,
+              ...result.roots.map(
+                (root) =>
+                  `  ${root.root}: ${root.name}${root.isBuiltInDevice ? " (built-in device loading allowed)" : ""}`,
+              ),
+            ].join("\n"),
+      );
+      return 0;
+    }
+
+    if (command.name === "browser-category") {
+      const roots = await application.inspectBrowserRoots();
+      const root = roots.roots.find(
+        (candidate) => candidate.root === command.root,
+      );
+      if (!root) {
+        throw new CliUsageError(
+          "browser root is unavailable in this Live version",
+        );
+      }
+      const result = await application.inspectBrowserChildren({
+        expectedItemReference: root.reference,
+        expectedItemRoot: root.root,
+        expectedItemPath: root.path,
+        expectedItemName: root.name,
+        expectedItemUri: root.uri,
+        offset: command.offset,
+        limit: command.limit,
+      });
+      io.write(
+        command.json
+          ? JSON.stringify(result)
+          : [
+              `${root.name}: ${result.total}`,
+              ...result.items.map(
+                (item, index) =>
+                  `  ${command.offset + index + 1}. ${item.name}${item.isFolder ? "/" : ""}${item.isLoadable ? " (loadable)" : ""}`,
+              ),
+            ].join("\n"),
+      );
+      return 0;
+    }
+
+    if (command.name === "browser-search") {
+      const result = await application.searchBrowser({
+        query: command.query,
+        roots: command.roots,
+        maxNodes: command.maxNodes,
+        maxResults: command.maxResults,
+        maxDepth: command.maxDepth,
+        maxDurationMs: command.maxDurationMs,
+      });
+      io.write(
+        command.json
+          ? JSON.stringify(result)
+          : [
+              `Browser matches: ${result.items.length} (${result.visitedNodes} nodes, ${result.stopReason})`,
+              ...result.items.map(
+                (item, index) =>
+                  `  ${index + 1}. [${item.root}] ${item.path.map((segment) => segment.name).join(" / ")}${item.isLoadable ? " (loadable)" : ""}`,
+              ),
+              ...(result.truncated
+                ? ["  Results truncated by configured limits."]
+                : []),
+            ].join("\n"),
+      );
+      return 0;
+    }
+
+    if (command.name === "browser-load") {
+      const track = await resolveTrack(application, command.trackNumber);
+      const search = await application.searchBrowser({
+        query: command.query,
+        roots: command.roots,
+        maxNodes: command.maxNodes,
+        maxResults: command.maxResults,
+        maxDepth: command.maxDepth,
+        maxDurationMs: command.maxDurationMs,
+      });
+      const item = search.items[command.resultNumber - 1];
+      if (!item) {
+        throw new CliUsageError("browser result number is out of range");
+      }
+      const result = await application.loadBrowserItem({
+        index: track.index,
+        expectedReference: track.reference,
+        expectedName: track.name,
+        expectedItemReference: item.reference,
+        expectedItemRoot: item.root,
+        expectedItemPath: item.path,
+        expectedItemName: item.name,
+        expectedItemUri: item.uri,
+      });
+      io.write(
+        command.json
+          ? JSON.stringify(result)
+          : `Loaded ${result.item.name} on ${result.track.name}; devices ${result.before.deviceCount} → ${result.after.deviceCount} (verified).`,
       );
       return 0;
     }

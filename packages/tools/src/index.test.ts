@@ -9,6 +9,21 @@ import {
 } from "./index.js";
 
 function services() {
+  const browserItem = {
+    reference: "00000000-0000-4000-8000-000000000050",
+    root: "instruments" as const,
+    path: [
+      { index: 0, name: "Synths" },
+      { index: 0, name: "Operator" },
+    ],
+    name: "Operator",
+    uri: "ableton://instruments/operator",
+    isFolder: false,
+    isLoadable: true,
+    isDevice: true,
+    source: "instrument",
+    isBuiltInDevice: true,
+  };
   return {
     getConnectionStatus: vi.fn(() =>
       Promise.resolve({ state: "disconnected" as const }),
@@ -481,6 +496,113 @@ function services() {
           limit: params.limit,
         }),
     ),
+    inspectBrowserRoots: vi.fn(() =>
+      Promise.resolve({
+        roots: [
+          {
+            ...browserItem,
+            path: [],
+            name: "Instruments",
+            uri: "ableton://instruments",
+            isFolder: true,
+            isLoadable: false,
+            isDevice: false,
+            source: "",
+            isBuiltInDevice: false,
+          },
+        ],
+        cacheLimit: 512,
+      }),
+    ),
+    inspectBrowserChildren: vi.fn(
+      (params: Parameters<AbletonToolServices["inspectBrowserChildren"]>[0]) =>
+        Promise.resolve({
+          parent: {
+            ...browserItem,
+            reference: params.expectedItemReference,
+            root: params.expectedItemRoot,
+            path: params.expectedItemPath,
+            name: params.expectedItemName,
+            uri: params.expectedItemUri,
+            isFolder: true,
+            isLoadable: false,
+            isDevice: false,
+            source: "",
+            isBuiltInDevice: false,
+          },
+          items: [browserItem],
+          total: 1,
+          hasMore: false,
+          offset: params.offset,
+          limit: params.limit,
+        }),
+    ),
+    searchBrowser: vi.fn(
+      (params: Parameters<AbletonToolServices["searchBrowser"]>[0]) =>
+        Promise.resolve({
+          query: params.query,
+          items: [browserItem],
+          visitedNodes: 3,
+          truncated: false,
+          stopReason: "complete" as const,
+          limits: {
+            maxNodes: params.maxNodes,
+            maxResults: params.maxResults,
+            maxDepth: params.maxDepth,
+            maxDurationMs: params.maxDurationMs,
+          },
+        }),
+    ),
+    loadBrowserItem: vi.fn(
+      (params: Parameters<AbletonToolServices["loadBrowserItem"]>[0]) =>
+        Promise.resolve({
+          track: {
+            index: params.index,
+            reference: params.expectedReference,
+            name: params.expectedName,
+            kind: "midi" as const,
+          },
+          item: browserItem,
+          before: {
+            deviceCount: 1,
+            deviceReferences: ["00000000-0000-4000-8000-000000000040"],
+            deviceNames: ["Operator"],
+            devicesTruncated: false,
+            sessionClipCount: 0,
+            occupiedSessionSlots: [],
+            clipsTruncated: false,
+          },
+          after: {
+            deviceCount: 2,
+            deviceReferences: [
+              "00000000-0000-4000-8000-000000000040",
+              "00000000-0000-4000-8000-000000000051",
+            ],
+            deviceNames: ["Operator", browserItem.name],
+            devicesTruncated: false,
+            sessionClipCount: 0,
+            occupiedSessionSlots: [],
+            clipsTruncated: false,
+          },
+          addedDevices: [
+            {
+              reference: "00000000-0000-4000-8000-000000000051",
+              trackReference: params.expectedReference,
+              trackIndex: params.index,
+              index: 1,
+              name: browserItem.name,
+              className: "Operator",
+              classDisplayName: "Operator",
+              enabled: true,
+              parameterCount: 2,
+              canHaveChains: false,
+              canHaveDrumPads: false,
+            },
+          ],
+          addedDevicesTruncated: false,
+          verified: true as const,
+        }),
+    ),
     inspectRackChains: vi.fn(
       (params: Parameters<AbletonToolServices["inspectRackChains"]>[0]) =>
         Promise.resolve({
@@ -795,6 +917,10 @@ describe("Ableton tools", () => {
       "custom:ableton_drum_pad_chain_devices_inspect",
       "custom:ableton_device_set_enabled",
       "custom:ableton_device_set_parameter",
+      "custom:ableton_browser_roots_inspect",
+      "custom:ableton_browser_children_inspect",
+      "custom:ableton_browser_search",
+      "custom:ableton_browser_load_item",
     ]);
     expect(abletonToolMetadata.map((metadata) => metadata.risk)).toEqual([
       "read",
@@ -829,6 +955,10 @@ describe("Ableton tools", () => {
       "read",
       "read",
       "reversible",
+      "reversible",
+      "read",
+      "read",
+      "read",
       "reversible",
     ]);
   });
@@ -1113,6 +1243,41 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
+    const browserTarget = {
+      expectedItemReference: "00000000-0000-4000-8000-000000000050",
+      expectedItemRoot: "instruments" as const,
+      expectedItemPath: [
+        { index: 0, name: "Synths" },
+        { index: 0, name: "Operator" },
+      ],
+      expectedItemName: "Operator",
+      expectedItemUri: "ableton://instruments/operator",
+    };
+    await toolSet.tools[33].handler?.({}, invocation);
+    await toolSet.tools[34].handler?.(
+      { ...browserTarget, offset: 0, limit: 10 },
+      invocation,
+    );
+    await toolSet.tools[35].handler?.(
+      {
+        query: "operator",
+        roots: ["instruments"],
+        maxNodes: 32,
+        maxResults: 5,
+        maxDepth: 3,
+        maxDurationMs: 100,
+      },
+      invocation,
+    );
+    await toolSet.tools[36].handler?.(
+      {
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Drums",
+        ...browserTarget,
+      },
+      invocation,
+    );
 
     expect(ports.getConnectionStatus).toHaveBeenCalledOnce();
     expect(ports.inspectSession).toHaveBeenCalledOnce();
@@ -1322,6 +1487,26 @@ describe("Ableton tools", () => {
       expectedParameterReference: "00000000-0000-4000-8000-000000000041",
       expectedParameterName: "Filter Freq",
       normalizedValue: 0.75,
+    });
+    expect(ports.inspectBrowserRoots).toHaveBeenCalledOnce();
+    expect(ports.inspectBrowserChildren).toHaveBeenCalledWith({
+      ...browserTarget,
+      offset: 0,
+      limit: 10,
+    });
+    expect(ports.searchBrowser).toHaveBeenCalledWith({
+      query: "operator",
+      roots: ["instruments"],
+      maxNodes: 32,
+      maxResults: 5,
+      maxDepth: 3,
+      maxDurationMs: 100,
+    });
+    expect(ports.loadBrowserItem).toHaveBeenCalledWith({
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000001",
+      expectedName: "Drums",
+      ...browserTarget,
     });
   });
 

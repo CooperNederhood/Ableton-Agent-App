@@ -49,6 +49,21 @@ function application(
       return reply;
     }),
   };
+  const browserItem = {
+    reference: "00000000-0000-4000-8000-000000000050",
+    root: "instruments" as const,
+    path: [
+      { index: 0, name: "Synths" },
+      { index: 0, name: "Operator" },
+    ],
+    name: "Operator",
+    uri: "ableton://instruments/operator",
+    isFolder: false,
+    isLoadable: true,
+    isDevice: true,
+    source: "instrument",
+    isBuiltInDevice: true,
+  };
   const ableton: AbletonService = {
     start: vi.fn(async () => undefined),
     stop: vi.fn(async () => undefined),
@@ -194,6 +209,96 @@ function application(
         total: 1,
         offset: params.offset,
         limit: params.limit,
+      }),
+    ),
+    inspectBrowserRoots: vi.fn(async () => ({
+      roots: [
+        {
+          ...browserItem,
+          path: [],
+          name: "Instruments",
+          uri: "ableton://instruments",
+          isFolder: true,
+          isLoadable: false,
+          isDevice: false,
+          source: "",
+          isBuiltInDevice: false,
+        },
+      ],
+      cacheLimit: 512,
+    })),
+    inspectBrowserChildren: vi.fn(
+      async (
+        params: Parameters<AbletonService["inspectBrowserChildren"]>[0],
+      ) => ({
+        parent: {
+          ...browserItem,
+          reference: params.expectedItemReference,
+          root: params.expectedItemRoot,
+          path: params.expectedItemPath,
+          name: params.expectedItemName,
+          uri: params.expectedItemUri,
+          isFolder: true,
+          isLoadable: false,
+          isDevice: false,
+          source: "",
+          isBuiltInDevice: false,
+        },
+        items: [browserItem],
+        total: 1,
+        hasMore: false,
+        offset: params.offset,
+        limit: params.limit,
+      }),
+    ),
+    searchBrowser: vi.fn(
+      async (params: Parameters<AbletonService["searchBrowser"]>[0]) => ({
+        query: params.query,
+        items: [browserItem],
+        visitedNodes: 3,
+        truncated: false,
+        stopReason: "complete" as const,
+        limits: {
+          maxNodes: params.maxNodes,
+          maxResults: params.maxResults,
+          maxDepth: params.maxDepth,
+          maxDurationMs: params.maxDurationMs,
+        },
+      }),
+    ),
+    loadBrowserItem: vi.fn(
+      async (params: Parameters<AbletonService["loadBrowserItem"]>[0]) => ({
+        track: {
+          index: params.index,
+          reference: params.expectedReference,
+          name: params.expectedName,
+          kind: "midi" as const,
+        },
+        item: browserItem,
+        before: {
+          deviceCount: 1,
+          deviceReferences: ["00000000-0000-4000-8000-000000000040"],
+          deviceNames: ["Drum Rack"],
+          devicesTruncated: false,
+          sessionClipCount: 0,
+          occupiedSessionSlots: [],
+          clipsTruncated: false,
+        },
+        after: {
+          deviceCount: 2,
+          deviceReferences: [
+            "00000000-0000-4000-8000-000000000040",
+            "00000000-0000-4000-8000-000000000051",
+          ],
+          deviceNames: ["Drum Rack", "Operator"],
+          devicesTruncated: false,
+          sessionClipCount: 0,
+          occupiedSessionSlots: [],
+          clipsTruncated: false,
+        },
+        addedDevices: [],
+        addedDevicesTruncated: false,
+        verified: true as const,
       }),
     ),
     inspectDeviceParameters: vi.fn(
@@ -693,6 +798,44 @@ describe("CLI", () => {
     );
   });
 
+  it("parses bounded browser inspection, search, and approved loading", () => {
+    expect(
+      parseArgs([
+        "browser-search",
+        "operator",
+        "--root",
+        "instruments",
+        "--max-nodes",
+        "64",
+        "--limit",
+        "5",
+      ]),
+    ).toEqual({
+      name: "browser-search",
+      query: "operator",
+      roots: ["instruments"],
+      maxNodes: 64,
+      maxResults: 5,
+      maxDepth: 4,
+      maxDurationMs: 100,
+      json: false,
+    });
+    expect(
+      parseArgs(["browser-load", "1", "operator", "1", "--approve"]),
+    ).toMatchObject({
+      name: "browser-load",
+      trackNumber: 1,
+      query: "operator",
+      resultNumber: 1,
+    });
+    expect(() => parseArgs(["browser-load", "1", "operator", "1"])).toThrow(
+      /--approve/,
+    );
+    expect(() =>
+      parseArgs(["browser-search", "operator", "--max-nodes", "257"]),
+    ).toThrow(CliUsageError);
+  });
+
   it("renders bounded Arrangement transport inspection", async () => {
     const out = output();
     const exitCode = await runCommand(
@@ -742,6 +885,54 @@ describe("CLI", () => {
       ),
     ).resolves.toBe(0);
     expect(parameterOutput.lines[0]).toContain("Dry/Wet: 0.500");
+  });
+
+  it("renders bounded browser search and verified approved loading", async () => {
+    const status = {
+      state: "connected" as const,
+      liveVersion: "12.1",
+      remoteScriptVersion: "0.4.0",
+      projectId: "project",
+    };
+    const searchOutput = output();
+    await expect(
+      runCommand(
+        {
+          name: "browser-search",
+          query: "operator",
+          roots: ["instruments"],
+          maxNodes: 32,
+          maxResults: 5,
+          maxDepth: 3,
+          maxDurationMs: 100,
+          json: false,
+        },
+        application(status).application,
+        searchOutput.io,
+      ),
+    ).resolves.toBe(0);
+    expect(searchOutput.lines[0]).toContain("[instruments] Synths / Operator");
+
+    const loadOutput = output();
+    await expect(
+      runCommand(
+        {
+          name: "browser-load",
+          trackNumber: 1,
+          query: "operator",
+          resultNumber: 1,
+          roots: ["instruments"],
+          maxNodes: 32,
+          maxResults: 5,
+          maxDepth: 3,
+          maxDurationMs: 100,
+          json: false,
+        },
+        application(status).application,
+        loadOutput.io,
+      ),
+    ).resolves.toBe(0);
+    expect(loadOutput.lines[0]).toContain("devices 1 → 2 (verified)");
   });
 
   it("renders bounded rack and Drum Rack inspection", async () => {

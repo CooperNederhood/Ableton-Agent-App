@@ -79,8 +79,10 @@ relevant validation pass.
     enable/disable plus normalized parameter mutation for regular tracks.
   - [x] Add bounded identity-safe direct rack-chain and Drum Rack pad/chain
     inspection for one explicitly targeted top-level rack without recursion.
-  - [ ] Add return/group tracks, browser, loading, and separately designed
-    nested-rack traversal.
+  - [x] Add bounded Browser root/category inspection, deterministic bounded
+    search, runtime-stable item references, and verified built-in device
+    loading on exact regular tracks.
+  - [ ] Add return/group tracks and separately designed nested-rack traversal.
 - [ ] Complete unit, contract, simulator, and real-Live tests for each command.
 
 ### Stage 5: React product superset

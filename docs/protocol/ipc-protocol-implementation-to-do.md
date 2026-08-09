@@ -17,6 +17,8 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
     device enable, and normalized parameter mutation schemas.
   - [x] Define bounded exact-rack chain, direct chain-device, Drum Rack pad,
     pad-chain, and pad-chain-device inspection schemas.
+  - [x] Define bounded Browser root/child/search schemas, exact runtime item
+    targets, strict traversal limits, and verified built-in load results.
 - [ ] Export JSON Schema and representative fixtures for Python tests.
 
 ## Framing and negotiation

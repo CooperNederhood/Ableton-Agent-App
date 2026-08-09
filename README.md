@@ -36,6 +36,10 @@ node apps/cli/dist/main.js chain-devices 1 1 1
 node apps/cli/dist/main.js drum-pads 1 1
 node apps/cli/dist/main.js pad-chains 1 1 1
 node apps/cli/dist/main.js pad-chain-devices 1 1 1 1
+node apps/cli/dist/main.js browser-roots
+node apps/cli/dist/main.js browser-category instruments
+node apps/cli/dist/main.js browser-search "operator" --root instruments
+node apps/cli/dist/main.js browser-load 1 "operator" 1 --root instruments --approve
 node apps/cli/dist/main.js chat
 ```
 
@@ -84,6 +88,20 @@ track, top-level rack, and requested chain or pad identity. Nested racks are
 reported as devices but never expanded recursively. Return tracks, group
 tracks, nested-rack traversal, and chain-device parameter access remain out of
 scope.
+Ableton Browser roots and direct folder children can be inspected in bounded
+pages. Search uses deterministic breadth-first traversal with explicit limits
+of 256 visited nodes, 32 results, depth 6, 128 query characters, and 250 ms of
+main-thread work per request. Results receive runtime-stable references from a
+512-entry bounded cache, and every follow-up revalidates the exact root,
+indexed/name path, item name, and URI.
+Loading is limited to an explicitly selected identity-bound regular track and
+an exact loadable item under Instruments, Audio Effects, or MIDI Effects.
+Plug-ins, Max for Live, user-library/current-project content, samples, clips,
+arbitrary filesystem paths, folders, incompatible tracks, and active hotswap
+are rejected. Loading is reversible-risk and requires approval; the operation
+captures bounded before/after device and Session clip state and succeeds only
+after observing added top-level devices. Unverified or partially observed
+loads return an explicit indeterminate/not-observed failure.
 Device enable/disable uses the documented first `Device On` parameter when it
 is exposed. Parameter updates accept normalized `0..1` values, map through the
 parameter's current minimum and maximum, snap quantized parameters to the
@@ -97,6 +115,12 @@ timing, and rollback verification. Also confirm `can_have_chains`, `chains`,
 `can_have_drum_pads`, `drum_pads`, DrumPad `chains`/`note`/`name`, chain
 `devices`/`name`/`color`, object-identity stability, ordering, empty-pad
 behavior, and capability detection across supported Live versions.
+Also validate Browser root availability and ordering; BrowserItem `name`,
+`uri`, `children`, `is_folder`, and `is_loadable`; URI and object stability;
+child access latency; `Browser.load_item`; selected-track targeting and
+selection restoration; hotswap behavior; MIDI/audio track compatibility;
+synchronous versus delayed device appearance; multi-device presets; and
+failure timing across supported Live versions and installed Packs.
 
 For development without Ableton:
 

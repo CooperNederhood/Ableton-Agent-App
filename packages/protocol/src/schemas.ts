@@ -532,6 +532,144 @@ export const setDeviceParameterResultSchema = z.object({
   verified: z.literal(true),
 });
 
+export const browserRootKeySchema = z.enum([
+  "sounds",
+  "drums",
+  "instruments",
+  "audio_effects",
+  "midi_effects",
+  "max_for_live",
+  "plugins",
+  "clips",
+  "samples",
+  "packs",
+  "user_library",
+  "current_project",
+]);
+
+export const browserPathSegmentSchema = z
+  .object({
+    index: z.number().int().nonnegative().max(4096),
+    name: z.string().min(1).max(256),
+  })
+  .strict();
+
+export const browserItemSummarySchema = z.object({
+  reference: z.string().uuid(),
+  root: browserRootKeySchema,
+  path: z.array(browserPathSegmentSchema).max(16),
+  name: z.string().min(1).max(256),
+  uri: z.string().max(2048),
+  isFolder: z.boolean(),
+  isLoadable: z.boolean(),
+  isDevice: z.boolean(),
+  source: z.string().max(256),
+  isBuiltInDevice: z.boolean(),
+});
+
+export const inspectBrowserRootsParamsSchema = z.object({}).strict();
+
+export const inspectBrowserRootsResultSchema = z.object({
+  roots: z.array(browserItemSummarySchema).max(12),
+  cacheLimit: z.number().int().min(1).max(512),
+});
+
+export const browserItemTargetSchema = z
+  .object({
+    expectedItemReference: z.string().uuid(),
+    expectedItemRoot: browserRootKeySchema,
+    expectedItemPath: z.array(browserPathSegmentSchema).max(16),
+    expectedItemName: z.string().min(1).max(256),
+    expectedItemUri: z.string().max(2048),
+  })
+  .strict();
+
+export const inspectBrowserChildrenParamsSchema = browserItemTargetSchema
+  .extend({
+    offset: z.number().int().nonnegative().max(4096).default(0),
+    limit: z.number().int().min(1).max(64).default(32),
+  })
+  .strict()
+  .refine((params) => params.offset + params.limit - 1 <= 4096, {
+    message: "Browser page exceeds the maximum addressable child index",
+  });
+
+export const inspectBrowserChildrenResultSchema = z.object({
+  parent: browserItemSummarySchema,
+  items: z.array(browserItemSummarySchema).max(64),
+  total: z.number().int().nonnegative().nullable(),
+  hasMore: z.boolean(),
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().min(1).max(64),
+});
+
+export const searchBrowserParamsSchema = z
+  .object({
+    query: z.string().trim().min(1).max(128),
+    roots: z
+      .array(browserRootKeySchema)
+      .min(1)
+      .max(12)
+      .refine((roots) => new Set(roots).size === roots.length, {
+        message: "Browser roots must be unique",
+      })
+      .default(["instruments", "audio_effects", "midi_effects"]),
+    maxNodes: z.number().int().min(1).max(256).default(128),
+    maxResults: z.number().int().min(1).max(32).default(20),
+    maxDepth: z.number().int().min(0).max(6).default(4),
+    maxDurationMs: z.number().int().min(10).max(250).default(100),
+  })
+  .strict();
+
+export const searchBrowserResultSchema = z.object({
+  query: z.string().min(1).max(128),
+  items: z.array(browserItemSummarySchema).max(32),
+  visitedNodes: z.number().int().min(0).max(256),
+  truncated: z.boolean(),
+  stopReason: z.enum([
+    "complete",
+    "node_limit",
+    "result_limit",
+    "time_limit",
+    "depth_limit",
+  ]),
+  limits: z.object({
+    maxNodes: z.number().int().min(1).max(256),
+    maxResults: z.number().int().min(1).max(32),
+    maxDepth: z.number().int().min(0).max(6),
+    maxDurationMs: z.number().int().min(10).max(250),
+  }),
+});
+
+export const browserTrackLoadStateSchema = z.object({
+  deviceCount: z.number().int().nonnegative(),
+  deviceReferences: z.array(z.string().uuid()).max(128),
+  deviceNames: z.array(z.string()).max(128),
+  devicesTruncated: z.boolean(),
+  sessionClipCount: z.number().int().nonnegative(),
+  occupiedSessionSlots: z.array(z.number().int().nonnegative()).max(128),
+  clipsTruncated: z.boolean(),
+});
+
+export const loadBrowserItemParamsSchema = trackTargetSchema
+  .merge(browserItemTargetSchema)
+  .strict();
+
+export const loadBrowserItemResultSchema = z.object({
+  track: z.object({
+    index: z.number().int().nonnegative(),
+    reference: z.string().uuid(),
+    name: z.string().min(1),
+    kind: trackKindSchema,
+  }),
+  item: browserItemSummarySchema,
+  before: browserTrackLoadStateSchema,
+  after: browserTrackLoadStateSchema,
+  addedDevices: z.array(deviceSummarySchema).max(16),
+  addedDevicesTruncated: z.boolean(),
+  verified: z.literal(true),
+});
+
 export const createMidiClipParamsSchema = trackTargetSchema.extend({
   sceneIndex: z.number().int().nonnegative(),
   length: z.number().positive().max(4096),
@@ -848,6 +986,27 @@ export type SetDeviceParameterParams = z.infer<
 export type SetDeviceParameterResult = z.infer<
   typeof setDeviceParameterResultSchema
 >;
+export type BrowserRootKey = z.infer<typeof browserRootKeySchema>;
+export type BrowserPathSegment = z.infer<typeof browserPathSegmentSchema>;
+export type BrowserItemSummary = z.infer<typeof browserItemSummarySchema>;
+export type InspectBrowserRootsParams = z.infer<
+  typeof inspectBrowserRootsParamsSchema
+>;
+export type InspectBrowserRootsResult = z.infer<
+  typeof inspectBrowserRootsResultSchema
+>;
+export type BrowserItemTarget = z.infer<typeof browserItemTargetSchema>;
+export type InspectBrowserChildrenParams = z.infer<
+  typeof inspectBrowserChildrenParamsSchema
+>;
+export type InspectBrowserChildrenResult = z.infer<
+  typeof inspectBrowserChildrenResultSchema
+>;
+export type SearchBrowserParams = z.infer<typeof searchBrowserParamsSchema>;
+export type SearchBrowserResult = z.infer<typeof searchBrowserResultSchema>;
+export type BrowserTrackLoadState = z.infer<typeof browserTrackLoadStateSchema>;
+export type LoadBrowserItemParams = z.infer<typeof loadBrowserItemParamsSchema>;
+export type LoadBrowserItemResult = z.infer<typeof loadBrowserItemResultSchema>;
 export type CreateMidiClipParams = z.infer<typeof createMidiClipParamsSchema>;
 export type CreateMidiClipResult = z.infer<typeof createMidiClipResultSchema>;
 export type ReplaceMidiNotesParams = z.infer<

@@ -41,8 +41,10 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
     inspection and serialized verified device/parameter mutations.
   - [x] Implement capability-gated bounded exact-rack chains, chain devices,
     Drum Rack pads, pad chains, and pad-chain devices.
+  - [x] Implement capability-gated bounded Browser roots/children/search and
+    serialized exact-item built-in loading with strict result schemas.
   - [ ] Implement remaining track, clip, arrangement, device, and browser clients.
-- [ ] Add pagination and filtering for large browser/parameter results.
+- [x] Add pagination and filtering for large browser/parameter results.
 
 ## Tests
 

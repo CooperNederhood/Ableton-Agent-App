@@ -20,6 +20,8 @@ Companion specification: [Tool Design](tool-design.md)
     inspection for identity-bound regular tracks.
   - [x] Add read-risk bounded exact-rack chain/device and Drum Rack
     pad/chain/device inspection without recursive expansion.
+  - [x] Add read-risk Browser root/direct-child inspection and deterministic
+    bounded search with explicit truncation reporting.
 - [ ] Implement external plug-in search with bounded cached results.
 
 ## Primitive mutation tools
@@ -46,7 +48,9 @@ Companion specification: [Tool Design](tool-design.md)
 - [~] Implement browser/device load and parameter operations.
   - [x] Add reversible verified device enable/disable and normalized parameter
     mutation with quantized-value handling and rollback.
-  - [ ] Add browser loading, device deletion, racks, Drum Rack, and plug-ins.
+  - [x] Add reversible exact-item built-in Browser loading with track/item
+    identity gates, before/after state, and postcondition verification.
+  - [ ] Add device deletion and separately designed plug-in loading.
 - [x] Implement transport, loop, and cue-point operations.
   - [x] Auto-approve bounded loop/cue inspection, classify loop updates and cue
     creation as reversible, and classify identity-bound cue deletion as

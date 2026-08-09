@@ -25,6 +25,13 @@ import type {
   InspectDeviceParametersResult,
   InspectDevicesParams,
   InspectDevicesResult,
+  InspectBrowserRootsResult,
+  InspectBrowserChildrenParams,
+  InspectBrowserChildrenResult,
+  SearchBrowserParams,
+  SearchBrowserResult,
+  LoadBrowserItemParams,
+  LoadBrowserItemResult,
   InspectDrumPadChainDevicesParams,
   InspectDrumPadChainDevicesResult,
   InspectDrumPadChainsParams,
@@ -98,6 +105,14 @@ export interface AbletonToolServices {
   renameTrack(params: RenameTrackParams): Promise<RenameTrackResult>;
   setTrackMixer(params: SetTrackMixerParams): Promise<SetTrackMixerResult>;
   inspectDevices(params: InspectDevicesParams): Promise<InspectDevicesResult>;
+  inspectBrowserRoots(): Promise<InspectBrowserRootsResult>;
+  inspectBrowserChildren(
+    params: InspectBrowserChildrenParams,
+  ): Promise<InspectBrowserChildrenResult>;
+  searchBrowser(params: SearchBrowserParams): Promise<SearchBrowserResult>;
+  loadBrowserItem(
+    params: LoadBrowserItemParams,
+  ): Promise<LoadBrowserItemResult>;
   inspectDeviceParameters(
     params: InspectDeviceParametersParams,
   ): Promise<InspectDeviceParametersResult>;
@@ -389,6 +404,34 @@ export const abletonToolMetadata = [
     duration: "short",
     requiredCapability: "devices.set_parameter",
   },
+  {
+    name: "ableton_browser_roots_inspect",
+    title: "Inspect Ableton browser roots",
+    risk: "read",
+    duration: "instant",
+    requiredCapability: "browser.inspect_roots",
+  },
+  {
+    name: "ableton_browser_children_inspect",
+    title: "Inspect Ableton browser category",
+    risk: "read",
+    duration: "short",
+    requiredCapability: "browser.inspect_children",
+  },
+  {
+    name: "ableton_browser_search",
+    title: "Search Ableton browser",
+    risk: "read",
+    duration: "short",
+    requiredCapability: "browser.search",
+  },
+  {
+    name: "ableton_browser_load_item",
+    title: "Load built-in Ableton browser item",
+    risk: "reversible",
+    duration: "long",
+    requiredCapability: "browser.load_item",
+  },
 ] as const satisfies readonly AbletonToolMetadata[];
 
 export interface ToolApprovalRequest {
@@ -466,6 +509,10 @@ export interface AbletonToolSet {
     Tool<InspectDrumPadChainDevicesParams>,
     Tool<SetDeviceEnabledParams>,
     Tool<SetDeviceParameterParams>,
+    Tool<Record<string, never>>,
+    Tool<InspectBrowserChildrenParams>,
+    Tool<SearchBrowserParams>,
+    Tool<LoadBrowserItemParams>,
   ];
   availableTools: string[];
 }
@@ -1054,6 +1101,107 @@ export function createAbletonTools(
       .strict(),
     handler: async (params) => services.setDeviceParameter(params),
   });
+  const inspectBrowserRootsTool = defineTool("ableton_browser_roots_inspect", {
+    description:
+      "Returns the bounded documented Ableton Browser root categories and runtime-stable references. It does not traverse their trees.",
+    parameters: z.object({}).strict(),
+    handler: async () => services.inspectBrowserRoots(),
+  });
+  const browserItemTargetParameters = {
+    expectedItemReference: z.string().uuid(),
+    expectedItemRoot: z.enum([
+      "sounds",
+      "drums",
+      "instruments",
+      "audio_effects",
+      "midi_effects",
+      "max_for_live",
+      "plugins",
+      "clips",
+      "samples",
+      "packs",
+      "user_library",
+      "current_project",
+    ]),
+    expectedItemPath: z
+      .array(
+        z
+          .object({
+            index: z.number().int().nonnegative().max(1_000_000),
+            name: z.string().min(1).max(256),
+          })
+          .strict(),
+      )
+      .max(16),
+    expectedItemName: z.string().min(1).max(256),
+    expectedItemUri: z.string().max(2048),
+  } as const;
+  const inspectBrowserChildrenTool = defineTool(
+    "ableton_browser_children_inspect",
+    {
+      description:
+        "Returns one bounded page of direct children for an exact identity-bound Ableton Browser folder. It never recursively traverses the browser tree.",
+      parameters: z
+        .object({
+          ...browserItemTargetParameters,
+          offset: z.number().int().nonnegative().max(4096).default(0),
+          limit: z.number().int().min(1).max(64).default(32),
+        })
+        .strict()
+        .refine((params) => params.offset + params.limit - 1 <= 4096, {
+          message: "Browser page exceeds the maximum addressable child index",
+        }),
+      handler: async (params) => services.inspectBrowserChildren(params),
+    },
+  );
+  const searchBrowserTool = defineTool("ableton_browser_search", {
+    description:
+      "Performs a deterministic breadth-first Ableton Browser search with strict node, result, depth, query-length, and main-thread time limits. Results are runtime identity-bound; truncation and the stop reason are always reported.",
+    parameters: z
+      .object({
+        query: z.string().trim().min(1).max(128),
+        roots: z
+          .array(
+            z.enum([
+              "sounds",
+              "drums",
+              "instruments",
+              "audio_effects",
+              "midi_effects",
+              "max_for_live",
+              "plugins",
+              "clips",
+              "samples",
+              "packs",
+              "user_library",
+              "current_project",
+            ]),
+          )
+          .min(1)
+          .max(12)
+          .refine((roots) => new Set(roots).size === roots.length)
+          .default(["instruments", "audio_effects", "midi_effects"]),
+        maxNodes: z.number().int().min(1).max(256).default(128),
+        maxResults: z.number().int().min(1).max(32).default(20),
+        maxDepth: z.number().int().min(0).max(6).default(4),
+        maxDurationMs: z.number().int().min(10).max(250).default(100),
+      })
+      .strict(),
+    handler: async (params) => services.searchBrowser(params),
+  });
+  const loadBrowserItemTool = defineTool("ableton_browser_load_item", {
+    description:
+      "Loads one explicitly selected, exact runtime identity-bound built-in instrument, audio effect, or MIDI effect onto one exact regular track. It rejects plug-ins, arbitrary paths, folders, incompatible tracks, and active hotswap; captures bounded before/after device and clip state and succeeds only after observing added top-level devices.",
+    parameters: z
+      .object({
+        index: z.number().int().nonnegative(),
+        expectedReference: z.string().uuid(),
+        expectedName: z.string().min(1),
+        ...browserItemTargetParameters,
+      })
+      .strict(),
+    handler: async (params) => services.loadBrowserItem(params),
+  });
 
   return {
     tools: [
@@ -1090,6 +1238,10 @@ export function createAbletonTools(
       inspectDrumPadChainDevicesTool,
       setDeviceEnabledTool,
       setDeviceParameterTool,
+      inspectBrowserRootsTool,
+      inspectBrowserChildrenTool,
+      searchBrowserTool,
+      loadBrowserItemTool,
     ],
     availableTools: abletonToolMetadata.map(
       (metadata) => `custom:${metadata.name}`,

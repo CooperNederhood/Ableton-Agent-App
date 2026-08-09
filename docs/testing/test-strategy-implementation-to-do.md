@@ -27,6 +27,9 @@ Companion specification: [Test Strategy](test-strategy.md)
 - [x] Cover bounded rack/chain/pad pages, exact nested identity guards,
   runtime-reference pruning, no-recursion behavior, CLI reads, and simulator
   parity.
+- [x] Cover bounded Browser roots/children/search, deterministic traversal,
+  strict node/result/depth/time limits, exact item revalidation, prohibited
+  plug-in loading, approved CLI loading, and simulator bridge parity.
 - [ ] Implement CLI transcript tests.
 - [ ] Implement Playwright Electron harness.
 - [ ] Create real-Live test project and manual runner.
@@ -39,6 +42,10 @@ Companion specification: [Test Strategy](test-strategy.md)
     parameter writability, quantized values, setter failures, and rollback.
   - [ ] Record real-Live results for rack/Drum Rack capabilities, chain/pad
     identity and ordering, empty pads, pad chains, and direct chain devices.
+  - [ ] Record real-Live results for Browser roots, BrowserItem properties and
+    URI stability, child ordering/latency, selected-track and hotswap behavior,
+    `Browser.load_item` timing, track compatibility, multi-device presets, and
+    indeterminate failure reporting.
 
 ## CI
 

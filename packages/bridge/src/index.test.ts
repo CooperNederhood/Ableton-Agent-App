@@ -50,7 +50,7 @@ describe("AbletonBridgeService", () => {
     expect(await service.getStatus()).toEqual({
       state: "connected",
       liveVersion: "12.1-simulator",
-      remoteScriptVersion: "0.3.0",
+      remoteScriptVersion: "0.4.0",
       projectId: "simulated-project",
     });
     await expect(service.getCapabilities()).resolves.toMatchObject({
@@ -76,6 +76,10 @@ describe("AbletonBridgeService", () => {
         "devices.inspect_drum_pad_chain_devices": true,
         "devices.set_enabled": true,
         "devices.set_parameter": true,
+        "browser.inspect_roots": true,
+        "browser.inspect_children": true,
+        "browser.search": true,
+        "browser.load_item": true,
         "clips.create_midi": true,
         "clips.replace_notes": true,
         "clips.launch": true,
@@ -414,6 +418,57 @@ describe("AbletonBridgeService", () => {
           kind: "midi",
         },
       ],
+    });
+    const browserRoots = await service.inspectBrowserRoots();
+    const instruments = browserRoots.roots.find(
+      (root) => root.root === "instruments",
+    );
+    expect(instruments).toBeDefined();
+    await expect(
+      service.inspectBrowserChildren({
+        expectedItemReference: instruments?.reference ?? "",
+        expectedItemRoot: "instruments",
+        expectedItemPath: [],
+        expectedItemName: instruments?.name ?? "",
+        expectedItemUri: instruments?.uri ?? "",
+        offset: 0,
+        limit: 1,
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [{ name: "Synths", isFolder: true }],
+    });
+    const browserSearch = await service.searchBrowser({
+      query: "operator",
+      roots: ["instruments"],
+      maxNodes: 8,
+      maxResults: 1,
+      maxDepth: 3,
+      maxDurationMs: 100,
+    });
+    expect(browserSearch).toMatchObject({
+      visitedNodes: 3,
+      stopReason: "result_limit",
+      items: [{ name: "Operator", isBuiltInDevice: true }],
+    });
+    const browserItem = browserSearch.items[0];
+    await expect(
+      service.loadBrowserItem({
+        index: 0,
+        expectedReference: drums?.reference ?? "",
+        expectedName: "Main Drums",
+        expectedItemReference: browserItem?.reference ?? "",
+        expectedItemRoot: browserItem?.root ?? "instruments",
+        expectedItemPath: browserItem?.path ?? [],
+        expectedItemName: browserItem?.name ?? "",
+        expectedItemUri: browserItem?.uri ?? "",
+      }),
+    ).resolves.toMatchObject({
+      item: { name: "Operator" },
+      before: { deviceCount: 1, sessionClipCount: 1 },
+      after: { deviceCount: 2, sessionClipCount: 1 },
+      addedDevices: [{ name: "Operator" }],
+      verified: true,
     });
     await expect(
       service.replaceMidiNotes({

@@ -61,7 +61,10 @@ Companion specification: [Remote Script](remote-script.md)
     chain, chain-device, Drum Rack pad, pad-chain, and pad-chain-device pages
     with runtime-stable pruned references and no recursive traversal.
   - [ ] Add return/group tracks and separately designed nested-rack traversal.
-- [ ] Implement paginated browser handlers and loading.
+- [x] Implement bounded Browser root/category pages, deterministic
+  breadth-first search with node/result/depth/time limits, a 512-entry
+  runtime-reference cache, exact path/URI revalidation, and verified built-in
+  device loading on selected identity-bound regular tracks.
 - [ ] Implement selected low-frequency LOM listeners and cleanup.
 
 ## Tests
@@ -80,7 +83,12 @@ Companion specification: [Remote Script](remote-script.md)
   - [ ] Validate rack/Drum Rack capability properties, chain/pad ordering and
     object identity, empty pads, pad-chain exposure, and chain device access in
     supported Live versions.
-- [ ] Test that browser operations remain bounded and responsive.
+  - [ ] Validate Browser roots and BrowserItem properties, URI/object
+    stability, child ordering and latency, selected-track targeting,
+    `Browser.load_item` timing, hotswap state, track compatibility,
+    multi-device presets, and load failure timing in supported Live versions.
+- [x] Test that browser operations remain bounded and responsive in unit and
+  simulator coverage.
 
 ## Exit criteria
 

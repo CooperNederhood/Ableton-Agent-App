@@ -52,6 +52,13 @@ import type {
   InspectDeviceParametersResult,
   InspectDevicesParams,
   InspectDevicesResult,
+  InspectBrowserRootsResult,
+  InspectBrowserChildrenParams,
+  InspectBrowserChildrenResult,
+  SearchBrowserParams,
+  SearchBrowserResult,
+  LoadBrowserItemParams,
+  LoadBrowserItemResult,
   InspectDrumPadChainDevicesParams,
   InspectDrumPadChainDevicesResult,
   InspectDrumPadChainsParams,
@@ -168,6 +175,18 @@ class UnconfiguredAbletonService implements AbletonService {
     throw new Error("Ableton bridge is not configured");
   }
   public async inspectDevices(): Promise<InspectDevicesResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async inspectBrowserRoots(): Promise<InspectBrowserRootsResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async inspectBrowserChildren(): Promise<InspectBrowserChildrenResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async searchBrowser(): Promise<SearchBrowserResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async loadBrowserItem(): Promise<LoadBrowserItemResult> {
     throw new Error("Ableton bridge is not configured");
   }
   public async inspectDeviceParameters(): Promise<InspectDeviceParametersResult> {
@@ -293,6 +312,13 @@ async function main(): Promise<number> {
         ableton.setTrackMixer(params),
       inspectDevices: (params: InspectDevicesParams) =>
         ableton.inspectDevices(params),
+      inspectBrowserRoots: () => ableton.inspectBrowserRoots(),
+      inspectBrowserChildren: (params: InspectBrowserChildrenParams) =>
+        ableton.inspectBrowserChildren(params),
+      searchBrowser: (params: SearchBrowserParams) =>
+        ableton.searchBrowser(params),
+      loadBrowserItem: (params: LoadBrowserItemParams) =>
+        ableton.loadBrowserItem(params),
       inspectDeviceParameters: (params: InspectDeviceParametersParams) =>
         ableton.inspectDeviceParameters(params),
       inspectRackChains: (params: InspectRackChainsParams) =>

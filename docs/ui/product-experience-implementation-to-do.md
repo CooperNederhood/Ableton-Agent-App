@@ -41,7 +41,7 @@ typed service calls, and sessions use explicit create/resume operations.
 
 - [x] Implement keyboard navigation and focus management.
 - [x] Add semantic labels and non-color status indicators.
-- [ ] Virtualize large lists and throttle streaming updates.
+- [x] Virtualize large lists and throttle streaming updates.
 - [x] Define loading, empty, degraded, and disconnected states.
 
 ## Tests
@@ -56,7 +56,7 @@ typed service calls, and sessions use explicit create/resume operations.
   sessions, and project switches.
   - [x] Cover launch and navigation in the real Electron shell.
   - [ ] Cover all shared runtime workflows with deterministic injected fakes.
-- [ ] Performance-test long event histories and browser lists.
+- [x] Performance-test long event histories and browser lists.
 
 Semantic markup, labels, focus shortcuts, Enter-to-send, and reduced-motion
 support are implemented, but automated accessibility tooling and full keyboard

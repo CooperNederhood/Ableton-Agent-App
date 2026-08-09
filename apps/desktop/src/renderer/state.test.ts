@@ -5,7 +5,7 @@ import { contextForSelection, desktopReducer, initialState } from "./state";
 describe("desktop reducer", () => {
   it("throttles state growth with bounded histories", () => {
     let state = initialState;
-    for (let index = 0; index < 550; index += 1) {
+    for (let index = 0; index < 5_000; index += 1) {
       state = desktopReducer(state, {
         type: "user-message",
         id: String(index),
@@ -13,7 +13,19 @@ describe("desktop reducer", () => {
       });
     }
     expect(state.messages).toHaveLength(500);
-    expect(state.messages[0]?.id).toBe("50");
+    expect(state.messages[0]?.id).toBe("4500");
+    for (let index = 0; index < 1_000; index += 1) {
+      state = desktopReducer(state, {
+        type: "event",
+        event: {
+          type: "diagnostic",
+          level: "info",
+          message: String(index),
+        },
+      });
+    }
+    expect(state.diagnostics).toHaveLength(100);
+    expect(state.diagnostics[0]?.message).toBe("900");
   });
 
   it("accumulates stream deltas and completes the message", () => {

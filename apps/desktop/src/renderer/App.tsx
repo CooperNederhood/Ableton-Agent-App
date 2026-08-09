@@ -42,13 +42,37 @@ export function App(): React.JSX.Element {
   const [busy, setBusy] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(
-    () =>
-      window.desktop.events.subscribe((event) =>
-        dispatch({ type: "event", event }),
-      ),
-    [],
-  );
+  useEffect(() => {
+    const pendingDeltas = new Map<string, string>();
+    let frame: number | undefined;
+    const flush = (): void => {
+      frame = undefined;
+      for (const [messageId, content] of pendingDeltas) {
+        dispatch({
+          type: "event",
+          event: { type: "agent.message_delta", messageId, content },
+        });
+      }
+      pendingDeltas.clear();
+    };
+    const unsubscribe = window.desktop.events.subscribe((event) => {
+      if (event.type !== "agent.message_delta") {
+        if (frame !== undefined) cancelAnimationFrame(frame);
+        if (pendingDeltas.size > 0) flush();
+        dispatch({ type: "event", event });
+        return;
+      }
+      pendingDeltas.set(
+        event.messageId,
+        (pendingDeltas.get(event.messageId) ?? "") + event.content,
+      );
+      frame ??= requestAnimationFrame(flush);
+    });
+    return () => {
+      unsubscribe();
+      if (frame !== undefined) cancelAnimationFrame(frame);
+    };
+  }, []);
   useEffect(() => {
     const load = async (): Promise<void> => {
       for (const event of [

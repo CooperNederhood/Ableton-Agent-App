@@ -27,8 +27,8 @@ export async function startDesktopLifecycle(
     const sessionId = parseDeepLink(argv);
     if (sessionId) deps.handleDeepLink?.(sessionId);
   });
-  await deps.startServices();
   await deps.createWindow();
+  await deps.startServices();
   return true;
 }
 

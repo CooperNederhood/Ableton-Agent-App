@@ -34,6 +34,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm versions:check
       - run: pnpm build
+      - if: runner.os == 'macOS'
+        run: pnpm exec playwright test --project=electron
       - run: ${{ matrix.command }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"

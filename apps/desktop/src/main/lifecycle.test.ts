@@ -7,7 +7,7 @@ import {
 } from "./lifecycle.js";
 
 describe("Electron lifecycle adapter", () => {
-  it("starts services before opening the window and stops cleanly", async () => {
+  it("opens the recoverable shell before starting services", async () => {
     const order: string[] = [];
     const deps = {
       requestSingleInstanceLock: () => true,
@@ -26,7 +26,7 @@ describe("Electron lifecycle adapter", () => {
     };
     expect(await startDesktopLifecycle(deps)).toBe(true);
     await stopDesktopLifecycle(deps);
-    expect(order).toEqual(["services", "window", "stop"]);
+    expect(order).toEqual(["window", "services", "stop"]);
   });
 
   it("quits a second instance without starting services", async () => {

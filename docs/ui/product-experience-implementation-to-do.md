@@ -48,9 +48,14 @@ typed service calls, and sessions use explicit create/resume operations.
 
 - [x] Unit-test view-model reducers and context-chip behavior.
 - [x] Component-test operation, approval, inspector, and plan views.
-- [ ] Test accessibility with automated checks and keyboard scenarios.
-- [ ] Playwright-test chat parity with CLI, selections, approvals, recovery,
+- [~] Test accessibility with automated checks and keyboard scenarios.
+  - [x] Verify landmarks, labels, focus shortcuts, and sandboxed preload in
+    Electron.
+  - [ ] Complete a WCAG audit with a dedicated accessibility engine.
+- [~] Playwright-test chat parity with CLI, selections, approvals, recovery,
   sessions, and project switches.
+  - [x] Cover launch and navigation in the real Electron shell.
+  - [ ] Cover all shared runtime workflows with deterministic injected fakes.
 - [ ] Performance-test long event histories and browser lists.
 
 Semantic markup, labels, focus shortcuts, Enter-to-send, and reduced-motion
@@ -67,4 +72,4 @@ work.
 - [x] React is a demonstrable functional superset of the CLI.
 - [x] Essential actions remain available through chat.
 - [x] Visual controls never bypass safety or change-set recording.
-- [ ] Critical workflows pass desktop end-to-end tests.
+- [~] Critical workflows pass desktop end-to-end tests.

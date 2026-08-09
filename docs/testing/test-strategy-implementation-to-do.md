@@ -34,7 +34,7 @@ Companion specification: [Test Strategy](test-strategy.md)
   strict node/result/depth/time limits, exact item revalidation, prohibited
   plug-in loading, approved CLI loading, and simulator bridge parity.
 - [x] Implement CLI transcript tests.
-- [ ] Implement Playwright Electron harness.
+- [x] Implement Playwright Electron harness.
 - [ ] Create real-Live test project and manual runner.
   - [ ] Record real-Live results for Session launch quantization and rollback,
     MIDI/audio duplication compatibility, deletion, and mute/loop property

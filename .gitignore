@@ -3,6 +3,8 @@ dist/
 release/
 coverage/
 .test-artifacts/
+playwright-report/
+test-results/
 .DS_Store
 *.log
 .env

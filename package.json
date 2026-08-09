@@ -23,6 +23,7 @@
     "format:check": "prettier --check .",
     "lint": "node --max-old-space-size=6144 ./node_modules/eslint/bin/eslint.js .",
     "test": "pnpm test:ts && pnpm test:python",
+    "test:electron": "pnpm build && playwright test --project=electron",
     "test:ts": "vitest run",
     "test:python": "python3 -m unittest discover -s remote-script/tests -p 'test_*.py'",
     "typecheck": "pnpm -r typecheck",
@@ -32,6 +33,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^24.2.1",
     "eslint": "^9.32.0",
     "eslint-plugin-import-x": "^4.16.1",

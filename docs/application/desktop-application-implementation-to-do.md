@@ -69,8 +69,12 @@ presentation state and say so; they are not applied to Live.
 - [x] Test the desktop adapter against the shared application with fake
   services (start, streaming, cancellation, approvals, sessions, snapshot
   refusal, diagnostics, preferences).
-- [ ] Add Playwright Electron tests for launch, chat, streaming, approval,
+- [~] Add Playwright Electron tests for launch, chat, streaming, approval,
   cancellation, resume, connection failure, and shutdown.
+  - [x] Cover real Electron launch, preload isolation, application landmarks,
+    keyboard shortcuts, and clean shutdown.
+  - [ ] Cover live Copilot chat/tool streaming and approval flows in packaged
+    builds.
 
 Playwright was not already configured. It remains unchecked because a reliable
 Electron packaging/launch harness would add substantial setup beyond the
@@ -84,7 +88,7 @@ Electron itself is the only untested layer of those flows.
 - [x] Desktop chat matches the CLI reference contract.
 - [x] Renderer has no direct Copilot, filesystem, credential, or socket access.
 - [x] App exits without orphaning Copilot or bridge processes.
-- [ ] Packaged development builds pass Electron smoke tests.
+- [x] Packaged development builds pass Electron smoke tests.
 
 Packaging metadata and a packaged-app smoke harness are not yet present in the
 repository, so only the production Vite/Electron compilation is verified. The

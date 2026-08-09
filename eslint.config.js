@@ -33,7 +33,11 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ["vitest.config.ts"],
+          allowDefaultProject: [
+            "vitest.config.ts",
+            "playwright.config.ts",
+            "tests/electron/*.ts",
+          ],
         },
         tsconfigRootDir: import.meta.dirname,
       },

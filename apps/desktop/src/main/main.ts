@@ -38,7 +38,6 @@ const logger = new DesktopFileLogger(
     app.isPackaged ? "desktop.log" : "desktop-development.log",
   ),
 );
-await logger.prune();
 // Constructed here so any application-managed credential remains outside
 // preferences and encrypted through Electron's OS-backed safeStorage.
 export const credentialVault = new OsCredentialVault(
@@ -62,6 +61,8 @@ async function readStoredToken(): Promise<string | undefined> {
 // Composed after `app.whenReady()` because preferences and credentials come
 // from Electron-managed paths; every handler below runs after that point.
 function requireService(): DesktopComposition["service"] {
+  if (composition === undefined)
+    throw new Error("Desktop composition is not initialized");
   return composition.service;
 }
 
@@ -177,68 +178,79 @@ app.on("open-url", (event, url) => {
   }
 });
 
-await app.whenReady();
-app.setAsDefaultProtocolClient("ableton-agent");
-await logger.write("info", "Desktop startup", { packaged: app.isPackaged });
-const composition: DesktopComposition = await createDesktopComposition({
-  preferencesPath: join(app.getPath("userData"), "preferences.json"),
-  sessionsPath: join(app.getPath("userData"), "sessions.json"),
-  agentBaseDirectory: join(app.getPath("userData"), "copilot"),
-  storedToken: await readStoredToken(),
-  environment: process.env,
-  logger: {
-    debug: (message, context) => void logger.write("debug", message, context),
-    info: (message, context) => void logger.write("info", message, context),
-    warn: (message, context) => void logger.write("warn", message, context),
-    error: (message, context) => void logger.write("error", message, context),
-  },
-  onError: (message, context) => void logger.write("error", message, context),
-});
-const unregisterIpc = registerIpc(
-  ipcMain,
-  composition.service,
-  (event) =>
-    mainWindow !== undefined &&
-    event.sender.id === mainWindow.webContents.id &&
-    event.senderFrame === event.sender.mainFrame,
-);
-await startDesktopLifecycle({
-  requestSingleInstanceLock: () => app.requestSingleInstanceLock(),
-  onSecondInstance: (handler) =>
-    app.on("second-instance", (_event, argv) => handler(argv)),
-  handleDeepLink: (sessionId) => {
-    void resumeDeepLink([`ableton-agent://session/${sessionId}`]);
-  },
-  createWindow,
-  focusWindow: () => {
-    if (mainWindow?.isMinimized()) mainWindow.restore();
-    mainWindow?.focus();
-  },
-  startServices: () => requireService().start(),
-  stopServices: () => requireService().stop(),
-  quit: () => app.quit(),
-});
-lifecycleStarted = true;
-await resumeDeepLink(process.argv);
-for (const url of pendingDeepLinks.splice(0)) {
-  await resumeDeepLink([url]);
+let composition: DesktopComposition | undefined;
+
+async function bootstrap(): Promise<void> {
+  await logger.prune();
+  await app.whenReady();
+  app.setAsDefaultProtocolClient("ableton-agent");
+  await logger.write("info", "Desktop startup", { packaged: app.isPackaged });
+  composition = await createDesktopComposition({
+    preferencesPath: join(app.getPath("userData"), "preferences.json"),
+    sessionsPath: join(app.getPath("userData"), "sessions.json"),
+    agentBaseDirectory: join(app.getPath("userData"), "copilot"),
+    storedToken: await readStoredToken(),
+    environment: process.env,
+    logger: {
+      debug: (message, context) => void logger.write("debug", message, context),
+      info: (message, context) => void logger.write("info", message, context),
+      warn: (message, context) => void logger.write("warn", message, context),
+      error: (message, context) => void logger.write("error", message, context),
+    },
+    onError: (message, context) => void logger.write("error", message, context),
+  });
+  const unregisterIpc = registerIpc(
+    ipcMain,
+    composition.service,
+    (event) =>
+      mainWindow !== undefined &&
+      event.sender.id === mainWindow.webContents.id &&
+      event.senderFrame === event.sender.mainFrame,
+  );
+  app.on("activate", () => {
+    if (!mainWindow) void createWindow();
+  });
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") app.quit();
+  });
+  app.on("before-quit", (event) => {
+    if (shuttingDown) return;
+    event.preventDefault();
+    shuttingDown = true;
+    void stopDesktopLifecycle({
+      stopServices: () => requireService().stop(),
+    }).finally(() => {
+      void logger.write("info", "Desktop shutdown");
+      unregisterIpc();
+      app.exit(0);
+    });
+  });
+  await startDesktopLifecycle({
+    requestSingleInstanceLock: () => app.requestSingleInstanceLock(),
+    onSecondInstance: (handler) =>
+      app.on("second-instance", (_event, argv) => handler(argv)),
+    handleDeepLink: (sessionId) => {
+      void resumeDeepLink([`ableton-agent://session/${sessionId}`]);
+    },
+    createWindow,
+    focusWindow: () => {
+      if (mainWindow?.isMinimized()) mainWindow.restore();
+      mainWindow?.focus();
+    },
+    startServices: () => requireService().start(),
+    stopServices: () => requireService().stop(),
+    quit: () => app.quit(),
+  });
+  lifecycleStarted = true;
+  await resumeDeepLink(process.argv);
+  for (const url of pendingDeepLinks.splice(0)) {
+    await resumeDeepLink([url]);
+  }
 }
 
-app.on("activate", () => {
-  if (!mainWindow) void createWindow();
-});
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
-});
-app.on("before-quit", (event) => {
-  if (shuttingDown) return;
-  event.preventDefault();
-  shuttingDown = true;
-  void stopDesktopLifecycle({
-    stopServices: () => requireService().stop(),
-  }).finally(() => {
-    void logger.write("info", "Desktop shutdown");
-    unregisterIpc();
-    app.exit(0);
+void bootstrap().catch(async (error: unknown) => {
+  await logger.write("error", "Desktop bootstrap failed", {
+    error: error instanceof Error ? error.message : String(error),
   });
+  app.exit(1);
 });

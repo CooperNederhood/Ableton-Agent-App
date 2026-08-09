@@ -63,6 +63,8 @@ describe("AbletonBridgeService", () => {
         "tracks.delete": true,
         "tracks.rename": true,
         "tracks.set_mixer": true,
+        "clips.create_midi": true,
+        "clips.replace_notes": true,
       },
     });
     await expect(service.ping()).resolves.toEqual({ pong: true });
@@ -143,6 +145,60 @@ describe("AbletonBridgeService", () => {
       after: { isMuted: true, volume: 0.65, pan: 0.2 },
       verified: true,
     });
+    const createdClip = await service.createMidiClip({
+      index: 0,
+      expectedReference: drums?.reference ?? "",
+      expectedName: "Main Drums",
+      sceneIndex: 0,
+      length: 4,
+      name: "Beat",
+    });
+    expect(createdClip).toMatchObject({
+      clip: {
+        trackReference: drums?.reference,
+        trackIndex: 0,
+        sceneIndex: 0,
+        name: "Beat",
+        length: 4,
+        noteCount: 0,
+      },
+      verified: true,
+    });
+    await expect(
+      service.replaceMidiNotes({
+        index: 0,
+        expectedReference: drums?.reference ?? "",
+        expectedName: "Main Drums",
+        sceneIndex: 0,
+        expectedClipReference: createdClip.clip.reference,
+        allowPerNoteExpressionLoss: true,
+        notes: [
+          {
+            pitch: 36,
+            startTime: 0,
+            duration: 0.25,
+            velocity: 110,
+            mute: false,
+          },
+        ],
+      }),
+    ).resolves.toMatchObject({
+      clip: { reference: createdClip.clip.reference, noteCount: 1 },
+      beforeNoteCount: 0,
+      afterNoteCount: 1,
+      verified: true,
+    });
+    await expect(
+      service.replaceMidiNotes({
+        index: 0,
+        expectedReference: drums?.reference ?? "",
+        expectedName: "Main Drums",
+        sceneIndex: 0,
+        expectedClipReference: createdClip.clip.reference,
+        allowPerNoteExpressionLoss: false,
+        notes: [],
+      }),
+    ).rejects.toMatchObject({ code: "conflict", retryable: false });
     await service.stop();
   });
 

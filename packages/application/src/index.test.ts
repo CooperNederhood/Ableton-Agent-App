@@ -106,6 +106,36 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
         verified: true as const,
       }),
     ),
+    createMidiClip: vi.fn(
+      async (params: Parameters<AbletonService["createMidiClip"]>[0]) => ({
+        clip: {
+          reference: "00000000-0000-4000-8000-000000000010",
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          sceneIndex: params.sceneIndex,
+          name: params.name ?? "",
+          length: params.length,
+          noteCount: 0,
+        },
+        verified: true as const,
+      }),
+    ),
+    replaceMidiNotes: vi.fn(
+      async (params: Parameters<AbletonService["replaceMidiNotes"]>[0]) => ({
+        clip: {
+          reference: params.expectedClipReference,
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          sceneIndex: params.sceneIndex,
+          name: "Beat",
+          length: 4,
+          noteCount: params.notes.length,
+        },
+        beforeNoteCount: 0,
+        afterNoteCount: params.notes.length,
+        verified: true as const,
+      }),
+    ),
   };
   const events = new InMemoryEventPublisher();
   return { agent, ableton, events, logger: noopLogger };
@@ -245,6 +275,34 @@ describe("CopilotAgentService", () => {
           },
           verified: true,
         }),
+      createMidiClip: (params) =>
+        Promise.resolve({
+          clip: {
+            reference: "00000000-0000-4000-8000-000000000010",
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            sceneIndex: params.sceneIndex,
+            name: params.name ?? "",
+            length: params.length,
+            noteCount: 0,
+          },
+          verified: true,
+        }),
+      replaceMidiNotes: (params) =>
+        Promise.resolve({
+          clip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            sceneIndex: params.sceneIndex,
+            name: "Beat",
+            length: 4,
+            noteCount: params.notes.length,
+          },
+          beforeNoteCount: 0,
+          afterNoteCount: params.notes.length,
+          verified: true,
+        }),
       requestToolApproval,
       clientFactory: () => ({
         createSession: (received) => {
@@ -273,8 +331,10 @@ describe("CopilotAgentService", () => {
       "custom:ableton_tracks_delete",
       "custom:ableton_tracks_rename",
       "custom:ableton_tracks_set_mixer",
+      "custom:ableton_clips_create_midi",
+      "custom:ableton_clips_replace_notes",
     ]);
-    expect(config?.tools).toHaveLength(8);
+    expect(config?.tools).toHaveLength(10);
     await expect(
       config?.onPermissionRequest?.(
         {
@@ -370,6 +430,34 @@ describe("CopilotAgentService", () => {
             volume: params.volume ?? 0.8,
             pan: params.pan ?? 0,
           },
+          verified: true,
+        }),
+      createMidiClip: (params) =>
+        Promise.resolve({
+          clip: {
+            reference: "00000000-0000-4000-8000-000000000010",
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            sceneIndex: params.sceneIndex,
+            name: params.name ?? "",
+            length: params.length,
+            noteCount: 0,
+          },
+          verified: true,
+        }),
+      replaceMidiNotes: (params) =>
+        Promise.resolve({
+          clip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            sceneIndex: params.sceneIndex,
+            name: "Beat",
+            length: 4,
+            noteCount: params.notes.length,
+          },
+          beforeNoteCount: 0,
+          afterNoteCount: params.notes.length,
           verified: true,
         }),
       clientFactory: () => ({

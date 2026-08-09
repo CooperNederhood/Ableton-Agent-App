@@ -25,7 +25,10 @@ Companion specification: [Tool Design](tool-design.md)
   - [x] Implement destructive identity-bound track deletion.
   - [x] Implement identity-bound rename and normalized mixer controls.
   - [ ] Implement routing and group-aware structural operations.
-- [ ] Implement session clip and note operations.
+- [~] Implement session clip and note operations.
+  - [x] Implement approved MIDI clip creation in empty slots.
+  - [x] Implement destructive bounded MIDI note replacement.
+  - [ ] Implement clip launch, duplication, deletion, properties, and audio clips.
 - [ ] Implement arrangement placement and property operations.
 - [ ] Implement browser/device load and parameter operations.
 - [~] Implement transport, loop, and cue-point operations.

@@ -3,10 +3,14 @@ import { join } from "node:path";
 
 import type {
   CapabilityDocument,
+  CreateMidiClipParams,
+  CreateMidiClipResult,
   CreateTrackParams,
   DeleteTrackParams,
   RenameTrackParams,
   RenameTrackResult,
+  ReplaceMidiNotesParams,
+  ReplaceMidiNotesResult,
   PingResult,
   SessionSnapshot,
   SetPlayingResult,
@@ -53,6 +57,10 @@ export interface AbletonService {
   deleteTrack(params: DeleteTrackParams): Promise<TrackMutationResult>;
   renameTrack(params: RenameTrackParams): Promise<RenameTrackResult>;
   setTrackMixer(params: SetTrackMixerParams): Promise<SetTrackMixerResult>;
+  createMidiClip(params: CreateMidiClipParams): Promise<CreateMidiClipResult>;
+  replaceMidiNotes(
+    params: ReplaceMidiNotesParams,
+  ): Promise<ReplaceMidiNotesResult>;
 }
 
 export interface ApplicationServices {
@@ -91,6 +99,12 @@ export interface CopilotAgentServiceOptions {
   deleteTrack: (params: DeleteTrackParams) => Promise<TrackMutationResult>;
   renameTrack: (params: RenameTrackParams) => Promise<RenameTrackResult>;
   setTrackMixer: (params: SetTrackMixerParams) => Promise<SetTrackMixerResult>;
+  createMidiClip: (
+    params: CreateMidiClipParams,
+  ) => Promise<CreateMidiClipResult>;
+  replaceMidiNotes: (
+    params: ReplaceMidiNotesParams,
+  ) => Promise<ReplaceMidiNotesResult>;
   requestToolApproval?: ToolApprovalRequester;
   clientFactory?: () => CopilotClientAdapter;
   baseDirectory?: string;
@@ -135,6 +149,8 @@ export class CopilotAgentService implements AgentService {
       deleteTrack: this.options.deleteTrack,
       renameTrack: this.options.renameTrack,
       setTrackMixer: this.options.setTrackMixer,
+      createMidiClip: this.options.createMidiClip,
+      replaceMidiNotes: this.options.replaceMidiNotes,
     });
 
     try {
@@ -335,6 +351,18 @@ export class HeadlessApplication {
     params: SetTrackMixerParams,
   ): Promise<SetTrackMixerResult> {
     return this.services.ableton.setTrackMixer(params);
+  }
+
+  public createMidiClip(
+    params: CreateMidiClipParams,
+  ): Promise<CreateMidiClipResult> {
+    return this.services.ableton.createMidiClip(params);
+  }
+
+  public replaceMidiNotes(
+    params: ReplaceMidiNotesParams,
+  ): Promise<ReplaceMidiNotesResult> {
+    return this.services.ableton.replaceMidiNotes(params);
   }
 
   public subscribe(listener: (event: AppEvent) => void): () => void {

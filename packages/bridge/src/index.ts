@@ -6,6 +6,8 @@ import {
   FrameDecoder,
   PROTOCOL_VERSION,
   capabilityDocumentSchema,
+  createMidiClipParamsSchema,
+  createMidiClipResultSchema,
   createTrackParamsSchema,
   deleteTrackParamsSchema,
   encodeFrame,
@@ -15,12 +17,16 @@ import {
   setPlayingResultSchema,
   renameTrackParamsSchema,
   renameTrackResultSchema,
+  replaceMidiNotesParamsSchema,
+  replaceMidiNotesResultSchema,
   setTrackMixerParamsSchema,
   setTrackMixerResultSchema,
   setTempoParamsSchema,
   setTempoResultSchema,
   trackMutationResultSchema,
   type CapabilityDocument,
+  type CreateMidiClipParams,
+  type CreateMidiClipResult,
   type CreateTrackParams,
   type DeleteTrackParams,
   type MessageEnvelope,
@@ -31,6 +37,8 @@ import {
   type SetPlayingResult,
   type RenameTrackParams,
   type RenameTrackResult,
+  type ReplaceMidiNotesParams,
+  type ReplaceMidiNotesResult,
   type SetTrackMixerParams,
   type SetTrackMixerResult,
   type SetTempoResult,
@@ -206,6 +214,26 @@ export class AbletonBridgeService implements AbletonService {
     const validated = setTrackMixerParamsSchema.parse(params);
     return setTrackMixerResultSchema.parse(
       await this.#request("tracks.set_mixer", validated, false),
+    );
+  }
+
+  public async createMidiClip(
+    params: CreateMidiClipParams,
+  ): Promise<CreateMidiClipResult> {
+    this.#requireCapability("clips.create_midi");
+    const validated = createMidiClipParamsSchema.parse(params);
+    return createMidiClipResultSchema.parse(
+      await this.#request("clips.create_midi", validated, false),
+    );
+  }
+
+  public async replaceMidiNotes(
+    params: ReplaceMidiNotesParams,
+  ): Promise<ReplaceMidiNotesResult> {
+    this.#requireCapability("clips.replace_notes");
+    const validated = replaceMidiNotesParamsSchema.parse(params);
+    return replaceMidiNotesResultSchema.parse(
+      await this.#request("clips.replace_notes", validated, false),
     );
   }
 

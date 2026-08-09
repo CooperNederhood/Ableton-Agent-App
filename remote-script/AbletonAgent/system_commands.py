@@ -4,6 +4,11 @@ from __future__ import absolute_import, unicode_literals
 
 import uuid
 
+try:
+    from Live.Clip import MidiNoteSpecification
+except ImportError:  # pragma: no cover - available only inside Live
+    MidiNoteSpecification = None
+
 from .executor import DeferredResult
 from .errors import ProtocolFailure
 
@@ -27,6 +32,49 @@ def _track_reference(context, track):
     references.append((track, reference))
     context._track_references = references
     return reference
+
+
+def _clip_reference(context, clip):
+    current_clips = [
+        slot.clip
+        for track in context.song.tracks
+        for slot in track.clip_slots
+        if slot.has_clip
+    ]
+    references = [
+        (candidate, reference)
+        for candidate, reference in getattr(context, "_clip_references", [])
+        if any(candidate is current for current in current_clips)
+    ]
+    for candidate, reference in references:
+        if candidate is clip:
+            context._clip_references = references
+            return reference
+    reference = str(uuid.uuid4())
+    references.append((clip, reference))
+    context._clip_references = references
+    return reference
+
+
+def _clip_notes(clip):
+    if not hasattr(clip, "get_all_notes_extended"):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "This Live version does not support complete MIDI note access",
+        )
+    return list(clip.get_all_notes_extended())
+
+
+def _clip_summary(context, track, track_index, scene_index, clip):
+    return {
+        "reference": _clip_reference(context, clip),
+        "trackReference": _track_reference(context, track),
+        "trackIndex": track_index,
+        "sceneIndex": scene_index,
+        "name": clip.name,
+        "length": clip.length,
+        "noteCount": len(_clip_notes(clip)),
+    }
 
 
 def _track_mixer_state(track):
@@ -413,6 +461,355 @@ def set_track_mixer(context, params):
     }
 
 
+def _create_midi_clip_params(params):
+    error = _validate_track_target(params, ["sceneIndex", "length", "name"])
+    if error:
+        return error
+    scene_index = params.get("sceneIndex")
+    if (
+        isinstance(scene_index, bool)
+        or not isinstance(scene_index, int)
+        or scene_index < 0
+    ):
+        return "sceneIndex must be a non-negative integer"
+    length = params.get("length")
+    if isinstance(length, bool) or not isinstance(length, (int, float)):
+        return "length must be a number"
+    if length <= 0 or length > 4096:
+        return "length must be greater than zero and at most 4096 beats"
+    name = params.get("name")
+    if name is not None and (
+        not isinstance(name, str) or not name.strip() or len(name) > 128
+    ):
+        return "name must be a non-empty string of at most 128 characters"
+    return None
+
+
+def create_midi_clip(context, params):
+    track = _resolve_track(context, params)
+    if not getattr(track, "has_midi_input", False):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "MIDI clips can only be created on MIDI tracks",
+        )
+    scene_index = params["sceneIndex"]
+    if scene_index >= len(track.clip_slots):
+        raise ProtocolFailure("not_found", "Scene index is out of range")
+    slot = track.clip_slots[scene_index]
+    if slot.has_clip:
+        raise ProtocolFailure(
+            "conflict",
+            "Clip slot is already occupied",
+            details={"sceneIndex": scene_index},
+        )
+    try:
+        slot.create_clip(params["length"])
+        clip = slot.clip
+        if params.get("name") is not None:
+            clip.name = params["name"].strip()
+        if (
+            not slot.has_clip
+            or abs(clip.length - params["length"]) >= 0.000001
+            or (
+                params.get("name") is not None
+                and clip.name != params["name"].strip()
+            )
+        ):
+            raise ProtocolFailure(
+                "conflict",
+                "MIDI clip creation completed but verification failed",
+            )
+        result = {
+            "clip": _clip_summary(
+                context, track, params["index"], scene_index, clip
+            ),
+            "verified": True,
+        }
+    except Exception as exc:
+        try:
+            if slot.has_clip:
+                slot.delete_clip()
+            if slot.has_clip:
+                raise RuntimeError("clip slot remained occupied")
+        except Exception as recovery_exc:
+            raise ProtocolFailure(
+                "lom_error",
+                "MIDI clip creation and recovery both failed",
+                details={
+                    "operationError": str(exc),
+                    "recoveryError": str(recovery_exc),
+                },
+            )
+        if isinstance(exc, ProtocolFailure):
+            raise exc
+        raise
+    return result
+
+
+def _replace_midi_notes_params(params):
+    error = _validate_track_target(
+        params,
+        [
+            "sceneIndex",
+            "expectedClipReference",
+            "allowPerNoteExpressionLoss",
+            "notes",
+        ],
+    )
+    if error:
+        return error
+    scene_index = params.get("sceneIndex")
+    if (
+        isinstance(scene_index, bool)
+        or not isinstance(scene_index, int)
+        or scene_index < 0
+    ):
+        return "sceneIndex must be a non-negative integer"
+    try:
+        uuid.UUID(params.get("expectedClipReference"))
+    except (AttributeError, TypeError, ValueError):
+        return "expectedClipReference must be a UUID"
+    if not isinstance(params.get("allowPerNoteExpressionLoss"), bool):
+        return "allowPerNoteExpressionLoss must be a boolean"
+    notes = params.get("notes")
+    if not isinstance(notes, list) or len(notes) > 2048:
+        return "notes must be an array with at most 2048 items"
+    accepted = set(["pitch", "startTime", "duration", "velocity", "mute"])
+    required = set(["pitch", "startTime", "duration", "velocity"])
+    for note in notes:
+        if (
+            not isinstance(note, dict)
+            or set(note.keys()) - accepted
+            or not required.issubset(note.keys())
+        ):
+            return "Each note has invalid or missing fields"
+        pitch = note.get("pitch")
+        velocity = note.get("velocity")
+        start_time = note.get("startTime")
+        duration = note.get("duration")
+        if (
+            isinstance(pitch, bool)
+            or not isinstance(pitch, int)
+            or pitch < 0
+            or pitch > 127
+        ):
+            return "note pitch must be an integer from 0 to 127"
+        if (
+            isinstance(velocity, bool)
+            or not isinstance(velocity, int)
+            or velocity < 1
+            or velocity > 127
+        ):
+            return "note velocity must be an integer from 1 to 127"
+        if (
+            isinstance(start_time, bool)
+            or not isinstance(start_time, (int, float))
+            or start_time < 0
+        ):
+            return "note startTime must be a non-negative number"
+        if (
+            isinstance(duration, bool)
+            or not isinstance(duration, (int, float))
+            or duration <= 0
+        ):
+            return "note duration must be greater than zero"
+        if "mute" in note and not isinstance(note["mute"], bool):
+            return "note mute must be a boolean"
+    return None
+
+
+def _note_value(note, key):
+    if isinstance(note, dict):
+        return note[key]
+    return getattr(note, key)
+
+
+def _note_value_or(note, key, default):
+    if isinstance(note, dict):
+        return note.get(key, default)
+    return getattr(note, key, default)
+
+
+def _note_specification(note_factory, note):
+    return note_factory(
+        pitch=_note_value(note, "pitch"),
+        start_time=_note_value(note, "start_time"),
+        duration=_note_value(note, "duration"),
+        velocity=_note_value(note, "velocity"),
+        mute=bool(_note_value(note, "mute")),
+        probability=_note_value_or(note, "probability", 1.0),
+        velocity_deviation=_note_value_or(
+            note, "velocity_deviation", 0.0
+        ),
+        release_velocity=_note_value_or(note, "release_velocity", 64.0),
+    )
+
+
+def _replace_all_clip_notes(clip, notes):
+    existing_note_ids = tuple(
+        _note_value(note, "note_id") for note in _clip_notes(clip)
+    )
+    if existing_note_ids:
+        clip.remove_notes_by_id(existing_note_ids)
+    if notes:
+        return tuple(clip.add_new_notes(notes))
+    return ()
+
+
+def _restore_clip_notes(clip, added_note_ids, backup_notes):
+    if added_note_ids:
+        clip.remove_notes_by_id(added_note_ids)
+    if backup_notes:
+        clip.add_new_notes(backup_notes)
+
+
+def replace_midi_notes(context, params):
+    track = _resolve_track(context, params)
+    scene_index = params["sceneIndex"]
+    if scene_index >= len(track.clip_slots):
+        raise ProtocolFailure("not_found", "Scene index is out of range")
+    slot = track.clip_slots[scene_index]
+    if not slot.has_clip:
+        raise ProtocolFailure("not_found", "Clip slot is empty")
+    clip = slot.clip
+    if _clip_reference(context, clip) != params["expectedClipReference"]:
+        raise ProtocolFailure(
+            "stale_reference",
+            "Clip identity changed before note replacement",
+        )
+    note_factory = getattr(context, "midi_note_factory", MidiNoteSpecification)
+    if (
+        not hasattr(clip, "remove_notes_by_id")
+        or not hasattr(clip, "add_new_notes")
+        or note_factory is None
+    ):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "This Live version does not support complete MIDI note editing",
+        )
+    for note in params["notes"]:
+        if note["startTime"] + note["duration"] > clip.length + 0.000001:
+            raise ProtocolFailure(
+                "invalid_params",
+                "Notes must fit within the clip length",
+            )
+    original_notes = _clip_notes(clip)
+    before_count = len(original_notes)
+    if before_count and not params["allowPerNoteExpressionLoss"]:
+        raise ProtocolFailure(
+            "conflict",
+            "Replacing notes may discard per-note expression data; explicit opt-in is required",
+        )
+    backup_notes = tuple(
+        _note_specification(note_factory, note) for note in original_notes
+    )
+    new_notes = tuple(
+        note_factory(
+            pitch=note["pitch"],
+            start_time=note["startTime"],
+            duration=note["duration"],
+            velocity=note["velocity"],
+            mute=note.get("mute", False),
+        )
+        for note in params["notes"]
+    )
+    try:
+        added_note_ids = _replace_all_clip_notes(clip, new_notes)
+    except Exception as exc:
+        try:
+            _replace_all_clip_notes(clip, backup_notes)
+        except Exception as recovery_exc:
+            raise ProtocolFailure(
+                "lom_error",
+                "MIDI note replacement and recovery both failed",
+                details={
+                    "operationError": str(exc),
+                    "recoveryError": str(recovery_exc),
+                },
+            )
+        raise ProtocolFailure(
+            "lom_error",
+            "MIDI note replacement failed; core note data was restored but per-note expression may be lost",
+            details={
+                "operationError": str(exc),
+                "perNoteExpressionMayBeLost": True,
+            },
+        )
+    try:
+        observed = _clip_notes(clip)
+        expected = sorted(
+            [
+                (
+                    note["pitch"],
+                    note["startTime"],
+                    note["duration"],
+                    note["velocity"],
+                    note.get("mute", False),
+                )
+                for note in params["notes"]
+            ]
+        )
+        actual = sorted(
+            [
+                (
+                    _note_value(note, "pitch"),
+                    _note_value(note, "start_time"),
+                    _note_value(note, "duration"),
+                    _note_value(note, "velocity"),
+                    bool(_note_value(note, "mute")),
+                )
+                for note in observed
+            ]
+        )
+        verified = len(actual) == len(expected) and all(
+            left[0] == right[0]
+            and abs(left[1] - right[1]) < 0.000001
+            and abs(left[2] - right[2]) < 0.000001
+            and left[3:] == right[3:]
+            for left, right in zip(actual, expected)
+        )
+        if not verified:
+            raise ProtocolFailure(
+                "conflict",
+                "MIDI note verification failed; original notes were restored",
+                details={
+                    "beforeNoteCount": before_count,
+                    "afterNoteCount": len(actual),
+                },
+            )
+        result = {
+            "clip": _clip_summary(
+                context, track, params["index"], scene_index, clip
+            ),
+            "beforeNoteCount": before_count,
+            "afterNoteCount": len(actual),
+            "verified": True,
+        }
+    except Exception as exc:
+        try:
+            _restore_clip_notes(clip, added_note_ids, backup_notes)
+        except Exception as recovery_exc:
+            raise ProtocolFailure(
+                "lom_error",
+                "MIDI note postcondition check and recovery both failed",
+                details={
+                    "operationError": str(exc),
+                    "recoveryError": str(recovery_exc),
+                },
+            )
+        if isinstance(exc, ProtocolFailure):
+            raise exc
+        raise ProtocolFailure(
+            "lom_error",
+            "MIDI note postcondition check failed; core note data was restored but per-note expression may be lost",
+            details={
+                "operationError": str(exc),
+                "perNoteExpressionMayBeLost": True,
+            },
+        )
+    return result
+
+
 def register_system_commands(registry):
     registry.register("system.ping", ping, validator=_no_params)
     registry.register("session.inspect", inspect_session, validator=_no_params)
@@ -457,4 +854,18 @@ def register_system_commands(registry):
         mutates=True,
         capability="tracks.set_mixer",
         validator=_set_track_mixer_params,
+    )
+    registry.register(
+        "clips.create_midi",
+        create_midi_clip,
+        mutates=True,
+        capability="clips.create_midi",
+        validator=_create_midi_clip_params,
+    )
+    registry.register(
+        "clips.replace_notes",
+        replace_midi_notes,
+        mutates=True,
+        capability="clips.replace_notes",
+        validator=_replace_midi_notes_params,
     )

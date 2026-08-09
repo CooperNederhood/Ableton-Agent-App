@@ -1,8 +1,12 @@
 import type {
   CreateTrackParams,
+  CreateMidiClipParams,
+  CreateMidiClipResult,
   DeleteTrackParams,
   RenameTrackParams,
   RenameTrackResult,
+  ReplaceMidiNotesParams,
+  ReplaceMidiNotesResult,
   SessionSnapshot,
   SetPlayingParams,
   SetPlayingResult,
@@ -40,6 +44,10 @@ export interface AbletonToolServices {
   deleteTrack(params: DeleteTrackParams): Promise<TrackMutationResult>;
   renameTrack(params: RenameTrackParams): Promise<RenameTrackResult>;
   setTrackMixer(params: SetTrackMixerParams): Promise<SetTrackMixerResult>;
+  createMidiClip(params: CreateMidiClipParams): Promise<CreateMidiClipResult>;
+  replaceMidiNotes(
+    params: ReplaceMidiNotesParams,
+  ): Promise<ReplaceMidiNotesResult>;
 }
 
 export const abletonToolMetadata = [
@@ -98,6 +106,20 @@ export const abletonToolMetadata = [
     duration: "short",
     requiredCapability: "tracks.set_mixer",
   },
+  {
+    name: "ableton_clips_create_midi",
+    title: "Create Ableton MIDI clip",
+    risk: "reversible",
+    duration: "short",
+    requiredCapability: "clips.create_midi",
+  },
+  {
+    name: "ableton_clips_replace_notes",
+    title: "Replace Ableton MIDI notes",
+    risk: "destructive",
+    duration: "short",
+    requiredCapability: "clips.replace_notes",
+  },
 ] as const satisfies readonly AbletonToolMetadata[];
 
 export interface ToolApprovalRequest {
@@ -150,6 +172,8 @@ export interface AbletonToolSet {
     Tool<DeleteTrackParams>,
     Tool<RenameTrackParams>,
     Tool<SetTrackMixerParams>,
+    Tool<CreateMidiClipParams>,
+    Tool<ReplaceMidiNotesParams>,
   ];
   availableTools: string[];
 }
@@ -254,6 +278,49 @@ export function createAbletonTools(
       ),
     handler: async (params) => services.setTrackMixer(params),
   });
+  const createMidiClipTool = defineTool("ableton_clips_create_midi", {
+    description:
+      "Creates a MIDI clip in an empty Session View clip slot on an identity-bound MIDI track.",
+    parameters: z
+      .object({
+        index: z.number().int().nonnegative(),
+        expectedReference: z.string().uuid(),
+        expectedName: z.string().min(1),
+        sceneIndex: z.number().int().nonnegative(),
+        length: z.number().positive().max(4096),
+        name: z.string().trim().min(1).max(128).optional(),
+      })
+      .strict(),
+    handler: async (params) => services.createMidiClip(params),
+  });
+  const replaceMidiNotesTool = defineTool("ableton_clips_replace_notes", {
+    description:
+      "Destructively replaces every MIDI note in an identity-bound Session View clip. Existing per-note MPE/expression cannot be preserved, so allowPerNoteExpressionLoss must be explicitly approved for non-empty clips.",
+    parameters: z
+      .object({
+        index: z.number().int().nonnegative(),
+        expectedReference: z.string().uuid(),
+        expectedName: z.string().min(1),
+        sceneIndex: z.number().int().nonnegative(),
+        expectedClipReference: z.string().uuid(),
+        allowPerNoteExpressionLoss: z.boolean(),
+        notes: z
+          .array(
+            z
+              .object({
+                pitch: z.number().int().min(0).max(127),
+                startTime: z.number().nonnegative(),
+                duration: z.number().positive(),
+                velocity: z.number().int().min(1).max(127),
+                mute: z.boolean().default(false),
+              })
+              .strict(),
+          )
+          .max(2048),
+      })
+      .strict(),
+    handler: async (params) => services.replaceMidiNotes(params),
+  });
 
   return {
     tools: [
@@ -265,6 +332,8 @@ export function createAbletonTools(
       deleteTrackTool,
       renameTrackTool,
       setTrackMixerTool,
+      createMidiClipTool,
+      replaceMidiNotesTool,
     ],
     availableTools: abletonToolMetadata.map(
       (metadata) => `custom:${metadata.name}`,

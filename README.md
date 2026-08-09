@@ -38,6 +38,9 @@ commands deny mutations by default and return exit code `4`.
 Current mutations include tempo, playback, MIDI/audio track creation, and
 identity-bound track rename, normalized mixer controls, and non-group track
 deletion with last-track protection.
+Session composition supports guarded MIDI clip creation and destructive,
+reference-bound note replacement with bounded payloads, core-note recovery,
+and explicit opt-in for per-note expression loss.
 
 For development without Ableton:
 

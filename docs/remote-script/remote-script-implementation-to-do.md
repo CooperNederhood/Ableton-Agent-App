@@ -29,7 +29,10 @@ Companion specification: [Remote Script](remote-script.md)
   - [x] Delete identity-bound non-group tracks with last-track protection.
   - [x] Rename identity-bound tracks and update verified mixer state.
   - [ ] Implement routing and group-aware structural operations.
-- [ ] Implement session clip and MIDI-note handlers.
+- [~] Implement session clip and MIDI-note handlers.
+  - [x] Create guarded MIDI clips in empty Session View slots.
+  - [x] Replace bounded MIDI note sets with full-note verification and recovery.
+  - [ ] Implement clip launch, duplication, deletion, properties, and audio clips.
 - [ ] Implement arrangement handlers.
 - [ ] Implement device, rack, Drum Rack, and parameter handlers.
 - [ ] Implement paginated browser handlers and loading.

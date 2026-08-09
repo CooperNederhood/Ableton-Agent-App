@@ -148,6 +148,36 @@ function application(
         verified: true as const,
       }),
     ),
+    createMidiClip: vi.fn(
+      async (params: Parameters<AbletonService["createMidiClip"]>[0]) => ({
+        clip: {
+          reference: "00000000-0000-4000-8000-000000000010",
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          sceneIndex: params.sceneIndex,
+          name: params.name ?? "",
+          length: params.length,
+          noteCount: 0,
+        },
+        verified: true as const,
+      }),
+    ),
+    replaceMidiNotes: vi.fn(
+      async (params: Parameters<AbletonService["replaceMidiNotes"]>[0]) => ({
+        clip: {
+          reference: params.expectedClipReference,
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          sceneIndex: params.sceneIndex,
+          name: "Beat",
+          length: 4,
+          noteCount: params.notes.length,
+        },
+        beforeNoteCount: 0,
+        afterNoteCount: params.notes.length,
+        verified: true as const,
+      }),
+    ),
   };
   return {
     application: new HeadlessApplication({

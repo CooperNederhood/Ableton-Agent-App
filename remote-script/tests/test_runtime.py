@@ -41,6 +41,7 @@ class FakeTrack(object):
         self.solo = False
         self.arm = True
         self.mixer_device = FakeMixerDevice()
+        self.clip_slots = [FakeClipSlot(), FakeClipSlot()]
 
 
 class FakeParameter(object):
@@ -52,6 +53,93 @@ class FakeMixerDevice(object):
     def __init__(self):
         self.volume = FakeParameter(0.8)
         self.panning = FakeParameter(0.0)
+
+
+class FakeClip(object):
+    def __init__(self, length):
+        self.length = length
+        self.name = ""
+        self.notes = []
+        self.fail_next_add = False
+        self.get_notes_calls = 0
+        self.fail_get_notes_call = None
+
+    def get_all_notes_extended(self):
+        self.get_notes_calls += 1
+        if self.get_notes_calls == self.fail_get_notes_call:
+            raise RuntimeError("simulated note read failure")
+        return tuple(self.notes)
+
+    def remove_notes_by_id(self, note_ids):
+        self.notes = [
+            note for note in self.notes if note.note_id not in note_ids
+        ]
+
+    def add_new_notes(self, notes):
+        if self.fail_next_add:
+            self.fail_next_add = False
+            raise RuntimeError("simulated add failure")
+        added_ids = []
+        for note in notes:
+            note.note_id = len(self.notes) + 1
+            self.notes.append(note)
+            added_ids.append(note.note_id)
+        return tuple(added_ids)
+
+
+class FakeMidiNoteSpecification(object):
+    def __init__(
+        self,
+        pitch,
+        start_time,
+        duration,
+        velocity,
+        mute=False,
+        probability=1.0,
+        velocity_deviation=0.0,
+        release_velocity=64.0,
+    ):
+        self.pitch = pitch
+        self.start_time = start_time
+        self.duration = duration
+        self.velocity = velocity
+        self.mute = mute
+        self.probability = probability
+        self.velocity_deviation = velocity_deviation
+        self.release_velocity = release_velocity
+        self.note_id = None
+
+
+class FakeClipSlot(object):
+    def __init__(self):
+        self.clip = None
+
+    @property
+    def has_clip(self):
+        return self.clip is not None
+
+    def create_clip(self, length):
+        self.clip = FakeClip(length)
+
+    def delete_clip(self):
+        self.clip = None
+
+
+class FakeUnsupportedClip(object):
+    def __init__(self, length):
+        self.length = length
+        self.name = ""
+
+
+class FakeUnsupportedClipSlot(FakeClipSlot):
+    def create_clip(self, length):
+        self.clip = FakeUnsupportedClip(length)
+
+
+class FakeCreateThenFailClipSlot(FakeClipSlot):
+    def create_clip(self, length):
+        self.clip = FakeClip(length)
+        raise RuntimeError("simulated create failure")
 
 
 class FakeSong(object):
@@ -89,6 +177,7 @@ class FakeContext(object):
         self.song = FakeSong()
         self.application = FakeApplication()
         self.scheduled = []
+        self.midi_note_factory = FakeMidiNoteSpecification
 
     def schedule_message(self, delay, callback):
         self.scheduled.append((delay, callback))
@@ -445,6 +534,330 @@ class ExecutorTests(unittest.TestCase):
             responses[0]["error"]["code"], "unsupported_capability"
         )
         self.assertFalse(context.song.tracks[0].mute)
+
+    def test_midi_clip_creation_and_note_replacement_are_verified(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        context._track_references = [
+            (context.song.tracks[0], track_reference)
+        ]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "clips.create_midi",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "sceneIndex": 0,
+                    "length": 4.0,
+                    "name": "Beat",
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        clip_reference = responses[0]["result"]["clip"]["reference"]
+        outside_note = FakeMidiNoteSpecification(48, 8.0, 0.5, 90)
+        outside_note.note_id = 1
+        context.song.tracks[0].clip_slots[0].clip.notes = [outside_note]
+        executor.submit(
+            request(
+                "clips.replace_notes",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "sceneIndex": 0,
+                    "expectedClipReference": clip_reference,
+                    "allowPerNoteExpressionLoss": True,
+                    "notes": [
+                        {
+                            "pitch": 36,
+                            "startTime": 0.0,
+                            "duration": 0.25,
+                            "velocity": 110,
+                        },
+                        {
+                            "pitch": 38,
+                            "startTime": 1.0,
+                            "duration": 0.25,
+                            "velocity": 100,
+                            "mute": False,
+                        },
+                    ],
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["result"]["clip"]["name"], "Beat")
+        self.assertEqual(responses[0]["result"]["clip"]["noteCount"], 0)
+        self.assertEqual(responses[1]["result"]["beforeNoteCount"], 1)
+        self.assertEqual(responses[1]["result"]["afterNoteCount"], 2)
+        self.assertTrue(responses[1]["result"]["verified"])
+
+    def test_midi_clip_creation_refuses_occupied_slot(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        context.song.tracks[0].clip_slots[0].create_clip(4.0)
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        context._track_references = [
+            (context.song.tracks[0], track_reference)
+        ]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "clips.create_midi",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "sceneIndex": 0,
+                    "length": 4.0,
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["error"]["code"], "conflict")
+
+    def test_midi_clip_creation_rolls_back_when_summary_is_unsupported(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        context.song.tracks[0].clip_slots[0] = FakeUnsupportedClipSlot()
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        context._track_references = [
+            (context.song.tracks[0], track_reference)
+        ]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "clips.create_midi",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "sceneIndex": 0,
+                    "length": 4.0,
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(
+            responses[0]["error"]["code"], "unsupported_capability"
+        )
+        self.assertFalse(context.song.tracks[0].clip_slots[0].has_clip)
+
+    def test_midi_clip_creation_rolls_back_when_create_raises_after_mutation(
+        self,
+    ):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        context.song.tracks[0].clip_slots[0] = FakeCreateThenFailClipSlot()
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        context._track_references = [
+            (context.song.tracks[0], track_reference)
+        ]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "clips.create_midi",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "sceneIndex": 0,
+                    "length": 4.0,
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["error"]["code"], "lom_error")
+        self.assertFalse(context.song.tracks[0].clip_slots[0].has_clip)
+
+    def test_midi_note_replacement_restores_originals_after_add_failure(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        track = context.song.tracks[0]
+        track.clip_slots[0].create_clip(4.0)
+        clip = track.clip_slots[0].clip
+        original = FakeMidiNoteSpecification(48, 0.0, 0.5, 90)
+        original.note_id = 1
+        clip.notes = [original]
+        clip.fail_next_add = True
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        clip_reference = "00000000-0000-4000-8000-000000000010"
+        context._track_references = [(track, track_reference)]
+        context._clip_references = [(clip, clip_reference)]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "clips.replace_notes",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "sceneIndex": 0,
+                    "expectedClipReference": clip_reference,
+                    "allowPerNoteExpressionLoss": True,
+                    "notes": [
+                        {
+                            "pitch": 36,
+                            "startTime": 0.0,
+                            "duration": 0.25,
+                            "velocity": 110,
+                        }
+                    ],
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["error"]["code"], "lom_error")
+        self.assertEqual(len(clip.notes), 1)
+        self.assertEqual(clip.notes[0].pitch, 48)
+
+    def test_midi_note_replacement_requires_expression_loss_opt_in(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        track = context.song.tracks[0]
+        track.clip_slots[0].create_clip(4.0)
+        clip = track.clip_slots[0].clip
+        original = FakeMidiNoteSpecification(48, 0.0, 0.5, 90)
+        original.note_id = 1
+        clip.notes = [original]
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        clip_reference = "00000000-0000-4000-8000-000000000010"
+        context._track_references = [(track, track_reference)]
+        context._clip_references = [(clip, clip_reference)]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "clips.replace_notes",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "sceneIndex": 0,
+                    "expectedClipReference": clip_reference,
+                    "allowPerNoteExpressionLoss": False,
+                    "notes": [],
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["error"]["code"], "conflict")
+        self.assertEqual(len(clip.notes), 1)
+
+    def test_midi_note_replacement_restores_originals_after_read_failure(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        track = context.song.tracks[0]
+        track.clip_slots[0].create_clip(4.0)
+        clip = track.clip_slots[0].clip
+        original = FakeMidiNoteSpecification(48, 0.0, 0.5, 90)
+        original.note_id = 1
+        clip.notes = [original]
+        clip.fail_get_notes_call = 3
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        clip_reference = "00000000-0000-4000-8000-000000000010"
+        context._track_references = [(track, track_reference)]
+        context._clip_references = [(clip, clip_reference)]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "clips.replace_notes",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "sceneIndex": 0,
+                    "expectedClipReference": clip_reference,
+                    "allowPerNoteExpressionLoss": True,
+                    "notes": [
+                        {
+                            "pitch": 36,
+                            "startTime": 0.0,
+                            "duration": 0.25,
+                            "velocity": 110,
+                        }
+                    ],
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["error"]["code"], "lom_error")
+        self.assertEqual(len(clip.notes), 1)
+        self.assertEqual(clip.notes[0].pitch, 48)
 
 
 class CapabilityAndTokenTests(unittest.TestCase):

@@ -225,6 +225,49 @@ export const setTrackMixerResultSchema = z.object({
   verified: z.literal(true),
 });
 
+export const createMidiClipParamsSchema = trackTargetSchema.extend({
+  sceneIndex: z.number().int().nonnegative(),
+  length: z.number().positive().max(4096),
+  name: z.string().trim().min(1).max(128).optional(),
+});
+
+export const midiNoteSchema = z.object({
+  pitch: z.number().int().min(0).max(127),
+  startTime: z.number().nonnegative(),
+  duration: z.number().positive(),
+  velocity: z.number().int().min(1).max(127),
+  mute: z.boolean().default(false),
+});
+
+export const clipSummarySchema = z.object({
+  reference: z.string().uuid(),
+  trackReference: z.string().uuid(),
+  trackIndex: z.number().int().nonnegative(),
+  sceneIndex: z.number().int().nonnegative(),
+  name: z.string(),
+  length: z.number().positive(),
+  noteCount: z.number().int().nonnegative(),
+});
+
+export const createMidiClipResultSchema = z.object({
+  clip: clipSummarySchema,
+  verified: z.literal(true),
+});
+
+export const replaceMidiNotesParamsSchema = trackTargetSchema.extend({
+  sceneIndex: z.number().int().nonnegative(),
+  expectedClipReference: z.string().uuid(),
+  allowPerNoteExpressionLoss: z.boolean(),
+  notes: z.array(midiNoteSchema).max(2048),
+});
+
+export const replaceMidiNotesResultSchema = z.object({
+  clip: clipSummarySchema,
+  beforeNoteCount: z.number().int().nonnegative(),
+  afterNoteCount: z.number().int().nonnegative(),
+  verified: z.literal(true),
+});
+
 export type HelloParams = z.infer<typeof helloParamsSchema>;
 export type CapabilityDocument = z.infer<typeof capabilityDocumentSchema>;
 export type PingResult = z.infer<typeof pingResultSchema>;
@@ -240,3 +283,11 @@ export type RenameTrackParams = z.infer<typeof renameTrackParamsSchema>;
 export type RenameTrackResult = z.infer<typeof renameTrackResultSchema>;
 export type SetTrackMixerParams = z.infer<typeof setTrackMixerParamsSchema>;
 export type SetTrackMixerResult = z.infer<typeof setTrackMixerResultSchema>;
+export type CreateMidiClipParams = z.infer<typeof createMidiClipParamsSchema>;
+export type CreateMidiClipResult = z.infer<typeof createMidiClipResultSchema>;
+export type ReplaceMidiNotesParams = z.infer<
+  typeof replaceMidiNotesParamsSchema
+>;
+export type ReplaceMidiNotesResult = z.infer<
+  typeof replaceMidiNotesResultSchema
+>;

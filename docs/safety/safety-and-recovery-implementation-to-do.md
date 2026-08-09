@@ -18,6 +18,8 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
   payload-limit guards.
   - [x] Protect the last track, reject group-track deletion, and revalidate
     expected track name and kind immediately before deletion.
+  - [x] Refuse occupied clip slots and bind note replacement to track and clip
+    references.
 - [ ] Validate file imports and supported media.
 - [ ] Report all clamping and coercion.
 - [ ] Add workflow mutation-count and duration budgets.
@@ -27,7 +29,11 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
 
 - [~] Define verifiers for every primitive mutation.
 - [~] Implement minimal before-state capture.
-- [ ] Implement supported compensating operations.
+- [~] Implement supported compensating operations.
+  - [x] Remove clips created by failed creation and restore core MIDI note
+    attributes after replacement or verification failure.
+  - [x] Require explicit approval-visible opt-in before a non-empty note
+    replacement can discard per-note MPE/expression data.
 - [ ] Define non-reversible operation metadata.
 - [ ] Stop dependent workflow steps after failure.
 - [ ] Refresh affected state before reporting partial outcomes.

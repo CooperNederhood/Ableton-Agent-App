@@ -29,6 +29,7 @@ class SimulatorState(object):
                 "isArmed": False,
                 "volume": 0.85,
                 "pan": 0.0,
+                "clips": [None, None],
             },
             {
                 "reference": str(
@@ -42,12 +43,20 @@ class SimulatorState(object):
                 "isArmed": True,
                 "volume": 0.75,
                 "pan": -0.1,
+                "clips": [None, None],
             },
         ]
 
     def session_tracks(self):
         return [
-            dict({"index": index}, **track)
+            dict(
+                {"index": index},
+                **{
+                    key: value
+                    for key, value in track.items()
+                    if key != "clips"
+                }
+            )
             for index, track in enumerate(self.tracks)
         ]
 
@@ -112,6 +121,8 @@ def handle(request, token, state):
                     "tracks.delete": True,
                     "tracks.rename": True,
                     "tracks.set_mixer": True,
+                    "clips.create_midi": True,
+                    "clips.replace_notes": True,
                 },
                 "limits": {
                     "maxFrameBytes": 4 * 1024 * 1024,
@@ -189,6 +200,7 @@ def handle(request, token, state):
             "isArmed": False,
             "volume": 0.85,
             "pan": 0.0,
+            "clips": [None, None],
         }
         state.tracks.append(track)
         return response(
@@ -302,6 +314,102 @@ def handle(request, token, state):
                 "index": index,
                 "before": before,
                 "after": after,
+                "verified": True,
+            },
+        )
+    if command in ("clips.create_midi", "clips.replace_notes"):
+        index = params.get("index")
+        scene_index = params.get("sceneIndex")
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or index < 0
+            or index >= len(state.tracks)
+            or isinstance(scene_index, bool)
+            or not isinstance(scene_index, int)
+            or scene_index < 0
+            or scene_index >= 2
+        ):
+            return failure(request, "not_found", "Track or scene is out of range")
+        track = state.tracks[index]
+        if (
+            track["reference"] != params.get("expectedReference")
+            or track["name"] != params.get("expectedName")
+        ):
+            return failure(
+                request,
+                "stale_reference",
+                "Track identity changed before mutation",
+            )
+        if command == "clips.create_midi":
+            if track["kind"] != "midi":
+                return failure(
+                    request,
+                    "unsupported_capability",
+                    "MIDI clips require a MIDI track",
+                )
+            if track["clips"][scene_index] is not None:
+                return failure(request, "conflict", "Clip slot is occupied")
+            clip = {
+                "reference": str(uuid.uuid4()),
+                "name": params.get("name") or "",
+                "length": params.get("length"),
+                "notes": [],
+            }
+            track["clips"][scene_index] = clip
+            return response(
+                request,
+                {
+                    "clip": {
+                        "reference": clip["reference"],
+                        "trackReference": track["reference"],
+                        "trackIndex": index,
+                        "sceneIndex": scene_index,
+                        "name": clip["name"],
+                        "length": clip["length"],
+                        "noteCount": 0,
+                    },
+                    "verified": True,
+                },
+            )
+        clip = track["clips"][scene_index]
+        if clip is None:
+            return failure(request, "not_found", "Clip slot is empty")
+        if clip["reference"] != params.get("expectedClipReference"):
+            return failure(
+                request,
+                "stale_reference",
+                "Clip identity changed before note replacement",
+            )
+        before_count = len(clip["notes"])
+        allow_expression_loss = params.get("allowPerNoteExpressionLoss")
+        if not isinstance(allow_expression_loss, bool):
+            return failure(
+                request,
+                "invalid_params",
+                "allowPerNoteExpressionLoss must be a boolean",
+            )
+        if before_count and not allow_expression_loss:
+            return failure(
+                request,
+                "conflict",
+                "Replacing notes may discard per-note expression data",
+            )
+        clip["notes"] = params.get("notes", [])
+        return response(
+            request,
+            {
+                "clip": {
+                    "reference": clip["reference"],
+                    "trackReference": track["reference"],
+                    "trackIndex": index,
+                    "sceneIndex": scene_index,
+                    "name": clip["name"],
+                    "length": clip["length"],
+                    "noteCount": len(clip["notes"]),
+                },
+                "beforeNoteCount": before_count,
+                "afterNoteCount": len(clip["notes"]),
                 "verified": True,
             },
         )

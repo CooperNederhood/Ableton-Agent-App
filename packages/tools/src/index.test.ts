@@ -4,6 +4,7 @@ import {
   abletonToolMetadata,
   createAbletonPermissionHandler,
   createAbletonTools,
+  type AbletonToolServices,
   type ToolApprovalRequest,
 } from "./index.js";
 
@@ -110,6 +111,38 @@ function services() {
           verified: true as const,
         }),
     ),
+    createMidiClip: vi.fn(
+      (params: Parameters<AbletonToolServices["createMidiClip"]>[0]) =>
+        Promise.resolve({
+          clip: {
+            reference: "00000000-0000-4000-8000-000000000010",
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            sceneIndex: params.sceneIndex,
+            name: params.name ?? "",
+            length: params.length,
+            noteCount: 0,
+          },
+          verified: true as const,
+        }),
+    ),
+    replaceMidiNotes: vi.fn(
+      (params: Parameters<AbletonToolServices["replaceMidiNotes"]>[0]) =>
+        Promise.resolve({
+          clip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            sceneIndex: params.sceneIndex,
+            name: "Beat",
+            length: 4,
+            noteCount: params.notes.length,
+          },
+          beforeNoteCount: 0,
+          afterNoteCount: params.notes.length,
+          verified: true as const,
+        }),
+    ),
   };
 }
 
@@ -129,6 +162,8 @@ describe("Ableton tools", () => {
       "custom:ableton_tracks_delete",
       "custom:ableton_tracks_rename",
       "custom:ableton_tracks_set_mixer",
+      "custom:ableton_clips_create_midi",
+      "custom:ableton_clips_replace_notes",
     ]);
     expect(abletonToolMetadata.map((metadata) => metadata.risk)).toEqual([
       "read",
@@ -139,6 +174,8 @@ describe("Ableton tools", () => {
       "destructive",
       "reversible",
       "reversible",
+      "reversible",
+      "destructive",
     ]);
   });
 
@@ -188,6 +225,37 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
+    await toolSet.tools[8].handler?.(
+      {
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Drums",
+        sceneIndex: 0,
+        length: 4,
+        name: "Beat",
+      },
+      invocation,
+    );
+    await toolSet.tools[9].handler?.(
+      {
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Drums",
+        sceneIndex: 0,
+        expectedClipReference: "00000000-0000-4000-8000-000000000010",
+        allowPerNoteExpressionLoss: true,
+        notes: [
+          {
+            pitch: 36,
+            startTime: 0,
+            duration: 0.25,
+            velocity: 110,
+            mute: false,
+          },
+        ],
+      },
+      invocation,
+    );
 
     expect(ports.getConnectionStatus).toHaveBeenCalledOnce();
     expect(ports.inspectSession).toHaveBeenCalledOnce();
@@ -215,6 +283,31 @@ describe("Ableton tools", () => {
       expectedName: "Sub Bass",
       isMuted: true,
       volume: 0.6,
+    });
+    expect(ports.createMidiClip).toHaveBeenCalledWith({
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000001",
+      expectedName: "Drums",
+      sceneIndex: 0,
+      length: 4,
+      name: "Beat",
+    });
+    expect(ports.replaceMidiNotes).toHaveBeenCalledWith({
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000001",
+      expectedName: "Drums",
+      sceneIndex: 0,
+      expectedClipReference: "00000000-0000-4000-8000-000000000010",
+      allowPerNoteExpressionLoss: true,
+      notes: [
+        {
+          pitch: 36,
+          startTime: 0,
+          duration: 0.25,
+          velocity: 110,
+          mute: false,
+        },
+      ],
     });
   });
 

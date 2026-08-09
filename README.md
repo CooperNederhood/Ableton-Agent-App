@@ -1,154 +1,181 @@
 # Ableton Agent App
 
-An Ableton-specific agent application built on the GitHub Copilot SDK. The
-current implementation includes a headless TypeScript core, a reference CLI,
-an authenticated TCP bridge, and a dependency-free Ableton Remote Script.
+An Ableton-specific AI agent built with the GitHub Copilot SDK. It can inspect
+and safely modify an open Ableton Live Set through a reference CLI or a
+sandboxed Electron desktop app.
 
-## Development
+The project does **not** use MCP. The Node.js application exposes typed Copilot
+tools, sends validated requests over an authenticated local TCP connection, and
+a dependency-free Python Remote Script performs the actual Live Object Model
+(LOM) operations inside Ableton.
 
-Requirements:
-
-- Node.js 20 or newer
-- pnpm 10.15.1
-- Python 3 for Remote Script tests and the simulator
-
-```bash
-pnpm install
-pnpm check
-pnpm build
-pnpm test:electron
+```text
+CLI or Electron UI
+        |
+GitHub Copilot SDK + typed Ableton tools
+        |
+TypeScript bridge (127.0.0.1:8765)
+        |
+Python Ableton Remote Script
+        |
+Ableton Live Object Model
 ```
 
-## CLI
+## Setup
 
-The Remote Script creates `.ableton-agent-token` in its installed
-`AbletonAgent` directory. Copy that value into the environment before running
-the CLI:
+### Requirements
+
+- macOS 13+ or Windows 10/11
+- Ableton Live 11.3+ or 12.x
+- Node.js 20.19+ (Node.js 22 LTS is recommended)
+- pnpm 10.15.1
+- Python 3
+- A GitHub account with access to GitHub Copilot
+
+### 1. Install the application
 
 ```bash
-export ABLETON_AGENT_TOKEN="<token>"
+git clone https://github.com/CooperNederhood/Ableton-Agent-App.git
+cd Ableton-Agent-App
+corepack enable
+corepack prepare pnpm@10.15.1 --activate
+pnpm install --frozen-lockfile
+pnpm build
+```
+
+### 2. Install the Ableton Remote Script
+
+First check which Ableton User Library locations were detected:
+
+```bash
+pnpm --filter @ableton-agent/desktop remote-script detect
+```
+
+Install the script into the detected User Library:
+
+```bash
+pnpm --filter @ableton-agent/desktop remote-script install --confirm
+```
+
+If detection fails, provide either your User Library or its `Remote Scripts`
+directory:
+
+```bash
+pnpm --filter @ableton-agent/desktop remote-script install --confirm \
+  --path "/path/to/Ableton/User Library"
+```
+
+The command prints the installed `AbletonAgent` destination. Managed updates
+preserve its authentication token and back up the previous installation.
+
+### 3. Enable the script in Ableton Live
+
+1. Restart Ableton Live.
+2. Open **Settings/Preferences > Link, Tempo & MIDI**.
+3. Select **AbletonAgent** in an available **Control Surface** row.
+4. Leave Ableton running with a Set open.
+
+The Remote Script listens only on `127.0.0.1`, using port `8765` by default.
+
+### 4. Configure the bridge token
+
+The Remote Script creates this file inside its installed directory:
+
+```text
+AbletonAgent/.ableton-agent-token
+```
+
+Copy its contents into the shell that will launch the CLI or desktop app:
+
+```bash
+export ABLETON_AGENT_TOKEN="<contents of .ableton-agent-token>"
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:ABLETON_AGENT_TOKEN = "<contents of .ableton-agent-token>"
+```
+
+Do not commit or share this token. Set `ABLETON_AGENT_PORT` only if you have
+also configured the Remote Script to use a non-default port.
+
+## Quickstart
+
+With Ableton running, the Control Surface enabled, and
+`ABLETON_AGENT_TOKEN` set, verify the connection:
+
+```bash
 node apps/cli/dist/main.js doctor
+node apps/cli/dist/main.js live-smoke
+```
+
+Both commands should report a connected bridge, compatible protocol and Remote
+Script versions, and successful non-mutating inspections.
+
+Inspect the current Set:
+
+```bash
 node apps/cli/dist/main.js snapshot
 node apps/cli/dist/main.js transport
 node apps/cli/dist/main.js devices 1
-node apps/cli/dist/main.js parameters 1 1
-node apps/cli/dist/main.js rack-chains 1 1
-node apps/cli/dist/main.js chain-devices 1 1 1
-node apps/cli/dist/main.js drum-pads 1 1
-node apps/cli/dist/main.js pad-chains 1 1 1
-node apps/cli/dist/main.js pad-chain-devices 1 1 1 1
 node apps/cli/dist/main.js browser-roots
-node apps/cli/dist/main.js browser-category instruments
-node apps/cli/dist/main.js browser-search "operator" --root instruments
-node apps/cli/dist/main.js browser-load 1 "operator" 1 --root instruments --approve
+```
+
+Start the agent chat:
+
+```bash
 node apps/cli/dist/main.js chat
 ```
 
-Set `ABLETON_AGENT_PORT` to override the default port `8765`, and
-`ABLETON_AGENT_MODEL` to pin a Copilot model instead of the runtime default.
-Without `ABLETON_AGENT_TOKEN` the CLI still runs, but every Ableton operation
-fails with the stable `configuration_missing` code instead of a fake result.
-Read-only tools are approved automatically. Interactive chat asks for
-per-invocation confirmation before reversible mutations; non-interactive
-commands deny mutations by default and return exit code `4`.
-Current mutations include tempo, playback, MIDI/audio track creation, and
-identity-bound track rename, normalized mixer controls, and non-group track
-deletion with last-track protection.
-Session composition supports guarded MIDI clip creation and destructive,
-reference-bound note replacement with bounded payloads, core-note recovery,
-and explicit opt-in for per-note expression loss. Session inspection includes
-identity-bound MIDI and audio clip summaries for safe follow-up operations.
-Existing Session MIDI and audio clips can be launched, duplicated into empty
-identity-bound slots, deleted, and conservatively updated for name, mute, and
-supported loop state. Launch, duplication, and property updates verify their
-postconditions and restore prior playback, destination occupancy, or property
-values where the Live Object Model permits; deletion is destructive. Audio
-clip creation and file loading are intentionally not implemented.
-Arrangement composition supports verified, non-overlapping empty MIDI clip
-placement with rollback on failed creation, bounded inspection, and destructive
-identity-bound clip deletion. Arrangement MIDI note replacement uses the same
-bounded payloads, verification, recovery, and expression-loss consent as
-Session clips. Identity-bound Session MIDI clips can be duplicated to
-non-overlapping Arrangement destinations with rollback, and Arrangement clip
-name, mute, and supported loop state can be updated with verified restoration
-of prior values on failure.
-Arrangement transport inspection returns the loop state plus a bounded page of
-cue points. Loop enable/start/length updates validate finite bounded beat
-values, verify the complete before/after state, and restore prior values after
-partial failure. Cue-point creation is reversible and rolls back failed
-creation; cue-point deletion is destructive and requires the stable runtime
-reference, name, and time returned by a recent inspection. Cue references are
-stable only for the current Remote Script runtime because Live does not expose
-persistent cue-point IDs.
-Top-level devices on identity-bound regular tracks can be inspected in bounded
-pages, and parameters are fetched only for one exact device in a separate
-bounded page. Device and parameter references are stable only for the current
-Remote Script runtime. One explicitly targeted top-level rack can now be
-inspected through separate bounded pages for direct rack chains, direct chain
-devices, Drum Rack pads, pad chains, and direct pad-chain devices. Rack, chain,
-pad, and nested-device references are runtime-stable and pruned when their LOM
-objects are no longer reachable. Every follow-up revalidates the exact regular
-track, top-level rack, and requested chain or pad identity. Nested racks are
-reported as devices but never expanded recursively. Return tracks, group
-tracks, nested-rack traversal, and chain-device parameter access remain out of
-scope.
-Ableton Browser roots and direct folder children can be inspected in bounded
-pages. Search uses deterministic breadth-first traversal with explicit limits
-of 256 visited nodes, 32 results, depth 6, 128 query characters, and 250 ms of
-main-thread work per request. Results receive runtime-stable references from a
-512-entry bounded cache, and every follow-up revalidates the exact root,
-indexed/name path, item name, and URI.
-Loading is limited to an explicitly selected identity-bound regular track and
-an exact loadable item under Instruments, Audio Effects, or MIDI Effects.
-Plug-ins, Max for Live, user-library/current-project content, samples, clips,
-arbitrary filesystem paths, folders, incompatible tracks, and active hotswap
-are rejected. Loading is reversible-risk and requires approval; the operation
-captures bounded before/after device and Session clip state and succeeds only
-after observing added top-level devices. Unverified or partially observed
-loads return an explicit indeterminate/not-observed failure.
-Device enable/disable uses the documented first `Device On` parameter when it
-is exposed. Parameter updates accept normalized `0..1` values, map through the
-parameter's current minimum and maximum, snap quantized parameters to the
-nearest discrete value, reject disabled or known non-writable parameters, and
-verify or restore the prior value after failure.
+Try prompts such as:
 
-Real-Live validation still required: confirm `Device On` naming and ordering
-across supported Live versions and localized installations, plug-in and native
-device writability behavior, quantized `value_items` mapping, setter exception
-timing, and rollback verification. Also confirm `can_have_chains`, `chains`,
-`can_have_drum_pads`, `drum_pads`, DrumPad `chains`/`note`/`name`, chain
-`devices`/`name`/`color`, object-identity stability, ordering, empty-pad
-behavior, and capability detection across supported Live versions.
-Also validate Browser root availability and ordering; BrowserItem `name`,
-`uri`, `children`, `is_folder`, and `is_loadable`; URI and object stability;
-child access latency; `Browser.load_item`; selected-track targeting and
-selection restoration; hotswap behavior; MIDI/audio track compatibility;
-synchronous versus delayed device appearance; multi-device presets; and
-failure timing across supported Live versions and installed Packs.
-
-## Desktop
-
-The Electron app composes the same headless application as the CLI
-(`packages/runtime`), so chat, streaming, approvals, cancellation, sessions,
-status, and diagnostics all run through the shared services. Electron main adds
-only a `DesktopService` adapter that maps shared events, connection status, and
-project snapshots into the typed desktop contracts; the sandboxed renderer
-still reaches the main process exclusively through named, schema-validated IPC.
-
-The bridge token is read from the OS-backed credential vault
-(`ableton-bridge-token`) or `ABLETON_AGENT_TOKEN`, and the bridge port, model,
-and reasoning effort come from stored preferences, where `auto` leaves the
-Copilot runtime defaults untouched. Those values are read while the app
-composes, so changing them applies at the next launch and the app says so.
-Retry and undo are reported as unsupported rather than simulated, and no
-project snapshot is produced while Ableton is disconnected.
-
-```bash
-pnpm --filter @ableton-agent/desktop build
-pnpm --filter @ableton-agent/desktop start
+```text
+Describe the current Live Set without changing anything.
+What devices are on the first track?
+Set the tempo to 124 BPM.
+Create a MIDI track named Ideas.
 ```
 
-For development without Ableton:
+Read-only operations run automatically. Mutations require a per-invocation
+confirmation in interactive chat. Start with a disposable test Set while
+manually validating mutation and recovery behavior.
+
+### Start the desktop app
+
+The desktop app uses the same runtime, bridge, tools, and approval policies as
+the CLI:
+
+```bash
+pnpm --filter @ableton-agent/desktop dev
+```
+
+Use its Diagnostics view to confirm the bridge, Remote Script compatibility,
+and Copilot session state before testing chat and mutations.
+
+## Manual verification checklist
+
+- `doctor` reports a healthy connection.
+- `live-smoke` completes without errors.
+- `snapshot` shows the tracks in the open Set.
+- `transport` shows the current tempo, playback, loop, and cue-point state.
+- A read-only chat prompt inspects the Set without requesting approval.
+- A mutation prompt requests approval before changing Live.
+- Denying approval leaves the Set unchanged.
+- Approving a simple reversible mutation, such as changing tempo, updates Live.
+- The Electron Diagnostics and chat views behave consistently with the CLI.
+
+For formal release evidence, run:
+
+```bash
+pnpm live:validate -- --live-version <your-live-version>
+```
+
+This writes privacy-safe evidence under `.test-artifacts/live-validation/`.
+
+## Development without Ableton
+
+Run the included Python simulator:
 
 ```bash
 python3 remote-script/simulator.py \
@@ -156,10 +183,46 @@ python3 remote-script/simulator.py \
   --port 8765
 ```
 
-See [`docs/overview.md`](docs/overview.md) for the architecture and
-[`docs/implementation-workplan.md`](docs/implementation-workplan.md) for
-delivery status.
+In another shell:
 
-Real Ableton release validation is recorded with `pnpm live:validate`; see the
-release-evidence section in
-[`docs/platform/packaging-and-operations.md`](docs/platform/packaging-and-operations.md).
+```bash
+export ABLETON_AGENT_TOKEN="development-token-with-at-least-32-characters"
+node apps/cli/dist/main.js live-smoke
+```
+
+The simulator validates bridge and protocol behavior, but it cannot validate
+real LOM behavior.
+
+## Common commands
+
+| Command                                     | Purpose                                                     |
+| ------------------------------------------- | ----------------------------------------------------------- |
+| `pnpm check`                                | Run formatting, lint, docs, contracts, types, and all tests |
+| `pnpm build`                                | Build every workspace                                       |
+| `pnpm test:electron`                        | Run Electron end-to-end tests                               |
+| `pnpm desktop:dist`                         | Produce unsigned local desktop artifacts                    |
+| `pnpm live:validate -- --live-version 12.1` | Record real-Live smoke evidence                             |
+| `node apps/cli/dist/main.js help`           | List CLI commands and options                               |
+
+## Troubleshooting
+
+| Problem                               | Check                                                                                          |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Bridge is disconnected                | Restart Live, confirm `AbletonAgent` is selected as a Control Surface, and verify port `8765`. |
+| Authentication fails                  | Re-read the token from the installed script; do not use one from the source checkout.          |
+| No Remote Script location is detected | Re-run installation with `--path` pointing to your Ableton User Library.                       |
+| Agent session does not start          | Confirm your GitHub Copilot access and inspect the CLI error or desktop Diagnostics view.      |
+| A tool is unavailable                 | Run `capabilities`; support can vary by Live version and exposed LOM APIs.                     |
+| A mutation is denied                  | Use interactive `chat` and approve that exact invocation when prompted.                        |
+
+## Documentation
+
+- [Project overview and architecture](docs/overview.md)
+- [System architecture](docs/architecture/system-architecture.md)
+- [Remote Script and LOM integration](docs/remote-script/remote-script.md)
+- [Tool design and safety model](docs/tools/tool-design.md)
+- [Packaging, installation, and release operations](docs/platform/packaging-and-operations.md)
+- [Implementation status](docs/implementation-workplan.md)
+
+Real Ableton behavior and signed installers still require manual validation
+across the supported Live and operating-system matrix.

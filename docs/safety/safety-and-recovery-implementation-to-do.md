@@ -1,0 +1,48 @@
+# Safety and Recovery Implementation To-Do
+
+Companion specification: [Safety and Recovery](safety-and-recovery.md)
+
+## Policy engine
+
+- [ ] Define read, reversible, destructive, and broad risk rules.
+- [ ] Require risk metadata on every mutating tool/workflow.
+- [ ] Implement configurable session approval policies.
+- [ ] Implement pre-tool checks for connection, project identity, capability,
+  stale targets, conflicts, and limits.
+- [ ] Implement approval request schemas and expiration.
+- [ ] Prevent ambiguous blanket approval for destructive/broad operations.
+
+## Guardrails
+
+- [ ] Implement last-track, occupied-slot, ambiguous-name, stale-reference, and
+  payload-limit guards.
+- [ ] Validate file imports and supported media.
+- [ ] Report all clamping and coercion.
+- [ ] Add workflow mutation-count and duration budgets.
+- [ ] Investigate and capability-gate native Live undo grouping.
+
+## Verification and recovery
+
+- [ ] Define verifiers for every primitive mutation.
+- [ ] Implement minimal before-state capture.
+- [ ] Implement supported compensating operations.
+- [ ] Define non-reversible operation metadata.
+- [ ] Stop dependent workflow steps after failure.
+- [ ] Refresh affected state before reporting partial outcomes.
+
+## Tests
+
+- [ ] Unit-test every risk classification and approval transition.
+- [ ] Unit-test every guardrail and bypass attempt.
+- [ ] Unit-test postcondition tolerances and compensation decisions.
+- [ ] Integration-test denial, expiration, partial failure, and reconnect.
+- [ ] Test CLI and React approval parity.
+- [ ] Real-Live test native undo behavior before exposing it.
+
+## Exit criteria
+
+- [ ] No mutation tool lacks risk metadata and a verifier.
+- [ ] Destructive/broad actions cannot run without valid approval.
+- [ ] Partial outcomes are explicit and recoverable where promised.
+- [ ] The product never claims atomic rollback without validation.
+

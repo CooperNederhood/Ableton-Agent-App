@@ -168,6 +168,9 @@ The system is tested at multiple boundaries:
 
 ## Core pieces
 
+The detailed execution sequence and links to every component checklist are in
+the [Implementation Workplan](implementation-workplan.md).
+
 | Piece | Responsibility | Detailed plan |
 |---|---|---|
 | System architecture | Boundaries, dependency direction, runtime topology | [Architecture](architecture/system-architecture.md) |

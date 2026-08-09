@@ -424,9 +424,13 @@ function deviceServices() {
 
 function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
   const agent: AgentService = {
+    sessionId: "agent-session",
     start: vi.fn(async () => undefined),
     stop: vi.fn(async () => undefined),
     send: vi.fn(async (prompt) => `reply:${prompt}`),
+    cancel: vi.fn(async () => true),
+    createSession: vi.fn(async () => "created-session"),
+    resumeSession: vi.fn(async () => undefined),
   };
   const ableton: AbletonService = {
     start: vi.fn(async () => undefined),
@@ -946,11 +950,14 @@ describe("CopilotAgentService", () => {
         createSession: (received) => {
           config = received;
           return Promise.resolve({
+            sessionId: "session-1",
             sendAndWait,
+            abort: () => Promise.resolve(),
             disconnect,
             on: () => () => undefined,
           });
         },
+        resumeSession: () => Promise.reject(new Error("not used")),
         stop,
       }),
     });
@@ -1236,14 +1243,17 @@ describe("CopilotAgentService", () => {
       clientFactory: () => ({
         createSession: () =>
           Promise.resolve({
+            sessionId: "session-1",
             sendAndWait: () =>
               Promise.resolve({ data: { content: "complete" } }),
+            abort: () => Promise.resolve(),
             disconnect: () => Promise.resolve(),
             on: (receivedListener) => {
               listener = receivedListener;
               return () => undefined;
             },
           }),
+        resumeSession: () => Promise.reject(new Error("not used")),
         stop: () => Promise.resolve([]),
       }),
     });
@@ -1324,5 +1334,36 @@ describe("CopilotAgentService", () => {
       },
     ]);
     await service.stop();
+  });
+});
+
+describe("HeadlessApplication agent and connection ports", () => {
+  it("delegates cancellation, session control, and reconnects", async () => {
+    const deps = services({ state: "disconnected" });
+    const resumeSession = vi.fn(async () => undefined);
+    deps.agent.resumeSession = resumeSession;
+    const application = new HeadlessApplication(deps);
+    const statuses: AppEvent[] = [];
+    deps.events.subscribe((event) => {
+      if (event.type === "ableton.connection_changed") statuses.push(event);
+    });
+
+    await application.start();
+    expect(application.agentSessionId).toBe("agent-session");
+    await expect(application.cancel()).resolves.toBe(true);
+    await expect(application.createAgentSession()).resolves.toBe(
+      "created-session",
+    );
+    await application.resumeAgentSession("created-session");
+    expect(resumeSession).toHaveBeenCalledWith("created-session");
+
+    await expect(application.connectAbleton()).resolves.toEqual({
+      state: "disconnected",
+    });
+    expect(statuses).toHaveLength(2);
+    await application.stop();
+    await expect(application.connectAbleton()).rejects.toThrow(
+      "not running (stopped)",
+    );
   });
 });

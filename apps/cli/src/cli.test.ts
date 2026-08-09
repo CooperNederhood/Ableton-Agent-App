@@ -10,6 +10,7 @@ import {
   noopLogger,
   type ConnectionStatus,
 } from "@ableton-agent/shared";
+import { createFakeApplication } from "@ableton-agent/test-support";
 
 import {
   CliUsageError,
@@ -20,6 +21,7 @@ import {
   type CliIo,
   type InteractiveInput,
 } from "./cli.js";
+import { EXIT_CODES } from "./exit-codes.js";
 import { createColorizer } from "./terminal.js";
 
 function application(
@@ -31,6 +33,10 @@ function application(
   const events = new InMemoryEventPublisher();
   const agentStart = vi.fn(async () => undefined);
   const agent: AgentService = {
+    sessionId: "cli-session",
+    cancel: vi.fn(async () => false),
+    createSession: vi.fn(async () => "cli-session"),
+    resumeSession: vi.fn(async () => undefined),
     start: agentStart,
     stop: vi.fn(async () => undefined),
     send: vi.fn(async () => {
@@ -1316,5 +1322,43 @@ describe("CLI", () => {
     expect(out.lines).not.toContain(
       "Ableton Agent chat. Type /help for commands.",
     );
+  });
+});
+
+describe("CLI against the shared fake application", () => {
+  it("reports the same fake Live set the desktop adapter reads", async () => {
+    const { application } = createFakeApplication();
+    const out = output();
+
+    const exitCode = await runCommand(
+      { name: "snapshot", json: true },
+      application,
+      out.io,
+    );
+
+    expect(exitCode).toBe(EXIT_CODES.SUCCESS);
+    expect(JSON.parse(out.lines[0] ?? "{}")).toMatchObject({
+      tempo: 122,
+      trackCount: 1,
+      tracks: [{ name: "Bass", kind: "midi" }],
+    });
+    await application.stop();
+  });
+
+  it("streams a fake agent turn through the shared event contract", async () => {
+    const { application } = createFakeApplication({
+      agent: { deltas: ["Insp", "ecting"], reply: "Inspecting the set" },
+    });
+    const out = output();
+
+    const exitCode = await runInteractive(
+      application,
+      out.io,
+      interactiveInput(["what is loaded?", "/exit"]),
+      { quiet: true },
+    );
+
+    expect(exitCode).toBe(EXIT_CODES.SUCCESS);
+    expect(out.raw.join("")).toContain("Inspecting");
   });
 });

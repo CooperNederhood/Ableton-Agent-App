@@ -43,7 +43,10 @@ node apps/cli/dist/main.js browser-load 1 "operator" 1 --root instruments --appr
 node apps/cli/dist/main.js chat
 ```
 
-Set `ABLETON_AGENT_PORT` to override the default port `8765`.
+Set `ABLETON_AGENT_PORT` to override the default port `8765`, and
+`ABLETON_AGENT_MODEL` to pin a Copilot model instead of the runtime default.
+Without `ABLETON_AGENT_TOKEN` the CLI still runs, but every Ableton operation
+fails with the stable `configuration_missing` code instead of a fake result.
 Read-only tools are approved automatically. Interactive chat asks for
 per-invocation confirmation before reversible mutations; non-interactive
 commands deny mutations by default and return exit code `4`.
@@ -121,6 +124,28 @@ child access latency; `Browser.load_item`; selected-track targeting and
 selection restoration; hotswap behavior; MIDI/audio track compatibility;
 synchronous versus delayed device appearance; multi-device presets; and
 failure timing across supported Live versions and installed Packs.
+
+## Desktop
+
+The Electron app composes the same headless application as the CLI
+(`packages/runtime`), so chat, streaming, approvals, cancellation, sessions,
+status, and diagnostics all run through the shared services. Electron main adds
+only a `DesktopService` adapter that maps shared events, connection status, and
+project snapshots into the typed desktop contracts; the sandboxed renderer
+still reaches the main process exclusively through named, schema-validated IPC.
+
+The bridge token is read from the OS-backed credential vault
+(`ableton-bridge-token`) or `ABLETON_AGENT_TOKEN`, and the bridge port, model,
+and reasoning effort come from stored preferences, where `auto` leaves the
+Copilot runtime defaults untouched. Those values are read while the app
+composes, so changing them applies at the next launch and the app says so.
+Retry and undo are reported as unsupported rather than simulated, and no
+project snapshot is produced while Ableton is disconnected.
+
+```bash
+pnpm --filter @ableton-agent/desktop build
+pnpm --filter @ableton-agent/desktop start
+```
 
 For development without Ableton:
 

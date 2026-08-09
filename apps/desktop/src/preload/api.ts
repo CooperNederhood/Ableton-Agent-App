@@ -53,9 +53,8 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
       requestSnapshot: () => invoke("ableton:snapshot", {}),
     },
     approvals: {
-      resolve: async (id, decision) => {
-        await invoke("approvals:resolve", { id, decision });
-      },
+      resolve: async (id, decision) =>
+        (await invoke("approvals:resolve", { id, decision })).resolved,
     },
     diagnostics: { get: () => invoke("diagnostics:get", {}) },
     preferences: {

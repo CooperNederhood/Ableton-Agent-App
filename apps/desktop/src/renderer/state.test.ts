@@ -58,8 +58,8 @@ describe("desktop reducer", () => {
             {
               id: "c",
               name: "Loop",
-              startBar: 1,
-              lengthBars: 4,
+              sceneIndex: 0,
+              lengthBeats: 16,
               status: "stopped" as const,
             },
           ],

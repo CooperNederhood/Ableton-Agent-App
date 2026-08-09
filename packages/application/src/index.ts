@@ -87,14 +87,27 @@ import {
 } from "@ableton-agent/tools";
 import {
   CopilotClient,
+  type ResumeSessionConfig,
   type SessionConfig,
   type SessionEvent,
 } from "@github/copilot-sdk";
 
 export interface AgentService {
-  start(): Promise<void>;
+  /** Identifier of the current agent conversation, when one is open. */
+  readonly sessionId: string | undefined;
+  start(preferredSessionId?: string): Promise<void>;
   stop(): Promise<void>;
   send(prompt: string): Promise<string>;
+  /**
+   * Aborts an in-flight turn. Resolves `false` when nothing was running, so
+   * callers never report a cancellation that did not happen. Work already
+   * applied to Live is not undone.
+   */
+  cancel(): Promise<boolean>;
+  /** Replaces the current conversation with a new one and returns its ID. */
+  createSession(): Promise<string>;
+  /** Reopens a previously created conversation by ID. */
+  resumeSession(sessionId: string): Promise<void>;
 }
 
 export type { AbletonService } from "@ableton-agent/ableton-contracts";
@@ -108,6 +121,7 @@ export interface ApplicationServices {
 
 export interface ApplicationStartOptions {
   startAgent?: boolean;
+  preferredAgentSessionId?: string;
 }
 
 interface CopilotResponse {
@@ -115,13 +129,19 @@ interface CopilotResponse {
 }
 
 interface CopilotSessionAdapter {
+  readonly sessionId: string;
   sendAndWait(prompt: string): Promise<CopilotResponse | undefined>;
+  abort(): Promise<void>;
   disconnect(): Promise<void>;
   on(listener: (event: SessionEvent) => void): () => void;
 }
 
 interface CopilotClientAdapter {
   createSession(config: SessionConfig): Promise<CopilotSessionAdapter>;
+  resumeSession(
+    sessionId: string,
+    config: ResumeSessionConfig,
+  ): Promise<CopilotSessionAdapter>;
   stop(): Promise<unknown>;
 }
 
@@ -219,9 +239,11 @@ export interface CopilotAgentServiceOptions {
     params: SetArrangementClipPropertiesParams,
   ) => Promise<SetArrangementClipPropertiesResult>;
   requestToolApproval?: ToolApprovalRequester;
+  askForReadApproval?: boolean;
   clientFactory?: () => CopilotClientAdapter;
   baseDirectory?: string;
   model?: string;
+  reasoningEffort?: "low" | "medium" | "high";
 }
 
 export const BASE_SYSTEM_MESSAGE_VERSION = 1;
@@ -233,6 +255,7 @@ export class CopilotAgentService implements AgentService {
   #client: CopilotClientAdapter | undefined;
   #session: CopilotSessionAdapter | undefined;
   #unsubscribe: (() => void) | undefined;
+  #inFlightTurns = 0;
   readonly #operationNames = new Map<string, string>();
 
   public constructor(private readonly options: CopilotAgentServiceOptions) {
@@ -247,12 +270,11 @@ export class CopilotAgentService implements AgentService {
         }));
   }
 
-  public async start(): Promise<void> {
-    if (this.#session) {
-      return;
-    }
+  public get sessionId(): string | undefined {
+    return this.#session?.sessionId;
+  }
 
-    const client = this.#clientFactory();
+  #sessionConfig(): SessionConfig {
     const toolSet = createAbletonTools({
       getConnectionStatus: this.options.getAbletonStatus,
       inspectSession: this.options.inspectSession,
@@ -293,64 +315,139 @@ export class CopilotAgentService implements AgentService {
       setArrangementClipProperties: this.options.setArrangementClipProperties,
     });
 
+    return {
+      clientName: "ableton-agent-app",
+      ...(this.options.model === undefined
+        ? {}
+        : { model: this.options.model }),
+      ...(this.options.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: this.options.reasoningEffort }),
+      tools: toolSet.tools,
+      availableTools: toolSet.availableTools,
+      onPermissionRequest: createAbletonPermissionHandler(
+        this.options.requestToolApproval,
+        this.options.askForReadApproval,
+      ),
+      systemMessage: {
+        mode: "replace",
+        content: BASE_SYSTEM_MESSAGE,
+      },
+    };
+  }
+
+  #observe(session: CopilotSessionAdapter): void {
+    this.#unsubscribe = session.on((event) => {
+      if (event.type === "assistant.message_delta") {
+        this.options.events.publish({
+          type: "agent.message_delta",
+          content: event.data.deltaContent,
+        });
+      } else if (event.type === "tool.execution_start") {
+        const metadata = abletonToolMetadata.find(
+          (candidate) => candidate.name === event.data.toolName,
+        );
+        const label = metadata?.title ?? event.data.toolName;
+        this.#operationNames.set(event.data.toolCallId, label);
+        this.options.events.publish({
+          type: "operation.started",
+          operationId: event.data.toolCallId,
+          label,
+        });
+      } else if (event.type === "tool.execution_complete") {
+        const label =
+          this.#operationNames.get(event.data.toolCallId) ?? "Tool operation";
+        this.#operationNames.delete(event.data.toolCallId);
+        if (event.data.success) {
+          this.options.events.publish({
+            type: "operation.completed",
+            operationId: event.data.toolCallId,
+            summary: `${label} completed`,
+          });
+        } else {
+          this.options.events.publish({
+            type: "operation.failed",
+            operationId: event.data.toolCallId,
+            code: event.data.error?.code ?? "tool_failed",
+            message: event.data.error?.message ?? `${label} failed`,
+          });
+        }
+      }
+    });
+  }
+
+  public async start(preferredSessionId?: string): Promise<void> {
+    if (this.#session) {
+      return;
+    }
+
+    const client = this.#clientFactory();
     try {
-      const session = await client.createSession({
-        clientName: "ableton-agent-app",
-        ...(this.options.model === undefined
-          ? {}
-          : { model: this.options.model }),
-        tools: toolSet.tools,
-        availableTools: toolSet.availableTools,
-        onPermissionRequest: createAbletonPermissionHandler(
-          this.options.requestToolApproval,
-        ),
-        systemMessage: {
-          mode: "replace",
-          content: BASE_SYSTEM_MESSAGE,
-        },
-      });
+      let session: CopilotSessionAdapter;
+      if (preferredSessionId === undefined) {
+        session = await client.createSession(this.#sessionConfig());
+      } else {
+        try {
+          session = await client.resumeSession(
+            preferredSessionId,
+            this.#sessionConfig(),
+          );
+        } catch {
+          session = await client.createSession(this.#sessionConfig());
+        }
+      }
       this.#client = client;
       this.#session = session;
-      this.#unsubscribe = session.on((event) => {
-        if (event.type === "assistant.message_delta") {
-          this.options.events.publish({
-            type: "agent.message_delta",
-            content: event.data.deltaContent,
-          });
-        } else if (event.type === "tool.execution_start") {
-          const metadata = abletonToolMetadata.find(
-            (candidate) => candidate.name === event.data.toolName,
-          );
-          const label = metadata?.title ?? event.data.toolName;
-          this.#operationNames.set(event.data.toolCallId, label);
-          this.options.events.publish({
-            type: "operation.started",
-            operationId: event.data.toolCallId,
-            label,
-          });
-        } else if (event.type === "tool.execution_complete") {
-          const label =
-            this.#operationNames.get(event.data.toolCallId) ?? "Tool operation";
-          this.#operationNames.delete(event.data.toolCallId);
-          if (event.data.success) {
-            this.options.events.publish({
-              type: "operation.completed",
-              operationId: event.data.toolCallId,
-              summary: `${label} completed`,
-            });
-          } else {
-            this.options.events.publish({
-              type: "operation.failed",
-              operationId: event.data.toolCallId,
-              code: event.data.error?.code ?? "tool_failed",
-              message: event.data.error?.message ?? `${label} failed`,
-            });
-          }
-        }
-      });
+      this.#observe(session);
     } catch (error) {
       await client.stop();
       throw error;
+    }
+  }
+
+  public async createSession(): Promise<string> {
+    const client = this.#client;
+    if (!client) {
+      throw new Error("Copilot agent service is not started");
+    }
+    const session = await client.createSession(this.#sessionConfig());
+    await this.#replaceSession(session);
+    return session.sessionId;
+  }
+
+  public async resumeSession(sessionId: string): Promise<void> {
+    const client = this.#client;
+    if (!client) {
+      throw new Error("Copilot agent service is not started");
+    }
+    if (this.#session?.sessionId === sessionId) {
+      return;
+    }
+    const session = await client.resumeSession(
+      sessionId,
+      this.#sessionConfig(),
+    );
+    await this.#replaceSession(session);
+  }
+
+  public async cancel(): Promise<boolean> {
+    const session = this.#session;
+    if (!session || this.#inFlightTurns === 0) {
+      return false;
+    }
+    await session.abort();
+    return true;
+  }
+
+  async #replaceSession(session: CopilotSessionAdapter): Promise<void> {
+    const previous = this.#session;
+    this.#unsubscribe?.();
+    this.#unsubscribe = undefined;
+    this.#operationNames.clear();
+    this.#session = session;
+    this.#observe(session);
+    if (previous) {
+      await previous.disconnect();
     }
   }
 
@@ -371,10 +468,17 @@ export class CopilotAgentService implements AgentService {
   }
 
   public async send(prompt: string): Promise<string> {
-    if (!this.#session) {
+    const session = this.#session;
+    if (!session) {
       throw new Error("Copilot agent service is not started");
     }
-    const response = await this.#session.sendAndWait(prompt);
+    this.#inFlightTurns += 1;
+    let response: CopilotResponse | undefined;
+    try {
+      response = await session.sendAndWait(prompt);
+    } finally {
+      this.#inFlightTurns -= 1;
+    }
     if (!response) {
       throw new Error(
         "Copilot session completed without an assistant response",
@@ -405,7 +509,7 @@ export class HeadlessApplication {
     try {
       await this.services.ableton.start();
       if (options.startAgent ?? true) {
-        await this.services.agent.start();
+        await this.services.agent.start(options.preferredAgentSessionId);
       }
       const status = await this.services.ableton.getStatus();
       this.services.events.publish({
@@ -449,6 +553,45 @@ export class HeadlessApplication {
       throw new Error(`Application is not running (${this.#state})`);
     }
     return this.services.agent.send(prompt);
+  }
+
+  /**
+   * Aborts an in-flight agent turn. Returns `false` when there was nothing to
+   * cancel; mutations already applied to Live are not reverted.
+   */
+  public cancel(): Promise<boolean> {
+    return this.services.agent.cancel();
+  }
+
+  /** Identifier of the current agent conversation, when one is open. */
+  public get agentSessionId(): string | undefined {
+    return this.services.agent.sessionId;
+  }
+
+  public createAgentSession(): Promise<string> {
+    return this.services.agent.createSession();
+  }
+
+  public resumeAgentSession(sessionId: string): Promise<void> {
+    return this.services.agent.resumeSession(sessionId);
+  }
+
+  /**
+   * Reattempts the Ableton connection and publishes the resulting status. The
+   * reported status is whatever the bridge observed, never an assumption.
+   */
+  public async connectAbleton(): Promise<ConnectionStatus> {
+    if (this.#state === "stopped" || this.#state === "stopping") {
+      throw new Error(`Application is not running (${this.#state})`);
+    }
+    await this.services.ableton.start();
+    const status = await this.services.ableton.getStatus();
+    this.services.events.publish({
+      type: "ableton.connection_changed",
+      status,
+    });
+    this.#setState(status.state === "connected" ? "ready" : "degraded");
+    return status;
   }
 
   public getStatus(): Promise<ConnectionStatus> {

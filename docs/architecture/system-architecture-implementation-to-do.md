@@ -31,13 +31,29 @@ Companion specification: [System Architecture](system-architecture.md)
 - [x] Unit-test dependency composition and lifecycle state transitions.
 - [x] Unit-test cancellation and shutdown ordering.
 - [x] Add architecture lint checks that reject forbidden package imports.
-- [ ] Add a smoke test booting the headless core with fake dependencies.
-- [ ] Add an integration test running CLI and desktop adapters against the same
+- [x] Add a smoke test booting the headless core with fake dependencies.
+- [x] Add an integration test running CLI and desktop adapters against the same
   fake service implementation.
+
+The fakes live in `packages/test-support`; `createFakeApplication` boots the
+real `HeadlessApplication` on them. `apps/cli/src/cli.test.ts` and
+`apps/desktop/src/main/headless-desktop-service.test.ts` drive their own
+adapter against that one implementation, so both suites assert the same
+underlying behavior. They remain two suites rather than one shared harness,
+because a package cannot import either app without inverting the dependency
+direction.
 
 ## Exit criteria
 
-- [ ] Both clients start from the same headless bootstrap.
-- [ ] No presentation package owns agent, bridge, workflow, or safety logic.
+- [x] Both clients start from the same headless bootstrap.
+- [x] No presentation package owns agent, bridge, workflow, or safety logic.
 - [x] Root validation commands run formatting, lint, typecheck, and tests.
-- [ ] Architecture diagrams and repository layout match the implementation.
+- [~] Architecture diagrams and repository layout match the implementation.
+
+The CLI and Electron main both compose through `createAgentRuntime` in
+`packages/runtime`; neither constructs a bridge, Copilot client, or tool set.
+Electron main owns only the `DesktopService` adapter that maps shared events,
+status, and snapshots into desktop view models. The repository layout in the
+specification now matches the workspace, except that contract, integration, and
+end-to-end suites still live beside the code they cover instead of under a
+top-level `tests/` directory.

@@ -1606,4 +1606,27 @@ describe("Ableton tools", () => {
       arguments: { tempo: 132 },
     });
   });
+
+  it("can require approval for read-only tools", async () => {
+    const requests: ToolApprovalRequest[] = [];
+    const requestApproval = (
+      request: ToolApprovalRequest,
+    ): Promise<boolean> => {
+      requests.push(request);
+      return Promise.resolve(true);
+    };
+    const handler = createAbletonPermissionHandler(requestApproval, true);
+
+    await expect(
+      handler(
+        {
+          kind: "custom-tool",
+          toolName: "ableton_session_inspect",
+          toolDescription: "Inspect",
+        },
+        { sessionId: "session" },
+      ),
+    ).resolves.toEqual({ kind: "approve-once" });
+    expect(requests[0]?.metadata.risk).toBe("read");
+  });
 });

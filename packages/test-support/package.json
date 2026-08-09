@@ -1,25 +1,23 @@
 {
-  "name": "@ableton-agent/cli",
+  "name": "@ableton-agent/test-support",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "bin": {
-    "ableton-agent": "./dist/main.js"
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist",
-    "dev": "tsx src/main.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@ableton-agent/ableton-contracts": "workspace:*",
     "@ableton-agent/application": "workspace:*",
     "@ableton-agent/protocol": "workspace:*",
-    "@ableton-agent/runtime": "workspace:*",
     "@ableton-agent/shared": "workspace:*"
-  },
-  "devDependencies": {
-    "@ableton-agent/test-support": "workspace:*",
-    "tsx": "^4.20.4"
   }
 }

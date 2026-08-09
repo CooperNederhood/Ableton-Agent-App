@@ -37,10 +37,9 @@ export function createIpcHandlers(service: DesktopService): IpcHandlers {
     "ableton:capabilities": () => service.getCapabilities(),
     "ableton:snapshot": () => service.getSnapshot(),
     "diagnostics:get": () => service.getDiagnostics(),
-    "approvals:resolve": async ({ id, decision }) => {
-      await service.resolveApproval(id, decision);
-      return { resolved: true };
-    },
+    "approvals:resolve": async ({ id, decision }) => ({
+      resolved: await service.resolveApproval(id, decision),
+    }),
     "preferences:get": () => service.getPreferences(),
     "preferences:set": (request) => service.setPreferences(request),
     "project:set-context": async ({ context }) => {

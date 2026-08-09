@@ -454,6 +454,7 @@ export type ToolApprovalRequester = (
 
 export function createAbletonPermissionHandler(
   requestApproval?: ToolApprovalRequester,
+  askForReads = false,
 ): PermissionHandler {
   return async (request, invocation) => {
     if (invocation.managedSettingsEnabled || request.kind !== "custom-tool") {
@@ -465,7 +466,7 @@ export function createAbletonPermissionHandler(
     if (!metadata) {
       return { kind: "reject", feedback: "Unknown Ableton tool" };
     }
-    if (metadata.risk === "read") {
+    if (metadata.risk === "read" && !askForReads) {
       return { kind: "approve-once" };
     }
     if (!requestApproval) {

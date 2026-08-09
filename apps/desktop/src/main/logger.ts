@@ -5,7 +5,7 @@ export class DesktopFileLogger {
   public constructor(private readonly path: string) {}
 
   public async write(
-    level: "info" | "warn" | "error",
+    level: "debug" | "info" | "warn" | "error",
     message: string,
     context: Readonly<Record<string, unknown>> = {},
   ): Promise<void> {

@@ -15,13 +15,18 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.preload.json --noEmit"
   },
   "dependencies": {
+    "@ableton-agent/application": "workspace:*",
+    "@ableton-agent/protocol": "workspace:*",
+    "@ableton-agent/runtime": "workspace:*",
     "@ableton-agent/shared": "workspace:*",
+    "@ableton-agent/tools": "workspace:*",
     "electron": "^37.2.6",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "zod": "^4.0.17"
   },
   "devDependencies": {
+    "@ableton-agent/test-support": "workspace:*",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^5.0.2",

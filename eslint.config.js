@@ -64,12 +64,30 @@ export default tseslint.config(
             {
               group: [
                 "@ableton-agent/application",
+                "@ableton-agent/runtime",
                 "@ableton-agent/tools",
                 "@ableton-agent/workflows",
                 "@ableton-agent/project-state",
               ],
               message:
                 "The bridge may depend only on inward-facing contracts, protocol, and shared utilities.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/application/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@ableton-agent/bridge", "@ableton-agent/runtime"],
+              message:
+                "The application core depends on the Ableton service contract, not on a transport or the composition root.",
             },
           ],
         },
@@ -89,6 +107,7 @@ export default tseslint.config(
                 "electron",
                 "@ableton-agent/application",
                 "@ableton-agent/bridge",
+                "@ableton-agent/runtime",
                 "@ableton-agent/tools",
                 "@ableton-agent/workflows",
                 "@ableton-agent/project-state",

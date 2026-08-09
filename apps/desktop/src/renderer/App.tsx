@@ -61,10 +61,6 @@ export function App(): React.JSX.Element {
           status: await window.desktop.ableton.getStatus(),
         },
         {
-          type: "project.snapshot_changed" as const,
-          snapshot: await window.desktop.ableton.requestSnapshot(),
-        },
-        {
           type: "preferences.changed" as const,
           preferences: await window.desktop.preferences.get(),
         },
@@ -74,6 +70,29 @@ export function App(): React.JSX.Element {
         },
       ])
         dispatch({ type: "event", event });
+      // A snapshot exists only while Ableton is connected, so its absence is
+      // reported instead of blocking the rest of the initial state.
+      try {
+        dispatch({
+          type: "event",
+          event: {
+            type: "project.snapshot_changed",
+            snapshot: await window.desktop.ableton.requestSnapshot(),
+          },
+        });
+      } catch (error) {
+        dispatch({
+          type: "event",
+          event: {
+            type: "diagnostic",
+            level: "info",
+            message:
+              error instanceof Error
+                ? error.message
+                : "No project snapshot is available",
+          },
+        });
+      }
     };
     void load();
   }, []);
@@ -233,7 +252,23 @@ function ConnectionHeader({
           {state.preferences.model} · {state.preferences.reasoning}
         </span>
         {state.connection.state !== "connected" && (
-          <button onClick={() => void window.desktop.ableton.connect()}>
+          <button
+            onClick={() =>
+              void window.desktop.ableton.connect().catch((error: unknown) =>
+                dispatch({
+                  type: "event",
+                  event: {
+                    type: "diagnostic",
+                    level: "error",
+                    message:
+                      error instanceof Error
+                        ? error.message
+                        : "Connection attempt failed",
+                  },
+                }),
+              )
+            }
+          >
             Connect
           </button>
         )}
@@ -317,12 +352,27 @@ function ProjectOutline({
         <button
           aria-label="Refresh project snapshot"
           onClick={() =>
-            void window.desktop.ableton.requestSnapshot().then((snapshot) =>
-              dispatch({
-                type: "event",
-                event: { type: "project.snapshot_changed", snapshot },
-              }),
-            )
+            void window.desktop.ableton
+              .requestSnapshot()
+              .then((snapshot) =>
+                dispatch({
+                  type: "event",
+                  event: { type: "project.snapshot_changed", snapshot },
+                }),
+              )
+              .catch((error: unknown) =>
+                dispatch({
+                  type: "event",
+                  event: {
+                    type: "diagnostic",
+                    level: "warning",
+                    message:
+                      error instanceof Error
+                        ? error.message
+                        : "Snapshot request failed",
+                  },
+                }),
+              )
           }
         >
           ↻
@@ -584,9 +634,9 @@ function ClipInspector({
       <dl>
         <dt>Track</dt>
         <dd>{track.name}</dd>
-        <dt>Range</dt>
+        <dt>Position</dt>
         <dd>
-          Bar {clip.startBar}–{clip.startBar + clip.lengthBars}
+          Scene {clip.sceneIndex + 1} · {clip.lengthBeats} beats
         </dd>
         <dt>State</dt>
         <dd>{clip.status}</dd>
@@ -974,6 +1024,7 @@ function SettingsView({
               })
             }
           >
+            <option>auto</option>
             <option>low</option>
             <option>medium</option>
             <option>high</option>
@@ -993,7 +1044,7 @@ function SettingsView({
           >
             <option value="always">Always ask</option>
             <option value="risky">Risky changes</option>
-            <option value="never">Never auto-approve</option>
+            <option value="never">Deny all changes</option>
           </select>
         </label>
         <label>

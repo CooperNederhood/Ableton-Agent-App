@@ -87,11 +87,17 @@ relevant validation pass.
 
 ### Stage 5: React product superset
 
-- [ ] Implement the complete reference chat interaction contract in React.
-- [ ] Add project outline, inspectors, context selection, modes, plans, and
+- [~] Implement the complete reference chat interaction contract in React.
+- [~] Add project outline, inspectors, context selection, modes, plans, and
   change previews.
-- [ ] Ensure React actions resolve through shared services and tools.
+- [x] Ensure React actions resolve through shared services and tools.
 - [ ] Complete Electron end-to-end coverage.
+
+Electron main and the CLI now start from the same composition root, so every
+desktop action reaches Live and Copilot through the shared application; the
+demo desktop composition has been removed. Outline, inspector, and context
+views render real project data, while plans and operation retry/undo remain
+presentation-only and report themselves as unsupported.
 
 ### Stage 6: workflows and release
 

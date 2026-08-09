@@ -49,8 +49,8 @@ export const trackSchema = z.object({
     z.object({
       id: z.string(),
       name: z.string(),
-      startBar: z.number(),
-      lengthBars: z.number().positive(),
+      sceneIndex: z.number().int().nonnegative(),
+      lengthBeats: z.number().positive(),
       status: z.enum(["playing", "queued", "stopped"]),
     }),
   ),
@@ -126,8 +126,9 @@ export type DesktopSession = z.infer<typeof sessionSchema>;
 
 export const preferencesSchema = z.object({
   version: z.literal(1).default(1),
-  model: z.string().min(1).default("gpt-5"),
-  reasoning: z.enum(["low", "medium", "high"]).default("medium"),
+  /** "auto" keeps whatever model the Copilot runtime selects by default. */
+  model: z.string().min(1).default("auto"),
+  reasoning: z.enum(["auto", "low", "medium", "high"]).default("auto"),
   approvalPolicy: z.enum(["always", "risky", "never"]).default("risky"),
   abletonPort: z.number().int().min(1).max(65535).default(8765),
   remoteScriptLocation: z.string().default("Auto-detect"),
@@ -240,7 +241,7 @@ export const ipcSchemas = {
       id: z.string(),
       decision: z.enum(["approve", "deny"]),
     }),
-    response: z.object({ resolved: z.literal(true) }),
+    response: z.object({ resolved: z.boolean() }),
   },
   "preferences:get": { request: z.object({}), response: preferencesSchema },
   "preferences:set": {
@@ -294,7 +295,9 @@ export interface DesktopApi {
     getCapabilities(): Promise<string[]>;
     requestSnapshot(): Promise<DesktopProjectSnapshot>;
   };
-  approvals: { resolve(id: string, decision: ApprovalDecision): Promise<void> };
+  approvals: {
+    resolve(id: string, decision: ApprovalDecision): Promise<boolean>;
+  };
   diagnostics: {
     get(): Promise<
       Array<{ label: string; status: "pass" | "warn" | "fail"; detail: string }>

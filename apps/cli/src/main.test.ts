@@ -50,6 +50,14 @@ describe("main entry point exit-code mapping", () => {
     expect(result.stderr).toContain("Ableton bridge is not configured");
   });
 
+  it("returns USAGE_ERROR for an unusable bridge port", () => {
+    const result = runCli(["status", "--json"], {
+      ABLETON_AGENT_PORT: "not-a-port",
+    });
+    expect(result.status).toBe(EXIT_CODES.USAGE_ERROR);
+    expect(result.stderr).toContain("ABLETON_AGENT_PORT must be an integer");
+  });
+
   it("never emits ANSI color codes to redirected (non-TTY) output", () => {
     const result = runCli(["doctor"]);
     const ansiEscape = new RegExp(`${String.fromCharCode(27)}\\[\\d+m`);

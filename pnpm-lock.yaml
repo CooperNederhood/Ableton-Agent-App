@@ -38,25 +38,40 @@ importers:
       '@ableton-agent/application':
         specifier: workspace:*
         version: link:../../packages/application
-      '@ableton-agent/bridge':
-        specifier: workspace:*
-        version: link:../../packages/bridge
       '@ableton-agent/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@ableton-agent/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
       '@ableton-agent/shared':
         specifier: workspace:*
         version: link:../../packages/shared
     devDependencies:
+      '@ableton-agent/test-support':
+        specifier: workspace:*
+        version: link:../../packages/test-support
       tsx:
         specifier: ^4.20.4
         version: 4.23.11
 
   apps/desktop:
     dependencies:
+      '@ableton-agent/application':
+        specifier: workspace:*
+        version: link:../../packages/application
+      '@ableton-agent/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      '@ableton-agent/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
       '@ableton-agent/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@ableton-agent/tools':
+        specifier: workspace:*
+        version: link:../../packages/tools
       electron:
         specifier: ^37.2.6
         version: 37.10.3
@@ -70,6 +85,9 @@ importers:
         specifier: ^4.0.17
         version: 4.4.3
     devDependencies:
+      '@ableton-agent/test-support':
+        specifier: workspace:*
+        version: link:../../packages/test-support
       '@types/react':
         specifier: ^19.1.10
         version: 19.2.18
@@ -137,7 +155,47 @@ importers:
         specifier: ^4.20.4
         version: 4.23.11
 
+  packages/runtime:
+    dependencies:
+      '@ableton-agent/ableton-contracts':
+        specifier: workspace:*
+        version: link:../ableton-contracts
+      '@ableton-agent/application':
+        specifier: workspace:*
+        version: link:../application
+      '@ableton-agent/bridge':
+        specifier: workspace:*
+        version: link:../bridge
+      '@ableton-agent/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@ableton-agent/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@ableton-agent/tools':
+        specifier: workspace:*
+        version: link:../tools
+    devDependencies:
+      '@ableton-agent/test-support':
+        specifier: workspace:*
+        version: link:../test-support
+
   packages/shared: {}
+
+  packages/test-support:
+    dependencies:
+      '@ableton-agent/ableton-contracts':
+        specifier: workspace:*
+        version: link:../ableton-contracts
+      '@ableton-agent/application':
+        specifier: workspace:*
+        version: link:../application
+      '@ableton-agent/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@ableton-agent/shared':
+        specifier: workspace:*
+        version: link:../shared
 
   packages/tools:
     dependencies:

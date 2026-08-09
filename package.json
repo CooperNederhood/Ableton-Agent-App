@@ -19,7 +19,7 @@
     "contracts:check": "pnpm --filter @ableton-agent/protocol contracts:check",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "eslint .",
+    "lint": "node --max-old-space-size=6144 ./node_modules/eslint/bin/eslint.js .",
     "test": "pnpm test:ts && pnpm test:python",
     "test:ts": "vitest run",
     "test:python": "python3 -m unittest discover -s remote-script/tests -p 'test_*.py'",

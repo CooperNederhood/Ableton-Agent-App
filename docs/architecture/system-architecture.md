@@ -65,6 +65,21 @@ Electron. It can run interactively or execute a one-shot prompt. It is the
 first client used to prove the minimum interaction contract end to end and
 remains a supported diagnostic and fallback surface.
 
+### Composition root
+
+`packages/runtime` is the single composition root. It builds the Ableton
+service (the framed TCP bridge when a token is configured, otherwise a typed
+stand-in that reports `configuration_missing`), the Copilot agent service, the
+shared event publisher, and the `HeadlessApplication` that owns lifecycle.
+Electron main and the CLI both start from `createAgentRuntime` and add only
+transport and presentation concerns: the CLI adds terminal I/O and approval
+prompts, and Electron main adds a `DesktopService` adapter that maps shared
+events, status, and snapshots into desktop view models. Neither client
+constructs a bridge, a Copilot client, or a tool set directly.
+
+`packages/test-support` provides the fake Ableton and agent services used to
+boot the same composition without Live or the Copilot runtime.
+
 ### Copilot runtime
 
 The Node.js SDK manages or connects to the Copilot CLI runtime over JSON-RPC.
@@ -112,18 +127,17 @@ ableton-agent-app/
 │   ├── ableton-contracts/
 │   ├── bridge/
 │   ├── protocol/
+│   ├── runtime/
 │   ├── tools/
 │   ├── workflows/
 │   ├── project-state/
 │   ├── shared/
-│   └── test-support/ (planned)
+│   └── test-support/
 ├── remote-script/
 │   └── AbletonAgent/
 │       └── __init__.py
-├── tests/
-│   ├── contract/
-│   ├── integration/
-│   └── e2e/
+├── tests/ (planned; contract, integration, and e2e suites currently live
+│          beside the code they cover)
 └── docs/
 ```
 

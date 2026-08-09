@@ -11,10 +11,9 @@ import {
 } from "electron";
 
 import {
-  DemoDesktopService,
-  JsonPreferencesStore,
-  JsonSessionStore,
-} from "./desktop-service.js";
+  createDesktopComposition,
+  type DesktopComposition,
+} from "./composition.js";
 import { forwardEvent, registerIpc } from "./ipc.js";
 import { DesktopFileLogger } from "./logger.js";
 import {
@@ -33,22 +32,37 @@ const maximumRendererRestarts = 3;
 const pendingDeepLinks: string[] = [];
 let lifecycleStarted = false;
 
-const service = new DemoDesktopService(
-  new JsonPreferencesStore(join(app.getPath("userData"), "preferences.json")),
-  new JsonSessionStore(join(app.getPath("userData"), "sessions.json")),
-);
 const logger = new DesktopFileLogger(
   join(
     app.getPath("logs"),
     app.isPackaged ? "desktop.log" : "desktop-development.log",
   ),
 );
-// Constructed here so any future application-managed credential remains outside
+// Constructed here so any application-managed credential remains outside
 // preferences and encrypted through Electron's OS-backed safeStorage.
 export const credentialVault = new OsCredentialVault(
   join(app.getPath("userData"), "credentials"),
   safeStorage,
 );
+/** Key holding the Remote Script shared secret in the OS-backed vault. */
+const bridgeTokenKey = "ableton-bridge-token";
+
+async function readStoredToken(): Promise<string | undefined> {
+  try {
+    return await credentialVault.get(bridgeTokenKey);
+  } catch (error) {
+    await logger.write("warn", "Stored bridge token could not be read", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return undefined;
+  }
+}
+
+// Composed after `app.whenReady()` because preferences and credentials come
+// from Electron-managed paths; every handler below runs after that point.
+function requireService(): DesktopComposition["service"] {
+  return composition.service;
+}
 
 function secureWebContents(webContents: WebContents): void {
   webContents.setWindowOpenHandler(({ url }) => {
@@ -65,7 +79,7 @@ async function resumeDeepLink(argv: readonly string[]): Promise<void> {
   const sessionId = parseDeepLink(argv);
   if (sessionId === undefined) return;
   try {
-    await service.resumeSession(sessionId);
+    await requireService().resumeSession(sessionId);
   } catch (error) {
     await logger.write("warn", "Deep-link session could not be resumed", {
       sessionId,
@@ -83,7 +97,7 @@ async function createWindow(): Promise<void> {
   );
   mainWindow = window;
   secureWebContents(window.webContents);
-  const unsubscribeEvents = service.subscribe((event) => {
+  const unsubscribeEvents = requireService().subscribe((event) => {
     forwardEvent(window.webContents, event);
   });
   window.once("ready-to-show", () => window.show());
@@ -165,9 +179,23 @@ app.on("open-url", (event, url) => {
 await app.whenReady();
 app.setAsDefaultProtocolClient("ableton-agent");
 await logger.write("info", "Desktop startup", { packaged: app.isPackaged });
+const composition: DesktopComposition = await createDesktopComposition({
+  preferencesPath: join(app.getPath("userData"), "preferences.json"),
+  sessionsPath: join(app.getPath("userData"), "sessions.json"),
+  agentBaseDirectory: join(app.getPath("userData"), "copilot"),
+  storedToken: await readStoredToken(),
+  environment: process.env,
+  logger: {
+    debug: (message, context) => void logger.write("debug", message, context),
+    info: (message, context) => void logger.write("info", message, context),
+    warn: (message, context) => void logger.write("warn", message, context),
+    error: (message, context) => void logger.write("error", message, context),
+  },
+  onError: (message, context) => void logger.write("error", message, context),
+});
 const unregisterIpc = registerIpc(
   ipcMain,
-  service,
+  composition.service,
   (event) =>
     mainWindow !== undefined &&
     event.sender.id === mainWindow.webContents.id &&
@@ -185,8 +213,8 @@ await startDesktopLifecycle({
     if (mainWindow?.isMinimized()) mainWindow.restore();
     mainWindow?.focus();
   },
-  startServices: () => service.start(),
-  stopServices: () => service.stop(),
+  startServices: () => requireService().start(),
+  stopServices: () => requireService().stop(),
   quit: () => app.quit(),
 });
 lifecycleStarted = true;
@@ -205,11 +233,11 @@ app.on("before-quit", (event) => {
   if (shuttingDown) return;
   event.preventDefault();
   shuttingDown = true;
-  void stopDesktopLifecycle({ stopServices: () => service.stop() }).finally(
-    () => {
-      void logger.write("info", "Desktop shutdown");
-      unregisterIpc();
-      app.exit(0);
-    },
-  );
+  void stopDesktopLifecycle({
+    stopServices: () => requireService().stop(),
+  }).finally(() => {
+    void logger.write("info", "Desktop shutdown");
+    unregisterIpc();
+    app.exit(0);
+  });
 });

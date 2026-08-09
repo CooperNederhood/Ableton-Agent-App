@@ -29,19 +29,19 @@ Remaining release work is grouped into:
 
 ## Review cadence
 
-- [ ] Review master and component plans at each milestone boundary.
-- [ ] Record deviations as architecture decisions rather than silent changes.
-- [ ] Reprioritize feature breadth behind reliability blockers.
-- [ ] Track unsupported/experimental LOM features separately.
+- [x] Review master and component plans at each milestone boundary.
+- [x] Record deviations as architecture decisions rather than silent changes.
+- [x] Reprioritize feature breadth behind reliability blockers.
+- [x] Track unsupported/experimental LOM features separately.
 - [ ] Require milestone demonstrations using a real Ableton test project.
 
 ## Release readiness
 
-- [ ] Complete security and privacy review.
-- [ ] Complete performance profiling and responsiveness checks.
+- [x] Complete security and privacy review.
+- [x] Complete performance profiling and responsiveness checks.
 - [ ] Complete supported-platform install matrix.
 - [ ] Complete real-Live compatibility matrix.
-- [ ] Resolve or document all known critical/high issues.
+- [x] Resolve or document all known critical/high issues.
 - [x] Publish installation, troubleshooting, privacy, and release notes.
 
 ## Tests
@@ -58,6 +58,6 @@ Remaining release work is grouped into:
 
 - [ ] Every specification has a completed implementation checklist.
 - [ ] Every milestone exit criterion has objective evidence.
-- [ ] No feature is marked complete without required tests.
-- [ ] The release delivers the reference CLI and React superset over the same
+- [x] No feature is marked complete without required tests.
+- [x] The release delivers the reference CLI and React superset over the same
   production core.

@@ -9,7 +9,7 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 - [x] Build installers with explicit Remote Script setup.
 - [x] Detect supported Ableton/User Library locations.
 - [x] Implement Remote Script install, update, backup, and manual-path flow.
-- [ ] Generate/store per-installation authentication credentials securely.
+- [x] Generate/store per-installation authentication credentials securely.
 
 ## Version and update management
 

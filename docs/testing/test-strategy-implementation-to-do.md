@@ -6,7 +6,7 @@ Companion specification: [Test Strategy](test-strategy.md)
 
 - [x] Select and configure TypeScript and Python test runners.
 - [x] Add shared fixture, fake clock, fake ID, and log-capture utilities.
-- [ ] Build fake LOM object library.
+- [x] Build fake LOM object library.
 - [x] Build simulated Python Remote Script server.
 - [x] Build fake Copilot/session adapters for deterministic client tests.
 - [x] Define test tags for unit, contract, integration, Electron, and real Live.
@@ -75,12 +75,12 @@ Companion specification: [Test Strategy](test-strategy.md)
 - [x] Unit-test test-support utilities and fixture builders.
 - [ ] Integration-test the test runners themselves against known pass/fail
   fixtures.
-- [ ] Verify CI reports failures, timeouts, and artifacts correctly.
+- [x] Verify CI reports failures, timeouts, and artifacts correctly.
 - [ ] Run a clean-checkout rehearsal of every documented test command.
 
 ## Exit criteria
 
 - [x] A clean checkout can run all non-Live tests with one command.
-- [ ] CI covers every application-owned boundary.
+- [x] CI covers every application-owned boundary.
 - [x] Release checklist includes recorded real-Live results.
-- [ ] Test failures provide enough diagnostics to reproduce locally.
+- [x] Test failures provide enough diagnostics to reproduce locally.

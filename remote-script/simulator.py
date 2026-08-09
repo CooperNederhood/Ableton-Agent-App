@@ -66,6 +66,7 @@ def handle(request, token):
                     "system.ping": True,
                     "session.inspect": True,
                     "transport.set_tempo": True,
+                    "transport.set_playing": True,
                 },
                 "limits": {
                     "maxFrameBytes": 4 * 1024 * 1024,
@@ -121,6 +122,22 @@ def handle(request, token):
             {
                 "beforeTempo": 120.0,
                 "afterTempo": tempo,
+                "verified": True,
+            },
+        )
+    if command == "transport.set_playing":
+        is_playing = params.get("isPlaying")
+        if not isinstance(is_playing, bool):
+            return failure(
+                request,
+                "invalid_params",
+                "isPlaying must be a boolean",
+            )
+        return response(
+            request,
+            {
+                "beforeIsPlaying": False,
+                "afterIsPlaying": is_playing,
                 "verified": True,
             },
         )

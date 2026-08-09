@@ -28,6 +28,13 @@ function services() {
         verified: true,
       }),
     ),
+    setPlaying: vi.fn((isPlaying: boolean) =>
+      Promise.resolve({
+        beforeIsPlaying: !isPlaying,
+        afterIsPlaying: isPlaying,
+        verified: true,
+      }),
+    ),
   };
 }
 
@@ -42,10 +49,12 @@ describe("Ableton tools", () => {
       "custom:ableton_connection_status",
       "custom:ableton_session_inspect",
       "custom:ableton_transport_set_tempo",
+      "custom:ableton_transport_set_playing",
     ]);
     expect(abletonToolMetadata.map((metadata) => metadata.risk)).toEqual([
       "read",
       "read",
+      "reversible",
       "reversible",
     ]);
   });
@@ -63,10 +72,12 @@ describe("Ableton tools", () => {
     await toolSet.tools[0].handler?.({}, invocation);
     await toolSet.tools[1].handler?.({}, invocation);
     await toolSet.tools[2].handler?.({ tempo: 132 }, invocation);
+    await toolSet.tools[3].handler?.({ isPlaying: true }, invocation);
 
     expect(ports.getConnectionStatus).toHaveBeenCalledOnce();
     expect(ports.inspectSession).toHaveBeenCalledOnce();
     expect(ports.setTempo).toHaveBeenCalledWith(132);
+    expect(ports.setPlaying).toHaveBeenCalledWith(true);
   });
 
   it("auto-approves reads and denies mutations without approval", async () => {

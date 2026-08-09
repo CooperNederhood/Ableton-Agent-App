@@ -48,6 +48,12 @@ class FakeSong(object):
         self.file_path = "/tmp/example.als"
         self.tracks = [FakeTrack("Drums"), FakeTrack("Bass")]
 
+    def start_playing(self):
+        self.is_playing = True
+
+    def stop_playing(self):
+        self.is_playing = False
+
 
 class FakeApplication(object):
     def get_version_string(self):
@@ -58,6 +64,10 @@ class FakeContext(object):
     def __init__(self):
         self.song = FakeSong()
         self.application = FakeApplication()
+        self.scheduled = []
+
+    def schedule_message(self, delay, callback):
+        self.scheduled.append((delay, callback))
 
 
 class ExecutorTests(unittest.TestCase):
@@ -171,6 +181,38 @@ class ExecutorTests(unittest.TestCase):
         scheduled.pop()()
 
         self.assertEqual(responses[0]["error"]["code"], "invalid_params")
+
+    def test_transport_play_state_is_changed_and_verified(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request("transport.set_playing", {"isPlaying": False}),
+            responses.append,
+        )
+        scheduled.pop()()
+        delay, verify = context.scheduled.pop()
+        self.assertEqual(delay, 1)
+        self.assertEqual(responses, [])
+        verify()
+
+        self.assertFalse(context.song.is_playing)
+        self.assertEqual(
+            responses[0]["result"],
+            {
+                "beforeIsPlaying": True,
+                "afterIsPlaying": False,
+                "verified": True,
+            },
+        )
 
 
 class CapabilityAndTokenTests(unittest.TestCase):

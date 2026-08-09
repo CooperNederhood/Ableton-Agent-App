@@ -2,6 +2,8 @@
 
 from __future__ import absolute_import, unicode_literals
 
+from .executor import DeferredResult
+
 
 def _no_params(params):
     if params:
@@ -59,6 +61,40 @@ def set_tempo(context, params):
         "verified": abs(after - params["tempo"]) < 0.001,
     }
 
+def _set_playing_params(params):
+    if set(params.keys()) != set(["isPlaying"]):
+        return "isPlaying is the only accepted parameter"
+    if not isinstance(params.get("isPlaying"), bool):
+        return "isPlaying must be a boolean"
+    return None
+
+
+def set_playing(context, params):
+    song = context.song
+    before = bool(song.is_playing)
+    if params["isPlaying"]:
+        song.start_playing()
+    else:
+        song.stop_playing()
+
+    def start_verification(on_success, on_failure):
+        def verify():
+            try:
+                after = bool(song.is_playing)
+                on_success(
+                    {
+                        "beforeIsPlaying": before,
+                        "afterIsPlaying": after,
+                        "verified": after == params["isPlaying"],
+                    }
+                )
+            except Exception as exc:
+                on_failure(exc)
+
+        context.schedule_message(1, verify)
+
+    return DeferredResult(start_verification)
+
 
 def register_system_commands(registry):
     registry.register("system.ping", ping, validator=_no_params)
@@ -69,4 +105,11 @@ def register_system_commands(registry):
         mutates=True,
         capability="transport.set_tempo",
         validator=_set_tempo_params,
+    )
+    registry.register(
+        "transport.set_playing",
+        set_playing,
+        mutates=True,
+        capability="transport.set_playing",
+        validator=_set_playing_params,
     )

@@ -15,9 +15,10 @@ from .token_store import load_or_create_token
 
 
 class RuntimeContext(object):
-    def __init__(self, application, song):
+    def __init__(self, application, song, schedule_message):
         self.application = application
         self.song = song
+        self.schedule_message = schedule_message
 
 
 class AbletonAgentControlSurface(ControlSurface):
@@ -25,7 +26,9 @@ class AbletonAgentControlSurface(ControlSurface):
         ControlSurface.__init__(self, c_instance)
         registry = CommandRegistry()
         register_system_commands(registry)
-        context = RuntimeContext(self.application(), self.song())
+        context = RuntimeContext(
+            self.application(), self.song(), self.schedule_message
+        )
         self._executor = MainThreadExecutor(
             self.schedule_message, registry, context
         )

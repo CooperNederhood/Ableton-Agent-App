@@ -45,6 +45,11 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
       afterTempo: tempo,
       verified: true,
     })),
+    setPlaying: vi.fn(async (isPlaying: boolean) => ({
+      beforeIsPlaying: !isPlaying,
+      afterIsPlaying: isPlaying,
+      verified: true,
+    })),
   };
   const events = new InMemoryEventPublisher();
   return { agent, ableton, events, logger: noopLogger };
@@ -126,6 +131,12 @@ describe("CopilotAgentService", () => {
           afterTempo: tempo,
           verified: true,
         }),
+      setPlaying: (isPlaying) =>
+        Promise.resolve({
+          beforeIsPlaying: !isPlaying,
+          afterIsPlaying: isPlaying,
+          verified: true,
+        }),
       requestToolApproval,
       clientFactory: () => ({
         createSession: (received) => {
@@ -149,8 +160,9 @@ describe("CopilotAgentService", () => {
       "custom:ableton_connection_status",
       "custom:ableton_session_inspect",
       "custom:ableton_transport_set_tempo",
+      "custom:ableton_transport_set_playing",
     ]);
-    expect(config?.tools).toHaveLength(3);
+    expect(config?.tools).toHaveLength(4);
     await expect(
       config?.onPermissionRequest?.(
         {
@@ -188,6 +200,12 @@ describe("CopilotAgentService", () => {
         Promise.resolve({
           beforeTempo: 120,
           afterTempo: tempo,
+          verified: true,
+        }),
+      setPlaying: (isPlaying) =>
+        Promise.resolve({
+          beforeIsPlaying: !isPlaying,
+          afterIsPlaying: isPlaying,
           verified: true,
         }),
       clientFactory: () => ({

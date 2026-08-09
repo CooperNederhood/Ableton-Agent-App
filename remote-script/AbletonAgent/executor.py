@@ -13,6 +13,14 @@ from .errors import ProtocolFailure
 from .messages import failure, success
 
 
+class DeferredResult(object):
+    def __init__(self, start):
+        self._start = start
+
+    def start(self, on_success, on_failure):
+        self._start(on_success, on_failure)
+
+
 class MainThreadExecutor(object):
     def __init__(self, schedule_message, registry, context, max_queue=128):
         self._schedule_message = schedule_message
@@ -68,7 +76,16 @@ class MainThreadExecutor(object):
             except queue.Empty:
                 break
             try:
-                callback(success(request, command.execute(self._context, request["params"])))
+                result = command.execute(self._context, request["params"])
+                if isinstance(result, DeferredResult):
+                    result.start(
+                        lambda value: callback(success(request, value)),
+                        lambda exc: callback(
+                            failure(request, "lom_error", str(exc))
+                        ),
+                    )
+                else:
+                    callback(success(request, result))
             except ProtocolFailure as exc:
                 callback(
                     failure(

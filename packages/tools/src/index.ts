@@ -1,5 +1,7 @@
 import type {
   SessionSnapshot,
+  SetPlayingParams,
+  SetPlayingResult,
   SetTempoParams,
   SetTempoResult,
 } from "@ableton-agent/protocol";
@@ -26,6 +28,7 @@ export interface AbletonToolServices {
   getConnectionStatus(): Promise<ConnectionStatus>;
   inspectSession(): Promise<SessionSnapshot>;
   setTempo(tempo: number): Promise<SetTempoResult>;
+  setPlaying(isPlaying: boolean): Promise<SetPlayingResult>;
 }
 
 export const abletonToolMetadata = [
@@ -48,6 +51,13 @@ export const abletonToolMetadata = [
     risk: "reversible",
     duration: "instant",
     requiredCapability: "transport.set_tempo",
+  },
+  {
+    name: "ableton_transport_set_playing",
+    title: "Set Ableton transport playback",
+    risk: "reversible",
+    duration: "instant",
+    requiredCapability: "transport.set_playing",
   },
 ] as const satisfies readonly AbletonToolMetadata[];
 
@@ -96,6 +106,7 @@ export interface AbletonToolSet {
     Tool<Record<string, never>>,
     Tool<Record<string, never>>,
     Tool<SetTempoParams>,
+    Tool<SetPlayingParams>,
   ];
   availableTools: string[];
 }
@@ -125,9 +136,26 @@ export function createAbletonTools(
       .strict(),
     handler: async ({ tempo }) => services.setTempo(tempo),
   });
+  const setPlayingTool = defineTool("ableton_transport_set_playing", {
+    description:
+      "Starts or stops Ableton Live transport and returns verified before and after playback state.",
+    parameters: z
+      .object({
+        isPlaying: z
+          .boolean()
+          .describe("True to start playback, false to stop playback"),
+      })
+      .strict(),
+    handler: async ({ isPlaying }) => services.setPlaying(isPlaying),
+  });
 
   return {
-    tools: [connectionStatusTool, inspectSessionTool, setTempoTool],
+    tools: [
+      connectionStatusTool,
+      inspectSessionTool,
+      setTempoTool,
+      setPlayingTool,
+    ],
     availableTools: abletonToolMetadata.map(
       (metadata) => `custom:${metadata.name}`,
     ),

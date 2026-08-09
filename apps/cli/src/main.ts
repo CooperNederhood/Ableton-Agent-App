@@ -16,6 +16,7 @@ import type {
   CapabilityDocument,
   PingResult,
   SessionSnapshot,
+  SetPlayingResult,
   SetTempoResult,
 } from "@ableton-agent/protocol";
 
@@ -83,6 +84,9 @@ class UnconfiguredAbletonService implements AbletonService {
   public async setTempo(): Promise<SetTempoResult> {
     throw new Error("Ableton bridge is not configured");
   }
+  public async setPlaying(): Promise<SetPlayingResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
 }
 
 const io: CliIo = {
@@ -129,6 +133,7 @@ async function main(): Promise<number> {
       getAbletonStatus: () => ableton.getStatus(),
       inspectSession: () => ableton.inspectSession(),
       setTempo: (tempo) => ableton.setTempo(tempo),
+      setPlaying: (isPlaying) => ableton.setPlaying(isPlaying),
       ...(terminal === undefined
         ? {}
         : {

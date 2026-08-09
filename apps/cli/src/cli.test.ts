@@ -83,6 +83,11 @@ function application(
       afterTempo: tempo,
       verified: true,
     })),
+    setPlaying: vi.fn(async (isPlaying: boolean) => ({
+      beforeIsPlaying: !isPlaying,
+      afterIsPlaying: isPlaying,
+      verified: true,
+    })),
   };
   return {
     application: new HeadlessApplication({

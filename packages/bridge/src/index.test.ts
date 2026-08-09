@@ -58,6 +58,7 @@ describe("AbletonBridgeService", () => {
       capabilities: {
         "system.ping": true,
         "transport.set_tempo": true,
+        "transport.set_playing": true,
       },
     });
     await expect(service.ping()).resolves.toEqual({ pong: true });
@@ -69,6 +70,11 @@ describe("AbletonBridgeService", () => {
     await expect(service.setTempo(132)).resolves.toEqual({
       beforeTempo: 120,
       afterTempo: 132,
+      verified: true,
+    });
+    await expect(service.setPlaying(true)).resolves.toEqual({
+      beforeIsPlaying: false,
+      afterIsPlaying: true,
       verified: true,
     });
     await service.stop();

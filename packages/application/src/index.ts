@@ -5,6 +5,7 @@ import type {
   CapabilityDocument,
   PingResult,
   SessionSnapshot,
+  SetPlayingResult,
   SetTempoResult,
 } from "@ableton-agent/protocol";
 import type {
@@ -40,6 +41,7 @@ export interface AbletonService {
   ping(): Promise<PingResult>;
   inspectSession(): Promise<SessionSnapshot>;
   setTempo(tempo: number): Promise<SetTempoResult>;
+  setPlaying(isPlaying: boolean): Promise<SetPlayingResult>;
 }
 
 export interface ApplicationServices {
@@ -73,6 +75,7 @@ export interface CopilotAgentServiceOptions {
   getAbletonStatus: () => Promise<ConnectionStatus>;
   inspectSession: () => Promise<SessionSnapshot>;
   setTempo: (tempo: number) => Promise<SetTempoResult>;
+  setPlaying: (isPlaying: boolean) => Promise<SetPlayingResult>;
   requestToolApproval?: ToolApprovalRequester;
   clientFactory?: () => CopilotClientAdapter;
   baseDirectory?: string;
@@ -112,6 +115,7 @@ export class CopilotAgentService implements AgentService {
       getConnectionStatus: this.options.getAbletonStatus,
       inspectSession: this.options.inspectSession,
       setTempo: this.options.setTempo,
+      setPlaying: this.options.setPlaying,
     });
 
     try {
@@ -290,6 +294,10 @@ export class HeadlessApplication {
 
   public setTempo(tempo: number): Promise<SetTempoResult> {
     return this.services.ableton.setTempo(tempo);
+  }
+
+  public setPlaying(isPlaying: boolean): Promise<SetPlayingResult> {
+    return this.services.ableton.setPlaying(isPlaying);
   }
 
   public subscribe(listener: (event: AppEvent) => void): () => void {

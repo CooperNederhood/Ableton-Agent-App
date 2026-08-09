@@ -133,9 +133,21 @@ export const setTempoResultSchema = z.object({
   verified: z.boolean(),
 });
 
+export const setPlayingParamsSchema = z.object({
+  isPlaying: z.boolean(),
+});
+
+export const setPlayingResultSchema = z.object({
+  beforeIsPlaying: z.boolean(),
+  afterIsPlaying: z.boolean(),
+  verified: z.boolean(),
+});
+
 export type HelloParams = z.infer<typeof helloParamsSchema>;
 export type CapabilityDocument = z.infer<typeof capabilityDocumentSchema>;
 export type PingResult = z.infer<typeof pingResultSchema>;
 export type SessionSnapshot = z.infer<typeof sessionSnapshotSchema>;
 export type SetTempoParams = z.infer<typeof setTempoParamsSchema>;
 export type SetTempoResult = z.infer<typeof setTempoResultSchema>;
+export type SetPlayingParams = z.infer<typeof setPlayingParamsSchema>;
+export type SetPlayingResult = z.infer<typeof setPlayingResultSchema>;

@@ -9,6 +9,8 @@ import {
   encodeFrame,
   pingResultSchema,
   sessionSnapshotSchema,
+  setPlayingParamsSchema,
+  setPlayingResultSchema,
   setTempoParamsSchema,
   setTempoResultSchema,
   type CapabilityDocument,
@@ -17,6 +19,7 @@ import {
   type RequestEnvelope,
   type ResponseEnvelope,
   type SessionSnapshot,
+  type SetPlayingResult,
   type SetTempoResult,
 } from "@ableton-agent/protocol";
 import type { ConnectionStatus, EventPublisher } from "@ableton-agent/shared";
@@ -141,6 +144,14 @@ export class AbletonBridgeService implements AbletonService {
     const params = setTempoParamsSchema.parse({ tempo });
     return setTempoResultSchema.parse(
       await this.#request("transport.set_tempo", params),
+    );
+  }
+
+  public async setPlaying(isPlaying: boolean): Promise<SetPlayingResult> {
+    this.#requireCapability("transport.set_playing");
+    const params = setPlayingParamsSchema.parse({ isPlaying });
+    return setPlayingResultSchema.parse(
+      await this.#request("transport.set_playing", params),
     );
   }
 

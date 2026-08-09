@@ -17,7 +17,9 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
 - [x] Implement length-prefixed frame encoding and incremental decoding.
 - [x] Track pending requests by request ID.
 - [~] Implement command-specific timeouts and cancellation.
-- [ ] Serialize mutations and support workflow mutation leases.
+- [~] Serialize mutations and support workflow mutation leases.
+  - [x] Serialize all primitive mutations through a FIFO bridge queue.
+  - [ ] Add multi-step workflow mutation leases.
 - [ ] Implement bounded reconnect with jitter and explicit connection states.
 - [x] Reject all pending requests predictably after disconnect.
 - [ ] Implement event ordering, subscription, and revision propagation.
@@ -44,5 +46,5 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
 
 - [x] Bridge has no Copilot, Electron, CLI, or React dependencies.
 - [x] All disconnections and timeouts produce stable errors.
-- [ ] Mutations cannot interleave unexpectedly.
+- [x] Primitive mutations cannot interleave unexpectedly.
 - [ ] Simulator and real-Live connectivity tests pass.

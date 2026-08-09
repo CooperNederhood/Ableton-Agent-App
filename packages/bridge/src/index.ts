@@ -84,9 +84,12 @@ export class AbletonBridgeService implements AbletonService {
   readonly #requestTimeoutMs: number;
   readonly #decoder = new FrameDecoder();
   readonly #pending = new Map<string, PendingRequest>();
+  #mutationTail: Promise<void> = Promise.resolve();
   #socket: Socket | undefined;
   #status: ConnectionStatus = { state: "disconnected" };
   #capabilities: CapabilityDocument | undefined;
+  #connectionGeneration = 0;
+  #handshakeComplete = false;
 
   public constructor(private readonly options: AbletonBridgeOptions) {
     if (options.authenticationToken.length < 32) {
@@ -116,6 +119,7 @@ export class AbletonBridgeService implements AbletonService {
       });
       const capabilities = capabilityDocumentSchema.parse(result);
       this.#capabilities = capabilities;
+      this.#handshakeComplete = true;
       this.#setStatus({
         state: "connected",
         liveVersion: capabilities.liveVersion,
@@ -169,7 +173,7 @@ export class AbletonBridgeService implements AbletonService {
     this.#requireCapability("transport.set_tempo");
     const params = setTempoParamsSchema.parse({ tempo });
     return setTempoResultSchema.parse(
-      await this.#request("transport.set_tempo", params, false),
+      await this.#mutationRequest("transport.set_tempo", params),
     );
   }
 
@@ -177,7 +181,7 @@ export class AbletonBridgeService implements AbletonService {
     this.#requireCapability("transport.set_playing");
     const params = setPlayingParamsSchema.parse({ isPlaying });
     return setPlayingResultSchema.parse(
-      await this.#request("transport.set_playing", params, false),
+      await this.#mutationRequest("transport.set_playing", params),
     );
   }
 
@@ -187,7 +191,7 @@ export class AbletonBridgeService implements AbletonService {
     this.#requireCapability("tracks.create");
     const validated = createTrackParamsSchema.parse(params);
     return trackMutationResultSchema.parse(
-      await this.#request("tracks.create", validated, false),
+      await this.#mutationRequest("tracks.create", validated),
     );
   }
 
@@ -197,7 +201,7 @@ export class AbletonBridgeService implements AbletonService {
     this.#requireCapability("tracks.delete");
     const validated = deleteTrackParamsSchema.parse(params);
     return trackMutationResultSchema.parse(
-      await this.#request("tracks.delete", validated, false),
+      await this.#mutationRequest("tracks.delete", validated),
     );
   }
 
@@ -207,7 +211,7 @@ export class AbletonBridgeService implements AbletonService {
     this.#requireCapability("tracks.rename");
     const validated = renameTrackParamsSchema.parse(params);
     return renameTrackResultSchema.parse(
-      await this.#request("tracks.rename", validated, false),
+      await this.#mutationRequest("tracks.rename", validated),
     );
   }
 
@@ -217,7 +221,7 @@ export class AbletonBridgeService implements AbletonService {
     this.#requireCapability("tracks.set_mixer");
     const validated = setTrackMixerParamsSchema.parse(params);
     return setTrackMixerResultSchema.parse(
-      await this.#request("tracks.set_mixer", validated, false),
+      await this.#mutationRequest("tracks.set_mixer", validated),
     );
   }
 
@@ -227,7 +231,7 @@ export class AbletonBridgeService implements AbletonService {
     this.#requireCapability("clips.create_midi");
     const validated = createMidiClipParamsSchema.parse(params);
     return createMidiClipResultSchema.parse(
-      await this.#request("clips.create_midi", validated, false),
+      await this.#mutationRequest("clips.create_midi", validated),
     );
   }
 
@@ -237,7 +241,7 @@ export class AbletonBridgeService implements AbletonService {
     this.#requireCapability("clips.replace_notes");
     const validated = replaceMidiNotesParamsSchema.parse(params);
     return replaceMidiNotesResultSchema.parse(
-      await this.#request("clips.replace_notes", validated, false),
+      await this.#mutationRequest("clips.replace_notes", validated),
     );
   }
 
@@ -247,7 +251,7 @@ export class AbletonBridgeService implements AbletonService {
     this.#requireCapability("arrangement.create_midi_clip");
     const validated = createArrangementMidiClipParamsSchema.parse(params);
     return createArrangementMidiClipResultSchema.parse(
-      await this.#request("arrangement.create_midi_clip", validated, false),
+      await this.#mutationRequest("arrangement.create_midi_clip", validated),
     );
   }
 
@@ -262,6 +266,47 @@ export class AbletonBridgeService implements AbletonService {
     }
   }
 
+  async #mutationRequest(
+    command: string,
+    params: Readonly<Record<string, unknown>>,
+  ): Promise<unknown> {
+    const generation = this.#connectionGeneration;
+    const previous = this.#mutationTail;
+    let release: () => void = () => undefined;
+    this.#mutationTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      if (
+        generation !== this.#connectionGeneration ||
+        !this.#handshakeComplete
+      ) {
+        throw new AbletonBridgeError(
+          "connection_closed",
+          "Queued Ableton mutation belongs to a closed connection",
+          true,
+        );
+      }
+      return await this.#request(command, params, false);
+    } catch (error) {
+      if (
+        error instanceof AbletonBridgeError &&
+        error.code === "operation_timeout"
+      ) {
+        this.#destroySocket();
+        this.#setStatus({
+          state: "error",
+          code: error.code,
+          message: error.message,
+        });
+      }
+      throw error;
+    } finally {
+      release();
+    }
+  }
+
   async #request(
     command: string,
     params: Readonly<Record<string, unknown>>,
@@ -270,6 +315,13 @@ export class AbletonBridgeService implements AbletonService {
     const socket = this.#socket;
     if (!socket || socket.destroyed) {
       throw new Error("Ableton bridge is not connected");
+    }
+    if (command !== "system.hello" && !this.#handshakeComplete) {
+      throw new AbletonBridgeError(
+        "connection_closed",
+        "Ableton handshake is not complete",
+        true,
+      );
     }
     const requestId = randomUUID();
     const request: RequestEnvelope = {
@@ -339,7 +391,13 @@ export class AbletonBridgeService implements AbletonService {
     socket.on("close", () => {
       if (this.#socket === socket) {
         this.#socket = undefined;
-        this.#capabilities = undefined;
+        this.#invalidateConnection(
+          new AbletonBridgeError(
+            "connection_closed",
+            "Ableton bridge connection closed",
+            true,
+          ),
+        );
         if (this.#status.state === "connected") {
           this.#setStatus({
             state: "error",
@@ -387,14 +445,21 @@ export class AbletonBridgeService implements AbletonService {
     const socket = this.#socket;
     this.#socket = undefined;
     socket?.destroy();
-    this.#decoder.reset();
-    this.#rejectPending(
+    this.#invalidateConnection(
       new AbletonBridgeError(
         "connection_closed",
         "Ableton bridge stopped",
         true,
       ),
     );
+  }
+
+  #invalidateConnection(error: Error): void {
+    this.#connectionGeneration += 1;
+    this.#handshakeComplete = false;
+    this.#capabilities = undefined;
+    this.#decoder.reset();
+    this.#rejectPending(error);
   }
 
   #setStatus(status: ConnectionStatus): void {

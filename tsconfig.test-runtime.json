@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@ableton-agent/ableton-contracts": [
+        "packages/ableton-contracts/src/index.ts"
+      ],
+      "@ableton-agent/application": ["packages/application/src/index.ts"],
+      "@ableton-agent/bridge": ["packages/bridge/src/index.ts"],
+      "@ableton-agent/project-state": ["packages/project-state/src/index.ts"],
+      "@ableton-agent/protocol": ["packages/protocol/src/index.ts"],
+      "@ableton-agent/runtime": ["packages/runtime/src/index.ts"],
+      "@ableton-agent/shared": ["packages/shared/src/index.ts"],
+      "@ableton-agent/test-support": ["packages/test-support/src/index.ts"],
+      "@ableton-agent/tools": ["packages/tools/src/index.ts"],
+      "@ableton-agent/workflows": ["packages/workflows/src/index.ts"]
+    }
+  }
+}

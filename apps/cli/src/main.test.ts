@@ -10,11 +10,18 @@ const tsxBin = fileURLToPath(
   new URL("../../../node_modules/.bin/tsx", import.meta.url),
 );
 const entry = fileURLToPath(new URL("./main.ts", import.meta.url));
+const testTsconfig = fileURLToPath(
+  new URL("../../../tsconfig.test-runtime.json", import.meta.url),
+);
 
 function cliEnv(overrides: Record<string, string> = {}) {
   const baseEnv = { ...process.env };
   delete baseEnv.ABLETON_AGENT_TOKEN;
-  return { ...baseEnv, ...overrides };
+  return {
+    ...baseEnv,
+    TSX_TSCONFIG_PATH: testTsconfig,
+    ...overrides,
+  };
 }
 
 function runCli(args: readonly string[], env: Record<string, string> = {}) {

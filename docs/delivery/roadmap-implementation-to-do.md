@@ -38,8 +38,10 @@ Companion specification: [Delivery Roadmap](roadmap.md)
 
 ## Tests
 
-- [ ] Add an automated check that every specification retains a paired plan.
-- [ ] Add an automated check for broken documentation and issue links.
+- [x] Add an automated check that every specification retains a paired plan.
+- [~] Add an automated check for broken documentation and issue links.
+  - [x] Validate every local Markdown link in `pnpm check`.
+  - [ ] Validate external GitHub issue links when issue tracking is populated.
 - [ ] Rehearse each milestone exit checklist against objective test evidence.
 - [ ] Run a full release-candidate validation before closing the final
   milestone.

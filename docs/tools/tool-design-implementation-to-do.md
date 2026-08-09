@@ -33,7 +33,8 @@ Companion specification: [Tool Design](tool-design.md)
   - [x] Implement approved non-overlapping MIDI clip placement.
   - [x] Implement bounded Arrangement inspection.
   - [x] Implement destructive identity-bound Arrangement clip deletion.
-  - [ ] Implement Arrangement note editing, duplication, and properties.
+  - [x] Implement destructive bounded Arrangement MIDI note replacement.
+  - [ ] Implement Arrangement duplication and properties.
 - [ ] Implement browser/device load and parameter operations.
 - [~] Implement transport, loop, and cue-point operations.
 

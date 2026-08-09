@@ -922,6 +922,52 @@ class ExecutorTests(unittest.TestCase):
         clip_reference = responses[2]["result"]["clips"][0]["reference"]
         executor.submit(
             request(
+                "arrangement.replace_notes",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "expectedClipReference": clip_reference,
+                    "expectedStartTime": 8.0,
+                    "allowPerNoteExpressionLoss": False,
+                    "notes": [
+                        {
+                            "pitch": 60,
+                            "startTime": 0.0,
+                            "duration": 1.0,
+                            "velocity": 100,
+                        }
+                    ],
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        executor.submit(
+            request(
+                "arrangement.replace_notes",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "expectedClipReference": clip_reference,
+                    "expectedStartTime": 8.0,
+                    "allowPerNoteExpressionLoss": True,
+                    "notes": [
+                        {
+                            "pitch": 64,
+                            "startTime": 4.0,
+                            "duration": 1.0,
+                            "velocity": 100,
+                        }
+                    ],
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        executor.submit(
+            request(
                 "arrangement.delete_clip",
                 {
                     "index": 0,
@@ -937,8 +983,11 @@ class ExecutorTests(unittest.TestCase):
 
         self.assertEqual(responses[2]["result"]["total"], 1)
         self.assertEqual(responses[2]["result"]["clips"][0]["kind"], "midi")
-        self.assertEqual(responses[3]["result"]["beforeClipCount"], 1)
-        self.assertEqual(responses[3]["result"]["afterClipCount"], 0)
+        self.assertEqual(responses[3]["result"]["beforeNoteCount"], 0)
+        self.assertEqual(responses[3]["result"]["afterNoteCount"], 1)
+        self.assertEqual(responses[4]["error"]["code"], "invalid_params")
+        self.assertEqual(responses[5]["result"]["beforeClipCount"], 1)
+        self.assertEqual(responses[5]["result"]["afterClipCount"], 0)
         self.assertEqual(track.arrangement_clips, [])
 
     def test_arrangement_creation_rolls_back_when_create_raises(self):
@@ -1009,7 +1058,10 @@ class CapabilityAndTokenTests(unittest.TestCase):
         registry = CommandRegistry()
         register_system_commands(registry)
         document = build_capability_document(
-            FakeApplication(), FakeSong(), registry
+            FakeApplication(),
+            FakeSong(),
+            registry,
+            note_editing_supported=True,
         )
 
         self.assertEqual(document["liveVersion"], "12.1-test")
@@ -1022,7 +1074,10 @@ class CapabilityAndTokenTests(unittest.TestCase):
         legacy_song = FakeSong()
         legacy_song.tracks = [object()]
         legacy_document = build_capability_document(
-            FakeApplication(), legacy_song, registry
+            FakeApplication(),
+            legacy_song,
+            registry,
+            note_editing_supported=False,
         )
         self.assertFalse(
             legacy_document["capabilities"]["arrangement.create_midi_clip"]
@@ -1033,6 +1088,9 @@ class CapabilityAndTokenTests(unittest.TestCase):
         self.assertFalse(
             legacy_document["capabilities"]["arrangement.delete_clip"]
         )
+        self.assertFalse(
+            legacy_document["capabilities"]["arrangement.replace_notes"]
+        )
 
         class InspectOnlyTrack(object):
             arrangement_clips = []
@@ -1041,6 +1099,7 @@ class CapabilityAndTokenTests(unittest.TestCase):
             FakeApplication(),
             type("Song", (), {"tracks": [InspectOnlyTrack()], "name": "Test"})(),
             registry,
+            note_editing_supported=False,
         )
         self.assertTrue(
             inspect_document["capabilities"]["arrangement.inspect"]
@@ -1051,11 +1110,15 @@ class CapabilityAndTokenTests(unittest.TestCase):
         self.assertFalse(
             inspect_document["capabilities"]["arrangement.delete_clip"]
         )
+        self.assertFalse(
+            inspect_document["capabilities"]["arrangement.replace_notes"]
+        )
 
         empty_document = build_capability_document(
             FakeApplication(),
             type("Song", (), {"tracks": [], "name": "Empty"})(),
             registry,
+            note_editing_supported=False,
         )
         self.assertTrue(
             empty_document["capabilities"]["arrangement.inspect"]

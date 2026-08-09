@@ -190,6 +190,29 @@ function services() {
           verified: true as const,
         }),
     ),
+    replaceArrangementMidiNotes: vi.fn(
+      (
+        params: Parameters<
+          AbletonToolServices["replaceArrangementMidiNotes"]
+        >[0],
+      ) =>
+        Promise.resolve({
+          clip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            name: "Verse",
+            kind: "midi" as const,
+            startTime: params.expectedStartTime,
+            endTime: params.expectedStartTime + 4,
+            length: 4,
+            noteCount: params.notes.length,
+          },
+          beforeNoteCount: 0,
+          afterNoteCount: params.notes.length,
+          verified: true as const,
+        }),
+    ),
   };
 }
 
@@ -214,6 +237,7 @@ describe("Ableton tools", () => {
       "custom:ableton_arrangement_create_midi_clip",
       "custom:ableton_arrangement_inspect",
       "custom:ableton_arrangement_delete_clip",
+      "custom:ableton_arrangement_replace_notes",
     ]);
     expect(abletonToolMetadata.map((metadata) => metadata.risk)).toEqual([
       "read",
@@ -228,6 +252,7 @@ describe("Ableton tools", () => {
       "destructive",
       "reversible",
       "read",
+      "destructive",
       "destructive",
     ]);
   });
@@ -331,6 +356,26 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
+    await toolSet.tools[13].handler?.(
+      {
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Drums",
+        expectedClipReference: "00000000-0000-4000-8000-000000000020",
+        expectedStartTime: 8,
+        allowPerNoteExpressionLoss: false,
+        notes: [
+          {
+            pitch: 60,
+            startTime: 0,
+            duration: 1,
+            velocity: 100,
+            mute: false,
+          },
+        ],
+      },
+      invocation,
+    );
 
     expect(ports.getConnectionStatus).toHaveBeenCalledOnce();
     expect(ports.inspectSession).toHaveBeenCalledOnce();
@@ -402,6 +447,23 @@ describe("Ableton tools", () => {
       expectedName: "Drums",
       expectedClipReference: "00000000-0000-4000-8000-000000000020",
       expectedStartTime: 8,
+    });
+    expect(ports.replaceArrangementMidiNotes).toHaveBeenCalledWith({
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000001",
+      expectedName: "Drums",
+      expectedClipReference: "00000000-0000-4000-8000-000000000020",
+      expectedStartTime: 8,
+      allowPerNoteExpressionLoss: false,
+      notes: [
+        {
+          pitch: 60,
+          startTime: 0,
+          duration: 1,
+          velocity: 100,
+          mute: false,
+        },
+      ],
     });
   });
 

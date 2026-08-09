@@ -2,6 +2,7 @@
 
 from __future__ import absolute_import, unicode_literals
 
+import math
 import uuid
 
 try:
@@ -15,6 +16,14 @@ from .errors import ProtocolFailure
 
 def _track_kind(track):
     return "midi" if getattr(track, "has_midi_input", False) else "audio"
+
+
+def _is_finite_number(value):
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(value)
+    )
 
 
 def _track_reference(context, track):
@@ -607,14 +616,12 @@ def _replace_midi_notes_params(params):
         ):
             return "note velocity must be an integer from 1 to 127"
         if (
-            isinstance(start_time, bool)
-            or not isinstance(start_time, (int, float))
+            not _is_finite_number(start_time)
             or start_time < 0
         ):
             return "note startTime must be a non-negative number"
         if (
-            isinstance(duration, bool)
-            or not isinstance(duration, (int, float))
+            not _is_finite_number(duration)
             or duration <= 0
         ):
             return "note duration must be greater than zero"
@@ -668,20 +675,7 @@ def _restore_clip_notes(clip, added_note_ids, backup_notes):
         clip.add_new_notes(backup_notes)
 
 
-def replace_midi_notes(context, params):
-    track = _resolve_track(context, params)
-    scene_index = params["sceneIndex"]
-    if scene_index >= len(track.clip_slots):
-        raise ProtocolFailure("not_found", "Scene index is out of range")
-    slot = track.clip_slots[scene_index]
-    if not slot.has_clip:
-        raise ProtocolFailure("not_found", "Clip slot is empty")
-    clip = slot.clip
-    if _clip_reference(context, clip) != params["expectedClipReference"]:
-        raise ProtocolFailure(
-            "stale_reference",
-            "Clip identity changed before note replacement",
-        )
+def _replace_midi_clip_notes(context, clip, params, summarize):
     note_factory = getattr(context, "midi_note_factory", MidiNoteSpecification)
     if (
         not hasattr(clip, "remove_notes_by_id")
@@ -783,9 +777,7 @@ def replace_midi_notes(context, params):
                 },
             )
         result = {
-            "clip": _clip_summary(
-                context, track, params["index"], scene_index, clip
-            ),
+            "clip": summarize(),
             "beforeNoteCount": before_count,
             "afterNoteCount": len(actual),
             "verified": True,
@@ -815,6 +807,30 @@ def replace_midi_notes(context, params):
     return result
 
 
+def replace_midi_notes(context, params):
+    track = _resolve_track(context, params)
+    scene_index = params["sceneIndex"]
+    if scene_index >= len(track.clip_slots):
+        raise ProtocolFailure("not_found", "Scene index is out of range")
+    slot = track.clip_slots[scene_index]
+    if not slot.has_clip:
+        raise ProtocolFailure("not_found", "Clip slot is empty")
+    clip = slot.clip
+    if _clip_reference(context, clip) != params["expectedClipReference"]:
+        raise ProtocolFailure(
+            "stale_reference",
+            "Clip identity changed before note replacement",
+        )
+    return _replace_midi_clip_notes(
+        context,
+        clip,
+        params,
+        lambda: _clip_summary(
+            context, track, params["index"], scene_index, clip
+        ),
+    )
+
+
 def _create_arrangement_midi_clip_params(params):
     error = _validate_track_target(
         params, ["startTime", "length", "name"]
@@ -824,8 +840,7 @@ def _create_arrangement_midi_clip_params(params):
     start_time = params.get("startTime")
     length = params.get("length")
     if (
-        isinstance(start_time, bool)
-        or not isinstance(start_time, (int, float))
+        not _is_finite_number(start_time)
         or start_time < 0
         or start_time > 1576800
     ):
@@ -996,11 +1011,7 @@ def _delete_arrangement_clip_params(params):
     except (AttributeError, TypeError, ValueError):
         return "expectedClipReference must be a UUID"
     start_time = params.get("expectedStartTime")
-    if (
-        isinstance(start_time, bool)
-        or not isinstance(start_time, (int, float))
-        or start_time < 0
-    ):
+    if not _is_finite_number(start_time) or start_time < 0:
         return "expectedStartTime must be a non-negative number"
     return None
 
@@ -1049,6 +1060,67 @@ def delete_arrangement_clip(context, params):
         "afterClipCount": after_count,
         "verified": True,
     }
+
+
+def _replace_arrangement_midi_notes_params(params):
+    candidate = {
+        "index": params.get("index"),
+        "expectedReference": params.get("expectedReference"),
+        "expectedName": params.get("expectedName"),
+        "sceneIndex": 0,
+        "expectedClipReference": params.get("expectedClipReference"),
+        "allowPerNoteExpressionLoss": params.get(
+            "allowPerNoteExpressionLoss"
+        ),
+        "notes": params.get("notes"),
+    }
+    error = _replace_midi_notes_params(candidate)
+    if error:
+        return error
+    if set(params.keys()) - set(
+        [
+            "index",
+            "expectedReference",
+            "expectedName",
+            "expectedClipReference",
+            "expectedStartTime",
+            "allowPerNoteExpressionLoss",
+            "notes",
+        ]
+    ):
+        return "Unexpected Arrangement note replacement parameter"
+    start_time = params.get("expectedStartTime")
+    if not _is_finite_number(start_time) or start_time < 0:
+        return "expectedStartTime must be a non-negative number"
+    return None
+
+
+def replace_arrangement_midi_notes(context, params):
+    track = _resolve_track(context, params, allow_group=True)
+    target = None
+    for clip in getattr(track, "arrangement_clips", []):
+        if _clip_reference(context, clip) == params["expectedClipReference"]:
+            target = clip
+            break
+    if target is None:
+        raise ProtocolFailure("stale_reference", "Arrangement clip changed")
+    if abs(target.start_time - params["expectedStartTime"]) >= 0.000001:
+        raise ProtocolFailure(
+            "stale_reference",
+            "Arrangement clip moved before note replacement",
+        )
+    if not bool(getattr(target, "is_midi_clip", False)):
+        raise ProtocolFailure(
+            "conflict", "Arrangement clip is not a MIDI clip"
+        )
+    return _replace_midi_clip_notes(
+        context,
+        target,
+        params,
+        lambda: _arrangement_clip_summary(
+            context, track, params["index"], target
+        ),
+    )
 
 
 def register_system_commands(registry):
@@ -1129,4 +1201,11 @@ def register_system_commands(registry):
         mutates=True,
         capability="arrangement.delete_clip",
         validator=_delete_arrangement_clip_params,
+    )
+    registry.register(
+        "arrangement.replace_notes",
+        replace_arrangement_midi_notes,
+        mutates=True,
+        capability="arrangement.replace_notes",
+        validator=_replace_arrangement_midi_notes_params,
     )

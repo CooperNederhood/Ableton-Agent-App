@@ -26,6 +26,8 @@ import type {
   RenameTrackResult,
   ReplaceMidiNotesParams,
   ReplaceMidiNotesResult,
+  ReplaceArrangementMidiNotesParams,
+  ReplaceArrangementMidiNotesResult,
   PingResult,
   InspectArrangementParams,
   InspectArrangementResult,
@@ -131,6 +133,9 @@ class UnconfiguredAbletonService implements AbletonService {
   public async deleteArrangementClip(): Promise<DeleteArrangementClipResult> {
     throw new Error("Ableton bridge is not configured");
   }
+  public async replaceArrangementMidiNotes(): Promise<ReplaceArrangementMidiNotesResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
 }
 
 const io: CliIo = {
@@ -193,6 +198,9 @@ async function main(): Promise<number> {
         ableton.inspectArrangement(params),
       deleteArrangementClip: (params: DeleteArrangementClipParams) =>
         ableton.deleteArrangementClip(params),
+      replaceArrangementMidiNotes: (
+        params: ReplaceArrangementMidiNotesParams,
+      ) => ableton.replaceArrangementMidiNotes(params),
       ...(terminal === undefined
         ? {}
         : {

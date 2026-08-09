@@ -43,7 +43,9 @@ reference-bound note replacement with bounded payloads, core-note recovery,
 and explicit opt-in for per-note expression loss.
 Arrangement composition supports verified, non-overlapping empty MIDI clip
 placement with rollback on failed creation, bounded inspection, and destructive
-identity-bound clip deletion.
+identity-bound clip deletion. Arrangement MIDI note replacement uses the same
+bounded payloads, verification, recovery, and expression-loss consent as
+Session clips.
 
 For development without Ableton:
 

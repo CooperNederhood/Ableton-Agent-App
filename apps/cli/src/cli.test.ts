@@ -224,6 +224,26 @@ function application(
         verified: true as const,
       }),
     ),
+    replaceArrangementMidiNotes: vi.fn(
+      async (
+        params: Parameters<AbletonService["replaceArrangementMidiNotes"]>[0],
+      ) => ({
+        clip: {
+          reference: params.expectedClipReference,
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          name: "Verse",
+          kind: "midi" as const,
+          startTime: params.expectedStartTime,
+          endTime: params.expectedStartTime + 4,
+          length: 4,
+          noteCount: params.notes.length,
+        },
+        beforeNoteCount: 0,
+        afterNoteCount: params.notes.length,
+        verified: true as const,
+      }),
+    ),
   };
   return {
     application: new HeadlessApplication({

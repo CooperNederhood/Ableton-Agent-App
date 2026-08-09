@@ -230,6 +230,30 @@ describe("AbletonBridgeService", () => {
       clips: [{ name: "Verse", kind: "midi", startTime: 8 }],
     });
     await expect(
+      service.replaceArrangementMidiNotes({
+        index: 0,
+        expectedReference: drums?.reference ?? "",
+        expectedName: "Main Drums",
+        expectedClipReference: arrangement.clips[0]?.reference ?? "",
+        expectedStartTime: 8,
+        allowPerNoteExpressionLoss: false,
+        notes: [
+          {
+            pitch: 60,
+            startTime: 0,
+            duration: 1,
+            velocity: 100,
+            mute: false,
+          },
+        ],
+      }),
+    ).resolves.toMatchObject({
+      beforeNoteCount: 0,
+      afterNoteCount: 1,
+      clip: { noteCount: 1 },
+      verified: true,
+    });
+    await expect(
       service.deleteArrangementClip({
         index: 0,
         expectedReference: drums?.reference ?? "",

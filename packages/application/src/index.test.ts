@@ -182,6 +182,26 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
         verified: true as const,
       }),
     ),
+    replaceArrangementMidiNotes: vi.fn(
+      async (
+        params: Parameters<AbletonService["replaceArrangementMidiNotes"]>[0],
+      ) => ({
+        clip: {
+          reference: params.expectedClipReference,
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          name: "Verse",
+          kind: "midi" as const,
+          startTime: params.expectedStartTime,
+          endTime: params.expectedStartTime + 4,
+          length: 4,
+          noteCount: params.notes.length,
+        },
+        beforeNoteCount: 0,
+        afterNoteCount: params.notes.length,
+        verified: true as const,
+      }),
+    ),
   };
   const events = new InMemoryEventPublisher();
   return { agent, ableton, events, logger: noopLogger };
@@ -388,6 +408,23 @@ describe("CopilotAgentService", () => {
           afterClipCount: 0,
           verified: true,
         }),
+      replaceArrangementMidiNotes: (params) =>
+        Promise.resolve({
+          clip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            name: "Verse",
+            kind: "midi" as const,
+            startTime: params.expectedStartTime,
+            endTime: params.expectedStartTime + 4,
+            length: 4,
+            noteCount: params.notes.length,
+          },
+          beforeNoteCount: 0,
+          afterNoteCount: params.notes.length,
+          verified: true as const,
+        }),
       requestToolApproval,
       clientFactory: () => ({
         createSession: (received) => {
@@ -421,8 +458,9 @@ describe("CopilotAgentService", () => {
       "custom:ableton_arrangement_create_midi_clip",
       "custom:ableton_arrangement_inspect",
       "custom:ableton_arrangement_delete_clip",
+      "custom:ableton_arrangement_replace_notes",
     ]);
-    expect(config?.tools).toHaveLength(13);
+    expect(config?.tools).toHaveLength(14);
     await expect(
       config?.onPermissionRequest?.(
         {
@@ -586,6 +624,23 @@ describe("CopilotAgentService", () => {
           beforeClipCount: 1,
           afterClipCount: 0,
           verified: true,
+        }),
+      replaceArrangementMidiNotes: (params) =>
+        Promise.resolve({
+          clip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            name: "Verse",
+            kind: "midi" as const,
+            startTime: params.expectedStartTime,
+            endTime: params.expectedStartTime + 4,
+            length: 4,
+            noteCount: params.notes.length,
+          },
+          beforeNoteCount: 0,
+          afterNoteCount: params.notes.length,
+          verified: true as const,
         }),
       clientFactory: () => ({
         createSession: () =>

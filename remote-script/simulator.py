@@ -128,6 +128,7 @@ def handle(request, token, state):
                     "arrangement.create_midi_clip": True,
                     "arrangement.inspect": True,
                     "arrangement.delete_clip": True,
+                    "arrangement.replace_notes": True,
                 },
                 "limits": {
                     "maxFrameBytes": 4 * 1024 * 1024,
@@ -467,6 +468,7 @@ def handle(request, token, state):
             "startTime": start_time,
             "endTime": end_time,
             "length": length,
+            "notes": [],
             "noteCount": 0,
         }
         track["arrangementClips"].append(clip)
@@ -534,6 +536,78 @@ def handle(request, token, state):
                 "clip": target,
                 "beforeClipCount": before_count,
                 "afterClipCount": len(track["arrangementClips"]),
+                "verified": True,
+            },
+        )
+    if command == "arrangement.replace_notes":
+        index = params.get("index")
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or index < 0
+            or index >= len(state.tracks)
+        ):
+            return failure(request, "not_found", "Track index is out of range")
+        track = state.tracks[index]
+        if (
+            track["reference"] != params.get("expectedReference")
+            or track["name"] != params.get("expectedName")
+        ):
+            return failure(
+                request,
+                "stale_reference",
+                "Track identity changed before mutation",
+            )
+        target = next(
+            (
+                clip
+                for clip in track["arrangementClips"]
+                if clip["reference"] == params.get("expectedClipReference")
+            ),
+            None,
+        )
+        if target is None or abs(
+            target["startTime"] - params.get("expectedStartTime")
+        ) >= 0.000001:
+            return failure(
+                request,
+                "stale_reference",
+                "Arrangement clip changed before note replacement",
+            )
+        if target["kind"] != "midi":
+            return failure(
+                request, "conflict", "Arrangement clip is not a MIDI clip"
+            )
+        notes = params.get("notes", [])
+        if any(
+            note["startTime"] + note["duration"]
+            > target["length"] + 0.000001
+            for note in notes
+        ):
+            return failure(
+                request,
+                "invalid_params",
+                "Notes must fit within the clip length",
+            )
+        before_count = len(target["notes"])
+        if before_count and not params.get("allowPerNoteExpressionLoss"):
+            return failure(
+                request,
+                "conflict",
+                "Replacing notes may discard per-note expression data",
+            )
+        target["notes"] = notes
+        target["noteCount"] = len(target["notes"])
+        return response(
+            request,
+            {
+                "clip": {
+                    key: value
+                    for key, value in target.items()
+                    if key != "notes"
+                },
+                "beforeNoteCount": before_count,
+                "afterNoteCount": len(target["notes"]),
                 "verified": True,
             },
         )

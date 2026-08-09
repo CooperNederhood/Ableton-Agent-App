@@ -25,6 +25,8 @@ import {
   inspectArrangementResultSchema,
   replaceMidiNotesParamsSchema,
   replaceMidiNotesResultSchema,
+  replaceArrangementMidiNotesParamsSchema,
+  replaceArrangementMidiNotesResultSchema,
   setTrackMixerParamsSchema,
   setTrackMixerResultSchema,
   setTempoParamsSchema,
@@ -51,6 +53,8 @@ import {
   type InspectArrangementResult,
   type ReplaceMidiNotesParams,
   type ReplaceMidiNotesResult,
+  type ReplaceArrangementMidiNotesParams,
+  type ReplaceArrangementMidiNotesResult,
   type SetTrackMixerParams,
   type SetTrackMixerResult,
   type SetTempoResult,
@@ -280,6 +284,16 @@ export class AbletonBridgeService implements AbletonService {
     const validated = deleteArrangementClipParamsSchema.parse(params);
     return deleteArrangementClipResultSchema.parse(
       await this.#mutationRequest("arrangement.delete_clip", validated),
+    );
+  }
+
+  public async replaceArrangementMidiNotes(
+    params: ReplaceArrangementMidiNotesParams,
+  ): Promise<ReplaceArrangementMidiNotesResult> {
+    this.#requireCapability("arrangement.replace_notes");
+    const validated = replaceArrangementMidiNotesParamsSchema.parse(params);
+    return replaceArrangementMidiNotesResultSchema.parse(
+      await this.#mutationRequest("arrangement.replace_notes", validated),
     );
   }
 

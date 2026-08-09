@@ -15,6 +15,8 @@ import type {
   RenameTrackResult,
   ReplaceMidiNotesParams,
   ReplaceMidiNotesResult,
+  ReplaceArrangementMidiNotesParams,
+  ReplaceArrangementMidiNotesResult,
   PingResult,
   InspectArrangementParams,
   InspectArrangementResult,
@@ -76,6 +78,9 @@ export interface AbletonService {
   deleteArrangementClip(
     params: DeleteArrangementClipParams,
   ): Promise<DeleteArrangementClipResult>;
+  replaceArrangementMidiNotes(
+    params: ReplaceArrangementMidiNotesParams,
+  ): Promise<ReplaceArrangementMidiNotesResult>;
 }
 
 export interface ApplicationServices {
@@ -129,6 +134,9 @@ export interface CopilotAgentServiceOptions {
   deleteArrangementClip: (
     params: DeleteArrangementClipParams,
   ) => Promise<DeleteArrangementClipResult>;
+  replaceArrangementMidiNotes: (
+    params: ReplaceArrangementMidiNotesParams,
+  ) => Promise<ReplaceArrangementMidiNotesResult>;
   requestToolApproval?: ToolApprovalRequester;
   clientFactory?: () => CopilotClientAdapter;
   baseDirectory?: string;
@@ -178,6 +186,7 @@ export class CopilotAgentService implements AgentService {
       createArrangementMidiClip: this.options.createArrangementMidiClip,
       inspectArrangement: this.options.inspectArrangement,
       deleteArrangementClip: this.options.deleteArrangementClip,
+      replaceArrangementMidiNotes: this.options.replaceArrangementMidiNotes,
     });
 
     try {
@@ -408,6 +417,12 @@ export class HeadlessApplication {
     params: DeleteArrangementClipParams,
   ): Promise<DeleteArrangementClipResult> {
     return this.services.ableton.deleteArrangementClip(params);
+  }
+
+  public replaceArrangementMidiNotes(
+    params: ReplaceArrangementMidiNotesParams,
+  ): Promise<ReplaceArrangementMidiNotesResult> {
+    return this.services.ableton.replaceArrangementMidiNotes(params);
   }
 
   public subscribe(listener: (event: AppEvent) => void): () => void {

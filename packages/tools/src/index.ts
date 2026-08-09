@@ -13,6 +13,8 @@ import type {
   RenameTrackResult,
   ReplaceMidiNotesParams,
   ReplaceMidiNotesResult,
+  ReplaceArrangementMidiNotesParams,
+  ReplaceArrangementMidiNotesResult,
   SessionSnapshot,
   SetPlayingParams,
   SetPlayingResult,
@@ -63,6 +65,9 @@ export interface AbletonToolServices {
   deleteArrangementClip(
     params: DeleteArrangementClipParams,
   ): Promise<DeleteArrangementClipResult>;
+  replaceArrangementMidiNotes(
+    params: ReplaceArrangementMidiNotesParams,
+  ): Promise<ReplaceArrangementMidiNotesResult>;
 }
 
 export const abletonToolMetadata = [
@@ -156,6 +161,13 @@ export const abletonToolMetadata = [
     duration: "short",
     requiredCapability: "arrangement.delete_clip",
   },
+  {
+    name: "ableton_arrangement_replace_notes",
+    title: "Replace Arrangement MIDI notes",
+    risk: "destructive",
+    duration: "short",
+    requiredCapability: "arrangement.replace_notes",
+  },
 ] as const satisfies readonly AbletonToolMetadata[];
 
 export interface ToolApprovalRequest {
@@ -213,6 +225,7 @@ export interface AbletonToolSet {
     Tool<CreateArrangementMidiClipParams>,
     Tool<InspectArrangementParams>,
     Tool<DeleteArrangementClipParams>,
+    Tool<ReplaceArrangementMidiNotesParams>,
   ];
   availableTools: string[];
 }
@@ -409,6 +422,37 @@ export function createAbletonTools(
       handler: async (params) => services.deleteArrangementClip(params),
     },
   );
+  const replaceArrangementMidiNotesTool = defineTool(
+    "ableton_arrangement_replace_notes",
+    {
+      description:
+        "Destructively replaces every note in an identity-bound Arrangement MIDI clip. Existing per-note MPE/expression cannot be preserved, so explicit opt-in is required for non-empty clips.",
+      parameters: z
+        .object({
+          index: z.number().int().nonnegative(),
+          expectedReference: z.string().uuid(),
+          expectedName: z.string().min(1),
+          expectedClipReference: z.string().uuid(),
+          expectedStartTime: z.number().nonnegative(),
+          allowPerNoteExpressionLoss: z.boolean(),
+          notes: z
+            .array(
+              z
+                .object({
+                  pitch: z.number().int().min(0).max(127),
+                  startTime: z.number().nonnegative(),
+                  duration: z.number().positive(),
+                  velocity: z.number().int().min(1).max(127),
+                  mute: z.boolean().default(false),
+                })
+                .strict(),
+            )
+            .max(2048),
+        })
+        .strict(),
+      handler: async (params) => services.replaceArrangementMidiNotes(params),
+    },
+  );
 
   return {
     tools: [
@@ -425,6 +469,7 @@ export function createAbletonTools(
       createArrangementMidiClipTool,
       inspectArrangementTool,
       deleteArrangementClipTool,
+      replaceArrangementMidiNotesTool,
     ],
     availableTools: abletonToolMetadata.map(
       (metadata) => `custom:${metadata.name}`,

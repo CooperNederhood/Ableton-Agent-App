@@ -11,6 +11,13 @@ import {
 } from "./fake-agent-service.js";
 
 export {
+  FakeClock,
+  FakeIdGenerator,
+  LogCapture,
+  type CapturedLog,
+} from "./deterministic.js";
+
+export {
   FakeAbletonService,
   UnsupportedByFakeError,
   defaultFakeState,

@@ -1,5 +1,20 @@
 # Test Strategy
 
+## Test classifications and quality gates
+
+Tests use filename and command-level classifications:
+
+- `*.test.ts` for deterministic unit and package integration tests.
+- Generated protocol fixtures plus Python decoder tests for `contract`.
+- Simulator-backed bridge tests for `integration`.
+- Playwright projects named `electron` for packaged desktop tests.
+- Opt-in scripts and recorded release evidence under `real-live`.
+
+Every critical path requires success, failure, denial/guard, and cleanup
+coverage. Bug fixes must include a regression test at the narrowest owning
+boundary. Vitest runs with ten-second test/hook deadlines and zero retries;
+flaky tests are fixed or explicitly quarantined rather than silently retried.
+
 ## Goals
 
 Tests must catch:

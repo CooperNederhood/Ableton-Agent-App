@@ -5,6 +5,11 @@ import { defineConfig } from "vitest/config";
 const source = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
 export default defineConfig({
+  test: {
+    testTimeout: 10_000,
+    hookTimeout: 10_000,
+    retry: 0,
+  },
   resolve: {
     alias: {
       "@ableton-agent/ableton-contracts": source(

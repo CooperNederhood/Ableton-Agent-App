@@ -5,18 +5,21 @@ Companion specification: [Test Strategy](test-strategy.md)
 ## Test infrastructure
 
 - [x] Select and configure TypeScript and Python test runners.
-- [ ] Add shared fixture, fake clock, fake ID, and log-capture utilities.
+- [x] Add shared fixture, fake clock, fake ID, and log-capture utilities.
 - [ ] Build fake LOM object library.
 - [x] Build simulated Python Remote Script server.
 - [x] Build fake Copilot/session adapters for deterministic client tests.
-- [ ] Define test tags for unit, contract, integration, Electron, and real Live.
+- [x] Define test tags for unit, contract, integration, Electron, and real Live.
 
 ## Coverage implementation
 
 - [ ] Add unit-test requirements to every package template.
-- [ ] Implement cross-language protocol contract test runner.
-- [ ] Implement bridge fault-injection tests.
-- [ ] Implement workflow fake-bridge tests.
+- [x] Implement cross-language protocol contract test runner.
+- [~] Implement bridge fault-injection tests.
+  - [x] Cover fragmentation, malformed frames, disconnects, reconnects,
+    sequence gaps, and stale ownership.
+  - [ ] Cover explicit queue saturation and cancellation races.
+- [x] Implement workflow fake-bridge tests.
 - [x] Cover Session clip identity guards, MIDI/audio duplication, launch
   recovery, destructive deletion, property rollback, capability gates, and
   simulator bridge parity.
@@ -30,7 +33,7 @@ Companion specification: [Test Strategy](test-strategy.md)
 - [x] Cover bounded Browser roots/children/search, deterministic traversal,
   strict node/result/depth/time limits, exact item revalidation, prohibited
   plug-in loading, approved CLI loading, and simulator bridge parity.
-- [ ] Implement CLI transcript tests.
+- [x] Implement CLI transcript tests.
 - [ ] Implement Playwright Electron harness.
 - [ ] Create real-Live test project and manual runner.
   - [ ] Record real-Live results for Session launch quantization and rollback,
@@ -58,15 +61,15 @@ Companion specification: [Test Strategy](test-strategy.md)
 
 ## Quality controls
 
-- [ ] Define minimum critical-path coverage expectations.
-- [ ] Require regression tests with bug fixes.
-- [ ] Track flaky tests and prevent silent retries from hiding failures.
-- [ ] Add deterministic timeouts to all process/network tests.
-- [ ] Add security-oriented malformed-input/fuzz coverage.
+- [x] Define minimum critical-path coverage expectations.
+- [x] Require regression tests with bug fixes.
+- [x] Track flaky tests and prevent silent retries from hiding failures.
+- [x] Add deterministic timeouts to all process/network tests.
+- [x] Add security-oriented malformed-input/fuzz coverage.
 
 ## Tests
 
-- [ ] Unit-test test-support utilities and fixture builders.
+- [x] Unit-test test-support utilities and fixture builders.
 - [ ] Integration-test the test runners themselves against known pass/fail
   fixtures.
 - [ ] Verify CI reports failures, timeouts, and artifacts correctly.

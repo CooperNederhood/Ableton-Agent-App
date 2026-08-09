@@ -54,11 +54,13 @@ describe("AbletonBridgeService", () => {
       projectId: "simulated-project",
     });
     await expect(service.getCapabilities()).resolves.toMatchObject({
-      selectedProtocolVersion: 1,
+      selectedProtocolVersion: 2,
       capabilities: {
         "system.ping": true,
         "transport.set_tempo": true,
         "transport.set_playing": true,
+        "tracks.create": true,
+        "tracks.delete": true,
       },
     });
     await expect(service.ping()).resolves.toEqual({ pong: true });
@@ -75,6 +77,35 @@ describe("AbletonBridgeService", () => {
     await expect(service.setPlaying(true)).resolves.toEqual({
       beforeIsPlaying: false,
       afterIsPlaying: true,
+      verified: true,
+    });
+    await expect(
+      service.createTrack({ kind: "audio", name: "Vocals" }),
+    ).resolves.toMatchObject({
+      beforeTrackCount: 2,
+      afterTrackCount: 3,
+      track: { index: 2, name: "Vocals", kind: "audio" },
+      verified: true,
+    });
+    const snapshot = await service.inspectSession();
+    const bass = snapshot.tracks.find((track) => track.name === "Bass");
+    expect(bass).toBeDefined();
+    await expect(
+      service.deleteTrack({
+        index: 1,
+        expectedReference: bass?.reference ?? "",
+        expectedName: "Bass",
+        expectedKind: "midi",
+      }),
+    ).resolves.toEqual({
+      beforeTrackCount: 3,
+      afterTrackCount: 2,
+      track: {
+        index: 1,
+        reference: bass?.reference,
+        name: "Bass",
+        kind: "midi",
+      },
       verified: true,
     });
     await service.stop();

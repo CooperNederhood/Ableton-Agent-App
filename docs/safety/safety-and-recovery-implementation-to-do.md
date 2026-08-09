@@ -16,6 +16,8 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
 
 - [ ] Implement last-track, occupied-slot, ambiguous-name, stale-reference, and
   payload-limit guards.
+  - [x] Protect the last track, reject group-track deletion, and revalidate
+    expected track name and kind immediately before deletion.
 - [ ] Validate file imports and supported media.
 - [ ] Report all clamping and coercion.
 - [ ] Add workflow mutation-count and duration budgets.

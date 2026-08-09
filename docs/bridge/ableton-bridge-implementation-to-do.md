@@ -8,7 +8,7 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
 - [x] Generate/import protocol request and result types.
 - [~] Implement structured `BridgeResult`, warnings, and error types.
 - [~] Implement capability-aware method guards.
-- [ ] Implement stable reference types and stale-reference checks.
+- [~] Implement stable reference types and stale-reference checks.
 - [x] Keep raw `sendCommand` private to the bridge package.
 
 ## Connection manager
@@ -26,7 +26,9 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
 
 - [x] Implement system/capability operations.
 - [~] Implement transport and snapshot operations.
-- [ ] Implement track, clip, arrangement, device, and browser clients.
+- [~] Implement track, clip, arrangement, device, and browser clients.
+  - [x] Implement capability-gated track creation and identity-bound deletion.
+  - [ ] Implement remaining track, clip, arrangement, device, and browser clients.
 - [ ] Add pagination and filtering for large browser/parameter results.
 
 ## Tests

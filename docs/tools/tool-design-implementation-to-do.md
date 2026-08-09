@@ -20,7 +20,10 @@ Companion specification: [Tool Design](tool-design.md)
 
 ## Primitive mutation tools
 
-- [ ] Implement track and mixer operations.
+- [~] Implement track and mixer operations.
+  - [x] Implement approved MIDI/audio track creation.
+  - [x] Implement destructive identity-bound track deletion.
+  - [ ] Implement rename, routing, mixer, and group-aware operations.
 - [ ] Implement session clip and note operations.
 - [ ] Implement arrangement placement and property operations.
 - [ ] Implement browser/device load and parameter operations.

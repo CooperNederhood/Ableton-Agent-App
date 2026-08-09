@@ -31,8 +31,10 @@ def request(command, params=None):
 
 
 class FakeTrack(object):
-    def __init__(self, name):
+    def __init__(self, name, midi=True, group=False):
         self.name = name
+        self.has_midi_input = midi
+        self.is_foldable = group
         self.color = 10
         self.mute = False
         self.solo = False
@@ -53,6 +55,15 @@ class FakeSong(object):
 
     def stop_playing(self):
         self.is_playing = False
+
+    def create_midi_track(self, index):
+        self.tracks.insert(index, FakeTrack("MIDI", midi=True))
+
+    def create_audio_track(self, index):
+        self.tracks.insert(index, FakeTrack("Audio", midi=False))
+
+    def delete_track(self, index):
+        del self.tracks[index]
 
 
 class FakeApplication(object):
@@ -90,6 +101,7 @@ class ExecutorTests(unittest.TestCase):
         self.assertTrue(responses[0]["ok"])
         self.assertEqual(responses[0]["result"]["trackCount"], 2)
         self.assertEqual(responses[0]["result"]["tracks"][0]["name"], "Drums")
+        self.assertEqual(responses[0]["result"]["tracks"][0]["kind"], "midi")
 
     def test_rejects_unknown_commands(self):
         responses = []
@@ -213,6 +225,128 @@ class ExecutorTests(unittest.TestCase):
                 "verified": True,
             },
         )
+
+    def test_track_create_and_delete_are_verified(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request("tracks.create", {"kind": "audio", "name": "Vocals"}),
+            responses.append,
+        )
+        scheduled.pop()()
+        created_reference = responses[0]["result"]["track"]["reference"]
+        executor.submit(
+            request(
+                "tracks.delete",
+                {
+                    "index": 2,
+                    "expectedReference": created_reference,
+                    "expectedName": "Vocals",
+                    "expectedKind": "audio",
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["result"]["track"]["name"], "Vocals")
+        self.assertEqual(responses[0]["result"]["track"]["kind"], "audio")
+        self.assertTrue(responses[0]["result"]["verified"])
+        self.assertEqual(responses[1]["result"]["track"]["name"], "Vocals")
+        self.assertTrue(responses[1]["result"]["verified"])
+        self.assertEqual(len(context.song.tracks), 2)
+
+    def test_track_delete_guards_last_track(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        context.song.tracks = [FakeTrack("Only")]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "tracks.delete",
+                {
+                    "index": 0,
+                    "expectedReference": "00000000-0000-4000-8000-000000000001",
+                    "expectedName": "Only",
+                    "expectedKind": "midi",
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["error"]["code"], "conflict")
+
+    def test_track_delete_rejects_stale_identity_and_group_tracks(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        context.song.tracks[0] = FakeTrack("Group", group=True)
+        context._track_references = [
+            (
+                context.song.tracks[0],
+                "00000000-0000-4000-8000-000000000001",
+            ),
+            (
+                context.song.tracks[1],
+                "00000000-0000-4000-8000-000000000002",
+            ),
+        ]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "tracks.delete",
+                {
+                    "index": 1,
+                    "expectedReference": "00000000-0000-4000-8000-000000000099",
+                    "expectedName": "Moved Track",
+                    "expectedKind": "midi",
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        executor.submit(
+            request(
+                "tracks.delete",
+                {
+                    "index": 0,
+                    "expectedReference": "00000000-0000-4000-8000-000000000001",
+                    "expectedName": "Group",
+                    "expectedKind": "midi",
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["error"]["code"], "stale_reference")
+        self.assertEqual(responses[1]["error"]["code"], "conflict")
+        self.assertEqual(len(context.song.tracks), 2)
 
 
 class CapabilityAndTokenTests(unittest.TestCase):

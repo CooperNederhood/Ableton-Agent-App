@@ -54,7 +54,7 @@ function application(
     stop: vi.fn(async () => undefined),
     getStatus: vi.fn(async () => status),
     getCapabilities: vi.fn(async () => ({
-      selectedProtocolVersion: 1 as const,
+      selectedProtocolVersion: 2 as const,
       liveVersion: "12.1",
       remoteScriptVersion: "0.2.0",
       projectId: "project",
@@ -70,7 +70,9 @@ function application(
       tracks: [
         {
           index: 0,
+          reference: "00000000-0000-4000-8000-000000000001",
           name: "Drums",
+          kind: "midi" as const,
           color: 10,
           isMuted: false,
           isSoloed: false,
@@ -88,6 +90,32 @@ function application(
       afterIsPlaying: isPlaying,
       verified: true,
     })),
+    createTrack: vi.fn(
+      async (params: Parameters<AbletonService["createTrack"]>[0]) => ({
+        beforeTrackCount: 1,
+        afterTrackCount: 2,
+        track: {
+          index: 1,
+          reference: "00000000-0000-4000-8000-000000000003",
+          name: params.name ?? "MIDI",
+          kind: params.kind,
+        },
+        verified: true,
+      }),
+    ),
+    deleteTrack: vi.fn(
+      async (params: Parameters<AbletonService["deleteTrack"]>[0]) => ({
+        beforeTrackCount: 2,
+        afterTrackCount: 1,
+        track: {
+          index: params.index,
+          reference: params.expectedReference,
+          name: "Track",
+          kind: "midi" as const,
+        },
+        verified: true,
+      }),
+    ),
   };
   return {
     application: new HeadlessApplication({

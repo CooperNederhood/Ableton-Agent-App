@@ -5,10 +5,47 @@ from __future__ import absolute_import, print_function, unicode_literals
 import argparse
 import json
 import socket
+import uuid
 
 from AbletonAgent.protocol import FrameDecoder, encode_frame
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
+
+
+class SimulatorState(object):
+    def __init__(self):
+        self.tempo = 120.0
+        self.is_playing = False
+        self.tracks = [
+            {
+                "reference": str(
+                    uuid.uuid5(uuid.NAMESPACE_URL, "ableton-agent-simulator-drums")
+                ),
+                "name": "Drums",
+                "kind": "midi",
+                "color": 10,
+                "isMuted": False,
+                "isSoloed": False,
+                "isArmed": False,
+            },
+            {
+                "reference": str(
+                    uuid.uuid5(uuid.NAMESPACE_URL, "ableton-agent-simulator-bass")
+                ),
+                "name": "Bass",
+                "kind": "midi",
+                "color": None,
+                "isMuted": False,
+                "isSoloed": False,
+                "isArmed": True,
+            },
+        ]
+
+    def session_tracks(self):
+        return [
+            dict({"index": index}, **track)
+            for index, track in enumerate(self.tracks)
+        ]
 
 
 def response(request, result):
@@ -37,7 +74,7 @@ def failure(request, code, message):
     }
 
 
-def handle(request, token):
+def handle(request, token, state):
     if request.get("kind") != "request":
         return None
     command = request.get("command")
@@ -67,6 +104,8 @@ def handle(request, token):
                     "session.inspect": True,
                     "transport.set_tempo": True,
                     "transport.set_playing": True,
+                    "tracks.create": True,
+                    "tracks.delete": True,
                 },
                 "limits": {
                     "maxFrameBytes": 4 * 1024 * 1024,
@@ -80,28 +119,11 @@ def handle(request, token):
         return response(
             request,
             {
-                "tempo": 120.0,
+                "tempo": state.tempo,
                 "timeSignature": {"numerator": 4, "denominator": 4},
-                "isPlaying": False,
-                "trackCount": 2,
-                "tracks": [
-                    {
-                        "index": 0,
-                        "name": "Drums",
-                        "color": 10,
-                        "isMuted": False,
-                        "isSoloed": False,
-                        "isArmed": False,
-                    },
-                    {
-                        "index": 1,
-                        "name": "Bass",
-                        "color": None,
-                        "isMuted": False,
-                        "isSoloed": False,
-                        "isArmed": True,
-                    },
-                ],
+                "isPlaying": state.is_playing,
+                "trackCount": len(state.tracks),
+                "tracks": state.session_tracks(),
             },
         )
     if command == "transport.set_tempo":
@@ -117,10 +139,12 @@ def handle(request, token):
                 "invalid_params",
                 "tempo must be between 20 and 999 BPM",
             )
+        before = state.tempo
+        state.tempo = tempo
         return response(
             request,
             {
-                "beforeTempo": 120.0,
+                "beforeTempo": before,
                 "afterTempo": tempo,
                 "verified": True,
             },
@@ -133,11 +157,78 @@ def handle(request, token):
                 "invalid_params",
                 "isPlaying must be a boolean",
             )
+        before = state.is_playing
+        state.is_playing = is_playing
         return response(
             request,
             {
-                "beforeIsPlaying": False,
+                "beforeIsPlaying": before,
                 "afterIsPlaying": is_playing,
+                "verified": True,
+            },
+        )
+    if command == "tracks.create":
+        kind = params.get("kind")
+        name = params.get("name")
+        if kind not in ("midi", "audio"):
+            return failure(request, "invalid_params", "kind must be midi or audio")
+        before_count = len(state.tracks)
+        track = {
+            "reference": str(uuid.uuid4()),
+            "name": name or ("MIDI" if kind == "midi" else "Audio"),
+            "kind": kind,
+            "color": None,
+            "isMuted": False,
+            "isSoloed": False,
+            "isArmed": False,
+        }
+        state.tracks.append(track)
+        return response(
+            request,
+            {
+                "beforeTrackCount": before_count,
+                "afterTrackCount": len(state.tracks),
+                "track": {
+                    "index": before_count,
+                    "reference": track["reference"],
+                    "name": track["name"],
+                    "kind": kind,
+                },
+                "verified": True,
+            },
+        )
+    if command == "tracks.delete":
+        index = params.get("index")
+        if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+            return failure(request, "invalid_params", "index must be non-negative")
+        if len(state.tracks) <= 1:
+            return failure(request, "conflict", "Cannot delete the last track")
+        if index >= len(state.tracks):
+            return failure(request, "not_found", "Track index is out of range")
+        track = state.tracks[index]
+        if (
+            track["reference"] != params.get("expectedReference")
+            or track["name"] != params.get("expectedName")
+            or track["kind"] != params.get("expectedKind")
+        ):
+            return failure(
+                request,
+                "stale_reference",
+                "Track identity changed before deletion",
+            )
+        before_count = len(state.tracks)
+        del state.tracks[index]
+        return response(
+            request,
+            {
+                "beforeTrackCount": before_count,
+                "afterTrackCount": len(state.tracks),
+                "track": {
+                    "index": index,
+                    "reference": track["reference"],
+                    "name": track["name"],
+                    "kind": track["kind"],
+                },
                 "verified": True,
             },
         )
@@ -155,13 +246,14 @@ def serve(host, port, token):
     )
     connection, _address = server.accept()
     decoder = FrameDecoder()
+    state = SimulatorState()
     try:
         while True:
             chunk = connection.recv(65536)
             if not chunk:
                 break
             for request in decoder.push(chunk):
-                result = handle(request, token)
+                result = handle(request, token, state)
                 if result is not None:
                     connection.sendall(encode_frame(result))
     finally:

@@ -1,9 +1,12 @@
 import type {
+  CreateTrackParams,
+  DeleteTrackParams,
   SessionSnapshot,
   SetPlayingParams,
   SetPlayingResult,
   SetTempoParams,
   SetTempoResult,
+  TrackMutationResult,
 } from "@ableton-agent/protocol";
 import type { ConnectionStatus } from "@ableton-agent/shared";
 import {
@@ -29,6 +32,8 @@ export interface AbletonToolServices {
   inspectSession(): Promise<SessionSnapshot>;
   setTempo(tempo: number): Promise<SetTempoResult>;
   setPlaying(isPlaying: boolean): Promise<SetPlayingResult>;
+  createTrack(params: CreateTrackParams): Promise<TrackMutationResult>;
+  deleteTrack(params: DeleteTrackParams): Promise<TrackMutationResult>;
 }
 
 export const abletonToolMetadata = [
@@ -58,6 +63,20 @@ export const abletonToolMetadata = [
     risk: "reversible",
     duration: "instant",
     requiredCapability: "transport.set_playing",
+  },
+  {
+    name: "ableton_tracks_create",
+    title: "Create Ableton track",
+    risk: "reversible",
+    duration: "short",
+    requiredCapability: "tracks.create",
+  },
+  {
+    name: "ableton_tracks_delete",
+    title: "Delete Ableton track",
+    risk: "destructive",
+    duration: "short",
+    requiredCapability: "tracks.delete",
   },
 ] as const satisfies readonly AbletonToolMetadata[];
 
@@ -107,6 +126,8 @@ export interface AbletonToolSet {
     Tool<Record<string, never>>,
     Tool<SetTempoParams>,
     Tool<SetPlayingParams>,
+    Tool<CreateTrackParams>,
+    Tool<DeleteTrackParams>,
   ];
   availableTools: string[];
 }
@@ -148,6 +169,30 @@ export function createAbletonTools(
       .strict(),
     handler: async ({ isPlaying }) => services.setPlaying(isPlaying),
   });
+  const createTrackTool = defineTool("ableton_tracks_create", {
+    description:
+      "Creates a MIDI or audio track at the end of the Ableton Live set and verifies the resulting track count.",
+    parameters: z
+      .object({
+        kind: z.enum(["midi", "audio"]),
+        name: z.string().trim().min(1).max(128).optional(),
+      })
+      .strict(),
+    handler: async (params) => services.createTrack(params),
+  });
+  const deleteTrackTool = defineTool("ableton_tracks_delete", {
+    description:
+      "Deletes a track by zero-based index after approval. Refuses to delete the last remaining track.",
+    parameters: z
+      .object({
+        index: z.number().int().nonnegative(),
+        expectedReference: z.string().uuid(),
+        expectedName: z.string().min(1),
+        expectedKind: z.enum(["midi", "audio"]),
+      })
+      .strict(),
+    handler: async (params) => services.deleteTrack(params),
+  });
 
   return {
     tools: [
@@ -155,6 +200,8 @@ export function createAbletonTools(
       inspectSessionTool,
       setTempoTool,
       setPlayingTool,
+      createTrackTool,
+      deleteTrackTool,
     ],
     availableTools: abletonToolMetadata.map(
       (metadata) => `custom:${metadata.name}`,

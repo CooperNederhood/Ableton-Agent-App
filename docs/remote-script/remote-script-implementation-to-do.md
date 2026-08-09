@@ -24,7 +24,10 @@ Companion specification: [Remote Script](remote-script.md)
 ## LOM modules
 
 - [~] Implement system/session/transport serialization.
-- [ ] Implement track and mixer handlers.
+- [~] Implement track and mixer handlers.
+  - [x] Create MIDI/audio tracks with optional names and verified postconditions.
+  - [x] Delete identity-bound non-group tracks with last-track protection.
+  - [ ] Implement rename, routing, mixer, and group-aware operations.
 - [ ] Implement session clip and MIDI-note handlers.
 - [ ] Implement arrangement handlers.
 - [ ] Implement device, rack, Drum Rack, and parameter handlers.

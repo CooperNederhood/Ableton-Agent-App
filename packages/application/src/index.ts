@@ -3,10 +3,13 @@ import { join } from "node:path";
 
 import type {
   CapabilityDocument,
+  CreateTrackParams,
+  DeleteTrackParams,
   PingResult,
   SessionSnapshot,
   SetPlayingResult,
   SetTempoResult,
+  TrackMutationResult,
 } from "@ableton-agent/protocol";
 import type {
   AppEvent,
@@ -42,6 +45,8 @@ export interface AbletonService {
   inspectSession(): Promise<SessionSnapshot>;
   setTempo(tempo: number): Promise<SetTempoResult>;
   setPlaying(isPlaying: boolean): Promise<SetPlayingResult>;
+  createTrack(params: CreateTrackParams): Promise<TrackMutationResult>;
+  deleteTrack(params: DeleteTrackParams): Promise<TrackMutationResult>;
 }
 
 export interface ApplicationServices {
@@ -76,6 +81,8 @@ export interface CopilotAgentServiceOptions {
   inspectSession: () => Promise<SessionSnapshot>;
   setTempo: (tempo: number) => Promise<SetTempoResult>;
   setPlaying: (isPlaying: boolean) => Promise<SetPlayingResult>;
+  createTrack: (params: CreateTrackParams) => Promise<TrackMutationResult>;
+  deleteTrack: (params: DeleteTrackParams) => Promise<TrackMutationResult>;
   requestToolApproval?: ToolApprovalRequester;
   clientFactory?: () => CopilotClientAdapter;
   baseDirectory?: string;
@@ -116,6 +123,8 @@ export class CopilotAgentService implements AgentService {
       inspectSession: this.options.inspectSession,
       setTempo: this.options.setTempo,
       setPlaying: this.options.setPlaying,
+      createTrack: this.options.createTrack,
+      deleteTrack: this.options.deleteTrack,
     });
 
     try {
@@ -298,6 +307,14 @@ export class HeadlessApplication {
 
   public setPlaying(isPlaying: boolean): Promise<SetPlayingResult> {
     return this.services.ableton.setPlaying(isPlaying);
+  }
+
+  public createTrack(params: CreateTrackParams): Promise<TrackMutationResult> {
+    return this.services.ableton.createTrack(params);
+  }
+
+  public deleteTrack(params: DeleteTrackParams): Promise<TrackMutationResult> {
+    return this.services.ableton.deleteTrack(params);
   }
 
   public subscribe(listener: (event: AppEvent) => void): () => void {

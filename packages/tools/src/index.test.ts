@@ -35,6 +35,38 @@ function services() {
         verified: true,
       }),
     ),
+    createTrack: vi.fn((params: { kind: "midi" | "audio"; name?: string }) =>
+      Promise.resolve({
+        beforeTrackCount: 2,
+        afterTrackCount: 3,
+        track: {
+          index: 2,
+          reference: "00000000-0000-4000-8000-000000000003",
+          name: params.name ?? "MIDI",
+          kind: params.kind,
+        },
+        verified: true,
+      }),
+    ),
+    deleteTrack: vi.fn(
+      (params: {
+        index: number;
+        expectedReference: string;
+        expectedName: string;
+        expectedKind: "midi" | "audio";
+      }) =>
+        Promise.resolve({
+          beforeTrackCount: 2,
+          afterTrackCount: 1,
+          track: {
+            index: params.index,
+            reference: params.expectedReference,
+            name: "Track",
+            kind: "midi" as const,
+          },
+          verified: true,
+        }),
+    ),
   };
 }
 
@@ -50,12 +82,16 @@ describe("Ableton tools", () => {
       "custom:ableton_session_inspect",
       "custom:ableton_transport_set_tempo",
       "custom:ableton_transport_set_playing",
+      "custom:ableton_tracks_create",
+      "custom:ableton_tracks_delete",
     ]);
     expect(abletonToolMetadata.map((metadata) => metadata.risk)).toEqual([
       "read",
       "read",
       "reversible",
       "reversible",
+      "reversible",
+      "destructive",
     ]);
   });
 
@@ -73,11 +109,34 @@ describe("Ableton tools", () => {
     await toolSet.tools[1].handler?.({}, invocation);
     await toolSet.tools[2].handler?.({ tempo: 132 }, invocation);
     await toolSet.tools[3].handler?.({ isPlaying: true }, invocation);
+    await toolSet.tools[4].handler?.(
+      { kind: "audio", name: "Vocals" },
+      invocation,
+    );
+    await toolSet.tools[5].handler?.(
+      {
+        index: 1,
+        expectedReference: "00000000-0000-4000-8000-000000000002",
+        expectedName: "Bass",
+        expectedKind: "midi",
+      },
+      invocation,
+    );
 
     expect(ports.getConnectionStatus).toHaveBeenCalledOnce();
     expect(ports.inspectSession).toHaveBeenCalledOnce();
     expect(ports.setTempo).toHaveBeenCalledWith(132);
     expect(ports.setPlaying).toHaveBeenCalledWith(true);
+    expect(ports.createTrack).toHaveBeenCalledWith({
+      kind: "audio",
+      name: "Vocals",
+    });
+    expect(ports.deleteTrack).toHaveBeenCalledWith({
+      index: 1,
+      expectedReference: "00000000-0000-4000-8000-000000000002",
+      expectedName: "Bass",
+      expectedKind: "midi",
+    });
   });
 
   it("auto-approves reads and denies mutations without approval", async () => {

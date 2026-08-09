@@ -4,6 +4,7 @@ from __future__ import absolute_import, unicode_literals
 
 import hashlib
 
+from .messages import PROTOCOL_VERSION
 from .protocol import DEFAULT_MAX_FRAME_BYTES
 
 REMOTE_SCRIPT_VERSION = "0.2.0"
@@ -17,7 +18,7 @@ def build_capability_document(application, song, registry, max_batch_items=128):
     project_source = str(project_source)
     project_id = hashlib.sha256(project_source.encode("utf-8")).hexdigest()[:24]
     return {
-        "selectedProtocolVersion": 1,
+        "selectedProtocolVersion": PROTOCOL_VERSION,
         "liveVersion": live_version,
         "remoteScriptVersion": REMOTE_SCRIPT_VERSION,
         "projectId": project_id,

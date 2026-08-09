@@ -14,10 +14,13 @@ import {
 } from "@ableton-agent/shared";
 import type {
   CapabilityDocument,
+  CreateTrackParams,
+  DeleteTrackParams,
   PingResult,
   SessionSnapshot,
   SetPlayingResult,
   SetTempoResult,
+  TrackMutationResult,
 } from "@ableton-agent/protocol";
 
 import { CliUsageError, parseArgs, runCommand, type CliIo } from "./cli.js";
@@ -87,6 +90,12 @@ class UnconfiguredAbletonService implements AbletonService {
   public async setPlaying(): Promise<SetPlayingResult> {
     throw new Error("Ableton bridge is not configured");
   }
+  public async createTrack(): Promise<TrackMutationResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async deleteTrack(): Promise<TrackMutationResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
 }
 
 const io: CliIo = {
@@ -134,6 +143,8 @@ async function main(): Promise<number> {
       inspectSession: () => ableton.inspectSession(),
       setTempo: (tempo) => ableton.setTempo(tempo),
       setPlaying: (isPlaying) => ableton.setPlaying(isPlaying),
+      createTrack: (params: CreateTrackParams) => ableton.createTrack(params),
+      deleteTrack: (params: DeleteTrackParams) => ableton.deleteTrack(params),
       ...(terminal === undefined
         ? {}
         : {

@@ -6,6 +6,8 @@ import {
   FrameDecoder,
   PROTOCOL_VERSION,
   capabilityDocumentSchema,
+  createTrackParamsSchema,
+  deleteTrackParamsSchema,
   encodeFrame,
   pingResultSchema,
   sessionSnapshotSchema,
@@ -13,7 +15,10 @@ import {
   setPlayingResultSchema,
   setTempoParamsSchema,
   setTempoResultSchema,
+  trackMutationResultSchema,
   type CapabilityDocument,
+  type CreateTrackParams,
+  type DeleteTrackParams,
   type MessageEnvelope,
   type PingResult,
   type RequestEnvelope,
@@ -21,6 +26,7 @@ import {
   type SessionSnapshot,
   type SetPlayingResult,
   type SetTempoResult,
+  type TrackMutationResult,
 } from "@ableton-agent/protocol";
 import type { ConnectionStatus, EventPublisher } from "@ableton-agent/shared";
 
@@ -143,7 +149,7 @@ export class AbletonBridgeService implements AbletonService {
     this.#requireCapability("transport.set_tempo");
     const params = setTempoParamsSchema.parse({ tempo });
     return setTempoResultSchema.parse(
-      await this.#request("transport.set_tempo", params),
+      await this.#request("transport.set_tempo", params, false),
     );
   }
 
@@ -151,7 +157,27 @@ export class AbletonBridgeService implements AbletonService {
     this.#requireCapability("transport.set_playing");
     const params = setPlayingParamsSchema.parse({ isPlaying });
     return setPlayingResultSchema.parse(
-      await this.#request("transport.set_playing", params),
+      await this.#request("transport.set_playing", params, false),
+    );
+  }
+
+  public async createTrack(
+    params: CreateTrackParams,
+  ): Promise<TrackMutationResult> {
+    this.#requireCapability("tracks.create");
+    const validated = createTrackParamsSchema.parse(params);
+    return trackMutationResultSchema.parse(
+      await this.#request("tracks.create", validated, false),
+    );
+  }
+
+  public async deleteTrack(
+    params: DeleteTrackParams,
+  ): Promise<TrackMutationResult> {
+    this.#requireCapability("tracks.delete");
+    const validated = deleteTrackParamsSchema.parse(params);
+    return trackMutationResultSchema.parse(
+      await this.#request("tracks.delete", validated, false),
     );
   }
 
@@ -169,6 +195,7 @@ export class AbletonBridgeService implements AbletonService {
   async #request(
     command: string,
     params: Readonly<Record<string, unknown>>,
+    timeoutRetryable = true,
   ): Promise<unknown> {
     const socket = this.#socket;
     if (!socket || socket.destroyed) {
@@ -190,7 +217,7 @@ export class AbletonBridgeService implements AbletonService {
           new AbletonBridgeError(
             "operation_timeout",
             `Ableton request timed out: ${command}`,
-            true,
+            timeoutRetryable,
             { command },
           ),
         );

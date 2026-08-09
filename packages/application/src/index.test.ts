@@ -25,7 +25,7 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
     stop: vi.fn(async () => undefined),
     getStatus: vi.fn(async () => status),
     getCapabilities: vi.fn(async () => ({
-      selectedProtocolVersion: 1 as const,
+      selectedProtocolVersion: 2 as const,
       liveVersion: "12.1",
       remoteScriptVersion: "0.2.0",
       projectId: "project",
@@ -50,6 +50,32 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
       afterIsPlaying: isPlaying,
       verified: true,
     })),
+    createTrack: vi.fn(
+      async (params: Parameters<AbletonService["createTrack"]>[0]) => ({
+        beforeTrackCount: 2,
+        afterTrackCount: 3,
+        track: {
+          index: 2,
+          reference: "00000000-0000-4000-8000-000000000003",
+          name: params.name ?? "MIDI",
+          kind: params.kind,
+        },
+        verified: true,
+      }),
+    ),
+    deleteTrack: vi.fn(
+      async (params: Parameters<AbletonService["deleteTrack"]>[0]) => ({
+        beforeTrackCount: 2,
+        afterTrackCount: 1,
+        track: {
+          index: params.index,
+          reference: params.expectedReference,
+          name: "Track",
+          kind: "midi" as const,
+        },
+        verified: true,
+      }),
+    ),
   };
   const events = new InMemoryEventPublisher();
   return { agent, ableton, events, logger: noopLogger };
@@ -137,6 +163,30 @@ describe("CopilotAgentService", () => {
           afterIsPlaying: isPlaying,
           verified: true,
         }),
+      createTrack: (params) =>
+        Promise.resolve({
+          beforeTrackCount: 2,
+          afterTrackCount: 3,
+          track: {
+            index: 2,
+            reference: "00000000-0000-4000-8000-000000000003",
+            name: params.name ?? "MIDI",
+            kind: params.kind,
+          },
+          verified: true,
+        }),
+      deleteTrack: (params) =>
+        Promise.resolve({
+          beforeTrackCount: 2,
+          afterTrackCount: 1,
+          track: {
+            index: params.index,
+            reference: params.expectedReference,
+            name: "Track",
+            kind: "midi" as const,
+          },
+          verified: true,
+        }),
       requestToolApproval,
       clientFactory: () => ({
         createSession: (received) => {
@@ -161,8 +211,10 @@ describe("CopilotAgentService", () => {
       "custom:ableton_session_inspect",
       "custom:ableton_transport_set_tempo",
       "custom:ableton_transport_set_playing",
+      "custom:ableton_tracks_create",
+      "custom:ableton_tracks_delete",
     ]);
-    expect(config?.tools).toHaveLength(4);
+    expect(config?.tools).toHaveLength(6);
     await expect(
       config?.onPermissionRequest?.(
         {
@@ -206,6 +258,30 @@ describe("CopilotAgentService", () => {
         Promise.resolve({
           beforeIsPlaying: !isPlaying,
           afterIsPlaying: isPlaying,
+          verified: true,
+        }),
+      createTrack: (params) =>
+        Promise.resolve({
+          beforeTrackCount: 2,
+          afterTrackCount: 3,
+          track: {
+            index: 2,
+            reference: "00000000-0000-4000-8000-000000000003",
+            name: params.name ?? "MIDI",
+            kind: params.kind,
+          },
+          verified: true,
+        }),
+      deleteTrack: (params) =>
+        Promise.resolve({
+          beforeTrackCount: 2,
+          afterTrackCount: 1,
+          track: {
+            index: params.index,
+            reference: params.expectedReference,
+            name: "Track",
+            kind: "midi" as const,
+          },
           verified: true,
         }),
       clientFactory: () => ({

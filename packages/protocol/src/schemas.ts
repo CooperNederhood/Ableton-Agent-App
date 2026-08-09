@@ -105,7 +105,9 @@ export const pingResultSchema = z.object({
 
 export const trackSummarySchema = z.object({
   index: z.number().int().nonnegative(),
+  reference: z.string().uuid(),
   name: z.string(),
+  kind: z.enum(["midi", "audio"]),
   color: z.number().int().nullable(),
   isMuted: z.boolean(),
   isSoloed: z.boolean(),
@@ -143,6 +145,32 @@ export const setPlayingResultSchema = z.object({
   verified: z.boolean(),
 });
 
+export const trackKindSchema = z.enum(["midi", "audio"]);
+
+export const createTrackParamsSchema = z.object({
+  kind: trackKindSchema,
+  name: z.string().trim().min(1).max(128).optional(),
+});
+
+export const deleteTrackParamsSchema = z.object({
+  index: z.number().int().nonnegative(),
+  expectedReference: z.string().uuid(),
+  expectedName: z.string().min(1),
+  expectedKind: trackKindSchema,
+});
+
+export const trackMutationResultSchema = z.object({
+  beforeTrackCount: z.number().int().nonnegative(),
+  afterTrackCount: z.number().int().nonnegative(),
+  track: z.object({
+    index: z.number().int().nonnegative(),
+    reference: z.string().uuid(),
+    name: z.string(),
+    kind: trackKindSchema,
+  }),
+  verified: z.boolean(),
+});
+
 export type HelloParams = z.infer<typeof helloParamsSchema>;
 export type CapabilityDocument = z.infer<typeof capabilityDocumentSchema>;
 export type PingResult = z.infer<typeof pingResultSchema>;
@@ -151,3 +179,6 @@ export type SetTempoParams = z.infer<typeof setTempoParamsSchema>;
 export type SetTempoResult = z.infer<typeof setTempoResultSchema>;
 export type SetPlayingParams = z.infer<typeof setPlayingParamsSchema>;
 export type SetPlayingResult = z.infer<typeof setPlayingResultSchema>;
+export type CreateTrackParams = z.infer<typeof createTrackParamsSchema>;
+export type DeleteTrackParams = z.infer<typeof deleteTrackParamsSchema>;
+export type TrackMutationResult = z.infer<typeof trackMutationResultSchema>;

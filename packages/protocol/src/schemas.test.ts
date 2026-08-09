@@ -3,10 +3,16 @@ import { describe, expect, it } from "vitest";
 import {
   createCuePointParamsSchema,
   deleteCuePointParamsSchema,
+  deviceSummarySchema,
   duplicateClipToArrangementParamsSchema,
   duplicateSessionClipParamsSchema,
   inspectDeviceParametersParamsSchema,
   inspectDevicesParamsSchema,
+  inspectDrumPadChainDevicesParamsSchema,
+  inspectDrumPadChainsParamsSchema,
+  inspectDrumRackPadsParamsSchema,
+  inspectRackChainDevicesParamsSchema,
+  inspectRackChainsParamsSchema,
   launchSessionClipParamsSchema,
   setDeviceEnabledParamsSchema,
   setDeviceParameterParamsSchema,
@@ -83,6 +89,22 @@ describe("Arrangement operation schemas", () => {
           limit: 257,
         }).success,
       ).toBe(false);
+      expect(
+        deviceSummarySchema.parse({
+          reference: deviceTarget.expectedDeviceReference,
+          trackReference: identity.expectedReference,
+          trackIndex: 0,
+          index: 0,
+          name: "Legacy Device",
+          className: "LegacyDevice",
+          classDisplayName: "Legacy Device",
+          enabled: null,
+          parameterCount: 0,
+        }),
+      ).toMatchObject({
+        canHaveChains: false,
+        canHaveDrumPads: false,
+      });
     });
 
     it("requires exact device and parameter identities for mutations", () => {
@@ -108,6 +130,65 @@ describe("Arrangement operation schemas", () => {
           expectedParameterReference: "00000000-0000-4000-8000-000000000041",
           expectedParameterName: "Dry/Wet",
           normalizedValue: 1.1,
+        }).success,
+      ).toBe(false);
+    });
+
+    it("bounds rack, chain, Drum Rack pad, and pad-chain pages", () => {
+      expect(inspectRackChainsParamsSchema.parse(deviceTarget)).toMatchObject({
+        offset: 0,
+        limit: 16,
+      });
+      expect(
+        inspectRackChainsParamsSchema.safeParse({
+          ...deviceTarget,
+          limit: 65,
+        }).success,
+      ).toBe(false);
+      const chainTarget = {
+        ...deviceTarget,
+        chainIndex: 0,
+        expectedChainReference: "00000000-0000-4000-8000-000000000042",
+        expectedChainName: "Main",
+      };
+      expect(
+        inspectRackChainDevicesParamsSchema.parse(chainTarget),
+      ).toMatchObject({ offset: 0, limit: 32 });
+      expect(
+        inspectRackChainDevicesParamsSchema.safeParse({
+          ...chainTarget,
+          limit: 129,
+        }).success,
+      ).toBe(false);
+      expect(inspectDrumRackPadsParamsSchema.parse(deviceTarget)).toMatchObject(
+        {
+          offset: 0,
+          limit: 32,
+        },
+      );
+      const padTarget = {
+        ...deviceTarget,
+        padIndex: 0,
+        expectedPadReference: "00000000-0000-4000-8000-000000000044",
+        expectedPadNote: 36,
+        expectedPadName: "Kick",
+      };
+      expect(inspectDrumPadChainsParamsSchema.parse(padTarget)).toMatchObject({
+        offset: 0,
+        limit: 8,
+      });
+      expect(
+        inspectDrumPadChainDevicesParamsSchema.parse({
+          ...padTarget,
+          chainIndex: 0,
+          expectedChainReference: "00000000-0000-4000-8000-000000000045",
+          expectedChainName: "Kick",
+        }),
+      ).toMatchObject({ offset: 0, limit: 32 });
+      expect(
+        inspectDrumRackPadsParamsSchema.safeParse({
+          ...deviceTarget,
+          limit: 129,
         }).success,
       ).toBe(false);
     });

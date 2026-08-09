@@ -30,6 +30,8 @@ Companion specification: [Terminal Client](terminal-client.md)
   bounded Arrangement `transport` inspection.
 - [x] Implement one-based `devices` and `parameters` commands backed by bounded
   identity-bound regular-track inspection.
+- [x] Implement paginated one-based rack-chain, chain-device, Drum Rack pad,
+  pad-chain, and pad-chain-device read commands.
 - [x] Implement explicit non-interactive approval policies.
 - [x] Return structured JSON operation and final-result data.
 - [x] Ensure diagnostics avoid model invocation where possible.

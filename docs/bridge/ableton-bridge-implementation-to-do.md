@@ -39,6 +39,8 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
     duplication, deletion, and property clients.
   - [x] Implement capability-gated bounded regular-track device/parameter
     inspection and serialized verified device/parameter mutations.
+  - [x] Implement capability-gated bounded exact-rack chains, chain devices,
+    Drum Rack pads, pad chains, and pad-chain devices.
   - [ ] Implement remaining track, clip, arrangement, device, and browser clients.
 - [ ] Add pagination and filtering for large browser/parameter results.
 

@@ -187,6 +187,8 @@ function application(
             classDisplayName: "Instrument Rack",
             enabled: true,
             parameterCount: 2,
+            canHaveChains: true,
+            canHaveDrumPads: true,
           },
         ].slice(params.offset, params.offset + params.limit),
         total: 1,
@@ -208,6 +210,8 @@ function application(
           classDisplayName: "Instrument Rack",
           enabled: true,
           parameterCount: 2,
+          canHaveChains: true,
+          canHaveDrumPads: true,
         },
         parameters: [
           {
@@ -225,6 +229,212 @@ function application(
           },
         ],
         total: 2,
+        offset: params.offset,
+        limit: params.limit,
+      }),
+    ),
+    inspectRackChains: vi.fn(
+      async (params: Parameters<AbletonService["inspectRackChains"]>[0]) => ({
+        rack: {
+          reference: params.expectedDeviceReference,
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          index: params.deviceIndex,
+          name: params.expectedDeviceName,
+          className: "InstrumentGroupDevice",
+          classDisplayName: "Instrument Rack",
+          enabled: true,
+          parameterCount: 2,
+          canHaveChains: true,
+          canHaveDrumPads: true,
+        },
+        chains: [
+          {
+            reference: "00000000-0000-4000-8000-000000000042",
+            rackDeviceReference: params.expectedDeviceReference,
+            index: 0,
+            name: "Main",
+            color: null,
+            deviceCount: 1,
+          },
+        ].slice(params.offset, params.offset + params.limit),
+        total: 1,
+        offset: params.offset,
+        limit: params.limit,
+      }),
+    ),
+    inspectRackChainDevices: vi.fn(
+      async (
+        params: Parameters<AbletonService["inspectRackChainDevices"]>[0],
+      ) => ({
+        rack: {
+          reference: params.expectedDeviceReference,
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          index: params.deviceIndex,
+          name: params.expectedDeviceName,
+          className: "InstrumentGroupDevice",
+          classDisplayName: "Instrument Rack",
+          enabled: true,
+          parameterCount: 2,
+          canHaveChains: true,
+          canHaveDrumPads: true,
+        },
+        chain: {
+          reference: params.expectedChainReference,
+          rackDeviceReference: params.expectedDeviceReference,
+          index: params.chainIndex,
+          name: params.expectedChainName,
+          color: null,
+          deviceCount: 1,
+        },
+        devices: [
+          {
+            reference: "00000000-0000-4000-8000-000000000043",
+            chainReference: params.expectedChainReference,
+            index: 0,
+            name: "Operator",
+            className: "Operator",
+            classDisplayName: "Operator",
+            enabled: true,
+            parameterCount: 2,
+            canHaveChains: false,
+            canHaveDrumPads: false,
+          },
+        ].slice(params.offset, params.offset + params.limit),
+        total: 1,
+        offset: params.offset,
+        limit: params.limit,
+      }),
+    ),
+    inspectDrumRackPads: vi.fn(
+      async (params: Parameters<AbletonService["inspectDrumRackPads"]>[0]) => ({
+        rack: {
+          reference: params.expectedDeviceReference,
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          index: params.deviceIndex,
+          name: params.expectedDeviceName,
+          className: "DrumGroupDevice",
+          classDisplayName: "Drum Rack",
+          enabled: true,
+          parameterCount: 2,
+          canHaveChains: true,
+          canHaveDrumPads: true,
+        },
+        pads: [
+          {
+            reference: "00000000-0000-4000-8000-000000000044",
+            rackDeviceReference: params.expectedDeviceReference,
+            index: 0,
+            note: 36,
+            name: "Kick",
+            mute: false,
+            solo: false,
+            chainCount: 1,
+          },
+        ].slice(params.offset, params.offset + params.limit),
+        total: 1,
+        offset: params.offset,
+        limit: params.limit,
+      }),
+    ),
+    inspectDrumPadChains: vi.fn(
+      async (
+        params: Parameters<AbletonService["inspectDrumPadChains"]>[0],
+      ) => ({
+        rack: {
+          reference: params.expectedDeviceReference,
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          index: params.deviceIndex,
+          name: params.expectedDeviceName,
+          className: "DrumGroupDevice",
+          classDisplayName: "Drum Rack",
+          enabled: true,
+          parameterCount: 2,
+          canHaveChains: true,
+          canHaveDrumPads: true,
+        },
+        pad: {
+          reference: params.expectedPadReference,
+          rackDeviceReference: params.expectedDeviceReference,
+          index: params.padIndex,
+          note: params.expectedPadNote,
+          name: params.expectedPadName,
+          mute: false,
+          solo: false,
+          chainCount: 1,
+        },
+        chains: [
+          {
+            reference: "00000000-0000-4000-8000-000000000045",
+            rackDeviceReference: params.expectedDeviceReference,
+            drumPadReference: params.expectedPadReference,
+            drumPadIndex: params.padIndex,
+            index: 0,
+            name: "Kick",
+            color: null,
+            deviceCount: 1,
+          },
+        ].slice(params.offset, params.offset + params.limit),
+        total: 1,
+        offset: params.offset,
+        limit: params.limit,
+      }),
+    ),
+    inspectDrumPadChainDevices: vi.fn(
+      async (
+        params: Parameters<AbletonService["inspectDrumPadChainDevices"]>[0],
+      ) => ({
+        rack: {
+          reference: params.expectedDeviceReference,
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          index: params.deviceIndex,
+          name: params.expectedDeviceName,
+          className: "DrumGroupDevice",
+          classDisplayName: "Drum Rack",
+          enabled: true,
+          parameterCount: 2,
+          canHaveChains: true,
+          canHaveDrumPads: true,
+        },
+        pad: {
+          reference: params.expectedPadReference,
+          rackDeviceReference: params.expectedDeviceReference,
+          index: params.padIndex,
+          note: params.expectedPadNote,
+          name: params.expectedPadName,
+          mute: false,
+          solo: false,
+          chainCount: 1,
+        },
+        chain: {
+          reference: params.expectedChainReference,
+          rackDeviceReference: params.expectedDeviceReference,
+          drumPadReference: params.expectedPadReference,
+          drumPadIndex: params.padIndex,
+          index: params.chainIndex,
+          name: params.expectedChainName,
+          color: null,
+          deviceCount: 1,
+        },
+        devices: [
+          {
+            reference: "00000000-0000-4000-8000-000000000046",
+            chainReference: params.expectedChainReference,
+            index: 0,
+            name: "Simpler",
+            className: "OriginalSimpler",
+            classDisplayName: "Simpler",
+            enabled: true,
+            parameterCount: 2,
+            canHaveChains: false,
+            canHaveDrumPads: false,
+          },
+        ].slice(params.offset, params.offset + params.limit),
+        total: 1,
         offset: params.offset,
         limit: params.limit,
       }),
@@ -455,6 +665,32 @@ describe("CLI", () => {
       json: false,
     });
     expect(() => parseArgs(["devices", "0"])).toThrow(CliUsageError);
+    expect(
+      parseArgs([
+        "pad-chain-devices",
+        "1",
+        "2",
+        "3",
+        "4",
+        "--offset",
+        "5",
+        "--limit",
+        "10",
+        "--json",
+      ]),
+    ).toEqual({
+      name: "pad-chain-devices",
+      trackNumber: 1,
+      deviceNumber: 2,
+      padNumber: 3,
+      chainNumber: 4,
+      offset: 5,
+      limit: 10,
+      json: true,
+    });
+    expect(() => parseArgs(["rack-chains", "1", "1", "--limit", "65"])).toThrow(
+      CliUsageError,
+    );
   });
 
   it("renders bounded Arrangement transport inspection", async () => {
@@ -506,6 +742,83 @@ describe("CLI", () => {
       ),
     ).resolves.toBe(0);
     expect(parameterOutput.lines[0]).toContain("Dry/Wet: 0.500");
+  });
+
+  it("renders bounded rack and Drum Rack inspection", async () => {
+    const fixture = application({
+      state: "connected",
+      liveVersion: "12.1",
+      remoteScriptVersion: "0.2.0",
+      projectId: "project",
+    });
+    const commands = [
+      {
+        command: {
+          name: "rack-chains" as const,
+          trackNumber: 1,
+          deviceNumber: 1,
+          offset: 0,
+          limit: 16,
+          json: false,
+        },
+        expected: "Main",
+      },
+      {
+        command: {
+          name: "chain-devices" as const,
+          trackNumber: 1,
+          deviceNumber: 1,
+          chainNumber: 1,
+          offset: 0,
+          limit: 32,
+          json: false,
+        },
+        expected: "Operator",
+      },
+      {
+        command: {
+          name: "drum-pads" as const,
+          trackNumber: 1,
+          deviceNumber: 1,
+          offset: 0,
+          limit: 32,
+          json: false,
+        },
+        expected: "Kick",
+      },
+      {
+        command: {
+          name: "pad-chains" as const,
+          trackNumber: 1,
+          deviceNumber: 1,
+          padNumber: 1,
+          offset: 0,
+          limit: 8,
+          json: false,
+        },
+        expected: "Kick",
+      },
+      {
+        command: {
+          name: "pad-chain-devices" as const,
+          trackNumber: 1,
+          deviceNumber: 1,
+          padNumber: 1,
+          chainNumber: 1,
+          offset: 0,
+          limit: 32,
+          json: false,
+        },
+        expected: "Simpler",
+      },
+    ];
+    for (const { command, expected } of commands) {
+      const out = output();
+      await expect(
+        runCommand(command, fixture.application, out.io),
+      ).resolves.toBe(0);
+      expect(out.lines[0]).toContain(expected);
+    }
   });
 
   it("rejects missing prompts", () => {

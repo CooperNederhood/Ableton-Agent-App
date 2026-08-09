@@ -43,6 +43,16 @@ import type {
   InspectDeviceParametersResult,
   InspectDevicesParams,
   InspectDevicesResult,
+  InspectDrumPadChainDevicesParams,
+  InspectDrumPadChainDevicesResult,
+  InspectDrumPadChainsParams,
+  InspectDrumPadChainsResult,
+  InspectDrumRackPadsParams,
+  InspectDrumRackPadsResult,
+  InspectRackChainDevicesParams,
+  InspectRackChainDevicesResult,
+  InspectRackChainsParams,
+  InspectRackChainsResult,
   SessionSnapshot,
   SetPlayingResult,
   SetTempoResult,
@@ -104,6 +114,21 @@ export interface AbletonService {
   inspectDeviceParameters(
     params: InspectDeviceParametersParams,
   ): Promise<InspectDeviceParametersResult>;
+  inspectRackChains(
+    params: InspectRackChainsParams,
+  ): Promise<InspectRackChainsResult>;
+  inspectRackChainDevices(
+    params: InspectRackChainDevicesParams,
+  ): Promise<InspectRackChainDevicesResult>;
+  inspectDrumRackPads(
+    params: InspectDrumRackPadsParams,
+  ): Promise<InspectDrumRackPadsResult>;
+  inspectDrumPadChains(
+    params: InspectDrumPadChainsParams,
+  ): Promise<InspectDrumPadChainsResult>;
+  inspectDrumPadChainDevices(
+    params: InspectDrumPadChainDevicesParams,
+  ): Promise<InspectDrumPadChainDevicesResult>;
   setDeviceEnabled(
     params: SetDeviceEnabledParams,
   ): Promise<SetDeviceEnabledResult>;
@@ -200,6 +225,21 @@ export interface CopilotAgentServiceOptions {
   inspectDeviceParameters: (
     params: InspectDeviceParametersParams,
   ) => Promise<InspectDeviceParametersResult>;
+  inspectRackChains: (
+    params: InspectRackChainsParams,
+  ) => Promise<InspectRackChainsResult>;
+  inspectRackChainDevices: (
+    params: InspectRackChainDevicesParams,
+  ) => Promise<InspectRackChainDevicesResult>;
+  inspectDrumRackPads: (
+    params: InspectDrumRackPadsParams,
+  ) => Promise<InspectDrumRackPadsResult>;
+  inspectDrumPadChains: (
+    params: InspectDrumPadChainsParams,
+  ) => Promise<InspectDrumPadChainsResult>;
+  inspectDrumPadChainDevices: (
+    params: InspectDrumPadChainDevicesParams,
+  ) => Promise<InspectDrumPadChainDevicesResult>;
   setDeviceEnabled: (
     params: SetDeviceEnabledParams,
   ) => Promise<SetDeviceEnabledResult>;
@@ -292,6 +332,11 @@ export class CopilotAgentService implements AgentService {
       setTrackMixer: this.options.setTrackMixer,
       inspectDevices: this.options.inspectDevices,
       inspectDeviceParameters: this.options.inspectDeviceParameters,
+      inspectRackChains: this.options.inspectRackChains,
+      inspectRackChainDevices: this.options.inspectRackChainDevices,
+      inspectDrumRackPads: this.options.inspectDrumRackPads,
+      inspectDrumPadChains: this.options.inspectDrumPadChains,
+      inspectDrumPadChainDevices: this.options.inspectDrumPadChainDevices,
       setDeviceEnabled: this.options.setDeviceEnabled,
       setDeviceParameter: this.options.setDeviceParameter,
       createMidiClip: this.options.createMidiClip,
@@ -542,6 +587,36 @@ export class HeadlessApplication {
     params: InspectDeviceParametersParams,
   ): Promise<InspectDeviceParametersResult> {
     return this.services.ableton.inspectDeviceParameters(params);
+  }
+
+  public inspectRackChains(
+    params: InspectRackChainsParams,
+  ): Promise<InspectRackChainsResult> {
+    return this.services.ableton.inspectRackChains(params);
+  }
+
+  public inspectRackChainDevices(
+    params: InspectRackChainDevicesParams,
+  ): Promise<InspectRackChainDevicesResult> {
+    return this.services.ableton.inspectRackChainDevices(params);
+  }
+
+  public inspectDrumRackPads(
+    params: InspectDrumRackPadsParams,
+  ): Promise<InspectDrumRackPadsResult> {
+    return this.services.ableton.inspectDrumRackPads(params);
+  }
+
+  public inspectDrumPadChains(
+    params: InspectDrumPadChainsParams,
+  ): Promise<InspectDrumPadChainsResult> {
+    return this.services.ableton.inspectDrumPadChains(params);
+  }
+
+  public inspectDrumPadChainDevices(
+    params: InspectDrumPadChainDevicesParams,
+  ): Promise<InspectDrumPadChainDevicesResult> {
+    return this.services.ableton.inspectDrumPadChainDevices(params);
   }
 
   public setDeviceEnabled(

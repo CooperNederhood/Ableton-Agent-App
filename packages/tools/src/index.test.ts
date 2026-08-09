@@ -436,6 +436,8 @@ function services() {
               classDisplayName: "Operator",
               enabled: true,
               parameterCount: 2,
+              canHaveChains: false,
+              canHaveDrumPads: false,
             },
           ],
           total: 1,
@@ -456,6 +458,8 @@ function services() {
             classDisplayName: "Operator",
             enabled: true,
             parameterCount: 2,
+            canHaveChains: false,
+            canHaveDrumPads: false,
           },
           parameters: [
             {
@@ -477,6 +481,215 @@ function services() {
           limit: params.limit,
         }),
     ),
+    inspectRackChains: vi.fn(
+      (params: Parameters<AbletonToolServices["inspectRackChains"]>[0]) =>
+        Promise.resolve({
+          rack: {
+            reference: params.expectedDeviceReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            index: params.deviceIndex,
+            name: params.expectedDeviceName,
+            className: "InstrumentGroupDevice",
+            classDisplayName: "Instrument Rack",
+            enabled: true,
+            parameterCount: 2,
+            canHaveChains: true,
+            canHaveDrumPads: false,
+          },
+          chains: [
+            {
+              reference: "00000000-0000-4000-8000-000000000042",
+              rackDeviceReference: params.expectedDeviceReference,
+              index: 0,
+              name: "Main",
+              color: null,
+              deviceCount: 1,
+            },
+          ],
+          total: 1,
+          offset: params.offset,
+          limit: params.limit,
+        }),
+    ),
+    inspectRackChainDevices: vi.fn(
+      (params: Parameters<AbletonToolServices["inspectRackChainDevices"]>[0]) =>
+        Promise.resolve({
+          rack: {
+            reference: params.expectedDeviceReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            index: params.deviceIndex,
+            name: params.expectedDeviceName,
+            className: "InstrumentGroupDevice",
+            classDisplayName: "Instrument Rack",
+            enabled: true,
+            parameterCount: 2,
+            canHaveChains: true,
+            canHaveDrumPads: false,
+          },
+          chain: {
+            reference: params.expectedChainReference,
+            rackDeviceReference: params.expectedDeviceReference,
+            index: params.chainIndex,
+            name: params.expectedChainName,
+            color: null,
+            deviceCount: 1,
+          },
+          devices: [
+            {
+              reference: "00000000-0000-4000-8000-000000000043",
+              chainReference: params.expectedChainReference,
+              index: 0,
+              name: "Operator",
+              className: "Operator",
+              classDisplayName: "Operator",
+              enabled: true,
+              parameterCount: 2,
+              canHaveChains: false,
+              canHaveDrumPads: false,
+            },
+          ],
+          total: 1,
+          offset: params.offset,
+          limit: params.limit,
+        }),
+    ),
+    inspectDrumRackPads: vi.fn(
+      (params: Parameters<AbletonToolServices["inspectDrumRackPads"]>[0]) =>
+        Promise.resolve({
+          rack: {
+            reference: params.expectedDeviceReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            index: params.deviceIndex,
+            name: params.expectedDeviceName,
+            className: "DrumGroupDevice",
+            classDisplayName: "Drum Rack",
+            enabled: true,
+            parameterCount: 2,
+            canHaveChains: true,
+            canHaveDrumPads: true,
+          },
+          pads: [
+            {
+              reference: "00000000-0000-4000-8000-000000000044",
+              rackDeviceReference: params.expectedDeviceReference,
+              index: 0,
+              note: 36,
+              name: "Kick",
+              mute: false,
+              solo: false,
+              chainCount: 1,
+            },
+          ],
+          total: 1,
+          offset: params.offset,
+          limit: params.limit,
+        }),
+    ),
+    inspectDrumPadChains: vi.fn(
+      (params: Parameters<AbletonToolServices["inspectDrumPadChains"]>[0]) =>
+        Promise.resolve({
+          rack: {
+            reference: params.expectedDeviceReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            index: params.deviceIndex,
+            name: params.expectedDeviceName,
+            className: "DrumGroupDevice",
+            classDisplayName: "Drum Rack",
+            enabled: true,
+            parameterCount: 2,
+            canHaveChains: true,
+            canHaveDrumPads: true,
+          },
+          pad: {
+            reference: params.expectedPadReference,
+            rackDeviceReference: params.expectedDeviceReference,
+            index: params.padIndex,
+            note: params.expectedPadNote,
+            name: params.expectedPadName,
+            mute: false,
+            solo: false,
+            chainCount: 1,
+          },
+          chains: [
+            {
+              reference: "00000000-0000-4000-8000-000000000045",
+              rackDeviceReference: params.expectedDeviceReference,
+              drumPadReference: params.expectedPadReference,
+              drumPadIndex: params.padIndex,
+              index: 0,
+              name: "Kick",
+              color: null,
+              deviceCount: 1,
+            },
+          ],
+          total: 1,
+          offset: params.offset,
+          limit: params.limit,
+        }),
+    ),
+    inspectDrumPadChainDevices: vi.fn(
+      (
+        params: Parameters<
+          AbletonToolServices["inspectDrumPadChainDevices"]
+        >[0],
+      ) =>
+        Promise.resolve({
+          rack: {
+            reference: params.expectedDeviceReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            index: params.deviceIndex,
+            name: params.expectedDeviceName,
+            className: "DrumGroupDevice",
+            classDisplayName: "Drum Rack",
+            enabled: true,
+            parameterCount: 2,
+            canHaveChains: true,
+            canHaveDrumPads: true,
+          },
+          pad: {
+            reference: params.expectedPadReference,
+            rackDeviceReference: params.expectedDeviceReference,
+            index: params.padIndex,
+            note: params.expectedPadNote,
+            name: params.expectedPadName,
+            mute: false,
+            solo: false,
+            chainCount: 1,
+          },
+          chain: {
+            reference: params.expectedChainReference,
+            rackDeviceReference: params.expectedDeviceReference,
+            drumPadReference: params.expectedPadReference,
+            drumPadIndex: params.padIndex,
+            index: params.chainIndex,
+            name: params.expectedChainName,
+            color: null,
+            deviceCount: 1,
+          },
+          devices: [
+            {
+              reference: "00000000-0000-4000-8000-000000000046",
+              chainReference: params.expectedChainReference,
+              index: 0,
+              name: "Simpler",
+              className: "OriginalSimpler",
+              classDisplayName: "Simpler",
+              enabled: true,
+              parameterCount: 2,
+              canHaveChains: false,
+              canHaveDrumPads: false,
+            },
+          ],
+          total: 1,
+          offset: params.offset,
+          limit: params.limit,
+        }),
+    ),
     setDeviceEnabled: vi.fn(
       (params: Parameters<AbletonToolServices["setDeviceEnabled"]>[0]) =>
         Promise.resolve({
@@ -490,6 +703,8 @@ function services() {
             classDisplayName: "Operator",
             enabled: params.enabled,
             parameterCount: 2,
+            canHaveChains: false,
+            canHaveDrumPads: false,
           },
           beforeEnabled: !params.enabled,
           afterEnabled: params.enabled,
@@ -522,6 +737,8 @@ function services() {
             classDisplayName: "Operator",
             enabled: true,
             parameterCount: 2,
+            canHaveChains: false,
+            canHaveDrumPads: false,
           },
           before: parameter,
           after: {
@@ -571,6 +788,11 @@ describe("Ableton tools", () => {
       "custom:ableton_arrangement_set_clip_properties",
       "custom:ableton_devices_inspect",
       "custom:ableton_device_parameters_inspect",
+      "custom:ableton_rack_chains_inspect",
+      "custom:ableton_rack_chain_devices_inspect",
+      "custom:ableton_drum_rack_pads_inspect",
+      "custom:ableton_drum_pad_chains_inspect",
+      "custom:ableton_drum_pad_chain_devices_inspect",
       "custom:ableton_device_set_enabled",
       "custom:ableton_device_set_parameter",
     ]);
@@ -599,6 +821,11 @@ describe("Ableton tools", () => {
       "destructive",
       "reversible",
       "reversible",
+      "read",
+      "read",
+      "read",
+      "read",
+      "read",
       "read",
       "read",
       "reversible",
@@ -833,10 +1060,50 @@ describe("Ableton tools", () => {
       invocation,
     );
     await toolSet.tools[26].handler?.(
+      { ...deviceTarget, offset: 0, limit: 10 },
+      invocation,
+    );
+    const chainTarget = {
+      ...deviceTarget,
+      chainIndex: 0,
+      expectedChainReference: "00000000-0000-4000-8000-000000000042",
+      expectedChainName: "Main",
+    };
+    await toolSet.tools[27].handler?.(
+      { ...chainTarget, offset: 0, limit: 10 },
+      invocation,
+    );
+    await toolSet.tools[28].handler?.(
+      { ...deviceTarget, offset: 0, limit: 10 },
+      invocation,
+    );
+    const padTarget = {
+      ...deviceTarget,
+      padIndex: 0,
+      expectedPadReference: "00000000-0000-4000-8000-000000000044",
+      expectedPadNote: 36,
+      expectedPadName: "Kick",
+    };
+    await toolSet.tools[29].handler?.(
+      { ...padTarget, offset: 0, limit: 8 },
+      invocation,
+    );
+    await toolSet.tools[30].handler?.(
+      {
+        ...padTarget,
+        chainIndex: 0,
+        expectedChainReference: "00000000-0000-4000-8000-000000000045",
+        expectedChainName: "Kick",
+        offset: 0,
+        limit: 10,
+      },
+      invocation,
+    );
+    await toolSet.tools[31].handler?.(
       { ...deviceTarget, enabled: false },
       invocation,
     );
-    await toolSet.tools[27].handler?.(
+    await toolSet.tools[32].handler?.(
       {
         ...deviceTarget,
         parameterIndex: 1,
@@ -1009,6 +1276,34 @@ describe("Ableton tools", () => {
       index: 0,
       expectedReference: "00000000-0000-4000-8000-000000000001",
       expectedName: "Drums",
+      offset: 0,
+      limit: 10,
+    });
+    expect(ports.inspectRackChains).toHaveBeenCalledWith({
+      ...deviceTarget,
+      offset: 0,
+      limit: 10,
+    });
+    expect(ports.inspectRackChainDevices).toHaveBeenCalledWith({
+      ...chainTarget,
+      offset: 0,
+      limit: 10,
+    });
+    expect(ports.inspectDrumRackPads).toHaveBeenCalledWith({
+      ...deviceTarget,
+      offset: 0,
+      limit: 10,
+    });
+    expect(ports.inspectDrumPadChains).toHaveBeenCalledWith({
+      ...padTarget,
+      offset: 0,
+      limit: 8,
+    });
+    expect(ports.inspectDrumPadChainDevices).toHaveBeenCalledWith({
+      ...padTarget,
+      chainIndex: 0,
+      expectedChainReference: "00000000-0000-4000-8000-000000000045",
+      expectedChainName: "Kick",
       offset: 0,
       limit: 10,
     });

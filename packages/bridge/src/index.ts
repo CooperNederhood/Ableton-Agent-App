@@ -27,6 +27,16 @@ import {
   inspectDeviceParametersResultSchema,
   inspectDevicesParamsSchema,
   inspectDevicesResultSchema,
+  inspectDrumPadChainDevicesParamsSchema,
+  inspectDrumPadChainDevicesResultSchema,
+  inspectDrumPadChainsParamsSchema,
+  inspectDrumPadChainsResultSchema,
+  inspectDrumRackPadsParamsSchema,
+  inspectDrumRackPadsResultSchema,
+  inspectRackChainDevicesParamsSchema,
+  inspectRackChainDevicesResultSchema,
+  inspectRackChainsParamsSchema,
+  inspectRackChainsResultSchema,
   encodeFrame,
   pingResultSchema,
   sessionSnapshotSchema,
@@ -81,6 +91,16 @@ import {
   type InspectDeviceParametersResult,
   type InspectDevicesParams,
   type InspectDevicesResult,
+  type InspectDrumPadChainDevicesParams,
+  type InspectDrumPadChainDevicesResult,
+  type InspectDrumPadChainsParams,
+  type InspectDrumPadChainsResult,
+  type InspectDrumRackPadsParams,
+  type InspectDrumRackPadsResult,
+  type InspectRackChainDevicesParams,
+  type InspectRackChainDevicesResult,
+  type InspectRackChainsParams,
+  type InspectRackChainsResult,
   type MessageEnvelope,
   type PingResult,
   type RequestEnvelope,
@@ -348,6 +368,56 @@ export class AbletonBridgeService implements AbletonService {
     const validated = inspectDeviceParametersParamsSchema.parse(params);
     return inspectDeviceParametersResultSchema.parse(
       await this.#request("devices.inspect_parameters", validated),
+    );
+  }
+
+  public async inspectRackChains(
+    params: InspectRackChainsParams,
+  ): Promise<InspectRackChainsResult> {
+    this.#requireCapability("devices.inspect_rack_chains");
+    const validated = inspectRackChainsParamsSchema.parse(params);
+    return inspectRackChainsResultSchema.parse(
+      await this.#request("devices.inspect_rack_chains", validated),
+    );
+  }
+
+  public async inspectRackChainDevices(
+    params: InspectRackChainDevicesParams,
+  ): Promise<InspectRackChainDevicesResult> {
+    this.#requireCapability("devices.inspect_rack_chain_devices");
+    const validated = inspectRackChainDevicesParamsSchema.parse(params);
+    return inspectRackChainDevicesResultSchema.parse(
+      await this.#request("devices.inspect_rack_chain_devices", validated),
+    );
+  }
+
+  public async inspectDrumRackPads(
+    params: InspectDrumRackPadsParams,
+  ): Promise<InspectDrumRackPadsResult> {
+    this.#requireCapability("devices.inspect_drum_rack_pads");
+    const validated = inspectDrumRackPadsParamsSchema.parse(params);
+    return inspectDrumRackPadsResultSchema.parse(
+      await this.#request("devices.inspect_drum_rack_pads", validated),
+    );
+  }
+
+  public async inspectDrumPadChains(
+    params: InspectDrumPadChainsParams,
+  ): Promise<InspectDrumPadChainsResult> {
+    this.#requireCapability("devices.inspect_drum_pad_chains");
+    const validated = inspectDrumPadChainsParamsSchema.parse(params);
+    return inspectDrumPadChainsResultSchema.parse(
+      await this.#request("devices.inspect_drum_pad_chains", validated),
+    );
+  }
+
+  public async inspectDrumPadChainDevices(
+    params: InspectDrumPadChainDevicesParams,
+  ): Promise<InspectDrumPadChainDevicesResult> {
+    this.#requireCapability("devices.inspect_drum_pad_chain_devices");
+    const validated = inspectDrumPadChainDevicesParamsSchema.parse(params);
+    return inspectDrumPadChainDevicesResultSchema.parse(
+      await this.#request("devices.inspect_drum_pad_chain_devices", validated),
     );
   }
 

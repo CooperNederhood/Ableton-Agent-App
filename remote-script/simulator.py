@@ -80,6 +80,34 @@ class SimulatorState(object):
         ]
 
     def simulated_device(self, name):
+        device = self.simulated_leaf_device(name)
+        if name == "Drum Rack":
+            kick_chain = self.simulated_chain(
+                "Kick",
+                [self.simulated_leaf_device("Simpler")],
+            )
+            snare_chain = self.simulated_chain(
+                "Snare",
+                [self.simulated_leaf_device("Simpler")],
+            )
+            device["canHaveChains"] = True
+            device["canHaveDrumPads"] = True
+            device["chains"] = [kick_chain, snare_chain]
+            device["drumPads"] = [
+                self.simulated_pad(
+                    note,
+                    "Kick" if note == 36 else "Snare" if note == 38 else "",
+                    [kick_chain]
+                    if note == 36
+                    else [snare_chain]
+                    if note == 38
+                    else [],
+                )
+                for note in range(128)
+            ]
+        return device
+
+    def simulated_leaf_device(self, name):
         reference = str(uuid.uuid4())
         return {
             "reference": reference,
@@ -121,6 +149,28 @@ class SimulatorState(object):
                     "valueItemCount": 3,
                 },
             ],
+            "canHaveChains": False,
+            "canHaveDrumPads": False,
+            "chains": [],
+            "drumPads": [],
+        }
+
+    def simulated_chain(self, name, devices):
+        return {
+            "reference": str(uuid.uuid4()),
+            "name": name,
+            "color": None,
+            "devices": devices,
+        }
+
+    def simulated_pad(self, note, name, chains):
+        return {
+            "reference": str(uuid.uuid4()),
+            "note": note,
+            "name": name,
+            "mute": False,
+            "solo": False,
+            "chains": chains,
         }
 
     def session_tracks(self):
@@ -189,6 +239,59 @@ class SimulatorState(object):
             "classDisplayName": device["classDisplayName"],
             "enabled": enabled,
             "parameterCount": len(device["parameters"]),
+            "canHaveChains": device["canHaveChains"],
+            "canHaveDrumPads": device["canHaveDrumPads"],
+        }
+
+    def chain_summary(self, rack, index, chain):
+        return {
+            "reference": chain["reference"],
+            "rackDeviceReference": rack["reference"],
+            "index": index,
+            "name": chain["name"],
+            "color": chain["color"],
+            "deviceCount": len(chain["devices"]),
+        }
+
+    def pad_summary(self, rack, index, pad):
+        return {
+            "reference": pad["reference"],
+            "rackDeviceReference": rack["reference"],
+            "index": index,
+            "note": pad["note"],
+            "name": pad["name"],
+            "mute": pad["mute"],
+            "solo": pad["solo"],
+            "chainCount": len(pad["chains"]),
+        }
+
+    def pad_chain_summary(self, rack, pad, pad_index, index, chain):
+        summary = self.chain_summary(rack, index, chain)
+        summary.update(
+            {
+                "drumPadReference": pad["reference"],
+                "drumPadIndex": pad_index,
+            }
+        )
+        return summary
+
+    def chain_device_summary(self, chain, index, device):
+        return {
+            "reference": device["reference"],
+            "chainReference": chain["reference"],
+            "index": index,
+            "name": device["name"],
+            "className": device["className"],
+            "classDisplayName": device["classDisplayName"],
+            "enabled": (
+                device["parameters"][0]["value"] >= 0.5
+                if device["parameters"]
+                and device["parameters"][0]["name"] == "Device On"
+                else None
+            ),
+            "parameterCount": len(device["parameters"]),
+            "canHaveChains": device["canHaveChains"],
+            "canHaveDrumPads": device["canHaveDrumPads"],
         }
 
     def parameter_summary(self, device, index, parameter):
@@ -262,7 +365,7 @@ def handle(request, token, state):
             {
                 "selectedProtocolVersion": PROTOCOL_VERSION,
                 "liveVersion": "12.1-simulator",
-                "remoteScriptVersion": "0.2.0",
+                "remoteScriptVersion": "0.3.0",
                 "projectId": "simulated-project",
                 "capabilities": {
                     "system.ping": True,
@@ -279,6 +382,11 @@ def handle(request, token, state):
                     "tracks.set_mixer": True,
                     "devices.inspect": True,
                     "devices.inspect_parameters": True,
+                    "devices.inspect_rack_chains": True,
+                    "devices.inspect_rack_chain_devices": True,
+                    "devices.inspect_drum_rack_pads": True,
+                    "devices.inspect_drum_pad_chains": True,
+                    "devices.inspect_drum_pad_chain_devices": True,
                     "devices.set_enabled": True,
                     "devices.set_parameter": True,
                     "clips.create_midi": True,
@@ -685,6 +793,11 @@ def handle(request, token, state):
     if command in (
         "devices.inspect",
         "devices.inspect_parameters",
+        "devices.inspect_rack_chains",
+        "devices.inspect_rack_chain_devices",
+        "devices.inspect_drum_rack_pads",
+        "devices.inspect_drum_pad_chains",
+        "devices.inspect_drum_pad_chain_devices",
         "devices.set_enabled",
         "devices.set_parameter",
     ):
@@ -755,6 +868,271 @@ def handle(request, token, state):
                 request,
                 "stale_reference",
                 "Device identity changed before operation",
+            )
+        if command in (
+            "devices.inspect_rack_chains",
+            "devices.inspect_rack_chain_devices",
+        ):
+            if not device["canHaveChains"]:
+                return failure(
+                    request, "conflict", "The targeted device is not a rack"
+                )
+            chains = device["chains"]
+            if command == "devices.inspect_rack_chains":
+                offset = params.get("offset", 0)
+                limit = params.get("limit", 16)
+                if (
+                    isinstance(offset, bool)
+                    or not isinstance(offset, int)
+                    or offset < 0
+                    or isinstance(limit, bool)
+                    or not isinstance(limit, int)
+                    or limit < 1
+                    or limit > 64
+                ):
+                    return failure(
+                        request,
+                        "invalid_params",
+                        "offset and limit must describe a bounded chain page",
+                    )
+                return response(
+                    request,
+                    {
+                        "rack": state.device_summary(
+                            index, device_index, device
+                        ),
+                        "chains": [
+                            state.chain_summary(device, chain_index, chain)
+                            for chain_index, chain in enumerate(
+                                chains[offset : offset + limit],
+                                start=offset,
+                            )
+                        ],
+                        "total": len(chains),
+                        "offset": offset,
+                        "limit": limit,
+                    },
+                )
+            chain_index = params.get("chainIndex")
+            if (
+                isinstance(chain_index, bool)
+                or not isinstance(chain_index, int)
+                or chain_index < 0
+                or chain_index >= len(chains)
+            ):
+                return failure(request, "not_found", "Chain index is out of range")
+            chain = chains[chain_index]
+            if (
+                chain["reference"] != params.get("expectedChainReference")
+                or chain["name"] != params.get("expectedChainName")
+            ):
+                return failure(
+                    request,
+                    "stale_reference",
+                    "Chain identity changed before inspection",
+                )
+            offset = params.get("offset", 0)
+            limit = params.get("limit", 32)
+            if (
+                isinstance(offset, bool)
+                or not isinstance(offset, int)
+                or offset < 0
+                or isinstance(limit, bool)
+                or not isinstance(limit, int)
+                or limit < 1
+                or limit > 128
+            ):
+                return failure(
+                    request,
+                    "invalid_params",
+                    "offset and limit must describe a bounded chain-device page",
+                )
+            devices = chain["devices"]
+            return response(
+                request,
+                {
+                    "rack": state.device_summary(index, device_index, device),
+                    "chain": state.chain_summary(
+                        device, chain_index, chain
+                    ),
+                    "devices": [
+                        state.chain_device_summary(
+                            chain, nested_index, nested_device
+                        )
+                        for nested_index, nested_device in enumerate(
+                            devices[offset : offset + limit], start=offset
+                        )
+                    ],
+                    "total": len(devices),
+                    "offset": offset,
+                    "limit": limit,
+                },
+            )
+        if command in (
+            "devices.inspect_drum_rack_pads",
+            "devices.inspect_drum_pad_chains",
+            "devices.inspect_drum_pad_chain_devices",
+        ):
+            if not device["canHaveDrumPads"]:
+                return failure(
+                    request,
+                    "conflict",
+                    "The targeted device is not a Drum Rack",
+                )
+            pads = device["drumPads"]
+            if command == "devices.inspect_drum_rack_pads":
+                offset = params.get("offset", 0)
+                limit = params.get("limit", 32)
+                if (
+                    isinstance(offset, bool)
+                    or not isinstance(offset, int)
+                    or offset < 0
+                    or isinstance(limit, bool)
+                    or not isinstance(limit, int)
+                    or limit < 1
+                    or limit > 128
+                ):
+                    return failure(
+                        request,
+                        "invalid_params",
+                        "offset and limit must describe a bounded drum-pad page",
+                    )
+                return response(
+                    request,
+                    {
+                        "rack": state.device_summary(
+                            index, device_index, device
+                        ),
+                        "pads": [
+                            state.pad_summary(device, pad_index, pad)
+                            for pad_index, pad in enumerate(
+                                pads[offset : offset + limit], start=offset
+                            )
+                        ],
+                        "total": len(pads),
+                        "offset": offset,
+                        "limit": limit,
+                    },
+                )
+            pad_index = params.get("padIndex")
+            if (
+                isinstance(pad_index, bool)
+                or not isinstance(pad_index, int)
+                or pad_index < 0
+                or pad_index >= len(pads)
+            ):
+                return failure(
+                    request, "not_found", "Drum pad index is out of range"
+                )
+            pad = pads[pad_index]
+            if (
+                pad["reference"] != params.get("expectedPadReference")
+                or pad["note"] != params.get("expectedPadNote")
+                or pad["name"] != params.get("expectedPadName")
+            ):
+                return failure(
+                    request,
+                    "stale_reference",
+                    "Drum pad identity changed before inspection",
+                )
+            chains = pad["chains"]
+            if command == "devices.inspect_drum_pad_chains":
+                offset = params.get("offset", 0)
+                limit = params.get("limit", 8)
+                if (
+                    isinstance(offset, bool)
+                    or not isinstance(offset, int)
+                    or offset < 0
+                    or isinstance(limit, bool)
+                    or not isinstance(limit, int)
+                    or limit < 1
+                    or limit > 64
+                ):
+                    return failure(
+                        request,
+                        "invalid_params",
+                        "offset and limit must describe a bounded pad-chain page",
+                    )
+                return response(
+                    request,
+                    {
+                        "rack": state.device_summary(
+                            index, device_index, device
+                        ),
+                        "pad": state.pad_summary(device, pad_index, pad),
+                        "chains": [
+                            state.pad_chain_summary(
+                                device,
+                                pad,
+                                pad_index,
+                                chain_index,
+                                chain,
+                            )
+                            for chain_index, chain in enumerate(
+                                chains[offset : offset + limit],
+                                start=offset,
+                            )
+                        ],
+                        "total": len(chains),
+                        "offset": offset,
+                        "limit": limit,
+                    },
+                )
+            chain_index = params.get("chainIndex")
+            if (
+                isinstance(chain_index, bool)
+                or not isinstance(chain_index, int)
+                or chain_index < 0
+                or chain_index >= len(chains)
+            ):
+                return failure(request, "not_found", "Chain index is out of range")
+            chain = chains[chain_index]
+            if (
+                chain["reference"] != params.get("expectedChainReference")
+                or chain["name"] != params.get("expectedChainName")
+            ):
+                return failure(
+                    request,
+                    "stale_reference",
+                    "Chain identity changed before inspection",
+                )
+            offset = params.get("offset", 0)
+            limit = params.get("limit", 32)
+            if (
+                isinstance(offset, bool)
+                or not isinstance(offset, int)
+                or offset < 0
+                or isinstance(limit, bool)
+                or not isinstance(limit, int)
+                or limit < 1
+                or limit > 128
+            ):
+                return failure(
+                    request,
+                    "invalid_params",
+                    "offset and limit must describe a bounded chain-device page",
+                )
+            devices = chain["devices"]
+            return response(
+                request,
+                {
+                    "rack": state.device_summary(index, device_index, device),
+                    "pad": state.pad_summary(device, pad_index, pad),
+                    "chain": state.pad_chain_summary(
+                        device, pad, pad_index, chain_index, chain
+                    ),
+                    "devices": [
+                        state.chain_device_summary(
+                            chain, nested_index, nested_device
+                        )
+                        for nested_index, nested_device in enumerate(
+                            devices[offset : offset + limit], start=offset
+                        )
+                    ],
+                    "total": len(devices),
+                    "offset": offset,
+                    "limit": limit,
+                },
             )
         if command == "devices.inspect_parameters":
             offset = params.get("offset", 0)

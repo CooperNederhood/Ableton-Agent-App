@@ -15,6 +15,50 @@ export type CliCommand =
       deviceNumber: number;
       json: boolean;
     }
+  | {
+      name: "rack-chains";
+      trackNumber: number;
+      deviceNumber: number;
+      offset: number;
+      limit: number;
+      json: boolean;
+    }
+  | {
+      name: "drum-pads";
+      trackNumber: number;
+      deviceNumber: number;
+      offset: number;
+      limit: number;
+      json: boolean;
+    }
+  | {
+      name: "chain-devices";
+      trackNumber: number;
+      deviceNumber: number;
+      chainNumber: number;
+      offset: number;
+      limit: number;
+      json: boolean;
+    }
+  | {
+      name: "pad-chains";
+      trackNumber: number;
+      deviceNumber: number;
+      padNumber: number;
+      offset: number;
+      limit: number;
+      json: boolean;
+    }
+  | {
+      name: "pad-chain-devices";
+      trackNumber: number;
+      deviceNumber: number;
+      padNumber: number;
+      chainNumber: number;
+      offset: number;
+      limit: number;
+      json: boolean;
+    }
   | { name: "run"; prompt: string; json: boolean }
   | { name: "help"; json: false };
 
@@ -71,6 +115,71 @@ export function parseArgs(args: readonly string[]): CliCommand {
       json,
     };
   }
+  if (command === "rack-chains" || command === "drum-pads") {
+    const page = parsePageArgs(
+      positional,
+      command === "rack-chains" ? 16 : 32,
+      command === "rack-chains" ? 64 : 128,
+    );
+    if (page.positional.length !== 3) {
+      throw new CliUsageError(
+        `${command} requires one-based track and device numbers`,
+      );
+    }
+    return {
+      name: command,
+      trackNumber: parsePositiveIndex(page.positional[1] ?? "", "track"),
+      deviceNumber: parsePositiveIndex(page.positional[2] ?? "", "device"),
+      offset: page.offset,
+      limit: page.limit,
+      json,
+    };
+  }
+  if (command === "chain-devices") {
+    const page = parsePageArgs(positional, 32, 128);
+    if (page.positional.length !== 4) {
+      throw new CliUsageError(
+        "chain-devices requires one-based track, device, and chain numbers",
+      );
+    }
+    return {
+      name: command,
+      trackNumber: parsePositiveIndex(page.positional[1] ?? "", "track"),
+      deviceNumber: parsePositiveIndex(page.positional[2] ?? "", "device"),
+      chainNumber: parsePositiveIndex(page.positional[3] ?? "", "chain"),
+      offset: page.offset,
+      limit: page.limit,
+      json,
+    };
+  }
+  if (command === "pad-chains" || command === "pad-chain-devices") {
+    const page = parsePageArgs(
+      positional,
+      command === "pad-chains" ? 8 : 32,
+      command === "pad-chains" ? 64 : 128,
+    );
+    const expectedLength = command === "pad-chains" ? 4 : 5;
+    if (page.positional.length !== expectedLength) {
+      throw new CliUsageError(
+        `${command} requires one-based track, device, pad${command === "pad-chain-devices" ? ", and chain" : ""} numbers`,
+      );
+    }
+    const common = {
+      trackNumber: parsePositiveIndex(page.positional[1] ?? "", "track"),
+      deviceNumber: parsePositiveIndex(page.positional[2] ?? "", "device"),
+      padNumber: parsePositiveIndex(page.positional[3] ?? "", "pad"),
+      offset: page.offset,
+      limit: page.limit,
+      json,
+    };
+    return command === "pad-chains"
+      ? { name: command, ...common }
+      : {
+          name: command,
+          ...common,
+          chainNumber: parsePositiveIndex(page.positional[4] ?? "", "chain"),
+        };
+  }
   if (command === "run") {
     const prompt = positional.slice(1).join(" ").trim();
     if (!prompt) {
@@ -87,6 +196,42 @@ function parsePositiveIndex(value: string, label: string): number {
     throw new CliUsageError(`${label} number must be a positive integer`);
   }
   return parsed;
+}
+
+function parsePageArgs(
+  args: readonly string[],
+  defaultLimit: number,
+  maximumLimit: number,
+): { positional: string[]; offset: number; limit: number } {
+  const positional: string[] = [];
+  let offset = 0;
+  let limit = defaultLimit;
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument !== "--offset" && argument !== "--limit") {
+      positional.push(argument ?? "");
+      continue;
+    }
+    const value = Number(args[index + 1]);
+    if (
+      !Number.isInteger(value) ||
+      value < (argument === "--offset" ? 0 : 1) ||
+      (argument === "--limit" && value > maximumLimit)
+    ) {
+      throw new CliUsageError(
+        argument === "--offset"
+          ? "offset must be a non-negative integer"
+          : `limit must be an integer from 1 to ${maximumLimit}`,
+      );
+    }
+    if (argument === "--offset") {
+      offset = value;
+    } else {
+      limit = value;
+    }
+    index += 1;
+  }
+  return { positional, offset, limit };
 }
 
 export interface CliIo {
@@ -138,6 +283,11 @@ export async function runCommand(
         "  ableton-agent transport [--json]",
         "  ableton-agent devices <track-number> [--json]",
         "  ableton-agent parameters <track-number> <device-number> [--json]",
+        "  ableton-agent rack-chains <track-number> <device-number> [--offset N] [--limit N] [--json]",
+        "  ableton-agent chain-devices <track-number> <device-number> <chain-number> [--offset N] [--limit N] [--json]",
+        "  ableton-agent drum-pads <track-number> <device-number> [--offset N] [--limit N] [--json]",
+        "  ableton-agent pad-chains <track-number> <device-number> <pad-number> [--offset N] [--limit N] [--json]",
+        "  ableton-agent pad-chain-devices <track-number> <device-number> <pad-number> <chain-number> [--offset N] [--limit N] [--json]",
         "  ableton-agent run <prompt> [--json]",
       ].join("\n"),
     );
@@ -314,6 +464,174 @@ export async function runCommand(
       return 0;
     }
 
+    if (command.name === "rack-chains") {
+      const { track, device } = await resolveDevice(
+        application,
+        command.trackNumber,
+        command.deviceNumber,
+      );
+      const chains = await application.inspectRackChains({
+        index: track.index,
+        expectedReference: track.reference,
+        expectedName: track.name,
+        deviceIndex: device.index,
+        expectedDeviceReference: device.reference,
+        expectedDeviceName: device.name,
+        offset: command.offset,
+        limit: command.limit,
+      });
+      io.write(
+        command.json
+          ? JSON.stringify(chains)
+          : [
+              `Chains in ${device.name}: ${chains.total}`,
+              ...chains.chains.map(
+                (chain) =>
+                  `  ${chain.index + 1}. ${chain.name || "(unnamed)"} (${chain.deviceCount} devices)`,
+              ),
+            ].join("\n"),
+      );
+      return 0;
+    }
+
+    if (command.name === "chain-devices") {
+      const { track, device, chain } = await resolveRackChain(
+        application,
+        command.trackNumber,
+        command.deviceNumber,
+        command.chainNumber,
+      );
+      const devices = await application.inspectRackChainDevices({
+        index: track.index,
+        expectedReference: track.reference,
+        expectedName: track.name,
+        deviceIndex: device.index,
+        expectedDeviceReference: device.reference,
+        expectedDeviceName: device.name,
+        chainIndex: chain.index,
+        expectedChainReference: chain.reference,
+        expectedChainName: chain.name,
+        offset: command.offset,
+        limit: command.limit,
+      });
+      io.write(
+        command.json
+          ? JSON.stringify(devices)
+          : [
+              `Devices in chain ${chain.name || command.chainNumber}: ${devices.total}`,
+              ...devices.devices.map(
+                (nestedDevice) =>
+                  `  ${nestedDevice.index + 1}. ${nestedDevice.name} (${nestedDevice.parameterCount} parameters)`,
+              ),
+            ].join("\n"),
+      );
+      return 0;
+    }
+
+    if (command.name === "drum-pads") {
+      const { track, device } = await resolveDevice(
+        application,
+        command.trackNumber,
+        command.deviceNumber,
+      );
+      const pads = await application.inspectDrumRackPads({
+        index: track.index,
+        expectedReference: track.reference,
+        expectedName: track.name,
+        deviceIndex: device.index,
+        expectedDeviceReference: device.reference,
+        expectedDeviceName: device.name,
+        offset: command.offset,
+        limit: command.limit,
+      });
+      io.write(
+        command.json
+          ? JSON.stringify(pads)
+          : [
+              `Pads in ${device.name}: ${pads.total}`,
+              ...pads.pads.map(
+                (pad) =>
+                  `  ${pad.index + 1}. note ${pad.note} ${pad.name || "(unnamed)"} (${pad.chainCount} chains)`,
+              ),
+            ].join("\n"),
+      );
+      return 0;
+    }
+
+    if (command.name === "pad-chains") {
+      const { track, device, pad } = await resolveDrumPad(
+        application,
+        command.trackNumber,
+        command.deviceNumber,
+        command.padNumber,
+      );
+      const chains = await application.inspectDrumPadChains({
+        index: track.index,
+        expectedReference: track.reference,
+        expectedName: track.name,
+        deviceIndex: device.index,
+        expectedDeviceReference: device.reference,
+        expectedDeviceName: device.name,
+        padIndex: pad.index,
+        expectedPadReference: pad.reference,
+        expectedPadNote: pad.note,
+        expectedPadName: pad.name,
+        offset: command.offset,
+        limit: command.limit,
+      });
+      io.write(
+        command.json
+          ? JSON.stringify(chains)
+          : [
+              `Chains for pad ${pad.note} ${pad.name || "(unnamed)"}: ${chains.total}`,
+              ...chains.chains.map(
+                (chain) =>
+                  `  ${chain.index + 1}. ${chain.name || "(unnamed)"} (${chain.deviceCount} devices)`,
+              ),
+            ].join("\n"),
+      );
+      return 0;
+    }
+
+    if (command.name === "pad-chain-devices") {
+      const { track, device, pad, chain } = await resolveDrumPadChain(
+        application,
+        command.trackNumber,
+        command.deviceNumber,
+        command.padNumber,
+        command.chainNumber,
+      );
+      const devices = await application.inspectDrumPadChainDevices({
+        index: track.index,
+        expectedReference: track.reference,
+        expectedName: track.name,
+        deviceIndex: device.index,
+        expectedDeviceReference: device.reference,
+        expectedDeviceName: device.name,
+        padIndex: pad.index,
+        expectedPadReference: pad.reference,
+        expectedPadNote: pad.note,
+        expectedPadName: pad.name,
+        chainIndex: chain.index,
+        expectedChainReference: chain.reference,
+        expectedChainName: chain.name,
+        offset: command.offset,
+        limit: command.limit,
+      });
+      io.write(
+        command.json
+          ? JSON.stringify(devices)
+          : [
+              `Devices in pad chain ${chain.name || command.chainNumber}: ${devices.total}`,
+              ...devices.devices.map(
+                (nestedDevice) =>
+                  `  ${nestedDevice.index + 1}. ${nestedDevice.name} (${nestedDevice.parameterCount} parameters)`,
+              ),
+            ].join("\n"),
+      );
+      return 0;
+    }
+
     const response = await application.send(command.prompt);
     const ok = operationFailures.length === 0;
     io.write(
@@ -337,6 +655,116 @@ export async function runCommand(
       throw new CliUsageError("track number is out of range");
     }
     return track;
+  }
+
+  async function resolveDevice(
+    application: HeadlessApplication,
+    trackNumber: number,
+    deviceNumber: number,
+  ) {
+    const track = await resolveTrack(application, trackNumber);
+    const page = await application.inspectDevices({
+      index: track.index,
+      expectedReference: track.reference,
+      expectedName: track.name,
+      offset: deviceNumber - 1,
+      limit: 1,
+    });
+    const device = page.devices[0];
+    if (!device) {
+      throw new CliUsageError("device number is out of range");
+    }
+    return { track, device };
+  }
+
+  async function resolveRackChain(
+    application: HeadlessApplication,
+    trackNumber: number,
+    deviceNumber: number,
+    chainNumber: number,
+  ) {
+    const { track, device } = await resolveDevice(
+      application,
+      trackNumber,
+      deviceNumber,
+    );
+    const page = await application.inspectRackChains({
+      index: track.index,
+      expectedReference: track.reference,
+      expectedName: track.name,
+      deviceIndex: device.index,
+      expectedDeviceReference: device.reference,
+      expectedDeviceName: device.name,
+      offset: chainNumber - 1,
+      limit: 1,
+    });
+    const chain = page.chains[0];
+    if (!chain) {
+      throw new CliUsageError("chain number is out of range");
+    }
+    return { track, device, chain };
+  }
+
+  async function resolveDrumPad(
+    application: HeadlessApplication,
+    trackNumber: number,
+    deviceNumber: number,
+    padNumber: number,
+  ) {
+    const { track, device } = await resolveDevice(
+      application,
+      trackNumber,
+      deviceNumber,
+    );
+    const page = await application.inspectDrumRackPads({
+      index: track.index,
+      expectedReference: track.reference,
+      expectedName: track.name,
+      deviceIndex: device.index,
+      expectedDeviceReference: device.reference,
+      expectedDeviceName: device.name,
+      offset: padNumber - 1,
+      limit: 1,
+    });
+    const pad = page.pads[0];
+    if (!pad) {
+      throw new CliUsageError("pad number is out of range");
+    }
+    return { track, device, pad };
+  }
+
+  async function resolveDrumPadChain(
+    application: HeadlessApplication,
+    trackNumber: number,
+    deviceNumber: number,
+    padNumber: number,
+    chainNumber: number,
+  ) {
+    const { track, device, pad } = await resolveDrumPad(
+      application,
+      trackNumber,
+      deviceNumber,
+      padNumber,
+    );
+    const page = await application.inspectDrumPadChains({
+      index: track.index,
+      expectedReference: track.reference,
+      expectedName: track.name,
+      deviceIndex: device.index,
+      expectedDeviceReference: device.reference,
+      expectedDeviceName: device.name,
+      padIndex: pad.index,
+      expectedPadReference: pad.reference,
+      expectedPadNote: pad.note,
+      expectedPadName: pad.name,
+      offset: chainNumber - 1,
+      limit: 1,
+    });
+    const chain = page.chains[0];
+    if (!chain) {
+      throw new CliUsageError("chain number is out of range");
+    }
+    return { track, device, pad, chain };
   }
 }
 

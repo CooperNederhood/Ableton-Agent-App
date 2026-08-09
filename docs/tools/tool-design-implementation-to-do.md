@@ -18,6 +18,8 @@ Companion specification: [Tool Design](tool-design.md)
 - [~] Implement device/parameter, rack, Drum Rack, and browser inspection.
   - [x] Add read-risk bounded top-level device and exact-device parameter
     inspection for identity-bound regular tracks.
+  - [x] Add read-risk bounded exact-rack chain/device and Drum Rack
+    pad/chain/device inspection without recursive expansion.
 - [ ] Implement external plug-in search with bounded cached results.
 
 ## Primitive mutation tools

@@ -169,6 +169,8 @@ function deviceServices() {
     classDisplayName: "Operator",
     enabled: true,
     parameterCount: 2,
+    canHaveChains: false,
+    canHaveDrumPads: false,
   };
   const parameter = {
     reference: "00000000-0000-4000-8000-000000000041",
@@ -198,6 +200,101 @@ function deviceServices() {
       device,
       parameters: [parameter],
       total: 1,
+      offset: params.offset,
+      limit: params.limit,
+    }),
+    inspectRackChains: async (
+      params: Parameters<AbletonService["inspectRackChains"]>[0],
+    ) => ({
+      rack: { ...device, canHaveChains: true },
+      chains: [],
+      total: 0,
+      offset: params.offset,
+      limit: params.limit,
+    }),
+    inspectRackChainDevices: async (
+      params: Parameters<AbletonService["inspectRackChainDevices"]>[0],
+    ) => ({
+      rack: { ...device, canHaveChains: true },
+      chain: {
+        reference: params.expectedChainReference,
+        rackDeviceReference: params.expectedDeviceReference,
+        index: params.chainIndex,
+        name: params.expectedChainName,
+        color: null,
+        deviceCount: 0,
+      },
+      devices: [],
+      total: 0,
+      offset: params.offset,
+      limit: params.limit,
+    }),
+    inspectDrumRackPads: async (
+      params: Parameters<AbletonService["inspectDrumRackPads"]>[0],
+    ) => ({
+      rack: {
+        ...device,
+        canHaveChains: true,
+        canHaveDrumPads: true,
+      },
+      pads: [],
+      total: 0,
+      offset: params.offset,
+      limit: params.limit,
+    }),
+    inspectDrumPadChains: async (
+      params: Parameters<AbletonService["inspectDrumPadChains"]>[0],
+    ) => ({
+      rack: {
+        ...device,
+        canHaveChains: true,
+        canHaveDrumPads: true,
+      },
+      pad: {
+        reference: params.expectedPadReference,
+        rackDeviceReference: params.expectedDeviceReference,
+        index: params.padIndex,
+        note: params.expectedPadNote,
+        name: params.expectedPadName,
+        mute: false,
+        solo: false,
+        chainCount: 0,
+      },
+      chains: [],
+      total: 0,
+      offset: params.offset,
+      limit: params.limit,
+    }),
+    inspectDrumPadChainDevices: async (
+      params: Parameters<AbletonService["inspectDrumPadChainDevices"]>[0],
+    ) => ({
+      rack: {
+        ...device,
+        canHaveChains: true,
+        canHaveDrumPads: true,
+      },
+      pad: {
+        reference: params.expectedPadReference,
+        rackDeviceReference: params.expectedDeviceReference,
+        index: params.padIndex,
+        note: params.expectedPadNote,
+        name: params.expectedPadName,
+        mute: false,
+        solo: false,
+        chainCount: 1,
+      },
+      chain: {
+        reference: params.expectedChainReference,
+        rackDeviceReference: params.expectedDeviceReference,
+        drumPadReference: params.expectedPadReference,
+        drumPadIndex: params.padIndex,
+        index: params.chainIndex,
+        name: params.expectedChainName,
+        color: null,
+        deviceCount: 0,
+      },
+      devices: [],
+      total: 0,
       offset: params.offset,
       limit: params.limit,
     }),
@@ -790,10 +887,15 @@ describe("CopilotAgentService", () => {
       "custom:ableton_arrangement_set_clip_properties",
       "custom:ableton_devices_inspect",
       "custom:ableton_device_parameters_inspect",
+      "custom:ableton_rack_chains_inspect",
+      "custom:ableton_rack_chain_devices_inspect",
+      "custom:ableton_drum_rack_pads_inspect",
+      "custom:ableton_drum_pad_chains_inspect",
+      "custom:ableton_drum_pad_chain_devices_inspect",
       "custom:ableton_device_set_enabled",
       "custom:ableton_device_set_parameter",
     ]);
-    expect(config?.tools).toHaveLength(28);
+    expect(config?.tools).toHaveLength(33);
     await expect(
       config?.onPermissionRequest?.(
         {

@@ -57,8 +57,10 @@ Companion specification: [Remote Script](remote-script.md)
   - [x] Enable/disable devices through the exposed `Device On` parameter and
     set exact enabled/writable parameters from normalized values with
     quantization, verification, and rollback.
-  - [ ] Add return/group tracks, rack chains, Drum Rack pads, and recursive
-    traversal after safe identity models are defined.
+  - [x] Inspect one exact top-level rack through independently bounded direct
+    chain, chain-device, Drum Rack pad, pad-chain, and pad-chain-device pages
+    with runtime-stable pruned references and no recursive traversal.
+  - [ ] Add return/group tracks and separately designed nested-rack traversal.
 - [ ] Implement paginated browser handlers and loading.
 - [ ] Implement selected low-frequency LOM listeners and cleanup.
 
@@ -75,6 +77,9 @@ Companion specification: [Remote Script](remote-script.md)
   - [ ] Validate Device On identity/order/localization, parameter writability,
     quantized value mapping, setter failures, and rollback in supported Live
     versions.
+  - [ ] Validate rack/Drum Rack capability properties, chain/pad ordering and
+    object identity, empty pads, pad-chain exposure, and chain device access in
+    supported Live versions.
 - [ ] Test that browser operations remain bounded and responsive.
 
 ## Exit criteria

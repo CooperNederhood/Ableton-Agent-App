@@ -25,6 +25,16 @@ import type {
   InspectDeviceParametersResult,
   InspectDevicesParams,
   InspectDevicesResult,
+  InspectDrumPadChainDevicesParams,
+  InspectDrumPadChainDevicesResult,
+  InspectDrumPadChainsParams,
+  InspectDrumPadChainsResult,
+  InspectDrumRackPadsParams,
+  InspectDrumRackPadsResult,
+  InspectRackChainDevicesParams,
+  InspectRackChainDevicesResult,
+  InspectRackChainsParams,
+  InspectRackChainsResult,
   LaunchSessionClipParams,
   LaunchSessionClipResult,
   RenameTrackResult,
@@ -91,6 +101,21 @@ export interface AbletonToolServices {
   inspectDeviceParameters(
     params: InspectDeviceParametersParams,
   ): Promise<InspectDeviceParametersResult>;
+  inspectRackChains(
+    params: InspectRackChainsParams,
+  ): Promise<InspectRackChainsResult>;
+  inspectRackChainDevices(
+    params: InspectRackChainDevicesParams,
+  ): Promise<InspectRackChainDevicesResult>;
+  inspectDrumRackPads(
+    params: InspectDrumRackPadsParams,
+  ): Promise<InspectDrumRackPadsResult>;
+  inspectDrumPadChains(
+    params: InspectDrumPadChainsParams,
+  ): Promise<InspectDrumPadChainsResult>;
+  inspectDrumPadChainDevices(
+    params: InspectDrumPadChainDevicesParams,
+  ): Promise<InspectDrumPadChainDevicesResult>;
   setDeviceEnabled(
     params: SetDeviceEnabledParams,
   ): Promise<SetDeviceEnabledResult>;
@@ -316,6 +341,41 @@ export const abletonToolMetadata = [
     requiredCapability: "devices.inspect_parameters",
   },
   {
+    name: "ableton_rack_chains_inspect",
+    title: "Inspect rack chains",
+    risk: "read",
+    duration: "short",
+    requiredCapability: "devices.inspect_rack_chains",
+  },
+  {
+    name: "ableton_rack_chain_devices_inspect",
+    title: "Inspect rack chain devices",
+    risk: "read",
+    duration: "short",
+    requiredCapability: "devices.inspect_rack_chain_devices",
+  },
+  {
+    name: "ableton_drum_rack_pads_inspect",
+    title: "Inspect Drum Rack pads",
+    risk: "read",
+    duration: "short",
+    requiredCapability: "devices.inspect_drum_rack_pads",
+  },
+  {
+    name: "ableton_drum_pad_chains_inspect",
+    title: "Inspect Drum Rack pad chains",
+    risk: "read",
+    duration: "short",
+    requiredCapability: "devices.inspect_drum_pad_chains",
+  },
+  {
+    name: "ableton_drum_pad_chain_devices_inspect",
+    title: "Inspect Drum Rack pad chain devices",
+    risk: "read",
+    duration: "short",
+    requiredCapability: "devices.inspect_drum_pad_chain_devices",
+  },
+  {
     name: "ableton_device_set_enabled",
     title: "Enable or disable device",
     risk: "reversible",
@@ -399,6 +459,11 @@ export interface AbletonToolSet {
     Tool<SetArrangementClipPropertiesParams>,
     Tool<InspectDevicesParams>,
     Tool<InspectDeviceParametersParams>,
+    Tool<InspectRackChainsParams>,
+    Tool<InspectRackChainDevicesParams>,
+    Tool<InspectDrumRackPadsParams>,
+    Tool<InspectDrumPadChainsParams>,
+    Tool<InspectDrumPadChainDevicesParams>,
     Tool<SetDeviceEnabledParams>,
     Tool<SetDeviceParameterParams>,
   ];
@@ -846,6 +911,114 @@ export function createAbletonTools(
       handler: async (params) => services.inspectDeviceParameters(params),
     },
   );
+  const inspectRackChainsTool = defineTool("ableton_rack_chains_inspect", {
+    description:
+      "Returns one bounded page of direct chains for one exact top-level rack device. It never recursively expands nested racks.",
+    parameters: z
+      .object({
+        index: z.number().int().nonnegative(),
+        expectedReference: z.string().uuid(),
+        expectedName: z.string().min(1),
+        deviceIndex: z.number().int().nonnegative(),
+        expectedDeviceReference: z.string().uuid(),
+        expectedDeviceName: z.string(),
+        offset: z.number().int().nonnegative().default(0),
+        limit: z.number().int().min(1).max(64).default(16),
+      })
+      .strict(),
+    handler: async (params) => services.inspectRackChains(params),
+  });
+  const inspectRackChainDevicesTool = defineTool(
+    "ableton_rack_chain_devices_inspect",
+    {
+      description:
+        "Returns one bounded page of direct devices in one exact chain of one exact top-level rack. Nested rack contents are not expanded.",
+      parameters: z
+        .object({
+          index: z.number().int().nonnegative(),
+          expectedReference: z.string().uuid(),
+          expectedName: z.string().min(1),
+          deviceIndex: z.number().int().nonnegative(),
+          expectedDeviceReference: z.string().uuid(),
+          expectedDeviceName: z.string(),
+          chainIndex: z.number().int().nonnegative(),
+          expectedChainReference: z.string().uuid(),
+          expectedChainName: z.string(),
+          offset: z.number().int().nonnegative().default(0),
+          limit: z.number().int().min(1).max(128).default(32),
+        })
+        .strict(),
+      handler: async (params) => services.inspectRackChainDevices(params),
+    },
+  );
+  const inspectDrumRackPadsTool = defineTool("ableton_drum_rack_pads_inspect", {
+    description:
+      "Returns one bounded page of pads for one exact top-level Drum Rack using documented Drum Rack APIs.",
+    parameters: z
+      .object({
+        index: z.number().int().nonnegative(),
+        expectedReference: z.string().uuid(),
+        expectedName: z.string().min(1),
+        deviceIndex: z.number().int().nonnegative(),
+        expectedDeviceReference: z.string().uuid(),
+        expectedDeviceName: z.string(),
+        offset: z.number().int().nonnegative().default(0),
+        limit: z.number().int().min(1).max(128).default(32),
+      })
+      .strict(),
+    handler: async (params) => services.inspectDrumRackPads(params),
+  });
+  const inspectDrumPadChainsTool = defineTool(
+    "ableton_drum_pad_chains_inspect",
+    {
+      description:
+        "Returns one bounded page of chains for one exact pad in one exact top-level Drum Rack.",
+      parameters: z
+        .object({
+          index: z.number().int().nonnegative(),
+          expectedReference: z.string().uuid(),
+          expectedName: z.string().min(1),
+          deviceIndex: z.number().int().nonnegative(),
+          expectedDeviceReference: z.string().uuid(),
+          expectedDeviceName: z.string(),
+          padIndex: z.number().int().nonnegative(),
+          expectedPadReference: z.string().uuid(),
+          expectedPadNote: z.number().int().min(0).max(127),
+          expectedPadName: z.string(),
+          offset: z.number().int().nonnegative().default(0),
+          limit: z.number().int().min(1).max(64).default(8),
+        })
+        .strict(),
+      handler: async (params) => services.inspectDrumPadChains(params),
+    },
+  );
+  const inspectDrumPadChainDevicesTool = defineTool(
+    "ableton_drum_pad_chain_devices_inspect",
+    {
+      description:
+        "Returns one bounded page of direct devices in one exact Drum Rack pad chain. Nested rack contents are not expanded.",
+      parameters: z
+        .object({
+          index: z.number().int().nonnegative(),
+          expectedReference: z.string().uuid(),
+          expectedName: z.string().min(1),
+          deviceIndex: z.number().int().nonnegative(),
+          expectedDeviceReference: z.string().uuid(),
+          expectedDeviceName: z.string(),
+          padIndex: z.number().int().nonnegative(),
+          expectedPadReference: z.string().uuid(),
+          expectedPadNote: z.number().int().min(0).max(127),
+          expectedPadName: z.string(),
+          chainIndex: z.number().int().nonnegative(),
+          expectedChainReference: z.string().uuid(),
+          expectedChainName: z.string(),
+          offset: z.number().int().nonnegative().default(0),
+          limit: z.number().int().min(1).max(128).default(32),
+        })
+        .strict(),
+      handler: async (params) => services.inspectDrumPadChainDevices(params),
+    },
+  );
   const setDeviceEnabledTool = defineTool("ableton_device_set_enabled", {
     description:
       "Enables or disables an exact top-level device through its documented Device On parameter, with before/after verification and rollback.",
@@ -910,6 +1083,11 @@ export function createAbletonTools(
       setArrangementClipPropertiesTool,
       inspectDevicesTool,
       inspectDeviceParametersTool,
+      inspectRackChainsTool,
+      inspectRackChainDevicesTool,
+      inspectDrumRackPadsTool,
+      inspectDrumPadChainsTool,
+      inspectDrumPadChainDevicesTool,
       setDeviceEnabledTool,
       setDeviceParameterTool,
     ],

@@ -17,6 +17,8 @@ Companion specification: [Agent Runtime](agent-runtime.md)
   loop/cue-point mutation tools.
 - [x] Register bounded device/parameter reads and reversible verified
   device-enable and normalized-parameter tools.
+- [x] Register bounded read-only exact-rack chain/device and Drum Rack
+  pad/chain/device tools without recursive expansion.
 
 ## Agent behavior
 

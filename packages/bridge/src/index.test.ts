@@ -50,7 +50,7 @@ describe("AbletonBridgeService", () => {
     expect(await service.getStatus()).toEqual({
       state: "connected",
       liveVersion: "12.1-simulator",
-      remoteScriptVersion: "0.2.0",
+      remoteScriptVersion: "0.3.0",
       projectId: "simulated-project",
     });
     await expect(service.getCapabilities()).resolves.toMatchObject({
@@ -69,6 +69,11 @@ describe("AbletonBridgeService", () => {
         "tracks.set_mixer": true,
         "devices.inspect": true,
         "devices.inspect_parameters": true,
+        "devices.inspect_rack_chains": true,
+        "devices.inspect_rack_chain_devices": true,
+        "devices.inspect_drum_rack_pads": true,
+        "devices.inspect_drum_pad_chains": true,
+        "devices.inspect_drum_pad_chain_devices": true,
         "devices.set_enabled": true,
         "devices.set_parameter": true,
         "clips.create_midi": true,
@@ -263,6 +268,74 @@ describe("AbletonBridgeService", () => {
         { name: "Dry/Wet", normalizedValue: 0.5 },
         { name: "Mode", isQuantized: true },
       ],
+    });
+    const rackTarget = {
+      index: 0,
+      expectedReference: drums?.reference ?? "",
+      expectedName: "Main Drums",
+      deviceIndex: device?.index ?? 0,
+      expectedDeviceReference: device?.reference ?? "",
+      expectedDeviceName: device?.name ?? "",
+    };
+    const chains = await service.inspectRackChains({
+      ...rackTarget,
+      offset: 0,
+      limit: 1,
+    });
+    expect(chains).toMatchObject({
+      total: 2,
+      chains: [{ name: "Kick", deviceCount: 1 }],
+    });
+    const chain = chains.chains[0];
+    await expect(
+      service.inspectRackChainDevices({
+        ...rackTarget,
+        chainIndex: chain?.index ?? 0,
+        expectedChainReference: chain?.reference ?? "",
+        expectedChainName: chain?.name ?? "",
+        offset: 0,
+        limit: 1,
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      devices: [{ name: "Simpler" }],
+    });
+    const pads = await service.inspectDrumRackPads({
+      ...rackTarget,
+      offset: 36,
+      limit: 1,
+    });
+    expect(pads).toMatchObject({
+      total: 128,
+      pads: [{ note: 36, name: "Kick", chainCount: 1 }],
+    });
+    const pad = pads.pads[0];
+    const padChains = await service.inspectDrumPadChains({
+      ...rackTarget,
+      padIndex: pad?.index ?? 0,
+      expectedPadReference: pad?.reference ?? "",
+      expectedPadNote: pad?.note ?? 0,
+      expectedPadName: pad?.name ?? "",
+      offset: 0,
+      limit: 1,
+    });
+    const padChain = padChains.chains[0];
+    await expect(
+      service.inspectDrumPadChainDevices({
+        ...rackTarget,
+        padIndex: pad?.index ?? 0,
+        expectedPadReference: pad?.reference ?? "",
+        expectedPadNote: pad?.note ?? 0,
+        expectedPadName: pad?.name ?? "",
+        chainIndex: padChain?.index ?? 0,
+        expectedChainReference: padChain?.reference ?? "",
+        expectedChainName: padChain?.name ?? "",
+        offset: 0,
+        limit: 1,
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      devices: [{ name: "Simpler" }],
     });
     const mode = parameters.parameters[1];
     await expect(

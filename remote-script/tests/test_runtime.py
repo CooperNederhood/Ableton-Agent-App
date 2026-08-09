@@ -119,6 +119,22 @@ class FakeParameter(object):
             raise RuntimeError("simulated parameter setter failure")
 
 
+class FakeChain(object):
+    def __init__(self, name, devices=None):
+        self.name = name
+        self.color = None
+        self.devices = list(devices or [])
+
+
+class FakeDrumPad(object):
+    def __init__(self, note, name, chains=None):
+        self.note = note
+        self.name = name
+        self.mute = False
+        self.solo = False
+        self.chains = list(chains or [])
+
+
 class FakeDevice(object):
     def __init__(self, name):
         self.name = name
@@ -141,6 +157,30 @@ class FakeDevice(object):
                 value_items=("A", "B", "C"),
             ),
         ]
+        self.can_have_chains = name in ("Instrument Rack", "Drum Rack")
+        self.can_have_drum_pads = name == "Drum Rack"
+        if name == "Drum Rack":
+            kick_chain = FakeChain("Kick", [FakeDevice("Simpler")])
+            snare_chain = FakeChain("Snare", [FakeDevice("Simpler")])
+            self.chains = [kick_chain, snare_chain]
+            self.drum_pads = [
+                FakeDrumPad(
+                    note,
+                    "Kick" if note == 36 else "Snare" if note == 38 else "",
+                    [kick_chain]
+                    if note == 36
+                    else [snare_chain]
+                    if note == 38
+                    else [],
+                )
+                for note in range(128)
+            ]
+        elif self.can_have_chains:
+            self.chains = [FakeChain("Main", [FakeDevice("Operator")])]
+            self.drum_pads = []
+        else:
+            self.chains = []
+            self.drum_pads = []
 
 
 class FakeMixerDevice(object):
@@ -1342,6 +1382,206 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(responses[0]["error"]["code"], "lom_error")
         self.assertEqual(parameter.value, 0.25)
 
+    def test_rack_chain_and_drum_pad_inspection_is_bounded_and_identity_safe(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        track = context.song.tracks[0]
+        track.devices[0] = FakeDevice("Drum Rack")
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        context._track_references = [(track, track_reference)]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+        track_target = {
+            "index": 0,
+            "expectedReference": track_reference,
+            "expectedName": "Drums",
+        }
+        executor.submit(
+            request(
+                "devices.inspect",
+                dict(track_target, offset=0, limit=1),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        rack = responses[-1]["result"]["devices"][0]
+        self.assertTrue(rack["canHaveChains"])
+        self.assertTrue(rack["canHaveDrumPads"])
+        rack_target = dict(
+            track_target,
+            deviceIndex=0,
+            expectedDeviceReference=rack["reference"],
+            expectedDeviceName=rack["name"],
+        )
+
+        executor.submit(
+            request(
+                "devices.inspect_rack_chains",
+                dict(rack_target, offset=0, limit=1),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        chain_page = responses[-1]["result"]
+        self.assertEqual(chain_page["total"], 2)
+        chain = chain_page["chains"][0]
+        chain_target = dict(
+            rack_target,
+            chainIndex=chain["index"],
+            expectedChainReference=chain["reference"],
+            expectedChainName=chain["name"],
+        )
+        executor.submit(
+            request(
+                "devices.inspect_rack_chain_devices",
+                dict(chain_target, offset=0, limit=1),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        self.assertEqual(responses[-1]["result"]["total"], 1)
+        self.assertEqual(
+            responses[-1]["result"]["devices"][0]["name"], "Simpler"
+        )
+
+        executor.submit(
+            request(
+                "devices.inspect_drum_rack_pads",
+                dict(rack_target, offset=36, limit=1),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        pad_page = responses[-1]["result"]
+        self.assertEqual(pad_page["total"], 128)
+        self.assertEqual(len(pad_page["pads"]), 1)
+        pad = pad_page["pads"][0]
+        pad_target = dict(
+            rack_target,
+            padIndex=pad["index"],
+            expectedPadReference=pad["reference"],
+            expectedPadNote=pad["note"],
+            expectedPadName=pad["name"],
+        )
+        executor.submit(
+            request(
+                "devices.inspect_drum_pad_chains",
+                dict(pad_target, offset=0, limit=1),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        pad_chain = responses[-1]["result"]["chains"][0]
+        self.assertEqual(pad_chain["reference"], chain["reference"])
+        pad_chain_target = dict(
+            pad_target,
+            chainIndex=pad_chain["index"],
+            expectedChainReference=pad_chain["reference"],
+            expectedChainName=pad_chain["name"],
+        )
+        executor.submit(
+            request(
+                "devices.inspect_drum_pad_chain_devices",
+                dict(pad_chain_target, offset=0, limit=1),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        self.assertEqual(
+            responses[-1]["result"]["devices"][0]["name"], "Simpler"
+        )
+
+        executor.submit(
+            request(
+                "devices.inspect_rack_chain_devices",
+                dict(
+                    chain_target,
+                    expectedChainName="Changed",
+                    offset=0,
+                    limit=1,
+                ),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        self.assertEqual(responses[-1]["error"]["code"], "stale_reference")
+
+        old_chain = track.devices[0].chains[0]
+        old_pad = track.devices[0].drum_pads[36]
+        old_nested = old_chain.devices[0]
+        track.devices[0] = FakeDevice("Drum Rack")
+        executor.submit(
+            request(
+                "devices.inspect",
+                dict(track_target, offset=0, limit=1),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        replacement = responses[-1]["result"]["devices"][0]
+        replacement_target = dict(
+            track_target,
+            deviceIndex=0,
+            expectedDeviceReference=replacement["reference"],
+            expectedDeviceName=replacement["name"],
+        )
+        executor.submit(
+            request(
+                "devices.inspect_rack_chains",
+                dict(replacement_target, offset=0, limit=1),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        replacement_chain = responses[-1]["result"]["chains"][0]
+        executor.submit(
+            request(
+                "devices.inspect_rack_chain_devices",
+                dict(
+                    replacement_target,
+                    chainIndex=0,
+                    expectedChainReference=replacement_chain["reference"],
+                    expectedChainName=replacement_chain["name"],
+                    offset=0,
+                    limit=1,
+                ),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        executor.submit(
+            request(
+                "devices.inspect_drum_rack_pads",
+                dict(replacement_target, offset=0, limit=1),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        self.assertFalse(
+            any(
+                candidate is old_chain
+                for candidate, _reference in context._chain_references
+            )
+        )
+        self.assertFalse(
+            any(
+                candidate is old_pad
+                for candidate, _reference in context._pad_references
+            )
+        )
+        self.assertFalse(
+            any(
+                candidate is old_nested
+                for candidate, _reference in context._chain_device_references
+            )
+        )
+
     def test_midi_clip_creation_rolls_back_when_summary_is_unsupported(self):
         scheduled = []
         responses = []
@@ -2212,6 +2452,23 @@ class CapabilityAndTokenTests(unittest.TestCase):
         self.assertTrue(
             document["capabilities"]["transport.delete_cue_point"]
         )
+        self.assertTrue(
+            document["capabilities"]["devices.inspect_rack_chains"]
+        )
+        self.assertTrue(
+            document["capabilities"]["devices.inspect_rack_chain_devices"]
+        )
+        self.assertTrue(
+            document["capabilities"]["devices.inspect_drum_rack_pads"]
+        )
+        self.assertTrue(
+            document["capabilities"]["devices.inspect_drum_pad_chains"]
+        )
+        self.assertTrue(
+            document["capabilities"][
+                "devices.inspect_drum_pad_chain_devices"
+            ]
+        )
         self.assertEqual(len(document["projectId"]), 24)
 
         legacy_transport_song = FakeSong()
@@ -2346,7 +2603,7 @@ class ServerTests(unittest.TestCase):
             {
                 "selectedProtocolVersion": PROTOCOL_VERSION,
                 "liveVersion": "12.1-test",
-                "remoteScriptVersion": "0.2.0",
+                "remoteScriptVersion": "0.3.0",
                 "projectId": "test-project",
                 "capabilities": {"system.ping": True},
                 "limits": {

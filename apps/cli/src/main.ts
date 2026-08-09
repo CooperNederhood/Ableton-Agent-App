@@ -52,6 +52,16 @@ import type {
   InspectDeviceParametersResult,
   InspectDevicesParams,
   InspectDevicesResult,
+  InspectDrumPadChainDevicesParams,
+  InspectDrumPadChainDevicesResult,
+  InspectDrumPadChainsParams,
+  InspectDrumPadChainsResult,
+  InspectDrumRackPadsParams,
+  InspectDrumRackPadsResult,
+  InspectRackChainDevicesParams,
+  InspectRackChainDevicesResult,
+  InspectRackChainsParams,
+  InspectRackChainsResult,
   LaunchSessionClipParams,
   LaunchSessionClipResult,
   SessionSnapshot,
@@ -163,6 +173,21 @@ class UnconfiguredAbletonService implements AbletonService {
   public async inspectDeviceParameters(): Promise<InspectDeviceParametersResult> {
     throw new Error("Ableton bridge is not configured");
   }
+  public async inspectRackChains(): Promise<InspectRackChainsResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async inspectRackChainDevices(): Promise<InspectRackChainDevicesResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async inspectDrumRackPads(): Promise<InspectDrumRackPadsResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async inspectDrumPadChains(): Promise<InspectDrumPadChainsResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async inspectDrumPadChainDevices(): Promise<InspectDrumPadChainDevicesResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
   public async setDeviceEnabled(): Promise<SetDeviceEnabledResult> {
     throw new Error("Ableton bridge is not configured");
   }
@@ -270,6 +295,16 @@ async function main(): Promise<number> {
         ableton.inspectDevices(params),
       inspectDeviceParameters: (params: InspectDeviceParametersParams) =>
         ableton.inspectDeviceParameters(params),
+      inspectRackChains: (params: InspectRackChainsParams) =>
+        ableton.inspectRackChains(params),
+      inspectRackChainDevices: (params: InspectRackChainDevicesParams) =>
+        ableton.inspectRackChainDevices(params),
+      inspectDrumRackPads: (params: InspectDrumRackPadsParams) =>
+        ableton.inspectDrumRackPads(params),
+      inspectDrumPadChains: (params: InspectDrumPadChainsParams) =>
+        ableton.inspectDrumPadChains(params),
+      inspectDrumPadChainDevices: (params: InspectDrumPadChainDevicesParams) =>
+        ableton.inspectDrumPadChainDevices(params),
       setDeviceEnabled: (params: SetDeviceEnabledParams) =>
         ableton.setDeviceEnabled(params),
       setDeviceParameter: (params: SetDeviceParameterParams) =>

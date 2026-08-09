@@ -24,6 +24,9 @@ Companion specification: [Test Strategy](test-strategy.md)
   references, reversible creation, destructive deletion, and simulator parity.
 - [x] Cover bounded device/parameter pages, exact identity guards, quantized
   normalized mapping, disabled parameters, rollback, and simulator parity.
+- [x] Cover bounded rack/chain/pad pages, exact nested identity guards,
+  runtime-reference pruning, no-recursion behavior, CLI reads, and simulator
+  parity.
 - [ ] Implement CLI transcript tests.
 - [ ] Implement Playwright Electron harness.
 - [ ] Create real-Live test project and manual runner.
@@ -34,6 +37,8 @@ Companion specification: [Test Strategy](test-strategy.md)
     identity stability, naming, creation rollback, and deletion verification.
   - [ ] Record real-Live results for Device On discovery, native/plug-in
     parameter writability, quantized values, setter failures, and rollback.
+  - [ ] Record real-Live results for rack/Drum Rack capabilities, chain/pad
+    identity and ordering, empty pads, pad chains, and direct chain devices.
 
 ## CI
 

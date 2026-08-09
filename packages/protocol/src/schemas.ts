@@ -334,6 +334,8 @@ export const deviceSummarySchema = z.object({
   classDisplayName: z.string(),
   enabled: z.boolean().nullable(),
   parameterCount: z.number().int().nonnegative(),
+  canHaveChains: z.boolean().default(false),
+  canHaveDrumPads: z.boolean().default(false),
 });
 
 export const inspectDevicesParamsSchema = trackTargetSchema.extend({
@@ -373,6 +375,135 @@ export const inspectDeviceParametersResultSchema = z.object({
   total: z.number().int().nonnegative(),
   offset: z.number().int().nonnegative(),
   limit: z.number().int().min(1).max(256),
+});
+
+export const rackChainSummarySchema = z.object({
+  reference: z.string().uuid(),
+  rackDeviceReference: z.string().uuid(),
+  index: z.number().int().nonnegative(),
+  name: z.string(),
+  color: z.number().int().nullable(),
+  deviceCount: z.number().int().nonnegative(),
+});
+
+export const inspectRackChainsParamsSchema = deviceTargetSchema.extend({
+  offset: z.number().int().nonnegative().default(0),
+  limit: z.number().int().min(1).max(64).default(16),
+});
+
+export const inspectRackChainsResultSchema = z.object({
+  rack: deviceSummarySchema,
+  chains: z.array(rackChainSummarySchema).max(64),
+  total: z.number().int().nonnegative(),
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().min(1).max(64),
+});
+
+export const rackChainTargetSchema = deviceTargetSchema.extend({
+  chainIndex: z.number().int().nonnegative(),
+  expectedChainReference: z.string().uuid(),
+  expectedChainName: z.string(),
+});
+
+export const chainDeviceSummarySchema = z.object({
+  reference: z.string().uuid(),
+  chainReference: z.string().uuid(),
+  index: z.number().int().nonnegative(),
+  name: z.string(),
+  className: z.string(),
+  classDisplayName: z.string(),
+  enabled: z.boolean().nullable(),
+  parameterCount: z.number().int().nonnegative(),
+  canHaveChains: z.boolean(),
+  canHaveDrumPads: z.boolean(),
+});
+
+export const inspectRackChainDevicesParamsSchema = rackChainTargetSchema.extend(
+  {
+    offset: z.number().int().nonnegative().default(0),
+    limit: z.number().int().min(1).max(128).default(32),
+  },
+);
+
+export const inspectRackChainDevicesResultSchema = z.object({
+  rack: deviceSummarySchema,
+  chain: rackChainSummarySchema,
+  devices: z.array(chainDeviceSummarySchema).max(128),
+  total: z.number().int().nonnegative(),
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().min(1).max(128),
+});
+
+export const drumPadSummarySchema = z.object({
+  reference: z.string().uuid(),
+  rackDeviceReference: z.string().uuid(),
+  index: z.number().int().nonnegative(),
+  note: z.number().int().min(0).max(127),
+  name: z.string(),
+  mute: z.boolean(),
+  solo: z.boolean(),
+  chainCount: z.number().int().nonnegative(),
+});
+
+export const inspectDrumRackPadsParamsSchema = deviceTargetSchema.extend({
+  offset: z.number().int().nonnegative().default(0),
+  limit: z.number().int().min(1).max(128).default(32),
+});
+
+export const inspectDrumRackPadsResultSchema = z.object({
+  rack: deviceSummarySchema,
+  pads: z.array(drumPadSummarySchema).max(128),
+  total: z.number().int().nonnegative(),
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().min(1).max(128),
+});
+
+export const drumPadTargetSchema = deviceTargetSchema.extend({
+  padIndex: z.number().int().nonnegative(),
+  expectedPadReference: z.string().uuid(),
+  expectedPadNote: z.number().int().min(0).max(127),
+  expectedPadName: z.string(),
+});
+
+export const drumPadChainSummarySchema = rackChainSummarySchema.extend({
+  drumPadReference: z.string().uuid(),
+  drumPadIndex: z.number().int().nonnegative(),
+});
+
+export const inspectDrumPadChainsParamsSchema = drumPadTargetSchema.extend({
+  offset: z.number().int().nonnegative().default(0),
+  limit: z.number().int().min(1).max(64).default(8),
+});
+
+export const inspectDrumPadChainsResultSchema = z.object({
+  rack: deviceSummarySchema,
+  pad: drumPadSummarySchema,
+  chains: z.array(drumPadChainSummarySchema).max(64),
+  total: z.number().int().nonnegative(),
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().min(1).max(64),
+});
+
+export const drumPadChainTargetSchema = drumPadTargetSchema.extend({
+  chainIndex: z.number().int().nonnegative(),
+  expectedChainReference: z.string().uuid(),
+  expectedChainName: z.string(),
+});
+
+export const inspectDrumPadChainDevicesParamsSchema =
+  drumPadChainTargetSchema.extend({
+    offset: z.number().int().nonnegative().default(0),
+    limit: z.number().int().min(1).max(128).default(32),
+  });
+
+export const inspectDrumPadChainDevicesResultSchema = z.object({
+  rack: deviceSummarySchema,
+  pad: drumPadSummarySchema,
+  chain: drumPadChainSummarySchema,
+  devices: z.array(chainDeviceSummarySchema).max(128),
+  total: z.number().int().nonnegative(),
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().min(1).max(128),
 });
 
 export const setDeviceEnabledParamsSchema = deviceTargetSchema.extend({
@@ -667,6 +798,43 @@ export type InspectDeviceParametersParams = z.infer<
 >;
 export type InspectDeviceParametersResult = z.infer<
   typeof inspectDeviceParametersResultSchema
+>;
+export type RackChainSummary = z.infer<typeof rackChainSummarySchema>;
+export type InspectRackChainsParams = z.infer<
+  typeof inspectRackChainsParamsSchema
+>;
+export type InspectRackChainsResult = z.infer<
+  typeof inspectRackChainsResultSchema
+>;
+export type RackChainTarget = z.infer<typeof rackChainTargetSchema>;
+export type ChainDeviceSummary = z.infer<typeof chainDeviceSummarySchema>;
+export type InspectRackChainDevicesParams = z.infer<
+  typeof inspectRackChainDevicesParamsSchema
+>;
+export type InspectRackChainDevicesResult = z.infer<
+  typeof inspectRackChainDevicesResultSchema
+>;
+export type DrumPadSummary = z.infer<typeof drumPadSummarySchema>;
+export type InspectDrumRackPadsParams = z.infer<
+  typeof inspectDrumRackPadsParamsSchema
+>;
+export type InspectDrumRackPadsResult = z.infer<
+  typeof inspectDrumRackPadsResultSchema
+>;
+export type DrumPadTarget = z.infer<typeof drumPadTargetSchema>;
+export type DrumPadChainSummary = z.infer<typeof drumPadChainSummarySchema>;
+export type InspectDrumPadChainsParams = z.infer<
+  typeof inspectDrumPadChainsParamsSchema
+>;
+export type InspectDrumPadChainsResult = z.infer<
+  typeof inspectDrumPadChainsResultSchema
+>;
+export type DrumPadChainTarget = z.infer<typeof drumPadChainTargetSchema>;
+export type InspectDrumPadChainDevicesParams = z.infer<
+  typeof inspectDrumPadChainDevicesParamsSchema
+>;
+export type InspectDrumPadChainDevicesResult = z.infer<
+  typeof inspectDrumPadChainDevicesResultSchema
 >;
 export type SetDeviceEnabledParams = z.infer<
   typeof setDeviceEnabledParamsSchema

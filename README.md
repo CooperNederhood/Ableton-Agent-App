@@ -31,6 +31,11 @@ node apps/cli/dist/main.js snapshot
 node apps/cli/dist/main.js transport
 node apps/cli/dist/main.js devices 1
 node apps/cli/dist/main.js parameters 1 1
+node apps/cli/dist/main.js rack-chains 1 1
+node apps/cli/dist/main.js chain-devices 1 1 1
+node apps/cli/dist/main.js drum-pads 1 1
+node apps/cli/dist/main.js pad-chains 1 1 1
+node apps/cli/dist/main.js pad-chain-devices 1 1 1 1
 node apps/cli/dist/main.js chat
 ```
 
@@ -70,8 +75,15 @@ persistent cue-point IDs.
 Top-level devices on identity-bound regular tracks can be inspected in bounded
 pages, and parameters are fetched only for one exact device in a separate
 bounded page. Device and parameter references are stable only for the current
-Remote Script runtime. Return tracks, group tracks, rack chains, Drum Rack pad
-chains, and recursive device traversal remain out of scope for this stage.
+Remote Script runtime. One explicitly targeted top-level rack can now be
+inspected through separate bounded pages for direct rack chains, direct chain
+devices, Drum Rack pads, pad chains, and direct pad-chain devices. Rack, chain,
+pad, and nested-device references are runtime-stable and pruned when their LOM
+objects are no longer reachable. Every follow-up revalidates the exact regular
+track, top-level rack, and requested chain or pad identity. Nested racks are
+reported as devices but never expanded recursively. Return tracks, group
+tracks, nested-rack traversal, and chain-device parameter access remain out of
+scope.
 Device enable/disable uses the documented first `Device On` parameter when it
 is exposed. Parameter updates accept normalized `0..1` values, map through the
 parameter's current minimum and maximum, snap quantized parameters to the
@@ -81,7 +93,10 @@ verify or restore the prior value after failure.
 Real-Live validation still required: confirm `Device On` naming and ordering
 across supported Live versions and localized installations, plug-in and native
 device writability behavior, quantized `value_items` mapping, setter exception
-timing, and rollback verification.
+timing, and rollback verification. Also confirm `can_have_chains`, `chains`,
+`can_have_drum_pads`, `drum_pads`, DrumPad `chains`/`note`/`name`, chain
+`devices`/`name`/`color`, object-identity stability, ordering, empty-pad
+behavior, and capability detection across supported Live versions.
 
 For development without Ableton:
 

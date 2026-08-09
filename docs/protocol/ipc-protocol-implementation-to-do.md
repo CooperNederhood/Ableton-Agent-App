@@ -15,6 +15,8 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
     and identity-bound cue-point mutation schemas.
   - [x] Define bounded regular-track device/parameter inspection, verified
     device enable, and normalized parameter mutation schemas.
+  - [x] Define bounded exact-rack chain, direct chain-device, Drum Rack pad,
+    pad-chain, and pad-chain-device inspection schemas.
 - [ ] Export JSON Schema and representative fixtures for Python tests.
 
 ## Framing and negotiation

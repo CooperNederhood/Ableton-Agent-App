@@ -12,7 +12,7 @@ except ImportError:  # pragma: no cover - available only inside Live
 from .messages import PROTOCOL_VERSION
 from .protocol import DEFAULT_MAX_FRAME_BYTES
 
-REMOTE_SCRIPT_VERSION = "0.2.0"
+REMOTE_SCRIPT_VERSION = "0.3.0"
 
 
 def build_capability_document(
@@ -127,11 +127,20 @@ def build_capability_document(
     for name, supported in transport_support.items():
         if name in capabilities:
             capabilities[name] = supported
+    rack_api_supported = True
+    drum_rack_api_supported = True
+    drum_pad_chain_api_supported = True
     device_support = {
         "devices.inspect": not tracks
         or any(hasattr(track, "devices") for track in tracks),
         "devices.inspect_parameters": not tracks
         or any(hasattr(track, "devices") for track in tracks),
+        "devices.inspect_rack_chains": rack_api_supported,
+        "devices.inspect_rack_chain_devices": rack_api_supported,
+        "devices.inspect_drum_rack_pads": drum_rack_api_supported,
+        "devices.inspect_drum_pad_chains": drum_pad_chain_api_supported,
+        "devices.inspect_drum_pad_chain_devices":
+            drum_pad_chain_api_supported,
         "devices.set_enabled": not tracks
         or any(hasattr(track, "devices") for track in tracks),
         "devices.set_parameter": not tracks

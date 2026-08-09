@@ -1,4 +1,4 @@
-"""Bounded regular-track device and parameter commands."""
+"""Bounded regular-track device, rack, chain, pad, and parameter commands."""
 
 from __future__ import absolute_import, unicode_literals
 
@@ -10,6 +10,9 @@ from .system_commands import _resolve_track, _track_reference
 
 DEVICE_PAGE_LIMIT = 128
 PARAMETER_PAGE_LIMIT = 256
+CHAIN_PAGE_LIMIT = 64
+CHAIN_DEVICE_PAGE_LIMIT = 128
+DRUM_PAD_PAGE_LIMIT = 128
 DEVICE_ON_NAMES = ("Device On", "Device Activator")
 
 
@@ -45,6 +48,61 @@ def _device_reference(context, device):
     ]
     return _runtime_reference(
         context, "_device_references", device, reachable
+    )
+
+
+def _top_level_devices(context):
+    return [
+        device
+        for track in context.song.tracks
+        for device in getattr(track, "devices", ())
+    ]
+
+
+def _direct_rack_chains(device):
+    if not bool(getattr(device, "can_have_chains", False)):
+        return ()
+    return getattr(device, "chains", ())
+
+
+def _direct_drum_pads(device):
+    if not bool(getattr(device, "can_have_drum_pads", False)):
+        return ()
+    return getattr(device, "drum_pads", ())
+
+
+def _reachable_chains(context):
+    chains = []
+    for device in _top_level_devices(context):
+        chains.extend(_direct_rack_chains(device))
+        for pad in _direct_drum_pads(device):
+            chains.extend(getattr(pad, "chains", ()))
+    return chains
+
+
+def _chain_reference(context, chain):
+    return _runtime_reference(
+        context, "_chain_references", chain, _reachable_chains(context)
+    )
+
+
+def _pad_reference(context, pad):
+    reachable = [
+        candidate
+        for device in _top_level_devices(context)
+        for candidate in _direct_drum_pads(device)
+    ]
+    return _runtime_reference(context, "_pad_references", pad, reachable)
+
+
+def _chain_device_reference(context, device):
+    reachable = [
+        candidate
+        for chain in _reachable_chains(context)
+        for candidate in getattr(chain, "devices", ())
+    ]
+    return _runtime_reference(
+        context, "_chain_device_references", device, reachable
     )
 
 
@@ -141,6 +199,75 @@ def _device_summary(
         "classDisplayName": getattr(device, "class_display_name", "") or "",
         "enabled": _device_enabled(device),
         "parameterCount": len(parameters),
+        "canHaveChains": bool(getattr(device, "can_have_chains", False)),
+        "canHaveDrumPads": bool(
+            getattr(device, "can_have_drum_pads", False)
+        ),
+    }
+
+
+def _chain_summary(context, rack_reference, index, chain):
+    return {
+        "reference": _chain_reference(context, chain),
+        "rackDeviceReference": rack_reference,
+        "index": index,
+        "name": getattr(chain, "name", "") or "",
+        "color": getattr(chain, "color", None),
+        "deviceCount": len(getattr(chain, "devices", ())),
+    }
+
+
+def _drum_pad_summary(context, rack_reference, index, pad):
+    note = getattr(pad, "note", None)
+    if (
+        isinstance(note, bool)
+        or not isinstance(note, int)
+        or note < 0
+        or note > 127
+    ):
+        raise ProtocolFailure(
+            "conflict", "Drum pad has an invalid current MIDI note"
+        )
+    return {
+        "reference": _pad_reference(context, pad),
+        "rackDeviceReference": rack_reference,
+        "index": index,
+        "note": note,
+        "name": getattr(pad, "name", "") or "",
+        "mute": bool(getattr(pad, "mute", False)),
+        "solo": bool(getattr(pad, "solo", False)),
+        "chainCount": len(getattr(pad, "chains", ())),
+    }
+
+
+def _drum_pad_chain_summary(
+    context, rack_reference, pad_reference, pad_index, index, chain
+):
+    summary = _chain_summary(context, rack_reference, index, chain)
+    summary.update(
+        {
+            "drumPadReference": pad_reference,
+            "drumPadIndex": pad_index,
+        }
+    )
+    return summary
+
+
+def _chain_device_summary(context, chain_reference, index, device):
+    parameters = getattr(device, "parameters", ())
+    return {
+        "reference": _chain_device_reference(context, device),
+        "chainReference": chain_reference,
+        "index": index,
+        "name": getattr(device, "name", "") or "",
+        "className": getattr(device, "class_name", "") or "",
+        "classDisplayName": getattr(device, "class_display_name", "") or "",
+        "enabled": _device_enabled(device),
+        "parameterCount": len(parameters),
+        "canHaveChains": bool(getattr(device, "can_have_chains", False)),
+        "canHaveDrumPads": bool(
+            getattr(device, "can_have_drum_pads", False)
+        ),
     }
 
 
@@ -246,6 +373,154 @@ def _resolve_device(context, params):
     return track, device, devices
 
 
+def _resolve_rack(context, params, drum=False):
+    track, rack, devices = _resolve_device(context, params)
+    capability = "can_have_drum_pads" if drum else "can_have_chains"
+    collection = "drum_pads" if drum else "chains"
+    label = "Drum Rack" if drum else "rack"
+    if not hasattr(rack, capability):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "This Live version does not expose documented {0} APIs".format(
+                label
+            ),
+        )
+    if not bool(getattr(rack, capability)):
+        raise ProtocolFailure(
+            "conflict",
+            "The targeted device is not a {0}".format(label),
+        )
+    try:
+        getattr(rack, collection)
+    except Exception:
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "This Live version does not expose documented {0} APIs".format(
+                label
+            ),
+        )
+    return track, rack, devices
+
+
+def _validate_uuid_field(params, key):
+    try:
+        uuid.UUID(params.get(key))
+    except (AttributeError, TypeError, ValueError):
+        return "{0} must be a UUID".format(key)
+    return None
+
+
+def _validate_chain_target(params, extra_keys=None):
+    message = _validate_device_target(
+        params,
+        [
+            "chainIndex",
+            "expectedChainReference",
+            "expectedChainName",
+        ]
+        + list(extra_keys or []),
+    )
+    if message:
+        return message
+    index = params.get("chainIndex")
+    if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+        return "chainIndex must be a non-negative integer"
+    message = _validate_uuid_field(params, "expectedChainReference")
+    if message:
+        return message
+    if not isinstance(params.get("expectedChainName"), str):
+        return "expectedChainName must be a string"
+    return None
+
+
+def _resolve_chain(context, rack, chains, params):
+    index = params["chainIndex"]
+    if index >= len(chains):
+        raise ProtocolFailure("not_found", "Chain index is out of range")
+    chain = chains[index]
+    reference = _chain_reference(context, chain)
+    name = getattr(chain, "name", "") or ""
+    if (
+        reference != params["expectedChainReference"]
+        or name != params["expectedChainName"]
+    ):
+        raise ProtocolFailure(
+            "stale_reference",
+            "Chain identity changed before inspection",
+            details={
+                "chainIndex": index,
+                "expectedReference": params["expectedChainReference"],
+                "actualReference": reference,
+                "expectedName": params["expectedChainName"],
+                "actualName": name,
+                "rackReference": _device_reference(context, rack),
+            },
+        )
+    return chain
+
+
+def _validate_drum_pad_target(params, extra_keys=None):
+    message = _validate_device_target(
+        params,
+        [
+            "padIndex",
+            "expectedPadReference",
+            "expectedPadNote",
+            "expectedPadName",
+        ]
+        + list(extra_keys or []),
+    )
+    if message:
+        return message
+    index = params.get("padIndex")
+    if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+        return "padIndex must be a non-negative integer"
+    message = _validate_uuid_field(params, "expectedPadReference")
+    if message:
+        return message
+    note = params.get("expectedPadNote")
+    if (
+        isinstance(note, bool)
+        or not isinstance(note, int)
+        or note < 0
+        or note > 127
+    ):
+        return "expectedPadNote must be a MIDI note from 0 to 127"
+    if not isinstance(params.get("expectedPadName"), str):
+        return "expectedPadName must be a string"
+    return None
+
+
+def _resolve_drum_pad(context, rack, params):
+    pads = getattr(rack, "drum_pads", ())
+    index = params["padIndex"]
+    if index >= len(pads):
+        raise ProtocolFailure("not_found", "Drum pad index is out of range")
+    pad = pads[index]
+    reference = _pad_reference(context, pad)
+    note = getattr(pad, "note", None)
+    name = getattr(pad, "name", "") or ""
+    if (
+        reference != params["expectedPadReference"]
+        or note != params["expectedPadNote"]
+        or name != params["expectedPadName"]
+    ):
+        raise ProtocolFailure(
+            "stale_reference",
+            "Drum pad identity changed before inspection",
+            details={
+                "padIndex": index,
+                "expectedReference": params["expectedPadReference"],
+                "actualReference": reference,
+                "expectedNote": params["expectedPadNote"],
+                "actualNote": note,
+                "expectedName": params["expectedPadName"],
+                "actualName": name,
+            },
+        )
+    return pad
+
+
 def _inspect_device_parameters_params(params):
     message = _validate_device_target(params, ["offset", "limit"])
     if message:
@@ -282,6 +557,235 @@ def inspect_device_parameters(context, params):
             )
         ],
         "total": len(parameters),
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+def _inspect_rack_chains_params(params):
+    message = _validate_device_target(params, ["offset", "limit"])
+    if message:
+        return message
+    if not _validate_page(params, CHAIN_PAGE_LIMIT):
+        return "offset and limit must describe a bounded chain page"
+    return None
+
+
+def inspect_rack_chains(context, params):
+    track, rack, _devices = _resolve_rack(context, params)
+    chains = getattr(rack, "chains", ())
+    rack_reference = _device_reference(context, rack)
+    offset = params["offset"]
+    limit = params["limit"]
+    return {
+        "rack": _device_summary(
+            context,
+            _track_reference(context, track),
+            params["index"],
+            params["deviceIndex"],
+            rack,
+        ),
+        "chains": [
+            _chain_summary(context, rack_reference, index, chain)
+            for index, chain in enumerate(
+                chains[offset : offset + limit], start=offset
+            )
+        ],
+        "total": len(chains),
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+def _inspect_rack_chain_devices_params(params):
+    message = _validate_chain_target(params, ["offset", "limit"])
+    if message:
+        return message
+    if not _validate_page(params, CHAIN_DEVICE_PAGE_LIMIT):
+        return "offset and limit must describe a bounded chain-device page"
+    return None
+
+
+def inspect_rack_chain_devices(context, params):
+    track, rack, _devices = _resolve_rack(context, params)
+    chain = _resolve_chain(context, rack, getattr(rack, "chains", ()), params)
+    rack_reference = _device_reference(context, rack)
+    chain_reference = _chain_reference(context, chain)
+    devices = getattr(chain, "devices", ())
+    offset = params["offset"]
+    limit = params["limit"]
+    return {
+        "rack": _device_summary(
+            context,
+            _track_reference(context, track),
+            params["index"],
+            params["deviceIndex"],
+            rack,
+        ),
+        "chain": _chain_summary(
+            context, rack_reference, params["chainIndex"], chain
+        ),
+        "devices": [
+            _chain_device_summary(context, chain_reference, index, device)
+            for index, device in enumerate(
+                devices[offset : offset + limit], start=offset
+            )
+        ],
+        "total": len(devices),
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+def _inspect_drum_rack_pads_params(params):
+    message = _validate_device_target(params, ["offset", "limit"])
+    if message:
+        return message
+    if not _validate_page(params, DRUM_PAD_PAGE_LIMIT):
+        return "offset and limit must describe a bounded drum-pad page"
+    return None
+
+
+def inspect_drum_rack_pads(context, params):
+    track, rack, _devices = _resolve_rack(context, params, drum=True)
+    pads = getattr(rack, "drum_pads", ())
+    rack_reference = _device_reference(context, rack)
+    offset = params["offset"]
+    limit = params["limit"]
+    return {
+        "rack": _device_summary(
+            context,
+            _track_reference(context, track),
+            params["index"],
+            params["deviceIndex"],
+            rack,
+        ),
+        "pads": [
+            _drum_pad_summary(context, rack_reference, index, pad)
+            for index, pad in enumerate(
+                pads[offset : offset + limit], start=offset
+            )
+        ],
+        "total": len(pads),
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+def _inspect_drum_pad_chains_params(params):
+    message = _validate_drum_pad_target(params, ["offset", "limit"])
+    if message:
+        return message
+    if not _validate_page(params, CHAIN_PAGE_LIMIT):
+        return "offset and limit must describe a bounded pad-chain page"
+    return None
+
+
+def inspect_drum_pad_chains(context, params):
+    track, rack, _devices = _resolve_rack(context, params, drum=True)
+    pad = _resolve_drum_pad(context, rack, params)
+    chains = getattr(pad, "chains", ())
+    rack_reference = _device_reference(context, rack)
+    pad_reference = _pad_reference(context, pad)
+    offset = params["offset"]
+    limit = params["limit"]
+    return {
+        "rack": _device_summary(
+            context,
+            _track_reference(context, track),
+            params["index"],
+            params["deviceIndex"],
+            rack,
+        ),
+        "pad": _drum_pad_summary(
+            context, rack_reference, params["padIndex"], pad
+        ),
+        "chains": [
+            _drum_pad_chain_summary(
+                context,
+                rack_reference,
+                pad_reference,
+                params["padIndex"],
+                index,
+                chain,
+            )
+            for index, chain in enumerate(
+                chains[offset : offset + limit], start=offset
+            )
+        ],
+        "total": len(chains),
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+def _inspect_drum_pad_chain_devices_params(params):
+    message = _validate_drum_pad_target(
+        params,
+        [
+            "chainIndex",
+            "expectedChainReference",
+            "expectedChainName",
+            "offset",
+            "limit",
+        ],
+    )
+    if message:
+        return message
+    chain_index = params.get("chainIndex")
+    if (
+        isinstance(chain_index, bool)
+        or not isinstance(chain_index, int)
+        or chain_index < 0
+    ):
+        return "chainIndex must be a non-negative integer"
+    message = _validate_uuid_field(params, "expectedChainReference")
+    if message:
+        return message
+    if not isinstance(params.get("expectedChainName"), str):
+        return "expectedChainName must be a string"
+    if not _validate_page(params, CHAIN_DEVICE_PAGE_LIMIT):
+        return "offset and limit must describe a bounded chain-device page"
+    return None
+
+
+def inspect_drum_pad_chain_devices(context, params):
+    track, rack, _devices = _resolve_rack(context, params, drum=True)
+    pad = _resolve_drum_pad(context, rack, params)
+    chains = getattr(pad, "chains", ())
+    chain = _resolve_chain(context, rack, chains, params)
+    rack_reference = _device_reference(context, rack)
+    pad_reference = _pad_reference(context, pad)
+    chain_reference = _chain_reference(context, chain)
+    devices = getattr(chain, "devices", ())
+    offset = params["offset"]
+    limit = params["limit"]
+    return {
+        "rack": _device_summary(
+            context,
+            _track_reference(context, track),
+            params["index"],
+            params["deviceIndex"],
+            rack,
+        ),
+        "pad": _drum_pad_summary(
+            context, rack_reference, params["padIndex"], pad
+        ),
+        "chain": _drum_pad_chain_summary(
+            context,
+            rack_reference,
+            pad_reference,
+            params["padIndex"],
+            params["chainIndex"],
+            chain,
+        ),
+        "devices": [
+            _chain_device_summary(context, chain_reference, index, device)
+            for index, device in enumerate(
+                devices[offset : offset + limit], start=offset
+            )
+        ],
+        "total": len(devices),
         "offset": offset,
         "limit": limit,
     }
@@ -522,6 +1026,36 @@ def register_device_commands(registry):
         inspect_device_parameters,
         capability="devices.inspect_parameters",
         validator=_inspect_device_parameters_params,
+    )
+    registry.register(
+        "devices.inspect_rack_chains",
+        inspect_rack_chains,
+        capability="devices.inspect_rack_chains",
+        validator=_inspect_rack_chains_params,
+    )
+    registry.register(
+        "devices.inspect_rack_chain_devices",
+        inspect_rack_chain_devices,
+        capability="devices.inspect_rack_chain_devices",
+        validator=_inspect_rack_chain_devices_params,
+    )
+    registry.register(
+        "devices.inspect_drum_rack_pads",
+        inspect_drum_rack_pads,
+        capability="devices.inspect_drum_rack_pads",
+        validator=_inspect_drum_rack_pads_params,
+    )
+    registry.register(
+        "devices.inspect_drum_pad_chains",
+        inspect_drum_pad_chains,
+        capability="devices.inspect_drum_pad_chains",
+        validator=_inspect_drum_pad_chains_params,
+    )
+    registry.register(
+        "devices.inspect_drum_pad_chain_devices",
+        inspect_drum_pad_chain_devices,
+        capability="devices.inspect_drum_pad_chain_devices",
+        validator=_inspect_drum_pad_chain_devices_params,
     )
     registry.register(
         "devices.set_enabled",

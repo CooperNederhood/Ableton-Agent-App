@@ -29,6 +29,9 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
   - [x] Bind regular-track device and parameter operations to exact runtime
     references and names, bound both inspection pages, and reject disabled or
     known non-writable parameters.
+  - [x] Bind rack, chain, Drum Rack pad, and pad-chain reads to exact runtime
+    references and expected identity fields, prune unreachable references, and
+    bound every independently requested page without recursion.
 - [ ] Validate file imports and supported media.
 - [ ] Report all clamping and coercion.
 - [ ] Add workflow mutation-count and duration budgets.

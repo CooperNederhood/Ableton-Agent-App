@@ -13,9 +13,29 @@ from AbletonAgent.protocol import (  # noqa: E402
     FrameDecoder,
     encode_frame,
 )
+from AbletonAgent.messages import PROTOCOL_VERSION, validate_request  # noqa: E402
 
 
 class FrameProtocolTests(unittest.TestCase):
+    def test_typescript_contract_fixtures_round_trip_in_python(self):
+        fixture_path = (
+            REMOTE_SCRIPT_ROOT.parent
+            / "packages"
+            / "protocol"
+            / "contracts"
+            / "typescript-fixtures.json"
+        )
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+        self.assertEqual(fixture["protocolVersion"], PROTOCOL_VERSION)
+        self.assertEqual(fixture["producer"], "typescript")
+
+        requests = [
+            message for message in fixture["messages"] if message["kind"] == "request"
+        ]
+        self.assertTrue(all(validate_request(message) is None for message in requests))
+        encoded = b"".join(encode_frame(message) for message in fixture["messages"])
+        self.assertEqual(FrameDecoder().push(encoded), fixture["messages"])
+
     def test_round_trip(self):
         message = {"protocolVersion": 1, "kind": "request"}
         self.assertEqual(FrameDecoder().push(encode_frame(message)), [message])

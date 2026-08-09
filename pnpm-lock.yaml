@@ -129,6 +129,13 @@ importers:
       zod:
         specifier: ^4.0.17
         version: 4.4.3
+    devDependencies:
+      prettier:
+        specifier: ^3.6.2
+        version: 3.9.6
+      tsx:
+        specifier: ^4.20.4
+        version: 4.23.11
 
   packages/shared: {}
 

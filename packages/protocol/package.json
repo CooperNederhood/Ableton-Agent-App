@@ -12,9 +12,15 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist",
+    "contracts:check": "tsx scripts/generate-contracts.mjs --check",
+    "contracts:generate": "tsx scripts/generate-contracts.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "zod": "^4.0.17"
+  },
+  "devDependencies": {
+    "prettier": "^3.6.2",
+    "tsx": "^4.20.4"
   }
 }

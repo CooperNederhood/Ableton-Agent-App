@@ -4,11 +4,11 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 
 ## Schema design
 
-- [ ] Define canonical Zod schemas for every envelope and shared scalar.
+- [x] Define canonical Zod schemas for every envelope and shared scalar.
 - [x] Define protocol constants, frame limits, timeout classes, and versions.
-- [ ] Define `system.hello`, authentication, capability, ping, and event schemas.
+- [x] Define `system.hello`, authentication, capability, ping, and event schemas.
 - [x] Define the complete stable error-code union.
-- [ ] Define command-specific request/result schemas.
+- [x] Define command-specific request/result schemas.
   - [x] Define exact-reference Session clip launch, duplication, deletion, and
     conservative property request/result schemas.
   - [x] Define bounded Arrangement transport inspection, verified loop update,
@@ -19,7 +19,7 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
     pad-chain, and pad-chain-device inspection schemas.
   - [x] Define bounded Browser root/child/search schemas, exact runtime item
     targets, strict traversal limits, and verified built-in load results.
-- [ ] Export JSON Schema and representative fixtures for Python tests.
+- [x] Export JSON Schema and representative fixtures for Python tests.
 
 ## Framing and negotiation
 
@@ -42,7 +42,7 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 
 - [x] Unit-test frame encoding/decoding in both languages.
 - [x] Property-test deterministic random fragmentation and frame concatenation.
-- [ ] Cross-test TypeScript messages in Python and Python messages in
+- [~] Cross-test TypeScript messages in Python and Python messages in
   TypeScript.
 - [ ] Test authentication, version, malformed request, and sequence failures.
 - [ ] Fuzz decoders with bounded random input.
@@ -50,6 +50,7 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 ## Exit criteria
 
 - [x] No implementation relies on “read until JSON parses.”
-- [ ] Protocol fixtures are the shared compatibility source.
+- [~] Protocol fixtures are a checked compatibility source; per-command golden
+  request/result fixtures remain to be added.
 - [ ] Breaking schema changes fail CI.
 - [x] Every production command is represented in the catalog.

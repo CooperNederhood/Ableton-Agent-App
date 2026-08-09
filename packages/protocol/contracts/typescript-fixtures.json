@@ -1,0 +1,55 @@
+{
+  "producer": "typescript",
+  "protocolVersion": 2,
+  "messages": [
+    {
+      "protocolVersion": 2,
+      "kind": "request",
+      "requestId": "00000000-0000-4000-8000-000000000001",
+      "command": "system.hello",
+      "params": {
+        "authenticationToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "supportedProtocolVersions": [2],
+        "appVersion": "0.1.0",
+        "eventSubscriptions": []
+      }
+    },
+    {
+      "protocolVersion": 2,
+      "kind": "request",
+      "requestId": "00000000-0000-4000-8000-000000000002",
+      "command": "system.ping",
+      "params": {},
+      "projectRevision": 4
+    },
+    {
+      "protocolVersion": 2,
+      "kind": "response",
+      "requestId": "00000000-0000-4000-8000-000000000001",
+      "ok": true,
+      "result": { "selectedProtocolVersion": 2 },
+      "projectRevision": 4,
+      "warnings": []
+    },
+    {
+      "protocolVersion": 2,
+      "kind": "response",
+      "requestId": "00000000-0000-4000-8000-000000000001",
+      "ok": false,
+      "error": {
+        "code": "stale_reference",
+        "message": "The selected track changed",
+        "retryable": true,
+        "details": { "expectedRevision": 3, "actualRevision": 4 }
+      }
+    },
+    {
+      "protocolVersion": 2,
+      "kind": "event",
+      "event": "project.changed",
+      "sequence": 7,
+      "payload": { "reason": "track_added" },
+      "projectRevision": 4
+    }
+  ]
+}

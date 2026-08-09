@@ -21,6 +21,9 @@ export default defineConfig({
       ),
       "@ableton-agent/bridge": source("./packages/bridge/src/index.ts"),
       "@ableton-agent/protocol": source("./packages/protocol/src/index.ts"),
+      "@ableton-agent/project-state": source(
+        "./packages/project-state/src/index.ts",
+      ),
       "@ableton-agent/runtime": source("./packages/runtime/src/index.ts"),
       "@ableton-agent/shared": source("./packages/shared/src/index.ts"),
       "@ableton-agent/test-support": source(

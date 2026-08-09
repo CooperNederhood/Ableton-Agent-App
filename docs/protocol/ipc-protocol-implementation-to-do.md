@@ -35,7 +35,7 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 - [x] Generate a command catalog from canonical schemas.
 - [ ] Validate that each command has request, success, and failure fixtures.
 - [x] Validate that every bridge command has a Remote Script registry entry.
-- [ ] Add schema-diff checks to CI for breaking changes.
+- [x] Add schema-diff checks to CI for breaking changes.
 - [x] Add golden fixtures for all error classes.
 
 ## Tests
@@ -52,5 +52,5 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 - [x] No implementation relies on “read until JSON parses.”
 - [~] Protocol fixtures are a checked compatibility source; per-command golden
   request/result fixtures remain to be added.
-- [ ] Breaking schema changes fail CI.
+- [x] Breaking schema changes fail CI.
 - [x] Every production command is represented in the catalog.

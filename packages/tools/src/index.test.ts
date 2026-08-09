@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import type { ConnectionStatus } from "@ableton-agent/shared";
 
 import {
+  AbletonToolPreconditionError,
   abletonToolMetadata,
   createAbletonPermissionHandler,
   createAbletonTools,
@@ -25,8 +27,13 @@ function services() {
     isBuiltInDevice: true,
   };
   return {
-    getConnectionStatus: vi.fn(() =>
-      Promise.resolve({ state: "disconnected" as const }),
+    getConnectionStatus: vi.fn<() => Promise<ConnectionStatus>>(() =>
+      Promise.resolve({
+        state: "connected" as const,
+        liveVersion: "12.1",
+        remoteScriptVersion: "0.4.0",
+        projectId: "project-test",
+      }),
     ),
     inspectSession: vi.fn(() =>
       Promise.resolve({
@@ -877,6 +884,27 @@ function services() {
 }
 
 describe("Ableton tools", () => {
+  it("blocks all project tools before transport calls while disconnected", async () => {
+    const ports = services();
+    ports.getConnectionStatus.mockResolvedValue({ state: "disconnected" });
+    const toolSet = createAbletonTools(ports);
+    const invocation = {
+      sessionId: "session",
+      toolCallId: "call",
+      toolName: "ableton_session_inspect",
+      arguments: {},
+    };
+
+    await expect(
+      toolSet.tools[1].handler?.({}, invocation),
+    ).rejects.toMatchObject({
+      code: "not_connected",
+      retryable: true,
+      name: AbletonToolPreconditionError.name,
+    });
+    expect(ports.inspectSession).not.toHaveBeenCalled();
+  });
+
   it("defines complete metadata for every registered tool", () => {
     const toolSet = createAbletonTools(services());
 
@@ -1291,7 +1319,9 @@ describe("Ableton tools", () => {
       invocation,
     );
 
-    expect(ports.getConnectionStatus).toHaveBeenCalledOnce();
+    expect(ports.getConnectionStatus).toHaveBeenCalledTimes(
+      toolSet.tools.length,
+    );
     expect(ports.inspectSession).toHaveBeenCalledOnce();
     expect(ports.setTempo).toHaveBeenCalledWith(132);
     expect(ports.setPlaying).toHaveBeenCalledWith(true);
@@ -1568,6 +1598,7 @@ describe("Ableton tools", () => {
       kind: "reject",
       feedback: "Mutating Ableton tools require explicit user approval",
     });
+
     await expect(
       handler(
         {
@@ -1578,6 +1609,27 @@ describe("Ableton tools", () => {
         { sessionId: "session", managedSettingsEnabled: true },
       ),
     ).resolves.toEqual({ kind: "no-result" });
+  });
+
+  it("rejects targetless destructive approvals before prompting", async () => {
+    const requestApproval = vi.fn(() => Promise.resolve(true));
+    const permission = createAbletonPermissionHandler(requestApproval);
+    const result = await permission(
+      {
+        kind: "custom-tool",
+        toolName: "ableton_tracks_delete",
+        toolDescription: "Delete a track",
+        args: {},
+      },
+      { sessionId: "session", managedSettingsEnabled: false },
+    );
+
+    expect(result).toEqual({
+      kind: "reject",
+      feedback:
+        "Destructive and broad operations require explicit target arguments",
+    });
+    expect(requestApproval).not.toHaveBeenCalled();
   });
 
   it("delegates reversible mutations to an approval requester", async () => {

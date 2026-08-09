@@ -770,6 +770,13 @@ describe("CLI", () => {
     expect(parseArgs(["chat"])).toEqual({ name: "chat", json: false });
   });
 
+  it("parses the opt-in real-Live smoke command", () => {
+    expect(parseArgs(["live-smoke", "--json"])).toEqual({
+      name: "live-smoke",
+      json: true,
+    });
+  });
+
   it("parses session control commands", () => {
     expect(parseArgs(["session-current", "--json"])).toEqual({
       name: "session-current",
@@ -1185,6 +1192,30 @@ describe("CLI", () => {
     expect(JSON.parse(out.lines[0] ?? "{}")).toMatchObject({
       healthy: true,
       ping: { pong: true },
+    });
+    expect(fixture.agentStart).not.toHaveBeenCalled();
+  });
+
+  it("runs the full read-only Live smoke contract in one connection", async () => {
+    const out = output();
+    const fixture = application({
+      state: "connected",
+      liveVersion: "12.1",
+      remoteScriptVersion: "0.4.0",
+      projectId: "project",
+    });
+
+    const exitCode = await runCommand(
+      { name: "live-smoke", json: true },
+      fixture.application,
+      out.io,
+    );
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(out.lines[0] ?? "{}")).toMatchObject({
+      healthy: true,
+      liveVersion: "12.1",
+      trackCount: 1,
     });
     expect(fixture.agentStart).not.toHaveBeenCalled();
   });

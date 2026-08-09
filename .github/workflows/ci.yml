@@ -29,6 +29,11 @@ jobs:
         with:
           python-version: "3.11"
       - run: pnpm install --frozen-lockfile
+      - name: Check protocol backward compatibility
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags origin "${{ github.base_ref }}"
+          pnpm contracts:compat "origin/${{ github.base_ref }}"
       - name: Format, lint, typecheck, and test
         run: pnpm check 2>&1 | tee ci-validation.log
       - name: Build all workspaces

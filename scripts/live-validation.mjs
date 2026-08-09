@@ -26,12 +26,7 @@ if (!process.env.ABLETON_AGENT_TOKEN) {
 }
 
 const cli = resolve("apps/cli/dist/main.js");
-const commands = [
-  ["doctor"],
-  ["snapshot", "--json"],
-  ["transport", "--json"],
-  ["browser-roots", "--json"],
-];
+const commands = [["live-smoke", "--json"]];
 const results = commands.map((args) => {
   const result = spawnSync(process.execPath, [cli, ...args], {
     encoding: "utf8",

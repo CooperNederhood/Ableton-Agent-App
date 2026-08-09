@@ -63,4 +63,6 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
 - [x] Bridge has no Copilot, Electron, CLI, or React dependencies.
 - [x] All disconnections and timeouts produce stable errors.
 - [x] Primitive mutations cannot interleave unexpectedly.
-- [ ] Simulator and real-Live connectivity tests pass.
+- [~] Simulator and real-Live connectivity tests pass.
+  - [x] Simulator connectivity passes through the same `live-smoke` command.
+  - [ ] Record supported real-Live connectivity evidence.

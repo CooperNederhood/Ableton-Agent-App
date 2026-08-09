@@ -452,6 +452,10 @@ export type ToolApprovalRequester = (
   request: ToolApprovalRequest,
 ) => Promise<boolean>;
 
+function requiresExplicitTarget(risk: ToolRisk): boolean {
+  return risk === "destructive" || risk === "broad";
+}
+
 export function createAbletonPermissionHandler(
   requestApproval?: ToolApprovalRequester,
   askForReads = false,
@@ -468,6 +472,16 @@ export function createAbletonPermissionHandler(
     }
     if (metadata.risk === "read" && !askForReads) {
       return { kind: "approve-once" };
+    }
+    if (
+      requiresExplicitTarget(metadata.risk) &&
+      Object.keys(request.args ?? {}).length === 0
+    ) {
+      return {
+        kind: "reject",
+        feedback:
+          "Destructive and broad operations require explicit target arguments",
+      };
     }
     if (!requestApproval) {
       return {
@@ -526,6 +540,40 @@ export interface AbletonToolSet {
     Tool<LoadBrowserItemParams>,
   ];
   availableTools: string[];
+}
+
+export class AbletonToolPreconditionError extends Error {
+  public readonly code: string;
+  public readonly retryable = true;
+
+  public constructor(code: string, message: string) {
+    super(message);
+    this.name = "AbletonToolPreconditionError";
+    this.code = code;
+  }
+}
+
+function requireConnectedTool<T extends Record<string, unknown>>(
+  tool: Tool<T>,
+  services: AbletonToolServices,
+): Tool<T> {
+  const handler = tool.handler;
+  if (handler === undefined) return tool;
+  return {
+    ...tool,
+    handler: async (params, invocation) => {
+      const status = await services.getConnectionStatus();
+      if (status.state !== "connected") {
+        throw new AbletonToolPreconditionError(
+          status.state === "error" ? status.code : "not_connected",
+          status.state === "error"
+            ? status.message
+            : "Ableton Live must be connected before using this tool",
+        );
+      }
+      return handler(params, invocation);
+    },
+  };
 }
 
 export function createAbletonTools(
@@ -1235,43 +1283,43 @@ export function createAbletonTools(
   return {
     tools: [
       connectionStatusTool,
-      inspectSessionTool,
-      setTempoTool,
-      setPlayingTool,
-      inspectArrangementTransportTool,
-      setArrangementLoopTool,
-      createCuePointTool,
-      deleteCuePointTool,
-      createTrackTool,
-      deleteTrackTool,
-      renameTrackTool,
-      setTrackMixerTool,
-      createMidiClipTool,
-      replaceMidiNotesTool,
-      launchSessionClipTool,
-      duplicateSessionClipTool,
-      deleteSessionClipTool,
-      setSessionClipPropertiesTool,
-      createArrangementMidiClipTool,
-      inspectArrangementTool,
-      deleteArrangementClipTool,
-      replaceArrangementMidiNotesTool,
-      duplicateClipToArrangementTool,
-      setArrangementClipPropertiesTool,
-      inspectDevicesTool,
-      inspectDeviceParametersTool,
-      inspectRackChainsTool,
-      inspectRackChainDevicesTool,
-      inspectDrumRackPadsTool,
-      inspectDrumPadChainsTool,
-      inspectDrumPadChainDevicesTool,
-      setDeviceEnabledTool,
-      setDeviceParameterTool,
-      inspectBrowserRootsTool,
-      inspectBrowserChildrenTool,
-      searchBrowserTool,
-      searchExternalPluginsTool,
-      loadBrowserItemTool,
+      requireConnectedTool(inspectSessionTool, services),
+      requireConnectedTool(setTempoTool, services),
+      requireConnectedTool(setPlayingTool, services),
+      requireConnectedTool(inspectArrangementTransportTool, services),
+      requireConnectedTool(setArrangementLoopTool, services),
+      requireConnectedTool(createCuePointTool, services),
+      requireConnectedTool(deleteCuePointTool, services),
+      requireConnectedTool(createTrackTool, services),
+      requireConnectedTool(deleteTrackTool, services),
+      requireConnectedTool(renameTrackTool, services),
+      requireConnectedTool(setTrackMixerTool, services),
+      requireConnectedTool(createMidiClipTool, services),
+      requireConnectedTool(replaceMidiNotesTool, services),
+      requireConnectedTool(launchSessionClipTool, services),
+      requireConnectedTool(duplicateSessionClipTool, services),
+      requireConnectedTool(deleteSessionClipTool, services),
+      requireConnectedTool(setSessionClipPropertiesTool, services),
+      requireConnectedTool(createArrangementMidiClipTool, services),
+      requireConnectedTool(inspectArrangementTool, services),
+      requireConnectedTool(deleteArrangementClipTool, services),
+      requireConnectedTool(replaceArrangementMidiNotesTool, services),
+      requireConnectedTool(duplicateClipToArrangementTool, services),
+      requireConnectedTool(setArrangementClipPropertiesTool, services),
+      requireConnectedTool(inspectDevicesTool, services),
+      requireConnectedTool(inspectDeviceParametersTool, services),
+      requireConnectedTool(inspectRackChainsTool, services),
+      requireConnectedTool(inspectRackChainDevicesTool, services),
+      requireConnectedTool(inspectDrumRackPadsTool, services),
+      requireConnectedTool(inspectDrumPadChainsTool, services),
+      requireConnectedTool(inspectDrumPadChainDevicesTool, services),
+      requireConnectedTool(setDeviceEnabledTool, services),
+      requireConnectedTool(setDeviceParameterTool, services),
+      requireConnectedTool(inspectBrowserRootsTool, services),
+      requireConnectedTool(inspectBrowserChildrenTool, services),
+      requireConnectedTool(searchBrowserTool, services),
+      requireConnectedTool(searchExternalPluginsTool, services),
+      requireConnectedTool(loadBrowserItemTool, services),
     ],
     availableTools: abletonToolMetadata.map(
       (metadata) => `custom:${metadata.name}`,

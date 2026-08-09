@@ -14,9 +14,11 @@
   },
   "scripts": {
     "build": "pnpm -r build",
-    "check": "pnpm format:check && pnpm lint && pnpm docs:check && pnpm versions:check && pnpm contracts:check && pnpm typecheck && pnpm test",
+    "check": "pnpm format:check && pnpm lint && pnpm docs:check && pnpm versions:check && pnpm contracts:check && pnpm contracts:compat:self-test && pnpm typecheck && pnpm test",
     "clean": "pnpm -r clean",
     "contracts:check": "pnpm --filter @ableton-agent/protocol contracts:check",
+    "contracts:compat": "node scripts/check-protocol-compatibility.mjs",
+    "contracts:compat:self-test": "node scripts/check-protocol-compatibility.mjs --self-test",
     "docs:check": "node scripts/check-docs.mjs",
     "desktop:dist": "pnpm build && pnpm --filter @ableton-agent/desktop dist",
     "format": "prettier --write .",

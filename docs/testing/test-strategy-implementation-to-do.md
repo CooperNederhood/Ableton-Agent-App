@@ -73,7 +73,7 @@ Companion specification: [Test Strategy](test-strategy.md)
 ## Tests
 
 - [x] Unit-test test-support utilities and fixture builders.
-- [ ] Integration-test the test runners themselves against known pass/fail
+- [x] Integration-test the test runners themselves against known pass/fail
   fixtures.
 - [x] Verify CI reports failures, timeouts, and artifacts correctly.
 - [ ] Run a clean-checkout rehearsal of every documented test command.

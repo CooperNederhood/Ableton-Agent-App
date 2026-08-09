@@ -7,10 +7,13 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
 - [x] Define read, reversible, destructive, and broad risk rules.
 - [x] Require risk metadata on every mutating tool/workflow.
 - [~] Implement configurable session approval policies.
-- [ ] Implement pre-tool checks for connection, project identity, capability,
+- [x] Implement pre-tool checks for connection, project identity, capability,
   stale targets, conflicts, and limits.
+  - [x] Enforce one shared connection precondition before every project tool.
+  - [x] Revalidate identities, capabilities, stale targets, conflicts, and
+    operation limits at the application/bridge boundary.
 - [~] Implement approval request schemas and expiration.
-- [ ] Prevent ambiguous blanket approval for destructive/broad operations.
+- [x] Prevent ambiguous blanket approval for destructive/broad operations.
 
 ## Guardrails
 

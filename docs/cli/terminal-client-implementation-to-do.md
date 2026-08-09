@@ -50,7 +50,7 @@ Companion specification: [Terminal Client](terminal-client.md)
 - [~] Test interruption, denial, timeout, disconnect, and agent failure.
   (Interruption, denial, and disconnect are covered; timeout and generic
   agent-failure paths are not yet tested.)
-- [ ] Add an opt-in real-Live smoke command.
+- [x] Add an opt-in real-Live smoke command.
 
 ## Exit criteria
 

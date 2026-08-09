@@ -9,6 +9,7 @@ export type CliCommand =
   | { name: "chat"; json: false }
   | { name: "status"; json: boolean }
   | { name: "doctor"; json: boolean }
+  | { name: "live-smoke"; json: boolean }
   | { name: "capabilities"; json: boolean }
   | { name: "snapshot"; json: boolean }
   | { name: "transport"; json: boolean }
@@ -130,6 +131,7 @@ export function parseArgs(args: readonly string[]): CliCommand {
   if (
     command === "status" ||
     command === "doctor" ||
+    command === "live-smoke" ||
     command === "capabilities" ||
     command === "snapshot" ||
     command === "transport" ||
@@ -532,6 +534,7 @@ export async function runCommand(
         "  ableton-agent chat",
         "  ableton-agent status [--json]",
         "  ableton-agent doctor [--json]",
+        "  ableton-agent live-smoke [--json]",
         "  ableton-agent capabilities [--json]",
         "  ableton-agent snapshot [--json]",
         "  ableton-agent transport [--json]",
@@ -649,6 +652,51 @@ export async function runCommand(
               `Application: ${payload.application}`,
               `Ableton: ${status.state}`,
               `Ping: ${ping?.pong === true ? "ok" : "unavailable"}`,
+              `Healthy: ${payload.healthy ? "yes" : "no"}`,
+            ].join("\n"),
+      );
+      return payload.healthy ? EXIT_CODES.SUCCESS : EXIT_CODES.CONNECTION_ERROR;
+    }
+
+    if (command.name === "live-smoke") {
+      const status = await application.getStatus();
+      if (status.state !== "connected") {
+        io.write(
+          command.json
+            ? JSON.stringify({ healthy: false, ableton: status })
+            : `Real-Live smoke failed: Ableton is ${status.state}`,
+        );
+        return EXIT_CODES.CONNECTION_ERROR;
+      }
+      const [ping, capabilities, snapshot, transport, browser] =
+        await Promise.all([
+          application.ping(),
+          application.getCapabilities(),
+          application.inspectSession(),
+          application.inspectArrangementTransport({ offset: 0, limit: 16 }),
+          application.inspectBrowserRoots(),
+        ]);
+      const payload = {
+        healthy: ping.pong,
+        liveVersion: status.liveVersion,
+        remoteScriptVersion: status.remoteScriptVersion,
+        projectId: status.projectId,
+        supportedCapabilities: Object.values(capabilities.capabilities).filter(
+          Boolean,
+        ).length,
+        trackCount: snapshot.trackCount,
+        cuePointCount: transport.totalCuePoints,
+        browserRootCount: browser.roots.length,
+      };
+      io.write(
+        command.json
+          ? JSON.stringify(payload)
+          : [
+              `Live ${payload.liveVersion} · Remote Script ${payload.remoteScriptVersion}`,
+              `Tracks: ${payload.trackCount}`,
+              `Capabilities: ${payload.supportedCapabilities}`,
+              `Cue points: ${payload.cuePointCount}`,
+              `Browser roots: ${payload.browserRootCount}`,
               `Healthy: ${payload.healthy ? "yes" : "no"}`,
             ].join("\n"),
       );

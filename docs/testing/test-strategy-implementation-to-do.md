@@ -76,7 +76,7 @@ Companion specification: [Test Strategy](test-strategy.md)
 - [x] Integration-test the test runners themselves against known pass/fail
   fixtures.
 - [x] Verify CI reports failures, timeouts, and artifacts correctly.
-- [ ] Run a clean-checkout rehearsal of every documented test command.
+- [x] Run a clean-checkout rehearsal of every documented test command.
 
 ## Exit criteria
 

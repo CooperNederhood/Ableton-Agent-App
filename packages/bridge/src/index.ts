@@ -12,10 +12,14 @@ import {
   deleteArrangementClipResultSchema,
   duplicateClipToArrangementParamsSchema,
   duplicateClipToArrangementResultSchema,
+  duplicateSessionClipParamsSchema,
+  duplicateSessionClipResultSchema,
   createMidiClipParamsSchema,
   createMidiClipResultSchema,
   createTrackParamsSchema,
   deleteTrackParamsSchema,
+  deleteSessionClipParamsSchema,
+  deleteSessionClipResultSchema,
   encodeFrame,
   pingResultSchema,
   sessionSnapshotSchema,
@@ -25,12 +29,16 @@ import {
   renameTrackResultSchema,
   inspectArrangementParamsSchema,
   inspectArrangementResultSchema,
+  launchSessionClipParamsSchema,
+  launchSessionClipResultSchema,
   replaceMidiNotesParamsSchema,
   replaceMidiNotesResultSchema,
   replaceArrangementMidiNotesParamsSchema,
   replaceArrangementMidiNotesResultSchema,
   setArrangementClipPropertiesParamsSchema,
   setArrangementClipPropertiesResultSchema,
+  setSessionClipPropertiesParamsSchema,
+  setSessionClipPropertiesResultSchema,
   setTrackMixerParamsSchema,
   setTrackMixerResultSchema,
   setTempoParamsSchema,
@@ -43,10 +51,14 @@ import {
   type DeleteArrangementClipResult,
   type DuplicateClipToArrangementParams,
   type DuplicateClipToArrangementResult,
+  type DuplicateSessionClipParams,
+  type DuplicateSessionClipResult,
   type CreateMidiClipParams,
   type CreateMidiClipResult,
   type CreateTrackParams,
   type DeleteTrackParams,
+  type DeleteSessionClipParams,
+  type DeleteSessionClipResult,
   type MessageEnvelope,
   type PingResult,
   type RequestEnvelope,
@@ -57,12 +69,16 @@ import {
   type RenameTrackResult,
   type InspectArrangementParams,
   type InspectArrangementResult,
+  type LaunchSessionClipParams,
+  type LaunchSessionClipResult,
   type ReplaceMidiNotesParams,
   type ReplaceMidiNotesResult,
   type ReplaceArrangementMidiNotesParams,
   type ReplaceArrangementMidiNotesResult,
   type SetArrangementClipPropertiesParams,
   type SetArrangementClipPropertiesResult,
+  type SetSessionClipPropertiesParams,
+  type SetSessionClipPropertiesResult,
   type SetTrackMixerParams,
   type SetTrackMixerResult,
   type SetTempoResult,
@@ -262,6 +278,46 @@ export class AbletonBridgeService implements AbletonService {
     const validated = replaceMidiNotesParamsSchema.parse(params);
     return replaceMidiNotesResultSchema.parse(
       await this.#mutationRequest("clips.replace_notes", validated),
+    );
+  }
+
+  public async launchSessionClip(
+    params: LaunchSessionClipParams,
+  ): Promise<LaunchSessionClipResult> {
+    this.#requireCapability("clips.launch");
+    const validated = launchSessionClipParamsSchema.parse(params);
+    return launchSessionClipResultSchema.parse(
+      await this.#mutationRequest("clips.launch", validated),
+    );
+  }
+
+  public async duplicateSessionClip(
+    params: DuplicateSessionClipParams,
+  ): Promise<DuplicateSessionClipResult> {
+    this.#requireCapability("clips.duplicate");
+    const validated = duplicateSessionClipParamsSchema.parse(params);
+    return duplicateSessionClipResultSchema.parse(
+      await this.#mutationRequest("clips.duplicate", validated),
+    );
+  }
+
+  public async deleteSessionClip(
+    params: DeleteSessionClipParams,
+  ): Promise<DeleteSessionClipResult> {
+    this.#requireCapability("clips.delete");
+    const validated = deleteSessionClipParamsSchema.parse(params);
+    return deleteSessionClipResultSchema.parse(
+      await this.#mutationRequest("clips.delete", validated),
+    );
+  }
+
+  public async setSessionClipProperties(
+    params: SetSessionClipPropertiesParams,
+  ): Promise<SetSessionClipPropertiesResult> {
+    this.#requireCapability("clips.set_properties");
+    const validated = setSessionClipPropertiesParamsSchema.parse(params);
+    return setSessionClipPropertiesResultSchema.parse(
+      await this.#mutationRequest("clips.set_properties", validated),
     );
   }
 

@@ -6,6 +6,8 @@ Companion specification: [Terminal Client](terminal-client.md)
 
 - [x] Scaffold `apps/cli` with a testable command parser.
 - [x] Connect it to the shared headless application bootstrap.
+  - [x] Wire Session clip launch, duplication, deletion, and property services
+    through the bridge, application, agent tools, and approval UI.
 - [ ] Implement TTY detection, `NO_COLOR`, and redirected-output behavior.
 - [ ] Implement human, quiet, and JSON output writers.
 - [ ] Define and document stable exit-code mapping.

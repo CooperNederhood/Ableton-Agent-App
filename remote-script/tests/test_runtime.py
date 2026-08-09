@@ -41,7 +41,11 @@ class FakeTrack(object):
         self.solo = False
         self.arm = True
         self.mixer_device = FakeMixerDevice()
-        self.clip_slots = [FakeClipSlot(), FakeClipSlot()]
+        self.playing_slot_index = -1
+        self.clip_slots = [
+            FakeClipSlot(self, 0),
+            FakeClipSlot(self, 1),
+        ]
         self.arrangement_clips = []
         self.fail_arrangement_create_after_mutation = False
         self.fail_arrangement_duplicate_after_mutation = False
@@ -96,6 +100,9 @@ class FakeClip(object):
         self.fail_next_add = False
         self.get_notes_calls = 0
         self.fail_get_notes_call = None
+        self.is_playing = False
+        self.is_triggered = False
+        self._slot = None
 
     def get_all_notes_extended(self):
         self.get_notes_calls += 1
@@ -118,6 +125,15 @@ class FakeClip(object):
             self.notes.append(note)
             added_ids.append(note.note_id)
         return tuple(added_ids)
+
+    def stop(self):
+        self.is_playing = False
+        self.is_triggered = False
+        if (
+            self._slot is not None
+            and self._slot.track.playing_slot_index == self._slot.index
+        ):
+            self._slot.track.playing_slot_index = -1
 
 
 class FailingMutedClip(FakeClip):
@@ -156,18 +172,73 @@ class FakeMidiNoteSpecification(object):
 
 
 class FakeClipSlot(object):
-    def __init__(self):
-        self.clip = None
+    def __init__(self, track=None, index=0):
+        self.track = track
+        self.index = index
+        self._clip = None
+        self.fail_duplicate_after_mutation = False
+        self.fail_fire_after_mutation = False
+        self.fire_calls = 0
+
+    @property
+    def clip(self):
+        return self._clip
+
+    @clip.setter
+    def clip(self, value):
+        self._clip = value
+        if value is not None:
+            value._slot = self
 
     @property
     def has_clip(self):
-        return self.clip is not None
+        return self._clip is not None
 
     def create_clip(self, length):
         self.clip = FakeClip(length)
 
     def delete_clip(self):
+        if (
+            self.track is not None
+            and self.track.playing_slot_index == self.index
+        ):
+            self.track.playing_slot_index = -1
         self.clip = None
+
+    def fire(self):
+        if not self.has_clip:
+            raise RuntimeError("cannot fire an empty clip slot")
+        self.fire_calls += 1
+        for slot in self.track.clip_slots:
+            if slot.has_clip:
+                slot.clip.is_playing = False
+                slot.clip.is_triggered = False
+        self.clip.is_playing = True
+        self.track.playing_slot_index = self.index
+        if self.fail_fire_after_mutation:
+            self.fail_fire_after_mutation = False
+            raise RuntimeError("simulated Session launch failure")
+
+    def stop(self):
+        if self.has_clip:
+            self.clip.is_playing = False
+            self.clip.is_triggered = False
+        if (
+            self.track is not None
+            and self.track.playing_slot_index == self.index
+        ):
+            self.track.playing_slot_index = -1
+
+    def duplicate_clip_to(self, destination):
+        source = self.clip
+        duplicated = FakeClip(source.length, midi=source.is_midi_clip)
+        duplicated.name = source.name
+        duplicated.notes = list(source.notes)
+        duplicated.muted = source.muted
+        duplicated.looping = source.looping
+        destination.clip = duplicated
+        if self.fail_duplicate_after_mutation:
+            raise RuntimeError("simulated Session duplicate failure")
 
 
 class FakeUnsupportedClip(object):
@@ -913,6 +984,242 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(len(clip.notes), 1)
         self.assertEqual(clip.notes[0].pitch, 48)
 
+    def test_session_clip_launch_duplicate_properties_and_delete_are_verified(
+        self,
+    ):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        track = context.song.tracks[0]
+        track.clip_slots[0].create_clip(4.0)
+        source = track.clip_slots[0].clip
+        source.name = "Beat"
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        clip_reference = "00000000-0000-4000-8000-000000000010"
+        context._track_references = [(track, track_reference)]
+        context._clip_references = [(source, clip_reference)]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+        target = {
+            "index": 0,
+            "expectedReference": track_reference,
+            "expectedName": "Drums",
+            "sceneIndex": 0,
+            "expectedClipReference": clip_reference,
+        }
+
+        executor.submit(
+            request("clips.launch", target),
+            responses.append,
+        )
+        scheduled.pop()()
+        executor.submit(
+            request(
+                "clips.duplicate",
+                dict(
+                    target,
+                    destinationTrackIndex=0,
+                    expectedDestinationTrackReference=track_reference,
+                    expectedDestinationTrackName="Drums",
+                    destinationSceneIndex=1,
+                ),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        duplicated_reference = responses[1]["result"]["clip"]["reference"]
+        executor.submit(
+            request(
+                "clips.set_properties",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "sceneIndex": 1,
+                    "expectedClipReference": duplicated_reference,
+                    "name": "Beat Copy",
+                    "muted": True,
+                    "looping": False,
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        executor.submit(
+            request(
+                "clips.delete",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "sceneIndex": 1,
+                    "expectedClipReference": duplicated_reference,
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        executor.submit(request("clips.launch", target), responses.append)
+        scheduled.pop()()
+
+        self.assertTrue(responses[0]["result"]["after"]["targetIsPlaying"])
+        self.assertEqual(
+            responses[1]["result"]["sourceClip"]["reference"],
+            clip_reference,
+        )
+        self.assertEqual(
+            responses[2]["result"]["after"],
+            {"name": "Beat Copy", "muted": True, "looping": False},
+        )
+        self.assertEqual(responses[3]["result"]["beforeClipCount"], 2)
+        self.assertEqual(responses[3]["result"]["afterClipCount"], 1)
+        self.assertFalse(track.clip_slots[1].has_clip)
+        self.assertEqual(responses[4]["result"]["before"], responses[4]["result"]["after"])
+        self.assertEqual(track.clip_slots[0].fire_calls, 1)
+
+    def test_session_audio_clip_duplication_and_properties_are_supported(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        track = context.song.tracks[1]
+        track.has_midi_input = False
+        track.clip_slots[0].clip = FakeClip(8.0, midi=False)
+        source = track.clip_slots[0].clip
+        source.name = "Vocal"
+        track_reference = "00000000-0000-4000-8000-000000000002"
+        clip_reference = "00000000-0000-4000-8000-000000000020"
+        context._track_references = [(track, track_reference)]
+        context._clip_references = [(source, clip_reference)]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "clips.duplicate",
+                {
+                    "index": 1,
+                    "expectedReference": track_reference,
+                    "expectedName": "Bass",
+                    "sceneIndex": 0,
+                    "expectedClipReference": clip_reference,
+                    "destinationTrackIndex": 1,
+                    "expectedDestinationTrackReference": track_reference,
+                    "expectedDestinationTrackName": "Bass",
+                    "destinationSceneIndex": 1,
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        duplicated_reference = responses[0]["result"]["clip"]["reference"]
+        executor.submit(
+            request(
+                "clips.set_properties",
+                {
+                    "index": 1,
+                    "expectedReference": track_reference,
+                    "expectedName": "Bass",
+                    "sceneIndex": 1,
+                    "expectedClipReference": duplicated_reference,
+                    "name": "Vocal Copy",
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["result"]["clip"]["kind"], "audio")
+        self.assertIsNone(responses[0]["result"]["clip"]["noteCount"])
+        self.assertEqual(responses[1]["result"]["after"]["name"], "Vocal Copy")
+
+    def test_session_clip_mutations_restore_safe_before_state_on_failure(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        track = context.song.tracks[0]
+        track.clip_slots[0].create_clip(4.0)
+        previous = track.clip_slots[0].clip
+        track.clip_slots[0].fire()
+        track.clip_slots[1].clip = FailingMutedClip(4.0)
+        target = track.clip_slots[1].clip
+        target.name = "Before"
+        track.clip_slots[1].fail_fire_after_mutation = True
+        track.clip_slots[1].fail_duplicate_after_mutation = True
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        destination_track_reference = (
+            "00000000-0000-4000-8000-000000000002"
+        )
+        clip_reference = "00000000-0000-4000-8000-000000000010"
+        context._track_references = [
+            (track, track_reference),
+            (context.song.tracks[1], destination_track_reference),
+        ]
+        context._clip_references = [(target, clip_reference)]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+        target_params = {
+            "index": 0,
+            "expectedReference": track_reference,
+            "expectedName": "Drums",
+            "sceneIndex": 1,
+            "expectedClipReference": clip_reference,
+        }
+
+        executor.submit(
+            request("clips.launch", target_params),
+            responses.append,
+        )
+        scheduled.pop()()
+        executor.submit(
+            request(
+                "clips.duplicate",
+                dict(
+                    target_params,
+                    destinationTrackIndex=1,
+                    expectedDestinationTrackReference=(
+                        destination_track_reference
+                    ),
+                    expectedDestinationTrackName="Bass",
+                    destinationSceneIndex=0,
+                ),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        target.fail_muted_set = True
+        executor.submit(
+            request(
+                "clips.set_properties",
+                dict(target_params, name="After", muted=True),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["error"]["code"], "lom_error")
+        self.assertTrue(previous.is_playing)
+        self.assertEqual(track.playing_slot_index, 0)
+        self.assertEqual(responses[1]["error"]["code"], "lom_error")
+        self.assertFalse(context.song.tracks[1].clip_slots[0].has_clip)
+        self.assertEqual(responses[2]["error"]["code"], "lom_error")
+        self.assertEqual(target.name, "Before")
+        self.assertFalse(target.muted)
+
     def test_arrangement_midi_clip_creation_guards_overlap(self):
         scheduled = []
         responses = []
@@ -1313,6 +1620,10 @@ class CapabilityAndTokenTests(unittest.TestCase):
         self.assertTrue(
             document["capabilities"]["arrangement.create_midi_clip"]
         )
+        self.assertTrue(document["capabilities"]["clips.launch"])
+        self.assertTrue(document["capabilities"]["clips.duplicate"])
+        self.assertTrue(document["capabilities"]["clips.delete"])
+        self.assertTrue(document["capabilities"]["clips.set_properties"])
         self.assertEqual(len(document["projectId"]), 24)
 
         legacy_song = FakeSong()
@@ -1342,6 +1653,12 @@ class CapabilityAndTokenTests(unittest.TestCase):
             legacy_document["capabilities"][
                 "arrangement.set_clip_properties"
             ]
+        )
+        self.assertFalse(legacy_document["capabilities"]["clips.launch"])
+        self.assertFalse(legacy_document["capabilities"]["clips.duplicate"])
+        self.assertFalse(legacy_document["capabilities"]["clips.delete"])
+        self.assertFalse(
+            legacy_document["capabilities"]["clips.set_properties"]
         )
 
         class InspectOnlyTrack(object):

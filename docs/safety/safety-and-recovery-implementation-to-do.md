@@ -22,6 +22,8 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
     references.
   - [x] Reject Arrangement overlap and revalidate Session/Arrangement clip
     identity and timing before duplication or property updates.
+  - [x] Require exact source/destination track identity and exact Session clip
+    identity for launch, duplication, deletion, and property updates.
 - [ ] Validate file imports and supported media.
 - [ ] Report all clamping and coercion.
 - [ ] Add workflow mutation-count and duration budgets.
@@ -38,6 +40,8 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
     replacement can discard per-note MPE/expression data.
   - [x] Delete failed Arrangement duplicates and restore all applied clip
     properties after mutation or verification failure.
+  - [x] Restore prior Session playback after failed launch where safe, remove
+    failed Session duplicates, and restore applied Session clip properties.
 - [ ] Define non-reversible operation metadata.
 - [ ] Stop dependent workflow steps after failure.
 - [ ] Refresh affected state before reporting partial outcomes.

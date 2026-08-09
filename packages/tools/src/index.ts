@@ -8,10 +8,16 @@ import type {
   DeleteArrangementClipResult,
   DuplicateClipToArrangementParams,
   DuplicateClipToArrangementResult,
+  DuplicateSessionClipParams,
+  DuplicateSessionClipResult,
   DeleteTrackParams,
+  DeleteSessionClipParams,
+  DeleteSessionClipResult,
   RenameTrackParams,
   InspectArrangementParams,
   InspectArrangementResult,
+  LaunchSessionClipParams,
+  LaunchSessionClipResult,
   RenameTrackResult,
   ReplaceMidiNotesParams,
   ReplaceMidiNotesResult,
@@ -19,6 +25,8 @@ import type {
   ReplaceArrangementMidiNotesResult,
   SetArrangementClipPropertiesParams,
   SetArrangementClipPropertiesResult,
+  SetSessionClipPropertiesParams,
+  SetSessionClipPropertiesResult,
   SessionSnapshot,
   SetPlayingParams,
   SetPlayingResult,
@@ -60,6 +68,18 @@ export interface AbletonToolServices {
   replaceMidiNotes(
     params: ReplaceMidiNotesParams,
   ): Promise<ReplaceMidiNotesResult>;
+  launchSessionClip(
+    params: LaunchSessionClipParams,
+  ): Promise<LaunchSessionClipResult>;
+  duplicateSessionClip(
+    params: DuplicateSessionClipParams,
+  ): Promise<DuplicateSessionClipResult>;
+  deleteSessionClip(
+    params: DeleteSessionClipParams,
+  ): Promise<DeleteSessionClipResult>;
+  setSessionClipProperties(
+    params: SetSessionClipPropertiesParams,
+  ): Promise<SetSessionClipPropertiesResult>;
   createArrangementMidiClip(
     params: CreateArrangementMidiClipParams,
   ): Promise<CreateArrangementMidiClipResult>;
@@ -149,6 +169,34 @@ export const abletonToolMetadata = [
     risk: "destructive",
     duration: "short",
     requiredCapability: "clips.replace_notes",
+  },
+  {
+    name: "ableton_clips_launch",
+    title: "Launch Session clip",
+    risk: "reversible",
+    duration: "instant",
+    requiredCapability: "clips.launch",
+  },
+  {
+    name: "ableton_clips_duplicate",
+    title: "Duplicate Session clip",
+    risk: "reversible",
+    duration: "short",
+    requiredCapability: "clips.duplicate",
+  },
+  {
+    name: "ableton_clips_delete",
+    title: "Delete Session clip",
+    risk: "destructive",
+    duration: "short",
+    requiredCapability: "clips.delete",
+  },
+  {
+    name: "ableton_clips_set_properties",
+    title: "Set Session clip properties",
+    risk: "reversible",
+    duration: "short",
+    requiredCapability: "clips.set_properties",
   },
   {
     name: "ableton_arrangement_create_midi_clip",
@@ -246,6 +294,10 @@ export interface AbletonToolSet {
     Tool<SetTrackMixerParams>,
     Tool<CreateMidiClipParams>,
     Tool<ReplaceMidiNotesParams>,
+    Tool<LaunchSessionClipParams>,
+    Tool<DuplicateSessionClipParams>,
+    Tool<DeleteSessionClipParams>,
+    Tool<SetSessionClipPropertiesParams>,
     Tool<CreateArrangementMidiClipParams>,
     Tool<InspectArrangementParams>,
     Tool<DeleteArrangementClipParams>,
@@ -399,6 +451,79 @@ export function createAbletonTools(
       .strict(),
     handler: async (params) => services.replaceMidiNotes(params),
   });
+  const launchSessionClipTool = defineTool("ableton_clips_launch", {
+    description:
+      "Launches the exact identity-bound MIDI or audio Session View clip, verifies playing or triggered state, and restores prior Session playback if launch fails. Refuses to replace Arrangement playback or another pending trigger.",
+    parameters: z
+      .object({
+        index: z.number().int().nonnegative(),
+        expectedReference: z.string().uuid(),
+        expectedName: z.string().min(1),
+        sceneIndex: z.number().int().nonnegative(),
+        expectedClipReference: z.string().uuid(),
+      })
+      .strict(),
+    handler: async (params) => services.launchSessionClip(params),
+  });
+  const duplicateSessionClipTool = defineTool("ableton_clips_duplicate", {
+    description:
+      "Duplicates the exact identity-bound MIDI or audio Session View clip into an empty slot on an exact identity-bound destination track, verifies the copy, and removes it on failure.",
+    parameters: z
+      .object({
+        index: z.number().int().nonnegative(),
+        expectedReference: z.string().uuid(),
+        expectedName: z.string().min(1),
+        sceneIndex: z.number().int().nonnegative(),
+        expectedClipReference: z.string().uuid(),
+        destinationTrackIndex: z.number().int().nonnegative(),
+        expectedDestinationTrackReference: z.string().uuid(),
+        expectedDestinationTrackName: z.string().min(1),
+        destinationSceneIndex: z.number().int().nonnegative(),
+      })
+      .strict(),
+    handler: async (params) => services.duplicateSessionClip(params),
+  });
+  const deleteSessionClipTool = defineTool("ableton_clips_delete", {
+    description:
+      "Destructively deletes the exact identity-bound MIDI or audio Session View clip from its exact track and scene after approval.",
+    parameters: z
+      .object({
+        index: z.number().int().nonnegative(),
+        expectedReference: z.string().uuid(),
+        expectedName: z.string().min(1),
+        sceneIndex: z.number().int().nonnegative(),
+        expectedClipReference: z.string().uuid(),
+      })
+      .strict(),
+    handler: async (params) => services.deleteSessionClip(params),
+  });
+  const setSessionClipPropertiesTool = defineTool(
+    "ableton_clips_set_properties",
+    {
+      description:
+        "Conservatively updates name, mute, or supported loop state on the exact identity-bound MIDI or audio Session View clip and restores prior values on failure.",
+      parameters: z
+        .object({
+          index: z.number().int().nonnegative(),
+          expectedReference: z.string().uuid(),
+          expectedName: z.string().min(1),
+          sceneIndex: z.number().int().nonnegative(),
+          expectedClipReference: z.string().uuid(),
+          name: z.string().trim().min(1).max(128).optional(),
+          muted: z.boolean().optional(),
+          looping: z.boolean().optional(),
+        })
+        .strict()
+        .refine(
+          (params) =>
+            params.name !== undefined ||
+            params.muted !== undefined ||
+            params.looping !== undefined,
+          { message: "At least one clip property is required" },
+        ),
+      handler: async (params) => services.setSessionClipProperties(params),
+    },
+  );
   const createArrangementMidiClipTool = defineTool(
     "ableton_arrangement_create_midi_clip",
     {
@@ -537,6 +662,10 @@ export function createAbletonTools(
       setTrackMixerTool,
       createMidiClipTool,
       replaceMidiNotesTool,
+      launchSessionClipTool,
+      duplicateSessionClipTool,
+      deleteSessionClipTool,
+      setSessionClipPropertiesTool,
       createArrangementMidiClipTool,
       inspectArrangementTool,
       deleteArrangementClipTool,

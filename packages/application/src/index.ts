@@ -9,18 +9,26 @@ import type {
   DeleteArrangementClipResult,
   DuplicateClipToArrangementParams,
   DuplicateClipToArrangementResult,
+  DuplicateSessionClipParams,
+  DuplicateSessionClipResult,
   CreateMidiClipParams,
   CreateMidiClipResult,
   CreateTrackParams,
   DeleteTrackParams,
+  DeleteSessionClipParams,
+  DeleteSessionClipResult,
   RenameTrackParams,
   RenameTrackResult,
   ReplaceMidiNotesParams,
   ReplaceMidiNotesResult,
+  LaunchSessionClipParams,
+  LaunchSessionClipResult,
   ReplaceArrangementMidiNotesParams,
   ReplaceArrangementMidiNotesResult,
   SetArrangementClipPropertiesParams,
   SetArrangementClipPropertiesResult,
+  SetSessionClipPropertiesParams,
+  SetSessionClipPropertiesResult,
   PingResult,
   InspectArrangementParams,
   InspectArrangementResult,
@@ -73,6 +81,18 @@ export interface AbletonService {
   replaceMidiNotes(
     params: ReplaceMidiNotesParams,
   ): Promise<ReplaceMidiNotesResult>;
+  launchSessionClip(
+    params: LaunchSessionClipParams,
+  ): Promise<LaunchSessionClipResult>;
+  duplicateSessionClip(
+    params: DuplicateSessionClipParams,
+  ): Promise<DuplicateSessionClipResult>;
+  deleteSessionClip(
+    params: DeleteSessionClipParams,
+  ): Promise<DeleteSessionClipResult>;
+  setSessionClipProperties(
+    params: SetSessionClipPropertiesParams,
+  ): Promise<SetSessionClipPropertiesResult>;
   createArrangementMidiClip(
     params: CreateArrangementMidiClipParams,
   ): Promise<CreateArrangementMidiClipResult>;
@@ -135,6 +155,18 @@ export interface CopilotAgentServiceOptions {
   replaceMidiNotes: (
     params: ReplaceMidiNotesParams,
   ) => Promise<ReplaceMidiNotesResult>;
+  launchSessionClip: (
+    params: LaunchSessionClipParams,
+  ) => Promise<LaunchSessionClipResult>;
+  duplicateSessionClip: (
+    params: DuplicateSessionClipParams,
+  ) => Promise<DuplicateSessionClipResult>;
+  deleteSessionClip: (
+    params: DeleteSessionClipParams,
+  ) => Promise<DeleteSessionClipResult>;
+  setSessionClipProperties: (
+    params: SetSessionClipPropertiesParams,
+  ) => Promise<SetSessionClipPropertiesResult>;
   createArrangementMidiClip: (
     params: CreateArrangementMidiClipParams,
   ) => Promise<CreateArrangementMidiClipResult>;
@@ -199,6 +231,10 @@ export class CopilotAgentService implements AgentService {
       setTrackMixer: this.options.setTrackMixer,
       createMidiClip: this.options.createMidiClip,
       replaceMidiNotes: this.options.replaceMidiNotes,
+      launchSessionClip: this.options.launchSessionClip,
+      duplicateSessionClip: this.options.duplicateSessionClip,
+      deleteSessionClip: this.options.deleteSessionClip,
+      setSessionClipProperties: this.options.setSessionClipProperties,
       createArrangementMidiClip: this.options.createArrangementMidiClip,
       inspectArrangement: this.options.inspectArrangement,
       deleteArrangementClip: this.options.deleteArrangementClip,
@@ -417,6 +453,30 @@ export class HeadlessApplication {
     params: ReplaceMidiNotesParams,
   ): Promise<ReplaceMidiNotesResult> {
     return this.services.ableton.replaceMidiNotes(params);
+  }
+
+  public launchSessionClip(
+    params: LaunchSessionClipParams,
+  ): Promise<LaunchSessionClipResult> {
+    return this.services.ableton.launchSessionClip(params);
+  }
+
+  public duplicateSessionClip(
+    params: DuplicateSessionClipParams,
+  ): Promise<DuplicateSessionClipResult> {
+    return this.services.ableton.duplicateSessionClip(params);
+  }
+
+  public deleteSessionClip(
+    params: DeleteSessionClipParams,
+  ): Promise<DeleteSessionClipResult> {
+    return this.services.ableton.deleteSessionClip(params);
+  }
+
+  public setSessionClipProperties(
+    params: SetSessionClipPropertiesParams,
+  ): Promise<SetSessionClipPropertiesResult> {
+    return this.services.ableton.setSessionClipProperties(params);
   }
 
   public createArrangementMidiClip(

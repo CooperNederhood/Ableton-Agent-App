@@ -127,6 +127,10 @@ export const sessionViewClipSummarySchema = z.object({
   kind: trackKindSchema,
   length: z.number().positive(),
   noteCount: z.number().int().nonnegative().nullable(),
+  muted: z.boolean().nullable().optional(),
+  looping: z.boolean().nullable().optional(),
+  isPlaying: z.boolean().optional(),
+  isTriggered: z.boolean().optional(),
 });
 
 export const sessionSnapshotSchema = z.object({
@@ -280,6 +284,76 @@ export const replaceMidiNotesResultSchema = z.object({
   verified: z.literal(true),
 });
 
+export const sessionClipTargetSchema = trackTargetSchema.extend({
+  sceneIndex: z.number().int().nonnegative(),
+  expectedClipReference: z.string().uuid(),
+});
+
+export const sessionClipLaunchStateSchema = z.object({
+  trackPlayingSceneIndex: z.number().int().nonnegative().nullable(),
+  trackPlayingClipReference: z.string().uuid().nullable(),
+  targetIsPlaying: z.boolean(),
+  targetIsTriggered: z.boolean(),
+});
+
+export const launchSessionClipParamsSchema = sessionClipTargetSchema;
+
+export const launchSessionClipResultSchema = z.object({
+  clip: sessionViewClipSummarySchema,
+  before: sessionClipLaunchStateSchema,
+  after: sessionClipLaunchStateSchema,
+  verified: z.literal(true),
+});
+
+export const duplicateSessionClipParamsSchema = sessionClipTargetSchema.extend({
+  destinationTrackIndex: z.number().int().nonnegative(),
+  expectedDestinationTrackReference: z.string().uuid(),
+  expectedDestinationTrackName: z.string().min(1),
+  destinationSceneIndex: z.number().int().nonnegative(),
+});
+
+export const duplicateSessionClipResultSchema = z.object({
+  sourceClip: sessionViewClipSummarySchema,
+  clip: sessionViewClipSummarySchema,
+  verified: z.literal(true),
+});
+
+export const deleteSessionClipParamsSchema = sessionClipTargetSchema;
+
+export const deleteSessionClipResultSchema = z.object({
+  clip: sessionViewClipSummarySchema,
+  beforeClipCount: z.number().int().nonnegative(),
+  afterClipCount: z.number().int().nonnegative(),
+  verified: z.literal(true),
+});
+
+export const sessionClipPropertiesSchema = z.object({
+  name: z.string(),
+  muted: z.boolean().nullable(),
+  looping: z.boolean().nullable(),
+});
+
+export const setSessionClipPropertiesParamsSchema = sessionClipTargetSchema
+  .extend({
+    name: z.string().trim().min(1).max(128).optional(),
+    muted: z.boolean().optional(),
+    looping: z.boolean().optional(),
+  })
+  .refine(
+    (params) =>
+      params.name !== undefined ||
+      params.muted !== undefined ||
+      params.looping !== undefined,
+    { message: "At least one clip property is required" },
+  );
+
+export const setSessionClipPropertiesResultSchema = z.object({
+  clip: sessionViewClipSummarySchema,
+  before: sessionClipPropertiesSchema,
+  after: sessionClipPropertiesSchema,
+  verified: z.literal(true),
+});
+
 export const createArrangementMidiClipParamsSchema = trackTargetSchema.extend({
   startTime: z.number().nonnegative().max(1576800),
   length: z.number().positive().max(4096),
@@ -410,6 +484,31 @@ export type ReplaceMidiNotesParams = z.infer<
 >;
 export type ReplaceMidiNotesResult = z.infer<
   typeof replaceMidiNotesResultSchema
+>;
+export type LaunchSessionClipParams = z.infer<
+  typeof launchSessionClipParamsSchema
+>;
+export type LaunchSessionClipResult = z.infer<
+  typeof launchSessionClipResultSchema
+>;
+export type DuplicateSessionClipParams = z.infer<
+  typeof duplicateSessionClipParamsSchema
+>;
+export type DuplicateSessionClipResult = z.infer<
+  typeof duplicateSessionClipResultSchema
+>;
+export type DeleteSessionClipParams = z.infer<
+  typeof deleteSessionClipParamsSchema
+>;
+export type DeleteSessionClipResult = z.infer<
+  typeof deleteSessionClipResultSchema
+>;
+export type SessionClipProperties = z.infer<typeof sessionClipPropertiesSchema>;
+export type SetSessionClipPropertiesParams = z.infer<
+  typeof setSessionClipPropertiesParamsSchema
+>;
+export type SetSessionClipPropertiesResult = z.infer<
+  typeof setSessionClipPropertiesResultSchema
 >;
 export type CreateArrangementMidiClipParams = z.infer<
   typeof createArrangementMidiClipParamsSchema

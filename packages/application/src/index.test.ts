@@ -14,6 +14,101 @@ import {
   type AgentService,
 } from "./index.js";
 
+function sessionClipServices() {
+  return {
+    launchSessionClip: async (
+      params: Parameters<AbletonService["launchSessionClip"]>[0],
+    ) => ({
+      clip: {
+        reference: params.expectedClipReference,
+        trackReference: params.expectedReference,
+        trackIndex: params.index,
+        sceneIndex: params.sceneIndex,
+        name: "Beat",
+        kind: "midi" as const,
+        length: 4,
+        noteCount: 1,
+      },
+      before: {
+        trackPlayingSceneIndex: null,
+        trackPlayingClipReference: null,
+        targetIsPlaying: false,
+        targetIsTriggered: false,
+      },
+      after: {
+        trackPlayingSceneIndex: params.sceneIndex,
+        trackPlayingClipReference: params.expectedClipReference,
+        targetIsPlaying: true,
+        targetIsTriggered: false,
+      },
+      verified: true as const,
+    }),
+    duplicateSessionClip: async (
+      params: Parameters<AbletonService["duplicateSessionClip"]>[0],
+    ) => ({
+      sourceClip: {
+        reference: params.expectedClipReference,
+        trackReference: params.expectedReference,
+        trackIndex: params.index,
+        sceneIndex: params.sceneIndex,
+        name: "Beat",
+        kind: "midi" as const,
+        length: 4,
+        noteCount: 1,
+      },
+      clip: {
+        reference: "00000000-0000-4000-8000-000000000011",
+        trackReference: params.expectedDestinationTrackReference,
+        trackIndex: params.destinationTrackIndex,
+        sceneIndex: params.destinationSceneIndex,
+        name: "Beat",
+        kind: "midi" as const,
+        length: 4,
+        noteCount: 1,
+      },
+      verified: true as const,
+    }),
+    deleteSessionClip: async (
+      params: Parameters<AbletonService["deleteSessionClip"]>[0],
+    ) => ({
+      clip: {
+        reference: params.expectedClipReference,
+        trackReference: params.expectedReference,
+        trackIndex: params.index,
+        sceneIndex: params.sceneIndex,
+        name: "Beat",
+        kind: "midi" as const,
+        length: 4,
+        noteCount: 1,
+      },
+      beforeClipCount: 2,
+      afterClipCount: 1,
+      verified: true as const,
+    }),
+    setSessionClipProperties: async (
+      params: Parameters<AbletonService["setSessionClipProperties"]>[0],
+    ) => ({
+      clip: {
+        reference: params.expectedClipReference,
+        trackReference: params.expectedReference,
+        trackIndex: params.index,
+        sceneIndex: params.sceneIndex,
+        name: params.name ?? "Beat",
+        kind: "midi" as const,
+        length: 4,
+        noteCount: 1,
+      },
+      before: { name: "Beat", muted: false, looping: true },
+      after: {
+        name: params.name ?? "Beat",
+        muted: params.muted ?? false,
+        looping: params.looping ?? true,
+      },
+      verified: true as const,
+    }),
+  };
+}
+
 function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
   const agent: AgentService = {
     start: vi.fn(async () => undefined),
@@ -136,6 +231,7 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
         verified: true as const,
       }),
     ),
+    ...sessionClipServices(),
     createArrangementMidiClip: vi.fn(
       async (
         params: Parameters<AbletonService["createArrangementMidiClip"]>[0],
@@ -423,6 +519,7 @@ describe("CopilotAgentService", () => {
           afterNoteCount: params.notes.length,
           verified: true,
         }),
+      ...sessionClipServices(),
       createArrangementMidiClip: (params) =>
         Promise.resolve({
           clip: {
@@ -557,6 +654,10 @@ describe("CopilotAgentService", () => {
       "custom:ableton_tracks_set_mixer",
       "custom:ableton_clips_create_midi",
       "custom:ableton_clips_replace_notes",
+      "custom:ableton_clips_launch",
+      "custom:ableton_clips_duplicate",
+      "custom:ableton_clips_delete",
+      "custom:ableton_clips_set_properties",
       "custom:ableton_arrangement_create_midi_clip",
       "custom:ableton_arrangement_inspect",
       "custom:ableton_arrangement_delete_clip",
@@ -564,7 +665,7 @@ describe("CopilotAgentService", () => {
       "custom:ableton_arrangement_duplicate_clip",
       "custom:ableton_arrangement_set_clip_properties",
     ]);
-    expect(config?.tools).toHaveLength(16);
+    expect(config?.tools).toHaveLength(20);
     await expect(
       config?.onPermissionRequest?.(
         {
@@ -690,6 +791,7 @@ describe("CopilotAgentService", () => {
           afterNoteCount: params.notes.length,
           verified: true,
         }),
+      ...sessionClipServices(),
       createArrangementMidiClip: (params) =>
         Promise.resolve({
           clip: {

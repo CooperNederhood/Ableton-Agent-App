@@ -31,6 +31,7 @@ class SimulatorState(object):
                 "pan": 0.0,
                 "clips": [None, None],
                 "arrangementClips": [],
+                "playingSceneIndex": None,
             },
             {
                 "reference": str(
@@ -46,6 +47,7 @@ class SimulatorState(object):
                 "pan": -0.1,
                 "clips": [None, None],
                 "arrangementClips": [],
+                "playingSceneIndex": None,
             },
         ]
 
@@ -56,28 +58,37 @@ class SimulatorState(object):
                 **{
                     key: value
                     for key, value in track.items()
-                    if key not in ("clips", "arrangementClips")
+                    if key
+                    not in ("clips", "arrangementClips", "playingSceneIndex")
                 }
             )
             for index, track in enumerate(self.tracks)
         ]
 
+    def session_clip_summary(self, track_index, scene_index, clip):
+        track = self.tracks[track_index]
+        return {
+            "reference": clip["reference"],
+            "trackReference": track["reference"],
+            "trackIndex": track_index,
+            "sceneIndex": scene_index,
+            "name": clip["name"],
+            "kind": clip["kind"],
+            "length": clip["length"],
+            "noteCount": (
+                len(clip.get("notes", []))
+                if clip["kind"] == "midi"
+                else None
+            ),
+            "muted": clip.get("muted"),
+            "looping": clip.get("looping"),
+            "isPlaying": clip.get("isPlaying", False),
+            "isTriggered": clip.get("isTriggered", False),
+        }
+
     def session_clips(self):
         return [
-            {
-                "reference": clip["reference"],
-                "trackReference": track["reference"],
-                "trackIndex": track_index,
-                "sceneIndex": scene_index,
-                "name": clip["name"],
-                "kind": clip["kind"],
-                "length": clip["length"],
-                "noteCount": (
-                    len(clip.get("notes", []))
-                    if clip["kind"] == "midi"
-                    else None
-                ),
-            }
+            self.session_clip_summary(track_index, scene_index, clip)
             for track_index, track in enumerate(self.tracks)
             for scene_index, clip in enumerate(track["clips"])
             if clip is not None
@@ -146,6 +157,10 @@ def handle(request, token, state):
                     "tracks.set_mixer": True,
                     "clips.create_midi": True,
                     "clips.replace_notes": True,
+                    "clips.launch": True,
+                    "clips.duplicate": True,
+                    "clips.delete": True,
+                    "clips.set_properties": True,
                     "arrangement.create_midi_clip": True,
                     "arrangement.inspect": True,
                     "arrangement.delete_clip": True,
@@ -232,6 +247,7 @@ def handle(request, token, state):
             "pan": 0.0,
             "clips": [None, None],
             "arrangementClips": [],
+            "playingSceneIndex": None,
         }
         state.tracks.append(track)
         return response(
@@ -387,6 +403,10 @@ def handle(request, token, state):
                 "kind": "midi",
                 "length": params.get("length"),
                 "notes": [],
+                "muted": False,
+                "looping": True,
+                "isPlaying": False,
+                "isTriggered": False,
             }
             track["clips"][scene_index] = clip
             return response(
@@ -442,6 +462,206 @@ def handle(request, token, state):
                 },
                 "beforeNoteCount": before_count,
                 "afterNoteCount": len(clip["notes"]),
+                "verified": True,
+            },
+        )
+    if command in (
+        "clips.launch",
+        "clips.duplicate",
+        "clips.delete",
+        "clips.set_properties",
+    ):
+        index = params.get("index")
+        scene_index = params.get("sceneIndex")
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or index < 0
+            or index >= len(state.tracks)
+            or isinstance(scene_index, bool)
+            or not isinstance(scene_index, int)
+            or scene_index < 0
+            or scene_index >= 2
+        ):
+            return failure(request, "not_found", "Track or scene is out of range")
+        track = state.tracks[index]
+        if (
+            track["reference"] != params.get("expectedReference")
+            or track["name"] != params.get("expectedName")
+        ):
+            return failure(
+                request,
+                "stale_reference",
+                "Track identity changed before mutation",
+            )
+        source = track["clips"][scene_index]
+        if source is None:
+            return failure(request, "not_found", "Clip slot is empty")
+        if source["reference"] != params.get("expectedClipReference"):
+            return failure(
+                request,
+                "stale_reference",
+                "Clip identity changed before mutation",
+            )
+        if command == "clips.launch":
+            previous_scene_index = track["playingSceneIndex"]
+            previous = (
+                track["clips"][previous_scene_index]
+                if previous_scene_index is not None
+                else None
+            )
+            before = {
+                "trackPlayingSceneIndex": previous_scene_index,
+                "trackPlayingClipReference": (
+                    previous["reference"] if previous is not None else None
+                ),
+                "targetIsPlaying": source["isPlaying"],
+                "targetIsTriggered": source["isTriggered"],
+            }
+            if source["isPlaying"] or source["isTriggered"]:
+                return response(
+                    request,
+                    {
+                        "clip": state.session_clip_summary(
+                            index, scene_index, source
+                        ),
+                        "before": before,
+                        "after": before,
+                        "verified": True,
+                    },
+                )
+            source["isPlaying"] = False
+            source["isTriggered"] = True
+            after = {
+                "trackPlayingSceneIndex": previous_scene_index,
+                "trackPlayingClipReference": (
+                    previous["reference"] if previous is not None else None
+                ),
+                "targetIsPlaying": False,
+                "targetIsTriggered": True,
+            }
+            return response(
+                request,
+                {
+                    "clip": state.session_clip_summary(
+                        index, scene_index, source
+                    ),
+                    "before": before,
+                    "after": after,
+                    "verified": True,
+                },
+            )
+        if command == "clips.duplicate":
+            destination_index = params.get("destinationTrackIndex")
+            destination_scene_index = params.get("destinationSceneIndex")
+            if (
+                isinstance(destination_index, bool)
+                or not isinstance(destination_index, int)
+                or destination_index < 0
+                or destination_index >= len(state.tracks)
+                or isinstance(destination_scene_index, bool)
+                or not isinstance(destination_scene_index, int)
+                or destination_scene_index < 0
+                or destination_scene_index >= 2
+            ):
+                return failure(
+                    request,
+                    "not_found",
+                    "Destination track or scene is out of range",
+                )
+            destination_track = state.tracks[destination_index]
+            if (
+                destination_track["reference"]
+                != params.get("expectedDestinationTrackReference")
+                or destination_track["name"]
+                != params.get("expectedDestinationTrackName")
+            ):
+                return failure(
+                    request,
+                    "stale_reference",
+                    "Destination track identity changed before duplication",
+                )
+            if destination_track["clips"][destination_scene_index] is not None:
+                return failure(
+                    request, "conflict", "Destination clip slot is occupied"
+                )
+            duplicated = dict(source)
+            duplicated["reference"] = str(uuid.uuid4())
+            duplicated["notes"] = list(source.get("notes", []))
+            duplicated["isPlaying"] = False
+            duplicated["isTriggered"] = False
+            destination_track["clips"][destination_scene_index] = duplicated
+            return response(
+                request,
+                {
+                    "sourceClip": state.session_clip_summary(
+                        index, scene_index, source
+                    ),
+                    "clip": state.session_clip_summary(
+                        destination_index,
+                        destination_scene_index,
+                        duplicated,
+                    ),
+                    "verified": True,
+                },
+            )
+        if command == "clips.delete":
+            before_count = len(
+                [clip for clip in track["clips"] if clip is not None]
+            )
+            summary = state.session_clip_summary(index, scene_index, source)
+            track["clips"][scene_index] = None
+            if track["playingSceneIndex"] == scene_index:
+                track["playingSceneIndex"] = None
+            return response(
+                request,
+                {
+                    "clip": summary,
+                    "beforeClipCount": before_count,
+                    "afterClipCount": before_count - 1,
+                    "verified": True,
+                },
+            )
+        updates = {
+            key: params[key]
+            for key in ("name", "muted", "looping")
+            if key in params
+        }
+        if not updates:
+            return failure(
+                request,
+                "invalid_params",
+                "At least one clip property is required",
+            )
+        if "name" in updates:
+            if (
+                not isinstance(updates["name"], str)
+                or not updates["name"].strip()
+                or len(updates["name"]) > 128
+            ):
+                return failure(
+                    request,
+                    "invalid_params",
+                    "name must be a non-empty string",
+                )
+            updates["name"] = updates["name"].strip()
+        if "muted" in updates and not isinstance(updates["muted"], bool):
+            return failure(request, "invalid_params", "muted must be a boolean")
+        if "looping" in updates and not isinstance(updates["looping"], bool):
+            return failure(request, "invalid_params", "looping must be a boolean")
+        before = {
+            key: source.get(key) for key in ("name", "muted", "looping")
+        }
+        source.update(updates)
+        after = {
+            key: source.get(key) for key in ("name", "muted", "looping")
+        }
+        return response(
+            request,
+            {
+                "clip": state.session_clip_summary(index, scene_index, source),
+                "before": before,
+                "after": after,
                 "verified": True,
             },
         )

@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   duplicateClipToArrangementParamsSchema,
+  duplicateSessionClipParamsSchema,
+  launchSessionClipParamsSchema,
   setArrangementClipPropertiesParamsSchema,
+  setSessionClipPropertiesParamsSchema,
 } from "./schemas.js";
 
 const identity = {
@@ -21,6 +24,57 @@ describe("Arrangement operation schemas", () => {
         destinationTime: 16,
       }),
     ).toMatchObject({ sceneIndex: 1, destinationTime: 16 });
+  });
+
+  describe("Session clip operation schemas", () => {
+    const clipTarget = {
+      ...identity,
+      sceneIndex: 0,
+      expectedClipReference: "00000000-0000-4000-8000-000000000010",
+    };
+
+    it("requires exact track and clip references for launch", () => {
+      expect(launchSessionClipParamsSchema.parse(clipTarget)).toEqual(
+        clipTarget,
+      );
+      expect(
+        launchSessionClipParamsSchema.safeParse({
+          ...clipTarget,
+          expectedClipReference: undefined,
+        }).success,
+      ).toBe(false);
+    });
+
+    it("requires an exact destination track for duplication", () => {
+      expect(
+        duplicateSessionClipParamsSchema.parse({
+          ...clipTarget,
+          destinationTrackIndex: 1,
+          expectedDestinationTrackReference:
+            "00000000-0000-4000-8000-000000000002",
+          expectedDestinationTrackName: "Audio",
+          destinationSceneIndex: 1,
+        }),
+      ).toMatchObject({
+        destinationTrackIndex: 1,
+        expectedDestinationTrackName: "Audio",
+        destinationSceneIndex: 1,
+      });
+    });
+
+    it("requires at least one conservative Session clip property", () => {
+      expect(
+        setSessionClipPropertiesParamsSchema.safeParse(clipTarget).success,
+      ).toBe(false);
+      expect(
+        setSessionClipPropertiesParamsSchema.parse({
+          ...clipTarget,
+          name: "Verse",
+          muted: true,
+          looping: false,
+        }),
+      ).toMatchObject({ name: "Verse", muted: true, looping: false });
+    });
   });
 
   it("requires at least one conservative Arrangement clip property", () => {

@@ -143,6 +143,104 @@ function services() {
           verified: true as const,
         }),
     ),
+    launchSessionClip: vi.fn(
+      (params: Parameters<AbletonToolServices["launchSessionClip"]>[0]) =>
+        Promise.resolve({
+          clip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            sceneIndex: params.sceneIndex,
+            name: "Beat",
+            kind: "midi" as const,
+            length: 4,
+            noteCount: 1,
+            isPlaying: true,
+            isTriggered: false,
+          },
+          before: {
+            trackPlayingSceneIndex: null,
+            trackPlayingClipReference: null,
+            targetIsPlaying: false,
+            targetIsTriggered: false,
+          },
+          after: {
+            trackPlayingSceneIndex: params.sceneIndex,
+            trackPlayingClipReference: params.expectedClipReference,
+            targetIsPlaying: true,
+            targetIsTriggered: false,
+          },
+          verified: true as const,
+        }),
+    ),
+    duplicateSessionClip: vi.fn(
+      (params: Parameters<AbletonToolServices["duplicateSessionClip"]>[0]) =>
+        Promise.resolve({
+          sourceClip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            sceneIndex: params.sceneIndex,
+            name: "Beat",
+            kind: "midi" as const,
+            length: 4,
+            noteCount: 1,
+          },
+          clip: {
+            reference: "00000000-0000-4000-8000-000000000011",
+            trackReference: params.expectedDestinationTrackReference,
+            trackIndex: params.destinationTrackIndex,
+            sceneIndex: params.destinationSceneIndex,
+            name: "Beat",
+            kind: "midi" as const,
+            length: 4,
+            noteCount: 1,
+          },
+          verified: true as const,
+        }),
+    ),
+    deleteSessionClip: vi.fn(
+      (params: Parameters<AbletonToolServices["deleteSessionClip"]>[0]) =>
+        Promise.resolve({
+          clip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            sceneIndex: params.sceneIndex,
+            name: "Beat",
+            kind: "midi" as const,
+            length: 4,
+            noteCount: 1,
+          },
+          beforeClipCount: 2,
+          afterClipCount: 1,
+          verified: true as const,
+        }),
+    ),
+    setSessionClipProperties: vi.fn(
+      (
+        params: Parameters<AbletonToolServices["setSessionClipProperties"]>[0],
+      ) =>
+        Promise.resolve({
+          clip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            sceneIndex: params.sceneIndex,
+            name: params.name ?? "Beat",
+            kind: "midi" as const,
+            length: 4,
+            noteCount: 1,
+          },
+          before: { name: "Beat", muted: false, looping: true },
+          after: {
+            name: params.name ?? "Beat",
+            muted: params.muted ?? false,
+            looping: params.looping ?? true,
+          },
+          verified: true as const,
+        }),
+    ),
     createArrangementMidiClip: vi.fn(
       (
         params: Parameters<AbletonToolServices["createArrangementMidiClip"]>[0],
@@ -294,6 +392,10 @@ describe("Ableton tools", () => {
       "custom:ableton_tracks_set_mixer",
       "custom:ableton_clips_create_midi",
       "custom:ableton_clips_replace_notes",
+      "custom:ableton_clips_launch",
+      "custom:ableton_clips_duplicate",
+      "custom:ableton_clips_delete",
+      "custom:ableton_clips_set_properties",
       "custom:ableton_arrangement_create_midi_clip",
       "custom:ableton_arrangement_inspect",
       "custom:ableton_arrangement_delete_clip",
@@ -312,6 +414,10 @@ describe("Ableton tools", () => {
       "reversible",
       "reversible",
       "destructive",
+      "reversible",
+      "reversible",
+      "destructive",
+      "reversible",
       "reversible",
       "read",
       "destructive",
@@ -403,14 +509,61 @@ describe("Ableton tools", () => {
         index: 0,
         expectedReference: "00000000-0000-4000-8000-000000000001",
         expectedName: "Drums",
+        sceneIndex: 0,
+        expectedClipReference: "00000000-0000-4000-8000-000000000010",
+      },
+      invocation,
+    );
+    await toolSet.tools[11].handler?.(
+      {
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Drums",
+        sceneIndex: 0,
+        expectedClipReference: "00000000-0000-4000-8000-000000000010",
+        destinationTrackIndex: 1,
+        expectedDestinationTrackReference:
+          "00000000-0000-4000-8000-000000000002",
+        expectedDestinationTrackName: "Bass",
+        destinationSceneIndex: 1,
+      },
+      invocation,
+    );
+    await toolSet.tools[12].handler?.(
+      {
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Drums",
+        sceneIndex: 0,
+        expectedClipReference: "00000000-0000-4000-8000-000000000010",
+      },
+      invocation,
+    );
+    await toolSet.tools[13].handler?.(
+      {
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Drums",
+        sceneIndex: 0,
+        expectedClipReference: "00000000-0000-4000-8000-000000000010",
+        name: "Beat Updated",
+        muted: true,
+      },
+      invocation,
+    );
+    await toolSet.tools[14].handler?.(
+      {
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Drums",
         startTime: 8,
         length: 4,
         name: "Verse",
       },
       invocation,
     );
-    await toolSet.tools[11].handler?.({ offset: 0, limit: 10 }, invocation);
-    await toolSet.tools[12].handler?.(
+    await toolSet.tools[15].handler?.({ offset: 0, limit: 10 }, invocation);
+    await toolSet.tools[16].handler?.(
       {
         index: 0,
         expectedReference: "00000000-0000-4000-8000-000000000001",
@@ -420,7 +573,7 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
-    await toolSet.tools[13].handler?.(
+    await toolSet.tools[17].handler?.(
       {
         index: 0,
         expectedReference: "00000000-0000-4000-8000-000000000001",
@@ -440,7 +593,7 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
-    await toolSet.tools[14].handler?.(
+    await toolSet.tools[18].handler?.(
       {
         index: 0,
         expectedReference: "00000000-0000-4000-8000-000000000001",
@@ -451,7 +604,7 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
-    await toolSet.tools[15].handler?.(
+    await toolSet.tools[19].handler?.(
       {
         index: 0,
         expectedReference: "00000000-0000-4000-8000-000000000001",
@@ -516,6 +669,40 @@ describe("Ableton tools", () => {
           mute: false,
         },
       ],
+    });
+    expect(ports.launchSessionClip).toHaveBeenCalledWith({
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000001",
+      expectedName: "Drums",
+      sceneIndex: 0,
+      expectedClipReference: "00000000-0000-4000-8000-000000000010",
+    });
+    expect(ports.duplicateSessionClip).toHaveBeenCalledWith({
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000001",
+      expectedName: "Drums",
+      sceneIndex: 0,
+      expectedClipReference: "00000000-0000-4000-8000-000000000010",
+      destinationTrackIndex: 1,
+      expectedDestinationTrackReference: "00000000-0000-4000-8000-000000000002",
+      expectedDestinationTrackName: "Bass",
+      destinationSceneIndex: 1,
+    });
+    expect(ports.deleteSessionClip).toHaveBeenCalledWith({
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000001",
+      expectedName: "Drums",
+      sceneIndex: 0,
+      expectedClipReference: "00000000-0000-4000-8000-000000000010",
+    });
+    expect(ports.setSessionClipProperties).toHaveBeenCalledWith({
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000001",
+      expectedName: "Drums",
+      sceneIndex: 0,
+      expectedClipReference: "00000000-0000-4000-8000-000000000010",
+      name: "Beat Updated",
+      muted: true,
     });
     expect(ports.createArrangementMidiClip).toHaveBeenCalledWith({
       index: 0,

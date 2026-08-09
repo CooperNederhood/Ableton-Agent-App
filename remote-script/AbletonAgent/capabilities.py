@@ -63,6 +63,39 @@ def build_capability_document(
     for name, supported in arrangement_support.items():
         if name in capabilities:
             capabilities[name] = supported
+    session_clip_support = {
+        "clips.launch": any(
+            hasattr(track, "playing_slot_index")
+            and any(
+                hasattr(slot, "fire")
+                for slot in getattr(track, "clip_slots", [])
+            )
+            for track in tracks
+        ),
+        "clips.duplicate": any(
+            any(
+                hasattr(slot, "duplicate_clip_to")
+                for slot in getattr(track, "clip_slots", [])
+            )
+            and any(
+                hasattr(slot, "delete_clip")
+                for slot in getattr(track, "clip_slots", [])
+            )
+            for track in tracks
+        ),
+        "clips.delete": any(
+            any(
+                hasattr(slot, "delete_clip")
+                for slot in getattr(track, "clip_slots", [])
+            )
+            for track in tracks
+        ),
+        "clips.set_properties": not tracks
+        or any(bool(getattr(track, "clip_slots", [])) for track in tracks),
+    }
+    for name, supported in session_clip_support.items():
+        if name in capabilities:
+            capabilities[name] = supported
     if "clips.replace_notes" in capabilities:
         capabilities["clips.replace_notes"] = note_editing_supported
     return {

@@ -178,6 +178,18 @@ function application(
         verified: true as const,
       }),
     ),
+    launchSessionClip: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    duplicateSessionClip: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    deleteSessionClip: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    setSessionClipProperties: vi.fn(async () => {
+      throw new Error("not used");
+    }),
     createArrangementMidiClip: vi.fn(
       async (
         params: Parameters<AbletonService["createArrangementMidiClip"]>[0],

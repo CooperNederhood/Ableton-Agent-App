@@ -9,6 +9,8 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 - [ ] Define `system.hello`, authentication, capability, ping, and event schemas.
 - [x] Define the complete stable error-code union.
 - [ ] Define command-specific request/result schemas.
+  - [x] Define exact-reference Session clip launch, duplication, deletion, and
+    conservative property request/result schemas.
 - [ ] Export JSON Schema and representative fixtures for Python tests.
 
 ## Framing and negotiation

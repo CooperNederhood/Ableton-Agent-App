@@ -28,7 +28,10 @@ Companion specification: [Tool Design](tool-design.md)
 - [~] Implement session clip and note operations.
   - [x] Implement approved MIDI clip creation in empty slots.
   - [x] Implement destructive bounded MIDI note replacement.
-  - [ ] Implement clip launch, duplication, deletion, properties, and audio clips.
+  - [x] Implement exact-reference clip launch, empty-slot duplication,
+    destructive deletion, and conservative properties for existing MIDI and
+    audio clips. Audio creation and file loading remain out of scope until
+    separately capability-gated.
 - [~] Implement arrangement placement and property operations.
   - [x] Implement approved non-overlapping MIDI clip placement.
   - [x] Implement bounded Arrangement inspection.

@@ -20,10 +20,14 @@ import type {
   DeleteArrangementClipResult,
   DuplicateClipToArrangementParams,
   DuplicateClipToArrangementResult,
+  DuplicateSessionClipParams,
+  DuplicateSessionClipResult,
   CreateMidiClipParams,
   CreateMidiClipResult,
   CreateTrackParams,
   DeleteTrackParams,
+  DeleteSessionClipParams,
+  DeleteSessionClipResult,
   RenameTrackParams,
   RenameTrackResult,
   ReplaceMidiNotesParams,
@@ -32,9 +36,13 @@ import type {
   ReplaceArrangementMidiNotesResult,
   SetArrangementClipPropertiesParams,
   SetArrangementClipPropertiesResult,
+  SetSessionClipPropertiesParams,
+  SetSessionClipPropertiesResult,
   PingResult,
   InspectArrangementParams,
   InspectArrangementResult,
+  LaunchSessionClipParams,
+  LaunchSessionClipResult,
   SessionSnapshot,
   SetPlayingResult,
   SetTempoResult,
@@ -128,6 +136,18 @@ class UnconfiguredAbletonService implements AbletonService {
   public async replaceMidiNotes(): Promise<ReplaceMidiNotesResult> {
     throw new Error("Ableton bridge is not configured");
   }
+  public async launchSessionClip(): Promise<LaunchSessionClipResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async duplicateSessionClip(): Promise<DuplicateSessionClipResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async deleteSessionClip(): Promise<DeleteSessionClipResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async setSessionClipProperties(): Promise<SetSessionClipPropertiesResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
   public async createArrangementMidiClip(): Promise<CreateArrangementMidiClipResult> {
     throw new Error("Ableton bridge is not configured");
   }
@@ -202,6 +222,14 @@ async function main(): Promise<number> {
         ableton.createMidiClip(params),
       replaceMidiNotes: (params: ReplaceMidiNotesParams) =>
         ableton.replaceMidiNotes(params),
+      launchSessionClip: (params: LaunchSessionClipParams) =>
+        ableton.launchSessionClip(params),
+      duplicateSessionClip: (params: DuplicateSessionClipParams) =>
+        ableton.duplicateSessionClip(params),
+      deleteSessionClip: (params: DeleteSessionClipParams) =>
+        ableton.deleteSessionClip(params),
+      setSessionClipProperties: (params: SetSessionClipPropertiesParams) =>
+        ableton.setSessionClipProperties(params),
       createArrangementMidiClip: (params: CreateArrangementMidiClipParams) =>
         ableton.createArrangementMidiClip(params),
       inspectArrangement: (params: InspectArrangementParams) =>

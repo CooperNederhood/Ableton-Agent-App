@@ -65,6 +65,10 @@ describe("AbletonBridgeService", () => {
         "tracks.set_mixer": true,
         "clips.create_midi": true,
         "clips.replace_notes": true,
+        "clips.launch": true,
+        "clips.duplicate": true,
+        "clips.delete": true,
+        "clips.set_properties": true,
         "arrangement.create_midi_clip": true,
         "arrangement.duplicate_clip": true,
         "arrangement.set_clip_properties": true,
@@ -213,6 +217,93 @@ describe("AbletonBridgeService", () => {
         notes: [],
       }),
     ).rejects.toMatchObject({ code: "conflict", retryable: false });
+    await expect(
+      service.launchSessionClip({
+        index: 0,
+        expectedReference: drums?.reference ?? "",
+        expectedName: "Main Drums",
+        sceneIndex: 0,
+        expectedClipReference: createdClip.clip.reference,
+      }),
+    ).resolves.toMatchObject({
+      clip: {
+        reference: createdClip.clip.reference,
+        isPlaying: false,
+        isTriggered: true,
+      },
+      before: { targetIsPlaying: false, targetIsTriggered: false },
+      after: {
+        trackPlayingSceneIndex: null,
+        targetIsPlaying: false,
+        targetIsTriggered: true,
+      },
+      verified: true,
+    });
+    const sessionDuplicate = await service.duplicateSessionClip({
+      index: 0,
+      expectedReference: drums?.reference ?? "",
+      expectedName: "Main Drums",
+      sceneIndex: 0,
+      expectedClipReference: createdClip.clip.reference,
+      destinationTrackIndex: 0,
+      expectedDestinationTrackReference: drums?.reference ?? "",
+      expectedDestinationTrackName: "Main Drums",
+      destinationSceneIndex: 1,
+    });
+    expect(sessionDuplicate).toMatchObject({
+      sourceClip: { reference: createdClip.clip.reference, noteCount: 1 },
+      clip: {
+        trackReference: drums?.reference,
+        sceneIndex: 1,
+        name: "Beat",
+        noteCount: 1,
+      },
+      verified: true,
+    });
+    await expect(
+      service.setSessionClipProperties({
+        index: 0,
+        expectedReference: drums?.reference ?? "",
+        expectedName: "Main Drums",
+        sceneIndex: 1,
+        expectedClipReference: sessionDuplicate.clip.reference,
+        name: "Beat Copy",
+        muted: true,
+        looping: false,
+      }),
+    ).resolves.toMatchObject({
+      before: { name: "Beat", muted: false, looping: true },
+      after: { name: "Beat Copy", muted: true, looping: false },
+      clip: { name: "Beat Copy", muted: true, looping: false },
+      verified: true,
+    });
+    await expect(
+      service.duplicateSessionClip({
+        index: 0,
+        expectedReference: drums?.reference ?? "",
+        expectedName: "Main Drums",
+        sceneIndex: 0,
+        expectedClipReference: createdClip.clip.reference,
+        destinationTrackIndex: 0,
+        expectedDestinationTrackReference: drums?.reference ?? "",
+        expectedDestinationTrackName: "Main Drums",
+        destinationSceneIndex: 1,
+      }),
+    ).rejects.toMatchObject({ code: "conflict", retryable: false });
+    await expect(
+      service.deleteSessionClip({
+        index: 0,
+        expectedReference: drums?.reference ?? "",
+        expectedName: "Main Drums",
+        sceneIndex: 1,
+        expectedClipReference: sessionDuplicate.clip.reference,
+      }),
+    ).resolves.toMatchObject({
+      clip: { reference: sessionDuplicate.clip.reference },
+      beforeClipCount: 2,
+      afterClipCount: 1,
+      verified: true,
+    });
     await expect(
       service.createArrangementMidiClip({
         index: 0,

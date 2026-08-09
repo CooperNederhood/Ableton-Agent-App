@@ -109,6 +109,14 @@ def _session_view_clip_summary(
         "kind": "midi" if is_midi else "audio",
         "length": clip.length,
         "noteCount": note_count,
+        "muted": (
+            bool(clip.muted) if hasattr(clip, "muted") else None
+        ),
+        "looping": (
+            bool(clip.looping) if hasattr(clip, "looping") else None
+        ),
+        "isPlaying": bool(getattr(clip, "is_playing", False)),
+        "isTriggered": bool(getattr(clip, "is_triggered", False)),
     }
 
 
@@ -861,6 +869,488 @@ def replace_midi_notes(context, params):
     )
 
 
+def _session_clip_target_params(params, extra_keys=None):
+    extras = ["sceneIndex", "expectedClipReference"] + list(
+        extra_keys or []
+    )
+    error = _validate_track_target(params, extras)
+    if error:
+        return error
+    scene_index = params.get("sceneIndex")
+    if (
+        isinstance(scene_index, bool)
+        or not isinstance(scene_index, int)
+        or scene_index < 0
+    ):
+        return "sceneIndex must be a non-negative integer"
+    try:
+        uuid.UUID(params.get("expectedClipReference"))
+    except (AttributeError, TypeError, ValueError):
+        return "expectedClipReference must be a UUID"
+    return None
+
+
+def _resolve_session_clip(context, track, params, operation):
+    scene_index = params["sceneIndex"]
+    if scene_index >= len(track.clip_slots):
+        raise ProtocolFailure("not_found", "Scene index is out of range")
+    slot = track.clip_slots[scene_index]
+    if not slot.has_clip:
+        raise ProtocolFailure("not_found", "Clip slot is empty")
+    clip = slot.clip
+    if _clip_reference(context, clip) != params["expectedClipReference"]:
+        raise ProtocolFailure(
+            "stale_reference",
+            "Clip identity changed before {0}".format(operation),
+        )
+    return slot, clip
+
+
+def _session_clip_properties(clip):
+    return {
+        "name": clip.name,
+        "muted": (
+            bool(clip.muted) if hasattr(clip, "muted") else None
+        ),
+        "looping": (
+            bool(clip.looping) if hasattr(clip, "looping") else None
+        ),
+    }
+
+
+def _session_clip_launch_state(context, track, target):
+    if not hasattr(track, "playing_slot_index"):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "This Live version does not expose Session playback state",
+        )
+    playing_scene_index = track.playing_slot_index
+    playing_reference = None
+    if (
+        isinstance(playing_scene_index, int)
+        and playing_scene_index >= 0
+        and playing_scene_index < len(track.clip_slots)
+        and track.clip_slots[playing_scene_index].has_clip
+    ):
+        playing_reference = _clip_reference(
+            context, track.clip_slots[playing_scene_index].clip
+        )
+    else:
+        playing_scene_index = None
+    return {
+        "trackPlayingSceneIndex": playing_scene_index,
+        "trackPlayingClipReference": playing_reference,
+        "targetIsPlaying": bool(getattr(target, "is_playing", False)),
+        "targetIsTriggered": bool(getattr(target, "is_triggered", False)),
+    }
+
+
+def _launch_session_clip_params(params):
+    return _session_clip_target_params(params)
+
+
+def launch_session_clip(context, params):
+    track = _resolve_track(context, params)
+    slot, target = _resolve_session_clip(
+        context, track, params, "launch"
+    )
+    if not hasattr(slot, "fire") or not hasattr(slot, "stop"):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "This Live version does not support safe Session clip launch",
+        )
+    if not hasattr(track, "playing_slot_index"):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "This Live version does not expose Session playback state",
+        )
+    if track.playing_slot_index == -2:
+        raise ProtocolFailure(
+            "conflict",
+            "Cannot safely launch while this track is playing Arrangement content",
+        )
+    triggered = [
+        index
+        for index, candidate in enumerate(track.clip_slots)
+        if candidate.has_clip
+        and bool(getattr(candidate.clip, "is_triggered", False))
+    ]
+    if triggered and triggered != [params["sceneIndex"]]:
+        raise ProtocolFailure(
+            "conflict",
+            "Cannot safely replace a pending Session clip launch",
+        )
+    before = _session_clip_launch_state(context, track, target)
+    if before["targetIsPlaying"] or before["targetIsTriggered"]:
+        return {
+            "clip": _session_view_clip_summary(
+                context,
+                track,
+                params["index"],
+                params["sceneIndex"],
+                target,
+            ),
+            "before": before,
+            "after": before,
+            "verified": True,
+        }
+    previous_scene_index = before["trackPlayingSceneIndex"]
+    try:
+        slot.fire()
+        after = _session_clip_launch_state(context, track, target)
+        if not (after["targetIsPlaying"] or after["targetIsTriggered"]):
+            raise ProtocolFailure(
+                "conflict",
+                "Session clip launch completed but verification failed",
+            )
+        result = {
+            "clip": _session_view_clip_summary(
+                context,
+                track,
+                params["index"],
+                params["sceneIndex"],
+                target,
+            ),
+            "before": before,
+            "after": after,
+            "verified": True,
+        }
+    except Exception as exc:
+        try:
+            if (
+                before["targetIsPlaying"]
+                or before["targetIsTriggered"]
+            ):
+                pass
+            elif previous_scene_index is not None:
+                previous_slot = track.clip_slots[previous_scene_index]
+                previous_slot.fire()
+                previous_clip = previous_slot.clip
+                if not (
+                    bool(getattr(previous_clip, "is_playing", False))
+                    or bool(getattr(previous_clip, "is_triggered", False))
+                ):
+                    raise RuntimeError(
+                        "previous Session clip did not resume"
+                    )
+                if bool(getattr(target, "is_playing", False)) or bool(
+                    getattr(target, "is_triggered", False)
+                ):
+                    raise RuntimeError(
+                        "failed Session launch remained active"
+                    )
+            else:
+                slot.stop()
+                if bool(getattr(target, "is_playing", False)) or bool(
+                    getattr(target, "is_triggered", False)
+                ):
+                    raise RuntimeError("launched Session clip did not stop")
+        except Exception as recovery_exc:
+            raise ProtocolFailure(
+                "lom_error",
+                "Session clip launch and recovery both failed",
+                details={
+                    "operationError": str(exc),
+                    "recoveryError": str(recovery_exc),
+                },
+            )
+        if isinstance(exc, ProtocolFailure):
+            raise exc
+        raise ProtocolFailure(
+            "lom_error",
+            "Session clip launch failed; prior playback was restored",
+            details={"operationError": str(exc)},
+        )
+    return result
+
+
+def _duplicate_session_clip_params(params):
+    error = _session_clip_target_params(
+        params,
+        [
+            "destinationTrackIndex",
+            "expectedDestinationTrackReference",
+            "expectedDestinationTrackName",
+            "destinationSceneIndex",
+        ],
+    )
+    if error:
+        return error
+    destination_index = params.get("destinationTrackIndex")
+    destination_scene_index = params.get("destinationSceneIndex")
+    if (
+        isinstance(destination_index, bool)
+        or not isinstance(destination_index, int)
+        or destination_index < 0
+    ):
+        return "destinationTrackIndex must be a non-negative integer"
+    if (
+        isinstance(destination_scene_index, bool)
+        or not isinstance(destination_scene_index, int)
+        or destination_scene_index < 0
+    ):
+        return "destinationSceneIndex must be a non-negative integer"
+    try:
+        uuid.UUID(params.get("expectedDestinationTrackReference"))
+    except (AttributeError, TypeError, ValueError):
+        return "expectedDestinationTrackReference must be a UUID"
+    destination_name = params.get("expectedDestinationTrackName")
+    if not isinstance(destination_name, str) or not destination_name:
+        return "expectedDestinationTrackName must be a non-empty string"
+    return None
+
+
+def duplicate_session_clip(context, params):
+    source_track = _resolve_track(context, params)
+    source_slot, source = _resolve_session_clip(
+        context, source_track, params, "duplication"
+    )
+    destination_track = _resolve_track(
+        context,
+        {
+            "index": params["destinationTrackIndex"],
+            "expectedReference": params[
+                "expectedDestinationTrackReference"
+            ],
+            "expectedName": params["expectedDestinationTrackName"],
+        },
+    )
+    destination_scene_index = params["destinationSceneIndex"]
+    if destination_scene_index >= len(destination_track.clip_slots):
+        raise ProtocolFailure(
+            "not_found", "Destination scene index is out of range"
+        )
+    destination_slot = destination_track.clip_slots[
+        destination_scene_index
+    ]
+    if destination_slot.has_clip:
+        raise ProtocolFailure(
+            "conflict", "Destination clip slot is already occupied"
+        )
+    if not hasattr(source_slot, "duplicate_clip_to") or not hasattr(
+        destination_slot, "delete_clip"
+    ):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "This Live version does not support safe Session clip duplication",
+        )
+    try:
+        source_slot.duplicate_clip_to(destination_slot)
+        if not destination_slot.has_clip:
+            raise ProtocolFailure(
+                "conflict",
+                "Session clip duplication completed but destination is empty",
+            )
+        duplicated = destination_slot.clip
+        if (
+            source_slot.clip is not source
+            or _clip_reference(context, source)
+            != params["expectedClipReference"]
+            or duplicated is source
+            or bool(getattr(duplicated, "is_midi_clip", False))
+            != bool(getattr(source, "is_midi_clip", False))
+            or abs(duplicated.length - source.length) >= 0.000001
+            or duplicated.name != source.name
+            or (
+                hasattr(source, "muted")
+                and hasattr(duplicated, "muted")
+                and bool(duplicated.muted) != bool(source.muted)
+            )
+            or (
+                hasattr(source, "looping")
+                and hasattr(duplicated, "looping")
+                and bool(duplicated.looping) != bool(source.looping)
+            )
+        ):
+            raise ProtocolFailure(
+                "conflict",
+                "Session clip duplication completed but verification failed",
+            )
+        result = {
+            "sourceClip": _session_view_clip_summary(
+                context,
+                source_track,
+                params["index"],
+                params["sceneIndex"],
+                source,
+            ),
+            "clip": _session_view_clip_summary(
+                context,
+                destination_track,
+                params["destinationTrackIndex"],
+                destination_scene_index,
+                duplicated,
+            ),
+            "verified": True,
+        }
+    except Exception as exc:
+        try:
+            if destination_slot.has_clip:
+                destination_slot.delete_clip()
+            if destination_slot.has_clip:
+                raise RuntimeError("destination clip remained present")
+        except Exception as recovery_exc:
+            raise ProtocolFailure(
+                "lom_error",
+                "Session clip duplication and recovery both failed",
+                details={
+                    "operationError": str(exc),
+                    "recoveryError": str(recovery_exc),
+                },
+            )
+        if isinstance(exc, ProtocolFailure):
+            raise exc
+        raise ProtocolFailure(
+            "lom_error",
+            "Session clip duplication failed; the destination was restored",
+            details={"operationError": str(exc)},
+        )
+    return result
+
+
+def _delete_session_clip_params(params):
+    return _session_clip_target_params(params)
+
+
+def delete_session_clip(context, params):
+    track = _resolve_track(context, params)
+    slot, target = _resolve_session_clip(
+        context, track, params, "deletion"
+    )
+    if not hasattr(slot, "delete_clip"):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "This Live version does not support Session clip deletion",
+        )
+    before_count = sum(
+        1 for candidate in track.clip_slots if candidate.has_clip
+    )
+    summary = _session_view_clip_summary(
+        context, track, params["index"], params["sceneIndex"], target
+    )
+    slot.delete_clip()
+    after_count = sum(
+        1 for candidate in track.clip_slots if candidate.has_clip
+    )
+    if slot.has_clip or after_count != before_count - 1:
+        raise ProtocolFailure(
+            "conflict",
+            "Session clip deletion completed but verification failed",
+            details={
+                "beforeClipCount": before_count,
+                "afterClipCount": after_count,
+            },
+        )
+    return {
+        "clip": summary,
+        "beforeClipCount": before_count,
+        "afterClipCount": after_count,
+        "verified": True,
+    }
+
+
+def _set_session_clip_properties_params(params):
+    error = _session_clip_target_params(
+        params, ["name", "muted", "looping"]
+    )
+    if error:
+        return error
+    if not any(key in params for key in ("name", "muted", "looping")):
+        return "At least one clip property is required"
+    name = params.get("name")
+    if "name" in params and (
+        not isinstance(name, str) or not name.strip() or len(name) > 128
+    ):
+        return "name must be a non-empty string of at most 128 characters"
+    if "muted" in params and not isinstance(params.get("muted"), bool):
+        return "muted must be a boolean"
+    if "looping" in params and not isinstance(params.get("looping"), bool):
+        return "looping must be a boolean"
+    return None
+
+
+def set_session_clip_properties(context, params):
+    track = _resolve_track(context, params)
+    slot, target = _resolve_session_clip(
+        context, track, params, "property update"
+    )
+    for key in ("name", "muted", "looping"):
+        if key in params and not hasattr(target, key):
+            raise ProtocolFailure(
+                "unsupported_capability",
+                "{0} is unsupported for this Session clip".format(key),
+            )
+    before = _session_clip_properties(target)
+    requested = []
+    if "name" in params:
+        requested.append(("name", params["name"].strip()))
+    if "muted" in params:
+        requested.append(("muted", params["muted"]))
+    if "looping" in params:
+        requested.append(("looping", params["looping"]))
+    applied = []
+    try:
+        for key, value in requested:
+            applied.append(key)
+            setattr(target, key, value)
+        after = _session_clip_properties(target)
+        if (
+            not slot.has_clip
+            or slot.clip is not target
+            or _clip_reference(context, target)
+            != params["expectedClipReference"]
+            or any(after[key] != value for key, value in requested)
+        ):
+            raise ProtocolFailure(
+                "conflict",
+                "Session clip property verification failed",
+            )
+        result = {
+            "clip": _session_view_clip_summary(
+                context,
+                track,
+                params["index"],
+                params["sceneIndex"],
+                target,
+            ),
+            "before": before,
+            "after": after,
+            "verified": True,
+        }
+    except Exception as exc:
+        try:
+            for key in reversed(applied):
+                setattr(target, key, before[key])
+            restored = _session_clip_properties(target)
+            if (
+                not slot.has_clip
+                or slot.clip is not target
+                or any(
+                    restored[key] != before[key] for key in applied
+                )
+            ):
+                raise RuntimeError(
+                    "Session clip properties were not restored"
+                )
+        except Exception as recovery_exc:
+            raise ProtocolFailure(
+                "lom_error",
+                "Session property update and recovery both failed",
+                details={
+                    "operationError": str(exc),
+                    "recoveryError": str(recovery_exc),
+                },
+            )
+        if isinstance(exc, ProtocolFailure):
+            raise exc
+        raise ProtocolFailure(
+            "lom_error",
+            "Session property update failed; prior values were restored",
+            details={"operationError": str(exc)},
+        )
+    return result
+
+
 def _create_arrangement_midi_clip_params(params):
     error = _validate_track_target(
         params, ["startTime", "length", "name"]
@@ -1522,6 +2012,34 @@ def register_system_commands(registry):
         mutates=True,
         capability="clips.replace_notes",
         validator=_replace_midi_notes_params,
+    )
+    registry.register(
+        "clips.launch",
+        launch_session_clip,
+        mutates=True,
+        capability="clips.launch",
+        validator=_launch_session_clip_params,
+    )
+    registry.register(
+        "clips.duplicate",
+        duplicate_session_clip,
+        mutates=True,
+        capability="clips.duplicate",
+        validator=_duplicate_session_clip_params,
+    )
+    registry.register(
+        "clips.delete",
+        delete_session_clip,
+        mutates=True,
+        capability="clips.delete",
+        validator=_delete_session_clip_params,
+    )
+    registry.register(
+        "clips.set_properties",
+        set_session_clip_properties,
+        mutates=True,
+        capability="clips.set_properties",
+        validator=_set_session_clip_properties_params,
     )
     registry.register(
         "arrangement.create_midi_clip",

@@ -42,6 +42,12 @@ Session composition supports guarded MIDI clip creation and destructive,
 reference-bound note replacement with bounded payloads, core-note recovery,
 and explicit opt-in for per-note expression loss. Session inspection includes
 identity-bound MIDI and audio clip summaries for safe follow-up operations.
+Existing Session MIDI and audio clips can be launched, duplicated into empty
+identity-bound slots, deleted, and conservatively updated for name, mute, and
+supported loop state. Launch, duplication, and property updates verify their
+postconditions and restore prior playback, destination occupancy, or property
+values where the Live Object Model permits; deletion is destructive. Audio
+clip creation and file loading are intentionally not implemented.
 Arrangement composition supports verified, non-overlapping empty MIDI clip
 placement with rollback on failed creation, bounded inspection, and destructive
 identity-bound clip deletion. Arrangement MIDI note replacement uses the same

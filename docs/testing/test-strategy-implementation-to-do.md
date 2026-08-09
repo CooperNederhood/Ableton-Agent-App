@@ -17,9 +17,15 @@ Companion specification: [Test Strategy](test-strategy.md)
 - [ ] Implement cross-language protocol contract test runner.
 - [ ] Implement bridge fault-injection tests.
 - [ ] Implement workflow fake-bridge tests.
+- [x] Cover Session clip identity guards, MIDI/audio duplication, launch
+  recovery, destructive deletion, property rollback, capability gates, and
+  simulator bridge parity.
 - [ ] Implement CLI transcript tests.
 - [ ] Implement Playwright Electron harness.
 - [ ] Create real-Live test project and manual runner.
+  - [ ] Record real-Live results for Session launch quantization and rollback,
+    MIDI/audio duplication compatibility, deletion, and mute/loop property
+    availability.
 
 ## CI
 

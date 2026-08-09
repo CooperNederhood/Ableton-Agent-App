@@ -32,7 +32,13 @@ Companion specification: [Remote Script](remote-script.md)
 - [~] Implement session clip and MIDI-note handlers.
   - [x] Create guarded MIDI clips in empty Session View slots.
   - [x] Replace bounded MIDI note sets with full-note verification and recovery.
-  - [ ] Implement clip launch, duplication, deletion, properties, and audio clips.
+  - [x] Launch exact Session clips with conservative playback recovery,
+    duplicate MIDI/audio clips into exact empty destinations with rollback,
+    delete exact clips with postcondition checks, and restore failed common
+    property updates.
+  - [ ] Validate launch quantization, cross-track duplication compatibility,
+    audio mute/loop properties, and rollback timing in supported real Live
+    versions.
 - [~] Implement arrangement handlers.
   - [x] Create non-overlapping MIDI clips with verified placement and rollback.
   - [x] Inspect Arrangement clips with bounded pagination.

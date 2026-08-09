@@ -153,11 +153,40 @@ function services() {
             trackReference: params.expectedReference,
             trackIndex: params.index,
             name: params.name ?? "",
+            kind: "midi" as const,
             startTime: params.startTime,
             endTime: params.startTime + params.length,
             length: params.length,
             noteCount: 0,
           },
+          verified: true as const,
+        }),
+    ),
+    inspectArrangement: vi.fn(
+      (params: Parameters<AbletonToolServices["inspectArrangement"]>[0]) =>
+        Promise.resolve({
+          clips: [],
+          total: 0,
+          offset: params.offset,
+          limit: params.limit,
+        }),
+    ),
+    deleteArrangementClip: vi.fn(
+      (params: Parameters<AbletonToolServices["deleteArrangementClip"]>[0]) =>
+        Promise.resolve({
+          clip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            name: "Verse",
+            kind: "midi" as const,
+            startTime: params.expectedStartTime,
+            endTime: params.expectedStartTime + 4,
+            length: 4,
+            noteCount: 0,
+          },
+          beforeClipCount: 1,
+          afterClipCount: 0,
           verified: true as const,
         }),
     ),
@@ -183,6 +212,8 @@ describe("Ableton tools", () => {
       "custom:ableton_clips_create_midi",
       "custom:ableton_clips_replace_notes",
       "custom:ableton_arrangement_create_midi_clip",
+      "custom:ableton_arrangement_inspect",
+      "custom:ableton_arrangement_delete_clip",
     ]);
     expect(abletonToolMetadata.map((metadata) => metadata.risk)).toEqual([
       "read",
@@ -196,6 +227,8 @@ describe("Ableton tools", () => {
       "reversible",
       "destructive",
       "reversible",
+      "read",
+      "destructive",
     ]);
   });
 
@@ -287,6 +320,17 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
+    await toolSet.tools[11].handler?.({ offset: 0, limit: 10 }, invocation);
+    await toolSet.tools[12].handler?.(
+      {
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Drums",
+        expectedClipReference: "00000000-0000-4000-8000-000000000020",
+        expectedStartTime: 8,
+      },
+      invocation,
+    );
 
     expect(ports.getConnectionStatus).toHaveBeenCalledOnce();
     expect(ports.inspectSession).toHaveBeenCalledOnce();
@@ -347,6 +391,17 @@ describe("Ableton tools", () => {
       startTime: 8,
       length: 4,
       name: "Verse",
+    });
+    expect(ports.inspectArrangement).toHaveBeenCalledWith({
+      offset: 0,
+      limit: 10,
+    });
+    expect(ports.deleteArrangementClip).toHaveBeenCalledWith({
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000001",
+      expectedName: "Drums",
+      expectedClipReference: "00000000-0000-4000-8000-000000000020",
+      expectedStartTime: 8,
     });
   });
 

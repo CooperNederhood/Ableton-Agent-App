@@ -35,7 +35,9 @@ Companion specification: [Remote Script](remote-script.md)
   - [ ] Implement clip launch, duplication, deletion, properties, and audio clips.
 - [~] Implement arrangement handlers.
   - [x] Create non-overlapping MIDI clips with verified placement and rollback.
-  - [ ] Implement inspection, note editing, duplication, properties, and deletion.
+  - [x] Inspect Arrangement clips with bounded pagination.
+  - [x] Delete identity-bound Arrangement clips with postcondition checks.
+  - [ ] Implement note editing, duplication, and properties.
 - [ ] Implement device, rack, Drum Rack, and parameter handlers.
 - [ ] Implement paginated browser handlers and loading.
 - [ ] Implement selected low-frequency LOM listeners and cleanup.

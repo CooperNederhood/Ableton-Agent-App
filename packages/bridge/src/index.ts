@@ -8,6 +8,8 @@ import {
   capabilityDocumentSchema,
   createArrangementMidiClipParamsSchema,
   createArrangementMidiClipResultSchema,
+  deleteArrangementClipParamsSchema,
+  deleteArrangementClipResultSchema,
   createMidiClipParamsSchema,
   createMidiClipResultSchema,
   createTrackParamsSchema,
@@ -19,6 +21,8 @@ import {
   setPlayingResultSchema,
   renameTrackParamsSchema,
   renameTrackResultSchema,
+  inspectArrangementParamsSchema,
+  inspectArrangementResultSchema,
   replaceMidiNotesParamsSchema,
   replaceMidiNotesResultSchema,
   setTrackMixerParamsSchema,
@@ -29,6 +33,8 @@ import {
   type CapabilityDocument,
   type CreateArrangementMidiClipParams,
   type CreateArrangementMidiClipResult,
+  type DeleteArrangementClipParams,
+  type DeleteArrangementClipResult,
   type CreateMidiClipParams,
   type CreateMidiClipResult,
   type CreateTrackParams,
@@ -41,6 +47,8 @@ import {
   type SetPlayingResult,
   type RenameTrackParams,
   type RenameTrackResult,
+  type InspectArrangementParams,
+  type InspectArrangementResult,
   type ReplaceMidiNotesParams,
   type ReplaceMidiNotesResult,
   type SetTrackMixerParams,
@@ -252,6 +260,26 @@ export class AbletonBridgeService implements AbletonService {
     const validated = createArrangementMidiClipParamsSchema.parse(params);
     return createArrangementMidiClipResultSchema.parse(
       await this.#mutationRequest("arrangement.create_midi_clip", validated),
+    );
+  }
+
+  public async inspectArrangement(
+    params: InspectArrangementParams,
+  ): Promise<InspectArrangementResult> {
+    this.#requireCapability("arrangement.inspect");
+    const validated = inspectArrangementParamsSchema.parse(params);
+    return inspectArrangementResultSchema.parse(
+      await this.#request("arrangement.inspect", validated),
+    );
+  }
+
+  public async deleteArrangementClip(
+    params: DeleteArrangementClipParams,
+  ): Promise<DeleteArrangementClipResult> {
+    this.#requireCapability("arrangement.delete_clip");
+    const validated = deleteArrangementClipParamsSchema.parse(params);
+    return deleteArrangementClipResultSchema.parse(
+      await this.#mutationRequest("arrangement.delete_clip", validated),
     );
   }
 

@@ -895,16 +895,9 @@ def create_arrangement_midi_clip(context, params):
                 "Arrangement clip creation completed but verification failed",
             )
         result = {
-            "clip": {
-                "reference": _clip_reference(context, clip),
-                "trackReference": _track_reference(context, track),
-                "trackIndex": params["index"],
-                "name": clip.name,
-                "startTime": clip.start_time,
-                "endTime": clip.end_time,
-                "length": clip.length,
-                "noteCount": len(_clip_notes(clip)),
-            },
+            "clip": _arrangement_clip_summary(
+                context, track, params["index"], clip
+            ),
             "verified": True,
         }
     except Exception as exc:
@@ -934,6 +927,128 @@ def create_arrangement_midi_clip(context, params):
             raise exc
         raise
     return result
+
+
+def _arrangement_clip_summary(context, track, track_index, clip):
+    is_midi = bool(getattr(clip, "is_midi_clip", False))
+    return {
+        "reference": _clip_reference(context, clip),
+        "trackReference": _track_reference(context, track),
+        "trackIndex": track_index,
+        "name": clip.name,
+        "kind": "midi" if is_midi else "audio",
+        "startTime": clip.start_time,
+        "endTime": clip.end_time,
+        "length": clip.length,
+        "noteCount": len(_clip_notes(clip)) if is_midi else None,
+    }
+
+
+def _inspect_arrangement_params(params):
+    if set(params.keys()) - set(["offset", "limit"]):
+        return "Only offset and limit are accepted"
+    offset = params.get("offset", 0)
+    limit = params.get("limit", 100)
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+        return "offset must be a non-negative integer"
+    if (
+        isinstance(limit, bool)
+        or not isinstance(limit, int)
+        or limit < 1
+        or limit > 512
+    ):
+        return "limit must be an integer from 1 to 512"
+    return None
+
+
+def inspect_arrangement(context, params):
+    clip_records = []
+    for track_index, track in enumerate(context.song.tracks):
+        for clip in getattr(track, "arrangement_clips", []):
+            clip_records.append(
+                (clip.start_time, track_index, track, clip)
+            )
+    clip_records.sort(key=lambda item: (item[0], item[1]))
+    offset = params.get("offset", 0)
+    limit = params.get("limit", 100)
+    clips = [
+        _arrangement_clip_summary(context, track, track_index, clip)
+        for _, track_index, track, clip in clip_records[
+            offset : offset + limit
+        ]
+    ]
+    return {
+        "clips": clips,
+        "total": len(clip_records),
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+def _delete_arrangement_clip_params(params):
+    error = _validate_track_target(
+        params, ["expectedClipReference", "expectedStartTime"]
+    )
+    if error:
+        return error
+    try:
+        uuid.UUID(params.get("expectedClipReference"))
+    except (AttributeError, TypeError, ValueError):
+        return "expectedClipReference must be a UUID"
+    start_time = params.get("expectedStartTime")
+    if (
+        isinstance(start_time, bool)
+        or not isinstance(start_time, (int, float))
+        or start_time < 0
+    ):
+        return "expectedStartTime must be a non-negative number"
+    return None
+
+
+def delete_arrangement_clip(context, params):
+    track = _resolve_track(context, params, allow_group=True)
+    if not hasattr(track, "arrangement_clips") or not hasattr(
+        track, "delete_clip"
+    ):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "This Live version does not support Arrangement clip deletion",
+        )
+    target = None
+    for clip in track.arrangement_clips:
+        if _clip_reference(context, clip) == params["expectedClipReference"]:
+            target = clip
+            break
+    if target is None:
+        raise ProtocolFailure("stale_reference", "Arrangement clip changed")
+    if abs(target.start_time - params["expectedStartTime"]) >= 0.000001:
+        raise ProtocolFailure(
+            "stale_reference",
+            "Arrangement clip moved before deletion",
+        )
+    before_count = len(track.arrangement_clips)
+    summary = _arrangement_clip_summary(
+        context, track, params["index"], target
+    )
+    track.delete_clip(target)
+    after_count = len(track.arrangement_clips)
+    if after_count != before_count - 1 or any(
+        candidate is target for candidate in track.arrangement_clips
+    ):
+        raise ProtocolFailure(
+            "conflict",
+            "Arrangement clip deletion completed but verification failed",
+            details={
+                "beforeClipCount": before_count,
+                "afterClipCount": after_count,
+            },
+        )
+    return {
+        "clip": summary,
+        "beforeClipCount": before_count,
+        "afterClipCount": after_count,
+        "verified": True,
+    }
 
 
 def register_system_commands(registry):
@@ -1001,4 +1116,17 @@ def register_system_commands(registry):
         mutates=True,
         capability="arrangement.create_midi_clip",
         validator=_create_arrangement_midi_clip_params,
+    )
+    registry.register(
+        "arrangement.inspect",
+        inspect_arrangement,
+        capability="arrangement.inspect",
+        validator=_inspect_arrangement_params,
+    )
+    registry.register(
+        "arrangement.delete_clip",
+        delete_arrangement_clip,
+        mutates=True,
+        capability="arrangement.delete_clip",
+        validator=_delete_arrangement_clip_params,
     )

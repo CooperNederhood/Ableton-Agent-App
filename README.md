@@ -42,7 +42,8 @@ Session composition supports guarded MIDI clip creation and destructive,
 reference-bound note replacement with bounded payloads, core-note recovery,
 and explicit opt-in for per-note expression loss.
 Arrangement composition supports verified, non-overlapping empty MIDI clip
-placement with rollback on failed creation.
+placement with rollback on failed creation, bounded inspection, and destructive
+identity-bound clip deletion.
 
 For development without Ableton:
 

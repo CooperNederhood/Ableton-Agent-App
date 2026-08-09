@@ -126,6 +126,8 @@ def handle(request, token, state):
                     "clips.create_midi": True,
                     "clips.replace_notes": True,
                     "arrangement.create_midi_clip": True,
+                    "arrangement.inspect": True,
+                    "arrangement.delete_clip": True,
                 },
                 "limits": {
                     "maxFrameBytes": 4 * 1024 * 1024,
@@ -357,6 +359,7 @@ def handle(request, token, state):
             clip = {
                 "reference": str(uuid.uuid4()),
                 "name": params.get("name") or "",
+                "kind": "midi",
                 "length": params.get("length"),
                 "notes": [],
             }
@@ -460,6 +463,7 @@ def handle(request, token, state):
             "trackReference": track["reference"],
             "trackIndex": index,
             "name": params.get("name") or "",
+            "kind": "midi",
             "startTime": start_time,
             "endTime": end_time,
             "length": length,
@@ -467,6 +471,72 @@ def handle(request, token, state):
         }
         track["arrangementClips"].append(clip)
         return response(request, {"clip": clip, "verified": True})
+    if command == "arrangement.inspect":
+        clips = sorted(
+            [
+                clip
+                for track in state.tracks
+                for clip in track["arrangementClips"]
+            ],
+            key=lambda clip: (clip["startTime"], clip["trackIndex"]),
+        )
+        offset = params.get("offset", 0)
+        limit = params.get("limit", 100)
+        return response(
+            request,
+            {
+                "clips": clips[offset : offset + limit],
+                "total": len(clips),
+                "offset": offset,
+                "limit": limit,
+            },
+        )
+    if command == "arrangement.delete_clip":
+        index = params.get("index")
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or index < 0
+            or index >= len(state.tracks)
+        ):
+            return failure(request, "not_found", "Track index is out of range")
+        track = state.tracks[index]
+        if (
+            track["reference"] != params.get("expectedReference")
+            or track["name"] != params.get("expectedName")
+        ):
+            return failure(
+                request,
+                "stale_reference",
+                "Track identity changed before mutation",
+            )
+        target = next(
+            (
+                clip
+                for clip in track["arrangementClips"]
+                if clip["reference"] == params.get("expectedClipReference")
+            ),
+            None,
+        )
+        if target is None or abs(
+            target["startTime"] - params.get("expectedStartTime")
+        ) >= 0.000001:
+            return failure(
+                request,
+                "stale_reference",
+                "Arrangement clip changed before deletion",
+            )
+        before_count = len(track["arrangementClips"])
+        track["arrangementClips"].remove(target)
+        return response(
+            request,
+            {
+                "clip": target,
+                "beforeClipCount": before_count,
+                "afterClipCount": len(track["arrangementClips"]),
+                "verified": True,
+            },
+        )
     return failure(request, "unknown_command", "Unknown command: {0}".format(command))
 
 

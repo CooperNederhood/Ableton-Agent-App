@@ -70,6 +70,7 @@ class FakeMixerDevice(object):
 class FakeClip(object):
     def __init__(self, length, start_time=0.0):
         self.length = length
+        self.is_midi_clip = True
         self.start_time = start_time
         self.end_time = start_time + length
         self.name = ""
@@ -913,6 +914,33 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(responses[1]["error"]["code"], "conflict")
         self.assertEqual(len(track.arrangement_clips), 1)
 
+        executor.submit(
+            request("arrangement.inspect", {"offset": 0, "limit": 10}),
+            responses.append,
+        )
+        scheduled.pop()()
+        clip_reference = responses[2]["result"]["clips"][0]["reference"]
+        executor.submit(
+            request(
+                "arrangement.delete_clip",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "expectedClipReference": clip_reference,
+                    "expectedStartTime": 8.0,
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[2]["result"]["total"], 1)
+        self.assertEqual(responses[2]["result"]["clips"][0]["kind"], "midi")
+        self.assertEqual(responses[3]["result"]["beforeClipCount"], 1)
+        self.assertEqual(responses[3]["result"]["afterClipCount"], 0)
+        self.assertEqual(track.arrangement_clips, [])
+
     def test_arrangement_creation_rolls_back_when_create_raises(self):
         scheduled = []
         responses = []
@@ -947,6 +975,34 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(responses[0]["error"]["code"], "lom_error")
         self.assertEqual(track.arrangement_clips, [])
 
+    def test_arrangement_inspection_serializes_only_requested_page(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        first = FakeClip(4.0, 0.0)
+        second = FakeClip(4.0, 8.0)
+        second.fail_get_notes_call = 1
+        context.song.tracks[0].arrangement_clips = [first, second]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request("arrangement.inspect", {"offset": 0, "limit": 1}),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertTrue(responses[0]["ok"])
+        self.assertEqual(responses[0]["result"]["total"], 2)
+        self.assertEqual(len(responses[0]["result"]["clips"]), 1)
+        self.assertEqual(first.get_notes_calls, 1)
+        self.assertEqual(second.get_notes_calls, 0)
+
 
 class CapabilityAndTokenTests(unittest.TestCase):
     def test_capabilities_reflect_registry(self):
@@ -970,6 +1026,39 @@ class CapabilityAndTokenTests(unittest.TestCase):
         )
         self.assertFalse(
             legacy_document["capabilities"]["arrangement.create_midi_clip"]
+        )
+        self.assertFalse(
+            legacy_document["capabilities"]["arrangement.inspect"]
+        )
+        self.assertFalse(
+            legacy_document["capabilities"]["arrangement.delete_clip"]
+        )
+
+        class InspectOnlyTrack(object):
+            arrangement_clips = []
+
+        inspect_document = build_capability_document(
+            FakeApplication(),
+            type("Song", (), {"tracks": [InspectOnlyTrack()], "name": "Test"})(),
+            registry,
+        )
+        self.assertTrue(
+            inspect_document["capabilities"]["arrangement.inspect"]
+        )
+        self.assertFalse(
+            inspect_document["capabilities"]["arrangement.create_midi_clip"]
+        )
+        self.assertFalse(
+            inspect_document["capabilities"]["arrangement.delete_clip"]
+        )
+
+        empty_document = build_capability_document(
+            FakeApplication(),
+            type("Song", (), {"tracks": [], "name": "Empty"})(),
+            registry,
+        )
+        self.assertTrue(
+            empty_document["capabilities"]["arrangement.inspect"]
         )
 
     def test_token_is_created_once(self):

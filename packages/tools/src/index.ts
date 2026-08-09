@@ -4,8 +4,12 @@ import type {
   CreateMidiClipResult,
   CreateArrangementMidiClipParams,
   CreateArrangementMidiClipResult,
+  DeleteArrangementClipParams,
+  DeleteArrangementClipResult,
   DeleteTrackParams,
   RenameTrackParams,
+  InspectArrangementParams,
+  InspectArrangementResult,
   RenameTrackResult,
   ReplaceMidiNotesParams,
   ReplaceMidiNotesResult,
@@ -53,6 +57,12 @@ export interface AbletonToolServices {
   createArrangementMidiClip(
     params: CreateArrangementMidiClipParams,
   ): Promise<CreateArrangementMidiClipResult>;
+  inspectArrangement(
+    params: InspectArrangementParams,
+  ): Promise<InspectArrangementResult>;
+  deleteArrangementClip(
+    params: DeleteArrangementClipParams,
+  ): Promise<DeleteArrangementClipResult>;
 }
 
 export const abletonToolMetadata = [
@@ -132,6 +142,20 @@ export const abletonToolMetadata = [
     duration: "short",
     requiredCapability: "arrangement.create_midi_clip",
   },
+  {
+    name: "ableton_arrangement_inspect",
+    title: "Inspect Ableton Arrangement",
+    risk: "read",
+    duration: "short",
+    requiredCapability: "arrangement.inspect",
+  },
+  {
+    name: "ableton_arrangement_delete_clip",
+    title: "Delete Arrangement clip",
+    risk: "destructive",
+    duration: "short",
+    requiredCapability: "arrangement.delete_clip",
+  },
 ] as const satisfies readonly AbletonToolMetadata[];
 
 export interface ToolApprovalRequest {
@@ -187,6 +211,8 @@ export interface AbletonToolSet {
     Tool<CreateMidiClipParams>,
     Tool<ReplaceMidiNotesParams>,
     Tool<CreateArrangementMidiClipParams>,
+    Tool<InspectArrangementParams>,
+    Tool<DeleteArrangementClipParams>,
   ];
   availableTools: string[];
 }
@@ -355,6 +381,34 @@ export function createAbletonTools(
       handler: async (params) => services.createArrangementMidiClip(params),
     },
   );
+  const inspectArrangementTool = defineTool("ableton_arrangement_inspect", {
+    description:
+      "Returns a bounded page of Arrangement clips ordered by start time and track.",
+    parameters: z
+      .object({
+        offset: z.number().int().nonnegative().default(0),
+        limit: z.number().int().min(1).max(512).default(100),
+      })
+      .strict(),
+    handler: async (params) => services.inspectArrangement(params),
+  });
+  const deleteArrangementClipTool = defineTool(
+    "ableton_arrangement_delete_clip",
+    {
+      description:
+        "Destructively deletes an identity-bound Arrangement clip after revalidating its track and start time.",
+      parameters: z
+        .object({
+          index: z.number().int().nonnegative(),
+          expectedReference: z.string().uuid(),
+          expectedName: z.string().min(1),
+          expectedClipReference: z.string().uuid(),
+          expectedStartTime: z.number().nonnegative(),
+        })
+        .strict(),
+      handler: async (params) => services.deleteArrangementClip(params),
+    },
+  );
 
   return {
     tools: [
@@ -369,6 +423,8 @@ export function createAbletonTools(
       createMidiClipTool,
       replaceMidiNotesTool,
       createArrangementMidiClipTool,
+      inspectArrangementTool,
+      deleteArrangementClipTool,
     ],
     availableTools: abletonToolMetadata.map(
       (metadata) => `custom:${metadata.name}`,

@@ -279,14 +279,39 @@ export const arrangementClipSummarySchema = z.object({
   trackReference: z.string().uuid(),
   trackIndex: z.number().int().nonnegative(),
   name: z.string(),
+  kind: trackKindSchema,
   startTime: z.number().nonnegative(),
   endTime: z.number().positive(),
   length: z.number().positive(),
-  noteCount: z.number().int().nonnegative(),
+  noteCount: z.number().int().nonnegative().nullable(),
 });
 
 export const createArrangementMidiClipResultSchema = z.object({
   clip: arrangementClipSummarySchema,
+  verified: z.literal(true),
+});
+
+export const inspectArrangementParamsSchema = z.object({
+  offset: z.number().int().nonnegative().default(0),
+  limit: z.number().int().min(1).max(512).default(100),
+});
+
+export const inspectArrangementResultSchema = z.object({
+  clips: z.array(arrangementClipSummarySchema),
+  total: z.number().int().nonnegative(),
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+});
+
+export const deleteArrangementClipParamsSchema = trackTargetSchema.extend({
+  expectedClipReference: z.string().uuid(),
+  expectedStartTime: z.number().nonnegative(),
+});
+
+export const deleteArrangementClipResultSchema = z.object({
+  clip: arrangementClipSummarySchema,
+  beforeClipCount: z.number().int().nonnegative(),
+  afterClipCount: z.number().int().nonnegative(),
   verified: z.literal(true),
 });
 
@@ -318,4 +343,16 @@ export type CreateArrangementMidiClipParams = z.infer<
 >;
 export type CreateArrangementMidiClipResult = z.infer<
   typeof createArrangementMidiClipResultSchema
+>;
+export type InspectArrangementParams = z.infer<
+  typeof inspectArrangementParamsSchema
+>;
+export type InspectArrangementResult = z.infer<
+  typeof inspectArrangementResultSchema
+>;
+export type DeleteArrangementClipParams = z.infer<
+  typeof deleteArrangementClipParamsSchema
+>;
+export type DeleteArrangementClipResult = z.infer<
+  typeof deleteArrangementClipResultSchema
 >;

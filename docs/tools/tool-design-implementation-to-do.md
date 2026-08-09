@@ -31,7 +31,9 @@ Companion specification: [Tool Design](tool-design.md)
   - [ ] Implement clip launch, duplication, deletion, properties, and audio clips.
 - [~] Implement arrangement placement and property operations.
   - [x] Implement approved non-overlapping MIDI clip placement.
-  - [ ] Implement Arrangement inspection, note editing, properties, and deletion.
+  - [x] Implement bounded Arrangement inspection.
+  - [x] Implement destructive identity-bound Arrangement clip deletion.
+  - [ ] Implement Arrangement note editing, duplication, and properties.
 - [ ] Implement browser/device load and parameter operations.
 - [~] Implement transport, loop, and cue-point operations.
 

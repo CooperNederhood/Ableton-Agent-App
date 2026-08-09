@@ -145,11 +145,40 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
           trackReference: params.expectedReference,
           trackIndex: params.index,
           name: params.name ?? "",
+          kind: "midi" as const,
           startTime: params.startTime,
           endTime: params.startTime + params.length,
           length: params.length,
           noteCount: 0,
         },
+        verified: true as const,
+      }),
+    ),
+    inspectArrangement: vi.fn(
+      async (params: Parameters<AbletonService["inspectArrangement"]>[0]) => ({
+        clips: [],
+        total: 0,
+        offset: params.offset,
+        limit: params.limit,
+      }),
+    ),
+    deleteArrangementClip: vi.fn(
+      async (
+        params: Parameters<AbletonService["deleteArrangementClip"]>[0],
+      ) => ({
+        clip: {
+          reference: params.expectedClipReference,
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          name: "Verse",
+          kind: "midi" as const,
+          startTime: params.expectedStartTime,
+          endTime: params.expectedStartTime + 4,
+          length: 4,
+          noteCount: 0,
+        },
+        beforeClipCount: 1,
+        afterClipCount: 0,
         verified: true as const,
       }),
     ),
@@ -327,11 +356,36 @@ describe("CopilotAgentService", () => {
             trackReference: params.expectedReference,
             trackIndex: params.index,
             name: params.name ?? "",
+            kind: "midi" as const,
             startTime: params.startTime,
             endTime: params.startTime + params.length,
             length: params.length,
             noteCount: 0,
           },
+          verified: true,
+        }),
+      inspectArrangement: (params) =>
+        Promise.resolve({
+          clips: [],
+          total: 0,
+          offset: params.offset,
+          limit: params.limit,
+        }),
+      deleteArrangementClip: (params) =>
+        Promise.resolve({
+          clip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            name: "Verse",
+            kind: "midi" as const,
+            startTime: params.expectedStartTime,
+            endTime: params.expectedStartTime + 4,
+            length: 4,
+            noteCount: 0,
+          },
+          beforeClipCount: 1,
+          afterClipCount: 0,
           verified: true,
         }),
       requestToolApproval,
@@ -365,8 +419,10 @@ describe("CopilotAgentService", () => {
       "custom:ableton_clips_create_midi",
       "custom:ableton_clips_replace_notes",
       "custom:ableton_arrangement_create_midi_clip",
+      "custom:ableton_arrangement_inspect",
+      "custom:ableton_arrangement_delete_clip",
     ]);
-    expect(config?.tools).toHaveLength(11);
+    expect(config?.tools).toHaveLength(13);
     await expect(
       config?.onPermissionRequest?.(
         {
@@ -499,11 +555,36 @@ describe("CopilotAgentService", () => {
             trackReference: params.expectedReference,
             trackIndex: params.index,
             name: params.name ?? "",
+            kind: "midi" as const,
             startTime: params.startTime,
             endTime: params.startTime + params.length,
             length: params.length,
             noteCount: 0,
           },
+          verified: true,
+        }),
+      inspectArrangement: (params) =>
+        Promise.resolve({
+          clips: [],
+          total: 0,
+          offset: params.offset,
+          limit: params.limit,
+        }),
+      deleteArrangementClip: (params) =>
+        Promise.resolve({
+          clip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            name: "Verse",
+            kind: "midi" as const,
+            startTime: params.expectedStartTime,
+            endTime: params.expectedStartTime + 4,
+            length: 4,
+            noteCount: 0,
+          },
+          beforeClipCount: 1,
+          afterClipCount: 0,
           verified: true,
         }),
       clientFactory: () => ({

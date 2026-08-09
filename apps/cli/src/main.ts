@@ -16,6 +16,8 @@ import type {
   CapabilityDocument,
   CreateArrangementMidiClipParams,
   CreateArrangementMidiClipResult,
+  DeleteArrangementClipParams,
+  DeleteArrangementClipResult,
   CreateMidiClipParams,
   CreateMidiClipResult,
   CreateTrackParams,
@@ -25,6 +27,8 @@ import type {
   ReplaceMidiNotesParams,
   ReplaceMidiNotesResult,
   PingResult,
+  InspectArrangementParams,
+  InspectArrangementResult,
   SessionSnapshot,
   SetPlayingResult,
   SetTempoResult,
@@ -121,6 +125,12 @@ class UnconfiguredAbletonService implements AbletonService {
   public async createArrangementMidiClip(): Promise<CreateArrangementMidiClipResult> {
     throw new Error("Ableton bridge is not configured");
   }
+  public async inspectArrangement(): Promise<InspectArrangementResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async deleteArrangementClip(): Promise<DeleteArrangementClipResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
 }
 
 const io: CliIo = {
@@ -179,6 +189,10 @@ async function main(): Promise<number> {
         ableton.replaceMidiNotes(params),
       createArrangementMidiClip: (params: CreateArrangementMidiClipParams) =>
         ableton.createArrangementMidiClip(params),
+      inspectArrangement: (params: InspectArrangementParams) =>
+        ableton.inspectArrangement(params),
+      deleteArrangementClip: (params: DeleteArrangementClipParams) =>
+        ableton.deleteArrangementClip(params),
       ...(terminal === undefined
         ? {}
         : {

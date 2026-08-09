@@ -221,6 +221,27 @@ describe("AbletonBridgeService", () => {
       },
       verified: true,
     });
+    const arrangement = await service.inspectArrangement({
+      offset: 0,
+      limit: 10,
+    });
+    expect(arrangement).toMatchObject({
+      total: 1,
+      clips: [{ name: "Verse", kind: "midi", startTime: 8 }],
+    });
+    await expect(
+      service.deleteArrangementClip({
+        index: 0,
+        expectedReference: drums?.reference ?? "",
+        expectedName: "Main Drums",
+        expectedClipReference: arrangement.clips[0]?.reference ?? "",
+        expectedStartTime: 8,
+      }),
+    ).resolves.toMatchObject({
+      beforeClipCount: 1,
+      afterClipCount: 0,
+      verified: true,
+    });
     const vocals = afterDelete.tracks.find((track) => track.name === "Vocals");
     expect(vocals).toBeDefined();
     await expect(

@@ -5,6 +5,8 @@ import type {
   CapabilityDocument,
   CreateArrangementMidiClipParams,
   CreateArrangementMidiClipResult,
+  DeleteArrangementClipParams,
+  DeleteArrangementClipResult,
   CreateMidiClipParams,
   CreateMidiClipResult,
   CreateTrackParams,
@@ -14,6 +16,8 @@ import type {
   ReplaceMidiNotesParams,
   ReplaceMidiNotesResult,
   PingResult,
+  InspectArrangementParams,
+  InspectArrangementResult,
   SessionSnapshot,
   SetPlayingResult,
   SetTempoResult,
@@ -66,6 +70,12 @@ export interface AbletonService {
   createArrangementMidiClip(
     params: CreateArrangementMidiClipParams,
   ): Promise<CreateArrangementMidiClipResult>;
+  inspectArrangement(
+    params: InspectArrangementParams,
+  ): Promise<InspectArrangementResult>;
+  deleteArrangementClip(
+    params: DeleteArrangementClipParams,
+  ): Promise<DeleteArrangementClipResult>;
 }
 
 export interface ApplicationServices {
@@ -113,6 +123,12 @@ export interface CopilotAgentServiceOptions {
   createArrangementMidiClip: (
     params: CreateArrangementMidiClipParams,
   ) => Promise<CreateArrangementMidiClipResult>;
+  inspectArrangement: (
+    params: InspectArrangementParams,
+  ) => Promise<InspectArrangementResult>;
+  deleteArrangementClip: (
+    params: DeleteArrangementClipParams,
+  ) => Promise<DeleteArrangementClipResult>;
   requestToolApproval?: ToolApprovalRequester;
   clientFactory?: () => CopilotClientAdapter;
   baseDirectory?: string;
@@ -160,6 +176,8 @@ export class CopilotAgentService implements AgentService {
       createMidiClip: this.options.createMidiClip,
       replaceMidiNotes: this.options.replaceMidiNotes,
       createArrangementMidiClip: this.options.createArrangementMidiClip,
+      inspectArrangement: this.options.inspectArrangement,
+      deleteArrangementClip: this.options.deleteArrangementClip,
     });
 
     try {
@@ -378,6 +396,18 @@ export class HeadlessApplication {
     params: CreateArrangementMidiClipParams,
   ): Promise<CreateArrangementMidiClipResult> {
     return this.services.ableton.createArrangementMidiClip(params);
+  }
+
+  public inspectArrangement(
+    params: InspectArrangementParams,
+  ): Promise<InspectArrangementResult> {
+    return this.services.ableton.inspectArrangement(params);
+  }
+
+  public deleteArrangementClip(
+    params: DeleteArrangementClipParams,
+  ): Promise<DeleteArrangementClipResult> {
+    return this.services.ableton.deleteArrangementClip(params);
   }
 
   public subscribe(listener: (event: AppEvent) => void): () => void {

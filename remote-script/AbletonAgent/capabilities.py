@@ -18,13 +18,25 @@ def build_capability_document(application, song, registry, max_batch_items=128):
     project_source = str(project_source)
     project_id = hashlib.sha256(project_source.encode("utf-8")).hexdigest()[:24]
     capabilities = {name: True for name in registry.metadata()}
-    if "arrangement.create_midi_clip" in capabilities:
-        capabilities["arrangement.create_midi_clip"] = any(
+    tracks = list(song.tracks)
+    arrangement_support = {
+        "arrangement.create_midi_clip": any(
             hasattr(track, "arrangement_clips")
             and hasattr(track, "create_midi_clip")
             and hasattr(track, "delete_clip")
-            for track in song.tracks
-        )
+            for track in tracks
+        ),
+        "arrangement.inspect": not tracks
+        or any(hasattr(track, "arrangement_clips") for track in tracks),
+        "arrangement.delete_clip": any(
+            hasattr(track, "arrangement_clips")
+            and hasattr(track, "delete_clip")
+            for track in tracks
+        ),
+    }
+    for name, supported in arrangement_support.items():
+        if name in capabilities:
+            capabilities[name] = supported
     return {
         "selectedProtocolVersion": PROTOCOL_VERSION,
         "liveVersion": live_version,

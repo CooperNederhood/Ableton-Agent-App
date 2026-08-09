@@ -4,7 +4,7 @@ Companion specification: [Remote Script](remote-script.md)
 
 ## Script foundation
 
-- [ ] Create the modular `AbletonAgent` Remote Script package.
+- [x] Create the modular `AbletonAgent` Remote Script package.
 - [ ] Implement `create_instance`, ControlSurface lifecycle, logging, and
   disconnect cleanup.
 - [ ] Bind only to `127.0.0.1`.
@@ -13,7 +13,7 @@ Companion specification: [Remote Script](remote-script.md)
 
 ## Protocol and execution
 
-- [ ] Implement framed decoder/encoder compatible with protocol fixtures.
+- [x] Implement framed decoder/encoder compatible with protocol fixtures.
 - [ ] Implement handshake, authentication, version negotiation, and limits.
 - [ ] Implement declarative command registry and metadata.
 - [ ] Implement the single main-thread LOM executor.
@@ -47,4 +47,3 @@ Companion specification: [Remote Script](remote-script.md)
 - [ ] All commands are registered, validated, scheduled, and tested.
 - [ ] Disconnect leaves no listeners, sockets, or active client threads.
 - [ ] Supported Live versions produce an accurate capability report.
-

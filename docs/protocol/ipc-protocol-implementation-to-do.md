@@ -7,14 +7,14 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 - [ ] Define canonical Zod schemas for every envelope and shared scalar.
 - [ ] Define protocol constants, frame limits, timeout classes, and versions.
 - [ ] Define `system.hello`, authentication, capability, ping, and event schemas.
-- [ ] Define the complete stable error-code union.
+- [x] Define the complete stable error-code union.
 - [ ] Define command-specific request/result schemas.
 - [ ] Export JSON Schema and representative fixtures for Python tests.
 
 ## Framing and negotiation
 
-- [ ] Implement four-byte big-endian length framing in TypeScript.
-- [ ] Implement matching incremental framing in Python.
+- [x] Implement four-byte big-endian length framing in TypeScript.
+- [x] Implement matching incremental framing in Python.
 - [ ] Reject zero, oversized, truncated, and invalid UTF-8 payloads.
 - [ ] Implement protocol-version selection and incompatibility errors.
 - [ ] Define request ID, event sequence, and project revision semantics.
@@ -30,7 +30,7 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 
 ## Tests
 
-- [ ] Unit-test frame encoding/decoding in both languages.
+- [x] Unit-test frame encoding/decoding in both languages.
 - [ ] Property-test random fragmentation and frame concatenation.
 - [ ] Cross-test TypeScript messages in Python and Python messages in
   TypeScript.
@@ -39,8 +39,7 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 
 ## Exit criteria
 
-- [ ] No implementation relies on “read until JSON parses.”
+- [x] No implementation relies on “read until JSON parses.”
 - [ ] Protocol fixtures are the shared compatibility source.
 - [ ] Breaking schema changes fail CI.
 - [ ] Every production command is represented in the catalog.
-

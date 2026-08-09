@@ -4,11 +4,11 @@ Companion specification: [Test Strategy](test-strategy.md)
 
 ## Test infrastructure
 
-- [ ] Select and configure TypeScript and Python test runners.
+- [x] Select and configure TypeScript and Python test runners.
 - [ ] Add shared fixture, fake clock, fake ID, and log-capture utilities.
 - [ ] Build fake LOM object library.
-- [ ] Build simulated Python Remote Script server.
-- [ ] Build fake Copilot/session adapters for deterministic client tests.
+- [x] Build simulated Python Remote Script server.
+- [x] Build fake Copilot/session adapters for deterministic client tests.
 - [ ] Define test tags for unit, contract, integration, Electron, and real Live.
 
 ## Coverage implementation

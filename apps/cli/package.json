@@ -1,0 +1,23 @@
+{
+  "name": "@ableton-agent/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "ableton-agent": "./dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "dev": "tsx src/main.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ableton-agent/application": "workspace:*",
+    "@ableton-agent/bridge": "workspace:*",
+    "@ableton-agent/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.4"
+  }
+}

@@ -4,8 +4,8 @@ Companion specification: [Terminal Client](terminal-client.md)
 
 ## CLI foundation
 
-- [ ] Scaffold `apps/cli` with a testable command parser.
-- [ ] Connect it to the shared headless application bootstrap.
+- [x] Scaffold `apps/cli` with a testable command parser.
+- [x] Connect it to the shared headless application bootstrap.
 - [ ] Implement TTY detection, `NO_COLOR`, and redirected-output behavior.
 - [ ] Implement human, quiet, and JSON output writers.
 - [ ] Define and document stable exit-code mapping.
@@ -29,8 +29,8 @@ Companion specification: [Terminal Client](terminal-client.md)
 
 ## Tests
 
-- [ ] Unit-test argument parsing, invalid input, and exit codes.
-- [ ] Unit-test event-to-terminal rendering.
+- [x] Unit-test argument parsing, invalid input, and exit codes.
+- [x] Unit-test event-to-terminal rendering.
 - [ ] Snapshot representative plain and colored transcripts.
 - [ ] Integration-test interactive prompts with fake input/output adapters.
 - [ ] Integration-test one-shot commands against the simulated Remote Script.
@@ -43,4 +43,3 @@ Companion specification: [Terminal Client](terminal-client.md)
 - [ ] All initial tools can be exercised without Electron.
 - [ ] Output is deterministic and useful in CI.
 - [ ] React requirements can reference stable CLI-proven events and actions.
-

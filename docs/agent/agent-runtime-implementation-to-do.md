@@ -4,11 +4,11 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 
 ## Copilot integration
 
-- [ ] Add the Node.js Copilot SDK and pin a tested version.
+- [x] Add the Node.js Copilot SDK and pin a tested version.
 - [ ] Implement `CopilotService` lifecycle and authentication diagnostics.
 - [ ] Implement session create, resume, send, cancel, event subscription, and
   idle detection.
-- [ ] Configure a restricted tool environment with explicit allowlists.
+- [x] Configure a restricted tool environment with explicit allowlists.
 - [ ] Define model and reasoning configuration with validated defaults.
 - [ ] Normalize SDK events into application-owned `AppEvent` values.
 
@@ -41,7 +41,6 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 ## Exit criteria
 
 - [ ] Agent can inspect, mutate, verify, and report through custom tools.
-- [ ] No unrelated built-in tools are available.
+- [x] No unrelated built-in tools are available.
 - [ ] Session resume restores useful app context.
 - [ ] CLI and React receive identical normalized events.
-

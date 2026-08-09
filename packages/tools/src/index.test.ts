@@ -213,6 +213,66 @@ function services() {
           verified: true as const,
         }),
     ),
+    duplicateClipToArrangement: vi.fn(
+      (
+        params: Parameters<
+          AbletonToolServices["duplicateClipToArrangement"]
+        >[0],
+      ) =>
+        Promise.resolve({
+          sourceClip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            sceneIndex: params.sceneIndex,
+            name: "Beat",
+            kind: "midi" as const,
+            length: 4,
+            noteCount: 1,
+          },
+          clip: {
+            reference: "00000000-0000-4000-8000-000000000021",
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            name: "Beat",
+            kind: "midi" as const,
+            startTime: params.destinationTime,
+            endTime: params.destinationTime + 4,
+            length: 4,
+            noteCount: 1,
+          },
+          beforeClipCount: 1,
+          afterClipCount: 2,
+          verified: true as const,
+        }),
+    ),
+    setArrangementClipProperties: vi.fn(
+      (
+        params: Parameters<
+          AbletonToolServices["setArrangementClipProperties"]
+        >[0],
+      ) =>
+        Promise.resolve({
+          clip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            name: params.name ?? "Verse",
+            kind: "midi" as const,
+            startTime: params.expectedStartTime,
+            endTime: params.expectedStartTime + 4,
+            length: 4,
+            noteCount: 1,
+          },
+          before: { name: "Verse", muted: false, looping: true },
+          after: {
+            name: params.name ?? "Verse",
+            muted: params.muted ?? false,
+            looping: params.looping ?? true,
+          },
+          verified: true as const,
+        }),
+    ),
   };
 }
 
@@ -238,6 +298,8 @@ describe("Ableton tools", () => {
       "custom:ableton_arrangement_inspect",
       "custom:ableton_arrangement_delete_clip",
       "custom:ableton_arrangement_replace_notes",
+      "custom:ableton_arrangement_duplicate_clip",
+      "custom:ableton_arrangement_set_clip_properties",
     ]);
     expect(abletonToolMetadata.map((metadata) => metadata.risk)).toEqual([
       "read",
@@ -254,6 +316,8 @@ describe("Ableton tools", () => {
       "read",
       "destructive",
       "destructive",
+      "reversible",
+      "reversible",
     ]);
   });
 
@@ -376,6 +440,30 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
+    await toolSet.tools[14].handler?.(
+      {
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Drums",
+        sceneIndex: 0,
+        expectedClipReference: "00000000-0000-4000-8000-000000000010",
+        destinationTime: 16,
+      },
+      invocation,
+    );
+    await toolSet.tools[15].handler?.(
+      {
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Drums",
+        expectedClipReference: "00000000-0000-4000-8000-000000000021",
+        expectedStartTime: 16,
+        name: "Chorus",
+        muted: true,
+        looping: false,
+      },
+      invocation,
+    );
 
     expect(ports.getConnectionStatus).toHaveBeenCalledOnce();
     expect(ports.inspectSession).toHaveBeenCalledOnce();
@@ -464,6 +552,24 @@ describe("Ableton tools", () => {
           mute: false,
         },
       ],
+    });
+    expect(ports.duplicateClipToArrangement).toHaveBeenCalledWith({
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000001",
+      expectedName: "Drums",
+      sceneIndex: 0,
+      expectedClipReference: "00000000-0000-4000-8000-000000000010",
+      destinationTime: 16,
+    });
+    expect(ports.setArrangementClipProperties).toHaveBeenCalledWith({
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000001",
+      expectedName: "Drums",
+      expectedClipReference: "00000000-0000-4000-8000-000000000021",
+      expectedStartTime: 16,
+      name: "Chorus",
+      muted: true,
+      looping: false,
     });
   });
 

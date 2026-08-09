@@ -202,6 +202,60 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
         verified: true as const,
       }),
     ),
+    duplicateClipToArrangement: vi.fn(
+      async (
+        params: Parameters<AbletonService["duplicateClipToArrangement"]>[0],
+      ) => ({
+        sourceClip: {
+          reference: params.expectedClipReference,
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          sceneIndex: params.sceneIndex,
+          name: "Beat",
+          kind: "midi" as const,
+          length: 4,
+          noteCount: 1,
+        },
+        clip: {
+          reference: "00000000-0000-4000-8000-000000000021",
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          name: "Beat",
+          kind: "midi" as const,
+          startTime: params.destinationTime,
+          endTime: params.destinationTime + 4,
+          length: 4,
+          noteCount: 1,
+        },
+        beforeClipCount: 1,
+        afterClipCount: 2,
+        verified: true as const,
+      }),
+    ),
+    setArrangementClipProperties: vi.fn(
+      async (
+        params: Parameters<AbletonService["setArrangementClipProperties"]>[0],
+      ) => ({
+        clip: {
+          reference: params.expectedClipReference,
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          name: params.name ?? "Verse",
+          kind: "midi" as const,
+          startTime: params.expectedStartTime,
+          endTime: params.expectedStartTime + 4,
+          length: 4,
+          noteCount: 1,
+        },
+        before: { name: "Verse", muted: false, looping: true },
+        after: {
+          name: params.name ?? "Verse",
+          muted: params.muted ?? false,
+          looping: params.looping ?? true,
+        },
+        verified: true as const,
+      }),
+    ),
   };
   const events = new InMemoryEventPublisher();
   return { agent, ableton, events, logger: noopLogger };
@@ -425,6 +479,54 @@ describe("CopilotAgentService", () => {
           afterNoteCount: params.notes.length,
           verified: true as const,
         }),
+      duplicateClipToArrangement: (params) =>
+        Promise.resolve({
+          sourceClip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            sceneIndex: params.sceneIndex,
+            name: "Beat",
+            kind: "midi" as const,
+            length: 4,
+            noteCount: 1,
+          },
+          clip: {
+            reference: "00000000-0000-4000-8000-000000000021",
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            name: "Beat",
+            kind: "midi" as const,
+            startTime: params.destinationTime,
+            endTime: params.destinationTime + 4,
+            length: 4,
+            noteCount: 1,
+          },
+          beforeClipCount: 1,
+          afterClipCount: 2,
+          verified: true as const,
+        }),
+      setArrangementClipProperties: (params) =>
+        Promise.resolve({
+          clip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            name: params.name ?? "Verse",
+            kind: "midi" as const,
+            startTime: params.expectedStartTime,
+            endTime: params.expectedStartTime + 4,
+            length: 4,
+            noteCount: 1,
+          },
+          before: { name: "Verse", muted: false, looping: true },
+          after: {
+            name: params.name ?? "Verse",
+            muted: params.muted ?? false,
+            looping: params.looping ?? true,
+          },
+          verified: true as const,
+        }),
       requestToolApproval,
       clientFactory: () => ({
         createSession: (received) => {
@@ -459,8 +561,10 @@ describe("CopilotAgentService", () => {
       "custom:ableton_arrangement_inspect",
       "custom:ableton_arrangement_delete_clip",
       "custom:ableton_arrangement_replace_notes",
+      "custom:ableton_arrangement_duplicate_clip",
+      "custom:ableton_arrangement_set_clip_properties",
     ]);
-    expect(config?.tools).toHaveLength(14);
+    expect(config?.tools).toHaveLength(16);
     await expect(
       config?.onPermissionRequest?.(
         {
@@ -640,6 +744,54 @@ describe("CopilotAgentService", () => {
           },
           beforeNoteCount: 0,
           afterNoteCount: params.notes.length,
+          verified: true as const,
+        }),
+      duplicateClipToArrangement: (params) =>
+        Promise.resolve({
+          sourceClip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            sceneIndex: params.sceneIndex,
+            name: "Beat",
+            kind: "midi" as const,
+            length: 4,
+            noteCount: 1,
+          },
+          clip: {
+            reference: "00000000-0000-4000-8000-000000000021",
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            name: "Beat",
+            kind: "midi" as const,
+            startTime: params.destinationTime,
+            endTime: params.destinationTime + 4,
+            length: 4,
+            noteCount: 1,
+          },
+          beforeClipCount: 1,
+          afterClipCount: 2,
+          verified: true as const,
+        }),
+      setArrangementClipProperties: (params) =>
+        Promise.resolve({
+          clip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            name: params.name ?? "Verse",
+            kind: "midi" as const,
+            startTime: params.expectedStartTime,
+            endTime: params.expectedStartTime + 4,
+            length: 4,
+            noteCount: 1,
+          },
+          before: { name: "Verse", muted: false, looping: true },
+          after: {
+            name: params.name ?? "Verse",
+            muted: params.muted ?? false,
+            looping: params.looping ?? true,
+          },
           verified: true as const,
         }),
       clientFactory: () => ({

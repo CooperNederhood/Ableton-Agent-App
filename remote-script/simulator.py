@@ -62,6 +62,27 @@ class SimulatorState(object):
             for index, track in enumerate(self.tracks)
         ]
 
+    def session_clips(self):
+        return [
+            {
+                "reference": clip["reference"],
+                "trackReference": track["reference"],
+                "trackIndex": track_index,
+                "sceneIndex": scene_index,
+                "name": clip["name"],
+                "kind": clip["kind"],
+                "length": clip["length"],
+                "noteCount": (
+                    len(clip.get("notes", []))
+                    if clip["kind"] == "midi"
+                    else None
+                ),
+            }
+            for track_index, track in enumerate(self.tracks)
+            for scene_index, clip in enumerate(track["clips"])
+            if clip is not None
+        ]
+
 
 def response(request, result):
     return {
@@ -129,6 +150,8 @@ def handle(request, token, state):
                     "arrangement.inspect": True,
                     "arrangement.delete_clip": True,
                     "arrangement.replace_notes": True,
+                    "arrangement.duplicate_clip": True,
+                    "arrangement.set_clip_properties": True,
                 },
                 "limits": {
                     "maxFrameBytes": 4 * 1024 * 1024,
@@ -147,6 +170,7 @@ def handle(request, token, state):
                 "isPlaying": state.is_playing,
                 "trackCount": len(state.tracks),
                 "tracks": state.session_tracks(),
+                "clips": state.session_clips(),
             },
         )
     if command == "transport.set_tempo":
@@ -470,9 +494,123 @@ def handle(request, token, state):
             "length": length,
             "notes": [],
             "noteCount": 0,
+            "muted": False,
+            "looping": True,
         }
         track["arrangementClips"].append(clip)
         return response(request, {"clip": clip, "verified": True})
+    if command == "arrangement.duplicate_clip":
+        index = params.get("index")
+        scene_index = params.get("sceneIndex")
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or index < 0
+            or index >= len(state.tracks)
+            or isinstance(scene_index, bool)
+            or not isinstance(scene_index, int)
+            or scene_index < 0
+            or scene_index >= 2
+        ):
+            return failure(request, "not_found", "Track or scene is out of range")
+        track = state.tracks[index]
+        if (
+            track["reference"] != params.get("expectedReference")
+            or track["name"] != params.get("expectedName")
+        ):
+            return failure(
+                request,
+                "stale_reference",
+                "Track identity changed before mutation",
+            )
+        source = track["clips"][scene_index]
+        if source is None:
+            return failure(request, "not_found", "Clip slot is empty")
+        if source["reference"] != params.get("expectedClipReference"):
+            return failure(
+                request,
+                "stale_reference",
+                "Source clip identity changed before duplication",
+            )
+        if source["kind"] != "midi":
+            return failure(
+                request,
+                "unsupported_capability",
+                "Safe Session-to-Arrangement duplication currently requires a MIDI clip",
+            )
+        destination_time = params.get("destinationTime")
+        if (
+            isinstance(destination_time, bool)
+            or not isinstance(destination_time, (int, float))
+            or destination_time < 0
+        ):
+            return failure(
+                request,
+                "invalid_params",
+                "destinationTime must be a non-negative number",
+            )
+        destination_end = destination_time + source["length"]
+        if destination_end > 1576800:
+            return failure(
+                request,
+                "invalid_params",
+                "Duplicated Arrangement clip end exceeds the maximum time",
+            )
+        if any(
+            destination_time < existing["endTime"]
+            and destination_end > existing["startTime"]
+            for existing in track["arrangementClips"]
+        ):
+            return failure(
+                request,
+                "conflict",
+                "Arrangement range overlaps an existing clip",
+            )
+        before_count = len(track["arrangementClips"])
+        clip = {
+            "reference": str(uuid.uuid4()),
+            "trackReference": track["reference"],
+            "trackIndex": index,
+            "name": source["name"],
+            "kind": source["kind"],
+            "startTime": destination_time,
+            "endTime": destination_end,
+            "length": source["length"],
+            "notes": list(source.get("notes", [])),
+            "noteCount": (
+                len(source.get("notes", []))
+                if source["kind"] == "midi"
+                else None
+            ),
+            "muted": False,
+            "looping": True,
+        }
+        track["arrangementClips"].append(clip)
+        return response(
+            request,
+            {
+                "sourceClip": {
+                    "reference": source["reference"],
+                    "trackReference": track["reference"],
+                    "trackIndex": index,
+                    "sceneIndex": scene_index,
+                    "name": source["name"],
+                    "kind": source["kind"],
+                    "length": source["length"],
+                    "noteCount": (
+                        len(source.get("notes", []))
+                        if source["kind"] == "midi"
+                        else None
+                    ),
+                },
+                "clip": {
+                    key: value for key, value in clip.items() if key != "notes"
+                },
+                "beforeClipCount": before_count,
+                "afterClipCount": len(track["arrangementClips"]),
+                "verified": True,
+            },
+        )
     if command == "arrangement.inspect":
         clips = sorted(
             [
@@ -608,6 +746,84 @@ def handle(request, token, state):
                 },
                 "beforeNoteCount": before_count,
                 "afterNoteCount": len(target["notes"]),
+                "verified": True,
+            },
+        )
+    if command == "arrangement.set_clip_properties":
+        index = params.get("index")
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or index < 0
+            or index >= len(state.tracks)
+        ):
+            return failure(request, "not_found", "Track index is out of range")
+        track = state.tracks[index]
+        if (
+            track["reference"] != params.get("expectedReference")
+            or track["name"] != params.get("expectedName")
+        ):
+            return failure(
+                request,
+                "stale_reference",
+                "Track identity changed before mutation",
+            )
+        target = next(
+            (
+                clip
+                for clip in track["arrangementClips"]
+                if clip["reference"] == params.get("expectedClipReference")
+            ),
+            None,
+        )
+        if target is None or abs(
+            target["startTime"] - params.get("expectedStartTime")
+        ) >= 0.000001:
+            return failure(
+                request,
+                "stale_reference",
+                "Arrangement clip changed before property update",
+            )
+        updates = {
+            key: params[key]
+            for key in ("name", "muted", "looping")
+            if key in params
+        }
+        if not updates:
+            return failure(
+                request,
+                "invalid_params",
+                "At least one clip property is required",
+            )
+        if "name" in updates:
+            if not isinstance(updates["name"], str) or not updates["name"].strip():
+                return failure(
+                    request,
+                    "invalid_params",
+                    "name must be a non-empty string",
+                )
+            updates["name"] = updates["name"].strip()
+        if "muted" in updates and not isinstance(updates["muted"], bool):
+            return failure(request, "invalid_params", "muted must be a boolean")
+        if "looping" in updates and not isinstance(updates["looping"], bool):
+            return failure(request, "invalid_params", "looping must be a boolean")
+        before = {
+            key: target[key] for key in ("name", "muted", "looping")
+        }
+        target.update(updates)
+        after = {
+            key: target[key] for key in ("name", "muted", "looping")
+        }
+        return response(
+            request,
+            {
+                "clip": {
+                    key: value
+                    for key, value in target.items()
+                    if key != "notes"
+                },
+                "before": before,
+                "after": after,
                 "verified": True,
             },
         )

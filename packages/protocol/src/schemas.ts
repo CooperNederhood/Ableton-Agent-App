@@ -103,17 +103,30 @@ export const pingResultSchema = z.object({
   pong: z.literal(true),
 });
 
+export const trackKindSchema = z.enum(["midi", "audio"]);
+
 export const trackSummarySchema = z.object({
   index: z.number().int().nonnegative(),
   reference: z.string().uuid(),
   name: z.string(),
-  kind: z.enum(["midi", "audio"]),
+  kind: trackKindSchema,
   color: z.number().int().nullable(),
   isMuted: z.boolean(),
   isSoloed: z.boolean(),
   isArmed: z.boolean(),
   volume: z.number().min(0).max(1),
   pan: z.number().min(-1).max(1),
+});
+
+export const sessionViewClipSummarySchema = z.object({
+  reference: z.string().uuid(),
+  trackReference: z.string().uuid(),
+  trackIndex: z.number().int().nonnegative(),
+  sceneIndex: z.number().int().nonnegative(),
+  name: z.string(),
+  kind: trackKindSchema,
+  length: z.number().positive(),
+  noteCount: z.number().int().nonnegative().nullable(),
 });
 
 export const sessionSnapshotSchema = z.object({
@@ -125,6 +138,7 @@ export const sessionSnapshotSchema = z.object({
   isPlaying: z.boolean(),
   trackCount: z.number().int().nonnegative(),
   tracks: z.array(trackSummarySchema),
+  clips: z.array(sessionViewClipSummarySchema).optional(),
 });
 
 export const setTempoParamsSchema = z.object({
@@ -146,8 +160,6 @@ export const setPlayingResultSchema = z.object({
   afterIsPlaying: z.boolean(),
   verified: z.boolean(),
 });
-
-export const trackKindSchema = z.enum(["midi", "audio"]);
 
 export const createTrackParamsSchema = z.object({
   kind: trackKindSchema,
@@ -284,6 +296,8 @@ export const arrangementClipSummarySchema = z.object({
   endTime: z.number().positive(),
   length: z.number().positive(),
   noteCount: z.number().int().nonnegative().nullable(),
+  muted: z.boolean().optional(),
+  looping: z.boolean().nullable().optional(),
 });
 
 export const createArrangementMidiClipResultSchema = z.object({
@@ -328,6 +342,49 @@ export const replaceArrangementMidiNotesResultSchema = z.object({
   clip: arrangementClipSummarySchema,
   beforeNoteCount: z.number().int().nonnegative(),
   afterNoteCount: z.number().int().nonnegative(),
+  verified: z.literal(true),
+});
+
+export const duplicateClipToArrangementParamsSchema = trackTargetSchema.extend({
+  sceneIndex: z.number().int().nonnegative(),
+  expectedClipReference: z.string().uuid(),
+  destinationTime: z.number().nonnegative().max(1576800),
+});
+
+export const duplicateClipToArrangementResultSchema = z.object({
+  sourceClip: sessionViewClipSummarySchema,
+  clip: arrangementClipSummarySchema,
+  beforeClipCount: z.number().int().nonnegative(),
+  afterClipCount: z.number().int().nonnegative(),
+  verified: z.literal(true),
+});
+
+export const arrangementClipPropertiesSchema = z.object({
+  name: z.string(),
+  muted: z.boolean(),
+  looping: z.boolean().nullable(),
+});
+
+export const setArrangementClipPropertiesParamsSchema = trackTargetSchema
+  .extend({
+    expectedClipReference: z.string().uuid(),
+    expectedStartTime: z.number().nonnegative(),
+    name: z.string().trim().min(1).max(128).optional(),
+    muted: z.boolean().optional(),
+    looping: z.boolean().optional(),
+  })
+  .refine(
+    (params) =>
+      params.name !== undefined ||
+      params.muted !== undefined ||
+      params.looping !== undefined,
+    { message: "At least one clip property is required" },
+  );
+
+export const setArrangementClipPropertiesResultSchema = z.object({
+  clip: arrangementClipSummarySchema,
+  before: arrangementClipPropertiesSchema,
+  after: arrangementClipPropertiesSchema,
   verified: z.literal(true),
 });
 
@@ -377,4 +434,19 @@ export type ReplaceArrangementMidiNotesParams = z.infer<
 >;
 export type ReplaceArrangementMidiNotesResult = z.infer<
   typeof replaceArrangementMidiNotesResultSchema
+>;
+export type DuplicateClipToArrangementParams = z.infer<
+  typeof duplicateClipToArrangementParamsSchema
+>;
+export type DuplicateClipToArrangementResult = z.infer<
+  typeof duplicateClipToArrangementResultSchema
+>;
+export type ArrangementClipProperties = z.infer<
+  typeof arrangementClipPropertiesSchema
+>;
+export type SetArrangementClipPropertiesParams = z.infer<
+  typeof setArrangementClipPropertiesParamsSchema
+>;
+export type SetArrangementClipPropertiesResult = z.infer<
+  typeof setArrangementClipPropertiesResultSchema
 >;

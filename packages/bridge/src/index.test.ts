@@ -66,6 +66,8 @@ describe("AbletonBridgeService", () => {
         "clips.create_midi": true,
         "clips.replace_notes": true,
         "arrangement.create_midi_clip": true,
+        "arrangement.duplicate_clip": true,
+        "arrangement.set_clip_properties": true,
       },
     });
     await expect(service.ping()).resolves.toEqual({ pong: true });
@@ -165,6 +167,17 @@ describe("AbletonBridgeService", () => {
       },
       verified: true,
     });
+    await expect(service.inspectSession()).resolves.toMatchObject({
+      clips: [
+        {
+          reference: createdClip.clip.reference,
+          trackReference: drums?.reference,
+          trackIndex: 0,
+          sceneIndex: 0,
+          kind: "midi",
+        },
+      ],
+    });
     await expect(
       service.replaceMidiNotes({
         index: 0,
@@ -221,13 +234,89 @@ describe("AbletonBridgeService", () => {
       },
       verified: true,
     });
+    const duplicated = await service.duplicateClipToArrangement({
+      index: 0,
+      expectedReference: drums?.reference ?? "",
+      expectedName: "Main Drums",
+      sceneIndex: 0,
+      expectedClipReference: createdClip.clip.reference,
+      destinationTime: 16,
+    });
+    expect(duplicated).toMatchObject({
+      sourceClip: {
+        reference: createdClip.clip.reference,
+        kind: "midi",
+        noteCount: 1,
+      },
+      clip: { name: "Beat", startTime: 16, endTime: 20, noteCount: 1 },
+      beforeClipCount: 1,
+      afterClipCount: 2,
+      verified: true,
+    });
+    await expect(
+      service.setArrangementClipProperties({
+        index: 0,
+        expectedReference: drums?.reference ?? "",
+        expectedName: "Main Drums",
+        expectedClipReference: duplicated.clip.reference,
+        expectedStartTime: 16,
+        name: "Chorus",
+        muted: true,
+        looping: false,
+      }),
+    ).resolves.toMatchObject({
+      before: { name: "Beat", muted: false, looping: true },
+      after: { name: "Chorus", muted: true, looping: false },
+      clip: {
+        reference: duplicated.clip.reference,
+        name: "Chorus",
+        muted: true,
+        looping: false,
+      },
+      verified: true,
+    });
+    const updatedArrangement = await service.inspectArrangement({
+      offset: 0,
+      limit: 10,
+    });
+    expect(
+      updatedArrangement.clips.find(
+        (clip) => clip.reference === duplicated.clip.reference,
+      ),
+    ).toMatchObject({
+      name: "Chorus",
+      muted: true,
+      looping: false,
+    });
+    await expect(
+      service.setArrangementClipProperties({
+        index: 0,
+        expectedReference: drums?.reference ?? "",
+        expectedName: "Main Drums",
+        expectedClipReference: duplicated.clip.reference,
+        expectedStartTime: 16,
+      }),
+    ).rejects.toThrow("At least one clip property is required");
+    await expect(
+      service.duplicateClipToArrangement({
+        index: 0,
+        expectedReference: drums?.reference ?? "",
+        expectedName: "Main Drums",
+        sceneIndex: 0,
+        expectedClipReference: createdClip.clip.reference,
+        destinationTime: 9,
+      }),
+    ).rejects.toMatchObject({ code: "conflict", retryable: false });
     const arrangement = await service.inspectArrangement({
       offset: 0,
       limit: 10,
     });
     expect(arrangement).toMatchObject({
-      total: 1,
-      clips: [{ name: "Verse", kind: "midi", startTime: 8 }],
+      total: 2,
+      clips: [
+        { name: "Verse", kind: "midi", startTime: 8 },
+        { name: "Chorus", kind: "midi", startTime: 16 },
+      ],
     });
     await expect(
       service.replaceArrangementMidiNotes({
@@ -262,8 +351,8 @@ describe("AbletonBridgeService", () => {
         expectedStartTime: 8,
       }),
     ).resolves.toMatchObject({
-      beforeClipCount: 1,
-      afterClipCount: 0,
+      beforeClipCount: 2,
+      afterClipCount: 1,
       verified: true,
     });
     const vocals = afterDelete.tracks.find((track) => track.name === "Vocals");

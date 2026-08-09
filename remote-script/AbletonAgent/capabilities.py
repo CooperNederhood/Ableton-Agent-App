@@ -51,6 +51,14 @@ def build_capability_document(
             not tracks
             or any(hasattr(track, "arrangement_clips") for track in tracks)
         ),
+        "arrangement.duplicate_clip": any(
+            hasattr(track, "arrangement_clips")
+            and hasattr(track, "duplicate_clip_to_arrangement")
+            and hasattr(track, "delete_clip")
+            for track in tracks
+        ),
+        "arrangement.set_clip_properties": not tracks
+        or any(hasattr(track, "arrangement_clips") for track in tracks),
     }
     for name, supported in arrangement_support.items():
         if name in capabilities:

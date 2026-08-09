@@ -6,6 +6,8 @@ import type {
   CreateArrangementMidiClipResult,
   DeleteArrangementClipParams,
   DeleteArrangementClipResult,
+  DuplicateClipToArrangementParams,
+  DuplicateClipToArrangementResult,
   DeleteTrackParams,
   RenameTrackParams,
   InspectArrangementParams,
@@ -15,6 +17,8 @@ import type {
   ReplaceMidiNotesResult,
   ReplaceArrangementMidiNotesParams,
   ReplaceArrangementMidiNotesResult,
+  SetArrangementClipPropertiesParams,
+  SetArrangementClipPropertiesResult,
   SessionSnapshot,
   SetPlayingParams,
   SetPlayingResult,
@@ -68,6 +72,12 @@ export interface AbletonToolServices {
   replaceArrangementMidiNotes(
     params: ReplaceArrangementMidiNotesParams,
   ): Promise<ReplaceArrangementMidiNotesResult>;
+  duplicateClipToArrangement(
+    params: DuplicateClipToArrangementParams,
+  ): Promise<DuplicateClipToArrangementResult>;
+  setArrangementClipProperties(
+    params: SetArrangementClipPropertiesParams,
+  ): Promise<SetArrangementClipPropertiesResult>;
 }
 
 export const abletonToolMetadata = [
@@ -168,6 +178,20 @@ export const abletonToolMetadata = [
     duration: "short",
     requiredCapability: "arrangement.replace_notes",
   },
+  {
+    name: "ableton_arrangement_duplicate_clip",
+    title: "Duplicate Session clip to Arrangement",
+    risk: "reversible",
+    duration: "short",
+    requiredCapability: "arrangement.duplicate_clip",
+  },
+  {
+    name: "ableton_arrangement_set_clip_properties",
+    title: "Set Arrangement clip properties",
+    risk: "reversible",
+    duration: "short",
+    requiredCapability: "arrangement.set_clip_properties",
+  },
 ] as const satisfies readonly AbletonToolMetadata[];
 
 export interface ToolApprovalRequest {
@@ -226,6 +250,8 @@ export interface AbletonToolSet {
     Tool<InspectArrangementParams>,
     Tool<DeleteArrangementClipParams>,
     Tool<ReplaceArrangementMidiNotesParams>,
+    Tool<DuplicateClipToArrangementParams>,
+    Tool<SetArrangementClipPropertiesParams>,
   ];
   availableTools: string[];
 }
@@ -453,6 +479,51 @@ export function createAbletonTools(
       handler: async (params) => services.replaceArrangementMidiNotes(params),
     },
   );
+  const duplicateClipToArrangementTool = defineTool(
+    "ableton_arrangement_duplicate_clip",
+    {
+      description:
+        "Duplicates an identity-bound Session View MIDI clip to a verified, non-overlapping Arrangement destination on the same track.",
+      parameters: z
+        .object({
+          index: z.number().int().nonnegative(),
+          expectedReference: z.string().uuid(),
+          expectedName: z.string().min(1),
+          sceneIndex: z.number().int().nonnegative(),
+          expectedClipReference: z.string().uuid(),
+          destinationTime: z.number().nonnegative().max(1576800),
+        })
+        .strict(),
+      handler: async (params) => services.duplicateClipToArrangement(params),
+    },
+  );
+  const setArrangementClipPropertiesTool = defineTool(
+    "ableton_arrangement_set_clip_properties",
+    {
+      description:
+        "Conservatively updates name, mute, or loop state on an identity-bound Arrangement clip and restores prior values if verification fails.",
+      parameters: z
+        .object({
+          index: z.number().int().nonnegative(),
+          expectedReference: z.string().uuid(),
+          expectedName: z.string().min(1),
+          expectedClipReference: z.string().uuid(),
+          expectedStartTime: z.number().nonnegative(),
+          name: z.string().trim().min(1).max(128).optional(),
+          muted: z.boolean().optional(),
+          looping: z.boolean().optional(),
+        })
+        .strict()
+        .refine(
+          (params) =>
+            params.name !== undefined ||
+            params.muted !== undefined ||
+            params.looping !== undefined,
+          { message: "At least one clip property is required" },
+        ),
+      handler: async (params) => services.setArrangementClipProperties(params),
+    },
+  );
 
   return {
     tools: [
@@ -470,6 +541,8 @@ export function createAbletonTools(
       inspectArrangementTool,
       deleteArrangementClipTool,
       replaceArrangementMidiNotesTool,
+      duplicateClipToArrangementTool,
+      setArrangementClipPropertiesTool,
     ],
     availableTools: abletonToolMetadata.map(
       (metadata) => `custom:${metadata.name}`,

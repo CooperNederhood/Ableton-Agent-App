@@ -34,7 +34,8 @@ Companion specification: [Tool Design](tool-design.md)
   - [x] Implement bounded Arrangement inspection.
   - [x] Implement destructive identity-bound Arrangement clip deletion.
   - [x] Implement destructive bounded Arrangement MIDI note replacement.
-  - [ ] Implement Arrangement duplication and properties.
+  - [x] Implement reversible Session-to-Arrangement clip duplication.
+  - [x] Implement reversible identity-bound Arrangement clip properties.
 - [ ] Implement browser/device load and parameter operations.
 - [~] Implement transport, loop, and cue-point operations.
 

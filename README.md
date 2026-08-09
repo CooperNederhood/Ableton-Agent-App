@@ -40,12 +40,16 @@ identity-bound track rename, normalized mixer controls, and non-group track
 deletion with last-track protection.
 Session composition supports guarded MIDI clip creation and destructive,
 reference-bound note replacement with bounded payloads, core-note recovery,
-and explicit opt-in for per-note expression loss.
+and explicit opt-in for per-note expression loss. Session inspection includes
+identity-bound MIDI and audio clip summaries for safe follow-up operations.
 Arrangement composition supports verified, non-overlapping empty MIDI clip
 placement with rollback on failed creation, bounded inspection, and destructive
 identity-bound clip deletion. Arrangement MIDI note replacement uses the same
 bounded payloads, verification, recovery, and expression-loss consent as
-Session clips.
+Session clips. Identity-bound Session MIDI clips can be duplicated to
+non-overlapping Arrangement destinations with rollback, and Arrangement clip
+name, mute, and supported loop state can be updated with verified restoration
+of prior values on failure.
 
 For development without Ableton:
 

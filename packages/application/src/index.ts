@@ -7,6 +7,8 @@ import type {
   CreateArrangementMidiClipResult,
   DeleteArrangementClipParams,
   DeleteArrangementClipResult,
+  DuplicateClipToArrangementParams,
+  DuplicateClipToArrangementResult,
   CreateMidiClipParams,
   CreateMidiClipResult,
   CreateTrackParams,
@@ -17,6 +19,8 @@ import type {
   ReplaceMidiNotesResult,
   ReplaceArrangementMidiNotesParams,
   ReplaceArrangementMidiNotesResult,
+  SetArrangementClipPropertiesParams,
+  SetArrangementClipPropertiesResult,
   PingResult,
   InspectArrangementParams,
   InspectArrangementResult,
@@ -81,6 +85,12 @@ export interface AbletonService {
   replaceArrangementMidiNotes(
     params: ReplaceArrangementMidiNotesParams,
   ): Promise<ReplaceArrangementMidiNotesResult>;
+  duplicateClipToArrangement(
+    params: DuplicateClipToArrangementParams,
+  ): Promise<DuplicateClipToArrangementResult>;
+  setArrangementClipProperties(
+    params: SetArrangementClipPropertiesParams,
+  ): Promise<SetArrangementClipPropertiesResult>;
 }
 
 export interface ApplicationServices {
@@ -137,6 +147,12 @@ export interface CopilotAgentServiceOptions {
   replaceArrangementMidiNotes: (
     params: ReplaceArrangementMidiNotesParams,
   ) => Promise<ReplaceArrangementMidiNotesResult>;
+  duplicateClipToArrangement: (
+    params: DuplicateClipToArrangementParams,
+  ) => Promise<DuplicateClipToArrangementResult>;
+  setArrangementClipProperties: (
+    params: SetArrangementClipPropertiesParams,
+  ) => Promise<SetArrangementClipPropertiesResult>;
   requestToolApproval?: ToolApprovalRequester;
   clientFactory?: () => CopilotClientAdapter;
   baseDirectory?: string;
@@ -187,6 +203,8 @@ export class CopilotAgentService implements AgentService {
       inspectArrangement: this.options.inspectArrangement,
       deleteArrangementClip: this.options.deleteArrangementClip,
       replaceArrangementMidiNotes: this.options.replaceArrangementMidiNotes,
+      duplicateClipToArrangement: this.options.duplicateClipToArrangement,
+      setArrangementClipProperties: this.options.setArrangementClipProperties,
     });
 
     try {
@@ -423,6 +441,18 @@ export class HeadlessApplication {
     params: ReplaceArrangementMidiNotesParams,
   ): Promise<ReplaceArrangementMidiNotesResult> {
     return this.services.ableton.replaceArrangementMidiNotes(params);
+  }
+
+  public duplicateClipToArrangement(
+    params: DuplicateClipToArrangementParams,
+  ): Promise<DuplicateClipToArrangementResult> {
+    return this.services.ableton.duplicateClipToArrangement(params);
+  }
+
+  public setArrangementClipProperties(
+    params: SetArrangementClipPropertiesParams,
+  ): Promise<SetArrangementClipPropertiesResult> {
+    return this.services.ableton.setArrangementClipProperties(params);
   }
 
   public subscribe(listener: (event: AppEvent) => void): () => void {

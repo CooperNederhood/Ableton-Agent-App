@@ -10,6 +10,8 @@ import {
   createArrangementMidiClipResultSchema,
   deleteArrangementClipParamsSchema,
   deleteArrangementClipResultSchema,
+  duplicateClipToArrangementParamsSchema,
+  duplicateClipToArrangementResultSchema,
   createMidiClipParamsSchema,
   createMidiClipResultSchema,
   createTrackParamsSchema,
@@ -27,6 +29,8 @@ import {
   replaceMidiNotesResultSchema,
   replaceArrangementMidiNotesParamsSchema,
   replaceArrangementMidiNotesResultSchema,
+  setArrangementClipPropertiesParamsSchema,
+  setArrangementClipPropertiesResultSchema,
   setTrackMixerParamsSchema,
   setTrackMixerResultSchema,
   setTempoParamsSchema,
@@ -37,6 +41,8 @@ import {
   type CreateArrangementMidiClipResult,
   type DeleteArrangementClipParams,
   type DeleteArrangementClipResult,
+  type DuplicateClipToArrangementParams,
+  type DuplicateClipToArrangementResult,
   type CreateMidiClipParams,
   type CreateMidiClipResult,
   type CreateTrackParams,
@@ -55,6 +61,8 @@ import {
   type ReplaceMidiNotesResult,
   type ReplaceArrangementMidiNotesParams,
   type ReplaceArrangementMidiNotesResult,
+  type SetArrangementClipPropertiesParams,
+  type SetArrangementClipPropertiesResult,
   type SetTrackMixerParams,
   type SetTrackMixerResult,
   type SetTempoResult,
@@ -294,6 +302,26 @@ export class AbletonBridgeService implements AbletonService {
     const validated = replaceArrangementMidiNotesParamsSchema.parse(params);
     return replaceArrangementMidiNotesResultSchema.parse(
       await this.#mutationRequest("arrangement.replace_notes", validated),
+    );
+  }
+
+  public async duplicateClipToArrangement(
+    params: DuplicateClipToArrangementParams,
+  ): Promise<DuplicateClipToArrangementResult> {
+    this.#requireCapability("arrangement.duplicate_clip");
+    const validated = duplicateClipToArrangementParamsSchema.parse(params);
+    return duplicateClipToArrangementResultSchema.parse(
+      await this.#mutationRequest("arrangement.duplicate_clip", validated),
+    );
+  }
+
+  public async setArrangementClipProperties(
+    params: SetArrangementClipPropertiesParams,
+  ): Promise<SetArrangementClipPropertiesResult> {
+    this.#requireCapability("arrangement.set_clip_properties");
+    const validated = setArrangementClipPropertiesParamsSchema.parse(params);
+    return setArrangementClipPropertiesResultSchema.parse(
+      await this.#mutationRequest("arrangement.set_clip_properties", validated),
     );
   }
 

@@ -38,7 +38,9 @@ Companion specification: [Remote Script](remote-script.md)
   - [x] Inspect Arrangement clips with bounded pagination.
   - [x] Delete identity-bound Arrangement clips with postcondition checks.
   - [x] Replace bounded Arrangement MIDI notes with verification and recovery.
-  - [ ] Implement duplication and properties.
+  - [x] Duplicate identity-bound Session clips to non-overlapping Arrangement
+    destinations with verification and rollback.
+  - [x] Update supported Arrangement clip properties with full rollback.
 - [ ] Implement device, rack, Drum Rack, and parameter handlers.
 - [ ] Implement paginated browser handlers and loading.
 - [ ] Implement selected low-frequency LOM listeners and cleanup.

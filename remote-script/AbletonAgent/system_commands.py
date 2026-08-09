@@ -91,6 +91,27 @@ def _clip_summary(context, track, track_index, scene_index, clip):
     }
 
 
+def _session_view_clip_summary(
+    context, track, track_index, scene_index, clip
+):
+    is_midi = bool(getattr(clip, "is_midi_clip", False))
+    note_count = (
+        len(_clip_notes(clip))
+        if is_midi and hasattr(clip, "get_all_notes_extended")
+        else None
+    )
+    return {
+        "reference": _clip_reference(context, clip),
+        "trackReference": _track_reference(context, track),
+        "trackIndex": track_index,
+        "sceneIndex": scene_index,
+        "name": clip.name,
+        "kind": "midi" if is_midi else "audio",
+        "length": clip.length,
+        "noteCount": note_count,
+    }
+
+
 def _track_mixer_state(track):
     mixer = track.mixer_device
     return {
@@ -164,6 +185,7 @@ def ping(_context, _params):
 def inspect_session(context, _params):
     song = context.song
     tracks = []
+    clips = []
     for index, track in enumerate(song.tracks):
         tracks.append(
             {
@@ -179,6 +201,13 @@ def inspect_session(context, _params):
                 "pan": track.mixer_device.panning.value,
             }
         )
+        for scene_index, slot in enumerate(track.clip_slots):
+            if slot.has_clip:
+                clips.append(
+                    _session_view_clip_summary(
+                        context, track, index, scene_index, slot.clip
+                    )
+                )
     return {
         "tempo": song.tempo,
         "timeSignature": {
@@ -188,6 +217,7 @@ def inspect_session(context, _params):
         "isPlaying": bool(song.is_playing),
         "trackCount": len(tracks),
         "tracks": tracks,
+        "clips": clips,
     }
 
 def _set_tempo_params(params):
@@ -862,6 +892,13 @@ def _create_arrangement_midi_clip_params(params):
     return None
 
 
+def _arrangement_overlap(track, start_time, end_time):
+    for existing in track.arrangement_clips:
+        if start_time < existing.end_time and end_time > existing.start_time:
+            return existing
+    return None
+
+
 def create_arrangement_midi_clip(context, params):
     track = _resolve_track(context, params)
     if (
@@ -880,16 +917,16 @@ def create_arrangement_midi_clip(context, params):
         )
     start_time = params["startTime"]
     end_time = start_time + params["length"]
-    for existing in track.arrangement_clips:
-        if start_time < existing.end_time and end_time > existing.start_time:
-            raise ProtocolFailure(
-                "conflict",
-                "Arrangement range overlaps an existing clip",
-                details={
-                    "existingStartTime": existing.start_time,
-                    "existingEndTime": existing.end_time,
-                },
-            )
+    existing = _arrangement_overlap(track, start_time, end_time)
+    if existing is not None:
+        raise ProtocolFailure(
+            "conflict",
+            "Arrangement range overlaps an existing clip",
+            details={
+                "existingStartTime": existing.start_time,
+                "existingEndTime": existing.end_time,
+            },
+        )
     before_clips = list(track.arrangement_clips)
     clip = None
     try:
@@ -946,6 +983,14 @@ def create_arrangement_midi_clip(context, params):
 
 def _arrangement_clip_summary(context, track, track_index, clip):
     is_midi = bool(getattr(clip, "is_midi_clip", False))
+    note_count = (
+        len(_clip_notes(clip))
+        if is_midi and hasattr(clip, "get_all_notes_extended")
+        else None
+    )
+    looping = (
+        bool(clip.looping) if hasattr(clip, "looping") else None
+    )
     return {
         "reference": _clip_reference(context, clip),
         "trackReference": _track_reference(context, track),
@@ -955,8 +1000,26 @@ def _arrangement_clip_summary(context, track, track_index, clip):
         "startTime": clip.start_time,
         "endTime": clip.end_time,
         "length": clip.length,
-        "noteCount": len(_clip_notes(clip)) if is_midi else None,
+        "noteCount": note_count,
+        "muted": bool(getattr(clip, "muted", False)),
+        "looping": looping,
     }
+
+
+def _resolve_arrangement_clip(context, track, params, operation):
+    target = None
+    for clip in getattr(track, "arrangement_clips", []):
+        if _clip_reference(context, clip) == params["expectedClipReference"]:
+            target = clip
+            break
+    if target is None:
+        raise ProtocolFailure("stale_reference", "Arrangement clip changed")
+    if abs(target.start_time - params["expectedStartTime"]) >= 0.000001:
+        raise ProtocolFailure(
+            "stale_reference",
+            "Arrangement clip moved before {0}".format(operation),
+        )
+    return target
 
 
 def _inspect_arrangement_params(params):
@@ -1025,18 +1088,9 @@ def delete_arrangement_clip(context, params):
             "unsupported_capability",
             "This Live version does not support Arrangement clip deletion",
         )
-    target = None
-    for clip in track.arrangement_clips:
-        if _clip_reference(context, clip) == params["expectedClipReference"]:
-            target = clip
-            break
-    if target is None:
-        raise ProtocolFailure("stale_reference", "Arrangement clip changed")
-    if abs(target.start_time - params["expectedStartTime"]) >= 0.000001:
-        raise ProtocolFailure(
-            "stale_reference",
-            "Arrangement clip moved before deletion",
-        )
+    target = _resolve_arrangement_clip(
+        context, track, params, "deletion"
+    )
     before_count = len(track.arrangement_clips)
     summary = _arrangement_clip_summary(
         context, track, params["index"], target
@@ -1097,18 +1151,9 @@ def _replace_arrangement_midi_notes_params(params):
 
 def replace_arrangement_midi_notes(context, params):
     track = _resolve_track(context, params, allow_group=True)
-    target = None
-    for clip in getattr(track, "arrangement_clips", []):
-        if _clip_reference(context, clip) == params["expectedClipReference"]:
-            target = clip
-            break
-    if target is None:
-        raise ProtocolFailure("stale_reference", "Arrangement clip changed")
-    if abs(target.start_time - params["expectedStartTime"]) >= 0.000001:
-        raise ProtocolFailure(
-            "stale_reference",
-            "Arrangement clip moved before note replacement",
-        )
+    target = _resolve_arrangement_clip(
+        context, track, params, "note replacement"
+    )
     if not bool(getattr(target, "is_midi_clip", False)):
         raise ProtocolFailure(
             "conflict", "Arrangement clip is not a MIDI clip"
@@ -1121,6 +1166,302 @@ def replace_arrangement_midi_notes(context, params):
             context, track, params["index"], target
         ),
     )
+
+
+def _duplicate_clip_to_arrangement_params(params):
+    error = _validate_track_target(
+        params,
+        ["sceneIndex", "expectedClipReference", "destinationTime"],
+    )
+    if error:
+        return error
+    scene_index = params.get("sceneIndex")
+    if (
+        isinstance(scene_index, bool)
+        or not isinstance(scene_index, int)
+        or scene_index < 0
+    ):
+        return "sceneIndex must be a non-negative integer"
+    try:
+        uuid.UUID(params.get("expectedClipReference"))
+    except (AttributeError, TypeError, ValueError):
+        return "expectedClipReference must be a UUID"
+    destination_time = params.get("destinationTime")
+    if (
+        not _is_finite_number(destination_time)
+        or destination_time < 0
+        or destination_time > 1576800
+    ):
+        return "destinationTime must be between 0 and 1576800 beats"
+    return None
+
+
+def duplicate_clip_to_arrangement(context, params):
+    track = _resolve_track(context, params)
+    if (
+        not hasattr(track, "arrangement_clips")
+        or not hasattr(track, "duplicate_clip_to_arrangement")
+        or not hasattr(track, "delete_clip")
+    ):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "This Live version does not support Session-to-Arrangement duplication",
+        )
+    scene_index = params["sceneIndex"]
+    if scene_index >= len(track.clip_slots):
+        raise ProtocolFailure("not_found", "Scene index is out of range")
+    slot = track.clip_slots[scene_index]
+    if not slot.has_clip:
+        raise ProtocolFailure("not_found", "Clip slot is empty")
+    source = slot.clip
+    if _clip_reference(context, source) != params["expectedClipReference"]:
+        raise ProtocolFailure(
+            "stale_reference",
+            "Source clip identity changed before duplication",
+        )
+    if not bool(getattr(source, "is_midi_clip", False)):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "Safe Session-to-Arrangement duplication currently requires a MIDI clip",
+        )
+    source_length = source.length
+    if not _is_finite_number(source_length) or source_length <= 0:
+        raise ProtocolFailure(
+            "conflict", "Source clip has an invalid length"
+        )
+    destination_time = params["destinationTime"]
+    destination_end = destination_time + source_length
+    if destination_end > 1576800:
+        raise ProtocolFailure(
+            "invalid_params",
+            "Duplicated Arrangement clip end must not exceed 1576800 beats",
+        )
+    existing = _arrangement_overlap(
+        track, destination_time, destination_end
+    )
+    if existing is not None:
+        raise ProtocolFailure(
+            "conflict",
+            "Arrangement range overlaps an existing clip",
+            details={
+                "existingStartTime": existing.start_time,
+                "existingEndTime": existing.end_time,
+            },
+        )
+    before_clips = list(track.arrangement_clips)
+    duplicated = None
+    try:
+        duplicated = track.duplicate_clip_to_arrangement(
+            source, destination_time
+        )
+        created_clips = [
+            candidate
+            for candidate in track.arrangement_clips
+            if not any(candidate is before for before in before_clips)
+        ]
+        if len(created_clips) != 1:
+            raise ProtocolFailure(
+                "conflict",
+                "Arrangement duplication created an unexpected number of clips",
+            )
+        created = created_clips[0]
+        if duplicated is not None and duplicated is not created:
+            raise ProtocolFailure(
+                "conflict",
+                "Arrangement duplication returned an unexpected clip",
+            )
+        if (
+            slot.clip is not source
+            or _clip_reference(context, source)
+            != params["expectedClipReference"]
+            or len(track.arrangement_clips) != len(before_clips) + 1
+            or any(
+                not any(
+                    candidate is current
+                    for current in track.arrangement_clips
+                )
+                for candidate in before_clips
+            )
+            or abs(created.start_time - destination_time) >= 0.000001
+            or abs(created.end_time - destination_end) >= 0.000001
+            or abs(created.length - source_length) >= 0.000001
+            or bool(getattr(created, "is_midi_clip", False))
+            != bool(getattr(source, "is_midi_clip", False))
+        ):
+            raise ProtocolFailure(
+                "conflict",
+                "Arrangement duplication completed but verification failed",
+            )
+        result = {
+            "sourceClip": _session_view_clip_summary(
+                context, track, params["index"], scene_index, source
+            ),
+            "clip": _arrangement_clip_summary(
+                context, track, params["index"], created
+            ),
+            "beforeClipCount": len(before_clips),
+            "afterClipCount": len(track.arrangement_clips),
+            "verified": True,
+        }
+    except Exception as exc:
+        try:
+            created_clips = [
+                candidate
+                for candidate in track.arrangement_clips
+                if not any(candidate is before for before in before_clips)
+            ]
+            for created in created_clips:
+                track.delete_clip(created)
+            if len(track.arrangement_clips) != len(before_clips) or any(
+                not any(
+                    candidate is current
+                    for current in track.arrangement_clips
+                )
+                for candidate in before_clips
+            ):
+                raise RuntimeError("Arrangement before-state was not restored")
+        except Exception as recovery_exc:
+            raise ProtocolFailure(
+                "lom_error",
+                "Arrangement duplication and recovery both failed",
+                details={
+                    "operationError": str(exc),
+                    "recoveryError": str(recovery_exc),
+                },
+            )
+        if isinstance(exc, ProtocolFailure):
+            raise exc
+        raise ProtocolFailure(
+            "lom_error",
+            "Arrangement duplication failed; the destination clip was removed",
+            details={"operationError": str(exc)},
+        )
+    return result
+
+
+def _set_arrangement_clip_properties_params(params):
+    error = _validate_track_target(
+        params,
+        [
+            "expectedClipReference",
+            "expectedStartTime",
+            "name",
+            "muted",
+            "looping",
+        ],
+    )
+    if error:
+        return error
+    try:
+        uuid.UUID(params.get("expectedClipReference"))
+    except (AttributeError, TypeError, ValueError):
+        return "expectedClipReference must be a UUID"
+    start_time = params.get("expectedStartTime")
+    if not _is_finite_number(start_time) or start_time < 0:
+        return "expectedStartTime must be a non-negative number"
+    if not any(key in params for key in ("name", "muted", "looping")):
+        return "At least one clip property is required"
+    name = params.get("name")
+    if "name" in params and (
+        not isinstance(name, str) or not name.strip() or len(name) > 128
+    ):
+        return "name must be a non-empty string of at most 128 characters"
+    if "muted" in params and not isinstance(params.get("muted"), bool):
+        return "muted must be a boolean"
+    if "looping" in params and not isinstance(params.get("looping"), bool):
+        return "looping must be a boolean"
+    return None
+
+
+def _arrangement_clip_properties(clip):
+    return {
+        "name": clip.name,
+        "muted": bool(clip.muted),
+        "looping": bool(clip.looping) if hasattr(clip, "looping") else None,
+    }
+
+
+def set_arrangement_clip_properties(context, params):
+    track = _resolve_track(context, params, allow_group=True)
+    target = _resolve_arrangement_clip(
+        context, track, params, "property update"
+    )
+    if not hasattr(target, "name") or not hasattr(target, "muted"):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "This clip does not support required Arrangement properties",
+        )
+    if "looping" in params and not hasattr(target, "looping"):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "Looping is unsupported for this Arrangement clip",
+        )
+    before = _arrangement_clip_properties(target)
+    requested = []
+    if "name" in params:
+        requested.append(("name", params["name"].strip()))
+    if "muted" in params:
+        requested.append(("muted", params["muted"]))
+    if "looping" in params:
+        requested.append(("looping", params["looping"]))
+    applied = []
+    try:
+        for key, value in requested:
+            applied.append(key)
+            setattr(target, key, value)
+        after = _arrangement_clip_properties(target)
+        if (
+            not any(
+                candidate is target for candidate in track.arrangement_clips
+            )
+            or abs(target.start_time - params["expectedStartTime"])
+            >= 0.000001
+            or any(after[key] != value for key, value in requested)
+        ):
+            raise ProtocolFailure(
+                "conflict",
+                "Arrangement clip property verification failed",
+            )
+        result = {
+            "clip": _arrangement_clip_summary(
+                context, track, params["index"], target
+            ),
+            "before": before,
+            "after": after,
+            "verified": True,
+        }
+    except Exception as exc:
+        try:
+            for key in reversed(applied):
+                setattr(target, key, before[key])
+            restored = _arrangement_clip_properties(target)
+            if (
+                not any(
+                    candidate is target
+                    for candidate in track.arrangement_clips
+                )
+                or abs(target.start_time - params["expectedStartTime"])
+                >= 0.000001
+                or any(restored[key] != before[key] for key in applied)
+            ):
+                raise RuntimeError("Arrangement clip properties were not restored")
+        except Exception as recovery_exc:
+            raise ProtocolFailure(
+                "lom_error",
+                "Arrangement property update and recovery both failed",
+                details={
+                    "operationError": str(exc),
+                    "recoveryError": str(recovery_exc),
+                },
+            )
+        if isinstance(exc, ProtocolFailure):
+            raise exc
+        raise ProtocolFailure(
+            "lom_error",
+            "Arrangement property update failed; prior values were restored",
+            details={"operationError": str(exc)},
+        )
+    return result
 
 
 def register_system_commands(registry):
@@ -1208,4 +1549,18 @@ def register_system_commands(registry):
         mutates=True,
         capability="arrangement.replace_notes",
         validator=_replace_arrangement_midi_notes_params,
+    )
+    registry.register(
+        "arrangement.duplicate_clip",
+        duplicate_clip_to_arrangement,
+        mutates=True,
+        capability="arrangement.duplicate_clip",
+        validator=_duplicate_clip_to_arrangement_params,
+    )
+    registry.register(
+        "arrangement.set_clip_properties",
+        set_arrangement_clip_properties,
+        mutates=True,
+        capability="arrangement.set_clip_properties",
+        validator=_set_arrangement_clip_properties_params,
     )

@@ -44,6 +44,7 @@ class FakeTrack(object):
         self.clip_slots = [FakeClipSlot(), FakeClipSlot()]
         self.arrangement_clips = []
         self.fail_arrangement_create_after_mutation = False
+        self.fail_arrangement_duplicate_after_mutation = False
 
     def create_midi_clip(self, start_time, length):
         clip = FakeClip(length, start_time=start_time)
@@ -54,6 +55,21 @@ class FakeTrack(object):
 
     def delete_clip(self, clip):
         self.arrangement_clips.remove(clip)
+
+    def duplicate_clip_to_arrangement(self, source, destination_time):
+        clip = FakeClip(
+            source.length,
+            start_time=destination_time,
+            midi=source.is_midi_clip,
+        )
+        clip.name = source.name
+        clip.notes = list(source.notes)
+        clip.muted = source.muted
+        clip.looping = source.looping
+        self.arrangement_clips.append(clip)
+        if self.fail_arrangement_duplicate_after_mutation:
+            raise RuntimeError("simulated arrangement duplicate failure")
+        return clip
 
 
 class FakeParameter(object):
@@ -68,12 +84,14 @@ class FakeMixerDevice(object):
 
 
 class FakeClip(object):
-    def __init__(self, length, start_time=0.0):
+    def __init__(self, length, start_time=0.0, midi=True):
         self.length = length
-        self.is_midi_clip = True
+        self.is_midi_clip = midi
         self.start_time = start_time
         self.end_time = start_time + length
         self.name = ""
+        self.muted = False
+        self.looping = True
         self.notes = []
         self.fail_next_add = False
         self.get_notes_calls = 0
@@ -100,6 +118,18 @@ class FakeClip(object):
             self.notes.append(note)
             added_ids.append(note.note_id)
         return tuple(added_ids)
+
+
+class FailingMutedClip(FakeClip):
+    def __init__(self, length, start_time=0.0):
+        self.fail_muted_set = False
+        super(FailingMutedClip, self).__init__(length, start_time)
+
+    def __setattr__(self, key, value):
+        if key == "muted" and getattr(self, "fail_muted_set", False):
+            self.fail_muted_set = False
+            raise RuntimeError("simulated muted setter failure")
+        super(FailingMutedClip, self).__setattr__(key, value)
 
 
 class FakeMidiNoteSpecification(object):
@@ -204,10 +234,15 @@ class ExecutorTests(unittest.TestCase):
         responses = []
         registry = CommandRegistry()
         register_system_commands(registry)
+        context = FakeContext()
+        context.song.tracks[1].has_midi_input = False
+        context.song.tracks[1].clip_slots[0].clip = FakeClip(
+            2.0, midi=False
+        )
         executor = MainThreadExecutor(
             lambda delay, callback: scheduled.append((delay, callback)),
             registry,
-            FakeContext(),
+            context,
         )
 
         executor.submit(request("session.inspect"), responses.append)
@@ -219,6 +254,10 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(responses[0]["result"]["trackCount"], 2)
         self.assertEqual(responses[0]["result"]["tracks"][0]["name"], "Drums")
         self.assertEqual(responses[0]["result"]["tracks"][0]["kind"], "midi")
+        self.assertEqual(responses[0]["result"]["clips"][0]["kind"], "audio")
+        self.assertIsNone(
+            responses[0]["result"]["clips"][0]["noteCount"]
+        )
 
     def test_rejects_unknown_commands(self):
         responses = []
@@ -1024,6 +1063,211 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(responses[0]["error"]["code"], "lom_error")
         self.assertEqual(track.arrangement_clips, [])
 
+    def test_arrangement_duplication_guards_audio_overlap_and_identity(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        track = context.song.tracks[0]
+        midi_source = FakeClip(4.0)
+        midi_source.name = "MIDI Source"
+        audio_source = FakeClip(2.0, midi=False)
+        audio_source.name = "Audio Source"
+        track.clip_slots[0].clip = midi_source
+        track.clip_slots[1].clip = audio_source
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        midi_reference = "00000000-0000-4000-8000-000000000010"
+        audio_reference = "00000000-0000-4000-8000-000000000011"
+        context._track_references = [(track, track_reference)]
+        context._clip_references = [
+            (midi_source, midi_reference),
+            (audio_source, audio_reference),
+        ]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        for scene_index, clip_reference, destination_time in (
+            (0, midi_reference, 8.0),
+            (1, audio_reference, 16.0),
+        ):
+            executor.submit(
+                request(
+                    "arrangement.duplicate_clip",
+                    {
+                        "index": 0,
+                        "expectedReference": track_reference,
+                        "expectedName": "Drums",
+                        "sceneIndex": scene_index,
+                        "expectedClipReference": clip_reference,
+                        "destinationTime": destination_time,
+                    },
+                ),
+                responses.append,
+            )
+            scheduled.pop()()
+
+        executor.submit(
+            request(
+                "arrangement.duplicate_clip",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "sceneIndex": 0,
+                    "expectedClipReference": midi_reference,
+                    "destinationTime": 9.0,
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        executor.submit(
+            request(
+                "arrangement.duplicate_clip",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "sceneIndex": 0,
+                    "expectedClipReference": audio_reference,
+                    "destinationTime": 24.0,
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["result"]["sourceClip"]["kind"], "midi")
+        self.assertEqual(responses[0]["result"]["beforeClipCount"], 0)
+        self.assertEqual(responses[0]["result"]["afterClipCount"], 1)
+        self.assertEqual(
+            responses[1]["error"]["code"], "unsupported_capability"
+        )
+        self.assertEqual(responses[2]["error"]["code"], "conflict")
+        self.assertEqual(responses[3]["error"]["code"], "stale_reference")
+        self.assertEqual(len(track.arrangement_clips), 1)
+
+    def test_arrangement_duplication_rolls_back_after_lom_failure(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        track = context.song.tracks[0]
+        source = FakeClip(4.0)
+        track.clip_slots[0].clip = source
+        track.fail_arrangement_duplicate_after_mutation = True
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        clip_reference = "00000000-0000-4000-8000-000000000010"
+        context._track_references = [(track, track_reference)]
+        context._clip_references = [(source, clip_reference)]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "arrangement.duplicate_clip",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "sceneIndex": 0,
+                    "expectedClipReference": clip_reference,
+                    "destinationTime": 8.0,
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["error"]["code"], "lom_error")
+        self.assertEqual(track.arrangement_clips, [])
+
+    def test_arrangement_clip_properties_verify_and_restore_on_failure(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        track = context.song.tracks[0]
+        clip = FailingMutedClip(4.0, 8.0)
+        clip.name = "Before"
+        track.arrangement_clips = [clip]
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        clip_reference = "00000000-0000-4000-8000-000000000020"
+        context._track_references = [(track, track_reference)]
+        context._clip_references = [(clip, clip_reference)]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+        identity = {
+            "index": 0,
+            "expectedReference": track_reference,
+            "expectedName": "Drums",
+            "expectedClipReference": clip_reference,
+            "expectedStartTime": 8.0,
+        }
+
+        executor.submit(
+            request(
+                "arrangement.set_clip_properties",
+                dict(identity, name="After", muted=True, looping=False),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        executor.submit(
+            request(
+                "arrangement.set_clip_properties",
+                identity,
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        clip.fail_muted_set = True
+        executor.submit(
+            request(
+                "arrangement.set_clip_properties",
+                dict(identity, name="Should Roll Back", muted=False),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        del clip.looping
+        executor.submit(
+            request(
+                "arrangement.set_clip_properties",
+                dict(identity, looping=True),
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(
+            responses[0]["result"]["before"],
+            {"name": "Before", "muted": False, "looping": True},
+        )
+        self.assertEqual(
+            responses[0]["result"]["after"],
+            {"name": "After", "muted": True, "looping": False},
+        )
+        self.assertEqual(responses[1]["error"]["code"], "invalid_params")
+        self.assertEqual(responses[2]["error"]["code"], "lom_error")
+        self.assertEqual(clip.name, "After")
+        self.assertTrue(clip.muted)
+        self.assertEqual(
+            responses[3]["error"]["code"], "unsupported_capability"
+        )
+
     def test_arrangement_inspection_serializes_only_requested_page(self):
         scheduled = []
         responses = []
@@ -1091,6 +1335,14 @@ class CapabilityAndTokenTests(unittest.TestCase):
         self.assertFalse(
             legacy_document["capabilities"]["arrangement.replace_notes"]
         )
+        self.assertFalse(
+            legacy_document["capabilities"]["arrangement.duplicate_clip"]
+        )
+        self.assertFalse(
+            legacy_document["capabilities"][
+                "arrangement.set_clip_properties"
+            ]
+        )
 
         class InspectOnlyTrack(object):
             arrangement_clips = []
@@ -1112,6 +1364,14 @@ class CapabilityAndTokenTests(unittest.TestCase):
         )
         self.assertFalse(
             inspect_document["capabilities"]["arrangement.replace_notes"]
+        )
+        self.assertFalse(
+            inspect_document["capabilities"]["arrangement.duplicate_clip"]
+        )
+        self.assertTrue(
+            inspect_document["capabilities"][
+                "arrangement.set_clip_properties"
+            ]
         )
 
         empty_document = build_capability_document(

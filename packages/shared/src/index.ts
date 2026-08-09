@@ -15,6 +15,18 @@ export type ConnectionStatus =
 export type AppEvent =
   | { type: "lifecycle.changed"; state: LifecycleState }
   | { type: "ableton.connection_changed"; status: ConnectionStatus }
+  | {
+      type: "ableton.event_received";
+      event: string;
+      sequence: number;
+      payload: unknown;
+      projectRevision?: number;
+    }
+  | {
+      type: "ableton.event_gap";
+      expectedSequence: number;
+      receivedSequence: number;
+    }
   | { type: "agent.message_delta"; content: string }
   | { type: "agent.message_complete"; content: string }
   | {

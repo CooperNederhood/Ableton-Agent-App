@@ -116,6 +116,7 @@ import {
   type InspectRackChainDevicesResult,
   type InspectRackChainsParams,
   type InspectRackChainsResult,
+  type EventEnvelope,
   type MessageEnvelope,
   type PingResult,
   type RequestEnvelope,
@@ -158,6 +159,32 @@ export interface AbletonBridgeOptions {
   port?: number;
   appVersion?: string;
   requestTimeoutMs?: number;
+  eventSubscriptions?: readonly string[];
+  reconnect?: Partial<ReconnectPolicy>;
+  random?: () => number;
+}
+
+export interface ReconnectPolicy {
+  readonly maxAttempts: number;
+  readonly initialDelayMs: number;
+  readonly maxDelayMs: number;
+  readonly jitterRatio: number;
+}
+
+export interface AbletonBridgeEvent {
+  readonly event: string;
+  readonly sequence: number;
+  readonly payload: unknown;
+  readonly projectRevision?: number;
+}
+
+export interface AbletonBridge {
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  getStatus(): Promise<ConnectionStatus>;
+  getCapabilities(): Promise<CapabilityDocument>;
+  getProjectRevision(): number | undefined;
+  subscribe(listener: (event: AbletonBridgeEvent) => void): () => void;
 }
 
 interface PendingRequest {
@@ -183,14 +210,24 @@ export class AbletonBridgeService implements AbletonService {
   readonly #port: number;
   readonly #appVersion: string;
   readonly #requestTimeoutMs: number;
+  readonly #eventSubscriptions: readonly string[];
+  readonly #reconnect: ReconnectPolicy;
+  readonly #random: () => number;
   readonly #decoder = new FrameDecoder();
   readonly #pending = new Map<string, PendingRequest>();
+  readonly #eventListeners = new Set<(event: AbletonBridgeEvent) => void>();
   #mutationTail: Promise<void> = Promise.resolve();
   #socket: Socket | undefined;
+  #reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  #connectPromise: Promise<void> | undefined;
   #status: ConnectionStatus = { state: "disconnected" };
   #capabilities: CapabilityDocument | undefined;
   #connectionGeneration = 0;
   #handshakeComplete = false;
+  #desiredRunning = false;
+  #reconnectAttempt = 0;
+  #lastEventSequence: number | undefined;
+  #projectRevision: number | undefined;
 
   public constructor(private readonly options: AbletonBridgeOptions) {
     if (options.authenticationToken.length < 32) {
@@ -202,12 +239,55 @@ export class AbletonBridgeService implements AbletonService {
     this.#port = options.port ?? 8765;
     this.#appVersion = options.appVersion ?? "0.1.0";
     this.#requestTimeoutMs = options.requestTimeoutMs ?? 5_000;
+    this.#eventSubscriptions = [...(options.eventSubscriptions ?? [])];
+    this.#reconnect = {
+      maxAttempts: options.reconnect?.maxAttempts ?? 5,
+      initialDelayMs: options.reconnect?.initialDelayMs ?? 250,
+      maxDelayMs: options.reconnect?.maxDelayMs ?? 4_000,
+      jitterRatio: options.reconnect?.jitterRatio ?? 0.2,
+    };
+    this.#random = options.random ?? Math.random;
   }
 
   public async start(): Promise<void> {
-    if (this.#socket) {
+    this.#desiredRunning = true;
+    if (this.#handshakeComplete) {
       return;
     }
+    await this.#ensureConnected();
+  }
+
+  public async stop(): Promise<void> {
+    this.#desiredRunning = false;
+    if (this.#reconnectTimer !== undefined) {
+      clearTimeout(this.#reconnectTimer);
+      this.#reconnectTimer = undefined;
+    }
+    this.#destroySocket();
+    this.#setStatus({ state: "disconnected" });
+  }
+
+  public getProjectRevision(): number | undefined {
+    return this.#projectRevision;
+  }
+
+  public subscribe(listener: (event: AbletonBridgeEvent) => void): () => void {
+    this.#eventListeners.add(listener);
+    return () => {
+      this.#eventListeners.delete(listener);
+    };
+  }
+
+  async #ensureConnected(): Promise<void> {
+    this.#connectPromise ??= this.#startConnection().finally(() => {
+      this.#connectPromise = undefined;
+      this.#scheduleReconnect();
+    });
+    return this.#connectPromise;
+  }
+
+  async #startConnection(): Promise<void> {
+    if (!this.#desiredRunning || this.#handshakeComplete) return;
     this.#setStatus({ state: "connecting" });
 
     try {
@@ -216,11 +296,17 @@ export class AbletonBridgeService implements AbletonService {
         authenticationToken: this.options.authenticationToken,
         supportedProtocolVersions: [PROTOCOL_VERSION],
         appVersion: this.#appVersion,
-        eventSubscriptions: [],
+        eventSubscriptions: [...this.#eventSubscriptions],
       });
       const capabilities = capabilityDocumentSchema.parse(result);
+      if (!this.#desiredRunning) {
+        this.#destroySocket();
+        return;
+      }
       this.#capabilities = capabilities;
       this.#handshakeComplete = true;
+      this.#reconnectAttempt = 0;
+      this.#lastEventSequence = undefined;
       this.#setStatus({
         state: "connected",
         liveVersion: capabilities.liveVersion,
@@ -229,6 +315,10 @@ export class AbletonBridgeService implements AbletonService {
       });
     } catch (error) {
       this.#destroySocket();
+      if (!this.#desiredRunning) {
+        this.#setStatus({ state: "disconnected" });
+        return;
+      }
       this.#setStatus({
         state: "error",
         code:
@@ -238,11 +328,6 @@ export class AbletonBridgeService implements AbletonService {
         message: error instanceof Error ? error.message : String(error),
       });
     }
-  }
-
-  public async stop(): Promise<void> {
-    this.#destroySocket();
-    this.#setStatus({ state: "disconnected" });
   }
 
   public async getStatus(): Promise<ConnectionStatus> {
@@ -691,6 +776,9 @@ export class AbletonBridgeService implements AbletonService {
       requestId,
       command,
       params: { ...params },
+      ...(command === "system.hello" || this.#projectRevision === undefined
+        ? {}
+        : { projectRevision: this.#projectRevision }),
     };
 
     const response = new Promise<ResponseEnvelope>((resolve, reject) => {
@@ -717,6 +805,9 @@ export class AbletonBridgeService implements AbletonService {
         envelope.error.details,
       );
     }
+    if (envelope.projectRevision !== undefined) {
+      this.#projectRevision = envelope.projectRevision;
+    }
     return envelope.result;
   }
 
@@ -740,6 +831,7 @@ export class AbletonBridgeService implements AbletonService {
 
   #bindSocket(socket: Socket): void {
     socket.on("data", (chunk) => {
+      if (this.#socket !== socket) return;
       try {
         for (const message of this.#decoder.push(chunk)) {
           this.#handleMessage(message);
@@ -766,11 +858,16 @@ export class AbletonBridgeService implements AbletonService {
             message: "Ableton bridge connection closed",
           });
         }
+        this.#scheduleReconnect();
       }
     });
   }
 
   #handleMessage(message: MessageEnvelope): void {
+    if (message.kind === "event") {
+      this.#handleEvent(message);
+      return;
+    }
     if (message.kind !== "response") {
       return;
     }
@@ -783,6 +880,37 @@ export class AbletonBridgeService implements AbletonService {
     pending.resolve(message);
   }
 
+  #handleEvent(message: EventEnvelope): void {
+    const expected =
+      this.#lastEventSequence === undefined
+        ? message.sequence
+        : this.#lastEventSequence + 1;
+    if (message.sequence !== expected) {
+      this.options.events.publish({
+        type: "ableton.event_gap",
+        expectedSequence: expected,
+        receivedSequence: message.sequence,
+      });
+    }
+    this.#lastEventSequence = message.sequence;
+    if (message.projectRevision !== undefined) {
+      this.#projectRevision = message.projectRevision;
+    }
+    const event: AbletonBridgeEvent = {
+      event: message.event,
+      sequence: message.sequence,
+      payload: message.payload,
+      ...(message.projectRevision === undefined
+        ? {}
+        : { projectRevision: message.projectRevision }),
+    };
+    this.options.events.publish({
+      type: "ableton.event_received",
+      ...event,
+    });
+    for (const listener of this.#eventListeners) listener(event);
+  }
+
   #failConnection(error: unknown): void {
     const failure = error instanceof Error ? error : new Error(String(error));
     this.#rejectPending(failure);
@@ -792,6 +920,7 @@ export class AbletonBridgeService implements AbletonService {
       code: "connection_error",
       message: failure.message,
     });
+    this.#scheduleReconnect();
   }
 
   #rejectPending(error: Error): void {
@@ -819,6 +948,8 @@ export class AbletonBridgeService implements AbletonService {
     this.#connectionGeneration += 1;
     this.#handshakeComplete = false;
     this.#capabilities = undefined;
+    this.#lastEventSequence = undefined;
+    this.#projectRevision = undefined;
     this.#decoder.reset();
     this.#rejectPending(error);
   }
@@ -829,5 +960,31 @@ export class AbletonBridgeService implements AbletonService {
       type: "ableton.connection_changed",
       status,
     });
+  }
+
+  #scheduleReconnect(): void {
+    if (
+      !this.#desiredRunning ||
+      this.#handshakeComplete ||
+      this.#connectPromise !== undefined ||
+      this.#reconnectTimer !== undefined ||
+      this.#reconnectAttempt >= this.#reconnect.maxAttempts
+    ) {
+      return;
+    }
+    const attempt = this.#reconnectAttempt++;
+    const base = Math.min(
+      this.#reconnect.maxDelayMs,
+      this.#reconnect.initialDelayMs * 2 ** attempt,
+    );
+    const spread = base * this.#reconnect.jitterRatio;
+    const delay = Math.max(
+      0,
+      Math.round(base - spread + this.#random() * spread * 2),
+    );
+    this.#reconnectTimer = setTimeout(() => {
+      this.#reconnectTimer = undefined;
+      void this.#ensureConnected();
+    }, delay);
   }
 }

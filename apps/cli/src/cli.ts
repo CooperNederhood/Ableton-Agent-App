@@ -435,6 +435,12 @@ export function renderEvent(
       return `application: ${event.state}`;
     case "ableton.connection_changed":
       return `ableton: ${event.status.state}`;
+    case "ableton.event_received":
+      return undefined;
+    case "ableton.event_gap":
+      return colors.red(
+        `✗ Ableton event gap: expected #${event.expectedSequence}, received #${event.receivedSequence}`,
+      );
     case "agent.message_delta":
       return event.content;
     case "agent.message_complete":

@@ -4,7 +4,7 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
 
 ## Client API
 
-- [ ] Define `AbletonBridge` and domain operation interfaces.
+- [x] Define `AbletonBridge` and domain operation interfaces.
 - [x] Generate/import protocol request and result types.
 - [~] Implement structured `BridgeResult`, warnings, and error types.
 - [~] Implement capability-aware method guards.
@@ -20,9 +20,9 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
 - [~] Serialize mutations and support workflow mutation leases.
   - [x] Serialize all primitive mutations through a FIFO bridge queue.
   - [ ] Add multi-step workflow mutation leases.
-- [ ] Implement bounded reconnect with jitter and explicit connection states.
+- [x] Implement bounded reconnect with jitter and explicit connection states.
 - [x] Reject all pending requests predictably after disconnect.
-- [ ] Implement event ordering, subscription, and revision propagation.
+- [x] Implement event ordering, subscription, and revision propagation.
 
 ## Domain modules
 
@@ -53,7 +53,9 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
 - [x] Integration-test against the Python simulator.
   - [x] Cover stateful Arrangement loop updates and cue creation/deletion.
 - [ ] Test fragmented, combined, malformed, oversized, and out-of-order frames.
-- [ ] Test reconnect, event sequence gaps, queue saturation, and cancellation.
+- [~] Test reconnect, event sequence gaps, queue saturation, and cancellation.
+  - [x] Test bounded reconnect and event sequence-gap reporting.
+  - [ ] Test queue saturation and cancellation.
 - [ ] Run contract tests for every bridge method.
 
 ## Exit criteria

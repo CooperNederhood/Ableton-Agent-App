@@ -48,15 +48,15 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
 
 ## Tests
 
-- [ ] Unit-test encoder, decoder, request tracking, and timeout policy.
-- [ ] Unit-test stale references and capability guards.
+- [x] Unit-test encoder, decoder, request tracking, and timeout policy.
+- [x] Unit-test stale references and capability guards.
 - [x] Integration-test against the Python simulator.
   - [x] Cover stateful Arrangement loop updates and cue creation/deletion.
-- [ ] Test fragmented, combined, malformed, oversized, and out-of-order frames.
+- [x] Test fragmented, combined, malformed, oversized, and out-of-order frames.
 - [~] Test reconnect, event sequence gaps, queue saturation, and cancellation.
   - [x] Test bounded reconnect and event sequence-gap reporting.
   - [ ] Test queue saturation and cancellation.
-- [ ] Run contract tests for every bridge method.
+- [x] Run contract tests for every bridge method.
 
 ## Exit criteria
 

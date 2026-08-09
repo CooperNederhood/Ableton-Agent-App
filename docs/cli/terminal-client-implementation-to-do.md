@@ -46,7 +46,7 @@ Companion specification: [Terminal Client](terminal-client.md)
 - [x] Unit-test event-to-terminal rendering.
 - [x] Snapshot representative plain and colored transcripts.
 - [x] Integration-test interactive prompts with fake input/output adapters.
-- [ ] Integration-test one-shot commands against the simulated Remote Script.
+- [x] Integration-test one-shot commands against the simulated Remote Script.
 - [~] Test interruption, denial, timeout, disconnect, and agent failure.
   (Interruption, denial, and disconnect are covered; timeout and generic
   agent-failure paths are not yet tested.)
@@ -54,7 +54,7 @@ Companion specification: [Terminal Client](terminal-client.md)
 
 ## Exit criteria
 
-- [ ] CLI proves the full minimum interaction contract.
-- [ ] All initial tools can be exercised without Electron.
-- [ ] Output is deterministic and useful in CI.
-- [ ] React requirements can reference stable CLI-proven events and actions.
+- [x] CLI proves the full minimum interaction contract.
+- [x] All initial tools can be exercised without Electron.
+- [x] Output is deterministic and useful in CI.
+- [x] React requirements can reference stable CLI-proven events and actions.

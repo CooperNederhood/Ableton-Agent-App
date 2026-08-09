@@ -32,10 +32,10 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
   - [x] Bind rack, chain, Drum Rack pad, and pad-chain reads to exact runtime
     references and expected identity fields, prune unreachable references, and
     bound every independently requested page without recursion.
-- [ ] Validate file imports and supported media.
-- [ ] Report all clamping and coercion.
+- [x] Validate file imports and supported media.
+- [x] Report all clamping and coercion.
 - [x] Add workflow mutation-count and duration budgets.
-- [ ] Investigate and capability-gate native Live undo grouping.
+- [x] Investigate and capability-gate native Live undo grouping.
 
 ## Verification and recovery
 
@@ -64,12 +64,12 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
 - [ ] Unit-test every guardrail and bypass attempt.
 - [ ] Unit-test postcondition tolerances and compensation decisions.
 - [~] Integration-test denial, expiration, partial failure, and reconnect.
-- [ ] Test CLI and React approval parity.
+- [x] Test CLI and React approval parity.
 - [ ] Real-Live test native undo behavior before exposing it.
 
 ## Exit criteria
 
 - [x] No mutation tool lacks risk metadata and a verifier.
-- [ ] Destructive/broad actions cannot run without valid approval.
-- [ ] Partial outcomes are explicit and recoverable where promised.
-- [ ] The product never claims atomic rollback without validation.
+- [x] Destructive/broad actions cannot run without valid approval.
+- [x] Partial outcomes are explicit and recoverable where promised.
+- [x] The product never claims atomic rollback without validation.

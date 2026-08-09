@@ -93,6 +93,6 @@ Companion specification: [Remote Script](remote-script.md)
 ## Exit criteria
 
 - [x] No model, cloud, MCP, or third-party dependency exists in the script.
-- [ ] All commands are registered, validated, scheduled, and tested.
+- [x] All commands are registered, validated, scheduled, and tested.
 - [x] Disconnect leaves no listeners, sockets, or active client threads.
 - [ ] Supported Live versions produce an accurate capability report.

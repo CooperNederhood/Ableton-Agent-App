@@ -14,7 +14,7 @@ Companion specification: [Tool Design](tool-design.md)
 ## Inspection tools
 
 - [~] Implement project overview and capability tools.
-- [ ] Implement track, clip, arrangement, and transport inspection.
+- [x] Implement track, clip, arrangement, and transport inspection.
 - [~] Implement device/parameter, rack, Drum Rack, and browser inspection.
   - [x] Add read-risk bounded top-level device and exact-device parameter
     inspection for identity-bound regular tracks.
@@ -69,14 +69,14 @@ Companion specification: [Tool Design](tool-design.md)
 - [x] Unit-test schemas and formatting for every tool.
 - [x] Unit-test risk and capability metadata completeness.
 - [x] Unit-test workflow ordering, partial failure, and compensation.
-- [ ] Integration-test tools against fake and simulated bridges.
+- [x] Integration-test tools against fake and simulated bridges.
 - [~] Add Copilot SDK invocation tests for representative tools.
 - [ ] Validate every mutation against real Live before marking supported.
   - [ ] Validate Arrangement loop and cue-point LOM behavior in real Live.
 
 ## Exit criteria
 
-- [ ] No accepted parameter is silently ignored.
-- [ ] Large results are filtered or paginated.
+- [x] No accepted parameter is silently ignored.
+- [x] Large results are filtered or paginated.
 - [x] Every mutation is classified and verified.
-- [ ] CLI and React can render all tool outcomes from shared metadata.
+- [x] CLI and React can render all tool outcomes from shared metadata.

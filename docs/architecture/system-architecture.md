@@ -108,13 +108,15 @@ ableton-agent-app/
 │   └── cli/
 │       └── src/
 ├── packages/
-│   ├── agent/
-│   ├── ableton-bridge/
-│   ├── ableton-protocol/
-│   ├── ableton-tools/
+│   ├── application/
+│   ├── ableton-contracts/
+│   ├── bridge/
+│   ├── protocol/
+│   ├── tools/
+│   ├── workflows/
 │   ├── project-state/
 │   ├── shared/
-│   └── test-support/
+│   └── test-support/ (planned)
 ├── remote-script/
 │   └── AbletonAgent/
 │       └── __init__.py

@@ -1069,8 +1069,8 @@ function Composer({
   value: string;
   busy: boolean;
   composerRef: React.RefObject<HTMLTextAreaElement | null>;
-  onChange(value: string): void;
-  onSubmit(event: FormEvent): Promise<void>;
+  onChange: (value: string) => void;
+  onSubmit: (event: FormEvent) => Promise<void>;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
 }): React.JSX.Element {
   const context = contextForSelection(state);

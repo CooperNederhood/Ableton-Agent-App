@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
 
-import type { AbletonService } from "@ableton-agent/application";
+import type { AbletonService } from "@ableton-agent/ableton-contracts";
 import {
   FrameDecoder,
   PROTOCOL_VERSION,

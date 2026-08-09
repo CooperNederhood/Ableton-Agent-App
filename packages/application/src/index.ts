@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import type { AbletonService } from "@ableton-agent/ableton-contracts";
 import type {
   CapabilityDocument,
   CreateCuePointParams,
@@ -96,95 +97,7 @@ export interface AgentService {
   send(prompt: string): Promise<string>;
 }
 
-export interface AbletonService {
-  start(): Promise<void>;
-  stop(): Promise<void>;
-  getStatus(): Promise<ConnectionStatus>;
-  getCapabilities(): Promise<CapabilityDocument>;
-  ping(): Promise<PingResult>;
-  inspectSession(): Promise<SessionSnapshot>;
-  setTempo(tempo: number): Promise<SetTempoResult>;
-  setPlaying(isPlaying: boolean): Promise<SetPlayingResult>;
-  inspectArrangementTransport(
-    params: InspectArrangementTransportParams,
-  ): Promise<InspectArrangementTransportResult>;
-  setArrangementLoop(
-    params: SetArrangementLoopParams,
-  ): Promise<SetArrangementLoopResult>;
-  createCuePoint(params: CreateCuePointParams): Promise<CuePointMutationResult>;
-  deleteCuePoint(params: DeleteCuePointParams): Promise<CuePointMutationResult>;
-  createTrack(params: CreateTrackParams): Promise<TrackMutationResult>;
-  deleteTrack(params: DeleteTrackParams): Promise<TrackMutationResult>;
-  renameTrack(params: RenameTrackParams): Promise<RenameTrackResult>;
-  setTrackMixer(params: SetTrackMixerParams): Promise<SetTrackMixerResult>;
-  inspectDevices(params: InspectDevicesParams): Promise<InspectDevicesResult>;
-  inspectBrowserRoots(): Promise<InspectBrowserRootsResult>;
-  inspectBrowserChildren(
-    params: InspectBrowserChildrenParams,
-  ): Promise<InspectBrowserChildrenResult>;
-  searchBrowser(params: SearchBrowserParams): Promise<SearchBrowserResult>;
-  loadBrowserItem(
-    params: LoadBrowserItemParams,
-  ): Promise<LoadBrowserItemResult>;
-  inspectDeviceParameters(
-    params: InspectDeviceParametersParams,
-  ): Promise<InspectDeviceParametersResult>;
-  inspectRackChains(
-    params: InspectRackChainsParams,
-  ): Promise<InspectRackChainsResult>;
-  inspectRackChainDevices(
-    params: InspectRackChainDevicesParams,
-  ): Promise<InspectRackChainDevicesResult>;
-  inspectDrumRackPads(
-    params: InspectDrumRackPadsParams,
-  ): Promise<InspectDrumRackPadsResult>;
-  inspectDrumPadChains(
-    params: InspectDrumPadChainsParams,
-  ): Promise<InspectDrumPadChainsResult>;
-  inspectDrumPadChainDevices(
-    params: InspectDrumPadChainDevicesParams,
-  ): Promise<InspectDrumPadChainDevicesResult>;
-  setDeviceEnabled(
-    params: SetDeviceEnabledParams,
-  ): Promise<SetDeviceEnabledResult>;
-  setDeviceParameter(
-    params: SetDeviceParameterParams,
-  ): Promise<SetDeviceParameterResult>;
-  createMidiClip(params: CreateMidiClipParams): Promise<CreateMidiClipResult>;
-  replaceMidiNotes(
-    params: ReplaceMidiNotesParams,
-  ): Promise<ReplaceMidiNotesResult>;
-  launchSessionClip(
-    params: LaunchSessionClipParams,
-  ): Promise<LaunchSessionClipResult>;
-  duplicateSessionClip(
-    params: DuplicateSessionClipParams,
-  ): Promise<DuplicateSessionClipResult>;
-  deleteSessionClip(
-    params: DeleteSessionClipParams,
-  ): Promise<DeleteSessionClipResult>;
-  setSessionClipProperties(
-    params: SetSessionClipPropertiesParams,
-  ): Promise<SetSessionClipPropertiesResult>;
-  createArrangementMidiClip(
-    params: CreateArrangementMidiClipParams,
-  ): Promise<CreateArrangementMidiClipResult>;
-  inspectArrangement(
-    params: InspectArrangementParams,
-  ): Promise<InspectArrangementResult>;
-  deleteArrangementClip(
-    params: DeleteArrangementClipParams,
-  ): Promise<DeleteArrangementClipResult>;
-  replaceArrangementMidiNotes(
-    params: ReplaceArrangementMidiNotesParams,
-  ): Promise<ReplaceArrangementMidiNotesResult>;
-  duplicateClipToArrangement(
-    params: DuplicateClipToArrangementParams,
-  ): Promise<DuplicateClipToArrangementResult>;
-  setArrangementClipProperties(
-    params: SetArrangementClipPropertiesParams,
-  ): Promise<SetArrangementClipPropertiesResult>;
-}
+export type { AbletonService } from "@ableton-agent/ableton-contracts";
 
 export interface ApplicationServices {
   agent: AgentService;

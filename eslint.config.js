@@ -14,10 +14,10 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked.map((config) => ({
     ...config,
-    files: ["**/*.ts"],
+    files: ["**/*.{ts,tsx}"],
   })),
   {
-    files: ["**/*.ts"],
+    files: ["**/*.{ts,tsx}"],
     languageOptions: {
       parserOptions: {
         projectService: {
@@ -35,6 +35,70 @@ export default tseslint.config(
       "@typescript-eslint/no-floating-promises": "error",
       "@typescript-eslint/no-misused-promises": "error",
       "import-x/no-cycle": "error",
+    },
+  },
+  {
+    files: ["packages/protocol/**/*.{ts,tsx}", "packages/shared/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@ableton-agent/*"],
+              message:
+                "Protocol and shared foundations cannot depend on higher-level workspace packages.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/bridge/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "@ableton-agent/application",
+                "@ableton-agent/tools",
+                "@ableton-agent/workflows",
+                "@ableton-agent/project-state",
+              ],
+              message:
+                "The bridge may depend only on inward-facing contracts, protocol, and shared utilities.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["apps/desktop/src/renderer/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "node:*",
+                "electron",
+                "@ableton-agent/application",
+                "@ableton-agent/bridge",
+                "@ableton-agent/tools",
+                "@ableton-agent/workflows",
+                "@ableton-agent/project-state",
+              ],
+              message:
+                "The sandboxed renderer may use only presentation contracts exposed by preload.",
+            },
+          ],
+        },
+      ],
     },
   },
 );

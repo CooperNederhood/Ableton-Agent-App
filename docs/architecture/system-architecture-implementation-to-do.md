@@ -5,10 +5,11 @@ Companion specification: [System Architecture](system-architecture.md)
 ## Foundation
 
 - [x] Create the `pnpm` workspace and root package scripts.
-- [ ] Create `apps/desktop`, `apps/cli`, and the documented package directories.
+- [x] Create `apps/desktop`, `apps/cli`, and the implemented package
+  directories.
 - [x] Enable strict TypeScript, project references, shared linting, and
   formatting.
-- [ ] Define dependency-boundary rules and enforce them with lint checks.
+- [x] Define dependency-boundary rules and enforce them with lint checks.
 - [x] Create a headless application bootstrap independent of Electron and CLI.
 - [x] Define shared interfaces for clock, IDs, logging, configuration, secure
   storage, and event publishing.
@@ -29,7 +30,7 @@ Companion specification: [System Architecture](system-architecture.md)
 
 - [x] Unit-test dependency composition and lifecycle state transitions.
 - [x] Unit-test cancellation and shutdown ordering.
-- [ ] Add architecture tests that reject forbidden package imports.
+- [x] Add architecture lint checks that reject forbidden package imports.
 - [ ] Add a smoke test booting the headless core with fake dependencies.
 - [ ] Add an integration test running CLI and desktop adapters against the same
   fake service implementation.

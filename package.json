@@ -13,6 +13,7 @@
     ]
   },
   "scripts": {
+    "bootstrap": "pnpm install --frozen-lockfile && pnpm build",
     "build": "pnpm -r build",
     "check": "pnpm format:check && pnpm lint && pnpm docs:check && pnpm tests:ownership && pnpm versions:check && pnpm contracts:check && pnpm contracts:compat:self-test && pnpm typecheck && pnpm test",
     "clean": "pnpm -r clean",

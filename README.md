@@ -28,20 +28,28 @@ Ableton Live Object Model
 - macOS 13+ or Windows 10/11
 - Ableton Live 11.3+ or 12.x
 - Node.js 20.19+ (Node.js 22 LTS is recommended)
-- pnpm 10.15.1
 - Python 3
 - A GitHub account with access to GitHub Copilot
 
 ### 1. Install the application
 
+Clone the repository, install the pinned pnpm version, and run the project
+bootstrap:
+
 ```bash
 git clone https://github.com/CooperNederhood/Ableton-Agent-App.git
 cd Ableton-Agent-App
-corepack enable
-corepack prepare pnpm@10.15.1 --activate
-pnpm install --frozen-lockfile
-pnpm build
+npm install --global pnpm@10.15.1
+npm run bootstrap
 ```
+
+No Python or Node virtual environment needs to be activated. Node.js includes
+`npm`; the first command uses it to install pnpm, the package manager used by
+this monorepo. `npm run bootstrap` then installs the exact dependencies from
+`pnpm-lock.yaml` and builds the CLI, desktop app, and shared packages.
+
+If pnpm is already installed, verify that `pnpm --version` reports `10.15.1`
+and skip the global installation command.
 
 ### 2. Install the Ableton Remote Script
 

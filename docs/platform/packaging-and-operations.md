@@ -12,6 +12,34 @@ Ship a signed desktop application for macOS and Windows. The installer should:
 
 Manual Remote Script installation remains available for diagnostics.
 
+Unsigned development artifacts are built reproducibly from the pinned pnpm
+lockfile:
+
+```bash
+pnpm desktop:dist
+```
+
+`electron-builder.yml` produces DMG/ZIP artifacts for Intel and Apple Silicon
+macOS and an assisted, per-user NSIS installer for 64-bit Windows. Signing and
+notarization are intentionally supplied only by the release environment.
+
+The same Remote Script artifact is bundled in the desktop resources and can be
+managed independently:
+
+```bash
+pnpm --filter @ableton-agent/desktop remote-script detect
+pnpm --filter @ableton-agent/desktop remote-script install --confirm
+pnpm --filter @ableton-agent/desktop remote-script update --confirm
+pnpm --filter @ableton-agent/desktop remote-script install --confirm \
+  --path "/path/to/User Library"
+```
+
+Detection covers the standard macOS Music/Documents and Windows
+Documents/OneDrive User Library locations. `ABLETON_USER_LIBRARY` overrides
+detection. Installation is staged, keeps the bridge token, and moves the prior
+installation into `.ableton-agent-backups` before replacement. Unmanaged
+installations are never overwritten without the explicit `--confirm` action.
+
 ## Versioning
 
 Version independently:
@@ -23,6 +51,10 @@ Version independently:
 
 The app should detect an incompatible or outdated Remote Script and offer a
 guided update.
+
+`config/product-versions.json` is the source for app, Remote Script, protocol,
+database, minimum compatible Remote Script, and Live support versions. Run
+`pnpm versions:generate` after changing it and `pnpm versions:check` in CI.
 
 ## Updates
 
@@ -46,6 +78,13 @@ Correlation IDs connect an agent tool call to bridge requests and Remote Script
 execution. Logs should redact authentication tokens, credentials, prompts, file
 paths, and musical content by default.
 
+Desktop logs are newline-delimited JSON, permissioned to the current user, and
+redacted before serialization. Startup pruning removes logs older than 14 days
+and bounds the active file to 5 MiB. Support bundles are local JSON artifacts
+containing version/connection diagnostics and at most 500 redacted recent log
+entries per file; preferences, sessions, prompts, paths, credentials, track
+names, device names, and musical content are excluded.
+
 ## Telemetry
 
 Telemetry is optional and privacy-first. If implemented, default collection
@@ -62,6 +101,10 @@ Prompts, MIDI notes, track names, device names, file paths, and project content
 require separate explicit consent and are not needed for initial product
 telemetry.
 
+Telemetry remains disabled by default through the validated desktop preference.
+No telemetry transport is configured in the initial release; enabling the
+preference alone does not upload data.
+
 ## Diagnostics
 
 Provide an in-app diagnostics page containing:
@@ -75,13 +118,16 @@ Provide an in-app diagnostics page containing:
 
 ## Supported platform matrix
 
-Define and test exact combinations before release:
+Initial supported matrix:
 
-- macOS versions.
-- Windows versions.
-- Ableton Live 11 and 12 minor versions.
-- Intel and Apple Silicon behavior.
+| Platform | Architectures | Ableton Live |
+| --- | --- | --- |
+| macOS 13, 14, 15 | Intel, Apple Silicon | 11.3 or newer, 12.x |
+| Windows 10 22H2, Windows 11 | x64 | 11.3 or newer, 12.x |
+
+Installer production is exercised on macOS 14 and Windows Server 2022 CI
+runners. Real Live smoke testing on every supported OS/Live combination remains
+a release requirement.
 
 Capability detection handles feature variance, but a supported matrix is still
 required.
-

@@ -1,5 +1,7 @@
 import type { Database } from "sql.js";
 
+import { GENERATED_DATABASE_VERSION } from "./version.generated.js";
+
 export interface ProjectStateMigration {
   readonly version: number;
   readonly description: string;
@@ -122,6 +124,12 @@ export const projectStateSchemaVersion: number = projectStateMigrations.reduce(
   (highest, migration) => Math.max(highest, migration.version),
   0,
 );
+
+if (projectStateSchemaVersion !== GENERATED_DATABASE_VERSION) {
+  throw new Error(
+    `Configured database version ${GENERATED_DATABASE_VERSION} does not match migration version ${projectStateSchemaVersion}`,
+  );
+}
 
 export class SchemaVersionError extends Error {
   public constructor(message: string) {

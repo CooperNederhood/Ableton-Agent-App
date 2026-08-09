@@ -1,0 +1,51 @@
+appId: com.abletonagent.desktop
+productName: Ableton Agent
+protocols:
+  - name: Ableton Agent
+    schemes:
+      - ableton-agent
+asar: true
+artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+directories:
+  output: ../../release
+files:
+  - dist/**/*
+  - package.json
+  - "!node_modules/@ableton-agent/*/src{,/**/*}"
+  - "!node_modules/@ableton-agent/*/tsconfig.json"
+  - "!node_modules/@ableton-agent/*/dist/**/*.test.*"
+extraResources:
+  - from: ../../remote-script/AbletonAgent
+    to: remote-script/AbletonAgent
+    filter:
+      - "**/*"
+      - "!**/.ableton-agent-token"
+      - "!**/.ableton-agent-install.json"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
+mac:
+  category: public.app-category.music
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+  hardenedRuntime: true
+  gatekeeperAssess: false
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false

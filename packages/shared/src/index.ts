@@ -1,3 +1,6 @@
+export * from "./compatibility.js";
+export * from "./product-versions.generated.js";
+
 export type LifecycleState =
   "stopped" | "starting" | "ready" | "degraded" | "stopping";
 

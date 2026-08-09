@@ -1,0 +1,11 @@
+{
+  "app": "0.1.0",
+  "remoteScript": "0.4.0",
+  "protocol": 2,
+  "database": 2,
+  "minimumRemoteScript": "0.4.0",
+  "supportedLive": {
+    "11": "11.3.0",
+    "12": "12.0.0"
+  }
+}

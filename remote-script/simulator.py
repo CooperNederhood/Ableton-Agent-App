@@ -11,7 +11,7 @@ from collections import deque
 
 from AbletonAgent.protocol import FrameDecoder, encode_frame
 
-PROTOCOL_VERSION = 2
+from AbletonAgent.version import PROTOCOL_VERSION
 
 
 class SimulatorState(object):

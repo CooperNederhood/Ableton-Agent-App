@@ -9,10 +9,8 @@ try:
 except ImportError:  # pragma: no cover - available only inside Live
     MidiNoteSpecification = None
 
-from .messages import PROTOCOL_VERSION
 from .protocol import DEFAULT_MAX_FRAME_BYTES
-
-REMOTE_SCRIPT_VERSION = "0.4.0"
+from .version import PROTOCOL_VERSION, REMOTE_SCRIPT_VERSION
 
 
 def build_capability_document(

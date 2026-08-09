@@ -38,6 +38,7 @@ const logger = new DesktopFileLogger(
     app.isPackaged ? "desktop.log" : "desktop-development.log",
   ),
 );
+await logger.prune();
 // Constructed here so any application-managed credential remains outside
 // preferences and encrypted through Electron's OS-backed safeStorage.
 export const credentialVault = new OsCredentialVault(

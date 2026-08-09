@@ -2,7 +2,7 @@
 
 from __future__ import absolute_import, unicode_literals
 
-PROTOCOL_VERSION = 2
+from .version import PROTOCOL_VERSION
 
 try:
     STRING_TYPES = (basestring,)

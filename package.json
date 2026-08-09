@@ -14,10 +14,11 @@
   },
   "scripts": {
     "build": "pnpm -r build",
-    "check": "pnpm format:check && pnpm lint && pnpm docs:check && pnpm contracts:check && pnpm typecheck && pnpm test",
+    "check": "pnpm format:check && pnpm lint && pnpm docs:check && pnpm versions:check && pnpm contracts:check && pnpm typecheck && pnpm test",
     "clean": "pnpm -r clean",
     "contracts:check": "pnpm --filter @ableton-agent/protocol contracts:check",
     "docs:check": "node scripts/check-docs.mjs",
+    "desktop:dist": "pnpm build && pnpm --filter @ableton-agent/desktop dist",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "node --max-old-space-size=6144 ./node_modules/eslint/bin/eslint.js .",
@@ -25,6 +26,8 @@
     "test:ts": "vitest run",
     "test:python": "python3 -m unittest discover -s remote-script/tests -p 'test_*.py'",
     "typecheck": "pnpm -r typecheck",
+    "versions:check": "node scripts/generate-product-versions.mjs --check",
+    "versions:generate": "node scripts/generate-product-versions.mjs",
     "cli": "pnpm --filter @ableton-agent/cli dev"
   },
   "devDependencies": {

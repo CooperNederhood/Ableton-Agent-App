@@ -40,12 +40,12 @@ bootstrap:
 git clone https://github.com/CooperNederhood/Ableton-Agent-App.git
 cd Ableton-Agent-App
 npm install --global pnpm@10.15.1
-npm run bootstrap
+pnpm run bootstrap
 ```
 
 No Python or Node virtual environment needs to be activated. Node.js includes
 `npm`; the first command uses it to install pnpm, the package manager used by
-this monorepo. `npm run bootstrap` then installs the exact dependencies from
+this monorepo. `pnpm run bootstrap` then installs the exact dependencies from
 `pnpm-lock.yaml` and builds the CLI, desktop app, and shared packages.
 
 If pnpm is already installed, verify that `pnpm --version` reports `10.15.1`

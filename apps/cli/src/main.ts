@@ -85,6 +85,8 @@ import type {
 
 import { CliUsageError, parseArgs, runCommand, type CliIo } from "./cli.js";
 import type { InteractiveInput } from "./cli.js";
+import { EXIT_CODES, exitCodeForError } from "./exit-codes.js";
+import { shouldUseColor } from "./terminal.js";
 
 class BufferedLineInput implements InteractiveInput {
   readonly #lines: string[] = [];
@@ -126,6 +128,12 @@ class BufferedLineInput implements InteractiveInput {
 }
 
 class UnconfiguredAbletonService implements AbletonService {
+  private unavailable(): never {
+    throw Object.assign(new Error("Ableton bridge is not configured"), {
+      code: "configuration_missing",
+    });
+  }
+
   public async start(): Promise<void> {}
   public async stop(): Promise<void> {}
   public async getStatus(): Promise<ConnectionStatus> {
@@ -136,118 +144,118 @@ class UnconfiguredAbletonService implements AbletonService {
     };
   }
   public async getCapabilities(): Promise<CapabilityDocument> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async ping(): Promise<PingResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async inspectSession(): Promise<SessionSnapshot> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async setTempo(): Promise<SetTempoResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async setPlaying(): Promise<SetPlayingResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async inspectArrangementTransport(): Promise<InspectArrangementTransportResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async setArrangementLoop(): Promise<SetArrangementLoopResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async createCuePoint(): Promise<CuePointMutationResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async deleteCuePoint(): Promise<CuePointMutationResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async createTrack(): Promise<TrackMutationResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async deleteTrack(): Promise<TrackMutationResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async renameTrack(): Promise<RenameTrackResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async setTrackMixer(): Promise<SetTrackMixerResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async inspectDevices(): Promise<InspectDevicesResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async inspectBrowserRoots(): Promise<InspectBrowserRootsResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async inspectBrowserChildren(): Promise<InspectBrowserChildrenResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async searchBrowser(): Promise<SearchBrowserResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async loadBrowserItem(): Promise<LoadBrowserItemResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async inspectDeviceParameters(): Promise<InspectDeviceParametersResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async inspectRackChains(): Promise<InspectRackChainsResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async inspectRackChainDevices(): Promise<InspectRackChainDevicesResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async inspectDrumRackPads(): Promise<InspectDrumRackPadsResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async inspectDrumPadChains(): Promise<InspectDrumPadChainsResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async inspectDrumPadChainDevices(): Promise<InspectDrumPadChainDevicesResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async setDeviceEnabled(): Promise<SetDeviceEnabledResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async setDeviceParameter(): Promise<SetDeviceParameterResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async createMidiClip(): Promise<CreateMidiClipResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async replaceMidiNotes(): Promise<ReplaceMidiNotesResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async launchSessionClip(): Promise<LaunchSessionClipResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async duplicateSessionClip(): Promise<DuplicateSessionClipResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async deleteSessionClip(): Promise<DeleteSessionClipResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async setSessionClipProperties(): Promise<SetSessionClipPropertiesResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async createArrangementMidiClip(): Promise<CreateArrangementMidiClipResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async inspectArrangement(): Promise<InspectArrangementResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async deleteArrangementClip(): Promise<DeleteArrangementClipResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async replaceArrangementMidiNotes(): Promise<ReplaceArrangementMidiNotesResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async duplicateClipToArrangement(): Promise<DuplicateClipToArrangementResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
   public async setArrangementClipProperties(): Promise<SetArrangementClipPropertiesResult> {
-    throw new Error("Ableton bridge is not configured");
+    this.unavailable();
   }
 }
 
@@ -259,7 +267,13 @@ const io: CliIo = {
 
 async function main(): Promise<number> {
   try {
-    const command = parseArgs(process.argv.slice(2));
+    const rawArgs = process.argv.slice(2);
+    const quiet = rawArgs.includes("--quiet") || rawArgs.includes("-q");
+    const args = rawArgs.filter(
+      (argument) => argument !== "--quiet" && argument !== "-q",
+    );
+    const color = shouldUseColor({ isTTY: process.stdout.isTTY }, process.env);
+    const command = parseArgs(args);
     const terminal =
       command.name === "chat"
         ? new BufferedLineInput(
@@ -382,18 +396,27 @@ async function main(): Promise<number> {
       logger: noopLogger,
     });
     try {
-      return await runCommand(command, application, io, terminal);
+      return await runCommand(command, application, io, terminal, {
+        quiet,
+        color,
+      });
     } finally {
       terminal?.close();
     }
   } catch (error) {
     if (error instanceof CliUsageError) {
       io.writeError(error.message);
-      return 2;
+      return EXIT_CODES.USAGE_ERROR;
     }
     io.writeError(error instanceof Error ? error.message : String(error));
-    return 5;
+    return exitCodeForError(error);
   }
 }
+
+process.on("SIGINT", () => {
+  // Force an immediate, unambiguous exit on Ctrl+C rather than waiting for
+  // in-flight I/O (e.g. a pending Ableton round trip) to settle.
+  process.exit(EXIT_CODES.INTERRUPTED);
+});
 
 process.exitCode = await main();

@@ -10,9 +10,9 @@ Companion specification: [Terminal Client](terminal-client.md)
     through the bridge, application, agent tools, and approval UI.
   - [x] Wire Arrangement loop and cue-point services through the bridge,
     headless application, Copilot tools, and approval UI.
-- [ ] Implement TTY detection, `NO_COLOR`, and redirected-output behavior.
-- [ ] Implement human, quiet, and JSON output writers.
-- [ ] Define and document stable exit-code mapping.
+- [x] Implement TTY detection, `NO_COLOR`, and redirected-output behavior.
+- [x] Implement human, quiet, and JSON output writers.
+- [x] Define and document stable exit-code mapping.
 
 ## Interactive client
 
@@ -21,7 +21,9 @@ Companion specification: [Terminal Client](terminal-client.md)
 - [~] Implement `/help`, `/status`, `/connect`, `/snapshot`, `/mode`,
   `/session`, `/verbose`, `/cancel`, `/doctor`, and `/exit`.
 - [ ] Implement interactive approval, denial, and detail inspection.
-- [ ] Handle Ctrl+C as cancellation first and process exit second.
+- [~] Handle Ctrl+C as cancellation first and process exit second. (Ctrl+C
+  now reliably exits with code 130 from any mode; it does not yet attempt a
+  graceful in-flight operation cancellation before exiting.)
 - [ ] Support session selection and resume.
 
 ## Non-interactive client
@@ -42,10 +44,12 @@ Companion specification: [Terminal Client](terminal-client.md)
 
 - [x] Unit-test argument parsing, invalid input, and exit codes.
 - [x] Unit-test event-to-terminal rendering.
-- [ ] Snapshot representative plain and colored transcripts.
+- [x] Snapshot representative plain and colored transcripts.
 - [x] Integration-test interactive prompts with fake input/output adapters.
 - [ ] Integration-test one-shot commands against the simulated Remote Script.
-- [ ] Test interruption, denial, timeout, disconnect, and agent failure.
+- [~] Test interruption, denial, timeout, disconnect, and agent failure.
+  (Interruption, denial, and disconnect are covered; timeout and generic
+  agent-failure paths are not yet tested.)
 - [ ] Add an opt-in real-Live smoke command.
 
 ## Exit criteria

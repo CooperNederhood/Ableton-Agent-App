@@ -2,6 +2,9 @@ import type { HeadlessApplication } from "@ableton-agent/application";
 import type { BrowserRootKey } from "@ableton-agent/protocol";
 import type { AppEvent } from "@ableton-agent/shared";
 
+import { EXIT_CODES, exitCodeForOperationFailures } from "./exit-codes.js";
+import { createColorizer, plainColorizer, type Colorizer } from "./terminal.js";
+
 export type CliCommand =
   | { name: "chat"; json: false }
   | { name: "status"; json: boolean }
@@ -418,7 +421,15 @@ export interface InteractiveInput {
   readLine(): Promise<string | undefined>;
 }
 
-export function renderEvent(event: AppEvent): string | undefined {
+/**
+ * Renders a shared application event as a single line of terminal output.
+ * Pass a `Colorizer` (see terminal.ts) to apply ANSI color to the status
+ * glyph; the default is plain, uncolored text.
+ */
+export function renderEvent(
+  event: AppEvent,
+  colors: Colorizer = plainColorizer(),
+): string | undefined {
   switch (event.type) {
     case "lifecycle.changed":
       return `application: ${event.state}`;
@@ -429,12 +440,19 @@ export function renderEvent(event: AppEvent): string | undefined {
     case "agent.message_complete":
       return event.content;
     case "operation.started":
-      return `• ${event.label}`;
+      return colors.dim(`• ${event.label}`);
     case "operation.completed":
-      return `✓ ${event.summary}`;
+      return colors.green(`✓ ${event.summary}`);
     case "operation.failed":
-      return `✗ ${event.message}`;
+      return colors.red(`✗ ${event.message}`);
   }
+}
+
+export interface RunOptions {
+  /** Suppress ambient/informational output (banners, operation progress). */
+  quiet?: boolean;
+  /** Enable ANSI color for status glyphs in rendered events. */
+  color?: boolean;
 }
 
 export async function runCommand(
@@ -442,6 +460,7 @@ export async function runCommand(
   application: HeadlessApplication,
   io: CliIo,
   input?: InteractiveInput,
+  options: RunOptions = {},
 ): Promise<number> {
   if (command.name === "help") {
     io.write(
@@ -467,16 +486,23 @@ export async function runCommand(
         "  ableton-agent pad-chains <track-number> <device-number> <pad-number> [--offset N] [--limit N] [--json]",
         "  ableton-agent pad-chain-devices <track-number> <device-number> <pad-number> <chain-number> [--offset N] [--limit N] [--json]",
         "  ableton-agent run <prompt> [--json]",
+        "",
+        "Global flags:",
+        "  --json    Emit structured JSON instead of human-readable text.",
+        "  --quiet   Print only the final result, suppressing progress output.",
+        "",
+        "Color is used only for a real terminal and is disabled by the",
+        "NO_COLOR environment variable or when output is redirected.",
       ].join("\n"),
     );
-    return 0;
+    return EXIT_CODES.SUCCESS;
   }
 
   if (command.name === "chat") {
     if (!input) {
       throw new Error("Interactive input is required for chat");
     }
-    return runInteractive(application, io, input);
+    return runInteractive(application, io, input, options);
   }
 
   await application.start({ startAgent: command.name === "run" });
@@ -505,7 +531,7 @@ export async function runCommand(
               `Healthy: ${payload.healthy ? "yes" : "no"}`,
             ].join("\n"),
       );
-      return payload.healthy ? 0 : 3;
+      return payload.healthy ? EXIT_CODES.SUCCESS : EXIT_CODES.CONNECTION_ERROR;
     }
 
     if (command.name === "doctor") {
@@ -528,7 +554,7 @@ export async function runCommand(
               `Healthy: ${payload.healthy ? "yes" : "no"}`,
             ].join("\n"),
       );
-      return payload.healthy ? 0 : 3;
+      return payload.healthy ? EXIT_CODES.SUCCESS : EXIT_CODES.CONNECTION_ERROR;
     }
 
     if (command.name === "capabilities") {
@@ -541,7 +567,7 @@ export async function runCommand(
               .map(([name]) => name)
               .join("\n"),
       );
-      return 0;
+      return EXIT_CODES.SUCCESS;
     }
 
     if (command.name === "browser-roots") {
@@ -557,7 +583,7 @@ export async function runCommand(
               ),
             ].join("\n"),
       );
-      return 0;
+      return EXIT_CODES.SUCCESS;
     }
 
     if (command.name === "browser-category") {
@@ -590,7 +616,7 @@ export async function runCommand(
               ),
             ].join("\n"),
       );
-      return 0;
+      return EXIT_CODES.SUCCESS;
     }
 
     if (command.name === "browser-search") {
@@ -616,7 +642,7 @@ export async function runCommand(
                 : []),
             ].join("\n"),
       );
-      return 0;
+      return EXIT_CODES.SUCCESS;
     }
 
     if (command.name === "browser-load") {
@@ -648,7 +674,7 @@ export async function runCommand(
           ? JSON.stringify(result)
           : `Loaded ${result.item.name} on ${result.track.name}; devices ${result.before.deviceCount} → ${result.after.deviceCount} (verified).`,
       );
-      return 0;
+      return EXIT_CODES.SUCCESS;
     }
 
     if (command.name === "snapshot") {
@@ -666,7 +692,7 @@ export async function runCommand(
               ),
             ].join("\n"),
       );
-      return 0;
+      return EXIT_CODES.SUCCESS;
     }
 
     if (command.name === "transport") {
@@ -686,7 +712,7 @@ export async function runCommand(
               ),
             ].join("\n"),
       );
-      return 0;
+      return EXIT_CODES.SUCCESS;
     }
 
     if (command.name === "devices") {
@@ -709,7 +735,7 @@ export async function runCommand(
               ),
             ].join("\n"),
       );
-      return 0;
+      return EXIT_CODES.SUCCESS;
     }
 
     if (command.name === "parameters") {
@@ -746,7 +772,7 @@ export async function runCommand(
               ),
             ].join("\n"),
       );
-      return 0;
+      return EXIT_CODES.SUCCESS;
     }
 
     if (command.name === "rack-chains") {
@@ -776,7 +802,7 @@ export async function runCommand(
               ),
             ].join("\n"),
       );
-      return 0;
+      return EXIT_CODES.SUCCESS;
     }
 
     if (command.name === "chain-devices") {
@@ -810,7 +836,7 @@ export async function runCommand(
               ),
             ].join("\n"),
       );
-      return 0;
+      return EXIT_CODES.SUCCESS;
     }
 
     if (command.name === "drum-pads") {
@@ -840,7 +866,7 @@ export async function runCommand(
               ),
             ].join("\n"),
       );
-      return 0;
+      return EXIT_CODES.SUCCESS;
     }
 
     if (command.name === "pad-chains") {
@@ -875,7 +901,7 @@ export async function runCommand(
               ),
             ].join("\n"),
       );
-      return 0;
+      return EXIT_CODES.SUCCESS;
     }
 
     if (command.name === "pad-chain-devices") {
@@ -914,7 +940,7 @@ export async function runCommand(
               ),
             ].join("\n"),
       );
-      return 0;
+      return EXIT_CODES.SUCCESS;
     }
 
     const response = await application.send(command.prompt);
@@ -924,7 +950,9 @@ export async function runCommand(
         ? JSON.stringify({ ok, response, operationFailures })
         : response,
     );
-    return ok ? 0 : 4;
+    return ok
+      ? EXIT_CODES.SUCCESS
+      : exitCodeForOperationFailures(operationFailures);
   } finally {
     unsubscribe();
     await application.stop();
@@ -1057,7 +1085,10 @@ export async function runInteractive(
   application: HeadlessApplication,
   io: CliIo,
   input: InteractiveInput,
+  options: RunOptions = {},
 ): Promise<number> {
+  const quiet = options.quiet ?? false;
+  const colors = createColorizer(options.color ?? false);
   let turnProducedOutput = false;
   const unsubscribe = application.subscribe((event) => {
     if (event.type === "agent.message_delta") {
@@ -1075,29 +1106,33 @@ export async function runInteractive(
       event.type === "operation.completed" ||
       event.type === "operation.failed"
     ) {
-      const rendered = renderEvent(event);
-      if (rendered) {
-        io.write(rendered);
+      if (!quiet) {
+        const rendered = renderEvent(event, colors);
+        if (rendered) {
+          io.write(rendered);
+        }
       }
     }
   });
 
   try {
     await application.start({ startAgent: true });
-    io.write("Ableton Agent chat. Type /help for commands.");
+    if (!quiet) {
+      io.write("Ableton Agent chat. Type /help for commands.");
+    }
     while (true) {
       io.writeRaw("> ");
       const next = await input.readLine();
       if (next === undefined) {
         io.writeRaw("\n");
-        return 0;
+        return EXIT_CODES.SUCCESS;
       }
       const line = next.trim();
       if (!line) {
         continue;
       }
       if (line === "/exit") {
-        return 0;
+        return EXIT_CODES.SUCCESS;
       }
       if (line === "/help") {
         io.write(

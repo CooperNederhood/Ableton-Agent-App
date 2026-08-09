@@ -20,6 +20,7 @@ import {
   type CliIo,
   type InteractiveInput,
 } from "./cli.js";
+import { createColorizer } from "./terminal.js";
 
 function application(
   status: ConnectionStatus,
@@ -1130,7 +1131,14 @@ describe("CLI", () => {
     expect(out.lines[0]).toContain("1. Drums");
   });
 
-  it("renders operation events consistently", () => {
+  it("renders operation events consistently in plain (uncolored) text", () => {
+    expect(
+      renderEvent({
+        type: "operation.started",
+        operationId: "1",
+        label: "Inspecting arrangement",
+      }),
+    ).toBe("• Inspecting arrangement");
     expect(
       renderEvent({
         type: "operation.completed",
@@ -1138,6 +1146,49 @@ describe("CLI", () => {
         summary: "Inspected 4 tracks",
       }),
     ).toBe("✓ Inspected 4 tracks");
+    expect(
+      renderEvent({
+        type: "operation.failed",
+        operationId: "1",
+        code: "tool_failed",
+        message: "Device load failed: item unavailable",
+      }),
+    ).toBe("✗ Device load failed: item unavailable");
+  });
+
+  it("renders operation events with ANSI color when a colorizer is enabled", () => {
+    const colors = createColorizer(true);
+    expect(
+      renderEvent(
+        {
+          type: "operation.started",
+          operationId: "1",
+          label: "Inspecting arrangement",
+        },
+        colors,
+      ),
+    ).toBe("\u001b[2m• Inspecting arrangement\u001b[0m");
+    expect(
+      renderEvent(
+        {
+          type: "operation.completed",
+          operationId: "1",
+          summary: "Inspected 4 tracks",
+        },
+        colors,
+      ),
+    ).toBe("\u001b[32m✓ Inspected 4 tracks\u001b[0m");
+    expect(
+      renderEvent(
+        {
+          type: "operation.failed",
+          operationId: "1",
+          code: "tool_failed",
+          message: "Device load failed: item unavailable",
+        },
+        colors,
+      ),
+    ).toBe("\u001b[31m✗ Device load failed: item unavailable\u001b[0m");
   });
 
   it("runs a persistent chat with slash commands and prompts", async () => {
@@ -1201,5 +1252,69 @@ describe("CLI", () => {
     expect(out.raw).toContain("assistant ");
     expect(out.raw).toContain("reply");
     expect(out.lines).not.toContain("assistant reply");
+  });
+
+  it("suppresses the banner and operation events in quiet mode but keeps final results", async () => {
+    const out = output();
+    const fixture = application(
+      {
+        state: "connected",
+        liveVersion: "12.1",
+        remoteScriptVersion: "0.2.0",
+        projectId: "project",
+      },
+      "assistant reply",
+    );
+
+    const exitCode = await runInteractive(
+      fixture.application,
+      out.io,
+      interactiveInput(["/status", "hello", "/exit"]),
+      { quiet: true },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(out.lines).not.toContain(
+      "Ableton Agent chat. Type /help for commands.",
+    );
+    expect(out.lines).toContain("Ableton: connected");
+    expect(out.lines).toContain("assistant reply");
+  });
+
+  it("shows the banner and slash-command output in default (non-quiet) mode", async () => {
+    const out = output();
+    const fixture = application({
+      state: "connected",
+      liveVersion: "12.1",
+      remoteScriptVersion: "0.2.0",
+      projectId: "project",
+    });
+
+    await runInteractive(
+      fixture.application,
+      out.io,
+      interactiveInput(["/exit"]),
+      { quiet: false },
+    );
+
+    expect(out.lines).toContain("Ableton Agent chat. Type /help for commands.");
+  });
+
+  it("passes quiet through runCommand for chat, suppressing the banner", async () => {
+    const out = output();
+    const fixture = application({ state: "disconnected" });
+
+    const exitCode = await runCommand(
+      { name: "chat", json: false },
+      fixture.application,
+      out.io,
+      interactiveInput(["/exit"]),
+      { quiet: true },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(out.lines).not.toContain(
+      "Ableton Agent chat. Type /help for commands.",
+    );
   });
 });

@@ -49,11 +49,11 @@ Companion specification: [Test Strategy](test-strategy.md)
 
 ## CI
 
-- [ ] Add formatting, lint, typecheck, unit, contract, and integration jobs.
-- [ ] Add macOS and Windows build/smoke jobs.
-- [ ] Cache dependencies without caching generated test results.
-- [ ] Publish test reports and artifacts on failure.
-- [ ] Enforce package build and protocol compatibility checks.
+- [x] Add formatting, lint, typecheck, unit, contract, and integration jobs.
+- [x] Add macOS and Windows build/smoke jobs.
+- [x] Cache dependencies without caching generated test results.
+- [x] Publish validation/build diagnostics on failure.
+- [x] Enforce package build and protocol compatibility checks.
 - [ ] Document how real-Live release validation is recorded.
 
 ## Quality controls
@@ -74,7 +74,7 @@ Companion specification: [Test Strategy](test-strategy.md)
 
 ## Exit criteria
 
-- [ ] A clean checkout can run all non-Live tests with one command.
+- [x] A clean checkout can run all non-Live tests with one command.
 - [ ] CI covers every application-owned boundary.
 - [ ] Release checklist includes recorded real-Live results.
 - [ ] Test failures provide enough diagnostics to reproduce locally.

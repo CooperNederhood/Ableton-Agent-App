@@ -4,6 +4,7 @@ import {
   InMemoryEventPublisher,
   noopLogger,
   ShutdownCoordinator,
+  ShutdownError,
   systemClock,
   type AppEvent,
   type ConfigurationStore,
@@ -43,15 +44,16 @@ describe("shared runtime contracts", () => {
       set: vi.fn(() => Promise.resolve()),
       delete: vi.fn(() => Promise.resolve()),
     };
+    const shutdown = vi.fn(() => Promise.resolve());
     const participant: ShutdownParticipant = {
       name: "bridge",
-      shutdown: vi.fn(() => Promise.resolve()),
+      shutdown,
     };
 
     expect(await configuration.load()).toEqual({ mode: "explore" });
     expect(await secureStorage.get("token")).toBe("secret");
     await participant.shutdown(new AbortController().signal);
-    expect(participant.shutdown).toHaveBeenCalledOnce();
+    expect(shutdown).toHaveBeenCalledOnce();
   });
 
   it("shuts down in reverse registration order and propagates cancellation", async () => {
@@ -100,15 +102,20 @@ describe("shared runtime contracts", () => {
       },
     });
 
-    await expect(
-      coordinator.shutdown(new AbortController().signal),
-    ).rejects.toMatchObject({
-      name: "ShutdownError",
-      failures: [
-        { participant: "agent", error: expect.any(Error) },
-        { participant: "bridge", error: expect.any(Error) },
-      ],
-    });
+    const failure = await coordinator
+      .shutdown(new AbortController().signal)
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ShutdownError);
+    if (!(failure instanceof ShutdownError)) {
+      throw new Error("Expected ShutdownError");
+    }
+    expect(failure.failures.map(({ participant }) => participant)).toEqual([
+      "agent",
+      "bridge",
+    ]);
+    expect(failure.failures.every(({ error }) => error instanceof Error)).toBe(
+      true,
+    );
     expect(stopped).toEqual(["agent", "bridge"]);
   });
 });

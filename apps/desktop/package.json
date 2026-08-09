@@ -1,0 +1,30 @@
+{
+  "name": "@ableton-agent/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "build": "pnpm build:renderer && pnpm build:preload && pnpm build:electron",
+    "build:renderer": "vite build",
+    "build:preload": "vite build --config vite.preload.config.ts",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "clean": "rm -rf dist",
+    "dev": "vite",
+    "start": "electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.preload.json --noEmit"
+  },
+  "dependencies": {
+    "@ableton-agent/shared": "workspace:*",
+    "electron": "^37.2.6",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "zod": "^4.0.17"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.2",
+    "vite": "^7.1.3"
+  }
+}

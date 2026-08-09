@@ -16,5 +16,11 @@
     "lint": "eslint src",
     "test": "vitest run src",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "sql.js": "^1.14.1"
+  },
+  "devDependencies": {
+    "@types/sql.js": "^1.4.11"
   }
 }

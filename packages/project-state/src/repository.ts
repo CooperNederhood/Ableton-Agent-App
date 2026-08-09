@@ -1,4 +1,9 @@
 import {
+  compareOrderedRecords,
+  comparePreferenceKeys,
+  type OrderedField,
+} from "./ordering.js";
+import {
   appSessionSchema,
   approvalDecisionSchema,
   changeSetSchema,
@@ -239,7 +244,7 @@ class Repositories implements ProjectStateRepositories {
       listBySession: async (sessionId) =>
         [...this.data.preferences.values()]
           .filter((preference) => preference.sessionId === sessionId)
-          .sort((left, right) => left.key.localeCompare(right.key))
+          .sort(comparePreferenceKeys)
           .map(clone),
       save: async (preference) => {
         const parsed = preferenceSchema.parse(preference);
@@ -280,16 +285,8 @@ function sorted<
     readonly createdAt?: string;
     readonly decidedAt?: string;
   },
->(values: readonly T[], field: "createdAt" | "decidedAt" = "createdAt"): T[] {
-  return [...values]
-    .sort((left, right) => {
-      const leftValue = left[field] ?? "";
-      const rightValue = right[field] ?? "";
-      return (
-        leftValue.localeCompare(rightValue) || left.id.localeCompare(right.id)
-      );
-    })
-    .map(clone);
+>(values: readonly T[], field: OrderedField = "createdAt"): T[] {
+  return [...values].sort(compareOrderedRecords(field)).map(clone);
 }
 
 export class InMemoryProjectStateStore implements ProjectStateStore {

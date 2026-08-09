@@ -90,3 +90,7 @@ entire Ableton project. Suggested records:
 Musical content should remain local and should not be included in telemetry by
 default.
 
+The database is opened through a versioned migration runner, and every stored
+payload is validated by the state schemas on write and on read. Writes run in
+real SQLite transactions, and the database file is replaced atomically.
+

@@ -1,3 +1,8 @@
+import {
+  currentCorrelationId,
+  withCorrelation,
+} from "@ableton-agent/correlation";
+
 import type { MutationLeaseManager } from "./lease.js";
 import {
   workflowLimits,
@@ -141,6 +146,15 @@ export class DeterministicWorkflowExecutor<
   ) {}
 
   public async execute(
+    transaction: WorkflowTransaction<Step>,
+  ): Promise<WorkflowOutcome> {
+    return withCorrelation(
+      currentCorrelationId() ?? transaction.correlationId,
+      () => this.#executeCorrelated(transaction),
+    );
+  }
+
+  async #executeCorrelated(
     transaction: WorkflowTransaction<Step>,
   ): Promise<WorkflowOutcome> {
     const budgetError = validateTransaction(transaction);

@@ -111,6 +111,7 @@ export function resolveAgentSettingsFromEnvironment(
 export function createAbletonService(
   settings: AbletonBridgeSettings,
   events: EventPublisher,
+  logger: Logger = noopLogger,
 ): { ableton: AbletonService; configured: boolean } {
   if (settings.token === undefined) {
     return {
@@ -127,6 +128,12 @@ export function createAbletonService(
         events,
         port: settings.port,
         eventSubscriptions: ["project.changed"],
+        onRequest: ({ requestId, correlationId, command }) =>
+          logger.debug("Ableton bridge request", {
+            requestId,
+            correlationId,
+            command,
+          }),
       }),
       configured: true,
     };
@@ -147,7 +154,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
   const logger = options.logger ?? noopLogger;
   const { ableton, configured } = options.abletonService
     ? { ableton: options.abletonService, configured: true }
-    : createAbletonService(options.ableton, events);
+    : createAbletonService(options.ableton, events, logger);
   const agentSettings = options.agent ?? {};
   const agent = new CopilotAgentService({
     events,

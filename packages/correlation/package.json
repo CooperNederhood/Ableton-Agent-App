@@ -1,5 +1,5 @@
 {
-  "name": "@ableton-agent/workflows",
+  "name": "@ableton-agent/correlation",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,13 +12,6 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist",
-    "format:check": "prettier --check package.json tsconfig.json \"src/**/*.ts\"",
-    "lint": "eslint src",
-    "test": "vitest run src",
     "typecheck": "tsc -p tsconfig.json --noEmit"
-  },
-  "dependencies": {
-    "@ableton-agent/correlation": "workspace:*",
-    "@ableton-agent/project-state": "workspace:*"
   }
 }

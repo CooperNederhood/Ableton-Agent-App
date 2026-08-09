@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { currentCorrelationId } from "@ableton-agent/correlation";
+
 import {
   DeterministicWorkflowExecutor,
   InMemoryMutationLeaseManager,
@@ -155,6 +157,27 @@ describe("in-memory mutation leases", () => {
 });
 
 describe("deterministic workflow executor", () => {
+  it("makes the transaction correlation ID available to runtime operations", async () => {
+    const events: string[] = [];
+    const baseRuntime = runtime(events);
+    const executor = new DeterministicWorkflowExecutor(
+      new InMemoryMutationLeaseManager(),
+      {
+        ...baseRuntime,
+        execute: (...args) => {
+          expect(currentCorrelationId()).toBe("correlation-1");
+          return baseRuntime.execute(...args);
+        },
+      },
+    );
+
+    await expect(
+      executor.execute(transaction([step("one")])),
+    ).resolves.toMatchObject({
+      status: "succeeded",
+    });
+  });
+
   it("captures, approves, executes, and verifies in order", async () => {
     const events: string[] = [];
     const executor = new DeterministicWorkflowExecutor(

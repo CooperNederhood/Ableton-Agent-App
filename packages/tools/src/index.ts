@@ -69,6 +69,7 @@ import type {
   TrackMutationResult,
 } from "@ableton-agent/protocol";
 import type { ConnectionStatus } from "@ableton-agent/shared";
+import { withCorrelation } from "@ableton-agent/correlation";
 import {
   defineTool,
   type PermissionHandler,
@@ -567,16 +568,18 @@ function requireConnectedTool<T extends Record<string, unknown>>(
   return {
     ...tool,
     handler: async (params, invocation) => {
-      const status = await services.getConnectionStatus();
-      if (status.state !== "connected") {
-        throw new AbletonToolPreconditionError(
-          status.state === "error" ? status.code : "not_connected",
-          status.state === "error"
-            ? status.message
-            : "Ableton Live must be connected before using this tool",
-        );
-      }
-      return handler(params, invocation);
+      return withCorrelation(invocation.toolCallId, async () => {
+        const status = await services.getConnectionStatus();
+        if (status.state !== "connected") {
+          throw new AbletonToolPreconditionError(
+            status.state === "error" ? status.code : "not_connected",
+            status.state === "error"
+              ? status.message
+              : "Ableton Live must be connected before using this tool",
+          );
+        }
+        return handler(params, invocation);
+      });
     },
   };
 }

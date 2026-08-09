@@ -23,7 +23,7 @@ Companion specification: [System Architecture](system-architecture.md)
 - [x] Implement graceful shutdown ordering and cancellation propagation.
 - [x] Define mutation serialization and workflow lease interfaces.
 - [x] Define stable error categories across agent, bridge, protocol, and LOM.
-- [ ] Add correlation IDs spanning agent calls, workflows, bridge requests, and
+- [x] Add correlation IDs spanning agent calls, workflows, bridge requests, and
   Remote Script logs.
 
 ## Tests

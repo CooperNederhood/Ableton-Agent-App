@@ -142,12 +142,17 @@ importers:
       '@ableton-agent/ableton-contracts':
         specifier: workspace:*
         version: link:../ableton-contracts
+      '@ableton-agent/correlation':
+        specifier: workspace:*
+        version: link:../correlation
       '@ableton-agent/protocol':
         specifier: workspace:*
         version: link:../protocol
       '@ableton-agent/shared':
         specifier: workspace:*
         version: link:../shared
+
+  packages/correlation: {}
 
   packages/project-state:
     dependencies:
@@ -216,6 +221,9 @@ importers:
 
   packages/tools:
     dependencies:
+      '@ableton-agent/correlation':
+        specifier: workspace:*
+        version: link:../correlation
       '@ableton-agent/protocol':
         specifier: workspace:*
         version: link:../protocol
@@ -231,6 +239,9 @@ importers:
 
   packages/workflows:
     dependencies:
+      '@ableton-agent/correlation':
+        specifier: workspace:*
+        version: link:../correlation
       '@ableton-agent/project-state':
         specifier: workspace:*
         version: link:../project-state

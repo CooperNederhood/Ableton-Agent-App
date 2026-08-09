@@ -4,6 +4,7 @@ import { createInterface } from "node:readline";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { InMemoryEventPublisher } from "@ableton-agent/shared";
+import { withCorrelation } from "@ableton-agent/correlation";
 
 import { AbletonBridgeService } from "./index.js";
 
@@ -39,10 +40,16 @@ afterEach(() => {
 describe("AbletonBridgeService", () => {
   it("negotiates capabilities and sends ping across the Python protocol", async () => {
     const port = await startSimulator();
+    const requests: {
+      requestId: string;
+      correlationId?: string;
+      command: string;
+    }[] = [];
     const service = new AbletonBridgeService({
       authenticationToken: token,
       events: new InMemoryEventPublisher(),
       port,
+      onRequest: (request) => requests.push(request),
     });
 
     await service.start();
@@ -91,7 +98,17 @@ describe("AbletonBridgeService", () => {
         "arrangement.set_clip_properties": true,
       },
     });
-    await expect(service.ping()).resolves.toEqual({ pong: true });
+    await expect(
+      withCorrelation("tool-call-123", () => service.ping()),
+    ).resolves.toEqual({ pong: true });
+    const pingRequest = requests.find(
+      (request) => request.correlationId === "tool-call-123",
+    );
+    expect(pingRequest).toMatchObject({
+      correlationId: "tool-call-123",
+      command: "system.ping",
+    });
+    expect(typeof pingRequest?.requestId).toBe("string");
     await expect(service.inspectSession()).resolves.toMatchObject({
       tempo: 120,
       trackCount: 2,

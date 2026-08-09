@@ -150,6 +150,7 @@ import {
   type SetTempoResult,
   type TrackMutationResult,
 } from "@ableton-agent/protocol";
+import { currentCorrelationId } from "@ableton-agent/correlation";
 import type { ConnectionStatus, EventPublisher } from "@ableton-agent/shared";
 
 export interface AbletonBridgeOptions {
@@ -162,6 +163,11 @@ export interface AbletonBridgeOptions {
   eventSubscriptions?: readonly string[];
   reconnect?: Partial<ReconnectPolicy>;
   random?: () => number;
+  onRequest?: (request: {
+    requestId: string;
+    correlationId?: string;
+    command: string;
+  }) => void;
 }
 
 export interface ReconnectPolicy {
@@ -780,6 +786,12 @@ export class AbletonBridgeService implements AbletonService {
         ? {}
         : { projectRevision: this.#projectRevision }),
     };
+    const correlationId = currentCorrelationId();
+    this.options.onRequest?.({
+      requestId,
+      command,
+      ...(correlationId === undefined ? {} : { correlationId }),
+    });
 
     const response = new Promise<ResponseEnvelope>((resolve, reject) => {
       const timeout = setTimeout(() => {

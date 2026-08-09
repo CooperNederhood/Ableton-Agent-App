@@ -20,6 +20,9 @@ export default defineConfig({
         "./packages/application/src/index.ts",
       ),
       "@ableton-agent/bridge": source("./packages/bridge/src/index.ts"),
+      "@ableton-agent/correlation": source(
+        "./packages/correlation/src/index.ts",
+      ),
       "@ableton-agent/protocol": source("./packages/protocol/src/index.ts"),
       "@ableton-agent/project-state": source(
         "./packages/project-state/src/index.ts",

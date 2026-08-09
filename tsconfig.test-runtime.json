@@ -8,6 +8,7 @@
       ],
       "@ableton-agent/application": ["packages/application/src/index.ts"],
       "@ableton-agent/bridge": ["packages/bridge/src/index.ts"],
+      "@ableton-agent/correlation": ["packages/correlation/src/index.ts"],
       "@ableton-agent/project-state": ["packages/project-state/src/index.ts"],
       "@ableton-agent/protocol": ["packages/protocol/src/index.ts"],
       "@ableton-agent/runtime": ["packages/runtime/src/index.ts"],

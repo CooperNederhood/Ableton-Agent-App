@@ -4,6 +4,7 @@ import {
   inspectBrowserChildrenParamsSchema,
   loadBrowserItemParamsSchema,
   searchBrowserParamsSchema,
+  selectProtocolVersion,
   createCuePointParamsSchema,
   deleteCuePointParamsSchema,
   deviceSummarySchema,
@@ -29,6 +30,13 @@ const identity = {
   expectedReference: "00000000-0000-4000-8000-000000000001",
   expectedName: "Drums",
 };
+
+describe("protocol negotiation", () => {
+  it("selects the highest mutually supported version", () => {
+    expect(selectProtocolVersion([1, 2, 3], [1, 2])).toBe(2);
+    expect(selectProtocolVersion([1], [2])).toBeUndefined();
+  });
+});
 
 describe("Arrangement operation schemas", () => {
   it("validates finite bounded loop and cue-point transport parameters", () => {

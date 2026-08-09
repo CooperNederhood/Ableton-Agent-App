@@ -80,6 +80,16 @@ export type ResponseEnvelope =
 export type EventEnvelope = z.infer<typeof eventEnvelopeSchema>;
 export type MessageEnvelope = z.infer<typeof messageEnvelopeSchema>;
 
+export function selectProtocolVersion(
+  supportedVersions: readonly number[],
+  availableVersions: readonly number[] = [PROTOCOL_VERSION],
+): number | undefined {
+  const available = new Set(availableVersions);
+  return [...new Set(supportedVersions)]
+    .filter((version) => Number.isInteger(version) && available.has(version))
+    .sort((left, right) => right - left)[0];
+}
+
 export const helloParamsSchema = z.object({
   authenticationToken: z.string().min(32),
   supportedProtocolVersions: z.array(z.number().int().positive()).min(1),

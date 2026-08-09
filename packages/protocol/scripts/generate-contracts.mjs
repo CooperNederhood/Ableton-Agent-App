@@ -12,6 +12,7 @@ import {
   eventEnvelopeSchema,
   failureResponseEnvelopeSchema,
   messageEnvelopeSchema,
+  protocolErrorCodeSchema,
   requestEnvelopeSchema,
   successResponseEnvelopeSchema,
 } from "../src/schemas.ts";
@@ -97,6 +98,25 @@ const fixtures = {
       projectRevision: 4,
     }),
   ],
+  errors: protocolErrorCodeSchema.options.map((code, index) =>
+    failureResponseEnvelopeSchema.parse({
+      protocolVersion: PROTOCOL_VERSION,
+      kind: "response",
+      requestId: `00000000-0000-4000-8000-${String(index + 100).padStart(12, "0")}`,
+      ok: false,
+      error: {
+        code,
+        message: `Golden ${code} failure`,
+        retryable: [
+          "operation_timeout",
+          "queue_full",
+          "lom_error",
+          "internal_error",
+        ].includes(code),
+        details: { fixture: true },
+      },
+    }),
+  ),
 };
 
 const outputs = new Map([

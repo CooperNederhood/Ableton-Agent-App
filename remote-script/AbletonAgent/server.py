@@ -10,7 +10,14 @@ try:
 except ImportError:  # pragma: no cover - Python 2 compatibility
     import Queue as queue
 
-from .messages import PROTOCOL_VERSION, event, failure, success, validate_request
+from .messages import (
+    PROTOCOL_VERSION,
+    event,
+    failure,
+    select_protocol_version,
+    success,
+    validate_request,
+)
 from .protocol import FrameDecodeError, FrameDecoder, encode_frame
 
 LOOPBACK_HOST = "127.0.0.1"
@@ -152,7 +159,10 @@ class RemoteScriptServer(object):
         if params.get("authenticationToken") != self._authentication_token:
             self._enqueue(failure(request, "authentication_failed", "Invalid authentication token"))
             return False
-        if PROTOCOL_VERSION not in params.get("supportedProtocolVersions", []):
+        selected_version = select_protocol_version(
+            params.get("supportedProtocolVersions", [])
+        )
+        if selected_version is None:
             self._enqueue(
                 failure(
                     request,
@@ -161,7 +171,9 @@ class RemoteScriptServer(object):
                 )
             )
             return False
-        self._enqueue(success(request, self._capability_document))
+        capability_document = dict(self._capability_document)
+        capability_document["selectedProtocolVersion"] = selected_version
+        self._enqueue(success(request, capability_document))
         self._event_subscriptions = set(
             params.get("eventSubscriptions", [])
         )

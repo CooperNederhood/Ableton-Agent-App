@@ -3086,6 +3086,24 @@ class ServerTests(unittest.TestCase):
         self.assertFalse(response["ok"])
         self.assertEqual(response["error"]["code"], "authentication_failed")
 
+    def test_rejects_incompatible_protocol_versions(self):
+        response = self.exchange(
+            request(
+                "system.hello",
+                {
+                    "authenticationToken": self.token,
+                    "supportedProtocolVersions": [1],
+                    "appVersion": "test",
+                    "eventSubscriptions": [],
+                },
+            )
+        )
+
+        self.assertFalse(response["ok"])
+        self.assertEqual(
+            response["error"]["code"], "protocol_version_unsupported"
+        )
+
     def test_server_runs_on_background_thread(self):
         self.assertNotEqual(self.server._thread.ident, threading.current_thread().ident)
 

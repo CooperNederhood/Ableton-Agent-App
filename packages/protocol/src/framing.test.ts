@@ -115,4 +115,25 @@ describe("frame codec", () => {
     expect(() => decoder.finish()).toThrow(/truncated frame/);
     expect(decoder.bufferedBytes).toBe(0);
   });
+
+  it("fuzzes bounded random decoder input without unbounded buffering", () => {
+    let seed = 0xc0ffee;
+    const randomByte = (): number => {
+      seed = (Math.imul(seed, 1_103_515_245) + 12_345) >>> 0;
+      return seed & 0xff;
+    };
+
+    for (let sample = 0; sample < 250; sample += 1) {
+      const decoder = new FrameDecoder(256);
+      const bytes = Uint8Array.from({ length: sample % 65 }, () =>
+        randomByte(),
+      );
+      try {
+        decoder.push(bytes);
+        expect(decoder.bufferedBytes).toBeLessThanOrEqual(260);
+      } catch (error) {
+        expect(error).toBeInstanceOf(FrameDecodeError);
+      }
+    }
+  });
 });

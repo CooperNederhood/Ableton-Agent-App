@@ -51,5 +51,175 @@
       "payload": { "reason": "track_added" },
       "projectRevision": 4
     }
+  ],
+  "errors": [
+    {
+      "protocolVersion": 2,
+      "kind": "response",
+      "requestId": "00000000-0000-4000-8000-000000000100",
+      "ok": false,
+      "error": {
+        "code": "authentication_failed",
+        "message": "Golden authentication_failed failure",
+        "retryable": false,
+        "details": { "fixture": true }
+      }
+    },
+    {
+      "protocolVersion": 2,
+      "kind": "response",
+      "requestId": "00000000-0000-4000-8000-000000000101",
+      "ok": false,
+      "error": {
+        "code": "protocol_version_unsupported",
+        "message": "Golden protocol_version_unsupported failure",
+        "retryable": false,
+        "details": { "fixture": true }
+      }
+    },
+    {
+      "protocolVersion": 2,
+      "kind": "response",
+      "requestId": "00000000-0000-4000-8000-000000000102",
+      "ok": false,
+      "error": {
+        "code": "invalid_request",
+        "message": "Golden invalid_request failure",
+        "retryable": false,
+        "details": { "fixture": true }
+      }
+    },
+    {
+      "protocolVersion": 2,
+      "kind": "response",
+      "requestId": "00000000-0000-4000-8000-000000000103",
+      "ok": false,
+      "error": {
+        "code": "unknown_command",
+        "message": "Golden unknown_command failure",
+        "retryable": false,
+        "details": { "fixture": true }
+      }
+    },
+    {
+      "protocolVersion": 2,
+      "kind": "response",
+      "requestId": "00000000-0000-4000-8000-000000000104",
+      "ok": false,
+      "error": {
+        "code": "invalid_params",
+        "message": "Golden invalid_params failure",
+        "retryable": false,
+        "details": { "fixture": true }
+      }
+    },
+    {
+      "protocolVersion": 2,
+      "kind": "response",
+      "requestId": "00000000-0000-4000-8000-000000000105",
+      "ok": false,
+      "error": {
+        "code": "unsupported_capability",
+        "message": "Golden unsupported_capability failure",
+        "retryable": false,
+        "details": { "fixture": true }
+      }
+    },
+    {
+      "protocolVersion": 2,
+      "kind": "response",
+      "requestId": "00000000-0000-4000-8000-000000000106",
+      "ok": false,
+      "error": {
+        "code": "not_found",
+        "message": "Golden not_found failure",
+        "retryable": false,
+        "details": { "fixture": true }
+      }
+    },
+    {
+      "protocolVersion": 2,
+      "kind": "response",
+      "requestId": "00000000-0000-4000-8000-000000000107",
+      "ok": false,
+      "error": {
+        "code": "ambiguous_reference",
+        "message": "Golden ambiguous_reference failure",
+        "retryable": false,
+        "details": { "fixture": true }
+      }
+    },
+    {
+      "protocolVersion": 2,
+      "kind": "response",
+      "requestId": "00000000-0000-4000-8000-000000000108",
+      "ok": false,
+      "error": {
+        "code": "stale_reference",
+        "message": "Golden stale_reference failure",
+        "retryable": false,
+        "details": { "fixture": true }
+      }
+    },
+    {
+      "protocolVersion": 2,
+      "kind": "response",
+      "requestId": "00000000-0000-4000-8000-000000000109",
+      "ok": false,
+      "error": {
+        "code": "conflict",
+        "message": "Golden conflict failure",
+        "retryable": false,
+        "details": { "fixture": true }
+      }
+    },
+    {
+      "protocolVersion": 2,
+      "kind": "response",
+      "requestId": "00000000-0000-4000-8000-000000000110",
+      "ok": false,
+      "error": {
+        "code": "operation_timeout",
+        "message": "Golden operation_timeout failure",
+        "retryable": true,
+        "details": { "fixture": true }
+      }
+    },
+    {
+      "protocolVersion": 2,
+      "kind": "response",
+      "requestId": "00000000-0000-4000-8000-000000000111",
+      "ok": false,
+      "error": {
+        "code": "queue_full",
+        "message": "Golden queue_full failure",
+        "retryable": true,
+        "details": { "fixture": true }
+      }
+    },
+    {
+      "protocolVersion": 2,
+      "kind": "response",
+      "requestId": "00000000-0000-4000-8000-000000000112",
+      "ok": false,
+      "error": {
+        "code": "lom_error",
+        "message": "Golden lom_error failure",
+        "retryable": true,
+        "details": { "fixture": true }
+      }
+    },
+    {
+      "protocolVersion": 2,
+      "kind": "response",
+      "requestId": "00000000-0000-4000-8000-000000000113",
+      "ok": false,
+      "error": {
+        "code": "internal_error",
+        "message": "Golden internal_error failure",
+        "retryable": true,
+        "details": { "fixture": true }
+      }
+    }
   ]
 }

@@ -4,7 +4,11 @@ import { describe, expect, it } from "vitest";
 
 import { commandCatalog } from "./catalog.js";
 import { PROTOCOL_VERSION } from "./constants.js";
-import { messageEnvelopeSchema } from "./schemas.js";
+import {
+  failureResponseEnvelopeSchema,
+  messageEnvelopeSchema,
+  protocolErrorCodeSchema,
+} from "./schemas.js";
 
 describe("generated protocol contracts", () => {
   it("keeps every command in the checked-in JSON Schema artifact", async () => {
@@ -30,11 +34,17 @@ describe("generated protocol contracts", () => {
         new URL("../contracts/typescript-fixtures.json", import.meta.url),
         "utf8",
       ),
-    ) as { producer: string; messages: unknown[] };
+    ) as { producer: string; messages: unknown[]; errors: unknown[] };
 
     expect(fixture.producer).toBe("typescript");
     expect(
       fixture.messages.map((message) => messageEnvelopeSchema.parse(message)),
     ).toHaveLength(5);
+    const errors = fixture.errors.map((message) =>
+      failureResponseEnvelopeSchema.parse(message),
+    );
+    expect(errors.map((message) => message.error.code).sort()).toEqual(
+      [...protocolErrorCodeSchema.options].sort(),
+    );
   });
 });

@@ -132,7 +132,25 @@ Do not rely on manually synchronized interfaces.
 
 ## Compatibility rules
 
+- `system.hello` selects the highest version present in both the client's
+  `supportedProtocolVersions` and the Remote Script's available versions. No
+  overlap returns `protocol_version_unsupported` and the connection is not
+  authenticated.
+- Request IDs are UUIDs unique for the lifetime of a client process. A
+  response repeats exactly one request ID; unknown or duplicate responses are
+  ignored by the client.
+- Event sequences are monotonically increasing per Remote Script process. The
+  first event after a connection may have any non-negative sequence; every
+  subsequent event must increment by one. A gap invalidates incremental cache
+  assumptions and requires targeted refresh.
+- Project revisions are monotonically increasing observations of meaningful
+  LOM changes. Clients attach their latest revision to requests. Responses and
+  events advance the client's revision; exact-reference mutations still
+  perform their own identity checks.
 - Additive result fields are backward compatible.
+- New optional request fields are backward compatible when old peers can
+  ignore them. New required fields, removed fields, narrowed values, changed
+  defaults, and changed error semantics are breaking.
 - Existing field meanings cannot change within a protocol version.
 - New commands do not require a protocol bump.
 - Framing, envelope, or semantic changes require a new protocol version.

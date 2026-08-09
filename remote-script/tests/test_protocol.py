@@ -13,7 +13,11 @@ from AbletonAgent.protocol import (  # noqa: E402
     FrameDecoder,
     encode_frame,
 )
-from AbletonAgent.messages import PROTOCOL_VERSION, validate_request  # noqa: E402
+from AbletonAgent.messages import (  # noqa: E402
+    PROTOCOL_VERSION,
+    select_protocol_version,
+    validate_request,
+)
 
 
 class FrameProtocolTests(unittest.TestCase):
@@ -100,6 +104,23 @@ class FrameProtocolTests(unittest.TestCase):
         length = struct.unpack(">I", frame[:4])[0]
         self.assertEqual(length, len(frame[4:]))
         self.assertEqual(json.loads(frame[4:].decode("utf-8")), {"a": 2, "b": 1})
+
+    def test_selects_highest_mutually_supported_protocol_version(self):
+        self.assertEqual(select_protocol_version([1, 2, 3], [1, 2]), 2)
+        self.assertIsNone(select_protocol_version([1], [2]))
+
+    def test_fuzzes_bounded_random_decoder_input(self):
+        generator = random.Random(0xC0FFEE)
+        for sample in range(250):
+            decoder = FrameDecoder(max_frame_bytes=256)
+            payload = bytes(
+                bytearray(generator.randrange(256) for _ in range(sample % 65))
+            )
+            try:
+                decoder.push(payload)
+                self.assertLessEqual(decoder.buffered_bytes, 260)
+            except FrameDecodeError:
+                pass
 
 
 if __name__ == "__main__":

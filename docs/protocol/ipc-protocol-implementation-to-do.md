@@ -26,9 +26,9 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 - [x] Implement four-byte big-endian length framing in TypeScript.
 - [x] Implement matching incremental framing in Python.
 - [x] Reject zero, oversized, truncated, and invalid UTF-8 payloads.
-- [ ] Implement protocol-version selection and incompatibility errors.
-- [ ] Define request ID, event sequence, and project revision semantics.
-- [ ] Document additive compatibility and version-bump rules.
+- [x] Implement protocol-version selection and incompatibility errors.
+- [x] Define request ID, event sequence, and project revision semantics.
+- [x] Document additive compatibility and version-bump rules.
 
 ## Contract automation
 
@@ -36,7 +36,7 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 - [ ] Validate that each command has request, success, and failure fixtures.
 - [x] Validate that every bridge command has a Remote Script registry entry.
 - [ ] Add schema-diff checks to CI for breaking changes.
-- [ ] Add golden fixtures for all error classes.
+- [x] Add golden fixtures for all error classes.
 
 ## Tests
 
@@ -44,8 +44,8 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 - [x] Property-test deterministic random fragmentation and frame concatenation.
 - [~] Cross-test TypeScript messages in Python and Python messages in
   TypeScript.
-- [ ] Test authentication, version, malformed request, and sequence failures.
-- [ ] Fuzz decoders with bounded random input.
+- [x] Test authentication, version, malformed request, and sequence failures.
+- [x] Fuzz decoders with bounded random input.
 
 ## Exit criteria
 

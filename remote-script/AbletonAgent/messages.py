@@ -29,6 +29,16 @@ def validate_request(message):
     return None
 
 
+def select_protocol_version(supported_versions, available_versions=None):
+    available = set(available_versions or (PROTOCOL_VERSION,))
+    compatible = set(
+        version
+        for version in supported_versions
+        if isinstance(version, int) and version in available
+    )
+    return max(compatible) if compatible else None
+
+
 def success(request, result, warnings=None, project_revision=None):
     message = {
         "protocolVersion": PROTOCOL_VERSION,

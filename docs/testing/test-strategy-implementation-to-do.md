@@ -35,7 +35,10 @@ Companion specification: [Test Strategy](test-strategy.md)
   plug-in loading, approved CLI loading, and simulator bridge parity.
 - [x] Implement CLI transcript tests.
 - [x] Implement Playwright Electron harness.
-- [ ] Create real-Live test project and manual runner.
+- [~] Create real-Live test project and manual runner.
+  - [x] Add a runner that records versioned, commit-linked smoke evidence
+    without storing project content.
+  - [ ] Create and publish the canonical Ableton Live test project.
   - [ ] Record real-Live results for Session launch quantization and rollback,
     MIDI/audio duplication compatibility, deletion, and mute/loop property
     availability.
@@ -57,7 +60,7 @@ Companion specification: [Test Strategy](test-strategy.md)
 - [x] Cache dependencies without caching generated test results.
 - [x] Publish validation/build diagnostics on failure.
 - [x] Enforce package build and protocol compatibility checks.
-- [ ] Document how real-Live release validation is recorded.
+- [x] Document how real-Live release validation is recorded.
 
 ## Quality controls
 
@@ -79,5 +82,5 @@ Companion specification: [Test Strategy](test-strategy.md)
 
 - [x] A clean checkout can run all non-Live tests with one command.
 - [ ] CI covers every application-owned boundary.
-- [ ] Release checklist includes recorded real-Live results.
+- [x] Release checklist includes recorded real-Live results.
 - [ ] Test failures provide enough diagnostics to reproduce locally.

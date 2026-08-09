@@ -131,3 +131,20 @@ a release requirement.
 
 Capability detection handles feature variance, but a supported matrix is still
 required.
+
+## Real-Live release evidence
+
+Build the repository, open the canonical validation Set in Ableton, and run:
+
+```bash
+export ABLETON_AGENT_TOKEN="<installed Remote Script token>"
+pnpm live:validate -- --live-version 12.1
+```
+
+The runner records the commit, platform, architecture, Live version, and exit
+status of non-mutating CLI smoke commands under
+`.test-artifacts/live-validation/`. It intentionally excludes command output
+and project content. Complete the pending manual check groups in that JSON
+after testing clips, Arrangement/cue points, devices, racks, Browser loading,
+and native undo. Attach the evidence files to the release candidate; a release
+must not claim a Live/platform combination without a passing evidence file.

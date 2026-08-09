@@ -16,6 +16,7 @@ Requirements:
 pnpm install
 pnpm check
 pnpm build
+pnpm test:electron
 ```
 
 ## CLI
@@ -158,3 +159,7 @@ python3 remote-script/simulator.py \
 See [`docs/overview.md`](docs/overview.md) for the architecture and
 [`docs/implementation-workplan.md`](docs/implementation-workplan.md) for
 delivery status.
+
+Real Ableton release validation is recorded with `pnpm live:validate`; see the
+release-evidence section in
+[`docs/platform/packaging-and-operations.md`](docs/platform/packaging-and-operations.md).

@@ -2377,7 +2377,7 @@ def handle(request, token, state):
     return failure(request, "unknown_command", "Unknown command: {0}".format(command))
 
 
-def serve(host, port, token):
+def serve(host, port, token, connections=1):
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((host, port))
@@ -2386,20 +2386,23 @@ def serve(host, port, token):
         json.dumps({"host": host, "port": server.getsockname()[1]}),
         flush=True,
     )
-    connection, _address = server.accept()
-    decoder = FrameDecoder()
     state = SimulatorState()
     try:
-        while True:
-            chunk = connection.recv(65536)
-            if not chunk:
-                break
-            for request in decoder.push(chunk):
-                result = handle(request, token, state)
-                if result is not None:
-                    connection.sendall(encode_frame(result))
+        for _ in range(connections):
+            connection, _address = server.accept()
+            decoder = FrameDecoder()
+            try:
+                while True:
+                    chunk = connection.recv(65536)
+                    if not chunk:
+                        break
+                    for request in decoder.push(chunk):
+                        result = handle(request, token, state)
+                        if result is not None:
+                            connection.sendall(encode_frame(result))
+            finally:
+                connection.close()
     finally:
-        connection.close()
         server.close()
 
 
@@ -2408,8 +2411,11 @@ def main():
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--token", required=True)
+    parser.add_argument("--connections", type=int, default=1)
     args = parser.parse_args()
-    serve(args.host, args.port, args.token)
+    if args.connections < 1:
+        parser.error("--connections must be at least 1")
+    serve(args.host, args.port, args.token, args.connections)
 
 
 if __name__ == "__main__":

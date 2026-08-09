@@ -13,6 +13,7 @@ export default defineConfig({
       "@ableton-agent/bridge": source("./packages/bridge/src/index.ts"),
       "@ableton-agent/protocol": source("./packages/protocol/src/index.ts"),
       "@ableton-agent/shared": source("./packages/shared/src/index.ts"),
+      "@ableton-agent/tools": source("./packages/tools/src/index.ts"),
     },
   },
 });

@@ -60,12 +60,12 @@ importers:
       '@ableton-agent/shared':
         specifier: workspace:*
         version: link:../shared
+      '@ableton-agent/tools':
+        specifier: workspace:*
+        version: link:../tools
       '@github/copilot-sdk':
         specifier: ^1.0.9
         version: 1.0.9
-      zod:
-        specifier: ^4.3.6
-        version: 4.4.3
 
   packages/bridge:
     dependencies:
@@ -86,6 +86,21 @@ importers:
         version: 4.4.3
 
   packages/shared: {}
+
+  packages/tools:
+    dependencies:
+      '@ableton-agent/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@ableton-agent/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@github/copilot-sdk':
+        specifier: ^1.0.9
+        version: 1.0.9
+      zod:
+        specifier: ^4.3.6
+        version: 4.4.3
 
 packages:
 

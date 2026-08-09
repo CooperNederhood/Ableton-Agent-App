@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { createInterface } from "node:readline";
+
 import {
   CopilotAgentService,
   HeadlessApplication,
@@ -41,6 +43,7 @@ class UnconfiguredAbletonService implements AbletonService {
 
 const io: CliIo = {
   write: (text) => process.stdout.write(`${text}\n`),
+  writeRaw: (text) => process.stdout.write(text),
   writeError: (text) => process.stderr.write(`${text}\n`),
 };
 
@@ -78,7 +81,21 @@ async function main(): Promise<number> {
       events,
       logger: noopLogger,
     });
-    return await runCommand(command, application, io);
+    if (command.name !== "chat") {
+      return await runCommand(command, application, io);
+    }
+
+    const terminal = createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: process.stdin.isTTY,
+    });
+    terminal.on("SIGINT", () => terminal.close());
+    try {
+      return await runCommand(command, application, io, terminal);
+    } finally {
+      terminal.close();
+    }
   } catch (error) {
     if (error instanceof CliUsageError) {
       io.writeError(error.message);

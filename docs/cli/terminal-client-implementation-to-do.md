@@ -12,9 +12,9 @@ Companion specification: [Terminal Client](terminal-client.md)
 
 ## Interactive client
 
-- [ ] Implement line-oriented chat with streamed assistant output.
-- [ ] Render operation start, progress, completion, and failure events.
-- [ ] Implement `/help`, `/status`, `/connect`, `/snapshot`, `/mode`,
+- [x] Implement line-oriented chat with streamed assistant output.
+- [x] Render operation start, progress, completion, and failure events.
+- [~] Implement `/help`, `/status`, `/connect`, `/snapshot`, `/mode`,
   `/session`, `/verbose`, `/cancel`, `/doctor`, and `/exit`.
 - [ ] Implement interactive approval, denial, and detail inspection.
 - [ ] Handle Ctrl+C as cancellation first and process exit second.
@@ -23,7 +23,7 @@ Companion specification: [Terminal Client](terminal-client.md)
 ## Non-interactive client
 
 - [x] Implement `run`, `status`, `doctor`, `capabilities`, and `snapshot`.
-- [ ] Implement explicit non-interactive approval policies.
+- [~] Implement explicit non-interactive approval policies.
 - [ ] Return structured JSON operation and final-result data.
 - [x] Ensure diagnostics avoid model invocation where possible.
 
@@ -32,7 +32,7 @@ Companion specification: [Terminal Client](terminal-client.md)
 - [x] Unit-test argument parsing, invalid input, and exit codes.
 - [x] Unit-test event-to-terminal rendering.
 - [ ] Snapshot representative plain and colored transcripts.
-- [ ] Integration-test interactive prompts with fake input/output adapters.
+- [x] Integration-test interactive prompts with fake input/output adapters.
 - [ ] Integration-test one-shot commands against the simulated Remote Script.
 - [ ] Test interruption, denial, timeout, disconnect, and agent failure.
 - [ ] Add an opt-in real-Live smoke command.

@@ -16,15 +16,24 @@ import {
   parseArgs,
   renderEvent,
   runCommand,
+  runInteractive,
   type CliIo,
 } from "./cli.js";
 
-function application(status: ConnectionStatus, reply = "ok") {
+function application(status: ConnectionStatus, reply = "ok", stream = false) {
+  const events = new InMemoryEventPublisher();
   const agentStart = vi.fn(async () => undefined);
   const agent: AgentService = {
     start: agentStart,
     stop: vi.fn(async () => undefined),
-    send: vi.fn(async () => reply),
+    send: vi.fn(async () => {
+      if (stream) {
+        events.publish({ type: "agent.message_delta", content: "assistant " });
+        events.publish({ type: "agent.message_delta", content: "reply" });
+        events.publish({ type: "agent.message_complete", content: reply });
+      }
+      return reply;
+    }),
   };
   const ableton: AbletonService = {
     start: vi.fn(async () => undefined),
@@ -60,7 +69,7 @@ function application(status: ConnectionStatus, reply = "ok") {
     application: new HeadlessApplication({
       agent,
       ableton,
-      events: new InMemoryEventPublisher(),
+      events,
       logger: noopLogger,
     }),
     agentStart,
@@ -70,11 +79,19 @@ function application(status: ConnectionStatus, reply = "ok") {
 function output() {
   const lines: string[] = [];
   const errors: string[] = [];
+  const raw: string[] = [];
   const io: CliIo = {
     write: (text) => lines.push(text),
+    writeRaw: (text) => raw.push(text),
     writeError: (text) => errors.push(text),
   };
-  return { lines, errors, io };
+  return { lines, errors, raw, io };
+}
+
+async function* interactiveInput(lines: readonly string[]) {
+  for (const line of lines) {
+    yield line;
+  }
 }
 
 describe("CLI", () => {
@@ -84,6 +101,10 @@ describe("CLI", () => {
       prompt: "inspect the set",
       json: true,
     });
+  });
+
+  it("parses interactive chat", () => {
+    expect(parseArgs(["chat"])).toEqual({ name: "chat", json: false });
   });
 
   it("rejects missing prompts", () => {
@@ -187,5 +208,68 @@ describe("CLI", () => {
         summary: "Inspected 4 tracks",
       }),
     ).toBe("✓ Inspected 4 tracks");
+  });
+
+  it("runs a persistent chat with slash commands and prompts", async () => {
+    const out = output();
+    const fixture = application(
+      {
+        state: "connected",
+        liveVersion: "12.1",
+        remoteScriptVersion: "0.2.0",
+        projectId: "project",
+      },
+      "assistant reply",
+    );
+
+    const exitCode = await runInteractive(
+      fixture.application,
+      out.io,
+      interactiveInput(["/status", "/snapshot", "hello", "/exit"]),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(out.lines).toContain("Ableton: connected");
+    expect(out.lines).toContain("Snapshot: 1 tracks at 128 BPM");
+    expect(out.lines).toContain("assistant reply");
+    expect(out.raw.filter((text) => text === "> ")).toHaveLength(4);
+    expect(fixture.agentStart).toHaveBeenCalledOnce();
+  });
+
+  it("reports unknown slash commands without ending the chat", async () => {
+    const out = output();
+    const fixture = application({ state: "disconnected" });
+
+    await runInteractive(
+      fixture.application,
+      out.io,
+      interactiveInput(["/unknown", "/exit"]),
+    );
+
+    expect(out.errors).toEqual(["Unknown command: /unknown"]);
+  });
+
+  it("streams assistant deltas without duplicating the final message", async () => {
+    const out = output();
+    const fixture = application(
+      {
+        state: "connected",
+        liveVersion: "12.1",
+        remoteScriptVersion: "0.2.0",
+        projectId: "project",
+      },
+      "assistant reply",
+      true,
+    );
+
+    await runInteractive(
+      fixture.application,
+      out.io,
+      interactiveInput(["hello", "/exit"]),
+    );
+
+    expect(out.raw).toContain("assistant ");
+    expect(out.raw).toContain("reply");
+    expect(out.lines).not.toContain("assistant reply");
   });
 });

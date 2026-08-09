@@ -10,13 +10,13 @@ Companion specification: [Agent Runtime](agent-runtime.md)
   idle detection.
 - [x] Configure a restricted tool environment with explicit allowlists.
 - [ ] Define model and reasoning configuration with validated defaults.
-- [ ] Normalize SDK events into application-owned `AppEvent` values.
+- [x] Normalize SDK events into application-owned `AppEvent` values.
 
 - [x] Register the first read-only Ableton session inspection tool.
 
 ## Agent behavior
 
-- [ ] Write and version the base Ableton system message.
+- [x] Write and version the base Ableton system message.
 - [ ] Define compact project-context injection.
 - [ ] Implement session-start, prompt, pre-tool, post-tool, and failure hooks.
 - [ ] Add retry guidance based on structured error codes.
@@ -33,9 +33,9 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 
 ## Tests
 
-- [ ] Unit-test event normalization and context generation.
+- [~] Unit-test event normalization and context generation.
 - [ ] Unit-test hook decisions for every risk and error class.
-- [ ] Test system-message/tool compatibility with deterministic fixtures.
+- [x] Test system-message/tool compatibility with deterministic fixtures.
 - [ ] Integration-test custom tool invocation through the Copilot SDK.
 - [ ] Integration-test cancellation, idle completion, resume, and SDK failure.
 - [ ] Add transcript/evaluation cases for inspect-before-edit and verification.

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { SessionConfig } from "@github/copilot-sdk";
+import type { SessionConfig, SessionEvent } from "@github/copilot-sdk";
 
 import {
   InMemoryEventPublisher,
@@ -140,5 +140,114 @@ describe("CopilotAgentService", () => {
     expect(sendAndWait).toHaveBeenCalledWith("Check the connection");
     expect(disconnect).toHaveBeenCalledOnce();
     expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it("normalizes assistant and tool execution events", async () => {
+    const events = new InMemoryEventPublisher();
+    const received: AppEvent[] = [];
+    events.subscribe((event) => received.push(event));
+    let listener: ((event: SessionEvent) => void) | undefined;
+    const service = new CopilotAgentService({
+      events,
+      getAbletonStatus: () => Promise.resolve({ state: "disconnected" }),
+      inspectSession: () =>
+        Promise.resolve({
+          tempo: 120,
+          timeSignature: { numerator: 4, denominator: 4 },
+          isPlaying: false,
+          trackCount: 0,
+          tracks: [],
+        }),
+      clientFactory: () => ({
+        createSession: () =>
+          Promise.resolve({
+            sendAndWait: () =>
+              Promise.resolve({ data: { content: "complete" } }),
+            disconnect: () => Promise.resolve(),
+            on: (receivedListener) => {
+              listener = receivedListener;
+              return () => undefined;
+            },
+          }),
+        stop: () => Promise.resolve([]),
+      }),
+    });
+    await service.start();
+
+    listener?.({
+      type: "assistant.message_delta",
+      id: "event-1",
+      parentId: null,
+      timestamp: "2026-08-08T00:00:00.000Z",
+      ephemeral: true,
+      data: { messageId: "message-1", deltaContent: "hello" },
+    });
+    listener?.({
+      type: "tool.execution_start",
+      id: "event-2",
+      parentId: "event-1",
+      timestamp: "2026-08-08T00:00:01.000Z",
+      data: {
+        toolCallId: "tool-1",
+        toolName: "ableton_session_inspect",
+      },
+    });
+    listener?.({
+      type: "tool.execution_complete",
+      id: "event-3",
+      parentId: "event-2",
+      timestamp: "2026-08-08T00:00:02.000Z",
+      data: {
+        toolCallId: "tool-1",
+        success: true,
+      },
+    });
+    listener?.({
+      type: "tool.execution_start",
+      id: "event-4",
+      parentId: "event-3",
+      timestamp: "2026-08-08T00:00:03.000Z",
+      data: {
+        toolCallId: "tool-2",
+        toolName: "ableton_connection_status",
+      },
+    });
+    listener?.({
+      type: "tool.execution_complete",
+      id: "event-5",
+      parentId: "event-4",
+      timestamp: "2026-08-08T00:00:04.000Z",
+      data: {
+        toolCallId: "tool-2",
+        success: false,
+        error: { code: "offline", message: "Ableton is offline" },
+      },
+    });
+
+    expect(received).toEqual([
+      { type: "agent.message_delta", content: "hello" },
+      {
+        type: "operation.started",
+        operationId: "tool-1",
+        label: "Inspect Ableton session",
+      },
+      {
+        type: "operation.completed",
+        operationId: "tool-1",
+        summary: "Inspect Ableton session completed",
+      },
+      {
+        type: "operation.started",
+        operationId: "tool-2",
+        label: "Check Ableton connection",
+      },
+      {
+        type: "operation.failed",
+        operationId: "tool-2",
+        code: "offline",
+        message: "Ableton is offline",
+      },
+    ]);
+    await service.stop();
   });
 });

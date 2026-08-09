@@ -62,10 +62,10 @@ relevant validation pass.
 
 ### Stage 3: headless agent core and reference CLI
 
-- [ ] Implement application services and the shared event contract.
-- [ ] Integrate the Copilot SDK with a restricted tool environment.
-- [ ] Implement the first inspection tools.
-- [ ] Build the CLI chat loop, status commands, streaming, and approvals.
+- [x] Implement application services and the shared event contract.
+- [x] Integrate the Copilot SDK with a restricted tool environment.
+- [x] Implement the first inspection tools.
+- [~] Build the CLI chat loop, status commands, streaming, and approvals.
 - [ ] Demonstrate an end-to-end prompt reading and safely modifying Live.
 
 ### Stage 4: core production features

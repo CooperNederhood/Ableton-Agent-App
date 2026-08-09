@@ -1,21 +1,28 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 import type {
   CapabilityDocument,
   PingResult,
   SessionSnapshot,
 } from "@ableton-agent/protocol";
 import type {
+  AppEvent,
   ConnectionStatus,
   EventPublisher,
   LifecycleState,
   Logger,
 } from "@ableton-agent/shared";
 import {
+  abletonToolMetadata,
+  createAbletonTools,
+  handleAbletonToolPermission,
+} from "@ableton-agent/tools";
+import {
   CopilotClient,
-  defineTool,
   type SessionConfig,
   type SessionEvent,
 } from "@github/copilot-sdk";
-import { z } from "zod";
 
 export interface AgentService {
   start(): Promise<void>;
@@ -63,18 +70,31 @@ export interface CopilotAgentServiceOptions {
   getAbletonStatus: () => Promise<ConnectionStatus>;
   inspectSession: () => Promise<SessionSnapshot>;
   clientFactory?: () => CopilotClientAdapter;
+  baseDirectory?: string;
   model?: string;
 }
+
+export const BASE_SYSTEM_MESSAGE_VERSION = 1;
+export const BASE_SYSTEM_MESSAGE =
+  "You are an Ableton Live production assistant. Use only the provided Ableton tools. Inspect current project state before making claims. Clearly distinguish observed state from suggestions.";
 
 export class CopilotAgentService implements AgentService {
   readonly #clientFactory: () => CopilotClientAdapter;
   #client: CopilotClientAdapter | undefined;
   #session: CopilotSessionAdapter | undefined;
   #unsubscribe: (() => void) | undefined;
+  readonly #operationNames = new Map<string, string>();
 
   public constructor(private readonly options: CopilotAgentServiceOptions) {
     this.#clientFactory =
-      options.clientFactory ?? (() => new CopilotClient({ mode: "empty" }));
+      options.clientFactory ??
+      (() =>
+        new CopilotClient({
+          mode: "empty",
+          baseDirectory:
+            options.baseDirectory ??
+            join(homedir(), ".ableton-agent", "copilot"),
+        }));
   }
 
   public async start(): Promise<void> {
@@ -83,17 +103,9 @@ export class CopilotAgentService implements AgentService {
     }
 
     const client = this.#clientFactory();
-    const connectionStatusTool = defineTool("ableton_connection_status", {
-      description:
-        "Returns the current connection status for the Ableton Live Remote Script bridge.",
-      parameters: z.object({}),
-      handler: async () => this.options.getAbletonStatus(),
-    });
-    const inspectSessionTool = defineTool("ableton_session_inspect", {
-      description:
-        "Inspects the current Ableton Live set, including transport, tempo, time signature, and track summaries.",
-      parameters: z.object({}),
-      handler: async () => this.options.inspectSession(),
+    const toolSet = createAbletonTools({
+      getConnectionStatus: this.options.getAbletonStatus,
+      inspectSession: this.options.inspectSession,
     });
 
     try {
@@ -102,15 +114,12 @@ export class CopilotAgentService implements AgentService {
         ...(this.options.model === undefined
           ? {}
           : { model: this.options.model }),
-        tools: [connectionStatusTool, inspectSessionTool],
-        availableTools: [
-          "custom:ableton_connection_status",
-          "custom:ableton_session_inspect",
-        ],
+        tools: toolSet.tools,
+        availableTools: toolSet.availableTools,
+        onPermissionRequest: handleAbletonToolPermission,
         systemMessage: {
           mode: "replace",
-          content:
-            "You are an Ableton Live production assistant. Use only the provided Ableton tools. Clearly distinguish observed project state from suggestions.",
+          content: BASE_SYSTEM_MESSAGE,
         },
       });
       this.#client = client;
@@ -121,6 +130,35 @@ export class CopilotAgentService implements AgentService {
             type: "agent.message_delta",
             content: event.data.deltaContent,
           });
+        } else if (event.type === "tool.execution_start") {
+          const metadata = abletonToolMetadata.find(
+            (candidate) => candidate.name === event.data.toolName,
+          );
+          const label = metadata?.title ?? event.data.toolName;
+          this.#operationNames.set(event.data.toolCallId, label);
+          this.options.events.publish({
+            type: "operation.started",
+            operationId: event.data.toolCallId,
+            label,
+          });
+        } else if (event.type === "tool.execution_complete") {
+          const label =
+            this.#operationNames.get(event.data.toolCallId) ?? "Tool operation";
+          this.#operationNames.delete(event.data.toolCallId);
+          if (event.data.success) {
+            this.options.events.publish({
+              type: "operation.completed",
+              operationId: event.data.toolCallId,
+              summary: `${label} completed`,
+            });
+          } else {
+            this.options.events.publish({
+              type: "operation.failed",
+              operationId: event.data.toolCallId,
+              code: event.data.error?.code ?? "tool_failed",
+              message: event.data.error?.message ?? `${label} failed`,
+            });
+          }
         }
       });
     } catch (error) {
@@ -136,6 +174,7 @@ export class CopilotAgentService implements AgentService {
     const client = this.#client;
     this.#session = undefined;
     this.#client = undefined;
+    this.#operationNames.clear();
     if (session) {
       await session.disconnect();
     }
@@ -239,6 +278,10 @@ export class HeadlessApplication {
 
   public inspectSession(): Promise<SessionSnapshot> {
     return this.services.ableton.inspectSession();
+  }
+
+  public subscribe(listener: (event: AppEvent) => void): () => void {
+    return this.services.events.subscribe(listener);
   }
 
   #setState(state: LifecycleState): void {

@@ -2,6 +2,7 @@ import type { HeadlessApplication } from "@ableton-agent/application";
 import type { AppEvent } from "@ableton-agent/shared";
 
 export type CliCommand =
+  | { name: "chat"; json: false }
   | { name: "status"; json: boolean }
   | { name: "doctor"; json: boolean }
   | { name: "capabilities"; json: boolean }
@@ -18,6 +19,12 @@ export function parseArgs(args: readonly string[]): CliCommand {
 
   if (command === "help" || command === "--help" || command === "-h") {
     return { name: "help", json: false };
+  }
+  if (command === "chat") {
+    if (positional.length !== 1 || json) {
+      throw new CliUsageError("chat does not accept arguments or --json");
+    }
+    return { name: "chat", json: false };
   }
   if (
     command === "status" ||
@@ -44,8 +51,11 @@ export function parseArgs(args: readonly string[]): CliCommand {
 
 export interface CliIo {
   write(text: string): void;
+  writeRaw(text: string): void;
   writeError(text: string): void;
 }
+
+export type InteractiveInput = AsyncIterable<string>;
 
 export function renderEvent(event: AppEvent): string | undefined {
   switch (event.type) {
@@ -70,6 +80,7 @@ export async function runCommand(
   command: CliCommand,
   application: HeadlessApplication,
   io: CliIo,
+  input?: InteractiveInput,
 ): Promise<number> {
   if (command.name === "help") {
     io.write(
@@ -77,6 +88,7 @@ export async function runCommand(
         "Ableton Agent",
         "",
         "Usage:",
+        "  ableton-agent chat",
         "  ableton-agent status [--json]",
         "  ableton-agent doctor [--json]",
         "  ableton-agent capabilities [--json]",
@@ -85,6 +97,13 @@ export async function runCommand(
       ].join("\n"),
     );
     return 0;
+  }
+
+  if (command.name === "chat") {
+    if (!input) {
+      throw new Error("Interactive input is required for chat");
+    }
+    return runInteractive(application, io, input);
   }
 
   await application.start({ startAgent: command.name === "run" });
@@ -167,5 +186,105 @@ export async function runCommand(
     return 0;
   } finally {
     await application.stop();
+  }
+}
+
+export async function runInteractive(
+  application: HeadlessApplication,
+  io: CliIo,
+  input: InteractiveInput,
+): Promise<number> {
+  let turnProducedOutput = false;
+  const iterator = input[Symbol.asyncIterator]();
+  const unsubscribe = application.subscribe((event) => {
+    if (event.type === "agent.message_delta") {
+      turnProducedOutput = true;
+      io.writeRaw(event.content);
+    } else if (event.type === "agent.message_complete") {
+      if (turnProducedOutput) {
+        io.writeRaw("\n");
+      } else {
+        io.write(event.content);
+      }
+      turnProducedOutput = true;
+    } else if (
+      event.type === "operation.started" ||
+      event.type === "operation.completed" ||
+      event.type === "operation.failed"
+    ) {
+      const rendered = renderEvent(event);
+      if (rendered) {
+        io.write(rendered);
+      }
+    }
+  });
+
+  try {
+    await application.start({ startAgent: true });
+    io.write("Ableton Agent chat. Type /help for commands.");
+    while (true) {
+      io.writeRaw("> ");
+      const next = await iterator.next();
+      if (next.done) {
+        io.writeRaw("\n");
+        return 0;
+      }
+      const line = next.value.trim();
+      if (!line) {
+        continue;
+      }
+      if (line === "/exit") {
+        return 0;
+      }
+      if (line === "/help") {
+        io.write(
+          [
+            "/help      Show commands",
+            "/status    Show connection status",
+            "/doctor    Ping the Remote Script",
+            "/snapshot  Inspect the current Live set",
+            "/exit      End the chat session",
+          ].join("\n"),
+        );
+        continue;
+      }
+
+      try {
+        if (line === "/status") {
+          const status = await application.getStatus();
+          io.write(`Ableton: ${status.state}`);
+          continue;
+        }
+        if (line === "/doctor") {
+          const ping = await application.ping();
+          io.write(`Ping: ${ping.pong ? "ok" : "failed"}`);
+          continue;
+        }
+        if (line === "/snapshot") {
+          const snapshot = await application.inspectSession();
+          io.write(
+            `Snapshot: ${snapshot.trackCount} tracks at ${snapshot.tempo} BPM`,
+          );
+          continue;
+        }
+        if (line.startsWith("/")) {
+          io.writeError(`Unknown command: ${line}`);
+          continue;
+        }
+
+        turnProducedOutput = false;
+        const response = await application.send(line);
+        if (!turnProducedOutput) {
+          io.write(response);
+        }
+      } catch (error) {
+        io.writeError(error instanceof Error ? error.message : String(error));
+      }
+    }
+  } finally {
+    unsubscribe();
+    if (application.state !== "stopped") {
+      await application.stop();
+    }
   }
 }

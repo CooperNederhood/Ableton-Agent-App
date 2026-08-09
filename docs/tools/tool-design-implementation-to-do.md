@@ -4,16 +4,16 @@ Companion specification: [Tool Design](tool-design.md)
 
 ## Tool framework
 
-- [ ] Define typed tool metadata, risk, capability, and duration fields.
-- [ ] Build a tool factory around Copilot SDK custom tools.
+- [x] Define typed tool metadata, risk, capability, and duration fields.
+- [x] Build a tool factory around Copilot SDK custom tools.
 - [ ] Standardize runtime validation and structured failure results.
 - [ ] Standardize model-facing summaries and UI metadata.
 - [ ] Add deferred/loading policy for large tool catalogs.
-- [ ] Ensure tools depend on application services, not raw sockets.
+- [x] Ensure tools depend on application services, not raw sockets.
 
 ## Inspection tools
 
-- [ ] Implement project overview and capability tools.
+- [~] Implement project overview and capability tools.
 - [ ] Implement track, clip, arrangement, and transport inspection.
 - [ ] Implement device/parameter, rack, Drum Rack, and browser inspection.
 - [ ] Implement external plug-in search with bounded cached results.
@@ -36,11 +36,11 @@ Companion specification: [Tool Design](tool-design.md)
 
 ## Tests
 
-- [ ] Unit-test schemas and formatting for every tool.
-- [ ] Unit-test risk and capability metadata completeness.
+- [x] Unit-test schemas and formatting for every tool.
+- [x] Unit-test risk and capability metadata completeness.
 - [ ] Unit-test workflow ordering, partial failure, and compensation.
 - [ ] Integration-test tools against fake and simulated bridges.
-- [ ] Add Copilot SDK invocation tests for representative tools.
+- [~] Add Copilot SDK invocation tests for representative tools.
 - [ ] Validate every mutation against real Live before marking supported.
 
 ## Exit criteria
@@ -49,4 +49,3 @@ Companion specification: [Tool Design](tool-design.md)
 - [ ] Large results are filtered or paginated.
 - [ ] Every mutation is classified and verified.
 - [ ] CLI and React can render all tool outcomes from shared metadata.
-

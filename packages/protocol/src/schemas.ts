@@ -88,6 +88,7 @@ export const helloParamsSchema = z.object({
 });
 
 export const capabilityDocumentSchema = z.object({
+  selectedProtocolVersion: z.literal(PROTOCOL_VERSION),
   liveVersion: z.string().min(1),
   remoteScriptVersion: z.string().min(1),
   projectId: z.string().min(1),
@@ -98,5 +99,31 @@ export const capabilityDocumentSchema = z.object({
   }),
 });
 
+export const pingResultSchema = z.object({
+  pong: z.literal(true),
+});
+
+export const trackSummarySchema = z.object({
+  index: z.number().int().nonnegative(),
+  name: z.string(),
+  color: z.number().int().nullable(),
+  isMuted: z.boolean(),
+  isSoloed: z.boolean(),
+  isArmed: z.boolean(),
+});
+
+export const sessionSnapshotSchema = z.object({
+  tempo: z.number().positive(),
+  timeSignature: z.object({
+    numerator: z.number().int().positive(),
+    denominator: z.number().int().positive(),
+  }),
+  isPlaying: z.boolean(),
+  trackCount: z.number().int().nonnegative(),
+  tracks: z.array(trackSummarySchema),
+});
+
 export type HelloParams = z.infer<typeof helloParamsSchema>;
 export type CapabilityDocument = z.infer<typeof capabilityDocumentSchema>;
+export type PingResult = z.infer<typeof pingResultSchema>;
+export type SessionSnapshot = z.infer<typeof sessionSnapshotSchema>;

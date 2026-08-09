@@ -1,0 +1,47 @@
+"""Ableton ControlSurface lifecycle integration."""
+
+from __future__ import absolute_import, unicode_literals
+
+import os
+
+from _Framework.ControlSurface import ControlSurface
+
+from .capabilities import build_capability_document
+from .executor import MainThreadExecutor
+from .registry import CommandRegistry
+from .server import RemoteScriptServer
+from .system_commands import register_system_commands
+from .token_store import load_or_create_token
+
+
+class RuntimeContext(object):
+    def __init__(self, application, song):
+        self.application = application
+        self.song = song
+
+
+class AbletonAgentControlSurface(ControlSurface):
+    def __init__(self, c_instance):
+        ControlSurface.__init__(self, c_instance)
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        context = RuntimeContext(self.application(), self.song())
+        self._executor = MainThreadExecutor(
+            self.schedule_message, registry, context
+        )
+        token = load_or_create_token(os.path.dirname(__file__))
+        capabilities = build_capability_document(
+            context.application, context.song, registry
+        )
+        self._server = RemoteScriptServer(
+            self._executor,
+            token,
+            capabilities,
+            logger=self.log_message,
+        )
+        self._server.start()
+
+    def disconnect(self):
+        self._server.stop()
+        self._executor.close()
+        ControlSurface.disconnect(self)

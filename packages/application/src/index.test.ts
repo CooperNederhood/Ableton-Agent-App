@@ -24,6 +24,22 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
     start: vi.fn(async () => undefined),
     stop: vi.fn(async () => undefined),
     getStatus: vi.fn(async () => status),
+    getCapabilities: vi.fn(async () => ({
+      selectedProtocolVersion: 1 as const,
+      liveVersion: "12.1",
+      remoteScriptVersion: "0.2.0",
+      projectId: "project",
+      capabilities: {},
+      limits: { maxFrameBytes: 1024, maxBatchItems: 128 },
+    })),
+    ping: vi.fn(async () => ({ pong: true as const })),
+    inspectSession: vi.fn(async () => ({
+      tempo: 120,
+      timeSignature: { numerator: 4, denominator: 4 },
+      isPlaying: false,
+      trackCount: 0,
+      tracks: [],
+    })),
   };
   const events = new InMemoryEventPublisher();
   return { agent, ableton, events, logger: noopLogger };
@@ -90,6 +106,14 @@ describe("CopilotAgentService", () => {
           remoteScriptVersion: "0.1.0",
           projectId: "project",
         }),
+      inspectSession: () =>
+        Promise.resolve({
+          tempo: 120,
+          timeSignature: { numerator: 4, denominator: 4 },
+          isPlaying: false,
+          trackCount: 0,
+          tracks: [],
+        }),
       clientFactory: () => ({
         createSession: (received) => {
           config = received;
@@ -110,8 +134,9 @@ describe("CopilotAgentService", () => {
     expect(response).toBe("Ableton is connected.");
     expect(config?.availableTools).toEqual([
       "custom:ableton_connection_status",
+      "custom:ableton_session_inspect",
     ]);
-    expect(config?.tools).toHaveLength(1);
+    expect(config?.tools).toHaveLength(2);
     expect(sendAndWait).toHaveBeenCalledWith("Check the connection");
     expect(disconnect).toHaveBeenCalledOnce();
     expect(stop).toHaveBeenCalledOnce();

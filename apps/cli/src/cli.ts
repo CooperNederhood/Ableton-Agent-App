@@ -4,6 +4,8 @@ import type { AppEvent } from "@ableton-agent/shared";
 export type CliCommand =
   | { name: "status"; json: boolean }
   | { name: "doctor"; json: boolean }
+  | { name: "capabilities"; json: boolean }
+  | { name: "snapshot"; json: boolean }
   | { name: "run"; prompt: string; json: boolean }
   | { name: "help"; json: false };
 
@@ -17,7 +19,12 @@ export function parseArgs(args: readonly string[]): CliCommand {
   if (command === "help" || command === "--help" || command === "-h") {
     return { name: "help", json: false };
   }
-  if (command === "status" || command === "doctor") {
+  if (
+    command === "status" ||
+    command === "doctor" ||
+    command === "capabilities" ||
+    command === "snapshot"
+  ) {
     if (positional.length !== 1) {
       throw new CliUsageError(
         `${command} does not accept positional arguments`,
@@ -72,6 +79,8 @@ export async function runCommand(
         "Usage:",
         "  ableton-agent status [--json]",
         "  ableton-agent doctor [--json]",
+        "  ableton-agent capabilities [--json]",
+        "  ableton-agent snapshot [--json]",
         "  ableton-agent run <prompt> [--json]",
       ].join("\n"),
     );
@@ -80,7 +89,7 @@ export async function runCommand(
 
   await application.start({ startAgent: command.name === "run" });
   try {
-    if (command.name === "status" || command.name === "doctor") {
+    if (command.name === "status") {
       const status = await application.getStatus();
       const payload = {
         application: application.state,
@@ -97,6 +106,60 @@ export async function runCommand(
             ].join("\n"),
       );
       return payload.healthy ? 0 : 3;
+    }
+
+    if (command.name === "doctor") {
+      const status = await application.getStatus();
+      const ping =
+        status.state === "connected" ? await application.ping() : null;
+      const payload = {
+        application: application.state,
+        ableton: status,
+        ping,
+        healthy: status.state === "connected" && ping?.pong === true,
+      };
+      io.write(
+        command.json
+          ? JSON.stringify(payload)
+          : [
+              `Application: ${payload.application}`,
+              `Ableton: ${status.state}`,
+              `Ping: ${ping?.pong === true ? "ok" : "unavailable"}`,
+              `Healthy: ${payload.healthy ? "yes" : "no"}`,
+            ].join("\n"),
+      );
+      return payload.healthy ? 0 : 3;
+    }
+
+    if (command.name === "capabilities") {
+      const capabilities = await application.getCapabilities();
+      io.write(
+        command.json
+          ? JSON.stringify(capabilities)
+          : Object.entries(capabilities.capabilities)
+              .filter(([, supported]) => supported)
+              .map(([name]) => name)
+              .join("\n"),
+      );
+      return 0;
+    }
+
+    if (command.name === "snapshot") {
+      const snapshot = await application.inspectSession();
+      io.write(
+        command.json
+          ? JSON.stringify(snapshot)
+          : [
+              `Tempo: ${snapshot.tempo}`,
+              `Time signature: ${snapshot.timeSignature.numerator}/${snapshot.timeSignature.denominator}`,
+              `Playing: ${snapshot.isPlaying ? "yes" : "no"}`,
+              `Tracks: ${snapshot.trackCount}`,
+              ...snapshot.tracks.map(
+                (track) => `  ${track.index + 1}. ${track.name}`,
+              ),
+            ].join("\n"),
+      );
+      return 0;
     }
 
     const response = await application.send(command.prompt);

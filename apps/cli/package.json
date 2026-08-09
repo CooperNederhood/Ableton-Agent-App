@@ -15,6 +15,7 @@
   "dependencies": {
     "@ableton-agent/application": "workspace:*",
     "@ableton-agent/bridge": "workspace:*",
+    "@ableton-agent/protocol": "workspace:*",
     "@ableton-agent/shared": "workspace:*"
   },
   "devDependencies": {

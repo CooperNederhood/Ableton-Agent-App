@@ -12,6 +12,8 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [ ] Define model and reasoning configuration with validated defaults.
 - [ ] Normalize SDK events into application-owned `AppEvent` values.
 
+- [x] Register the first read-only Ableton session inspection tool.
+
 ## Agent behavior
 
 - [ ] Write and version the base Ableton system message.

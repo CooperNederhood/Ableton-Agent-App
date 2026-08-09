@@ -45,17 +45,17 @@ relevant validation pass.
 
 ### Stage 1: repository and contracts
 
-- [ ] Complete architecture foundation tasks.
-- [ ] Establish monorepo tooling, CI, shared TypeScript configuration, and
+- [~] Complete architecture foundation tasks.
+- [~] Establish monorepo tooling, CI, shared TypeScript configuration, and
   package boundaries.
-- [ ] Define protocol schemas, fixtures, error taxonomy, and versioning.
-- [ ] Establish the test harness before implementing feature breadth.
+- [~] Define protocol schemas, fixtures, error taxonomy, and versioning.
+- [x] Establish the test harness before implementing feature breadth.
 
 ### Stage 2: Ableton connectivity
 
-- [ ] Implement the minimal Remote Script lifecycle and main-thread executor.
-- [ ] Implement framed authenticated transport.
-- [ ] Implement the TypeScript bridge connection manager.
+- [x] Implement the minimal Remote Script lifecycle and main-thread executor.
+- [x] Implement framed authenticated transport.
+- [x] Implement the TypeScript bridge connection manager.
 - [ ] Pass simulator, fragmentation, timeout, reconnect, and contract tests.
 - [ ] Validate `system.hello`, capabilities, ping, and session inspection in
   real Ableton.
@@ -108,4 +108,3 @@ For every feature:
 - [ ] CLI output represents progress, success, and failure.
 - [ ] React can represent the same essential interaction.
 - [ ] User and developer documentation is updated.
-

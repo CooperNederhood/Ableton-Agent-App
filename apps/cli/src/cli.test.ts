@@ -30,6 +30,31 @@ function application(status: ConnectionStatus, reply = "ok") {
     start: vi.fn(async () => undefined),
     stop: vi.fn(async () => undefined),
     getStatus: vi.fn(async () => status),
+    getCapabilities: vi.fn(async () => ({
+      selectedProtocolVersion: 1 as const,
+      liveVersion: "12.1",
+      remoteScriptVersion: "0.2.0",
+      projectId: "project",
+      capabilities: { "system.ping": true, "session.inspect": true },
+      limits: { maxFrameBytes: 1024, maxBatchItems: 128 },
+    })),
+    ping: vi.fn(async () => ({ pong: true as const })),
+    inspectSession: vi.fn(async () => ({
+      tempo: 128,
+      timeSignature: { numerator: 4, denominator: 4 },
+      isPlaying: false,
+      trackCount: 1,
+      tracks: [
+        {
+          index: 0,
+          name: "Drums",
+          color: 10,
+          isMuted: false,
+          isSoloed: false,
+          isArmed: false,
+        },
+      ],
+    })),
   };
   return {
     application: new HeadlessApplication({
@@ -109,6 +134,49 @@ describe("CLI", () => {
     );
 
     expect(fixture.agentStart).not.toHaveBeenCalled();
+  });
+
+  it("runs bridge diagnostics without starting Copilot", async () => {
+    const out = output();
+    const fixture = application({
+      state: "connected",
+      liveVersion: "12.1",
+      remoteScriptVersion: "0.2.0",
+      projectId: "project",
+    });
+
+    const exitCode = await runCommand(
+      { name: "doctor", json: true },
+      fixture.application,
+      out.io,
+    );
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(out.lines[0] ?? "{}")).toMatchObject({
+      healthy: true,
+      ping: { pong: true },
+    });
+    expect(fixture.agentStart).not.toHaveBeenCalled();
+  });
+
+  it("renders a session snapshot", async () => {
+    const out = output();
+    const fixture = application({
+      state: "connected",
+      liveVersion: "12.1",
+      remoteScriptVersion: "0.2.0",
+      projectId: "project",
+    });
+
+    const exitCode = await runCommand(
+      { name: "snapshot", json: false },
+      fixture.application,
+      out.io,
+    );
+
+    expect(exitCode).toBe(0);
+    expect(out.lines[0]).toContain("Tempo: 128");
+    expect(out.lines[0]).toContain("1. Drums");
   });
 
   it("renders operation events consistently", () => {

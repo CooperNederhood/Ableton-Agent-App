@@ -10,10 +10,10 @@ import { AbletonBridgeService } from "./index.js";
 const token = "test-token-that-is-at-least-thirty-two-characters";
 let simulator: ChildProcessWithoutNullStreams | undefined;
 
-async function startSimulator(): Promise<number> {
+async function startSimulator(expectedToken = token): Promise<number> {
   simulator = spawn(
     "python3",
-    ["remote-script/simulator.py", "--token", token],
+    ["remote-script/simulator.py", "--token", expectedToken],
     {
       cwd: new URL("../../..", import.meta.url),
       stdio: ["pipe", "pipe", "pipe"],
@@ -50,10 +50,19 @@ describe("AbletonBridgeService", () => {
     expect(await service.getStatus()).toEqual({
       state: "connected",
       liveVersion: "12.1-simulator",
-      remoteScriptVersion: "0.1.0",
+      remoteScriptVersion: "0.2.0",
       projectId: "simulated-project",
     });
+    await expect(service.getCapabilities()).resolves.toMatchObject({
+      selectedProtocolVersion: 1,
+      capabilities: { "system.ping": true },
+    });
     await expect(service.ping()).resolves.toEqual({ pong: true });
+    await expect(service.inspectSession()).resolves.toMatchObject({
+      tempo: 120,
+      trackCount: 2,
+      tracks: [{ name: "Drums" }, { name: "Bass" }],
+    });
     await service.stop();
   });
 
@@ -70,6 +79,24 @@ describe("AbletonBridgeService", () => {
     expect(await service.getStatus()).toMatchObject({
       state: "error",
       code: "connection_failed",
+    });
+  });
+
+  it("preserves authentication failures as stable connection errors", async () => {
+    const port = await startSimulator(
+      "different-token-that-is-at-least-thirty-two-characters",
+    );
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+    });
+
+    await service.start();
+
+    expect(await service.getStatus()).toMatchObject({
+      state: "error",
+      code: "authentication_failed",
     });
   });
 });

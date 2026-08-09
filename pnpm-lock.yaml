@@ -41,6 +41,9 @@ importers:
       '@ableton-agent/bridge':
         specifier: workspace:*
         version: link:../../packages/bridge
+      '@ableton-agent/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       '@ableton-agent/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -51,6 +54,9 @@ importers:
 
   packages/application:
     dependencies:
+      '@ableton-agent/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       '@ableton-agent/shared':
         specifier: workspace:*
         version: link:../shared

@@ -10,6 +10,11 @@ import {
   noopLogger,
   type ConnectionStatus,
 } from "@ableton-agent/shared";
+import type {
+  CapabilityDocument,
+  PingResult,
+  SessionSnapshot,
+} from "@ableton-agent/protocol";
 
 import { CliUsageError, parseArgs, runCommand, type CliIo } from "./cli.js";
 
@@ -23,6 +28,15 @@ class UnconfiguredAbletonService implements AbletonService {
       message: "Set ABLETON_AGENT_TOKEN to connect to the Remote Script",
     };
   }
+  public async getCapabilities(): Promise<CapabilityDocument> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async ping(): Promise<PingResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async inspectSession(): Promise<SessionSnapshot> {
+    throw new Error("Ableton bridge is not configured");
+  }
 }
 
 const io: CliIo = {
@@ -35,16 +49,28 @@ async function main(): Promise<number> {
     const command = parseArgs(process.argv.slice(2));
     const events = new InMemoryEventPublisher();
     const token = process.env.ABLETON_AGENT_TOKEN;
+    const configuredPort = Number(process.env.ABLETON_AGENT_PORT ?? "8765");
+    if (
+      !Number.isInteger(configuredPort) ||
+      configuredPort < 1 ||
+      configuredPort > 65_535
+    ) {
+      throw new CliUsageError(
+        "ABLETON_AGENT_PORT must be an integer from 1 to 65535",
+      );
+    }
     const ableton =
       token === undefined
         ? new UnconfiguredAbletonService()
         : new AbletonBridgeService({
             authenticationToken: token,
             events,
+            port: configuredPort,
           });
     const agent = new CopilotAgentService({
       events,
       getAbletonStatus: () => ableton.getStatus(),
+      inspectSession: () => ableton.inspectSession(),
     });
     const application = new HeadlessApplication({
       agent,

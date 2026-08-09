@@ -58,8 +58,9 @@ def handle(request, token):
         return response(
             request,
             {
+                "selectedProtocolVersion": PROTOCOL_VERSION,
                 "liveVersion": "12.1-simulator",
-                "remoteScriptVersion": "0.1.0",
+                "remoteScriptVersion": "0.2.0",
                 "projectId": "simulated-project",
                 "capabilities": {"system.ping": True},
                 "limits": {
@@ -70,6 +71,34 @@ def handle(request, token):
         )
     if command == "system.ping":
         return response(request, {"pong": True})
+    if command == "session.inspect":
+        return response(
+            request,
+            {
+                "tempo": 120.0,
+                "timeSignature": {"numerator": 4, "denominator": 4},
+                "isPlaying": False,
+                "trackCount": 2,
+                "tracks": [
+                    {
+                        "index": 0,
+                        "name": "Drums",
+                        "color": 10,
+                        "isMuted": False,
+                        "isSoloed": False,
+                        "isArmed": False,
+                    },
+                    {
+                        "index": 1,
+                        "name": "Bass",
+                        "color": None,
+                        "isMuted": False,
+                        "isSoloed": False,
+                        "isArmed": True,
+                    },
+                ],
+            },
+        )
     return failure(request, "unknown_command", "Unknown command: {0}".format(command))
 
 

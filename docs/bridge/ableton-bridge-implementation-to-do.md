@@ -6,8 +6,8 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
 
 - [ ] Define `AbletonBridge` and domain operation interfaces.
 - [x] Generate/import protocol request and result types.
-- [ ] Implement structured `BridgeResult`, warnings, and error types.
-- [ ] Implement capability-aware method guards.
+- [~] Implement structured `BridgeResult`, warnings, and error types.
+- [~] Implement capability-aware method guards.
 - [ ] Implement stable reference types and stale-reference checks.
 - [x] Keep raw `sendCommand` private to the bridge package.
 
@@ -16,7 +16,7 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
 - [x] Implement loopback TCP connection and authentication handshake.
 - [x] Implement length-prefixed frame encoding and incremental decoding.
 - [x] Track pending requests by request ID.
-- [ ] Implement command-specific timeouts and cancellation.
+- [~] Implement command-specific timeouts and cancellation.
 - [ ] Serialize mutations and support workflow mutation leases.
 - [ ] Implement bounded reconnect with jitter and explicit connection states.
 - [x] Reject all pending requests predictably after disconnect.
@@ -25,7 +25,7 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
 ## Domain modules
 
 - [x] Implement system/capability operations.
-- [ ] Implement transport and snapshot operations.
+- [~] Implement transport and snapshot operations.
 - [ ] Implement track, clip, arrangement, device, and browser clients.
 - [ ] Add pagination and filtering for large browser/parameter results.
 
@@ -41,6 +41,6 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
 ## Exit criteria
 
 - [x] Bridge has no Copilot, Electron, CLI, or React dependencies.
-- [ ] All disconnections and timeouts produce stable errors.
+- [x] All disconnections and timeouts produce stable errors.
 - [ ] Mutations cannot interleave unexpectedly.
 - [ ] Simulator and real-Live connectivity tests pass.

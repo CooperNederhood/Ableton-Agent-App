@@ -7,9 +7,14 @@ import {
   PROTOCOL_VERSION,
   capabilityDocumentSchema,
   encodeFrame,
+  pingResultSchema,
+  sessionSnapshotSchema,
+  type CapabilityDocument,
   type MessageEnvelope,
+  type PingResult,
   type RequestEnvelope,
   type ResponseEnvelope,
+  type SessionSnapshot,
 } from "@ableton-agent/protocol";
 import type { ConnectionStatus, EventPublisher } from "@ableton-agent/shared";
 
@@ -28,6 +33,18 @@ interface PendingRequest {
   timeout: ReturnType<typeof setTimeout>;
 }
 
+export class AbletonBridgeError extends Error {
+  public constructor(
+    public readonly code: string,
+    message: string,
+    public readonly retryable: boolean,
+    public readonly details: Readonly<Record<string, unknown>> = {},
+  ) {
+    super(message);
+    this.name = "AbletonBridgeError";
+  }
+}
+
 export class AbletonBridgeService implements AbletonService {
   readonly #host: string;
   readonly #port: number;
@@ -37,6 +54,7 @@ export class AbletonBridgeService implements AbletonService {
   readonly #pending = new Map<string, PendingRequest>();
   #socket: Socket | undefined;
   #status: ConnectionStatus = { state: "disconnected" };
+  #capabilities: CapabilityDocument | undefined;
 
   public constructor(private readonly options: AbletonBridgeOptions) {
     if (options.authenticationToken.length < 32) {
@@ -65,6 +83,7 @@ export class AbletonBridgeService implements AbletonService {
         eventSubscriptions: [],
       });
       const capabilities = capabilityDocumentSchema.parse(result);
+      this.#capabilities = capabilities;
       this.#setStatus({
         state: "connected",
         liveVersion: capabilities.liveVersion,
@@ -75,7 +94,10 @@ export class AbletonBridgeService implements AbletonService {
       this.#destroySocket();
       this.#setStatus({
         state: "error",
-        code: "connection_failed",
+        code:
+          error instanceof AbletonBridgeError
+            ? error.code
+            : "connection_failed",
         message: error instanceof Error ? error.message : String(error),
       });
     }
@@ -90,8 +112,25 @@ export class AbletonBridgeService implements AbletonService {
     return this.#status;
   }
 
-  public async ping(): Promise<unknown> {
-    return this.#request("system.ping", {});
+  public async getCapabilities(): Promise<CapabilityDocument> {
+    if (!this.#capabilities) {
+      throw new AbletonBridgeError(
+        "not_connected",
+        "Ableton capabilities are unavailable before handshake",
+        true,
+      );
+    }
+    return this.#capabilities;
+  }
+
+  public async ping(): Promise<PingResult> {
+    return pingResultSchema.parse(await this.#request("system.ping", {}));
+  }
+
+  public async inspectSession(): Promise<SessionSnapshot> {
+    return sessionSnapshotSchema.parse(
+      await this.#request("session.inspect", {}),
+    );
   }
 
   async #request(
@@ -114,14 +153,26 @@ export class AbletonBridgeService implements AbletonService {
     const response = new Promise<ResponseEnvelope>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.#pending.delete(requestId);
-        reject(new Error(`Ableton request timed out: ${command}`));
+        reject(
+          new AbletonBridgeError(
+            "operation_timeout",
+            `Ableton request timed out: ${command}`,
+            true,
+            { command },
+          ),
+        );
       }, this.#requestTimeoutMs);
       this.#pending.set(requestId, { resolve, reject, timeout });
     });
     socket.write(encodeFrame(request));
     const envelope = await response;
     if (!envelope.ok) {
-      throw new Error(`${envelope.error.code}: ${envelope.error.message}`);
+      throw new AbletonBridgeError(
+        envelope.error.code,
+        envelope.error.message,
+        envelope.error.retryable,
+        envelope.error.details,
+      );
     }
     return envelope.result;
   }
@@ -158,6 +209,7 @@ export class AbletonBridgeService implements AbletonService {
     socket.on("close", () => {
       if (this.#socket === socket) {
         this.#socket = undefined;
+        this.#capabilities = undefined;
         if (this.#status.state === "connected") {
           this.#setStatus({
             state: "error",
@@ -206,7 +258,13 @@ export class AbletonBridgeService implements AbletonService {
     this.#socket = undefined;
     socket?.destroy();
     this.#decoder.reset();
-    this.#rejectPending(new Error("Ableton bridge stopped"));
+    this.#rejectPending(
+      new AbletonBridgeError(
+        "connection_closed",
+        "Ableton bridge stopped",
+        true,
+      ),
+    );
   }
 
   #setStatus(status: ConnectionStatus): void {

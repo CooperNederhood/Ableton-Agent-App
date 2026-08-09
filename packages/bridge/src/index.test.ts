@@ -55,13 +55,21 @@ describe("AbletonBridgeService", () => {
     });
     await expect(service.getCapabilities()).resolves.toMatchObject({
       selectedProtocolVersion: 1,
-      capabilities: { "system.ping": true },
+      capabilities: {
+        "system.ping": true,
+        "transport.set_tempo": true,
+      },
     });
     await expect(service.ping()).resolves.toEqual({ pong: true });
     await expect(service.inspectSession()).resolves.toMatchObject({
       tempo: 120,
       trackCount: 2,
       tracks: [{ name: "Drums" }, { name: "Bass" }],
+    });
+    await expect(service.setTempo(132)).resolves.toEqual({
+      beforeTempo: 120,
+      afterTempo: 132,
+      verified: true,
     });
     await service.stop();
   });

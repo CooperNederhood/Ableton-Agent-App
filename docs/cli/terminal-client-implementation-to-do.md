@@ -23,8 +23,8 @@ Companion specification: [Terminal Client](terminal-client.md)
 ## Non-interactive client
 
 - [x] Implement `run`, `status`, `doctor`, `capabilities`, and `snapshot`.
-- [~] Implement explicit non-interactive approval policies.
-- [ ] Return structured JSON operation and final-result data.
+- [x] Implement explicit non-interactive approval policies.
+- [x] Return structured JSON operation and final-result data.
 - [x] Ensure diagnostics avoid model invocation where possible.
 
 ## Tests

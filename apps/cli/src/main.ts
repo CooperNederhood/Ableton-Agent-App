@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createInterface } from "node:readline";
+import { createInterface, type Interface } from "node:readline";
 
 import {
   CopilotAgentService,
@@ -16,9 +16,50 @@ import type {
   CapabilityDocument,
   PingResult,
   SessionSnapshot,
+  SetTempoResult,
 } from "@ableton-agent/protocol";
 
 import { CliUsageError, parseArgs, runCommand, type CliIo } from "./cli.js";
+import type { InteractiveInput } from "./cli.js";
+
+class BufferedLineInput implements InteractiveInput {
+  readonly #lines: string[] = [];
+  readonly #waiters: Array<(line: string | undefined) => void> = [];
+  #closed = false;
+
+  public constructor(private readonly terminal: Interface) {
+    terminal.on("SIGINT", () => terminal.close());
+    terminal.on("line", (line) => {
+      const waiter = this.#waiters.shift();
+      if (waiter) {
+        waiter(line);
+      } else {
+        this.#lines.push(line);
+      }
+    });
+    terminal.on("close", () => {
+      this.#closed = true;
+      for (const waiter of this.#waiters.splice(0)) {
+        waiter(undefined);
+      }
+    });
+  }
+
+  public readLine(): Promise<string | undefined> {
+    const line = this.#lines.shift();
+    if (line !== undefined) {
+      return Promise.resolve(line);
+    }
+    if (this.#closed) {
+      return Promise.resolve(undefined);
+    }
+    return new Promise((resolve) => this.#waiters.push(resolve));
+  }
+
+  public close(): void {
+    this.terminal.close();
+  }
+}
 
 class UnconfiguredAbletonService implements AbletonService {
   public async start(): Promise<void> {}
@@ -39,6 +80,9 @@ class UnconfiguredAbletonService implements AbletonService {
   public async inspectSession(): Promise<SessionSnapshot> {
     throw new Error("Ableton bridge is not configured");
   }
+  public async setTempo(): Promise<SetTempoResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
 }
 
 const io: CliIo = {
@@ -50,6 +94,16 @@ const io: CliIo = {
 async function main(): Promise<number> {
   try {
     const command = parseArgs(process.argv.slice(2));
+    const terminal =
+      command.name === "chat"
+        ? new BufferedLineInput(
+            createInterface({
+              input: process.stdin,
+              output: process.stdout,
+              terminal: process.stdin.isTTY,
+            }),
+          )
+        : undefined;
     const events = new InMemoryEventPublisher();
     const token = process.env.ABLETON_AGENT_TOKEN;
     const configuredPort = Number(process.env.ABLETON_AGENT_PORT ?? "8765");
@@ -74,6 +128,20 @@ async function main(): Promise<number> {
       events,
       getAbletonStatus: () => ableton.getStatus(),
       inspectSession: () => ableton.inspectSession(),
+      setTempo: (tempo) => ableton.setTempo(tempo),
+      ...(terminal === undefined
+        ? {}
+        : {
+            requestToolApproval: async (request) => {
+              io.write(
+                `Approval required: ${request.metadata.title} (${request.metadata.risk})`,
+              );
+              io.write(`Arguments: ${JSON.stringify(request.arguments)}`);
+              io.writeRaw("Approve once? [y/N] ");
+              const answer = await terminal.readLine();
+              return answer?.trim().toLowerCase() === "y";
+            },
+          }),
     });
     const application = new HeadlessApplication({
       agent,
@@ -81,20 +149,10 @@ async function main(): Promise<number> {
       events,
       logger: noopLogger,
     });
-    if (command.name !== "chat") {
-      return await runCommand(command, application, io);
-    }
-
-    const terminal = createInterface({
-      input: process.stdin,
-      output: process.stdout,
-      terminal: process.stdin.isTTY,
-    });
-    terminal.on("SIGINT", () => terminal.close());
     try {
       return await runCommand(command, application, io, terminal);
     } finally {
-      terminal.close();
+      terminal?.close();
     }
   } catch (error) {
     if (error instanceof CliUsageError) {

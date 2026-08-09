@@ -18,9 +18,15 @@ import {
   runCommand,
   runInteractive,
   type CliIo,
+  type InteractiveInput,
 } from "./cli.js";
 
-function application(status: ConnectionStatus, reply = "ok", stream = false) {
+function application(
+  status: ConnectionStatus,
+  reply = "ok",
+  stream = false,
+  operationFailure = false,
+) {
   const events = new InMemoryEventPublisher();
   const agentStart = vi.fn(async () => undefined);
   const agent: AgentService = {
@@ -31,6 +37,14 @@ function application(status: ConnectionStatus, reply = "ok", stream = false) {
         events.publish({ type: "agent.message_delta", content: "assistant " });
         events.publish({ type: "agent.message_delta", content: "reply" });
         events.publish({ type: "agent.message_complete", content: reply });
+      }
+      if (operationFailure) {
+        events.publish({
+          type: "operation.failed",
+          operationId: "tool-1",
+          code: "permission_denied",
+          message: "User denied the mutation",
+        });
       }
       return reply;
     }),
@@ -64,6 +78,11 @@ function application(status: ConnectionStatus, reply = "ok", stream = false) {
         },
       ],
     })),
+    setTempo: vi.fn(async (tempo: number) => ({
+      beforeTempo: 128,
+      afterTempo: tempo,
+      verified: true,
+    })),
   };
   return {
     application: new HeadlessApplication({
@@ -73,6 +92,7 @@ function application(status: ConnectionStatus, reply = "ok", stream = false) {
       logger: noopLogger,
     }),
     agentStart,
+    events,
   };
 }
 
@@ -88,10 +108,11 @@ function output() {
   return { lines, errors, raw, io };
 }
 
-async function* interactiveInput(lines: readonly string[]) {
-  for (const line of lines) {
-    yield line;
-  }
+function interactiveInput(lines: readonly string[]): InteractiveInput {
+  const queued = [...lines];
+  return {
+    readLine: () => Promise.resolve(queued.shift()),
+  };
 }
 
 describe("CLI", () => {
@@ -142,6 +163,31 @@ describe("CLI", () => {
     );
     expect(exitCode).toBe(0);
     expect(out.lines).toEqual(["response"]);
+  });
+
+  it("returns a failure exit code when a tool operation is denied", async () => {
+    const out = output();
+    const exitCode = await runCommand(
+      { name: "run", prompt: "change tempo", json: true },
+      application(
+        {
+          state: "connected",
+          liveVersion: "12.1",
+          remoteScriptVersion: "0.2.0",
+          projectId: "project",
+        },
+        "I did not change it.",
+        false,
+        true,
+      ).application,
+      out.io,
+    );
+
+    expect(exitCode).toBe(4);
+    expect(JSON.parse(out.lines[0] ?? "{}")).toMatchObject({
+      ok: false,
+      operationFailures: [{ code: "permission_denied" }],
+    });
   });
 
   it("does not start Copilot for status checks", async () => {

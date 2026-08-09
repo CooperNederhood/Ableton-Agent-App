@@ -5,6 +5,7 @@ import type {
   CapabilityDocument,
   PingResult,
   SessionSnapshot,
+  SetTempoResult,
 } from "@ableton-agent/protocol";
 import type {
   AppEvent,
@@ -15,8 +16,9 @@ import type {
 } from "@ableton-agent/shared";
 import {
   abletonToolMetadata,
+  createAbletonPermissionHandler,
   createAbletonTools,
-  handleAbletonToolPermission,
+  type ToolApprovalRequester,
 } from "@ableton-agent/tools";
 import {
   CopilotClient,
@@ -37,6 +39,7 @@ export interface AbletonService {
   getCapabilities(): Promise<CapabilityDocument>;
   ping(): Promise<PingResult>;
   inspectSession(): Promise<SessionSnapshot>;
+  setTempo(tempo: number): Promise<SetTempoResult>;
 }
 
 export interface ApplicationServices {
@@ -69,6 +72,8 @@ export interface CopilotAgentServiceOptions {
   events: EventPublisher;
   getAbletonStatus: () => Promise<ConnectionStatus>;
   inspectSession: () => Promise<SessionSnapshot>;
+  setTempo: (tempo: number) => Promise<SetTempoResult>;
+  requestToolApproval?: ToolApprovalRequester;
   clientFactory?: () => CopilotClientAdapter;
   baseDirectory?: string;
   model?: string;
@@ -106,6 +111,7 @@ export class CopilotAgentService implements AgentService {
     const toolSet = createAbletonTools({
       getConnectionStatus: this.options.getAbletonStatus,
       inspectSession: this.options.inspectSession,
+      setTempo: this.options.setTempo,
     });
 
     try {
@@ -116,7 +122,9 @@ export class CopilotAgentService implements AgentService {
           : { model: this.options.model }),
         tools: toolSet.tools,
         availableTools: toolSet.availableTools,
-        onPermissionRequest: handleAbletonToolPermission,
+        onPermissionRequest: createAbletonPermissionHandler(
+          this.options.requestToolApproval,
+        ),
         systemMessage: {
           mode: "replace",
           content: BASE_SYSTEM_MESSAGE,
@@ -278,6 +286,10 @@ export class HeadlessApplication {
 
   public inspectSession(): Promise<SessionSnapshot> {
     return this.services.ableton.inspectSession();
+  }
+
+  public setTempo(tempo: number): Promise<SetTempoResult> {
+    return this.services.ableton.setTempo(tempo);
   }
 
   public subscribe(listener: (event: AppEvent) => void): () => void {

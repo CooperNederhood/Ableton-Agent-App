@@ -40,12 +40,13 @@ class FakeTrack(object):
 
 
 class FakeSong(object):
-    tempo = 124.0
-    signature_numerator = 4
-    signature_denominator = 4
-    is_playing = True
-    file_path = "/tmp/example.als"
-    tracks = [FakeTrack("Drums"), FakeTrack("Bass")]
+    def __init__(self):
+        self.tempo = 124.0
+        self.signature_numerator = 4
+        self.signature_denominator = 4
+        self.is_playing = True
+        self.file_path = "/tmp/example.als"
+        self.tracks = [FakeTrack("Drums"), FakeTrack("Bass")]
 
 
 class FakeApplication(object):
@@ -54,8 +55,9 @@ class FakeApplication(object):
 
 
 class FakeContext(object):
-    song = FakeSong()
-    application = FakeApplication()
+    def __init__(self):
+        self.song = FakeSong()
+        self.application = FakeApplication()
 
 
 class ExecutorTests(unittest.TestCase):
@@ -122,6 +124,53 @@ class ExecutorTests(unittest.TestCase):
 
         self.assertEqual(responses[0]["error"]["code"], "internal_error")
         self.assertTrue(responses[0]["error"]["retryable"])
+
+    def test_tempo_mutation_is_validated_and_verified(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request("transport.set_tempo", {"tempo": 130.5}),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(context.song.tempo, 130.5)
+        self.assertEqual(
+            responses[0]["result"],
+            {
+                "beforeTempo": 124.0,
+                "afterTempo": 130.5,
+                "verified": True,
+            },
+        )
+
+    def test_tempo_mutation_rejects_out_of_range_values(self):
+        scheduled = []
+        responses = []
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            FakeContext(),
+        )
+
+        executor.submit(
+            request("transport.set_tempo", {"tempo": 2}),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["error"]["code"], "invalid_params")
 
 
 class CapabilityAndTokenTests(unittest.TestCase):

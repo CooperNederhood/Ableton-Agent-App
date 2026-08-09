@@ -32,6 +32,9 @@ node apps/cli/dist/main.js chat
 ```
 
 Set `ABLETON_AGENT_PORT` to override the default port `8765`.
+Read-only tools are approved automatically. Interactive chat asks for
+per-invocation confirmation before reversible mutations; non-interactive
+commands deny mutations by default and return exit code `4`.
 
 For development without Ableton:
 

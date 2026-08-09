@@ -38,7 +38,35 @@ def inspect_session(context, _params):
         "tracks": tracks,
     }
 
+def _set_tempo_params(params):
+    if set(params.keys()) != set(["tempo"]):
+        return "tempo is the only accepted parameter"
+    tempo = params.get("tempo")
+    if isinstance(tempo, bool) or not isinstance(tempo, (int, float)):
+        return "tempo must be a number"
+    if tempo < 20 or tempo > 999:
+        return "tempo must be between 20 and 999 BPM"
+    return None
+
+
+def set_tempo(context, params):
+    before = context.song.tempo
+    context.song.tempo = params["tempo"]
+    after = context.song.tempo
+    return {
+        "beforeTempo": before,
+        "afterTempo": after,
+        "verified": abs(after - params["tempo"]) < 0.001,
+    }
+
 
 def register_system_commands(registry):
     registry.register("system.ping", ping, validator=_no_params)
     registry.register("session.inspect", inspect_session, validator=_no_params)
+    registry.register(
+        "transport.set_tempo",
+        set_tempo,
+        mutates=True,
+        capability="transport.set_tempo",
+        validator=_set_tempo_params,
+    )

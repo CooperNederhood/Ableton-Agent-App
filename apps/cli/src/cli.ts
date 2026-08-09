@@ -55,7 +55,9 @@ export interface CliIo {
   writeError(text: string): void;
 }
 
-export type InteractiveInput = AsyncIterable<string>;
+export interface InteractiveInput {
+  readLine(): Promise<string | undefined>;
+}
 
 export function renderEvent(event: AppEvent): string | undefined {
   switch (event.type) {
@@ -107,6 +109,14 @@ export async function runCommand(
   }
 
   await application.start({ startAgent: command.name === "run" });
+  const operationFailures: Array<
+    Extract<AppEvent, { type: "operation.failed" }>
+  > = [];
+  const unsubscribe = application.subscribe((event) => {
+    if (event.type === "operation.failed") {
+      operationFailures.push(event);
+    }
+  });
   try {
     if (command.name === "status") {
       const status = await application.getStatus();
@@ -182,9 +192,15 @@ export async function runCommand(
     }
 
     const response = await application.send(command.prompt);
-    io.write(command.json ? JSON.stringify({ ok: true, response }) : response);
-    return 0;
+    const ok = operationFailures.length === 0;
+    io.write(
+      command.json
+        ? JSON.stringify({ ok, response, operationFailures })
+        : response,
+    );
+    return ok ? 0 : 4;
   } finally {
+    unsubscribe();
     await application.stop();
   }
 }
@@ -195,7 +211,6 @@ export async function runInteractive(
   input: InteractiveInput,
 ): Promise<number> {
   let turnProducedOutput = false;
-  const iterator = input[Symbol.asyncIterator]();
   const unsubscribe = application.subscribe((event) => {
     if (event.type === "agent.message_delta") {
       turnProducedOutput = true;
@@ -224,12 +239,12 @@ export async function runInteractive(
     io.write("Ableton Agent chat. Type /help for commands.");
     while (true) {
       io.writeRaw("> ");
-      const next = await iterator.next();
-      if (next.done) {
+      const next = await input.readLine();
+      if (next === undefined) {
         io.writeRaw("\n");
         return 0;
       }
-      const line = next.value.trim();
+      const line = next.trim();
       if (!line) {
         continue;
       }

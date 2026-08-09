@@ -70,7 +70,7 @@ relevant validation pass.
 
 ### Stage 4: core production features
 
-- [ ] Implement tracks, transport, session clips, notes, and arrangement
+- [~] Implement tracks, transport, session clips, notes, and arrangement
   primitives.
 - [ ] Add project snapshots, revisions, stable references, and change sets.
 - [ ] Add verification and recovery behavior.

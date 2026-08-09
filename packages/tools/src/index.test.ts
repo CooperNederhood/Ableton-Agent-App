@@ -2,46 +2,17 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   abletonToolMetadata,
+  createAbletonPermissionHandler,
   createAbletonTools,
-  handleAbletonToolPermission,
+  type ToolApprovalRequest,
 } from "./index.js";
 
-describe("Ableton tools", () => {
-  it("defines complete metadata for every registered tool", () => {
-    const services = {
-      getConnectionStatus: vi.fn(() =>
-        Promise.resolve({ state: "disconnected" as const }),
-      ),
-      inspectSession: vi.fn(() =>
-        Promise.resolve({
-          tempo: 120,
-          timeSignature: { numerator: 4, denominator: 4 },
-          isPlaying: false,
-          trackCount: 0,
-          tracks: [],
-        }),
-      ),
-    };
-
-    const toolSet = createAbletonTools(services);
-
-    expect(toolSet.tools.map((tool) => tool.name)).toEqual(
-      abletonToolMetadata.map((metadata) => metadata.name),
-    );
-    expect(toolSet.availableTools).toEqual([
-      "custom:ableton_connection_status",
-      "custom:ableton_session_inspect",
-    ]);
-    expect(
-      abletonToolMetadata.every((metadata) => metadata.risk === "read"),
-    ).toBe(true);
-  });
-
-  it("invokes application service ports instead of transport code", async () => {
-    const getConnectionStatus = vi.fn(() =>
+function services() {
+  return {
+    getConnectionStatus: vi.fn(() =>
       Promise.resolve({ state: "disconnected" as const }),
-    );
-    const inspectSession = vi.fn(() =>
+    ),
+    inspectSession: vi.fn(() =>
       Promise.resolve({
         tempo: 120,
         timeSignature: { numerator: 4, denominator: 4 },
@@ -49,11 +20,39 @@ describe("Ableton tools", () => {
         trackCount: 0,
         tracks: [],
       }),
+    ),
+    setTempo: vi.fn((tempo: number) =>
+      Promise.resolve({
+        beforeTempo: 120,
+        afterTempo: tempo,
+        verified: true,
+      }),
+    ),
+  };
+}
+
+describe("Ableton tools", () => {
+  it("defines complete metadata for every registered tool", () => {
+    const toolSet = createAbletonTools(services());
+
+    expect(toolSet.tools.map((tool) => tool.name)).toEqual(
+      abletonToolMetadata.map((metadata) => metadata.name),
     );
-    const toolSet = createAbletonTools({
-      getConnectionStatus,
-      inspectSession,
-    });
+    expect(toolSet.availableTools).toEqual([
+      "custom:ableton_connection_status",
+      "custom:ableton_session_inspect",
+      "custom:ableton_transport_set_tempo",
+    ]);
+    expect(abletonToolMetadata.map((metadata) => metadata.risk)).toEqual([
+      "read",
+      "read",
+      "reversible",
+    ]);
+  });
+
+  it("invokes application service ports instead of transport code", async () => {
+    const ports = services();
+    const toolSet = createAbletonTools(ports);
     const invocation = {
       sessionId: "session",
       toolCallId: "call",
@@ -61,16 +60,20 @@ describe("Ableton tools", () => {
       arguments: {},
     };
 
-    await toolSet.tools[0]?.handler?.({}, invocation);
-    await toolSet.tools[1]?.handler?.({}, invocation);
+    await toolSet.tools[0].handler?.({}, invocation);
+    await toolSet.tools[1].handler?.({}, invocation);
+    await toolSet.tools[2].handler?.({ tempo: 132 }, invocation);
 
-    expect(getConnectionStatus).toHaveBeenCalledOnce();
-    expect(inspectSession).toHaveBeenCalledOnce();
+    expect(ports.getConnectionStatus).toHaveBeenCalledOnce();
+    expect(ports.inspectSession).toHaveBeenCalledOnce();
+    expect(ports.setTempo).toHaveBeenCalledWith(132);
   });
 
-  it("auto-approves only registered read-only custom tools", () => {
-    expect(
-      handleAbletonToolPermission(
+  it("auto-approves reads and denies mutations without approval", async () => {
+    const handler = createAbletonPermissionHandler();
+
+    await expect(
+      handler(
         {
           kind: "custom-tool",
           toolName: "ableton_session_inspect",
@@ -78,19 +81,23 @@ describe("Ableton tools", () => {
         },
         { sessionId: "session" },
       ),
-    ).toEqual({ kind: "approve-once" });
-    expect(
-      handleAbletonToolPermission(
+    ).resolves.toEqual({ kind: "approve-once" });
+    await expect(
+      handler(
         {
           kind: "custom-tool",
-          toolName: "unknown_tool",
-          toolDescription: "Unknown",
+          toolName: "ableton_transport_set_tempo",
+          toolDescription: "Set tempo",
+          args: { tempo: 132 },
         },
         { sessionId: "session" },
       ),
-    ).toEqual({ kind: "no-result" });
-    expect(
-      handleAbletonToolPermission(
+    ).resolves.toEqual({
+      kind: "reject",
+      feedback: "Mutating Ableton tools require explicit user approval",
+    });
+    await expect(
+      handler(
         {
           kind: "custom-tool",
           toolName: "ableton_session_inspect",
@@ -98,6 +105,33 @@ describe("Ableton tools", () => {
         },
         { sessionId: "session", managedSettingsEnabled: true },
       ),
-    ).toEqual({ kind: "no-result" });
+    ).resolves.toEqual({ kind: "no-result" });
+  });
+
+  it("delegates reversible mutations to an approval requester", async () => {
+    const requestApproval = vi.fn((request: ToolApprovalRequest) => {
+      void request;
+      return Promise.resolve(true);
+    });
+    const handler = createAbletonPermissionHandler(requestApproval);
+
+    await expect(
+      handler(
+        {
+          kind: "custom-tool",
+          toolName: "ableton_transport_set_tempo",
+          toolDescription: "Set tempo",
+          args: { tempo: 132 },
+        },
+        { sessionId: "session" },
+      ),
+    ).resolves.toEqual({ kind: "approve-once" });
+    expect(requestApproval.mock.calls[0]?.[0]).toMatchObject({
+      metadata: {
+        name: "ableton_transport_set_tempo",
+        risk: "reversible",
+      },
+      arguments: { tempo: 132 },
+    });
   });
 });

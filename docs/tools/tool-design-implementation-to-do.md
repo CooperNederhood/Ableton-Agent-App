@@ -24,7 +24,7 @@ Companion specification: [Tool Design](tool-design.md)
 - [ ] Implement session clip and note operations.
 - [ ] Implement arrangement placement and property operations.
 - [ ] Implement browser/device load and parameter operations.
-- [ ] Implement transport, loop, and cue-point operations.
+- [~] Implement transport, loop, and cue-point operations.
 
 ## Workflow tools
 
@@ -47,5 +47,5 @@ Companion specification: [Tool Design](tool-design.md)
 
 - [ ] No accepted parameter is silently ignored.
 - [ ] Large results are filtered or paginated.
-- [ ] Every mutation is classified and verified.
+- [x] Every mutation is classified and verified.
 - [ ] CLI and React can render all tool outcomes from shared metadata.

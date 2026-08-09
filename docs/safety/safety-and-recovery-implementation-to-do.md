@@ -4,12 +4,12 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
 
 ## Policy engine
 
-- [ ] Define read, reversible, destructive, and broad risk rules.
-- [ ] Require risk metadata on every mutating tool/workflow.
-- [ ] Implement configurable session approval policies.
+- [x] Define read, reversible, destructive, and broad risk rules.
+- [x] Require risk metadata on every mutating tool/workflow.
+- [~] Implement configurable session approval policies.
 - [ ] Implement pre-tool checks for connection, project identity, capability,
   stale targets, conflicts, and limits.
-- [ ] Implement approval request schemas and expiration.
+- [~] Implement approval request schemas and expiration.
 - [ ] Prevent ambiguous blanket approval for destructive/broad operations.
 
 ## Guardrails
@@ -23,8 +23,8 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
 
 ## Verification and recovery
 
-- [ ] Define verifiers for every primitive mutation.
-- [ ] Implement minimal before-state capture.
+- [~] Define verifiers for every primitive mutation.
+- [~] Implement minimal before-state capture.
 - [ ] Implement supported compensating operations.
 - [ ] Define non-reversible operation metadata.
 - [ ] Stop dependent workflow steps after failure.
@@ -32,17 +32,16 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
 
 ## Tests
 
-- [ ] Unit-test every risk classification and approval transition.
+- [x] Unit-test every risk classification and approval transition.
 - [ ] Unit-test every guardrail and bypass attempt.
 - [ ] Unit-test postcondition tolerances and compensation decisions.
-- [ ] Integration-test denial, expiration, partial failure, and reconnect.
+- [~] Integration-test denial, expiration, partial failure, and reconnect.
 - [ ] Test CLI and React approval parity.
 - [ ] Real-Live test native undo behavior before exposing it.
 
 ## Exit criteria
 
-- [ ] No mutation tool lacks risk metadata and a verifier.
+- [x] No mutation tool lacks risk metadata and a verifier.
 - [ ] Destructive/broad actions cannot run without valid approval.
 - [ ] Partial outcomes are explicit and recoverable where promised.
 - [ ] The product never claims atomic rollback without validation.
-

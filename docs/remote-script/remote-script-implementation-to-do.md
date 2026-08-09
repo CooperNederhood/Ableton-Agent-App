@@ -34,7 +34,7 @@ Companion specification: [Remote Script](remote-script.md)
 ## Tests
 
 - [~] Build fake Song, Track, Clip, Device, Browser, and Application objects.
-- [ ] Unit-test every handler's validation, success, and LOM failure paths.
+- [~] Unit-test every handler's validation, success, and LOM failure paths.
 - [~] Unit-test main-thread scheduling and timeout behavior.
 - [ ] Unit-test listener registration and removal.
 - [ ] Run Python protocol contract fixtures.

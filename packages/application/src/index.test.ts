@@ -40,6 +40,11 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
       trackCount: 0,
       tracks: [],
     })),
+    setTempo: vi.fn(async (tempo: number) => ({
+      beforeTempo: 120,
+      afterTempo: tempo,
+      verified: true,
+    })),
   };
   const events = new InMemoryEventPublisher();
   return { agent, ableton, events, logger: noopLogger };
@@ -97,6 +102,7 @@ describe("CopilotAgentService", () => {
     const sendAndWait = vi.fn(() =>
       Promise.resolve({ data: { content: "Ableton is connected." } }),
     );
+    const requestToolApproval = vi.fn(() => Promise.resolve(true));
     const service = new CopilotAgentService({
       events: new InMemoryEventPublisher(),
       getAbletonStatus: () =>
@@ -114,6 +120,13 @@ describe("CopilotAgentService", () => {
           trackCount: 0,
           tracks: [],
         }),
+      setTempo: (tempo) =>
+        Promise.resolve({
+          beforeTempo: 120,
+          afterTempo: tempo,
+          verified: true,
+        }),
+      requestToolApproval,
       clientFactory: () => ({
         createSession: (received) => {
           config = received;
@@ -135,8 +148,21 @@ describe("CopilotAgentService", () => {
     expect(config?.availableTools).toEqual([
       "custom:ableton_connection_status",
       "custom:ableton_session_inspect",
+      "custom:ableton_transport_set_tempo",
     ]);
-    expect(config?.tools).toHaveLength(2);
+    expect(config?.tools).toHaveLength(3);
+    await expect(
+      config?.onPermissionRequest?.(
+        {
+          kind: "custom-tool",
+          toolName: "ableton_transport_set_tempo",
+          toolDescription: "Set tempo",
+          args: { tempo: 132 },
+        },
+        { sessionId: "session" },
+      ),
+    ).resolves.toEqual({ kind: "approve-once" });
+    expect(requestToolApproval).toHaveBeenCalledOnce();
     expect(sendAndWait).toHaveBeenCalledWith("Check the connection");
     expect(disconnect).toHaveBeenCalledOnce();
     expect(stop).toHaveBeenCalledOnce();
@@ -157,6 +183,12 @@ describe("CopilotAgentService", () => {
           isPlaying: false,
           trackCount: 0,
           tracks: [],
+        }),
+      setTempo: (tempo) =>
+        Promise.resolve({
+          beforeTempo: 120,
+          afterTempo: tempo,
+          verified: true,
         }),
       clientFactory: () => ({
         createSession: () =>

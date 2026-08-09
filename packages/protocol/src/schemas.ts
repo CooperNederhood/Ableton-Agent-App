@@ -123,7 +123,19 @@ export const sessionSnapshotSchema = z.object({
   tracks: z.array(trackSummarySchema),
 });
 
+export const setTempoParamsSchema = z.object({
+  tempo: z.number().min(20).max(999),
+});
+
+export const setTempoResultSchema = z.object({
+  beforeTempo: z.number().positive(),
+  afterTempo: z.number().positive(),
+  verified: z.boolean(),
+});
+
 export type HelloParams = z.infer<typeof helloParamsSchema>;
 export type CapabilityDocument = z.infer<typeof capabilityDocumentSchema>;
 export type PingResult = z.infer<typeof pingResultSchema>;
 export type SessionSnapshot = z.infer<typeof sessionSnapshotSchema>;
+export type SetTempoParams = z.infer<typeof setTempoParamsSchema>;
+export type SetTempoResult = z.infer<typeof setTempoResultSchema>;

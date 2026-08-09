@@ -62,7 +62,11 @@ def handle(request, token):
                 "liveVersion": "12.1-simulator",
                 "remoteScriptVersion": "0.2.0",
                 "projectId": "simulated-project",
-                "capabilities": {"system.ping": True},
+                "capabilities": {
+                    "system.ping": True,
+                    "session.inspect": True,
+                    "transport.set_tempo": True,
+                },
                 "limits": {
                     "maxFrameBytes": 4 * 1024 * 1024,
                     "maxBatchItems": 128,
@@ -97,6 +101,27 @@ def handle(request, token):
                         "isArmed": True,
                     },
                 ],
+            },
+        )
+    if command == "transport.set_tempo":
+        tempo = params.get("tempo")
+        if (
+            isinstance(tempo, bool)
+            or not isinstance(tempo, (int, float))
+            or tempo < 20
+            or tempo > 999
+        ):
+            return failure(
+                request,
+                "invalid_params",
+                "tempo must be between 20 and 999 BPM",
+            )
+        return response(
+            request,
+            {
+                "beforeTempo": 120.0,
+                "afterTempo": tempo,
+                "verified": True,
             },
         )
     return failure(request, "unknown_command", "Unknown command: {0}".format(command))

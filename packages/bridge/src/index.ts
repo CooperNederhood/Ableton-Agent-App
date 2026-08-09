@@ -9,12 +9,15 @@ import {
   encodeFrame,
   pingResultSchema,
   sessionSnapshotSchema,
+  setTempoParamsSchema,
+  setTempoResultSchema,
   type CapabilityDocument,
   type MessageEnvelope,
   type PingResult,
   type RequestEnvelope,
   type ResponseEnvelope,
   type SessionSnapshot,
+  type SetTempoResult,
 } from "@ableton-agent/protocol";
 import type { ConnectionStatus, EventPublisher } from "@ableton-agent/shared";
 
@@ -131,6 +134,25 @@ export class AbletonBridgeService implements AbletonService {
     return sessionSnapshotSchema.parse(
       await this.#request("session.inspect", {}),
     );
+  }
+
+  public async setTempo(tempo: number): Promise<SetTempoResult> {
+    this.#requireCapability("transport.set_tempo");
+    const params = setTempoParamsSchema.parse({ tempo });
+    return setTempoResultSchema.parse(
+      await this.#request("transport.set_tempo", params),
+    );
+  }
+
+  #requireCapability(capability: string): void {
+    if (!this.#capabilities?.capabilities[capability]) {
+      throw new AbletonBridgeError(
+        "unsupported_capability",
+        `Ableton capability is unavailable: ${capability}`,
+        false,
+        { capability },
+      );
+    }
   }
 
   async #request(

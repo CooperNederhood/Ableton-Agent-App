@@ -4,6 +4,7 @@ from __future__ import absolute_import, print_function, unicode_literals
 
 import argparse
 import json
+import math
 import socket
 import uuid
 
@@ -16,6 +17,31 @@ class SimulatorState(object):
     def __init__(self):
         self.tempo = 120.0
         self.is_playing = False
+        self.loop_enabled = False
+        self.loop_start = 0.0
+        self.loop_length = 16.0
+        self.cue_points = [
+            {
+                "reference": str(
+                    uuid.uuid5(
+                        uuid.NAMESPACE_URL,
+                        "ableton-agent-simulator-cue-intro",
+                    )
+                ),
+                "name": "Intro",
+                "time": 0.0,
+            },
+            {
+                "reference": str(
+                    uuid.uuid5(
+                        uuid.NAMESPACE_URL,
+                        "ableton-agent-simulator-cue-verse",
+                    )
+                ),
+                "name": "Verse",
+                "time": 16.0,
+            },
+        ]
         self.tracks = [
             {
                 "reference": str(
@@ -151,6 +177,10 @@ def handle(request, token, state):
                     "session.inspect": True,
                     "transport.set_tempo": True,
                     "transport.set_playing": True,
+                    "transport.inspect_arrangement": True,
+                    "transport.set_arrangement_loop": True,
+                    "transport.create_cue_point": True,
+                    "transport.delete_cue_point": True,
                     "tracks.create": True,
                     "tracks.delete": True,
                     "tracks.rename": True,
@@ -226,6 +256,197 @@ def handle(request, token, state):
             {
                 "beforeIsPlaying": before,
                 "afterIsPlaying": is_playing,
+                "verified": True,
+            },
+        )
+    if command == "transport.inspect_arrangement":
+        offset = params.get("offset", 0)
+        limit = params.get("limit", 100)
+        if (
+            isinstance(offset, bool)
+            or not isinstance(offset, int)
+            or offset < 0
+            or isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or limit < 1
+            or limit > 512
+        ):
+            return failure(
+                request,
+                "invalid_params",
+                "offset and limit must describe a bounded cue-point page",
+            )
+        cue_points = sorted(state.cue_points, key=lambda cue: cue["time"])
+        return response(
+            request,
+            {
+                "loop": {
+                    "enabled": state.loop_enabled,
+                    "start": state.loop_start,
+                    "length": state.loop_length,
+                },
+                "cuePoints": cue_points[offset : offset + limit],
+                "totalCuePoints": len(cue_points),
+                "offset": offset,
+                "limit": limit,
+            },
+        )
+    if command == "transport.set_arrangement_loop":
+        if set(params.keys()) - set(["enabled", "start", "length"]) or not params:
+            return failure(
+                request,
+                "invalid_params",
+                "At least one Arrangement loop property is required",
+            )
+        enabled = params.get("enabled")
+        start = params.get("start")
+        length = params.get("length")
+        if "enabled" in params and not isinstance(enabled, bool):
+            return failure(request, "invalid_params", "enabled must be boolean")
+        if "start" in params and (
+            isinstance(start, bool)
+            or not isinstance(start, (int, float))
+            or not math.isfinite(start)
+            or start < 0
+            or start > 1576800
+        ):
+            return failure(
+                request,
+                "invalid_params",
+                "start must be between 0 and 1576800 beats",
+            )
+        if "length" in params and (
+            isinstance(length, bool)
+            or not isinstance(length, (int, float))
+            or not math.isfinite(length)
+            or length <= 0
+            or length > 1576800
+        ):
+            return failure(
+                request,
+                "invalid_params",
+                "length must be greater than 0 and at most 1576800 beats",
+            )
+        target_start = start if "start" in params else state.loop_start
+        target_length = (
+            length if "length" in params else state.loop_length
+        )
+        if target_start + target_length > 1576800:
+            return failure(
+                request,
+                "invalid_params",
+                "Arrangement loop end must not exceed 1576800 beats",
+            )
+        before = {
+            "enabled": state.loop_enabled,
+            "start": state.loop_start,
+            "length": state.loop_length,
+        }
+        if "enabled" in params:
+            state.loop_enabled = enabled
+        if "start" in params:
+            state.loop_start = start
+        if "length" in params:
+            state.loop_length = length
+        return response(
+            request,
+            {
+                "before": before,
+                "after": {
+                    "enabled": state.loop_enabled,
+                    "start": state.loop_start,
+                    "length": state.loop_length,
+                },
+                "verified": True,
+            },
+        )
+    if command == "transport.create_cue_point":
+        if state.is_playing:
+            return failure(
+                request,
+                "conflict",
+                "Stop transport before creating a cue point",
+            )
+        time = params.get("time")
+        name = params.get("name")
+        if (
+            isinstance(time, bool)
+            or not isinstance(time, (int, float))
+            or not math.isfinite(time)
+            or time < 0
+            or time > 1576800
+        ):
+            return failure(
+                request,
+                "invalid_params",
+                "time must be between 0 and 1576800 beats",
+            )
+        if name is not None and (
+            not isinstance(name, str)
+            or not name.strip()
+            or len(name) > 128
+        ):
+            return failure(
+                request,
+                "invalid_params",
+                "name must be a non-empty string of at most 128 characters",
+            )
+        if any(abs(cue["time"] - time) < 0.000001 for cue in state.cue_points):
+            return failure(
+                request,
+                "conflict",
+                "A cue point already exists at the requested time",
+            )
+        before_count = len(state.cue_points)
+        cue_point = {
+            "reference": str(uuid.uuid4()),
+            "name": name.strip() if name is not None else str(before_count + 1),
+            "time": time,
+        }
+        state.cue_points.append(cue_point)
+        return response(
+            request,
+            {
+                "cuePoint": cue_point,
+                "beforeCuePointCount": before_count,
+                "afterCuePointCount": len(state.cue_points),
+                "verified": True,
+            },
+        )
+    if command == "transport.delete_cue_point":
+        if state.is_playing:
+            return failure(
+                request,
+                "conflict",
+                "Stop transport before deleting a cue point",
+            )
+        target = next(
+            (
+                cue
+                for cue in state.cue_points
+                if cue["reference"] == params.get("expectedReference")
+            ),
+            None,
+        )
+        if target is None:
+            return failure(request, "not_found", "Cue point no longer exists")
+        if (
+            target["name"] != params.get("expectedName")
+            or target["time"] != params.get("expectedTime")
+        ):
+            return failure(
+                request,
+                "stale_reference",
+                "Cue-point identity changed before deletion",
+            )
+        before_count = len(state.cue_points)
+        state.cue_points.remove(target)
+        return response(
+            request,
+            {
+                "cuePoint": target,
+                "beforeCuePointCount": before_count,
+                "afterCuePointCount": len(state.cue_points),
                 "verified": True,
             },
         )

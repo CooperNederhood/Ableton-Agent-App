@@ -4,8 +4,11 @@ import type {
   CreateMidiClipResult,
   CreateArrangementMidiClipParams,
   CreateArrangementMidiClipResult,
+  CreateCuePointParams,
+  CuePointMutationResult,
   DeleteArrangementClipParams,
   DeleteArrangementClipResult,
+  DeleteCuePointParams,
   DuplicateClipToArrangementParams,
   DuplicateClipToArrangementResult,
   DuplicateSessionClipParams,
@@ -16,6 +19,8 @@ import type {
   RenameTrackParams,
   InspectArrangementParams,
   InspectArrangementResult,
+  InspectArrangementTransportParams,
+  InspectArrangementTransportResult,
   LaunchSessionClipParams,
   LaunchSessionClipResult,
   RenameTrackResult,
@@ -25,6 +30,8 @@ import type {
   ReplaceArrangementMidiNotesResult,
   SetArrangementClipPropertiesParams,
   SetArrangementClipPropertiesResult,
+  SetArrangementLoopParams,
+  SetArrangementLoopResult,
   SetSessionClipPropertiesParams,
   SetSessionClipPropertiesResult,
   SessionSnapshot,
@@ -60,6 +67,14 @@ export interface AbletonToolServices {
   inspectSession(): Promise<SessionSnapshot>;
   setTempo(tempo: number): Promise<SetTempoResult>;
   setPlaying(isPlaying: boolean): Promise<SetPlayingResult>;
+  inspectArrangementTransport(
+    params: InspectArrangementTransportParams,
+  ): Promise<InspectArrangementTransportResult>;
+  setArrangementLoop(
+    params: SetArrangementLoopParams,
+  ): Promise<SetArrangementLoopResult>;
+  createCuePoint(params: CreateCuePointParams): Promise<CuePointMutationResult>;
+  deleteCuePoint(params: DeleteCuePointParams): Promise<CuePointMutationResult>;
   createTrack(params: CreateTrackParams): Promise<TrackMutationResult>;
   deleteTrack(params: DeleteTrackParams): Promise<TrackMutationResult>;
   renameTrack(params: RenameTrackParams): Promise<RenameTrackResult>;
@@ -127,6 +142,34 @@ export const abletonToolMetadata = [
     risk: "reversible",
     duration: "instant",
     requiredCapability: "transport.set_playing",
+  },
+  {
+    name: "ableton_transport_inspect_arrangement",
+    title: "Inspect Arrangement transport",
+    risk: "read",
+    duration: "short",
+    requiredCapability: "transport.inspect_arrangement",
+  },
+  {
+    name: "ableton_transport_set_arrangement_loop",
+    title: "Set Arrangement loop",
+    risk: "reversible",
+    duration: "instant",
+    requiredCapability: "transport.set_arrangement_loop",
+  },
+  {
+    name: "ableton_transport_create_cue_point",
+    title: "Create Arrangement cue point",
+    risk: "reversible",
+    duration: "short",
+    requiredCapability: "transport.create_cue_point",
+  },
+  {
+    name: "ableton_transport_delete_cue_point",
+    title: "Delete Arrangement cue point",
+    risk: "destructive",
+    duration: "short",
+    requiredCapability: "transport.delete_cue_point",
   },
   {
     name: "ableton_tracks_create",
@@ -288,6 +331,10 @@ export interface AbletonToolSet {
     Tool<Record<string, never>>,
     Tool<SetTempoParams>,
     Tool<SetPlayingParams>,
+    Tool<InspectArrangementTransportParams>,
+    Tool<SetArrangementLoopParams>,
+    Tool<CreateCuePointParams>,
+    Tool<DeleteCuePointParams>,
     Tool<CreateTrackParams>,
     Tool<DeleteTrackParams>,
     Tool<RenameTrackParams>,
@@ -344,6 +391,72 @@ export function createAbletonTools(
       })
       .strict(),
     handler: async ({ isPlaying }) => services.setPlaying(isPlaying),
+  });
+  const inspectArrangementTransportTool = defineTool(
+    "ableton_transport_inspect_arrangement",
+    {
+      description:
+        "Returns the Arrangement loop state and a bounded page of identity-bound cue points.",
+      parameters: z
+        .object({
+          offset: z.number().int().nonnegative().default(0),
+          limit: z.number().int().min(1).max(512).default(100),
+        })
+        .strict(),
+      handler: async (params) => services.inspectArrangementTransport(params),
+    },
+  );
+  const setArrangementLoopTool = defineTool(
+    "ableton_transport_set_arrangement_loop",
+    {
+      description:
+        "Updates one or more Arrangement loop properties, verifies the full before/after state, and restores prior values if a partial update fails.",
+      parameters: z
+        .object({
+          enabled: z.boolean().optional(),
+          start: z.number().finite().nonnegative().max(1576800).optional(),
+          length: z.number().finite().positive().max(1576800).optional(),
+        })
+        .strict()
+        .refine(
+          (params) =>
+            params.enabled !== undefined ||
+            params.start !== undefined ||
+            params.length !== undefined,
+          { message: "At least one Arrangement loop property is required" },
+        )
+        .refine(
+          (params) =>
+            params.start === undefined ||
+            params.length === undefined ||
+            params.start + params.length <= 1576800,
+          { message: "Arrangement loop end exceeds Live's maximum time" },
+        ),
+      handler: async (params) => services.setArrangementLoop(params),
+    },
+  );
+  const createCuePointTool = defineTool("ableton_transport_create_cue_point", {
+    description:
+      "Creates a cue point at an unoccupied Arrangement time, assigns a stable runtime reference, verifies it, and removes it if creation partially fails.",
+    parameters: z
+      .object({
+        time: z.number().finite().nonnegative().max(1576800),
+        name: z.string().trim().min(1).max(128).optional(),
+      })
+      .strict(),
+    handler: async (params) => services.createCuePoint(params),
+  });
+  const deleteCuePointTool = defineTool("ableton_transport_delete_cue_point", {
+    description:
+      "Destructively deletes the exact cue point identified by a recent Arrangement transport inspection after revalidating its runtime reference, name, and time.",
+    parameters: z
+      .object({
+        expectedReference: z.string().uuid(),
+        expectedName: z.string(),
+        expectedTime: z.number().finite().nonnegative().max(1576800),
+      })
+      .strict(),
+    handler: async (params) => services.deleteCuePoint(params),
   });
   const createTrackTool = defineTool("ableton_tracks_create", {
     description:
@@ -656,6 +769,10 @@ export function createAbletonTools(
       inspectSessionTool,
       setTempoTool,
       setPlayingTool,
+      inspectArrangementTransportTool,
+      setArrangementLoopTool,
+      createCuePointTool,
+      deleteCuePointTool,
       createTrackTool,
       deleteTrackTool,
       renameTrackTool,

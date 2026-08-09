@@ -8,6 +8,8 @@ Companion specification: [Terminal Client](terminal-client.md)
 - [x] Connect it to the shared headless application bootstrap.
   - [x] Wire Session clip launch, duplication, deletion, and property services
     through the bridge, application, agent tools, and approval UI.
+  - [x] Wire Arrangement loop and cue-point services through the bridge,
+    headless application, Copilot tools, and approval UI.
 - [ ] Implement TTY detection, `NO_COLOR`, and redirected-output behavior.
 - [ ] Implement human, quiet, and JSON output writers.
 - [ ] Define and document stable exit-code mapping.
@@ -24,7 +26,8 @@ Companion specification: [Terminal Client](terminal-client.md)
 
 ## Non-interactive client
 
-- [x] Implement `run`, `status`, `doctor`, `capabilities`, and `snapshot`.
+- [x] Implement `run`, `status`, `doctor`, `capabilities`, `snapshot`, and
+  bounded Arrangement `transport` inspection.
 - [x] Implement explicit non-interactive approval policies.
 - [x] Return structured JSON operation and final-result data.
 - [x] Ensure diagnostics avoid model invocation where possible.

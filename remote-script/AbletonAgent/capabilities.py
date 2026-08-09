@@ -98,6 +98,35 @@ def build_capability_document(
             capabilities[name] = supported
     if "clips.replace_notes" in capabilities:
         capabilities["clips.replace_notes"] = note_editing_supported
+    transport_support = {
+        "transport.inspect_arrangement": all(
+            hasattr(song, attribute)
+            for attribute in ("loop", "loop_start", "loop_length", "cue_points")
+        ),
+        "transport.set_arrangement_loop": all(
+            hasattr(song, attribute)
+            for attribute in ("loop", "loop_start", "loop_length")
+        ),
+        "transport.create_cue_point": all(
+            hasattr(song, attribute)
+            for attribute in (
+                "cue_points",
+                "current_song_time",
+                "set_or_delete_cue",
+            )
+        ),
+        "transport.delete_cue_point": all(
+            hasattr(song, attribute)
+            for attribute in (
+                "cue_points",
+                "current_song_time",
+                "set_or_delete_cue",
+            )
+        ),
+    }
+    for name, supported in transport_support.items():
+        if name in capabilities:
+            capabilities[name] = supported
     return {
         "selectedProtocolVersion": PROTOCOL_VERSION,
         "liveVersion": live_version,

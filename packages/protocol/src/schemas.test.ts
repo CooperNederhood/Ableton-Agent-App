@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createCuePointParamsSchema,
+  deleteCuePointParamsSchema,
   duplicateClipToArrangementParamsSchema,
   duplicateSessionClipParamsSchema,
   launchSessionClipParamsSchema,
+  setArrangementLoopParamsSchema,
   setArrangementClipPropertiesParamsSchema,
   setSessionClipPropertiesParamsSchema,
 } from "./schemas.js";
@@ -15,6 +18,38 @@ const identity = {
 };
 
 describe("Arrangement operation schemas", () => {
+  it("validates finite bounded loop and cue-point transport parameters", () => {
+    expect(
+      setArrangementLoopParamsSchema.parse({
+        enabled: true,
+        start: 8,
+        length: 16,
+      }),
+    ).toEqual({ enabled: true, start: 8, length: 16 });
+    expect(setArrangementLoopParamsSchema.safeParse({}).success).toBe(false);
+    expect(
+      setArrangementLoopParamsSchema.safeParse({
+        start: Number.NaN,
+      }).success,
+    ).toBe(false);
+    expect(
+      setArrangementLoopParamsSchema.safeParse({
+        start: 1576800,
+        length: 1,
+      }).success,
+    ).toBe(false);
+    expect(
+      createCuePointParamsSchema.parse({ time: 32, name: "Chorus" }),
+    ).toEqual({ time: 32, name: "Chorus" });
+    expect(
+      deleteCuePointParamsSchema.parse({
+        expectedReference: "00000000-0000-4000-8000-000000000030",
+        expectedName: "",
+        expectedTime: 32,
+      }),
+    ).toMatchObject({ expectedName: "", expectedTime: 32 });
+  });
+
   it("accepts identity-bound Session clip duplication parameters", () => {
     expect(
       duplicateClipToArrangementParamsSchema.parse({

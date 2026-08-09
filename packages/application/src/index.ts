@@ -3,10 +3,13 @@ import { join } from "node:path";
 
 import type {
   CapabilityDocument,
+  CreateCuePointParams,
+  CuePointMutationResult,
   CreateArrangementMidiClipParams,
   CreateArrangementMidiClipResult,
   DeleteArrangementClipParams,
   DeleteArrangementClipResult,
+  DeleteCuePointParams,
   DuplicateClipToArrangementParams,
   DuplicateClipToArrangementResult,
   DuplicateSessionClipParams,
@@ -27,11 +30,15 @@ import type {
   ReplaceArrangementMidiNotesResult,
   SetArrangementClipPropertiesParams,
   SetArrangementClipPropertiesResult,
+  SetArrangementLoopParams,
+  SetArrangementLoopResult,
   SetSessionClipPropertiesParams,
   SetSessionClipPropertiesResult,
   PingResult,
   InspectArrangementParams,
   InspectArrangementResult,
+  InspectArrangementTransportParams,
+  InspectArrangementTransportResult,
   SessionSnapshot,
   SetPlayingResult,
   SetTempoResult,
@@ -73,6 +80,14 @@ export interface AbletonService {
   inspectSession(): Promise<SessionSnapshot>;
   setTempo(tempo: number): Promise<SetTempoResult>;
   setPlaying(isPlaying: boolean): Promise<SetPlayingResult>;
+  inspectArrangementTransport(
+    params: InspectArrangementTransportParams,
+  ): Promise<InspectArrangementTransportResult>;
+  setArrangementLoop(
+    params: SetArrangementLoopParams,
+  ): Promise<SetArrangementLoopResult>;
+  createCuePoint(params: CreateCuePointParams): Promise<CuePointMutationResult>;
+  deleteCuePoint(params: DeleteCuePointParams): Promise<CuePointMutationResult>;
   createTrack(params: CreateTrackParams): Promise<TrackMutationResult>;
   deleteTrack(params: DeleteTrackParams): Promise<TrackMutationResult>;
   renameTrack(params: RenameTrackParams): Promise<RenameTrackResult>;
@@ -145,6 +160,18 @@ export interface CopilotAgentServiceOptions {
   inspectSession: () => Promise<SessionSnapshot>;
   setTempo: (tempo: number) => Promise<SetTempoResult>;
   setPlaying: (isPlaying: boolean) => Promise<SetPlayingResult>;
+  inspectArrangementTransport: (
+    params: InspectArrangementTransportParams,
+  ) => Promise<InspectArrangementTransportResult>;
+  setArrangementLoop: (
+    params: SetArrangementLoopParams,
+  ) => Promise<SetArrangementLoopResult>;
+  createCuePoint: (
+    params: CreateCuePointParams,
+  ) => Promise<CuePointMutationResult>;
+  deleteCuePoint: (
+    params: DeleteCuePointParams,
+  ) => Promise<CuePointMutationResult>;
   createTrack: (params: CreateTrackParams) => Promise<TrackMutationResult>;
   deleteTrack: (params: DeleteTrackParams) => Promise<TrackMutationResult>;
   renameTrack: (params: RenameTrackParams) => Promise<RenameTrackResult>;
@@ -225,6 +252,10 @@ export class CopilotAgentService implements AgentService {
       inspectSession: this.options.inspectSession,
       setTempo: this.options.setTempo,
       setPlaying: this.options.setPlaying,
+      inspectArrangementTransport: this.options.inspectArrangementTransport,
+      setArrangementLoop: this.options.setArrangementLoop,
+      createCuePoint: this.options.createCuePoint,
+      deleteCuePoint: this.options.deleteCuePoint,
       createTrack: this.options.createTrack,
       deleteTrack: this.options.deleteTrack,
       renameTrack: this.options.renameTrack,
@@ -423,6 +454,30 @@ export class HeadlessApplication {
 
   public setPlaying(isPlaying: boolean): Promise<SetPlayingResult> {
     return this.services.ableton.setPlaying(isPlaying);
+  }
+
+  public inspectArrangementTransport(
+    params: InspectArrangementTransportParams,
+  ): Promise<InspectArrangementTransportResult> {
+    return this.services.ableton.inspectArrangementTransport(params);
+  }
+
+  public setArrangementLoop(
+    params: SetArrangementLoopParams,
+  ): Promise<SetArrangementLoopResult> {
+    return this.services.ableton.setArrangementLoop(params);
+  }
+
+  public createCuePoint(
+    params: CreateCuePointParams,
+  ): Promise<CuePointMutationResult> {
+    return this.services.ableton.createCuePoint(params);
+  }
+
+  public deleteCuePoint(
+    params: DeleteCuePointParams,
+  ): Promise<CuePointMutationResult> {
+    return this.services.ableton.deleteCuePoint(params);
   }
 
   public createTrack(params: CreateTrackParams): Promise<TrackMutationResult> {

@@ -24,6 +24,10 @@ Companion specification: [Remote Script](remote-script.md)
 ## LOM modules
 
 - [~] Implement system/session/transport serialization.
+  - [x] Inspect Arrangement loop state and bounded cue-point pages; update loop
+    enable/start/length with finite validation, verification, and rollback.
+  - [x] Create reversible cue points and destructively delete identity-bound
+    cue points using runtime-stable references where Live exposes no IDs.
 - [~] Implement track and mixer handlers.
   - [x] Create MIDI/audio tracks with optional names and verified postconditions.
   - [x] Delete identity-bound non-group tracks with last-track protection.
@@ -59,6 +63,8 @@ Companion specification: [Remote Script](remote-script.md)
 - [ ] Unit-test listener registration and removal.
 - [ ] Run Python protocol contract fixtures.
 - [ ] Add real-Live tests for each uncertain API and supported version.
+  - [ ] Validate cue-point object identity, create/delete return behavior,
+    naming, loop setter ordering, and rollback against supported Live versions.
 - [ ] Test that browser operations remain bounded and responsive.
 
 ## Exit criteria

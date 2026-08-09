@@ -24,6 +24,8 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
     identity and timing before duplication or property updates.
   - [x] Require exact source/destination track identity and exact Session clip
     identity for launch, duplication, deletion, and property updates.
+  - [x] Bind cue deletion to a runtime-stable reference plus expected name/time,
+    reject duplicate cue times, and bound all loop/cue beat values.
 - [ ] Validate file imports and supported media.
 - [ ] Report all clamping and coercion.
 - [ ] Add workflow mutation-count and duration budgets.
@@ -42,6 +44,8 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
     properties after mutation or verification failure.
   - [x] Restore prior Session playback after failed launch where safe, remove
     failed Session duplicates, and restore applied Session clip properties.
+  - [x] Restore the complete Arrangement loop state after partial updates and
+    remove cue points created by failed creation.
 - [ ] Define non-reversible operation metadata.
 - [ ] Stop dependent workflow steps after failure.
 - [ ] Refresh affected state before reporting partial outcomes.

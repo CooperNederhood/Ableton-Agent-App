@@ -28,6 +28,8 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
 
 - [x] Implement system/capability operations.
 - [~] Implement transport and snapshot operations.
+  - [x] Implement capability-gated Arrangement loop/cue inspection and
+    serialized loop/cue mutations.
 - [~] Implement track, clip, arrangement, device, and browser clients.
   - [x] Implement capability-gated track creation and identity-bound deletion.
   - [x] Implement paginated Arrangement inspection and identity-bound clip deletion.
@@ -43,6 +45,7 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
 - [ ] Unit-test encoder, decoder, request tracking, and timeout policy.
 - [ ] Unit-test stale references and capability guards.
 - [x] Integration-test against the Python simulator.
+  - [x] Cover stateful Arrangement loop updates and cue creation/deletion.
 - [ ] Test fragmented, combined, malformed, oversized, and out-of-order frames.
 - [ ] Test reconnect, event sequence gaps, queue saturation, and cancellation.
 - [ ] Run contract tests for every bridge method.

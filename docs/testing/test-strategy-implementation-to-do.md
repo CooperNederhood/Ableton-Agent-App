@@ -20,12 +20,16 @@ Companion specification: [Test Strategy](test-strategy.md)
 - [x] Cover Session clip identity guards, MIDI/audio duplication, launch
   recovery, destructive deletion, property rollback, capability gates, and
   simulator bridge parity.
+- [x] Cover Arrangement loop finite bounds and rollback, runtime-stable cue
+  references, reversible creation, destructive deletion, and simulator parity.
 - [ ] Implement CLI transcript tests.
 - [ ] Implement Playwright Electron harness.
 - [ ] Create real-Live test project and manual runner.
   - [ ] Record real-Live results for Session launch quantization and rollback,
     MIDI/audio duplication compatibility, deletion, and mute/loop property
     availability.
+  - [ ] Record real-Live results for Arrangement loop setters, cue-point
+    identity stability, naming, creation rollback, and deletion verification.
 
 ## CI
 

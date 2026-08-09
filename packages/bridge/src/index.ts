@@ -6,10 +6,13 @@ import {
   FrameDecoder,
   PROTOCOL_VERSION,
   capabilityDocumentSchema,
+  createCuePointParamsSchema,
+  cuePointMutationResultSchema,
   createArrangementMidiClipParamsSchema,
   createArrangementMidiClipResultSchema,
   deleteArrangementClipParamsSchema,
   deleteArrangementClipResultSchema,
+  deleteCuePointParamsSchema,
   duplicateClipToArrangementParamsSchema,
   duplicateClipToArrangementResultSchema,
   duplicateSessionClipParamsSchema,
@@ -29,6 +32,8 @@ import {
   renameTrackResultSchema,
   inspectArrangementParamsSchema,
   inspectArrangementResultSchema,
+  inspectArrangementTransportParamsSchema,
+  inspectArrangementTransportResultSchema,
   launchSessionClipParamsSchema,
   launchSessionClipResultSchema,
   replaceMidiNotesParamsSchema,
@@ -37,6 +42,8 @@ import {
   replaceArrangementMidiNotesResultSchema,
   setArrangementClipPropertiesParamsSchema,
   setArrangementClipPropertiesResultSchema,
+  setArrangementLoopParamsSchema,
+  setArrangementLoopResultSchema,
   setSessionClipPropertiesParamsSchema,
   setSessionClipPropertiesResultSchema,
   setTrackMixerParamsSchema,
@@ -45,10 +52,13 @@ import {
   setTempoResultSchema,
   trackMutationResultSchema,
   type CapabilityDocument,
+  type CreateCuePointParams,
+  type CuePointMutationResult,
   type CreateArrangementMidiClipParams,
   type CreateArrangementMidiClipResult,
   type DeleteArrangementClipParams,
   type DeleteArrangementClipResult,
+  type DeleteCuePointParams,
   type DuplicateClipToArrangementParams,
   type DuplicateClipToArrangementResult,
   type DuplicateSessionClipParams,
@@ -69,6 +79,8 @@ import {
   type RenameTrackResult,
   type InspectArrangementParams,
   type InspectArrangementResult,
+  type InspectArrangementTransportParams,
+  type InspectArrangementTransportResult,
   type LaunchSessionClipParams,
   type LaunchSessionClipResult,
   type ReplaceMidiNotesParams,
@@ -77,6 +89,8 @@ import {
   type ReplaceArrangementMidiNotesResult,
   type SetArrangementClipPropertiesParams,
   type SetArrangementClipPropertiesResult,
+  type SetArrangementLoopParams,
+  type SetArrangementLoopResult,
   type SetSessionClipPropertiesParams,
   type SetSessionClipPropertiesResult,
   type SetTrackMixerParams,
@@ -218,6 +232,46 @@ export class AbletonBridgeService implements AbletonService {
     const params = setPlayingParamsSchema.parse({ isPlaying });
     return setPlayingResultSchema.parse(
       await this.#mutationRequest("transport.set_playing", params),
+    );
+  }
+
+  public async inspectArrangementTransport(
+    params: InspectArrangementTransportParams,
+  ): Promise<InspectArrangementTransportResult> {
+    this.#requireCapability("transport.inspect_arrangement");
+    const validated = inspectArrangementTransportParamsSchema.parse(params);
+    return inspectArrangementTransportResultSchema.parse(
+      await this.#request("transport.inspect_arrangement", validated),
+    );
+  }
+
+  public async setArrangementLoop(
+    params: SetArrangementLoopParams,
+  ): Promise<SetArrangementLoopResult> {
+    this.#requireCapability("transport.set_arrangement_loop");
+    const validated = setArrangementLoopParamsSchema.parse(params);
+    return setArrangementLoopResultSchema.parse(
+      await this.#mutationRequest("transport.set_arrangement_loop", validated),
+    );
+  }
+
+  public async createCuePoint(
+    params: CreateCuePointParams,
+  ): Promise<CuePointMutationResult> {
+    this.#requireCapability("transport.create_cue_point");
+    const validated = createCuePointParamsSchema.parse(params);
+    return cuePointMutationResultSchema.parse(
+      await this.#mutationRequest("transport.create_cue_point", validated),
+    );
+  }
+
+  public async deleteCuePoint(
+    params: DeleteCuePointParams,
+  ): Promise<CuePointMutationResult> {
+    this.#requireCapability("transport.delete_cue_point");
+    const validated = deleteCuePointParamsSchema.parse(params);
+    return cuePointMutationResultSchema.parse(
+      await this.#mutationRequest("transport.delete_cue_point", validated),
     );
   }
 

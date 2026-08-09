@@ -7,6 +7,7 @@ export type CliCommand =
   | { name: "doctor"; json: boolean }
   | { name: "capabilities"; json: boolean }
   | { name: "snapshot"; json: boolean }
+  | { name: "transport"; json: boolean }
   | { name: "run"; prompt: string; json: boolean }
   | { name: "help"; json: false };
 
@@ -30,7 +31,8 @@ export function parseArgs(args: readonly string[]): CliCommand {
     command === "status" ||
     command === "doctor" ||
     command === "capabilities" ||
-    command === "snapshot"
+    command === "snapshot" ||
+    command === "transport"
   ) {
     if (positional.length !== 1) {
       throw new CliUsageError(
@@ -95,6 +97,7 @@ export async function runCommand(
         "  ableton-agent doctor [--json]",
         "  ableton-agent capabilities [--json]",
         "  ableton-agent snapshot [--json]",
+        "  ableton-agent transport [--json]",
         "  ableton-agent run <prompt> [--json]",
       ].join("\n"),
     );
@@ -191,6 +194,26 @@ export async function runCommand(
       return 0;
     }
 
+    if (command.name === "transport") {
+      const transport = await application.inspectArrangementTransport({
+        offset: 0,
+        limit: 100,
+      });
+      io.write(
+        command.json
+          ? JSON.stringify(transport)
+          : [
+              `Arrangement loop: ${transport.loop.enabled ? "enabled" : "disabled"}`,
+              `Loop range: ${transport.loop.start} + ${transport.loop.length} beats`,
+              `Cue points: ${transport.totalCuePoints}`,
+              ...transport.cuePoints.map(
+                (cuePoint) => `  ${cuePoint.time}: ${cuePoint.name}`,
+              ),
+            ].join("\n"),
+      );
+      return 0;
+    }
+
     const response = await application.send(command.prompt);
     const ok = operationFailures.length === 0;
     io.write(
@@ -258,6 +281,7 @@ export async function runInteractive(
             "/status    Show connection status",
             "/doctor    Ping the Remote Script",
             "/snapshot  Inspect the current Live set",
+            "/transport Inspect Arrangement loop and cue points",
             "/exit      End the chat session",
           ].join("\n"),
         );
@@ -279,6 +303,16 @@ export async function runInteractive(
           const snapshot = await application.inspectSession();
           io.write(
             `Snapshot: ${snapshot.trackCount} tracks at ${snapshot.tempo} BPM`,
+          );
+          continue;
+        }
+        if (line === "/transport") {
+          const transport = await application.inspectArrangementTransport({
+            offset: 0,
+            limit: 100,
+          });
+          io.write(
+            `Transport: loop ${transport.loop.enabled ? "enabled" : "disabled"}, ${transport.totalCuePoints} cue points`,
           );
           continue;
         }

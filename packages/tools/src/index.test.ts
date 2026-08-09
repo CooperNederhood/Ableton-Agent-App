@@ -36,6 +36,57 @@ function services() {
         verified: true,
       }),
     ),
+    inspectArrangementTransport: vi.fn(
+      (params: { offset: number; limit: number }) =>
+        Promise.resolve({
+          loop: { enabled: false, start: 0, length: 16 },
+          cuePoints: [],
+          totalCuePoints: 0,
+          offset: params.offset,
+          limit: params.limit,
+        }),
+    ),
+    setArrangementLoop: vi.fn(
+      (params: { enabled?: boolean; start?: number; length?: number }) =>
+        Promise.resolve({
+          before: { enabled: false, start: 0, length: 16 },
+          after: {
+            enabled: params.enabled ?? false,
+            start: params.start ?? 0,
+            length: params.length ?? 16,
+          },
+          verified: true as const,
+        }),
+    ),
+    createCuePoint: vi.fn((params: { time: number; name?: string }) =>
+      Promise.resolve({
+        cuePoint: {
+          reference: "00000000-0000-4000-8000-000000000030",
+          name: params.name ?? "3",
+          time: params.time,
+        },
+        beforeCuePointCount: 2,
+        afterCuePointCount: 3,
+        verified: true as const,
+      }),
+    ),
+    deleteCuePoint: vi.fn(
+      (params: {
+        expectedReference: string;
+        expectedName: string;
+        expectedTime: number;
+      }) =>
+        Promise.resolve({
+          cuePoint: {
+            reference: params.expectedReference,
+            name: params.expectedName,
+            time: params.expectedTime,
+          },
+          beforeCuePointCount: 3,
+          afterCuePointCount: 2,
+          verified: true as const,
+        }),
+    ),
     createTrack: vi.fn((params: { kind: "midi" | "audio"; name?: string }) =>
       Promise.resolve({
         beforeTrackCount: 2,
@@ -386,6 +437,10 @@ describe("Ableton tools", () => {
       "custom:ableton_session_inspect",
       "custom:ableton_transport_set_tempo",
       "custom:ableton_transport_set_playing",
+      "custom:ableton_transport_inspect_arrangement",
+      "custom:ableton_transport_set_arrangement_loop",
+      "custom:ableton_transport_create_cue_point",
+      "custom:ableton_transport_delete_cue_point",
       "custom:ableton_tracks_create",
       "custom:ableton_tracks_delete",
       "custom:ableton_tracks_rename",
@@ -408,6 +463,10 @@ describe("Ableton tools", () => {
       "read",
       "reversible",
       "reversible",
+      "read",
+      "reversible",
+      "reversible",
+      "destructive",
       "reversible",
       "destructive",
       "reversible",
@@ -441,11 +500,25 @@ describe("Ableton tools", () => {
     await toolSet.tools[1].handler?.({}, invocation);
     await toolSet.tools[2].handler?.({ tempo: 132 }, invocation);
     await toolSet.tools[3].handler?.({ isPlaying: true }, invocation);
-    await toolSet.tools[4].handler?.(
+    await toolSet.tools[4].handler?.({ offset: 0, limit: 10 }, invocation);
+    await toolSet.tools[5].handler?.(
+      { enabled: true, start: 8, length: 16 },
+      invocation,
+    );
+    await toolSet.tools[6].handler?.({ time: 32, name: "Chorus" }, invocation);
+    await toolSet.tools[7].handler?.(
+      {
+        expectedReference: "00000000-0000-4000-8000-000000000030",
+        expectedName: "Chorus",
+        expectedTime: 32,
+      },
+      invocation,
+    );
+    await toolSet.tools[8].handler?.(
       { kind: "audio", name: "Vocals" },
       invocation,
     );
-    await toolSet.tools[5].handler?.(
+    await toolSet.tools[9].handler?.(
       {
         index: 1,
         expectedReference: "00000000-0000-4000-8000-000000000002",
@@ -454,7 +527,7 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
-    await toolSet.tools[6].handler?.(
+    await toolSet.tools[10].handler?.(
       {
         index: 1,
         expectedReference: "00000000-0000-4000-8000-000000000002",
@@ -463,7 +536,7 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
-    await toolSet.tools[7].handler?.(
+    await toolSet.tools[11].handler?.(
       {
         index: 1,
         expectedReference: "00000000-0000-4000-8000-000000000002",
@@ -473,7 +546,7 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
-    await toolSet.tools[8].handler?.(
+    await toolSet.tools[12].handler?.(
       {
         index: 0,
         expectedReference: "00000000-0000-4000-8000-000000000001",
@@ -484,7 +557,7 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
-    await toolSet.tools[9].handler?.(
+    await toolSet.tools[13].handler?.(
       {
         index: 0,
         expectedReference: "00000000-0000-4000-8000-000000000001",
@@ -504,7 +577,7 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
-    await toolSet.tools[10].handler?.(
+    await toolSet.tools[14].handler?.(
       {
         index: 0,
         expectedReference: "00000000-0000-4000-8000-000000000001",
@@ -514,7 +587,7 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
-    await toolSet.tools[11].handler?.(
+    await toolSet.tools[15].handler?.(
       {
         index: 0,
         expectedReference: "00000000-0000-4000-8000-000000000001",
@@ -529,7 +602,7 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
-    await toolSet.tools[12].handler?.(
+    await toolSet.tools[16].handler?.(
       {
         index: 0,
         expectedReference: "00000000-0000-4000-8000-000000000001",
@@ -539,7 +612,7 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
-    await toolSet.tools[13].handler?.(
+    await toolSet.tools[17].handler?.(
       {
         index: 0,
         expectedReference: "00000000-0000-4000-8000-000000000001",
@@ -551,7 +624,7 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
-    await toolSet.tools[14].handler?.(
+    await toolSet.tools[18].handler?.(
       {
         index: 0,
         expectedReference: "00000000-0000-4000-8000-000000000001",
@@ -562,8 +635,8 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
-    await toolSet.tools[15].handler?.({ offset: 0, limit: 10 }, invocation);
-    await toolSet.tools[16].handler?.(
+    await toolSet.tools[19].handler?.({ offset: 0, limit: 10 }, invocation);
+    await toolSet.tools[20].handler?.(
       {
         index: 0,
         expectedReference: "00000000-0000-4000-8000-000000000001",
@@ -573,7 +646,7 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
-    await toolSet.tools[17].handler?.(
+    await toolSet.tools[21].handler?.(
       {
         index: 0,
         expectedReference: "00000000-0000-4000-8000-000000000001",
@@ -593,7 +666,7 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
-    await toolSet.tools[18].handler?.(
+    await toolSet.tools[22].handler?.(
       {
         index: 0,
         expectedReference: "00000000-0000-4000-8000-000000000001",
@@ -604,7 +677,7 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
-    await toolSet.tools[19].handler?.(
+    await toolSet.tools[23].handler?.(
       {
         index: 0,
         expectedReference: "00000000-0000-4000-8000-000000000001",
@@ -622,6 +695,24 @@ describe("Ableton tools", () => {
     expect(ports.inspectSession).toHaveBeenCalledOnce();
     expect(ports.setTempo).toHaveBeenCalledWith(132);
     expect(ports.setPlaying).toHaveBeenCalledWith(true);
+    expect(ports.inspectArrangementTransport).toHaveBeenCalledWith({
+      offset: 0,
+      limit: 10,
+    });
+    expect(ports.setArrangementLoop).toHaveBeenCalledWith({
+      enabled: true,
+      start: 8,
+      length: 16,
+    });
+    expect(ports.createCuePoint).toHaveBeenCalledWith({
+      time: 32,
+      name: "Chorus",
+    });
+    expect(ports.deleteCuePoint).toHaveBeenCalledWith({
+      expectedReference: "00000000-0000-4000-8000-000000000030",
+      expectedName: "Chorus",
+      expectedTime: 32,
+    });
     expect(ports.createTrack).toHaveBeenCalledWith({
       kind: "audio",
       name: "Vocals",
@@ -769,6 +860,17 @@ describe("Ableton tools", () => {
           kind: "custom-tool",
           toolName: "ableton_session_inspect",
           toolDescription: "Inspect",
+        },
+        { sessionId: "session" },
+      ),
+    ).resolves.toEqual({ kind: "approve-once" });
+    await expect(
+      handler(
+        {
+          kind: "custom-tool",
+          toolName: "ableton_transport_inspect_arrangement",
+          toolDescription: "Inspect Arrangement transport",
+          args: { offset: 0, limit: 100 },
         },
         { sessionId: "session" },
       ),

@@ -109,6 +109,55 @@ function sessionClipServices() {
   };
 }
 
+function arrangementTransportServices() {
+  return {
+    inspectArrangementTransport: async (
+      params: Parameters<AbletonService["inspectArrangementTransport"]>[0],
+    ) => ({
+      loop: { enabled: false, start: 0, length: 16 },
+      cuePoints: [],
+      totalCuePoints: 0,
+      offset: params.offset,
+      limit: params.limit,
+    }),
+    setArrangementLoop: async (
+      params: Parameters<AbletonService["setArrangementLoop"]>[0],
+    ) => ({
+      before: { enabled: false, start: 0, length: 16 },
+      after: {
+        enabled: params.enabled ?? false,
+        start: params.start ?? 0,
+        length: params.length ?? 16,
+      },
+      verified: true as const,
+    }),
+    createCuePoint: async (
+      params: Parameters<AbletonService["createCuePoint"]>[0],
+    ) => ({
+      cuePoint: {
+        reference: "00000000-0000-4000-8000-000000000030",
+        name: params.name ?? "3",
+        time: params.time,
+      },
+      beforeCuePointCount: 2,
+      afterCuePointCount: 3,
+      verified: true as const,
+    }),
+    deleteCuePoint: async (
+      params: Parameters<AbletonService["deleteCuePoint"]>[0],
+    ) => ({
+      cuePoint: {
+        reference: params.expectedReference,
+        name: params.expectedName,
+        time: params.expectedTime,
+      },
+      beforeCuePointCount: 3,
+      afterCuePointCount: 2,
+      verified: true as const,
+    }),
+  };
+}
+
 function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
   const agent: AgentService = {
     start: vi.fn(async () => undefined),
@@ -145,6 +194,7 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
       afterIsPlaying: isPlaying,
       verified: true,
     })),
+    ...arrangementTransportServices(),
     createTrack: vi.fn(
       async (params: Parameters<AbletonService["createTrack"]>[0]) => ({
         beforeTrackCount: 2,
@@ -439,6 +489,7 @@ describe("CopilotAgentService", () => {
           afterIsPlaying: isPlaying,
           verified: true,
         }),
+      ...arrangementTransportServices(),
       createTrack: (params) =>
         Promise.resolve({
           beforeTrackCount: 2,
@@ -648,6 +699,10 @@ describe("CopilotAgentService", () => {
       "custom:ableton_session_inspect",
       "custom:ableton_transport_set_tempo",
       "custom:ableton_transport_set_playing",
+      "custom:ableton_transport_inspect_arrangement",
+      "custom:ableton_transport_set_arrangement_loop",
+      "custom:ableton_transport_create_cue_point",
+      "custom:ableton_transport_delete_cue_point",
       "custom:ableton_tracks_create",
       "custom:ableton_tracks_delete",
       "custom:ableton_tracks_rename",
@@ -665,7 +720,7 @@ describe("CopilotAgentService", () => {
       "custom:ableton_arrangement_duplicate_clip",
       "custom:ableton_arrangement_set_clip_properties",
     ]);
-    expect(config?.tools).toHaveLength(20);
+    expect(config?.tools).toHaveLength(24);
     await expect(
       config?.onPermissionRequest?.(
         {
@@ -711,6 +766,7 @@ describe("CopilotAgentService", () => {
           afterIsPlaying: isPlaying,
           verified: true,
         }),
+      ...arrangementTransportServices(),
       createTrack: (params) =>
         Promise.resolve({
           beforeTrackCount: 2,

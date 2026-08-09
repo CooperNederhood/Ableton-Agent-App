@@ -92,6 +92,32 @@ function application(
       afterIsPlaying: isPlaying,
       verified: true,
     })),
+    inspectArrangementTransport: vi.fn(
+      async (
+        params: Parameters<AbletonService["inspectArrangementTransport"]>[0],
+      ) => ({
+        loop: { enabled: true, start: 8, length: 16 },
+        cuePoints: [
+          {
+            reference: "00000000-0000-4000-8000-000000000030",
+            name: "Chorus",
+            time: 32,
+          },
+        ],
+        totalCuePoints: 1,
+        offset: params.offset,
+        limit: params.limit,
+      }),
+    ),
+    setArrangementLoop: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    createCuePoint: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    deleteCuePoint: vi.fn(async () => {
+      throw new Error("not used");
+    }),
     createTrack: vi.fn(
       async (params: Parameters<AbletonService["createTrack"]>[0]) => ({
         beforeTrackCount: 1,
@@ -353,6 +379,24 @@ describe("CLI", () => {
 
   it("parses interactive chat", () => {
     expect(parseArgs(["chat"])).toEqual({ name: "chat", json: false });
+  });
+
+  it("renders bounded Arrangement transport inspection", async () => {
+    const out = output();
+    const exitCode = await runCommand(
+      { name: "transport", json: false },
+      application({
+        state: "connected",
+        liveVersion: "12.1",
+        remoteScriptVersion: "0.2.0",
+        projectId: "project",
+      }).application,
+      out.io,
+    );
+
+    expect(exitCode).toBe(0);
+    expect(out.lines[0]).toContain("Arrangement loop: enabled");
+    expect(out.lines[0]).toContain("32: Chorus");
   });
 
   it("rejects missing prompts", () => {

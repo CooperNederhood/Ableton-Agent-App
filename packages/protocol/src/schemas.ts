@@ -165,6 +165,83 @@ export const setPlayingResultSchema = z.object({
   verified: z.boolean(),
 });
 
+export const arrangementLoopStateSchema = z.object({
+  enabled: z.boolean(),
+  start: z.number().finite().nonnegative(),
+  length: z.number().finite().positive(),
+});
+
+export const cuePointSummarySchema = z.object({
+  reference: z.string().uuid(),
+  name: z.string(),
+  time: z.number().finite().nonnegative(),
+});
+
+export const inspectArrangementTransportParamsSchema = z
+  .object({
+    offset: z.number().int().nonnegative().default(0),
+    limit: z.number().int().min(1).max(512).default(100),
+  })
+  .strict();
+
+export const inspectArrangementTransportResultSchema = z.object({
+  loop: arrangementLoopStateSchema,
+  cuePoints: z.array(cuePointSummarySchema),
+  totalCuePoints: z.number().int().nonnegative(),
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+});
+
+export const setArrangementLoopParamsSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    start: z.number().finite().nonnegative().max(1576800).optional(),
+    length: z.number().finite().positive().max(1576800).optional(),
+  })
+  .strict()
+  .refine(
+    (params) =>
+      params.enabled !== undefined ||
+      params.start !== undefined ||
+      params.length !== undefined,
+    { message: "At least one Arrangement loop property is required" },
+  )
+  .refine(
+    (params) =>
+      params.start === undefined ||
+      params.length === undefined ||
+      params.start + params.length <= 1576800,
+    { message: "Arrangement loop end exceeds Live's maximum time" },
+  );
+
+export const setArrangementLoopResultSchema = z.object({
+  before: arrangementLoopStateSchema,
+  after: arrangementLoopStateSchema,
+  verified: z.literal(true),
+});
+
+export const createCuePointParamsSchema = z
+  .object({
+    time: z.number().finite().nonnegative().max(1576800),
+    name: z.string().trim().min(1).max(128).optional(),
+  })
+  .strict();
+
+export const cuePointMutationResultSchema = z.object({
+  cuePoint: cuePointSummarySchema,
+  beforeCuePointCount: z.number().int().nonnegative(),
+  afterCuePointCount: z.number().int().nonnegative(),
+  verified: z.literal(true),
+});
+
+export const deleteCuePointParamsSchema = z
+  .object({
+    expectedReference: z.string().uuid(),
+    expectedName: z.string(),
+    expectedTime: z.number().finite().nonnegative().max(1576800),
+  })
+  .strict();
+
 export const createTrackParamsSchema = z.object({
   kind: trackKindSchema,
   name: z.string().trim().min(1).max(128).optional(),
@@ -470,6 +547,25 @@ export type SetTempoParams = z.infer<typeof setTempoParamsSchema>;
 export type SetTempoResult = z.infer<typeof setTempoResultSchema>;
 export type SetPlayingParams = z.infer<typeof setPlayingParamsSchema>;
 export type SetPlayingResult = z.infer<typeof setPlayingResultSchema>;
+export type ArrangementLoopState = z.infer<typeof arrangementLoopStateSchema>;
+export type CuePointSummary = z.infer<typeof cuePointSummarySchema>;
+export type InspectArrangementTransportParams = z.infer<
+  typeof inspectArrangementTransportParamsSchema
+>;
+export type InspectArrangementTransportResult = z.infer<
+  typeof inspectArrangementTransportResultSchema
+>;
+export type SetArrangementLoopParams = z.infer<
+  typeof setArrangementLoopParamsSchema
+>;
+export type SetArrangementLoopResult = z.infer<
+  typeof setArrangementLoopResultSchema
+>;
+export type CreateCuePointParams = z.infer<typeof createCuePointParamsSchema>;
+export type CuePointMutationResult = z.infer<
+  typeof cuePointMutationResultSchema
+>;
+export type DeleteCuePointParams = z.infer<typeof deleteCuePointParamsSchema>;
 export type CreateTrackParams = z.infer<typeof createTrackParamsSchema>;
 export type DeleteTrackParams = z.infer<typeof deleteTrackParamsSchema>;
 export type TrackMutationResult = z.infer<typeof trackMutationResultSchema>;

@@ -13,6 +13,8 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [x] Normalize SDK events into application-owned `AppEvent` values.
 
 - [x] Register the first read-only Ableton session inspection tool.
+- [x] Register bounded Arrangement transport inspection and risk-classified
+  loop/cue-point mutation tools.
 
 ## Agent behavior
 

@@ -59,6 +59,10 @@ describe("AbletonBridgeService", () => {
         "system.ping": true,
         "transport.set_tempo": true,
         "transport.set_playing": true,
+        "transport.inspect_arrangement": true,
+        "transport.set_arrangement_loop": true,
+        "transport.create_cue_point": true,
+        "transport.delete_cue_point": true,
         "tracks.create": true,
         "tracks.delete": true,
         "tracks.rename": true,
@@ -88,6 +92,74 @@ describe("AbletonBridgeService", () => {
     await expect(service.setPlaying(true)).resolves.toEqual({
       beforeIsPlaying: false,
       afterIsPlaying: true,
+      verified: true,
+    });
+    const initialTransport = await service.inspectArrangementTransport({
+      offset: 1,
+      limit: 1,
+    });
+    expect(initialTransport).toMatchObject({
+      loop: { enabled: false, start: 0, length: 16 },
+      totalCuePoints: 2,
+      cuePoints: [{ name: "Verse", time: 16 }],
+    });
+    await expect(
+      service.setArrangementLoop({
+        enabled: true,
+        start: 8,
+        length: 16,
+      }),
+    ).resolves.toEqual({
+      before: { enabled: false, start: 0, length: 16 },
+      after: { enabled: true, start: 8, length: 16 },
+      verified: true,
+    });
+    await expect(service.setPlaying(false)).resolves.toEqual({
+      beforeIsPlaying: true,
+      afterIsPlaying: false,
+      verified: true,
+    });
+    const createdCuePoint = await service.createCuePoint({
+      time: 32,
+      name: "Chorus",
+    });
+    expect(createdCuePoint).toMatchObject({
+      cuePoint: { name: "Chorus", time: 32 },
+      beforeCuePointCount: 2,
+      afterCuePointCount: 3,
+      verified: true,
+    });
+    const transportAfterCreate = await service.inspectArrangementTransport({
+      offset: 2,
+      limit: 1,
+    });
+    expect(transportAfterCreate).toMatchObject({
+      loop: { enabled: true, start: 8, length: 16 },
+      cuePoints: [
+        {
+          reference: createdCuePoint.cuePoint.reference,
+          name: "Chorus",
+          time: 32,
+        },
+      ],
+      totalCuePoints: 3,
+    });
+    await expect(
+      service.deleteCuePoint({
+        expectedReference: createdCuePoint.cuePoint.reference,
+        expectedName: "Wrong",
+        expectedTime: 32,
+      }),
+    ).rejects.toMatchObject({ code: "stale_reference" });
+    await expect(
+      service.deleteCuePoint({
+        expectedReference: createdCuePoint.cuePoint.reference,
+        expectedName: "Chorus",
+        expectedTime: 32,
+      }),
+    ).resolves.toMatchObject({
+      beforeCuePointCount: 3,
+      afterCuePointCount: 2,
       verified: true,
     });
     await expect(

@@ -40,7 +40,10 @@ Companion specification: [Tool Design](tool-design.md)
   - [x] Implement reversible Session-to-Arrangement clip duplication.
   - [x] Implement reversible identity-bound Arrangement clip properties.
 - [ ] Implement browser/device load and parameter operations.
-- [~] Implement transport, loop, and cue-point operations.
+- [x] Implement transport, loop, and cue-point operations.
+  - [x] Auto-approve bounded loop/cue inspection, classify loop updates and cue
+    creation as reversible, and classify identity-bound cue deletion as
+    destructive.
 
 ## Workflow tools
 
@@ -58,6 +61,7 @@ Companion specification: [Tool Design](tool-design.md)
 - [ ] Integration-test tools against fake and simulated bridges.
 - [~] Add Copilot SDK invocation tests for representative tools.
 - [ ] Validate every mutation against real Live before marking supported.
+  - [ ] Validate Arrangement loop and cue-point LOM behavior in real Live.
 
 ## Exit criteria
 

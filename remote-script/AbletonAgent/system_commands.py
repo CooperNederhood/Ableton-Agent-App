@@ -13,6 +13,8 @@ except ImportError:  # pragma: no cover - available only inside Live
 from .executor import DeferredResult
 from .errors import ProtocolFailure
 
+ARRANGEMENT_MAX_BEATS = 1576800
+
 
 def _track_kind(track):
     return "midi" if getattr(track, "has_midi_input", False) else "audio"
@@ -68,6 +70,45 @@ def _clip_reference(context, clip):
     references.append((clip, reference))
     context._clip_references = references
     return reference
+
+
+def _cue_point_reference(context, cue_point):
+    current_cue_points = list(context.song.cue_points)
+    references = [
+        (candidate, reference)
+        for candidate, reference in getattr(
+            context, "_cue_point_references", []
+        )
+        if any(candidate is current for current in current_cue_points)
+    ]
+    for candidate, reference in references:
+        if candidate is cue_point:
+            context._cue_point_references = references
+            return reference
+    reference = str(uuid.uuid4())
+    references.append((cue_point, reference))
+    context._cue_point_references = references
+    return reference
+
+
+def _cue_point_summary(context, cue_point):
+    if not _is_finite_number(cue_point.time) or cue_point.time < 0:
+        raise ProtocolFailure(
+            "conflict", "Cue point has invalid current numeric state"
+        )
+    return {
+        "reference": _cue_point_reference(context, cue_point),
+        "name": cue_point.name,
+        "time": cue_point.time,
+    }
+
+
+def _arrangement_loop_state(song):
+    return {
+        "enabled": bool(song.loop),
+        "start": song.loop_start,
+        "length": song.loop_length,
+    }
 
 
 def _clip_notes(clip):
@@ -282,6 +323,385 @@ def set_playing(context, params):
         context.schedule_message(1, verify)
 
     return DeferredResult(start_verification)
+
+
+def _inspect_arrangement_transport_params(params):
+    if set(params.keys()) - set(["offset", "limit"]):
+        return "Only offset and limit are accepted"
+    offset = params.get("offset", 0)
+    limit = params.get("limit", 100)
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+        return "offset must be a non-negative integer"
+    if (
+        isinstance(limit, bool)
+        or not isinstance(limit, int)
+        or limit < 1
+        or limit > 512
+    ):
+        return "limit must be an integer from 1 to 512"
+    return None
+
+
+def inspect_arrangement_transport(context, params):
+    song = context.song
+    required = ("loop", "loop_start", "loop_length", "cue_points")
+    if any(not hasattr(song, attribute) for attribute in required):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "This Live version does not expose Arrangement loop and cue-point state",
+        )
+    cue_points = sorted(list(song.cue_points), key=lambda cue: cue.time)
+    offset = params.get("offset", 0)
+    limit = params.get("limit", 100)
+    return {
+        "loop": _arrangement_loop_state(song),
+        "cuePoints": [
+            _cue_point_summary(context, cue_point)
+            for cue_point in cue_points[offset : offset + limit]
+        ],
+        "totalCuePoints": len(cue_points),
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+def _set_arrangement_loop_params(params):
+    accepted = set(["enabled", "start", "length"])
+    if set(params.keys()) - accepted:
+        return "Only enabled, start, and length are accepted"
+    if not params:
+        return "At least one Arrangement loop property is required"
+    if "enabled" in params and not isinstance(params.get("enabled"), bool):
+        return "enabled must be a boolean"
+    start = params.get("start")
+    if "start" in params and (
+        not _is_finite_number(start)
+        or start < 0
+        or start > ARRANGEMENT_MAX_BEATS
+    ):
+        return "start must be between 0 and 1576800 beats"
+    length = params.get("length")
+    if "length" in params and (
+        not _is_finite_number(length)
+        or length <= 0
+        or length > ARRANGEMENT_MAX_BEATS
+    ):
+        return "length must be greater than 0 and at most 1576800 beats"
+    if (
+        "start" in params
+        and "length" in params
+        and start + length > ARRANGEMENT_MAX_BEATS
+    ):
+        return "Arrangement loop end must not exceed 1576800 beats"
+    return None
+
+
+def _loop_states_equal(left, right):
+    return (
+        left["enabled"] == right["enabled"]
+        and abs(left["start"] - right["start"]) < 0.000001
+        and abs(left["length"] - right["length"]) < 0.000001
+    )
+
+
+def set_arrangement_loop(context, params):
+    song = context.song
+    required = ("loop", "loop_start", "loop_length")
+    if any(not hasattr(song, attribute) for attribute in required):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "This Live version does not support Arrangement loop control",
+        )
+    before = _arrangement_loop_state(song)
+    if (
+        not _is_finite_number(before["start"])
+        or before["start"] < 0
+        or not _is_finite_number(before["length"])
+        or before["length"] <= 0
+    ):
+        raise ProtocolFailure(
+            "conflict", "Arrangement loop has invalid current numeric state"
+        )
+    target_start = params.get("start", before["start"])
+    target_length = params.get("length", before["length"])
+    if target_start + target_length > ARRANGEMENT_MAX_BEATS:
+        raise ProtocolFailure(
+            "invalid_params",
+            "Arrangement loop end must not exceed 1576800 beats",
+        )
+    requested = []
+    if params.get("enabled") is False:
+        requested.append(("loop", "enabled", False))
+    if "start" in params:
+        requested.append(("loop_start", "start", params["start"]))
+    if "length" in params:
+        requested.append(("loop_length", "length", params["length"]))
+    if params.get("enabled") is True:
+        requested.append(("loop", "enabled", True))
+    applied = []
+    try:
+        for attribute, state_key, value in requested:
+            applied.append((attribute, state_key))
+            setattr(song, attribute, value)
+        after = _arrangement_loop_state(song)
+        expected = dict(before)
+        expected.update(params)
+        if not _loop_states_equal(after, expected):
+            raise ProtocolFailure(
+                "conflict",
+                "Arrangement loop update completed but verification failed",
+            )
+        result = {"before": before, "after": after, "verified": True}
+    except Exception as exc:
+        try:
+            for attribute, state_key in reversed(applied):
+                setattr(song, attribute, before[state_key])
+            restored = _arrangement_loop_state(song)
+            if not _loop_states_equal(restored, before):
+                raise RuntimeError("Arrangement loop state was not restored")
+        except Exception as recovery_exc:
+            raise ProtocolFailure(
+                "lom_error",
+                "Arrangement loop update and recovery both failed",
+                details={
+                    "operationError": str(exc),
+                    "recoveryError": str(recovery_exc),
+                },
+            )
+        if isinstance(exc, ProtocolFailure):
+            raise exc
+        raise ProtocolFailure(
+            "lom_error",
+            "Arrangement loop update failed; prior state was restored",
+            details={"operationError": str(exc)},
+        )
+    return result
+
+
+def _create_cue_point_params(params):
+    if set(params.keys()) - set(["time", "name"]) or "time" not in params:
+        return "time is required; optional name is the only other parameter"
+    time = params.get("time")
+    if (
+        not _is_finite_number(time)
+        or time < 0
+        or time > ARRANGEMENT_MAX_BEATS
+    ):
+        return "time must be between 0 and 1576800 beats"
+    name = params.get("name")
+    if name is not None and (
+        not isinstance(name, str) or not name.strip() or len(name) > 128
+    ):
+        return "name must be a non-empty string of at most 128 characters"
+    return None
+
+
+def _set_or_delete_cue_at_time(song, time):
+    previous_time = song.current_song_time
+    try:
+        song.current_song_time = time
+        return song.set_or_delete_cue()
+    finally:
+        song.current_song_time = previous_time
+
+
+def create_cue_point(context, params):
+    song = context.song
+    if (
+        not hasattr(song, "cue_points")
+        or not hasattr(song, "current_song_time")
+        or not hasattr(song, "set_or_delete_cue")
+    ):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "This Live version does not support safe cue-point creation",
+        )
+    if bool(getattr(song, "is_playing", False)):
+        raise ProtocolFailure(
+            "conflict",
+            "Stop transport before creating a cue point",
+        )
+    before = list(song.cue_points)
+    for cue_point in before:
+        if abs(cue_point.time - params["time"]) < 0.000001:
+            raise ProtocolFailure(
+                "conflict",
+                "A cue point already exists at the requested time",
+                details={
+                    "reference": _cue_point_reference(context, cue_point),
+                    "name": cue_point.name,
+                    "time": cue_point.time,
+                },
+            )
+    try:
+        created_result = _set_or_delete_cue_at_time(song, params["time"])
+        created = [
+            candidate
+            for candidate in song.cue_points
+            if not any(candidate is previous for previous in before)
+        ]
+        if len(created) != 1:
+            raise ProtocolFailure(
+                "conflict",
+                "Cue-point creation produced an unexpected number of objects",
+            )
+        cue_point = created[0]
+        if created_result is not None and created_result is not cue_point:
+            raise ProtocolFailure(
+                "conflict",
+                "Cue-point creation returned an unexpected object",
+            )
+        if "name" in params:
+            if not hasattr(cue_point, "name"):
+                raise ProtocolFailure(
+                    "unsupported_capability",
+                    "This Live version does not support cue-point naming",
+                )
+            cue_point.name = params["name"].strip()
+        current = list(song.cue_points)
+        if (
+            len(current) != len(before) + 1
+            or not any(candidate is cue_point for candidate in current)
+            or any(
+                not any(candidate is previous for candidate in current)
+                for previous in before
+            )
+            or abs(cue_point.time - params["time"]) >= 0.000001
+            or (
+                "name" in params
+                and cue_point.name != params["name"].strip()
+            )
+        ):
+            raise ProtocolFailure(
+                "conflict",
+                "Cue-point creation completed but verification failed",
+            )
+        result = {
+            "cuePoint": _cue_point_summary(context, cue_point),
+            "beforeCuePointCount": len(before),
+            "afterCuePointCount": len(current),
+            "verified": True,
+        }
+    except Exception as exc:
+        try:
+            created = [
+                candidate
+                for candidate in song.cue_points
+                if not any(candidate is previous for previous in before)
+            ]
+            for candidate in created:
+                _set_or_delete_cue_at_time(song, candidate.time)
+            current = list(song.cue_points)
+            if len(current) != len(before) or any(
+                not any(candidate is previous for candidate in current)
+                for previous in before
+            ):
+                raise RuntimeError("Cue-point before-state was not restored")
+        except Exception as recovery_exc:
+            raise ProtocolFailure(
+                "lom_error",
+                "Cue-point creation and recovery both failed",
+                details={
+                    "operationError": str(exc),
+                    "recoveryError": str(recovery_exc),
+                },
+            )
+        if isinstance(exc, ProtocolFailure):
+            raise exc
+        raise ProtocolFailure(
+            "lom_error",
+            "Cue-point creation failed; the new cue point was removed",
+            details={"operationError": str(exc)},
+        )
+    return result
+
+
+def _delete_cue_point_params(params):
+    required = set(["expectedReference", "expectedName", "expectedTime"])
+    if set(params.keys()) != required:
+        return "expectedReference, expectedName, and expectedTime are required"
+    try:
+        uuid.UUID(params.get("expectedReference"))
+    except (AttributeError, TypeError, ValueError):
+        return "expectedReference must be a UUID"
+    if not isinstance(params.get("expectedName"), str):
+        return "expectedName must be a string"
+    time = params.get("expectedTime")
+    if (
+        not _is_finite_number(time)
+        or time < 0
+        or time > ARRANGEMENT_MAX_BEATS
+    ):
+        return "expectedTime must be between 0 and 1576800 beats"
+    return None
+
+
+def delete_cue_point(context, params):
+    song = context.song
+    if (
+        not hasattr(song, "cue_points")
+        or not hasattr(song, "current_song_time")
+        or not hasattr(song, "set_or_delete_cue")
+    ):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "This Live version does not support cue-point deletion",
+        )
+    if bool(getattr(song, "is_playing", False)):
+        raise ProtocolFailure(
+            "conflict",
+            "Stop transport before deleting a cue point",
+        )
+    target = None
+    for cue_point in song.cue_points:
+        if (
+            _cue_point_reference(context, cue_point)
+            == params["expectedReference"]
+        ):
+            target = cue_point
+            break
+    if target is None:
+        raise ProtocolFailure("not_found", "Cue point no longer exists")
+    if (
+        not _is_finite_number(target.time)
+        or target.time < 0
+        or target.name != params["expectedName"]
+        or abs(target.time - params["expectedTime"]) >= 0.000001
+    ):
+        raise ProtocolFailure(
+            "stale_reference",
+            "Cue-point identity changed before deletion",
+            details={
+                "expectedName": params["expectedName"],
+                "actualName": target.name,
+                "expectedTime": params["expectedTime"],
+                "actualTime": target.time,
+            },
+        )
+    before = list(song.cue_points)
+    summary = _cue_point_summary(context, target)
+    _set_or_delete_cue_at_time(song, target.time)
+    after = list(song.cue_points)
+    if (
+        len(after) != len(before) - 1
+        or any(candidate is target for candidate in after)
+        or any(
+            previous is not target
+            and not any(candidate is previous for candidate in after)
+            for previous in before
+        )
+    ):
+        raise ProtocolFailure(
+            "conflict",
+            "Cue-point deletion completed but verification failed",
+        )
+    return {
+        "cuePoint": summary,
+        "beforeCuePointCount": len(before),
+        "afterCuePointCount": len(after),
+        "verified": True,
+    }
+
 
 def _create_track_params(params):
     if set(params.keys()) - set(["kind", "name"]):
@@ -1970,6 +2390,33 @@ def register_system_commands(registry):
         mutates=True,
         capability="transport.set_playing",
         validator=_set_playing_params,
+    )
+    registry.register(
+        "transport.inspect_arrangement",
+        inspect_arrangement_transport,
+        capability="transport.inspect_arrangement",
+        validator=_inspect_arrangement_transport_params,
+    )
+    registry.register(
+        "transport.set_arrangement_loop",
+        set_arrangement_loop,
+        mutates=True,
+        capability="transport.set_arrangement_loop",
+        validator=_set_arrangement_loop_params,
+    )
+    registry.register(
+        "transport.create_cue_point",
+        create_cue_point,
+        mutates=True,
+        capability="transport.create_cue_point",
+        validator=_create_cue_point_params,
+    )
+    registry.register(
+        "transport.delete_cue_point",
+        delete_cue_point,
+        mutates=True,
+        capability="transport.delete_cue_point",
+        validator=_delete_cue_point_params,
     )
     registry.register(
         "tracks.create",

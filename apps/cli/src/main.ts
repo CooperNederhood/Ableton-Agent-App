@@ -14,10 +14,13 @@ import {
 } from "@ableton-agent/shared";
 import type {
   CapabilityDocument,
+  CreateCuePointParams,
+  CuePointMutationResult,
   CreateArrangementMidiClipParams,
   CreateArrangementMidiClipResult,
   DeleteArrangementClipParams,
   DeleteArrangementClipResult,
+  DeleteCuePointParams,
   DuplicateClipToArrangementParams,
   DuplicateClipToArrangementResult,
   DuplicateSessionClipParams,
@@ -36,11 +39,15 @@ import type {
   ReplaceArrangementMidiNotesResult,
   SetArrangementClipPropertiesParams,
   SetArrangementClipPropertiesResult,
+  SetArrangementLoopParams,
+  SetArrangementLoopResult,
   SetSessionClipPropertiesParams,
   SetSessionClipPropertiesResult,
   PingResult,
   InspectArrangementParams,
   InspectArrangementResult,
+  InspectArrangementTransportParams,
+  InspectArrangementTransportResult,
   LaunchSessionClipParams,
   LaunchSessionClipResult,
   SessionSnapshot,
@@ -116,6 +123,18 @@ class UnconfiguredAbletonService implements AbletonService {
     throw new Error("Ableton bridge is not configured");
   }
   public async setPlaying(): Promise<SetPlayingResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async inspectArrangementTransport(): Promise<InspectArrangementTransportResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async setArrangementLoop(): Promise<SetArrangementLoopResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async createCuePoint(): Promise<CuePointMutationResult> {
+    throw new Error("Ableton bridge is not configured");
+  }
+  public async deleteCuePoint(): Promise<CuePointMutationResult> {
     throw new Error("Ableton bridge is not configured");
   }
   public async createTrack(): Promise<TrackMutationResult> {
@@ -213,6 +232,15 @@ async function main(): Promise<number> {
       inspectSession: () => ableton.inspectSession(),
       setTempo: (tempo) => ableton.setTempo(tempo),
       setPlaying: (isPlaying) => ableton.setPlaying(isPlaying),
+      inspectArrangementTransport: (
+        params: InspectArrangementTransportParams,
+      ) => ableton.inspectArrangementTransport(params),
+      setArrangementLoop: (params: SetArrangementLoopParams) =>
+        ableton.setArrangementLoop(params),
+      createCuePoint: (params: CreateCuePointParams) =>
+        ableton.createCuePoint(params),
+      deleteCuePoint: (params: DeleteCuePointParams) =>
+        ableton.deleteCuePoint(params),
       createTrack: (params: CreateTrackParams) => ableton.createTrack(params),
       deleteTrack: (params: DeleteTrackParams) => ableton.deleteTrack(params),
       renameTrack: (params: RenameTrackParams) => ableton.renameTrack(params),

@@ -258,14 +258,57 @@ class FakeCreateThenFailClipSlot(FakeClipSlot):
         raise RuntimeError("simulated create failure")
 
 
+class FakeCuePoint(object):
+    def __init__(self, time, name):
+        self.time = time
+        self.name = name
+
+
 class FakeSong(object):
     def __init__(self):
         self.tempo = 124.0
         self.signature_numerator = 4
         self.signature_denominator = 4
         self.is_playing = True
+        self.current_song_time = 4.0
         self.file_path = "/tmp/example.als"
+        self._loop = False
+        self._loop_start = 0.0
+        self._loop_length = 16.0
+        self.fail_loop_length_set_after_mutation = False
+        self.fail_cue_create_after_mutation = False
+        self.cue_points = [
+            FakeCuePoint(0.0, "Intro"),
+            FakeCuePoint(16.0, "Verse"),
+        ]
         self.tracks = [FakeTrack("Drums"), FakeTrack("Bass")]
+
+    @property
+    def loop(self):
+        return self._loop
+
+    @loop.setter
+    def loop(self, value):
+        self._loop = value
+
+    @property
+    def loop_start(self):
+        return self._loop_start
+
+    @loop_start.setter
+    def loop_start(self, value):
+        self._loop_start = value
+
+    @property
+    def loop_length(self):
+        return self._loop_length
+
+    @loop_length.setter
+    def loop_length(self, value):
+        self._loop_length = value
+        if self.fail_loop_length_set_after_mutation:
+            self.fail_loop_length_set_after_mutation = False
+            raise RuntimeError("simulated loop length failure")
 
     def start_playing(self):
         self.is_playing = True
@@ -281,6 +324,27 @@ class FakeSong(object):
 
     def delete_track(self, index):
         del self.tracks[index]
+
+    def set_or_delete_cue(self):
+        existing = next(
+            (
+                cue_point
+                for cue_point in self.cue_points
+                if abs(cue_point.time - self.current_song_time) < 0.000001
+            ),
+            None,
+        )
+        if existing is not None:
+            self.cue_points.remove(existing)
+            return None
+        cue_point = FakeCuePoint(
+            self.current_song_time, str(len(self.cue_points) + 1)
+        )
+        self.cue_points.append(cue_point)
+        if self.fail_cue_create_after_mutation:
+            self.fail_cue_create_after_mutation = False
+            raise RuntimeError("simulated cue-point create failure")
+        return cue_point
 
 
 class FakeApplication(object):
@@ -452,6 +516,238 @@ class ExecutorTests(unittest.TestCase):
                 "verified": True,
             },
         )
+
+    def test_arrangement_transport_inspection_is_bounded_and_stable(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "transport.inspect_arrangement",
+                {"offset": 1, "limit": 1},
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        first_reference = responses[0]["result"]["cuePoints"][0][
+            "reference"
+        ]
+        executor.submit(
+            request(
+                "transport.inspect_arrangement",
+                {"offset": 1, "limit": 1},
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(
+            responses[0]["result"]["loop"],
+            {"enabled": False, "start": 0.0, "length": 16.0},
+        )
+        self.assertEqual(responses[0]["result"]["totalCuePoints"], 2)
+        self.assertEqual(len(responses[0]["result"]["cuePoints"]), 1)
+        self.assertEqual(
+            responses[1]["result"]["cuePoints"][0]["reference"],
+            first_reference,
+        )
+
+    def test_arrangement_loop_update_verifies_and_rolls_back_partial_failure(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "transport.set_arrangement_loop",
+                {"enabled": True, "start": 8.0, "length": 24.0},
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        self.assertEqual(
+            responses[0]["result"]["after"],
+            {"enabled": True, "start": 8.0, "length": 24.0},
+        )
+
+        context.song.fail_loop_length_set_after_mutation = True
+        executor.submit(
+            request(
+                "transport.set_arrangement_loop",
+                {"enabled": False, "start": 12.0, "length": 8.0},
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[1]["error"]["code"], "lom_error")
+        self.assertEqual(
+            {
+                "enabled": context.song.loop,
+                "start": context.song.loop_start,
+                "length": context.song.loop_length,
+            },
+            {"enabled": True, "start": 8.0, "length": 24.0},
+        )
+
+    def test_arrangement_loop_rejects_non_finite_and_out_of_bounds_values(self):
+        scheduled = []
+        responses = []
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            FakeContext(),
+        )
+
+        executor.submit(
+            request(
+                "transport.set_arrangement_loop",
+                {"start": float("nan")},
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        executor.submit(
+            request(
+                "transport.set_arrangement_loop",
+                {"start": 1576800, "length": 1},
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["error"]["code"], "invalid_params")
+        self.assertEqual(responses[1]["error"]["code"], "invalid_params")
+
+    def test_cue_point_creation_and_identity_bound_deletion(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        context.song.is_playing = False
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "transport.create_cue_point",
+                {"time": 32.0, "name": "Chorus"},
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        created = responses[0]["result"]["cuePoint"]
+        executor.submit(
+            request(
+                "transport.delete_cue_point",
+                {
+                    "expectedReference": created["reference"],
+                    "expectedName": "Wrong",
+                    "expectedTime": 32.0,
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        executor.submit(
+            request(
+                "transport.delete_cue_point",
+                {
+                    "expectedReference": created["reference"],
+                    "expectedName": "Chorus",
+                    "expectedTime": 32.0,
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["result"]["beforeCuePointCount"], 2)
+        self.assertEqual(responses[1]["error"]["code"], "stale_reference")
+        self.assertEqual(responses[2]["result"]["afterCuePointCount"], 2)
+        self.assertFalse(
+            any(cue.name == "Chorus" for cue in context.song.cue_points)
+        )
+        self.assertEqual(context.song.current_song_time, 4.0)
+
+    def test_cue_point_creation_rolls_back_after_lom_failure(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        context.song.is_playing = False
+        context.song.fail_cue_create_after_mutation = True
+        before = list(context.song.cue_points)
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "transport.create_cue_point",
+                {"time": 32.0, "name": "Chorus"},
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["error"]["code"], "lom_error")
+        self.assertEqual(len(context.song.cue_points), len(before))
+        self.assertEqual(context.song.current_song_time, 4.0)
+        self.assertTrue(
+            all(
+                any(current is previous for current in context.song.cue_points)
+                for previous in before
+            )
+        )
+
+    def test_cue_point_mutation_requires_stopped_transport(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "transport.create_cue_point",
+                {"time": 32.0, "name": "Chorus"},
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["error"]["code"], "conflict")
+        self.assertEqual(context.song.current_song_time, 4.0)
 
     def test_track_create_and_delete_are_verified(self):
         scheduled = []
@@ -1624,7 +1920,49 @@ class CapabilityAndTokenTests(unittest.TestCase):
         self.assertTrue(document["capabilities"]["clips.duplicate"])
         self.assertTrue(document["capabilities"]["clips.delete"])
         self.assertTrue(document["capabilities"]["clips.set_properties"])
+        self.assertTrue(
+            document["capabilities"]["transport.inspect_arrangement"]
+        )
+        self.assertTrue(
+            document["capabilities"]["transport.set_arrangement_loop"]
+        )
+        self.assertTrue(
+            document["capabilities"]["transport.create_cue_point"]
+        )
+        self.assertTrue(
+            document["capabilities"]["transport.delete_cue_point"]
+        )
         self.assertEqual(len(document["projectId"]), 24)
+
+        legacy_transport_song = FakeSong()
+        del legacy_transport_song.cue_points
+        del legacy_transport_song._loop_length
+        legacy_transport_document = build_capability_document(
+            FakeApplication(),
+            legacy_transport_song,
+            registry,
+            note_editing_supported=True,
+        )
+        self.assertFalse(
+            legacy_transport_document["capabilities"][
+                "transport.inspect_arrangement"
+            ]
+        )
+        self.assertFalse(
+            legacy_transport_document["capabilities"][
+                "transport.set_arrangement_loop"
+            ]
+        )
+        self.assertFalse(
+            legacy_transport_document["capabilities"][
+                "transport.create_cue_point"
+            ]
+        )
+        self.assertFalse(
+            legacy_transport_document["capabilities"][
+                "transport.delete_cue_point"
+            ]
+        )
 
         legacy_song = FakeSong()
         legacy_song.tracks = [object()]

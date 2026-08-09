@@ -28,6 +28,7 @@ the CLI:
 export ABLETON_AGENT_TOKEN="<token>"
 node apps/cli/dist/main.js doctor
 node apps/cli/dist/main.js snapshot
+node apps/cli/dist/main.js transport
 node apps/cli/dist/main.js chat
 ```
 
@@ -56,6 +57,14 @@ Session clips. Identity-bound Session MIDI clips can be duplicated to
 non-overlapping Arrangement destinations with rollback, and Arrangement clip
 name, mute, and supported loop state can be updated with verified restoration
 of prior values on failure.
+Arrangement transport inspection returns the loop state plus a bounded page of
+cue points. Loop enable/start/length updates validate finite bounded beat
+values, verify the complete before/after state, and restore prior values after
+partial failure. Cue-point creation is reversible and rolls back failed
+creation; cue-point deletion is destructive and requires the stable runtime
+reference, name, and time returned by a recent inspection. Cue references are
+stable only for the current Remote Script runtime because Live does not expose
+persistent cue-point IDs.
 
 For development without Ableton:
 

@@ -11,6 +11,8 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 - [ ] Define command-specific request/result schemas.
   - [x] Define exact-reference Session clip launch, duplication, deletion, and
     conservative property request/result schemas.
+  - [x] Define bounded Arrangement transport inspection, verified loop update,
+    and identity-bound cue-point mutation schemas.
 - [ ] Export JSON Schema and representative fixtures for Python tests.
 
 ## Framing and negotiation

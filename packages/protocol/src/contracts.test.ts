@@ -8,6 +8,8 @@ import {
   failureResponseEnvelopeSchema,
   messageEnvelopeSchema,
   protocolErrorCodeSchema,
+  requestEnvelopeSchema,
+  successResponseEnvelopeSchema,
 } from "./schemas.js";
 
 describe("generated protocol contracts", () => {
@@ -46,5 +48,34 @@ describe("generated protocol contracts", () => {
     expect(errors.map((message) => message.error.code).sort()).toEqual(
       [...protocolErrorCodeSchema.options].sort(),
     );
+  });
+
+  it("validates request, success, and failure fixtures for every command", async () => {
+    const fixture = JSON.parse(
+      await readFile(
+        new URL("../contracts/command-fixtures.json", import.meta.url),
+        "utf8",
+      ),
+    ) as {
+      commands: Record<
+        string,
+        { request: unknown; success: unknown; failure: unknown }
+      >;
+    };
+
+    expect(Object.keys(fixture.commands).sort()).toEqual(
+      Object.keys(commandCatalog).sort(),
+    );
+    for (const [name, definition] of Object.entries(commandCatalog)) {
+      const messages = fixture.commands[name];
+      if (messages === undefined) {
+        throw new Error(`Missing command fixture for ${name}`);
+      }
+      const request = requestEnvelopeSchema.parse(messages.request);
+      const success = successResponseEnvelopeSchema.parse(messages.success);
+      failureResponseEnvelopeSchema.parse(messages.failure);
+      definition.params.parse(request.params);
+      definition.result.parse(success.result);
+    }
   });
 });

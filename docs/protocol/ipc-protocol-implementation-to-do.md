@@ -33,7 +33,7 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 ## Contract automation
 
 - [x] Generate a command catalog from canonical schemas.
-- [ ] Validate that each command has request, success, and failure fixtures.
+- [x] Validate that each command has request, success, and failure fixtures.
 - [x] Validate that every bridge command has a Remote Script registry entry.
 - [x] Add schema-diff checks to CI for breaking changes.
 - [x] Add golden fixtures for all error classes.

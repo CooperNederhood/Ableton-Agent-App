@@ -21,6 +21,62 @@ const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const contractsDirectory = join(packageRoot, "contracts");
 const requestId = "00000000-0000-4000-8000-000000000001";
 
+function sampleFromSchema(schema) {
+  if (schema.const !== undefined) return schema.const;
+  if (schema.enum !== undefined) return schema.enum[0];
+  if (schema.default !== undefined) return schema.default;
+  if (schema.anyOf !== undefined) {
+    const candidate =
+      schema.anyOf.find((entry) => entry.type !== "null") ?? schema.anyOf[0];
+    return sampleFromSchema(candidate);
+  }
+  switch (schema.type) {
+    case "object": {
+      const propertyNames = Object.keys(schema.properties ?? {});
+      const required = schema.required ?? [];
+      const firstOptional = propertyNames.find(
+        (name) => !required.includes(name),
+      );
+      const selected =
+        firstOptional === undefined ? required : [...required, firstOptional];
+      return Object.fromEntries(
+        selected.map((name) => [
+          name,
+          sampleFromSchema(schema.properties[name]),
+        ]),
+      );
+    }
+    case "array": {
+      const length = schema.minItems ?? 0;
+      return Array.from({ length }, () => sampleFromSchema(schema.items));
+    }
+    case "string":
+      if (schema.format === "uuid")
+        return "00000000-0000-4000-8000-000000000099";
+      if (schema.format === "uri") return "ableton://fixture";
+      return "x".repeat(Math.max(1, schema.minLength ?? 0));
+    case "integer":
+    case "number": {
+      const minimum =
+        schema.minimum ??
+        (schema.exclusiveMinimum === undefined
+          ? 0
+          : schema.exclusiveMinimum + 1);
+      return schema.maximum === undefined
+        ? minimum
+        : Math.min(minimum, schema.maximum);
+    }
+    case "boolean":
+      return false;
+    case "null":
+      return null;
+    default:
+      throw new Error(
+        `Cannot generate fixture for schema ${JSON.stringify(schema)}`,
+      );
+  }
+}
+
 const schemaDocument = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   protocolVersion: PROTOCOL_VERSION,
@@ -119,6 +175,52 @@ const fixtures = {
   ),
 };
 
+const commandFixtures = {
+  producer: "typescript",
+  protocolVersion: PROTOCOL_VERSION,
+  commands: Object.fromEntries(
+    Object.entries(commandCatalog).map(([name, definition], index) => {
+      const params = definition.params.parse(
+        sampleFromSchema(z.toJSONSchema(definition.params)),
+      );
+      const result = definition.result.parse(
+        sampleFromSchema(z.toJSONSchema(definition.result)),
+      );
+      const commandRequestId = `00000000-0000-4000-8000-${String(index + 1000).padStart(12, "0")}`;
+      return [
+        name,
+        {
+          request: requestEnvelopeSchema.parse({
+            protocolVersion: PROTOCOL_VERSION,
+            kind: "request",
+            requestId: commandRequestId,
+            command: name,
+            params,
+          }),
+          success: successResponseEnvelopeSchema.parse({
+            protocolVersion: PROTOCOL_VERSION,
+            kind: "response",
+            requestId: commandRequestId,
+            ok: true,
+            result,
+          }),
+          failure: failureResponseEnvelopeSchema.parse({
+            protocolVersion: PROTOCOL_VERSION,
+            kind: "response",
+            requestId: commandRequestId,
+            ok: false,
+            error: {
+              code: "lom_error",
+              message: `Golden ${name} failure`,
+              retryable: true,
+            },
+          }),
+        },
+      ];
+    }),
+  ),
+};
+
 const outputs = new Map([
   [
     join(contractsDirectory, "protocol.schema.json"),
@@ -127,6 +229,10 @@ const outputs = new Map([
   [
     join(contractsDirectory, "typescript-fixtures.json"),
     await format(JSON.stringify(fixtures), { parser: "json" }),
+  ],
+  [
+    join(contractsDirectory, "command-fixtures.json"),
+    await format(JSON.stringify(commandFixtures), { parser: "json" }),
   ],
 ]);
 

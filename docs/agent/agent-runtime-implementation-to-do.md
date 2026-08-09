@@ -44,9 +44,9 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [~] Unit-test event normalization and context generation.
 - [x] Unit-test hook decisions for every risk and error class.
 - [x] Test system-message/tool compatibility with deterministic fixtures.
-- [ ] Integration-test custom tool invocation through the Copilot SDK.
-- [ ] Integration-test cancellation, idle completion, resume, and SDK failure.
-- [ ] Add transcript/evaluation cases for inspect-before-edit and verification.
+- [x] Integration-test custom tool invocation through the Copilot SDK.
+- [x] Integration-test cancellation, idle completion, resume, and SDK failure.
+- [x] Add transcript/evaluation cases for inspect-before-edit and verification.
 
 ## Exit criteria
 

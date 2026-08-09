@@ -1,0 +1,1885 @@
+{
+  "producer": "typescript",
+  "protocolVersion": 2,
+  "commands": {
+    "system.hello": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001000",
+        "command": "system.hello",
+        "params": {
+          "authenticationToken": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "supportedProtocolVersions": [1],
+          "appVersion": "x",
+          "eventSubscriptions": []
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001000",
+        "ok": true,
+        "result": {
+          "selectedProtocolVersion": 2,
+          "liveVersion": "x",
+          "remoteScriptVersion": "x",
+          "projectId": "x",
+          "capabilities": {},
+          "limits": { "maxFrameBytes": 1, "maxBatchItems": 1 }
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001000",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden system.hello failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "system.ping": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001001",
+        "command": "system.ping",
+        "params": {}
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001001",
+        "ok": true,
+        "result": { "pong": true },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001001",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden system.ping failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "session.inspect": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001002",
+        "command": "session.inspect",
+        "params": {}
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001002",
+        "ok": true,
+        "result": {
+          "tempo": 1,
+          "timeSignature": { "numerator": 1, "denominator": 1 },
+          "isPlaying": false,
+          "trackCount": 0,
+          "tracks": [],
+          "clips": []
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001002",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden session.inspect failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "transport.set_tempo": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001003",
+        "command": "transport.set_tempo",
+        "params": { "tempo": 20 }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001003",
+        "ok": true,
+        "result": { "beforeTempo": 1, "afterTempo": 1, "verified": false },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001003",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden transport.set_tempo failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "transport.set_playing": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001004",
+        "command": "transport.set_playing",
+        "params": { "isPlaying": false }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001004",
+        "ok": true,
+        "result": {
+          "beforeIsPlaying": false,
+          "afterIsPlaying": false,
+          "verified": false
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001004",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden transport.set_playing failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "transport.inspect_arrangement": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001005",
+        "command": "transport.inspect_arrangement",
+        "params": { "offset": 0, "limit": 100 }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001005",
+        "ok": true,
+        "result": {
+          "loop": { "enabled": false, "start": 0, "length": 1 },
+          "cuePoints": [],
+          "totalCuePoints": 0,
+          "offset": 0,
+          "limit": 1
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001005",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden transport.inspect_arrangement failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "transport.set_arrangement_loop": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001006",
+        "command": "transport.set_arrangement_loop",
+        "params": { "enabled": false }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001006",
+        "ok": true,
+        "result": {
+          "before": { "enabled": false, "start": 0, "length": 1 },
+          "after": { "enabled": false, "start": 0, "length": 1 },
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001006",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden transport.set_arrangement_loop failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "transport.create_cue_point": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001007",
+        "command": "transport.create_cue_point",
+        "params": { "time": 0, "name": "x" }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001007",
+        "ok": true,
+        "result": {
+          "cuePoint": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "name": "x",
+            "time": 0
+          },
+          "beforeCuePointCount": 0,
+          "afterCuePointCount": 0,
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001007",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden transport.create_cue_point failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "transport.delete_cue_point": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001008",
+        "command": "transport.delete_cue_point",
+        "params": {
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "expectedTime": 0
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001008",
+        "ok": true,
+        "result": {
+          "cuePoint": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "name": "x",
+            "time": 0
+          },
+          "beforeCuePointCount": 0,
+          "afterCuePointCount": 0,
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001008",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden transport.delete_cue_point failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "tracks.create": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001009",
+        "command": "tracks.create",
+        "params": { "kind": "midi", "name": "x" }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001009",
+        "ok": true,
+        "result": {
+          "beforeTrackCount": 0,
+          "afterTrackCount": 0,
+          "track": {
+            "index": 0,
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "name": "x",
+            "kind": "midi"
+          },
+          "verified": false
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001009",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden tracks.create failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "tracks.delete": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001010",
+        "command": "tracks.delete",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "expectedKind": "midi"
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001010",
+        "ok": true,
+        "result": {
+          "beforeTrackCount": 0,
+          "afterTrackCount": 0,
+          "track": {
+            "index": 0,
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "name": "x",
+            "kind": "midi"
+          },
+          "verified": false
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001010",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden tracks.delete failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "tracks.rename": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001011",
+        "command": "tracks.rename",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "name": "x"
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001011",
+        "ok": true,
+        "result": {
+          "reference": "00000000-0000-4000-8000-000000000099",
+          "index": 0,
+          "beforeName": "x",
+          "afterName": "x",
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001011",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden tracks.rename failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "tracks.set_mixer": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001012",
+        "command": "tracks.set_mixer",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "isMuted": false
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001012",
+        "ok": true,
+        "result": {
+          "reference": "00000000-0000-4000-8000-000000000099",
+          "index": 0,
+          "before": {
+            "isMuted": false,
+            "isSoloed": false,
+            "isArmed": false,
+            "volume": 0,
+            "pan": -1
+          },
+          "after": {
+            "isMuted": false,
+            "isSoloed": false,
+            "isArmed": false,
+            "volume": 0,
+            "pan": -1
+          },
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001012",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden tracks.set_mixer failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "devices.inspect": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001013",
+        "command": "devices.inspect",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "offset": 0,
+          "limit": 32
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001013",
+        "ok": true,
+        "result": { "devices": [], "total": 0, "offset": 0, "limit": 1 },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001013",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden devices.inspect failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "devices.inspect_parameters": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001014",
+        "command": "devices.inspect_parameters",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "deviceIndex": 0,
+          "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+          "expectedDeviceName": "x",
+          "offset": 0,
+          "limit": 64
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001014",
+        "ok": true,
+        "result": {
+          "device": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "index": 0,
+            "name": "x",
+            "className": "x",
+            "classDisplayName": "x",
+            "enabled": false,
+            "parameterCount": 0,
+            "canHaveChains": false,
+            "canHaveDrumPads": false
+          },
+          "parameters": [],
+          "total": 0,
+          "offset": 0,
+          "limit": 1
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001014",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden devices.inspect_parameters failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "devices.inspect_rack_chains": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001015",
+        "command": "devices.inspect_rack_chains",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "deviceIndex": 0,
+          "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+          "expectedDeviceName": "x",
+          "offset": 0,
+          "limit": 16
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001015",
+        "ok": true,
+        "result": {
+          "rack": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "index": 0,
+            "name": "x",
+            "className": "x",
+            "classDisplayName": "x",
+            "enabled": false,
+            "parameterCount": 0,
+            "canHaveChains": false,
+            "canHaveDrumPads": false
+          },
+          "chains": [],
+          "total": 0,
+          "offset": 0,
+          "limit": 1
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001015",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden devices.inspect_rack_chains failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "devices.inspect_rack_chain_devices": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001016",
+        "command": "devices.inspect_rack_chain_devices",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "deviceIndex": 0,
+          "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+          "expectedDeviceName": "x",
+          "chainIndex": 0,
+          "expectedChainReference": "00000000-0000-4000-8000-000000000099",
+          "expectedChainName": "x",
+          "offset": 0,
+          "limit": 32
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001016",
+        "ok": true,
+        "result": {
+          "rack": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "index": 0,
+            "name": "x",
+            "className": "x",
+            "classDisplayName": "x",
+            "enabled": false,
+            "parameterCount": 0,
+            "canHaveChains": false,
+            "canHaveDrumPads": false
+          },
+          "chain": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "rackDeviceReference": "00000000-0000-4000-8000-000000000099",
+            "index": 0,
+            "name": "x",
+            "color": -9007199254740991,
+            "deviceCount": 0
+          },
+          "devices": [],
+          "total": 0,
+          "offset": 0,
+          "limit": 1
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001016",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden devices.inspect_rack_chain_devices failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "devices.inspect_drum_rack_pads": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001017",
+        "command": "devices.inspect_drum_rack_pads",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "deviceIndex": 0,
+          "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+          "expectedDeviceName": "x",
+          "offset": 0,
+          "limit": 32
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001017",
+        "ok": true,
+        "result": {
+          "rack": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "index": 0,
+            "name": "x",
+            "className": "x",
+            "classDisplayName": "x",
+            "enabled": false,
+            "parameterCount": 0,
+            "canHaveChains": false,
+            "canHaveDrumPads": false
+          },
+          "pads": [],
+          "total": 0,
+          "offset": 0,
+          "limit": 1
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001017",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden devices.inspect_drum_rack_pads failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "devices.inspect_drum_pad_chains": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001018",
+        "command": "devices.inspect_drum_pad_chains",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "deviceIndex": 0,
+          "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+          "expectedDeviceName": "x",
+          "padIndex": 0,
+          "expectedPadReference": "00000000-0000-4000-8000-000000000099",
+          "expectedPadNote": 0,
+          "expectedPadName": "x",
+          "offset": 0,
+          "limit": 8
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001018",
+        "ok": true,
+        "result": {
+          "rack": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "index": 0,
+            "name": "x",
+            "className": "x",
+            "classDisplayName": "x",
+            "enabled": false,
+            "parameterCount": 0,
+            "canHaveChains": false,
+            "canHaveDrumPads": false
+          },
+          "pad": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "rackDeviceReference": "00000000-0000-4000-8000-000000000099",
+            "index": 0,
+            "note": 0,
+            "name": "x",
+            "mute": false,
+            "solo": false,
+            "chainCount": 0
+          },
+          "chains": [],
+          "total": 0,
+          "offset": 0,
+          "limit": 1
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001018",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden devices.inspect_drum_pad_chains failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "devices.inspect_drum_pad_chain_devices": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001019",
+        "command": "devices.inspect_drum_pad_chain_devices",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "deviceIndex": 0,
+          "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+          "expectedDeviceName": "x",
+          "padIndex": 0,
+          "expectedPadReference": "00000000-0000-4000-8000-000000000099",
+          "expectedPadNote": 0,
+          "expectedPadName": "x",
+          "chainIndex": 0,
+          "expectedChainReference": "00000000-0000-4000-8000-000000000099",
+          "expectedChainName": "x",
+          "offset": 0,
+          "limit": 32
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001019",
+        "ok": true,
+        "result": {
+          "rack": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "index": 0,
+            "name": "x",
+            "className": "x",
+            "classDisplayName": "x",
+            "enabled": false,
+            "parameterCount": 0,
+            "canHaveChains": false,
+            "canHaveDrumPads": false
+          },
+          "pad": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "rackDeviceReference": "00000000-0000-4000-8000-000000000099",
+            "index": 0,
+            "note": 0,
+            "name": "x",
+            "mute": false,
+            "solo": false,
+            "chainCount": 0
+          },
+          "chain": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "rackDeviceReference": "00000000-0000-4000-8000-000000000099",
+            "index": 0,
+            "name": "x",
+            "color": -9007199254740991,
+            "deviceCount": 0,
+            "drumPadReference": "00000000-0000-4000-8000-000000000099",
+            "drumPadIndex": 0
+          },
+          "devices": [],
+          "total": 0,
+          "offset": 0,
+          "limit": 1
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001019",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden devices.inspect_drum_pad_chain_devices failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "devices.set_enabled": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001020",
+        "command": "devices.set_enabled",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "deviceIndex": 0,
+          "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+          "expectedDeviceName": "x",
+          "enabled": false
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001020",
+        "ok": true,
+        "result": {
+          "device": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "index": 0,
+            "name": "x",
+            "className": "x",
+            "classDisplayName": "x",
+            "enabled": false,
+            "parameterCount": 0,
+            "canHaveChains": false,
+            "canHaveDrumPads": false
+          },
+          "beforeEnabled": false,
+          "afterEnabled": false,
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001020",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden devices.set_enabled failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "devices.set_parameter": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001021",
+        "command": "devices.set_parameter",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "deviceIndex": 0,
+          "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+          "expectedDeviceName": "x",
+          "parameterIndex": 0,
+          "expectedParameterReference": "00000000-0000-4000-8000-000000000099",
+          "expectedParameterName": "x",
+          "normalizedValue": 0
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001021",
+        "ok": true,
+        "result": {
+          "device": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "index": 0,
+            "name": "x",
+            "className": "x",
+            "classDisplayName": "x",
+            "enabled": false,
+            "parameterCount": 0,
+            "canHaveChains": false,
+            "canHaveDrumPads": false
+          },
+          "before": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "deviceReference": "00000000-0000-4000-8000-000000000099",
+            "index": 0,
+            "name": "x",
+            "value": 0,
+            "normalizedValue": 0,
+            "min": 0,
+            "max": 0,
+            "isQuantized": false,
+            "isEnabled": false,
+            "valueItemCount": 0
+          },
+          "after": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "deviceReference": "00000000-0000-4000-8000-000000000099",
+            "index": 0,
+            "name": "x",
+            "value": 0,
+            "normalizedValue": 0,
+            "min": 0,
+            "max": 0,
+            "isQuantized": false,
+            "isEnabled": false,
+            "valueItemCount": 0
+          },
+          "requestedNormalizedValue": 0,
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001021",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden devices.set_parameter failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "browser.inspect_roots": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001022",
+        "command": "browser.inspect_roots",
+        "params": {}
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001022",
+        "ok": true,
+        "result": { "roots": [], "cacheLimit": 1 },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001022",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden browser.inspect_roots failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "browser.inspect_children": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001023",
+        "command": "browser.inspect_children",
+        "params": {
+          "expectedItemReference": "00000000-0000-4000-8000-000000000099",
+          "expectedItemRoot": "sounds",
+          "expectedItemPath": [],
+          "expectedItemName": "x",
+          "expectedItemUri": "x",
+          "offset": 0,
+          "limit": 32
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001023",
+        "ok": true,
+        "result": {
+          "parent": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "root": "sounds",
+            "path": [],
+            "name": "x",
+            "uri": "x",
+            "isFolder": false,
+            "isLoadable": false,
+            "isDevice": false,
+            "source": "x",
+            "isBuiltInDevice": false
+          },
+          "items": [],
+          "total": 0,
+          "hasMore": false,
+          "offset": 0,
+          "limit": 1
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001023",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden browser.inspect_children failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "browser.search": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001024",
+        "command": "browser.search",
+        "params": {
+          "query": "x",
+          "roots": ["instruments", "audio_effects", "midi_effects"],
+          "maxNodes": 128,
+          "maxResults": 20,
+          "maxDepth": 4,
+          "maxDurationMs": 100
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001024",
+        "ok": true,
+        "result": {
+          "query": "x",
+          "items": [],
+          "visitedNodes": 0,
+          "truncated": false,
+          "stopReason": "complete",
+          "limits": {
+            "maxNodes": 1,
+            "maxResults": 1,
+            "maxDepth": 0,
+            "maxDurationMs": 10
+          }
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001024",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden browser.search failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "browser.load_item": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001025",
+        "command": "browser.load_item",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "expectedItemReference": "00000000-0000-4000-8000-000000000099",
+          "expectedItemRoot": "sounds",
+          "expectedItemPath": [],
+          "expectedItemName": "x",
+          "expectedItemUri": "x"
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001025",
+        "ok": true,
+        "result": {
+          "track": {
+            "index": 0,
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "name": "x",
+            "kind": "midi"
+          },
+          "item": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "root": "sounds",
+            "path": [],
+            "name": "x",
+            "uri": "x",
+            "isFolder": false,
+            "isLoadable": false,
+            "isDevice": false,
+            "source": "x",
+            "isBuiltInDevice": false
+          },
+          "before": {
+            "deviceCount": 0,
+            "deviceReferences": [],
+            "deviceNames": [],
+            "devicesTruncated": false,
+            "sessionClipCount": 0,
+            "occupiedSessionSlots": [],
+            "clipsTruncated": false
+          },
+          "after": {
+            "deviceCount": 0,
+            "deviceReferences": [],
+            "deviceNames": [],
+            "devicesTruncated": false,
+            "sessionClipCount": 0,
+            "occupiedSessionSlots": [],
+            "clipsTruncated": false
+          },
+          "addedDevices": [],
+          "addedDevicesTruncated": false,
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001025",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden browser.load_item failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "clips.create_midi": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001026",
+        "command": "clips.create_midi",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "sceneIndex": 0,
+          "length": 1,
+          "name": "x"
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001026",
+        "ok": true,
+        "result": {
+          "clip": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "sceneIndex": 0,
+            "name": "x",
+            "length": 1,
+            "noteCount": 0
+          },
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001026",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden clips.create_midi failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "clips.replace_notes": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001027",
+        "command": "clips.replace_notes",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "sceneIndex": 0,
+          "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+          "allowPerNoteExpressionLoss": false,
+          "notes": []
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001027",
+        "ok": true,
+        "result": {
+          "clip": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "sceneIndex": 0,
+            "name": "x",
+            "length": 1,
+            "noteCount": 0
+          },
+          "beforeNoteCount": 0,
+          "afterNoteCount": 0,
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001027",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden clips.replace_notes failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "clips.launch": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001028",
+        "command": "clips.launch",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "sceneIndex": 0,
+          "expectedClipReference": "00000000-0000-4000-8000-000000000099"
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001028",
+        "ok": true,
+        "result": {
+          "clip": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "sceneIndex": 0,
+            "name": "x",
+            "kind": "midi",
+            "length": 1,
+            "noteCount": 0,
+            "muted": false
+          },
+          "before": {
+            "trackPlayingSceneIndex": 0,
+            "trackPlayingClipReference": "00000000-0000-4000-8000-000000000099",
+            "targetIsPlaying": false,
+            "targetIsTriggered": false
+          },
+          "after": {
+            "trackPlayingSceneIndex": 0,
+            "trackPlayingClipReference": "00000000-0000-4000-8000-000000000099",
+            "targetIsPlaying": false,
+            "targetIsTriggered": false
+          },
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001028",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden clips.launch failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "clips.duplicate": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001029",
+        "command": "clips.duplicate",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "sceneIndex": 0,
+          "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+          "destinationTrackIndex": 0,
+          "expectedDestinationTrackReference": "00000000-0000-4000-8000-000000000099",
+          "expectedDestinationTrackName": "x",
+          "destinationSceneIndex": 0
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001029",
+        "ok": true,
+        "result": {
+          "sourceClip": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "sceneIndex": 0,
+            "name": "x",
+            "kind": "midi",
+            "length": 1,
+            "noteCount": 0,
+            "muted": false
+          },
+          "clip": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "sceneIndex": 0,
+            "name": "x",
+            "kind": "midi",
+            "length": 1,
+            "noteCount": 0,
+            "muted": false
+          },
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001029",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden clips.duplicate failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "clips.delete": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001030",
+        "command": "clips.delete",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "sceneIndex": 0,
+          "expectedClipReference": "00000000-0000-4000-8000-000000000099"
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001030",
+        "ok": true,
+        "result": {
+          "clip": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "sceneIndex": 0,
+            "name": "x",
+            "kind": "midi",
+            "length": 1,
+            "noteCount": 0,
+            "muted": false
+          },
+          "beforeClipCount": 0,
+          "afterClipCount": 0,
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001030",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden clips.delete failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "clips.set_properties": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001031",
+        "command": "clips.set_properties",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "sceneIndex": 0,
+          "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+          "name": "x"
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001031",
+        "ok": true,
+        "result": {
+          "clip": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "sceneIndex": 0,
+            "name": "x",
+            "kind": "midi",
+            "length": 1,
+            "noteCount": 0,
+            "muted": false
+          },
+          "before": { "name": "x", "muted": false, "looping": false },
+          "after": { "name": "x", "muted": false, "looping": false },
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001031",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden clips.set_properties failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "arrangement.create_midi_clip": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001032",
+        "command": "arrangement.create_midi_clip",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "startTime": 0,
+          "length": 1,
+          "name": "x"
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001032",
+        "ok": true,
+        "result": {
+          "clip": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "name": "x",
+            "kind": "midi",
+            "startTime": 0,
+            "endTime": 1,
+            "length": 1,
+            "noteCount": 0,
+            "muted": false
+          },
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001032",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden arrangement.create_midi_clip failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "arrangement.inspect": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001033",
+        "command": "arrangement.inspect",
+        "params": { "offset": 0, "limit": 100 }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001033",
+        "ok": true,
+        "result": { "clips": [], "total": 0, "offset": 0, "limit": 1 },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001033",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden arrangement.inspect failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "arrangement.delete_clip": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001034",
+        "command": "arrangement.delete_clip",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+          "expectedStartTime": 0
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001034",
+        "ok": true,
+        "result": {
+          "clip": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "name": "x",
+            "kind": "midi",
+            "startTime": 0,
+            "endTime": 1,
+            "length": 1,
+            "noteCount": 0,
+            "muted": false
+          },
+          "beforeClipCount": 0,
+          "afterClipCount": 0,
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001034",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden arrangement.delete_clip failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "arrangement.replace_notes": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001035",
+        "command": "arrangement.replace_notes",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+          "expectedStartTime": 0,
+          "allowPerNoteExpressionLoss": false,
+          "notes": []
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001035",
+        "ok": true,
+        "result": {
+          "clip": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "name": "x",
+            "kind": "midi",
+            "startTime": 0,
+            "endTime": 1,
+            "length": 1,
+            "noteCount": 0,
+            "muted": false
+          },
+          "beforeNoteCount": 0,
+          "afterNoteCount": 0,
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001035",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden arrangement.replace_notes failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "arrangement.duplicate_clip": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001036",
+        "command": "arrangement.duplicate_clip",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "sceneIndex": 0,
+          "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+          "destinationTime": 0
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001036",
+        "ok": true,
+        "result": {
+          "sourceClip": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "sceneIndex": 0,
+            "name": "x",
+            "kind": "midi",
+            "length": 1,
+            "noteCount": 0,
+            "muted": false
+          },
+          "clip": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "name": "x",
+            "kind": "midi",
+            "startTime": 0,
+            "endTime": 1,
+            "length": 1,
+            "noteCount": 0,
+            "muted": false
+          },
+          "beforeClipCount": 0,
+          "afterClipCount": 0,
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001036",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden arrangement.duplicate_clip failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "arrangement.set_clip_properties": {
+      "request": {
+        "protocolVersion": 2,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001037",
+        "command": "arrangement.set_clip_properties",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+          "expectedStartTime": 0,
+          "name": "x"
+        }
+      },
+      "success": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001037",
+        "ok": true,
+        "result": {
+          "clip": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "name": "x",
+            "kind": "midi",
+            "startTime": 0,
+            "endTime": 1,
+            "length": 1,
+            "noteCount": 0,
+            "muted": false
+          },
+          "before": { "name": "x", "muted": false, "looping": false },
+          "after": { "name": "x", "muted": false, "looping": false },
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 2,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001037",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden arrangement.set_clip_properties failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    }
+  }
+}

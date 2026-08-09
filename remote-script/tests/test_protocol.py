@@ -1,4 +1,5 @@
 import json
+import random
 import struct
 import sys
 import unittest
@@ -35,6 +36,20 @@ class FrameProtocolTests(unittest.TestCase):
             [first, second],
         )
 
+    def test_deterministic_random_fragmentation_and_concatenation(self):
+        messages = [{"id": index} for index in range(25)]
+        data = b"".join(encode_frame(message) for message in messages)
+        generator = random.Random(0x5EED1234)
+        decoder = FrameDecoder()
+        decoded = []
+        offset = 0
+        while offset < len(data):
+            size = generator.randint(1, 37)
+            decoded.extend(decoder.push(data[offset : offset + size]))
+            offset += size
+        decoder.finish()
+        self.assertEqual(decoded, messages)
+
     def test_rejects_zero_length(self):
         with self.assertRaises(FrameDecodeError):
             FrameDecoder().push(struct.pack(">I", 0))
@@ -47,6 +62,18 @@ class FrameProtocolTests(unittest.TestCase):
         payload = b"{"
         with self.assertRaises(FrameDecodeError):
             FrameDecoder().push(struct.pack(">I", len(payload)) + payload)
+
+    def test_rejects_invalid_utf8(self):
+        payload = b"\xc3\x28"
+        with self.assertRaises(FrameDecodeError):
+            FrameDecoder().push(struct.pack(">I", len(payload)) + payload)
+
+    def test_rejects_truncated_frame_when_stream_finishes(self):
+        decoder = FrameDecoder()
+        decoder.push(encode_frame({"id": 1})[:6])
+        with self.assertRaisesRegex(FrameDecodeError, "truncated frame"):
+            decoder.finish()
+        self.assertEqual(decoder.buffered_bytes, 0)
 
     def test_encoding_is_compact_json(self):
         frame = encode_frame({"b": 1, "a": 2})

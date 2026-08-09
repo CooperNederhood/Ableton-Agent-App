@@ -101,6 +101,17 @@ export class FrameDecoder {
     this.#buffer = new Uint8Array(0);
   }
 
+  public finish(): void {
+    if (this.#buffer.byteLength === 0) {
+      return;
+    }
+    const bufferedBytes = this.#buffer.byteLength;
+    this.reset();
+    throw new FrameDecodeError(
+      `Stream ended with ${bufferedBytes} buffered byte(s) from a truncated frame`,
+    );
+  }
+
   public get bufferedBytes(): number {
     return this.#buffer.byteLength;
   }

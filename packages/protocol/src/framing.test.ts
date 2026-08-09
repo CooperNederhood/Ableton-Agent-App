@@ -33,6 +33,44 @@ describe("frame codec", () => {
     expect(decoder.bufferedBytes).toBe(0);
   });
 
+  it("round trips deterministic random fragmentation and concatenation", () => {
+    const messages = Array.from({ length: 25 }, request);
+    const frames = messages.map(encodeFrame);
+    const totalLength = frames.reduce(
+      (total, frame) => total + frame.length,
+      0,
+    );
+    const combined = new Uint8Array(totalLength);
+    let writeOffset = 0;
+    for (const frame of frames) {
+      combined.set(frame, writeOffset);
+      writeOffset += frame.length;
+    }
+
+    let seed = 0x5eed1234;
+    const random = (): number => {
+      seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0;
+      return seed / 0x1_0000_0000;
+    };
+    const decoder = new FrameDecoder();
+    const decoded: RequestEnvelope[] = [];
+    for (let offset = 0; offset < combined.length;) {
+      const size = Math.min(
+        combined.length - offset,
+        1 + Math.floor(random() * 37),
+      );
+      decoded.push(
+        ...(decoder.push(
+          combined.subarray(offset, offset + size),
+        ) as RequestEnvelope[]),
+      );
+      offset += size;
+    }
+    decoder.finish();
+
+    expect(decoded).toEqual(messages);
+  });
+
   it("decodes concatenated frames", () => {
     const first = request();
     const second = request();
@@ -62,5 +100,19 @@ describe("frame codec", () => {
     expect(() => new FrameDecoder().push(frame)).toThrow(
       /Invalid frame payload/,
     );
+  });
+
+  it("rejects invalid UTF-8", () => {
+    const frame = new Uint8Array([0, 0, 0, 2, 0xc3, 0x28]);
+    expect(() => new FrameDecoder().push(frame)).toThrow(
+      /Invalid frame payload/,
+    );
+  });
+
+  it("rejects a truncated frame when the stream finishes", () => {
+    const decoder = new FrameDecoder();
+    decoder.push(encodeFrame(request()).subarray(0, 8));
+    expect(() => decoder.finish()).toThrow(/truncated frame/);
+    expect(decoder.bufferedBytes).toBe(0);
   });
 });

@@ -36,6 +36,17 @@ class FrameDecoder(object):
     def reset(self):
         self._buffer = b""
 
+    def finish(self):
+        if not self._buffer:
+            return
+        buffered_bytes = len(self._buffer)
+        self.reset()
+        raise FrameDecodeError(
+            "Stream ended with {0} buffered byte(s) from a truncated frame".format(
+                buffered_bytes
+            )
+        )
+
     def push(self, chunk):
         if not chunk:
             return []

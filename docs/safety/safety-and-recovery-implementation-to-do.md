@@ -17,7 +17,7 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
 
 ## Guardrails
 
-- [ ] Implement last-track, occupied-slot, ambiguous-name, stale-reference, and
+- [x] Implement last-track, occupied-slot, ambiguous-name, stale-reference, and
   payload-limit guards.
   - [x] Protect the last track, reject group-track deletion, and revalidate
     expected track name and kind immediately before deletion.
@@ -64,8 +64,8 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
 ## Tests
 
 - [x] Unit-test every risk classification and approval transition.
-- [ ] Unit-test every guardrail and bypass attempt.
-- [ ] Unit-test postcondition tolerances and compensation decisions.
+- [x] Unit-test every guardrail and bypass attempt.
+- [x] Unit-test postcondition tolerances and compensation decisions.
 - [~] Integration-test denial, expiration, partial failure, and reconnect.
 - [x] Test CLI and React approval parity.
 - [ ] Real-Live test native undo behavior before exposing it.

@@ -22,7 +22,7 @@ Companion specification: [System Architecture](system-architecture.md)
 - [x] Define startup, ready, degraded, and shutdown lifecycle states.
 - [x] Implement graceful shutdown ordering and cancellation propagation.
 - [x] Define mutation serialization and workflow lease interfaces.
-- [ ] Define stable error categories across agent, bridge, protocol, and LOM.
+- [x] Define stable error categories across agent, bridge, protocol, and LOM.
 - [ ] Add correlation IDs spanning agent calls, workflows, bridge requests, and
   Remote Script logs.
 

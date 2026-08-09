@@ -542,6 +542,11 @@ export interface AbletonToolSet {
   availableTools: string[];
 }
 
+export const toolCatalogPolicy = {
+  mode: "eager",
+  maximumEagerTools: 64,
+} as const;
+
 export class AbletonToolPreconditionError extends Error {
   public readonly code: string;
   public readonly retryable = true;
@@ -579,6 +584,11 @@ function requireConnectedTool<T extends Record<string, unknown>>(
 export function createAbletonTools(
   services: AbletonToolServices,
 ): AbletonToolSet {
+  if (abletonToolMetadata.length > toolCatalogPolicy.maximumEagerTools) {
+    throw new Error(
+      "Ableton tool catalog exceeds the eager-registration limit; split it into deferred groups",
+    );
+  }
   const connectionStatusTool = defineTool("ableton_connection_status", {
     description:
       "Returns the current connection status for the Ableton Live Remote Script bridge.",

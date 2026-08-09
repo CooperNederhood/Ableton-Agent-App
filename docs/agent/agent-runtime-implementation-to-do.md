@@ -28,7 +28,9 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [x] Add retry guidance based on structured error codes.
 - [x] Prevent retry loops for denial, unsupported capability, and stale targets.
 - [x] Define task modes and mode-specific context.
-- [ ] Add specialized agents only after parent-agent workflows are stable.
+- [x] Add specialized agents only after parent-agent workflows are stable.
+  - The initial release intentionally keeps one parent agent because the
+    deterministic workflows do not yet justify delegated subagents.
 
 ## Session management
 

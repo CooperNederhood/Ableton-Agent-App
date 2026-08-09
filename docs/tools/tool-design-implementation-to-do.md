@@ -6,9 +6,11 @@ Companion specification: [Tool Design](tool-design.md)
 
 - [x] Define typed tool metadata, risk, capability, and duration fields.
 - [x] Build a tool factory around Copilot SDK custom tools.
-- [ ] Standardize runtime validation and structured failure results.
-- [ ] Standardize model-facing summaries and UI metadata.
-- [ ] Add deferred/loading policy for large tool catalogs.
+- [x] Standardize runtime validation and structured failure results.
+- [x] Standardize model-facing summaries and UI metadata.
+- [x] Add deferred/loading policy for large tool catalogs.
+  - The initial bounded catalog remains eagerly registered; expansion beyond
+    the current catalog requires grouped/deferred registration.
 - [x] Ensure tools depend on application services, not raw sockets.
 
 ## Inspection tools

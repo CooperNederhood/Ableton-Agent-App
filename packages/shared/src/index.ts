@@ -1,4 +1,5 @@
 export * from "./compatibility.js";
+export * from "./errors.js";
 export * from "./product-versions.generated.js";
 
 export type LifecycleState =

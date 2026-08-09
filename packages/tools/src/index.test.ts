@@ -6,6 +6,7 @@ import {
   abletonToolMetadata,
   createAbletonPermissionHandler,
   createAbletonTools,
+  toolCatalogPolicy,
   type AbletonToolServices,
   type ToolApprovalRequest,
 } from "./index.js";
@@ -951,6 +952,9 @@ describe("Ableton tools", () => {
       "custom:ableton_browser_search_external_plugins",
       "custom:ableton_browser_load_item",
     ]);
+    expect(toolSet.tools.length).toBeLessThanOrEqual(
+      toolCatalogPolicy.maximumEagerTools,
+    );
     expect(abletonToolMetadata.map((metadata) => metadata.risk)).toEqual([
       "read",
       "read",

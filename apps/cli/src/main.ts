@@ -17,7 +17,7 @@ import {
 } from "./cli.js";
 import type { InteractiveInput } from "./cli.js";
 import { EXIT_CODES, exitCodeForError } from "./exit-codes.js";
-import { shouldUseColor } from "./terminal.js";
+import { createTerminalPresentation } from "./terminal.js";
 
 class BufferedLineInput implements InteractiveInput {
   readonly #lines: string[] = [];
@@ -71,7 +71,10 @@ async function main(): Promise<number> {
     const args = rawArgs.filter(
       (argument) => argument !== "--quiet" && argument !== "-q",
     );
-    const color = shouldUseColor({ isTTY: process.stdout.isTTY }, process.env);
+    const presentation = createTerminalPresentation(
+      { isTTY: process.stdout.isTTY, columns: process.stdout.columns },
+      process.env,
+    );
     const command = parseArgs(args);
     const terminal =
       command.name === "chat"
@@ -90,14 +93,20 @@ async function main(): Promise<number> {
         ? {}
         : {
             requestToolApproval: async (request) => {
-              return requestInteractiveApproval(request, terminal, io);
+              return requestInteractiveApproval(
+                request,
+                terminal,
+                io,
+                presentation,
+              );
             },
           }),
     });
     try {
       return await runCommand(command, application, io, terminal, {
         quiet,
-        color,
+        color: presentation.colors.enabled,
+        terminal: presentation,
       });
     } finally {
       terminal?.close();

@@ -38,6 +38,8 @@ export function shouldUseColor(
 export interface Colorizer {
   readonly enabled: boolean;
   dim(text: string): string;
+  cyan(text: string): string;
+  yellow(text: string): string;
   green(text: string): string;
   red(text: string): string;
   bold(text: string): string;
@@ -45,6 +47,8 @@ export interface Colorizer {
 
 const ANSI_CODES = {
   dim: "2",
+  cyan: "36",
+  yellow: "33",
   green: "32",
   red: "31",
   bold: "1",
@@ -59,9 +63,35 @@ export function createColorizer(enabled: boolean): Colorizer {
   return {
     enabled,
     dim: wrap(ANSI_CODES.dim),
+    cyan: wrap(ANSI_CODES.cyan),
+    yellow: wrap(ANSI_CODES.yellow),
     green: wrap(ANSI_CODES.green),
     red: wrap(ANSI_CODES.red),
     bold: wrap(ANSI_CODES.bold),
+  };
+}
+
+export interface TerminalPresentation {
+  readonly rich: boolean;
+  readonly width: number;
+  readonly unicode: boolean;
+  readonly colors: Colorizer;
+}
+
+export function createTerminalPresentation(
+  stream: ColorStream & { readonly columns?: number },
+  env: ColorEnv = process.env,
+): TerminalPresentation {
+  const rich = stream.isTTY === true;
+  const width =
+    typeof stream.columns === "number" && stream.columns >= 40
+      ? stream.columns
+      : 80;
+  return {
+    rich,
+    width,
+    unicode: rich && env.TERM !== "dumb",
+    colors: createColorizer(shouldUseColor(stream, env)),
   };
 }
 

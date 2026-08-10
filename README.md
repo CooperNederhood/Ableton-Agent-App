@@ -144,6 +144,12 @@ Start the agent chat:
 node apps/cli/dist/main.js chat
 ```
 
+In an interactive terminal, chat responses render Markdown as styled headings,
+wrapped lists and code, and width-aware tables. Narrow terminals automatically
+switch wide tables to labeled records. Redirected output remains plain and
+deterministic, and `NO_COLOR=1` disables color without disabling the readable
+layout.
+
 Try prompts such as:
 
 ```text

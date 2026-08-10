@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createColorizer,
   createOutputWriter,
+  createTerminalPresentation,
   plainColorizer,
   shouldUseColor,
 } from "./terminal.js";
@@ -57,6 +58,28 @@ describe("createColorizer", () => {
   it("plainColorizer matches a disabled colorizer", () => {
     expect(plainColorizer().enabled).toBe(false);
     expect(plainColorizer().dim("x")).toBe("x");
+  });
+});
+
+describe("createTerminalPresentation", () => {
+  it("derives rich presentation capabilities from a TTY", () => {
+    expect(
+      createTerminalPresentation({ isTTY: true, columns: 120 }, {}),
+    ).toMatchObject({
+      rich: true,
+      width: 120,
+      unicode: true,
+    });
+  });
+
+  it("uses deterministic fallback capabilities outside a TTY", () => {
+    expect(
+      createTerminalPresentation({ isTTY: false }, { TERM: "dumb" }),
+    ).toMatchObject({
+      rich: false,
+      width: 80,
+      unicode: false,
+    });
   });
 });
 

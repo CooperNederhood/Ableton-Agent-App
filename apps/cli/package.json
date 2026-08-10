@@ -16,7 +16,11 @@
     "@ableton-agent/application": "workspace:*",
     "@ableton-agent/protocol": "workspace:*",
     "@ableton-agent/runtime": "workspace:*",
-    "@ableton-agent/shared": "workspace:*"
+    "@ableton-agent/shared": "workspace:*",
+    "cli-table3": "^0.6.5",
+    "marked": "^18.0.9",
+    "string-width": "^8.2.2",
+    "wrap-ansi": "^10.0.0"
   },
   "devDependencies": {
     "@ableton-agent/test-support": "workspace:*",

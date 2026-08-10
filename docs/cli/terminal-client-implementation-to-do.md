@@ -17,6 +17,13 @@ Companion specification: [Terminal Client](terminal-client.md)
 ## Interactive client
 
 - [x] Implement line-oriented chat with streamed assistant output.
+- [x] Render assistant Markdown with terminal-width-aware headings, lists,
+  emphasis, code, and adaptive tables.
+- [x] Incrementally commit complete streamed Markdown blocks without redrawing
+  transcript history or duplicating the final response.
+- [x] Add a rich TTY transcript shell with connection, Live-version, and
+  session context while preserving plain redirected output.
+- [x] Render structured approval metadata and readable nested arguments.
 - [x] Render operation start, progress, completion, and failure events.
 - [~] Implement `/help`, `/status`, `/connect`, `/snapshot`, `/mode`,
   `/session`, `/verbose`, `/cancel`, `/doctor`, and `/exit`.
@@ -51,6 +58,8 @@ Companion specification: [Terminal Client](terminal-client.md)
   (Interruption, denial, and disconnect are covered; timeout and generic
   agent-failure paths are not yet tested.)
 - [x] Add an opt-in real-Live smoke command.
+- [x] Test Markdown rendering, narrow table fallback, wrapping, streamed block
+  boundaries, rich command output, and terminal control-sequence removal.
 
 ## Exit criteria
 

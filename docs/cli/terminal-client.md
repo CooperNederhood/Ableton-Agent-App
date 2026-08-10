@@ -27,14 +27,20 @@ same headless services.
 Use Node.js and strict TypeScript in `apps/cli`. Start with:
 
 - Standard terminal input/output.
-- ANSI styling through a small library.
+- A repository-owned terminal presentation layer.
+- `marked` for Markdown tokenization.
+- `cli-table3`, `string-width`, and `wrap-ansi` for adaptive tables and
+  ANSI-safe terminal-width layout.
 - A testable prompt abstraction.
 - Shared `AppEvent` rendering.
 - The same Node.js Copilot SDK and application bootstrap used by Electron.
 
-Do not adopt a full-screen TUI framework initially. A line-oriented interface
-is simpler to debug, works well with streaming output, and supports transcript
-tests. Reassess Ink or another framework after workflows stabilize.
+Do not adopt a full-screen TUI framework for the reference client. A rich,
+line-oriented transcript preserves normal terminal scrollback, copy/paste,
+resizing, SSH/tmux behavior, redirected output, and transcript tests. Reassess
+Ink or another framework only if the terminal product later requires
+persistent panes or keyboard-navigable project browsers that justify overlap
+with the Electron UI.
 
 ## Modes
 
@@ -99,8 +105,22 @@ Map shared application events to compact terminal output:
 | Connection changed | Status line |
 | Snapshot changed | Hidden unless verbose |
 
-The renderer must handle non-TTY output. Disable animation, cursor movement, and
-color when output is redirected or `NO_COLOR` is set.
+Assistant Markdown is rendered as semantic terminal blocks:
+
+- Styled headings, emphasis, lists, quotations, links, and code blocks.
+- Width-aware tables in sufficiently wide terminals.
+- Labeled row records when a table cannot retain useful column widths.
+- Terminal-width-aware wrapping based on visible width rather than ANSI bytes.
+- Model-provided terminal control sequences are removed before rendering.
+
+Streaming commits complete Markdown blocks and buffers only the unfinished
+paragraph, table, or code fence. It does not repeatedly redraw transcript
+history.
+
+The renderer must handle non-TTY output. Rich formatting is used only for an
+interactive TTY. Redirected output remains deterministic plain Markdown/text
+without cursor movement or ANSI codes. `NO_COLOR` disables color while
+retaining structural layout.
 
 ## Approvals
 
@@ -161,6 +181,9 @@ must not depend on the CLI.
 - Unit-test argument parsing and exit-code mapping.
 - Inject fake prompt, output, and application-service adapters.
 - Snapshot stable human-readable transcripts.
+- Test wide and narrow terminal layouts, including adaptive table fallback.
+- Split streamed Markdown at arbitrary chunk boundaries.
+- Reject model-provided ANSI and terminal control sequences.
 - Assert structured JSON output directly.
 - Test TTY and redirected-output behavior.
 - Run one-shot smoke tests against the simulated Remote Script in CI.

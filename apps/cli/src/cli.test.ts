@@ -23,7 +23,14 @@ import {
   type InteractiveInput,
 } from "./cli.js";
 import { EXIT_CODES } from "./exit-codes.js";
-import { createColorizer } from "./terminal.js";
+import { createColorizer, type TerminalPresentation } from "./terminal.js";
+
+const richTerminal: TerminalPresentation = {
+  rich: true,
+  width: 100,
+  unicode: true,
+  colors: createColorizer(false),
+};
 
 function application(
   status: ConnectionStatus,
@@ -1240,6 +1247,27 @@ describe("CLI", () => {
     expect(out.lines[0]).toContain("1. Drums");
   });
 
+  it("renders rich human-readable command output for a TTY", async () => {
+    const out = output();
+    const exitCode = await runCommand(
+      { name: "snapshot", json: false },
+      application({
+        state: "connected",
+        liveVersion: "12.1",
+        remoteScriptVersion: "0.2.0",
+        projectId: "project",
+      }).application,
+      out.io,
+      undefined,
+      { terminal: richTerminal },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(out.lines[0]).toContain("Live Set");
+    expect(out.lines[0]).toContain("Drums");
+    expect(out.lines[0]).not.toContain("|---");
+  });
+
   it("renders operation events consistently in plain (uncolored) text", () => {
     expect(
       renderEvent({
@@ -1361,6 +1389,41 @@ describe("CLI", () => {
     expect(out.raw).toContain("assistant ");
     expect(out.raw).toContain("reply");
     expect(out.lines).not.toContain("assistant reply");
+  });
+
+  it("renders an agent Markdown table as a rich scrolling transcript", async () => {
+    const out = output();
+    const reply = [
+      "## Tracks",
+      "",
+      "| Idx | Name | Type |",
+      "|---:|---|---|",
+      "| 0 | LIVE SYNTHS | Audio |",
+      "| 1 | DFAM-synth | MIDI |",
+    ].join("\n");
+    const fixture = application(
+      {
+        state: "connected",
+        liveVersion: "11.3.43",
+        remoteScriptVersion: "0.4.0",
+        projectId: "project",
+      },
+      reply,
+    );
+
+    await runInteractive(
+      fixture.application,
+      out.io,
+      interactiveInput(["status", "/exit"]),
+      { terminal: richTerminal },
+    );
+
+    const transcript = out.lines.join("\n");
+    expect(transcript).toContain("Tracks");
+    expect(transcript).toContain("LIVE SYNTHS");
+    expect(transcript).toContain("DFAM-synth");
+    expect(transcript).not.toContain("|---:");
+    expect(out.raw).toContain("› ");
   });
 
   it("suppresses the banner and operation events in quiet mode but keeps final results", async () => {

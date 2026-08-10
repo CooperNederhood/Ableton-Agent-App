@@ -3,7 +3,24 @@ import type { BrowserRootKey } from "@ableton-agent/protocol";
 import type { AppEvent } from "@ableton-agent/shared";
 
 import { EXIT_CODES, exitCodeForOperationFailures } from "./exit-codes.js";
-import { createColorizer, plainColorizer, type Colorizer } from "./terminal.js";
+import {
+  renderMarkdown,
+  sanitizeTerminalText,
+  StreamingMarkdownRenderer,
+} from "./markdown.js";
+import {
+  browserRootsMarkdown,
+  connectionStatusMarkdown,
+  devicesMarkdown,
+  snapshotMarkdown,
+  transportMarkdown,
+} from "./presentation.js";
+import {
+  createColorizer,
+  plainColorizer,
+  type Colorizer,
+  type TerminalPresentation,
+} from "./terminal.js";
 
 export type CliCommand =
   | { name: "chat"; json: false }
@@ -453,23 +470,56 @@ export async function requestInteractiveApproval(
   request: InteractiveApprovalRequest,
   input: InteractiveInput,
   io: CliIo,
+  presentation?: TerminalPresentation,
 ): Promise<boolean> {
-  io.write(
-    `Approval required: ${request.metadata.title} (${request.metadata.risk})`,
-  );
+  if (presentation?.rich) {
+    io.write(
+      renderMarkdown(
+        [
+          "## Approval required",
+          "",
+          `- **Action:** ${request.metadata.title}`,
+          `- **Risk:** ${request.metadata.risk}`,
+          `- **Duration:** ${request.metadata.duration}`,
+          `- **Capability:** ${request.metadata.requiredCapability ?? "none"}`,
+        ].join("\n"),
+        presentation,
+      ),
+    );
+  } else {
+    io.write(
+      `Approval required: ${request.metadata.title} (${request.metadata.risk})`,
+    );
+  }
   io.writeRaw("Approve once? [y/N/d for details] ");
   while (true) {
     const answer = (await input.readLine())?.trim().toLowerCase();
     if (answer === "y" || answer === "yes") return true;
     if (answer === "d" || answer === "details") {
+      const plainDetails = [
+        `Title: ${request.metadata.title}`,
+        `Risk: ${request.metadata.risk}`,
+        `Duration: ${request.metadata.duration}`,
+        `Capability: ${request.metadata.requiredCapability ?? "none"}`,
+        `Arguments: ${JSON.stringify(request.arguments)}`,
+      ].join("\n");
+      const richDetails = [
+        `Title: ${request.metadata.title}`,
+        `Risk: ${request.metadata.risk}`,
+        `Duration: ${request.metadata.duration}`,
+        `Capability: ${request.metadata.requiredCapability ?? "none"}`,
+        `Arguments:\n${JSON.stringify(request.arguments, null, 2)}`,
+      ].join("\n");
       io.write(
-        [
-          `Title: ${request.metadata.title}`,
-          `Risk: ${request.metadata.risk}`,
-          `Duration: ${request.metadata.duration}`,
-          `Capability: ${request.metadata.requiredCapability ?? "none"}`,
-          `Arguments: ${JSON.stringify(request.arguments)}`,
-        ].join("\n"),
+        presentation?.rich
+          ? renderMarkdown(
+              `### Details\n\n${richDetails
+                .split("\n")
+                .map((line) => `    ${line}`)
+                .join("\n")}`,
+              presentation,
+            )
+          : plainDetails,
       );
       io.writeRaw("Approve once? [y/N] ");
       continue;
@@ -489,7 +539,7 @@ export function renderEvent(
 ): string | undefined {
   switch (event.type) {
     case "lifecycle.changed":
-      return `application: ${event.state}`;
+      return `application: ${sanitizeTerminalText(event.state)}`;
     case "ableton.connection_changed":
       return `ableton: ${event.status.state}`;
     case "ableton.event_received":
@@ -499,15 +549,15 @@ export function renderEvent(
         `✗ Ableton event gap: expected #${event.expectedSequence}, received #${event.receivedSequence}`,
       );
     case "agent.message_delta":
-      return event.content;
+      return sanitizeTerminalText(event.content);
     case "agent.message_complete":
-      return event.content;
+      return sanitizeTerminalText(event.content);
     case "operation.started":
-      return colors.dim(`• ${event.label}`);
+      return colors.dim(`• ${sanitizeTerminalText(event.label)}`);
     case "operation.completed":
-      return colors.green(`✓ ${event.summary}`);
+      return colors.green(`✓ ${sanitizeTerminalText(event.summary)}`);
     case "operation.failed":
-      return colors.red(`✗ ${event.message}`);
+      return colors.red(`✗ ${sanitizeTerminalText(event.message)}`);
   }
 }
 
@@ -516,6 +566,18 @@ export interface RunOptions {
   quiet?: boolean;
   /** Enable ANSI color for status glyphs in rendered events. */
   color?: boolean;
+  /** Terminal capabilities used by the interactive rich transcript. */
+  terminal?: TerminalPresentation;
+}
+
+function humanOutput(
+  plain: string,
+  markdown: string,
+  options: RunOptions,
+): string {
+  return options.terminal?.rich
+    ? renderMarkdown(markdown, options.terminal)
+    : sanitizeTerminalText(plain);
 }
 
 export async function runCommand(
@@ -626,11 +688,15 @@ export async function runCommand(
       io.write(
         command.json
           ? JSON.stringify(payload)
-          : [
-              `Application: ${payload.application}`,
-              `Ableton: ${status.state}`,
-              `Healthy: ${payload.healthy ? "yes" : "no"}`,
-            ].join("\n"),
+          : humanOutput(
+              [
+                `Application: ${payload.application}`,
+                `Ableton: ${status.state}`,
+                `Healthy: ${payload.healthy ? "yes" : "no"}`,
+              ].join("\n"),
+              connectionStatusMarkdown(payload.application, status),
+              options,
+            ),
       );
       return payload.healthy ? EXIT_CODES.SUCCESS : EXIT_CODES.CONNECTION_ERROR;
     }
@@ -721,13 +787,17 @@ export async function runCommand(
       io.write(
         command.json
           ? JSON.stringify(result)
-          : [
-              `Browser roots: ${result.roots.length}`,
-              ...result.roots.map(
-                (root) =>
-                  `  ${root.root}: ${root.name}${root.isBuiltInDevice ? " (built-in device loading allowed)" : ""}`,
-              ),
-            ].join("\n"),
+          : humanOutput(
+              [
+                `Browser roots: ${result.roots.length}`,
+                ...result.roots.map(
+                  (root) =>
+                    `  ${root.root}: ${root.name}${root.isBuiltInDevice ? " (built-in device loading allowed)" : ""}`,
+                ),
+              ].join("\n"),
+              browserRootsMarkdown(result),
+              options,
+            ),
       );
       return EXIT_CODES.SUCCESS;
     }
@@ -828,15 +898,19 @@ export async function runCommand(
       io.write(
         command.json
           ? JSON.stringify(snapshot)
-          : [
-              `Tempo: ${snapshot.tempo}`,
-              `Time signature: ${snapshot.timeSignature.numerator}/${snapshot.timeSignature.denominator}`,
-              `Playing: ${snapshot.isPlaying ? "yes" : "no"}`,
-              `Tracks: ${snapshot.trackCount}`,
-              ...snapshot.tracks.map(
-                (track) => `  ${track.index + 1}. ${track.name}`,
-              ),
-            ].join("\n"),
+          : humanOutput(
+              [
+                `Tempo: ${snapshot.tempo}`,
+                `Time signature: ${snapshot.timeSignature.numerator}/${snapshot.timeSignature.denominator}`,
+                `Playing: ${snapshot.isPlaying ? "yes" : "no"}`,
+                `Tracks: ${snapshot.trackCount}`,
+                ...snapshot.tracks.map(
+                  (track) => `  ${track.index + 1}. ${track.name}`,
+                ),
+              ].join("\n"),
+              snapshotMarkdown(snapshot),
+              options,
+            ),
       );
       return EXIT_CODES.SUCCESS;
     }
@@ -849,14 +923,18 @@ export async function runCommand(
       io.write(
         command.json
           ? JSON.stringify(transport)
-          : [
-              `Arrangement loop: ${transport.loop.enabled ? "enabled" : "disabled"}`,
-              `Loop range: ${transport.loop.start} + ${transport.loop.length} beats`,
-              `Cue points: ${transport.totalCuePoints}`,
-              ...transport.cuePoints.map(
-                (cuePoint) => `  ${cuePoint.time}: ${cuePoint.name}`,
-              ),
-            ].join("\n"),
+          : humanOutput(
+              [
+                `Arrangement loop: ${transport.loop.enabled ? "enabled" : "disabled"}`,
+                `Loop range: ${transport.loop.start} + ${transport.loop.length} beats`,
+                `Cue points: ${transport.totalCuePoints}`,
+                ...transport.cuePoints.map(
+                  (cuePoint) => `  ${cuePoint.time}: ${cuePoint.name}`,
+                ),
+              ].join("\n"),
+              transportMarkdown(transport),
+              options,
+            ),
       );
       return EXIT_CODES.SUCCESS;
     }
@@ -873,13 +951,17 @@ export async function runCommand(
       io.write(
         command.json
           ? JSON.stringify(devices)
-          : [
-              `Devices on track ${command.trackNumber} (${track.name}): ${devices.total}`,
-              ...devices.devices.map(
-                (device) =>
-                  `  ${device.index + 1}. ${device.name} (${device.parameterCount} parameters, ${device.enabled === null ? "enable state unavailable" : device.enabled ? "enabled" : "disabled"})`,
-              ),
-            ].join("\n"),
+          : humanOutput(
+              [
+                `Devices on track ${command.trackNumber} (${track.name}): ${devices.total}`,
+                ...devices.devices.map(
+                  (device) =>
+                    `  ${device.index + 1}. ${device.name} (${device.parameterCount} parameters, ${device.enabled === null ? "enable state unavailable" : device.enabled ? "enabled" : "disabled"})`,
+                ),
+              ].join("\n"),
+              devicesMarkdown(command.trackNumber, track.name, devices),
+              options,
+            ),
       );
       return EXIT_CODES.SUCCESS;
     }
@@ -1094,7 +1176,7 @@ export async function runCommand(
     io.write(
       command.json
         ? JSON.stringify({ ok, response, operationFailures })
-        : response,
+        : humanOutput(response, response, options),
     );
     return ok
       ? EXIT_CODES.SUCCESS
@@ -1234,17 +1316,41 @@ export async function runInteractive(
   options: RunOptions = {},
 ): Promise<number> {
   const quiet = options.quiet ?? false;
-  const colors = createColorizer(options.color ?? false);
+  const presentation =
+    options.terminal ??
+    ({
+      rich: false,
+      width: 80,
+      unicode: false,
+      colors: createColorizer(options.color ?? false),
+    } satisfies TerminalPresentation);
+  const colors = presentation.colors;
   let turnProducedOutput = false;
+  let streamingRenderer: StreamingMarkdownRenderer | undefined;
   const unsubscribe = application.subscribe((event) => {
     if (event.type === "agent.message_delta") {
       turnProducedOutput = true;
-      io.writeRaw(event.content);
+      if (presentation.rich) {
+        streamingRenderer ??= new StreamingMarkdownRenderer(
+          presentation,
+          (text) => io.write(text),
+        );
+        streamingRenderer.push(event.content);
+      } else {
+        io.writeRaw(sanitizeTerminalText(event.content));
+      }
     } else if (event.type === "agent.message_complete") {
-      if (turnProducedOutput) {
+      if (presentation.rich) {
+        streamingRenderer ??= new StreamingMarkdownRenderer(
+          presentation,
+          (text) => io.write(text),
+        );
+        streamingRenderer.complete(event.content);
+        streamingRenderer = undefined;
+      } else if (turnProducedOutput) {
         io.writeRaw("\n");
       } else {
-        io.write(event.content);
+        io.write(sanitizeTerminalText(event.content));
       }
       turnProducedOutput = true;
     } else if (
@@ -1264,10 +1370,28 @@ export async function runInteractive(
   try {
     await application.start({ startAgent: true });
     if (!quiet) {
-      io.write("Ableton Agent chat. Type /help for commands.");
+      const status = await application.getStatus();
+      io.write(
+        presentation.rich
+          ? renderMarkdown(
+              [
+                "# Ableton Agent",
+                "",
+                `${status.state === "connected" ? "✓" : "!"} Ableton: **${status.state}**${
+                  status.state === "connected"
+                    ? ` · Live ${status.liveVersion} · Session ${application.agentSessionId ?? "starting"}`
+                    : ""
+                }`,
+                "",
+                "Type `/help` for commands.",
+              ].join("\n"),
+              presentation,
+            )
+          : "Ableton Agent chat. Type /help for commands.",
+      );
     }
     while (true) {
-      io.writeRaw("> ");
+      io.writeRaw(presentation.rich ? presentation.colors.cyan("› ") : "> ");
       const next = await input.readLine();
       if (next === undefined) {
         io.writeRaw("\n");
@@ -1300,7 +1424,25 @@ export async function runInteractive(
       try {
         if (line === "/status") {
           const status = await application.getStatus();
-          io.write(`Ableton: ${status.state}`);
+          io.write(
+            presentation.rich
+              ? renderMarkdown(
+                  [
+                    "## Status",
+                    "",
+                    `- **Ableton:** ${status.state}`,
+                    ...(status.state === "connected"
+                      ? [
+                          `- **Live:** ${status.liveVersion}`,
+                          `- **Remote Script:** ${status.remoteScriptVersion}`,
+                        ]
+                      : []),
+                    `- **Session:** ${application.agentSessionId ?? "none"}`,
+                  ].join("\n"),
+                  presentation,
+                )
+              : `Ableton: ${status.state}`,
+          );
           continue;
         }
         if (line === "/doctor") {
@@ -1311,7 +1453,11 @@ export async function runInteractive(
         if (line === "/snapshot") {
           const snapshot = await application.inspectSession();
           io.write(
-            `Snapshot: ${snapshot.trackCount} tracks at ${snapshot.tempo} BPM`,
+            presentation.rich
+              ? renderMarkdown(snapshotMarkdown(snapshot), presentation)
+              : sanitizeTerminalText(
+                  `Snapshot: ${snapshot.trackCount} tracks at ${snapshot.tempo} BPM`,
+                ),
           );
           continue;
         }
@@ -1321,7 +1467,9 @@ export async function runInteractive(
             limit: 100,
           });
           io.write(
-            `Transport: loop ${transport.loop.enabled ? "enabled" : "disabled"}, ${transport.totalCuePoints} cue points`,
+            presentation.rich
+              ? renderMarkdown(transportMarkdown(transport), presentation)
+              : `Transport: loop ${transport.loop.enabled ? "enabled" : "disabled"}, ${transport.totalCuePoints} cue points`,
           );
           continue;
         }
@@ -1353,9 +1501,14 @@ export async function runInteractive(
         }
 
         turnProducedOutput = false;
+        streamingRenderer = undefined;
         const response = await application.send(line);
         if (!turnProducedOutput) {
-          io.write(response);
+          io.write(
+            presentation.rich
+              ? renderMarkdown(response, presentation)
+              : response,
+          );
         }
       } catch (error) {
         io.writeError(error instanceof Error ? error.message : String(error));

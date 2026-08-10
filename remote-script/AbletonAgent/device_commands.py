@@ -6,7 +6,11 @@ import math
 import uuid
 
 from .errors import ProtocolFailure
-from .system_commands import _resolve_track, _track_reference
+from .system_commands import (
+    _resolve_track,
+    _same_lom_object,
+    _track_reference,
+)
 
 DEVICE_PAGE_LIMIT = 128
 PARAMETER_PAGE_LIMIT = 256
@@ -28,10 +32,10 @@ def _runtime_reference(context, attribute, target, reachable):
     entries = [
         (candidate, reference)
         for candidate, reference in getattr(context, attribute, [])
-        if any(candidate is current for current in reachable)
+        if any(_same_lom_object(candidate, current) for current in reachable)
     ]
     for candidate, reference in entries:
-        if candidate is target:
+        if _same_lom_object(candidate, target):
             setattr(context, attribute, entries)
             return reference
     reference = str(uuid.uuid4())

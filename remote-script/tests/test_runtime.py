@@ -16,7 +16,10 @@ from AbletonAgent.messages import PROTOCOL_VERSION, success  # noqa: E402
 from AbletonAgent.protocol import FrameDecoder, encode_frame  # noqa: E402
 from AbletonAgent.registry import CommandRegistry  # noqa: E402
 from AbletonAgent.server import LOOPBACK_HOST, RemoteScriptServer  # noqa: E402
-from AbletonAgent.system_commands import register_system_commands  # noqa: E402
+from AbletonAgent.system_commands import (  # noqa: E402
+    _same_lom_object,
+    register_system_commands,
+)
 from AbletonAgent.token_store import load_or_create_token  # noqa: E402
 
 
@@ -2877,6 +2880,20 @@ class BrowserCommandTests(unittest.TestCase):
 
 
 class CapabilityAndTokenTests(unittest.TestCase):
+    def test_lom_object_comparison_supports_equivalent_proxy_wrappers(self):
+        class LomProxy(object):
+            def __init__(self, pointer):
+                self.pointer = pointer
+
+            def __eq__(self, other):
+                return (
+                    isinstance(other, LomProxy)
+                    and self.pointer == other.pointer
+                )
+
+        self.assertTrue(_same_lom_object(LomProxy(42), LomProxy(42)))
+        self.assertFalse(_same_lom_object(LomProxy(42), LomProxy(43)))
+
     def test_capabilities_reflect_registry(self):
         registry = CommandRegistry()
         register_system_commands(registry)

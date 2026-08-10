@@ -27,6 +27,15 @@ def _safe_lom_getattr(value, name, default=None):
         return default
 
 
+def _same_lom_object(left, right):
+    if left is right:
+        return True
+    try:
+        return bool(left == right)
+    except (AttributeError, RuntimeError, TypeError):
+        return False
+
+
 def _is_finite_number(value):
     return (
         not isinstance(value, bool)
@@ -40,10 +49,10 @@ def _track_reference(context, track):
     references = [
         (candidate, reference)
         for candidate, reference in getattr(context, "_track_references", [])
-        if any(candidate is current for current in current_tracks)
+        if any(_same_lom_object(candidate, current) for current in current_tracks)
     ]
     for candidate, reference in references:
-        if candidate is track:
+        if _same_lom_object(candidate, track):
             context._track_references = references
             return reference
     reference = str(uuid.uuid4())
@@ -67,10 +76,10 @@ def _clip_reference(context, clip):
     references = [
         (candidate, reference)
         for candidate, reference in getattr(context, "_clip_references", [])
-        if any(candidate is current for current in current_clips)
+        if any(_same_lom_object(candidate, current) for current in current_clips)
     ]
     for candidate, reference in references:
-        if candidate is clip:
+        if _same_lom_object(candidate, clip):
             context._clip_references = references
             return reference
     reference = str(uuid.uuid4())
@@ -86,10 +95,13 @@ def _cue_point_reference(context, cue_point):
         for candidate, reference in getattr(
             context, "_cue_point_references", []
         )
-        if any(candidate is current for current in current_cue_points)
+        if any(
+            _same_lom_object(candidate, current)
+            for current in current_cue_points
+        )
     ]
     for candidate, reference in references:
-        if candidate is cue_point:
+        if _same_lom_object(candidate, cue_point):
             context._cue_point_references = references
             return reference
     reference = str(uuid.uuid4())
@@ -207,7 +219,7 @@ def _resolve_track(context, params, allow_group=False):
     ):
         raise ProtocolFailure(
             "stale_reference",
-            "Track identity changed before mutation",
+            "Track identity changed before operation",
             details={
                 "index": index,
                 "expectedReference": params["expectedReference"],

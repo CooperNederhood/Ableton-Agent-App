@@ -80,8 +80,9 @@ relevant validation pass.
   - [x] Add bounded identity-safe direct rack-chain and Drum Rack pad/chain
     inspection for one explicitly targeted top-level rack without recursion.
   - [x] Add bounded Browser root/category inspection, deterministic bounded
-    search, runtime-stable item references, and verified built-in device
-    loading on exact regular tracks.
+    search, runtime-stable item references, Live 11 virtual-container support,
+    and verified device/device-preset loading from any Browser root onto exact
+    compatible regular tracks.
   - [ ] Add return/group tracks and separately designed nested-rack traversal.
 - [ ] Complete unit, contract, simulator, and real-Live tests for each command.
 

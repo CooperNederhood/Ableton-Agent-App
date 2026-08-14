@@ -571,9 +571,12 @@ export const browserItemSummarySchema = z.object({
   name: z.string().min(1).max(256),
   uri: z.string().max(2048),
   isFolder: z.boolean(),
+  isNavigable: z.boolean().optional(),
   isLoadable: z.boolean(),
   isDevice: z.boolean(),
   source: z.string().max(256),
+  isLoadableDevice: z.boolean().optional(),
+  // Retained for compatibility with older Remote Script builds.
   isBuiltInDevice: z.boolean(),
 });
 
@@ -677,6 +680,9 @@ export const loadBrowserItemResultSchema = z.object({
   after: browserTrackLoadStateSchema,
   addedDevices: z.array(deviceSummarySchema).max(16),
   addedDevicesTruncated: z.boolean(),
+  reconfiguredDevices: z.array(deviceSummarySchema).max(16).default([]),
+  reconfiguredDevicesTruncated: z.boolean().default(false),
+  mutationMode: z.enum(["added", "reconfigured", "mixed"]).default("added"),
   verified: z.literal(true),
 });
 
@@ -714,6 +720,22 @@ export const replaceMidiNotesParamsSchema = trackTargetSchema.extend({
   expectedClipReference: z.string().uuid(),
   allowPerNoteExpressionLoss: z.boolean(),
   notes: z.array(midiNoteSchema).max(2048),
+});
+
+export const inspectMidiNotesParamsSchema = trackTargetSchema.extend({
+  sceneIndex: z.number().int().nonnegative(),
+  expectedClipReference: z.string().uuid(),
+  offset: z.number().int().nonnegative().default(0),
+  limit: z.number().int().positive().max(2048).default(256),
+});
+
+export const inspectMidiNotesResultSchema = z.object({
+  clip: clipSummarySchema,
+  notes: z.array(midiNoteSchema).max(2048),
+  totalNotes: z.number().int().nonnegative(),
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().positive().max(2048),
+  truncated: z.boolean(),
 });
 
 export const replaceMidiNotesResultSchema = z.object({
@@ -828,6 +850,24 @@ export const inspectArrangementResultSchema = z.object({
   total: z.number().int().nonnegative(),
   offset: z.number().int().nonnegative(),
   limit: z.number().int().positive(),
+});
+
+export const inspectArrangementMidiNotesParamsSchema = trackTargetSchema.extend(
+  {
+    expectedClipReference: z.string().uuid(),
+    expectedStartTime: z.number().nonnegative(),
+    offset: z.number().int().nonnegative().default(0),
+    limit: z.number().int().positive().max(2048).default(256),
+  },
+);
+
+export const inspectArrangementMidiNotesResultSchema = z.object({
+  clip: arrangementClipSummarySchema,
+  notes: z.array(midiNoteSchema).max(2048),
+  totalNotes: z.number().int().nonnegative(),
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().positive().max(2048),
+  truncated: z.boolean(),
 });
 
 export const deleteArrangementClipParamsSchema = trackTargetSchema.extend({
@@ -1019,6 +1059,12 @@ export type LoadBrowserItemParams = z.infer<typeof loadBrowserItemParamsSchema>;
 export type LoadBrowserItemResult = z.infer<typeof loadBrowserItemResultSchema>;
 export type CreateMidiClipParams = z.infer<typeof createMidiClipParamsSchema>;
 export type CreateMidiClipResult = z.infer<typeof createMidiClipResultSchema>;
+export type InspectMidiNotesParams = z.infer<
+  typeof inspectMidiNotesParamsSchema
+>;
+export type InspectMidiNotesResult = z.infer<
+  typeof inspectMidiNotesResultSchema
+>;
 export type ReplaceMidiNotesParams = z.infer<
   typeof replaceMidiNotesParamsSchema
 >;
@@ -1061,6 +1107,12 @@ export type InspectArrangementParams = z.infer<
 >;
 export type InspectArrangementResult = z.infer<
   typeof inspectArrangementResultSchema
+>;
+export type InspectArrangementMidiNotesParams = z.infer<
+  typeof inspectArrangementMidiNotesParamsSchema
+>;
+export type InspectArrangementMidiNotesResult = z.infer<
+  typeof inspectArrangementMidiNotesResultSchema
 >;
 export type DeleteArrangementClipParams = z.infer<
   typeof deleteArrangementClipParamsSchema

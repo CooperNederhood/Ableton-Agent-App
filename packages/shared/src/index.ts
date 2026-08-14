@@ -37,17 +37,22 @@ export type AppEvent =
       type: "operation.started";
       operationId: string;
       label: string;
+      toolName?: string;
+      arguments?: Readonly<Record<string, unknown>>;
     }
   | {
       type: "operation.completed";
       operationId: string;
       summary: string;
+      toolName?: string;
+      result?: string;
     }
   | {
       type: "operation.failed";
       operationId: string;
       code: string;
       message: string;
+      toolName?: string;
     };
 
 export interface EventPublisher {

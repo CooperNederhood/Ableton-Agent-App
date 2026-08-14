@@ -93,7 +93,10 @@ Maintain a small manually triggered suite for supported Live versions:
 - Create a MIDI clip and add notes.
 - Place a clip in Arrangement.
 - Load a built-in device and set a parameter.
-- Exercise browser lookup.
+- Exercise Browser lookup through Live virtual roots and load a device preset
+  discovered under Drums, Packs, or User Library.
+- Confirm unsupported Browser item categories fail before mutation and a
+  failed post-create load leaves exactly one clearly reported empty track.
 - Verify listeners and disconnect cleanup.
 
 These tests are not expected to run on ordinary hosted CI.
@@ -151,3 +154,18 @@ A feature is not complete until:
 - Failure and unsupported paths are tested.
 - User-facing tool behavior is verified.
 - Real Live validation is recorded when the feature touches uncertain LOM APIs.
+## Agent workflow smoke tests
+
+Natural-language workflow tests use the existing one-shot CLI `run` command
+with reviewed scenario manifests under `integration/live-scenarios/`.
+Scenario mode adds scoped approvals, a complete bounded trace, shared Copilot
+session selection, and deterministic bridge assertions after the model turn.
+
+The verifier never asks the model whether it succeeded. It compares baseline
+references with refreshed Live state and uses read-only APIs such as
+`clips.inspect_notes` for exact MIDI content.
+
+`pnpm live:agent-smoke` owns the Live process lifecycle. It refuses a
+pre-existing user process, launches a fresh Live instance, waits for the
+authenticated Remote Script handshake, runs scenarios until the first failure,
+and controls only the recorded PID after revalidating its executable identity.

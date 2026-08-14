@@ -17,6 +17,7 @@ import {
 } from "./cli.js";
 import type { InteractiveInput } from "./cli.js";
 import { EXIT_CODES, exitCodeForError } from "./exit-codes.js";
+import { createScenarioRunContext, loadScenarioManifest } from "./scenario.js";
 import { createTerminalPresentation } from "./terminal.js";
 
 class BufferedLineInput implements InteractiveInput {
@@ -76,6 +77,31 @@ async function main(): Promise<number> {
       process.env,
     );
     const command = parseArgs(args);
+    const scenario =
+      command.name === "run" && command.scenarioId !== undefined
+        ? createScenarioRunContext(
+            await loadScenarioManifest(command.scenarioId),
+          )
+        : undefined;
+    if (
+      command.name === "run" &&
+      scenario !== undefined &&
+      command.prompt !== scenario.manifest.prompt
+    ) {
+      throw new CliUsageError(
+        `Scenario '${scenario.manifest.id}' requires its reviewed prompt: ${JSON.stringify(scenario.manifest.prompt)}`,
+      );
+    }
+    if (
+      command.name === "run" &&
+      scenario !== undefined &&
+      command.timeoutMs !== undefined &&
+      command.timeoutMs > scenario.manifest.timeoutMs
+    ) {
+      throw new CliUsageError(
+        `--timeout-ms cannot exceed scenario limit ${scenario.manifest.timeoutMs}`,
+      );
+    }
     const terminal =
       command.name === "chat"
         ? new BufferedLineInput(
@@ -86,9 +112,24 @@ async function main(): Promise<number> {
             }),
           )
         : undefined;
+    const agentSettings = resolveAgentSettingsFromEnvironment(process.env);
     const { application } = createAgentRuntime({
       ableton: resolveAbletonSettingsFromEnvironment(process.env),
-      agent: resolveAgentSettingsFromEnvironment(process.env),
+      agent: {
+        ...agentSettings,
+        ...(command.name === "run" &&
+        (command.timeoutMs !== undefined || scenario !== undefined)
+          ? {
+              turnTimeoutMs: command.timeoutMs ?? scenario?.manifest.timeoutMs,
+            }
+          : {}),
+      },
+      ...(scenario === undefined
+        ? {}
+        : {
+            requestToolApproval: scenario.approvals.request,
+            askForReadApproval: true,
+          }),
       ...(terminal === undefined
         ? {}
         : {
@@ -107,6 +148,7 @@ async function main(): Promise<number> {
         quiet,
         color: presentation.colors.enabled,
         terminal: presentation,
+        ...(scenario === undefined ? {} : { scenario }),
       });
     } finally {
       terminal?.close();

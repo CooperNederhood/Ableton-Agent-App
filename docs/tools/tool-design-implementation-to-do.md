@@ -50,9 +50,11 @@ Companion specification: [Tool Design](tool-design.md)
 - [~] Implement browser/device load and parameter operations.
   - [x] Add reversible verified device enable/disable and normalized parameter
     mutation with quantized-value handling and rollback.
-  - [x] Add reversible exact-item built-in Browser loading with track/item
-    identity gates, before/after state, and postcondition verification.
-  - [ ] Add device deletion and separately designed plug-in loading.
+  - [x] Add reversible exact-item Browser device/device-preset loading across
+    roots with track/item identity gates, semantic load classification,
+    before/after state, and postcondition verification.
+  - [ ] Add explicit sample, clip, and groove destination tools, device
+    deletion, and separately designed plug-in loading.
 - [x] Implement transport, loop, and cue-point operations.
   - [x] Auto-approve bounded loop/cue inspection, classify loop updates and cue
     creation as reversible, and classify identity-bound cue deletion as

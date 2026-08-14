@@ -1,0 +1,31 @@
+{
+  "formatVersion": 1,
+  "id": "transport-inspection",
+  "group": "inspection",
+  "prompt": "Inspect the Arrangement transport, including playback, loop range, and cue points. Do not change transport or project state.",
+  "artifactPrefix": "AA_SMOKE_TRANSPORT_",
+  "allowedTools": ["ableton_transport_inspect_arrangement"],
+  "allowedRisks": ["read"],
+  "maxToolCalls": 1,
+  "maxMutations": 0,
+  "timeoutMs": 120000,
+  "assertions": [
+    {
+      "type": "connection-capabilities",
+      "requiredCapabilities": ["transport.inspect_arrangement"]
+    },
+    {
+      "type": "tool-calls",
+      "required": [
+        {
+          "toolName": "ableton_transport_inspect_arrangement",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "type": "session-unchanged"
+    }
+  ]
+}

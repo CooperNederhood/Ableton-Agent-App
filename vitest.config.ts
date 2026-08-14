@@ -6,7 +6,11 @@ const source = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
 export default defineConfig({
   test: {
-    exclude: [...configDefaults.exclude, "tests/electron/**"],
+    exclude: [
+      ...configDefaults.exclude,
+      "tests/electron/**",
+      "max-patches/**/*.test.cjs",
+    ],
     testTimeout: 10_000,
     hookTimeout: 10_000,
     retry: 0,

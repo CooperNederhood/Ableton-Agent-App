@@ -3,12 +3,14 @@ import type {
   CapabilityDocument,
   CreateArrangementMidiClipResult,
   CreateMidiClipResult,
+  InspectMidiNotesResult,
   CuePointMutationResult,
   DeleteArrangementClipResult,
   DeleteSessionClipResult,
   DuplicateClipToArrangementResult,
   DuplicateSessionClipResult,
   InspectArrangementResult,
+  InspectArrangementMidiNotesResult,
   InspectArrangementTransportResult,
   InspectBrowserChildrenResult,
   InspectBrowserRootsResult,
@@ -151,6 +153,9 @@ export class UnconfiguredAbletonService implements AbletonService {
   public async createMidiClip(): Promise<CreateMidiClipResult> {
     this.#unavailable();
   }
+  public async inspectMidiNotes(): Promise<InspectMidiNotesResult> {
+    this.#unavailable();
+  }
   public async replaceMidiNotes(): Promise<ReplaceMidiNotesResult> {
     this.#unavailable();
   }
@@ -170,6 +175,9 @@ export class UnconfiguredAbletonService implements AbletonService {
     this.#unavailable();
   }
   public async inspectArrangement(): Promise<InspectArrangementResult> {
+    this.#unavailable();
+  }
+  public async inspectArrangementMidiNotes(): Promise<InspectArrangementMidiNotesResult> {
     this.#unavailable();
   }
   public async deleteArrangementClip(): Promise<DeleteArrangementClipResult> {

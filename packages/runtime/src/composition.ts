@@ -41,6 +41,7 @@ export interface AgentSettings {
   model?: string | undefined;
   reasoningEffort?: "low" | "medium" | "high" | undefined;
   baseDirectory?: string | undefined;
+  turnTimeoutMs?: number | undefined;
   /** Replaces the Copilot client; used by tests and fakes. */
   clientFactory?: CopilotAgentServiceOptions["clientFactory"];
 }
@@ -170,6 +171,9 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     ...(agentSettings.clientFactory === undefined
       ? {}
       : { clientFactory: agentSettings.clientFactory }),
+    ...(agentSettings.turnTimeoutMs === undefined
+      ? {}
+      : { turnTimeoutMs: agentSettings.turnTimeoutMs }),
     ...(options.requestToolApproval === undefined
       ? {}
       : { requestToolApproval: options.requestToolApproval }),

@@ -1,0 +1,62 @@
+{
+  "formatVersion": 1,
+  "id": "capability-surface",
+  "group": "inspection",
+  "prompt": "Check the Ableton connection once. Do not inspect tracks, clips, devices, Browser content, or transport, and do not make changes.",
+  "artifactPrefix": "AA_SMOKE_CAPS_",
+  "allowedTools": ["ableton_connection_status"],
+  "allowedRisks": ["read"],
+  "maxToolCalls": 1,
+  "maxMutations": 0,
+  "timeoutMs": 120000,
+  "assertions": [
+    {
+      "type": "connection-capabilities",
+      "requiredCapabilities": [
+        "session.inspect",
+        "tracks.create",
+        "tracks.delete",
+        "tracks.rename",
+        "tracks.set_mixer",
+        "clips.create_midi",
+        "clips.inspect_notes",
+        "clips.replace_notes",
+        "clips.launch",
+        "clips.duplicate",
+        "clips.delete",
+        "clips.set_properties",
+        "arrangement.inspect",
+        "arrangement.inspect_notes",
+        "arrangement.replace_notes",
+        "arrangement.duplicate_clip",
+        "arrangement.delete_clip",
+        "arrangement.set_clip_properties",
+        "devices.inspect",
+        "devices.inspect_parameters",
+        "devices.set_enabled",
+        "devices.set_parameter",
+        "browser.inspect_roots",
+        "browser.inspect_children",
+        "browser.search",
+        "browser.load_item",
+        "transport.inspect_arrangement",
+        "transport.set_arrangement_loop",
+        "transport.create_cue_point",
+        "transport.delete_cue_point"
+      ]
+    },
+    {
+      "type": "tool-calls",
+      "required": [
+        {
+          "toolName": "ableton_connection_status",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "type": "session-unchanged"
+    }
+  ]
+}

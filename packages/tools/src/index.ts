@@ -694,7 +694,7 @@ export function createAbletonTools(
   });
   const createTrackTool = defineTool("ableton_tracks_create", {
     description:
-      "Creates a MIDI or audio track at the end of the Ableton Live set and verifies the resulting track count.",
+      "Creates exactly one MIDI or audio track at the end of the Ableton Live set and verifies its resulting identity and state. For requests that also load Browser content, resolve a supported exact Browser item before creating the track. If this mutation reports an indeterminate outcome, inspect the session and never retry creation unchanged.",
     parameters: z
       .object({
         kind: z.enum(["midi", "audio"]),
@@ -1212,7 +1212,7 @@ export function createAbletonTools(
     "ableton_browser_children_inspect",
     {
       description:
-        "Returns one bounded page of direct children for an exact identity-bound Ableton Browser folder. It never recursively traverses the browser tree.",
+        "Returns one bounded page of direct children for an exact identity-bound Ableton Browser container, including Live virtual categories that expose children without reporting themselves as folders. It never recursively traverses the browser tree.",
       parameters: z
         .object({
           ...browserItemTargetParameters,
@@ -1228,7 +1228,7 @@ export function createAbletonTools(
   );
   const searchBrowserTool = defineTool("ableton_browser_search", {
     description:
-      "Performs a deterministic breadth-first Ableton Browser search with strict node, result, depth, query-length, and main-thread time limits. Results are runtime identity-bound; truncation and the stop reason are always reported.",
+      'Performs a deterministic bounded Ableton Browser search. Search each distinct requested sound separately and choose roots by intent: instruments for stock instruments/devices, sounds for curated playable presets, drums for kits and Drum Racks, packs for installed Pack content, user_library for user presets, and audio_effects/midi_effects only for effects. Examples: piano or warm pad -> ["sounds","instruments","packs","user_library"]; 808 kit -> ["drums","packs","user_library"]; "my preset" -> ["user_library"]. Prefer exact loadable device/preset results. Always inspect truncated and stopReason; when results are weak or truncated, retry with narrower roots or a literal synonym such as upright bass/double bass rather than loading the first loose substring match. Results are runtime identity-bound and report whether each item has a supported load target.',
     parameters: z
       .object({
         query: z.string().trim().min(1).max(128),
@@ -1281,7 +1281,7 @@ export function createAbletonTools(
   );
   const loadBrowserItemTool = defineTool("ableton_browser_load_item", {
     description:
-      "Loads one explicitly selected, exact runtime identity-bound built-in instrument, audio effect, or MIDI effect onto one exact regular track. It rejects plug-ins, arbitrary paths, folders, incompatible tracks, and active hotswap; captures bounded before/after device and clip state and succeeds only after observing added top-level devices.",
+      "Loads one explicitly selected, exact runtime identity-bound device or device preset from the Ableton Browser onto one exact compatible regular track. Supported items may come from any Browser root, but folders, samples, clips, grooves, unknown load types, arbitrary paths, incompatible tracks, and active hotswap are rejected before mutation. Live may add a top-level device or apply a preset by reconfiguring an existing device; the operation captures bounded before/after state and reports the verified mutation mode.",
     parameters: z
       .object({
         index: z.number().int().nonnegative(),

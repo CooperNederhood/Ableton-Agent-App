@@ -37,6 +37,7 @@ function application(
   reply = "ok",
   stream = false,
   operationFailure = false,
+  sendError?: Error,
 ) {
   const events = new InMemoryEventPublisher();
   const agentStart = vi.fn(async () => undefined);
@@ -53,7 +54,9 @@ function application(
       if (stream) {
         events.publish({ type: "agent.message_delta", content: "assistant " });
         events.publish({ type: "agent.message_delta", content: "reply" });
-        events.publish({ type: "agent.message_complete", content: reply });
+        if (sendError === undefined) {
+          events.publish({ type: "agent.message_complete", content: reply });
+        }
       }
       if (operationFailure) {
         events.publish({
@@ -62,6 +65,9 @@ function application(
           code: "permission_denied",
           message: "User denied the mutation",
         });
+      }
+      if (sendError !== undefined) {
+        throw sendError;
       }
       return reply;
     }),
@@ -315,6 +321,9 @@ function application(
         },
         addedDevices: [],
         addedDevicesTruncated: false,
+        reconfiguredDevices: [],
+        reconfiguredDevicesTruncated: false,
+        mutationMode: "added" as const,
         verified: true as const,
       }),
     ),
@@ -581,6 +590,9 @@ function application(
         verified: true as const,
       }),
     ),
+    inspectMidiNotes: vi.fn(async () => {
+      throw new Error("not used");
+    }),
     replaceMidiNotes: vi.fn(
       async (params: Parameters<AbletonService["replaceMidiNotes"]>[0]) => ({
         clip: {
@@ -635,6 +647,9 @@ function application(
         limit: params.limit,
       }),
     ),
+    inspectArrangementMidiNotes: vi.fn(async () => {
+      throw new Error("not used");
+    }),
     deleteArrangementClip: vi.fn(
       async (
         params: Parameters<AbletonService["deleteArrangementClip"]>[0],
@@ -771,6 +786,35 @@ describe("CLI", () => {
       prompt: "inspect the set",
       json: true,
     });
+  });
+
+  it("parses scenario run controls without treating them as prompt text", () => {
+    expect(
+      parseArgs([
+        "run",
+        "create a beat",
+        "--scenario",
+        "four-on-floor",
+        "--session",
+        "session-42",
+        "--trace",
+        ".test-artifacts/trace.json",
+        "--timeout-ms",
+        "120000",
+        "--json",
+      ]),
+    ).toEqual({
+      name: "run",
+      prompt: "create a beat",
+      scenarioId: "four-on-floor",
+      sessionId: "session-42",
+      tracePath: ".test-artifacts/trace.json",
+      timeoutMs: 120000,
+      json: true,
+    });
+    expect(() =>
+      parseArgs(["run", "inspect", "--scenario", "../unsafe"]),
+    ).toThrow(CliUsageError);
   });
 
   it("parses interactive chat", () => {
@@ -1389,6 +1433,32 @@ describe("CLI", () => {
     expect(out.raw).toContain("assistant ");
     expect(out.raw).toContain("reply");
     expect(out.lines).not.toContain("assistant reply");
+  });
+
+  it("finishes partial streaming output before reporting a failed turn", async () => {
+    const out = output();
+    const fixture = application(
+      {
+        state: "connected",
+        liveVersion: "12.1",
+        remoteScriptVersion: "0.2.0",
+        projectId: "project",
+      },
+      "partial reply",
+      true,
+      false,
+      new Error("Copilot turn timed out and was cancelled"),
+    );
+
+    await runInteractive(
+      fixture.application,
+      out.io,
+      interactiveInput(["hello", "/exit"]),
+      { terminal: richTerminal },
+    );
+
+    expect(out.lines.join("\n")).toContain("assistant reply");
+    expect(out.errors).toEqual(["Copilot turn timed out and was cancelled"]);
   });
 
   it("renders an agent Markdown table as a rich scrolling transcript", async () => {

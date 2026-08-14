@@ -38,6 +38,8 @@ import type {
   PingResult,
   InspectArrangementParams,
   InspectArrangementResult,
+  InspectArrangementMidiNotesParams,
+  InspectArrangementMidiNotesResult,
   InspectArrangementTransportParams,
   InspectArrangementTransportResult,
   InspectDeviceParametersParams,
@@ -57,6 +59,8 @@ import type {
   InspectDrumPadChainsResult,
   InspectDrumRackPadsParams,
   InspectDrumRackPadsResult,
+  InspectMidiNotesParams,
+  InspectMidiNotesResult,
   InspectRackChainDevicesParams,
   InspectRackChainDevicesResult,
   InspectRackChainsParams,
@@ -140,7 +144,10 @@ interface CopilotResponse {
 
 interface CopilotSessionAdapter {
   readonly sessionId: string;
-  sendAndWait(prompt: string): Promise<CopilotResponse | undefined>;
+  sendAndWait(
+    prompt: string,
+    timeoutMs?: number,
+  ): Promise<CopilotResponse | undefined>;
   abort(): Promise<void>;
   disconnect(): Promise<void>;
   on(listener: (event: SessionEvent) => void): () => void;
@@ -254,11 +261,36 @@ export interface CopilotAgentServiceOptions {
   baseDirectory?: string;
   model?: string;
   reasoningEffort?: "low" | "medium" | "high";
+  turnTimeoutMs?: number;
 }
 
-export const BASE_SYSTEM_MESSAGE_VERSION = 1;
+export const DEFAULT_AGENT_TURN_TIMEOUT_MS = 180_000;
+export const BASE_SYSTEM_MESSAGE_VERSION = 3;
 export const BASE_SYSTEM_MESSAGE =
-  "You are an Ableton Live production assistant. Use only the provided Ableton tools. Inspect current project state before making claims. Clearly distinguish observed state from suggestions.";
+  "You are an Ableton Live production assistant. Use only the provided Ableton tools. Inspect current project state before making claims. Clearly distinguish observed state from suggestions. For every requested instrument, kit, preset, or sound, search the Ableton Browser before creating its destination track. Search each distinct requested sound separately, choose roots deliberately, and resolve an exact supported loadable item. Prefer exact, loadable device or preset results over folders or loose substring matches. If search is truncated or the matches are weak, narrow the roots or try a literal musical synonym before choosing. Only after resolving the content should you create the destination track and load that exact item. Perform dependent mutations sequentially. Never retry a mutation that may already have applied; re-inspect state first and continue from the verified result.";
+
+export class AgentTurnTimeoutError extends Error {
+  public constructor(
+    public readonly timeoutMs: number,
+    public readonly abortError?: unknown,
+  ) {
+    super(
+      abortError === undefined
+        ? `Copilot turn timed out after ${timeoutMs}ms and was cancelled`
+        : `Copilot turn timed out after ${timeoutMs}ms, and cancellation also failed`,
+      abortError === undefined ? undefined : { cause: abortError },
+    );
+    this.name = "AgentTurnTimeoutError";
+  }
+}
+
+function isSessionIdleTimeout(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "TimeoutError" ||
+      /timeout after \d+ms waiting for session\.idle/i.test(error.message))
+  );
+}
 
 export class CopilotAgentService implements AgentService {
   readonly #clientFactory: () => CopilotClientAdapter;
@@ -266,7 +298,14 @@ export class CopilotAgentService implements AgentService {
   #session: CopilotSessionAdapter | undefined;
   #unsubscribe: (() => void) | undefined;
   #inFlightTurns = 0;
-  readonly #operationNames = new Map<string, string>();
+  readonly #operations = new Map<
+    string,
+    {
+      label: string;
+      toolName: string;
+      arguments: Readonly<Record<string, unknown>>;
+    }
+  >();
 
   public constructor(private readonly options: CopilotAgentServiceOptions) {
     this.#clientFactory =
@@ -375,21 +414,33 @@ export class CopilotAgentService implements AgentService {
           (candidate) => candidate.name === event.data.toolName,
         );
         const label = metadata?.title ?? event.data.toolName;
-        this.#operationNames.set(event.data.toolCallId, label);
+        this.#operations.set(event.data.toolCallId, {
+          label,
+          toolName: event.data.toolName,
+          arguments: event.data.arguments ?? {},
+        });
         this.options.events.publish({
           type: "operation.started",
           operationId: event.data.toolCallId,
           label,
+          toolName: event.data.toolName,
+          arguments: event.data.arguments ?? {},
         });
       } else if (event.type === "tool.execution_complete") {
-        const label =
-          this.#operationNames.get(event.data.toolCallId) ?? "Tool operation";
-        this.#operationNames.delete(event.data.toolCallId);
+        const operation = this.#operations.get(event.data.toolCallId);
+        const label = operation?.label ?? "Tool operation";
+        this.#operations.delete(event.data.toolCallId);
         if (event.data.success) {
           this.options.events.publish({
             type: "operation.completed",
             operationId: event.data.toolCallId,
             summary: `${label} completed`,
+            ...(operation === undefined
+              ? {}
+              : { toolName: operation.toolName }),
+            ...(event.data.result?.content === undefined
+              ? {}
+              : { result: event.data.result.content }),
           });
         } else {
           this.options.events.publish({
@@ -397,10 +448,52 @@ export class CopilotAgentService implements AgentService {
             operationId: event.data.toolCallId,
             code: event.data.error?.code ?? "tool_failed",
             message: event.data.error?.message ?? `${label} failed`,
+            ...(operation === undefined
+              ? {}
+              : { toolName: operation.toolName }),
           });
         }
       }
     });
+  }
+
+  async #abortTimedOutTurn(
+    session: CopilotSessionAdapter,
+    timeoutMs: number,
+  ): Promise<never> {
+    this.#unsubscribe?.();
+    this.#unsubscribe = undefined;
+    for (const [operationId, operation] of this.#operations) {
+      this.options.events.publish({
+        type: "operation.failed",
+        operationId,
+        code: "operation_timeout",
+        message: `${operation.label} cancelled because the Copilot turn timed out`,
+        toolName: operation.toolName,
+      });
+    }
+    this.#operations.clear();
+
+    let abortError: unknown;
+    try {
+      await session.abort();
+    } catch (error) {
+      abortError = error;
+    }
+    if (abortError === undefined && this.#session === session) {
+      this.#observe(session);
+    } else if (abortError !== undefined && this.#session === session) {
+      this.#session = undefined;
+      try {
+        await session.disconnect();
+      } catch (disconnectError) {
+        abortError = new AggregateError(
+          [abortError, disconnectError],
+          "Timed-out Copilot session could not be aborted or disconnected",
+        );
+      }
+    }
+    throw new AgentTurnTimeoutError(timeoutMs, abortError);
   }
 
   public async start(preferredSessionId?: string): Promise<void> {
@@ -470,7 +563,7 @@ export class CopilotAgentService implements AgentService {
     const previous = this.#session;
     this.#unsubscribe?.();
     this.#unsubscribe = undefined;
-    this.#operationNames.clear();
+    this.#operations.clear();
     this.#session = session;
     this.#observe(session);
     if (previous) {
@@ -485,7 +578,7 @@ export class CopilotAgentService implements AgentService {
     const client = this.#client;
     this.#session = undefined;
     this.#client = undefined;
-    this.#operationNames.clear();
+    this.#operations.clear();
     if (session) {
       await session.disconnect();
     }
@@ -499,10 +592,17 @@ export class CopilotAgentService implements AgentService {
     if (!session) {
       throw new Error("Copilot agent service is not started");
     }
+    const timeoutMs =
+      this.options.turnTimeoutMs ?? DEFAULT_AGENT_TURN_TIMEOUT_MS;
     this.#inFlightTurns += 1;
     let response: CopilotResponse | undefined;
     try {
-      response = await session.sendAndWait(prompt);
+      response = await session.sendAndWait(prompt, timeoutMs);
+    } catch (error) {
+      if (isSessionIdleTimeout(error)) {
+        return await this.#abortTimedOutTurn(session, timeoutMs);
+      }
+      throw error;
     } finally {
       this.#inFlightTurns -= 1;
     }
@@ -769,6 +869,12 @@ export class HeadlessApplication {
     return this.services.ableton.createMidiClip(params);
   }
 
+  public inspectMidiNotes(
+    params: InspectMidiNotesParams,
+  ): Promise<InspectMidiNotesResult> {
+    return this.services.ableton.inspectMidiNotes(params);
+  }
+
   public replaceMidiNotes(
     params: ReplaceMidiNotesParams,
   ): Promise<ReplaceMidiNotesResult> {
@@ -809,6 +915,12 @@ export class HeadlessApplication {
     params: InspectArrangementParams,
   ): Promise<InspectArrangementResult> {
     return this.services.ableton.inspectArrangement(params);
+  }
+
+  public inspectArrangementMidiNotes(
+    params: InspectArrangementMidiNotesParams,
+  ): Promise<InspectArrangementMidiNotesResult> {
+    return this.services.ableton.inspectArrangementMidiNotes(params);
   }
 
   public deleteArrangementClip(

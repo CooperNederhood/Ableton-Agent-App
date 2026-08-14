@@ -441,6 +441,11 @@ describe("AbletonBridgeService", () => {
       (root) => root.root === "instruments",
     );
     expect(instruments).toBeDefined();
+    const drumsRoot = browserRoots.roots.find((root) => root.root === "drums");
+    expect(drumsRoot).toMatchObject({
+      isFolder: false,
+      isNavigable: true,
+    });
     await expect(
       service.inspectBrowserChildren({
         expectedItemReference: instruments?.reference ?? "",
@@ -467,6 +472,25 @@ describe("AbletonBridgeService", () => {
       visitedNodes: 3,
       stopReason: "result_limit",
       items: [{ name: "Operator", isBuiltInDevice: true }],
+    });
+    await expect(
+      service.searchBrowser({
+        query: "808",
+        roots: ["drums"],
+        maxNodes: 8,
+        maxResults: 2,
+        maxDepth: 3,
+        maxDurationMs: 100,
+      }),
+    ).resolves.toMatchObject({
+      visitedNodes: 2,
+      items: [
+        {
+          name: "808 Core Kit.adg",
+          isLoadableDevice: true,
+          isBuiltInDevice: true,
+        },
+      ],
     });
     const browserItem = browserSearch.items[0];
     await expect(
@@ -737,6 +761,32 @@ describe("AbletonBridgeService", () => {
       afterNoteCount: 1,
       clip: { noteCount: 1 },
       verified: true,
+    });
+    await expect(
+      service.inspectArrangementMidiNotes({
+        index: 0,
+        expectedReference: drums?.reference ?? "",
+        expectedName: "Main Drums",
+        expectedClipReference: arrangement.clips[0]?.reference ?? "",
+        expectedStartTime: 8,
+        offset: 0,
+        limit: 16,
+      }),
+    ).resolves.toMatchObject({
+      clip: { name: "Verse", noteCount: 1 },
+      notes: [
+        {
+          pitch: 60,
+          startTime: 0,
+          duration: 1,
+          velocity: 100,
+          mute: false,
+        },
+      ],
+      totalNotes: 1,
+      offset: 0,
+      limit: 16,
+      truncated: false,
     });
     await expect(
       service.deleteArrangementClip({

@@ -41,6 +41,8 @@ import {
   inspectDrumPadChainsResultSchema,
   inspectDrumRackPadsParamsSchema,
   inspectDrumRackPadsResultSchema,
+  inspectMidiNotesParamsSchema,
+  inspectMidiNotesResultSchema,
   inspectRackChainDevicesParamsSchema,
   inspectRackChainDevicesResultSchema,
   inspectRackChainsParamsSchema,
@@ -54,6 +56,8 @@ import {
   renameTrackResultSchema,
   inspectArrangementParamsSchema,
   inspectArrangementResultSchema,
+  inspectArrangementMidiNotesParamsSchema,
+  inspectArrangementMidiNotesResultSchema,
   inspectArrangementTransportParamsSchema,
   inspectArrangementTransportResultSchema,
   launchSessionClipParamsSchema,
@@ -112,6 +116,8 @@ import {
   type InspectDrumPadChainsResult,
   type InspectDrumRackPadsParams,
   type InspectDrumRackPadsResult,
+  type InspectMidiNotesParams,
+  type InspectMidiNotesResult,
   type InspectRackChainDevicesParams,
   type InspectRackChainDevicesResult,
   type InspectRackChainsParams,
@@ -127,6 +133,8 @@ import {
   type RenameTrackResult,
   type InspectArrangementParams,
   type InspectArrangementResult,
+  type InspectArrangementMidiNotesParams,
+  type InspectArrangementMidiNotesResult,
   type InspectArrangementTransportParams,
   type InspectArrangementTransportResult,
   type LaunchSessionClipParams,
@@ -597,6 +605,16 @@ export class AbletonBridgeService implements AbletonService {
     );
   }
 
+  public async inspectMidiNotes(
+    params: InspectMidiNotesParams,
+  ): Promise<InspectMidiNotesResult> {
+    this.#requireCapability("clips.inspect_notes");
+    const validated = inspectMidiNotesParamsSchema.parse(params);
+    return inspectMidiNotesResultSchema.parse(
+      await this.#request("clips.inspect_notes", validated),
+    );
+  }
+
   public async replaceMidiNotes(
     params: ReplaceMidiNotesParams,
   ): Promise<ReplaceMidiNotesResult> {
@@ -664,6 +682,16 @@ export class AbletonBridgeService implements AbletonService {
     const validated = inspectArrangementParamsSchema.parse(params);
     return inspectArrangementResultSchema.parse(
       await this.#request("arrangement.inspect", validated),
+    );
+  }
+
+  public async inspectArrangementMidiNotes(
+    params: InspectArrangementMidiNotesParams,
+  ): Promise<InspectArrangementMidiNotesResult> {
+    this.#requireCapability("arrangement.inspect_notes");
+    const validated = inspectArrangementMidiNotesParamsSchema.parse(params);
+    return inspectArrangementMidiNotesResultSchema.parse(
+      await this.#request("arrangement.inspect_notes", validated),
     );
   }
 

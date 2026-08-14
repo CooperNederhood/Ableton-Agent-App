@@ -116,6 +116,62 @@ After installing or updating the Remote Script, fully quit and reopen Ableton
 Live. Toggling the Control Surface off and on does not reliably reload Python
 modules that Live has already imported.
 
+### Max Patch Creator knowledge
+
+Copilot CLI and coding agents opened in this repository can use the
+repository-level `Max Patch Creator` agent while keeping the canonical scripts
+and knowledge in a local Max4Live-MCP checkout:
+
+```bash
+export MAX4LIVE_MCP_ROOT="/Users/cooper/Documents/coding/Max4Live-MCP"
+export ABLETON_MAX_PATH="/Users/cooper/Music/Ableton/User Library/Presets/Audio Effects/Max Audio Effect"
+```
+
+Set these variables in the environment that launches Copilot CLI.
+`MAX4LIVE_MCP_ROOT` is required and must be an absolute path;
+`ABLETON_MAX_PATH` is needed only when inspecting or copying user-saved
+devices. Max4Live-MCP remains the source of truth for the patch database,
+object documentation, tutorials, scripts, and learning artifacts.
+
+This repository-level agent is separate from the production assistant embedded
+in the Ableton Agent App. The local path also is not available to
+GitHub-hosted or cloud agents; those environments require the knowledge to be
+exposed remotely or copied into their workspace.
+
+### One-shot agent runs
+
+Use `run` for a non-interactive natural-language turn:
+
+```bash
+node apps/cli/dist/main.js run "inspect the set" --json
+```
+
+Reviewed real-Live integration scenarios opt into narrowly scoped automatic
+approvals and deterministic post-turn assertions:
+
+```bash
+node apps/cli/dist/main.js run \
+  "create a new track and add an 808 drum rack to it" \
+  --scenario 808-track \
+  --trace .test-artifacts/808-track.json \
+  --json
+```
+
+Ordinary `run` remains mutation-denying. A scenario ID is accepted only with
+its exact reviewed prompt, tool/risk allowlist, budgets, ordering constraints,
+generated artifact namespace, and argument guards.
+
+Run the real-Live workflow suite with:
+
+```bash
+pnpm live:agent-smoke
+```
+
+Close your normal Live session first. The harness refuses any pre-existing Live
+process, launches a disposable instance, records and revalidates its exact PID
+identity, and stops only that process. A failed runner-owned Set may be closed
+without saving.
+
 ## Quickstart
 
 With Ableton running, the Control Surface enabled, and
@@ -157,11 +213,35 @@ Describe the current Live Set without changing anything.
 What devices are on the first track?
 Set the tempo to 124 BPM.
 Create a MIDI track named Ideas.
+Find an available 808 drum kit, then create one MIDI track and load it.
 ```
 
 Read-only operations run automatically. Mutations require a per-invocation
 confirmation in interactive chat. Start with a disposable test Set while
 manually validating mutation and recovery behavior.
+
+### Ableton Browser loading
+
+The agent can inspect and search every Browser root, including Drums, Packs,
+User Library, and Live's virtual categories. Search results are bound to exact
+runtime references rather than accepted as arbitrary filesystem paths.
+
+Loading is narrower than searching because different Browser items act on
+different Live targets. The track-loading tool accepts devices and device
+presets that Live can apply to an exact compatible track. Live may add a device
+or reconfigure an existing default device in place; the tool verifies and
+reports which mutation occurred. Samples, clips, grooves, folders, and unknown
+item types remain searchable but are rejected before mutation until they have
+explicit destination tools, such as a Drum Rack pad or Session clip slot.
+
+For combined requests such as creating a drum track, the agent searches and
+resolves a supported item before creating the track. If track creation
+succeeds but loading fails, the empty track is kept and reported as a partial
+result; the agent does not retry track creation.
+
+Agent turns have an application-owned three-minute deadline. A timed-out turn
+is cancelled before the prompt returns so late tool output cannot leak into
+the next command.
 
 ### Start the desktop app
 

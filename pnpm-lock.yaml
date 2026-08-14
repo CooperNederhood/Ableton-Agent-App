@@ -53,6 +53,9 @@ importers:
       '@ableton-agent/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@ableton-agent/tools':
+        specifier: workspace:*
+        version: link:../../packages/tools
       cli-table3:
         specifier: ^0.6.5
         version: 0.6.5
@@ -65,6 +68,9 @@ importers:
       wrap-ansi:
         specifier: ^10.0.0
         version: 10.0.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.4.3
     devDependencies:
       '@ableton-agent/test-support':
         specifier: workspace:*

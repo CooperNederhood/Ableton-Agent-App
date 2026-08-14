@@ -1,0 +1,48 @@
+{
+  "formatVersion": 1,
+  "id": "track-lifecycle",
+  "group": "tracks",
+  "prompt": "Create one temporary MIDI track, rename it, set its mixer state, verify it, and delete it so the Set returns to its original track state.",
+  "artifactPrefix": "AA_SMOKE_TRACK_",
+  "allowedTools": [
+    "ableton_session_inspect",
+    "ableton_tracks_create",
+    "ableton_tracks_rename",
+    "ableton_tracks_set_mixer",
+    "ableton_tracks_delete"
+  ],
+  "allowedRisks": ["read", "reversible", "destructive"],
+  "maxToolCalls": 12,
+  "maxMutations": 4,
+  "timeoutMs": 180000,
+  "ordering": [
+    {
+      "before": "ableton_tracks_create",
+      "after": "ableton_tracks_rename"
+    },
+    {
+      "before": "ableton_tracks_rename",
+      "after": "ableton_tracks_set_mixer"
+    },
+    {
+      "before": "ableton_tracks_set_mixer",
+      "after": "ableton_tracks_delete"
+    }
+  ],
+  "trackNameSuffixes": ["Initial", "Final"],
+  "assertions": [
+    {
+      "type": "track-lifecycle",
+      "initialNameSuffix": "Initial",
+      "finalNameSuffix": "Final",
+      "trackKind": "midi",
+      "mixer": {
+        "isMuted": true,
+        "isSoloed": true,
+        "isArmed": true,
+        "volume": 0.42,
+        "pan": -0.25
+      }
+    }
+  ]
+}

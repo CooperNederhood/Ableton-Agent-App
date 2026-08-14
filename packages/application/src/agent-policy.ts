@@ -9,6 +9,7 @@ const NON_RETRYABLE_CODES = new Set([
   "stale_reference",
   "ambiguous_reference",
   "invalid_params",
+  "applied_indeterminate",
 ]);
 
 export interface AgentPolicyServices {
@@ -19,6 +20,34 @@ export interface AgentPolicyServices {
 export interface AgentPolicy {
   readonly hooks: SessionHooks;
   blockAttempt(toolName: string, toolArgs: unknown, reason: string): void;
+}
+
+export function browserIntentGuidance(prompt: string): string | undefined {
+  const normalized = prompt.toLowerCase();
+  const recommendations: string[] = [];
+  if (/\b(piano|keys?|keyboard)\b/u.test(normalized)) {
+    recommendations.push(
+      'Piano request: search roots ["sounds","instruments","packs","user_library"] using "piano"; if weak or truncated, try "grand piano" or "acoustic piano".',
+    );
+  }
+  if (
+    /\b(string bass|upright bass|double bass|acoustic bass)\b/u.test(normalized)
+  ) {
+    recommendations.push(
+      'String-bass request: search roots ["sounds","instruments","packs","user_library"] separately using "upright bass"; if weak or truncated, try "double bass" and then "string bass".',
+    );
+  }
+  if (/\b(808|drum kit|drum rack|kit)\b/u.test(normalized)) {
+    recommendations.push(
+      'Drum/kit request: search roots ["drums","packs","user_library"] with the literal kit term.',
+    );
+  }
+  if (recommendations.length === 0) return undefined;
+  return [
+    "Ableton Browser intent guidance:",
+    ...recommendations,
+    "Resolve every distinct requested sound before creating tracks. Inspect truncated/weak results and run a narrower follow-up search instead of loading the first loose match.",
+  ].join("\n");
 }
 
 export function compactProjectContext(
@@ -57,6 +86,14 @@ export function compactProjectContext(
 
 export function structuredErrorCode(error: string): string | undefined {
   const normalized = error.toLowerCase();
+  if (
+    normalized.includes("postcondition verification failed") ||
+    normalized.includes("applied but could not be fully verified") ||
+    normalized.includes('"outcome":"applied_indeterminate"') ||
+    normalized.includes('"outcome": "applied_indeterminate"')
+  ) {
+    return "applied_indeterminate";
+  }
   return [...NON_RETRYABLE_CODES].find(
     (code) =>
       normalized.includes(code) ||
@@ -77,6 +114,8 @@ export function retryGuidance(error: string): string {
       return "Do not retry or rephrase the same operation to bypass the denial. Acknowledge the decision and wait for a new user request.";
     case "invalid_params":
       return "Do not retry unchanged arguments. Correct them from inspected state or ask for missing intent.";
+    case "applied_indeterminate":
+      return "The mutation may already have changed Ableton. Do not retry it. Re-inspect the relevant project state, report the verified result, and only continue from that fresh state.";
     default:
       return "Retry at most once only when the failure is explicitly retryable. Otherwise report the failure and preserve the observed state.";
   }
@@ -105,7 +144,11 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
 
   const hooks: SessionHooks = {
     onSessionStart: async () => ({ additionalContext: await context() }),
-    onUserPromptSubmitted: async () => ({ additionalContext: await context() }),
+    onUserPromptSubmitted: async (input) => ({
+      additionalContext: [await context(), browserIntentGuidance(input.prompt)]
+        .filter((value) => value !== undefined)
+        .join("\n\n"),
+    }),
     onPreToolUse: (input) => {
       const reason = blockedAttempts.get(
         attemptKey(input.toolName, input.toolArgs),

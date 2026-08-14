@@ -275,6 +275,9 @@ export class FakeAbletonService implements AbletonService {
   public createMidiClip(): Promise<Protocol.CreateMidiClipResult> {
     return Promise.reject(new UnsupportedByFakeError("createMidiClip"));
   }
+  public inspectMidiNotes(): Promise<Protocol.InspectMidiNotesResult> {
+    return Promise.reject(new UnsupportedByFakeError("inspectMidiNotes"));
+  }
   public replaceMidiNotes(): Promise<Protocol.ReplaceMidiNotesResult> {
     return Promise.reject(new UnsupportedByFakeError("replaceMidiNotes"));
   }
@@ -299,6 +302,11 @@ export class FakeAbletonService implements AbletonService {
   }
   public inspectArrangement(): Promise<Protocol.InspectArrangementResult> {
     return Promise.reject(new UnsupportedByFakeError("inspectArrangement"));
+  }
+  public inspectArrangementMidiNotes(): Promise<Protocol.InspectArrangementMidiNotesResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("inspectArrangementMidiNotes"),
+    );
   }
   public deleteArrangementClip(): Promise<Protocol.DeleteArrangementClipResult> {
     return Promise.reject(new UnsupportedByFakeError("deleteArrangementClip"));

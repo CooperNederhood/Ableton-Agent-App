@@ -89,7 +89,7 @@ class MainThreadExecutor(object):
                             )
                         ),
                         lambda exc: callback(
-                            failure(request, "lom_error", str(exc))
+                            _failure_from_exception(request, exc)
                         ),
                     )
                 else:
@@ -139,3 +139,15 @@ class MainThreadExecutor(object):
                 )
             )
             self._queue.task_done()
+
+
+def _failure_from_exception(request, exc):
+    if isinstance(exc, ProtocolFailure):
+        return failure(
+            request,
+            exc.code,
+            exc.message,
+            retryable=exc.retryable,
+            details=exc.details,
+        )
+    return failure(request, "lom_error", str(exc))

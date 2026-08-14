@@ -24,6 +24,36 @@ export default tseslint.config(
       },
     },
   },
+  {
+    files: [
+      "max-patches/midi-capture/midi_capture_writer.js",
+      "max-patches/midi-capture/*.cjs",
+    ],
+    languageOptions: {
+      globals: {
+        __dirname: "readonly",
+        module: "readonly",
+        process: "readonly",
+        require: "readonly",
+      },
+    },
+  },
+  {
+    files: ["max-patches/midi-capture/midi_note_parser.js"],
+    languageOptions: {
+      globals: {
+        arrayfromargs: "readonly",
+        autowatch: "writable",
+        inlets: "writable",
+        module: "readonly",
+        outlet: "readonly",
+        outlets: "writable",
+      },
+    },
+    rules: {
+      "no-unused-vars": "off",
+    },
+  },
   ...tseslint.configs.recommendedTypeChecked.map((config) => ({
     ...config,
     files: ["**/*.{ts,tsx}"],

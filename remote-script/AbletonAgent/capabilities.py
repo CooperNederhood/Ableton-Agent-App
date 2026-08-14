@@ -50,6 +50,8 @@ def build_capability_document(
         ),
         "arrangement.inspect": not tracks
         or any(_lom_hasattr(track, "arrangement_clips") for track in tracks),
+        "arrangement.inspect_notes": not tracks
+        or any(_lom_hasattr(track, "arrangement_clips") for track in tracks),
         "arrangement.delete_clip": any(
             _lom_hasattr(track, "arrangement_clips")
             and _lom_hasattr(track, "delete_clip")

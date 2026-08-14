@@ -1,0 +1,26 @@
+{
+  "formatVersion": 1,
+  "groups": [
+    {
+      "id": "inspection",
+      "scenarios": [
+        "connection-and-session",
+        "transport-inspection",
+        "browser-bounds",
+        "capability-surface"
+      ]
+    },
+    {
+      "id": "tracks",
+      "scenarios": ["track-lifecycle", "808-track"]
+    },
+    {
+      "id": "session-clips",
+      "scenarios": ["four-on-floor", "session-clip-lifecycle"]
+    },
+    {
+      "id": "instruments",
+      "scenarios": ["piano-and-string-bass"]
+    }
+  ]
+}

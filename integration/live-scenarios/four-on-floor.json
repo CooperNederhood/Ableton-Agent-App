@@ -1,0 +1,63 @@
+{
+  "formatVersion": 1,
+  "id": "four-on-floor",
+  "group": "session-clips",
+  "prompt": "create a new track and add an 808 drum rack to it, then add a new clip to it with a 4-on-the-floor drum beat",
+  "artifactPrefix": "AA_SMOKE_4OTF_",
+  "allowedTools": [
+    "ableton_connection_status",
+    "ableton_session_inspect",
+    "ableton_browser_roots_inspect",
+    "ableton_browser_children_inspect",
+    "ableton_browser_search",
+    "ableton_tracks_create",
+    "ableton_browser_load_item",
+    "ableton_devices_inspect",
+    "ableton_drum_rack_pads_inspect",
+    "ableton_clips_create_midi",
+    "ableton_clips_replace_notes"
+  ],
+  "allowedRisks": ["read", "reversible", "destructive"],
+  "maxToolCalls": 16,
+  "maxMutations": 4,
+  "timeoutMs": 240000,
+  "ordering": [
+    {
+      "before": "ableton_browser_search",
+      "after": "ableton_tracks_create"
+    },
+    {
+      "before": "ableton_tracks_create",
+      "after": "ableton_browser_load_item"
+    },
+    {
+      "before": "ableton_browser_load_item",
+      "after": "ableton_clips_create_midi"
+    },
+    {
+      "before": "ableton_clips_create_midi",
+      "after": "ableton_clips_replace_notes"
+    }
+  ],
+  "trackNameSuffixes": ["808 Drums"],
+  "clipNameSuffixes": ["Four on the Floor"],
+  "browserItemNames": ["808 Core Kit.adg"],
+  "assertions": [
+    {
+      "type": "track-device",
+      "trackNameSuffix": "808 Drums",
+      "trackKind": "midi",
+      "deviceName": "808 Core Kit"
+    },
+    {
+      "type": "session-midi-pattern",
+      "trackNameSuffix": "808 Drums",
+      "clipNameSuffix": "Four on the Floor",
+      "sceneIndex": 0,
+      "pitch": 36,
+      "starts": [0, 1, 2, 3],
+      "duration": 0.25,
+      "velocity": 110
+    }
+  ]
+}

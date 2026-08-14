@@ -2893,9 +2893,11 @@
                 "name": { "type": "string", "minLength": 1, "maxLength": 256 },
                 "uri": { "type": "string", "maxLength": 2048 },
                 "isFolder": { "type": "boolean" },
+                "isNavigable": { "type": "boolean" },
                 "isLoadable": { "type": "boolean" },
                 "isDevice": { "type": "boolean" },
                 "source": { "type": "string", "maxLength": 256 },
+                "isLoadableDevice": { "type": "boolean" },
                 "isBuiltInDevice": { "type": "boolean" }
               },
               "required": [
@@ -3044,9 +3046,11 @@
               "name": { "type": "string", "minLength": 1, "maxLength": 256 },
               "uri": { "type": "string", "maxLength": 2048 },
               "isFolder": { "type": "boolean" },
+              "isNavigable": { "type": "boolean" },
               "isLoadable": { "type": "boolean" },
               "isDevice": { "type": "boolean" },
               "source": { "type": "string", "maxLength": 256 },
+              "isLoadableDevice": { "type": "boolean" },
               "isBuiltInDevice": { "type": "boolean" }
             },
             "required": [
@@ -3115,9 +3119,11 @@
                 "name": { "type": "string", "minLength": 1, "maxLength": 256 },
                 "uri": { "type": "string", "maxLength": 2048 },
                 "isFolder": { "type": "boolean" },
+                "isNavigable": { "type": "boolean" },
                 "isLoadable": { "type": "boolean" },
                 "isDevice": { "type": "boolean" },
                 "source": { "type": "string", "maxLength": 256 },
+                "isLoadableDevice": { "type": "boolean" },
                 "isBuiltInDevice": { "type": "boolean" }
               },
               "required": [
@@ -3276,9 +3282,11 @@
                 "name": { "type": "string", "minLength": 1, "maxLength": 256 },
                 "uri": { "type": "string", "maxLength": 2048 },
                 "isFolder": { "type": "boolean" },
+                "isNavigable": { "type": "boolean" },
                 "isLoadable": { "type": "boolean" },
                 "isDevice": { "type": "boolean" },
                 "source": { "type": "string", "maxLength": 256 },
+                "isLoadableDevice": { "type": "boolean" },
                 "isBuiltInDevice": { "type": "boolean" }
               },
               "required": [
@@ -3479,9 +3487,11 @@
               "name": { "type": "string", "minLength": 1, "maxLength": 256 },
               "uri": { "type": "string", "maxLength": 2048 },
               "isFolder": { "type": "boolean" },
+              "isNavigable": { "type": "boolean" },
               "isLoadable": { "type": "boolean" },
               "isDevice": { "type": "boolean" },
               "source": { "type": "string", "maxLength": 256 },
+              "isLoadableDevice": { "type": "boolean" },
               "isBuiltInDevice": { "type": "boolean" }
             },
             "required": [
@@ -3655,6 +3665,72 @@
             }
           },
           "addedDevicesTruncated": { "type": "boolean" },
+          "reconfiguredDevices": {
+            "default": [],
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "reference": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "trackReference": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "trackIndex": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "index": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "name": { "type": "string" },
+                "className": { "type": "string" },
+                "classDisplayName": { "type": "string" },
+                "enabled": {
+                  "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+                },
+                "parameterCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "canHaveChains": { "default": false, "type": "boolean" },
+                "canHaveDrumPads": { "default": false, "type": "boolean" }
+              },
+              "required": [
+                "reference",
+                "trackReference",
+                "trackIndex",
+                "index",
+                "name",
+                "className",
+                "classDisplayName",
+                "enabled",
+                "parameterCount",
+                "canHaveChains",
+                "canHaveDrumPads"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "reconfiguredDevicesTruncated": {
+            "default": false,
+            "type": "boolean"
+          },
+          "mutationMode": {
+            "default": "added",
+            "type": "string",
+            "enum": ["added", "reconfigured", "mixed"]
+          },
           "verified": { "type": "boolean", "const": true }
         },
         "required": [
@@ -3664,6 +3740,9 @@
           "after",
           "addedDevices",
           "addedDevicesTruncated",
+          "reconfiguredDevices",
+          "reconfiguredDevicesTruncated",
+          "mutationMode",
           "verified"
         ],
         "additionalProperties": false
@@ -3757,6 +3836,154 @@
           "verified": { "type": "boolean", "const": true }
         },
         "required": ["clip", "verified"],
+        "additionalProperties": false
+      }
+    },
+    "clips.inspect_notes": {
+      "mutates": false,
+      "timeoutClass": "normal",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "expectedReference": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "expectedName": { "type": "string", "minLength": 1 },
+          "sceneIndex": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "expectedClipReference": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "offset": {
+            "default": 0,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "limit": {
+            "default": 256,
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 2048
+          }
+        },
+        "required": [
+          "index",
+          "expectedReference",
+          "expectedName",
+          "sceneIndex",
+          "expectedClipReference",
+          "offset",
+          "limit"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clip": {
+            "type": "object",
+            "properties": {
+              "reference": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "trackReference": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "trackIndex": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "sceneIndex": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "name": { "type": "string" },
+              "length": { "type": "number", "exclusiveMinimum": 0 },
+              "noteCount": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "reference",
+              "trackReference",
+              "trackIndex",
+              "sceneIndex",
+              "name",
+              "length",
+              "noteCount"
+            ],
+            "additionalProperties": false
+          },
+          "notes": {
+            "maxItems": 2048,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "pitch": { "type": "integer", "minimum": 0, "maximum": 127 },
+                "startTime": { "type": "number", "minimum": 0 },
+                "duration": { "type": "number", "exclusiveMinimum": 0 },
+                "velocity": { "type": "integer", "minimum": 1, "maximum": 127 },
+                "mute": { "default": false, "type": "boolean" }
+              },
+              "required": [
+                "pitch",
+                "startTime",
+                "duration",
+                "velocity",
+                "mute"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "totalNotes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "limit": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 2048
+          },
+          "truncated": { "type": "boolean" }
+        },
+        "required": [
+          "clip",
+          "notes",
+          "totalNotes",
+          "offset",
+          "limit",
+          "truncated"
+        ],
         "additionalProperties": false
       }
     },
@@ -4671,6 +4898,159 @@
           }
         },
         "required": ["clips", "total", "offset", "limit"],
+        "additionalProperties": false
+      }
+    },
+    "arrangement.inspect_notes": {
+      "mutates": false,
+      "timeoutClass": "normal",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "expectedReference": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "expectedName": { "type": "string", "minLength": 1 },
+          "expectedClipReference": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "expectedStartTime": { "type": "number", "minimum": 0 },
+          "offset": {
+            "default": 0,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "limit": {
+            "default": 256,
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 2048
+          }
+        },
+        "required": [
+          "index",
+          "expectedReference",
+          "expectedName",
+          "expectedClipReference",
+          "expectedStartTime",
+          "offset",
+          "limit"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clip": {
+            "type": "object",
+            "properties": {
+              "reference": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "trackReference": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "trackIndex": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "name": { "type": "string" },
+              "kind": { "type": "string", "enum": ["midi", "audio"] },
+              "startTime": { "type": "number", "minimum": 0 },
+              "endTime": { "type": "number", "exclusiveMinimum": 0 },
+              "length": { "type": "number", "exclusiveMinimum": 0 },
+              "noteCount": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "muted": { "type": "boolean" },
+              "looping": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              }
+            },
+            "required": [
+              "reference",
+              "trackReference",
+              "trackIndex",
+              "name",
+              "kind",
+              "startTime",
+              "endTime",
+              "length",
+              "noteCount"
+            ],
+            "additionalProperties": false
+          },
+          "notes": {
+            "maxItems": 2048,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "pitch": { "type": "integer", "minimum": 0, "maximum": 127 },
+                "startTime": { "type": "number", "minimum": 0 },
+                "duration": { "type": "number", "exclusiveMinimum": 0 },
+                "velocity": { "type": "integer", "minimum": 1, "maximum": 127 },
+                "mute": { "default": false, "type": "boolean" }
+              },
+              "required": [
+                "pitch",
+                "startTime",
+                "duration",
+                "velocity",
+                "mute"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "totalNotes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "limit": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 2048
+          },
+          "truncated": { "type": "boolean" }
+        },
+        "required": [
+          "clip",
+          "notes",
+          "totalNotes",
+          "offset",
+          "limit",
+          "truncated"
+        ],
         "additionalProperties": false
       }
     },

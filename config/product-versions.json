@@ -1,6 +1,6 @@
 {
   "app": "0.1.0",
-  "remoteScript": "0.4.0",
+  "remoteScript": "0.4.1",
   "protocol": 2,
   "database": 2,
   "minimumRemoteScript": "0.4.0",

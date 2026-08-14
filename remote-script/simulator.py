@@ -82,13 +82,20 @@ class SimulatorState(object):
         self.browser_roots = self.create_browser_roots()
 
     def browser_item(
-        self, name, uri, children=None, loadable=False, device=False, source=""
+        self,
+        name,
+        uri,
+        children=None,
+        loadable=False,
+        device=False,
+        source="",
+        folder=None,
     ):
         return {
             "reference": str(uuid.uuid5(uuid.NAMESPACE_URL, uri)),
             "name": name,
             "uri": uri,
-            "isFolder": children is not None,
+            "isFolder": children is not None if folder is None else folder,
             "isLoadable": loadable,
             "isDevice": device,
             "source": source,
@@ -145,16 +152,55 @@ class SimulatorState(object):
                     )
                 ],
             ),
+            "drums": self.browser_item(
+                "Drums",
+                "ableton://drums",
+                [
+                    self.browser_item(
+                        "808 Core Kit.adg",
+                        "ableton://drums/808-core-kit",
+                        loadable=True,
+                        device=False,
+                        source="drums",
+                    )
+                ],
+                folder=False,
+            ),
+            "packs": self.browser_item(
+                "Packs",
+                "ableton://packs",
+                [
+                    self.browser_item(
+                        "Warm Pad.adg",
+                        "ableton://packs/warm-pad",
+                        loadable=True,
+                        device=True,
+                        source="packs",
+                    )
+                ],
+                folder=False,
+            ),
+            "user_library": self.browser_item(
+                "User Library",
+                "ableton://user_library",
+                [
+                    self.browser_item(
+                        "My Bass.adv",
+                        "file:///Music/Ableton/User Library/My Bass.adv",
+                        loadable=True,
+                        device=True,
+                        source="user_library",
+                    )
+                ],
+                folder=False,
+            ),
         }
         for key, name in (
             ("sounds", "Sounds"),
-            ("drums", "Drums"),
             ("max_for_live", "Max for Live"),
             ("plugins", "Plug-ins"),
             ("clips", "Clips"),
             ("samples", "Samples"),
-            ("packs", "Packs"),
-            ("user_library", "User Library"),
             ("current_project", "Current Project"),
         ):
             roots[key] = self.browser_item(
@@ -165,6 +211,26 @@ class SimulatorState(object):
     def browser_item_summary(self, root, path, item):
         source = item["source"].strip().casefold().replace(" ", "_")
         uri = item["uri"].strip().casefold()
+        is_navigable = item["isFolder"] or bool(item["children"])
+        is_loadable_device = (
+            (
+                item["isDevice"]
+                or item["name"].strip().casefold().endswith(
+                    (".adv", ".adg", ".amxd")
+                )
+            )
+            and item["isLoadable"]
+            and not is_navigable
+            and root != "plugins"
+            and not any(
+                marker in source
+                for marker in ("plugin", "vst", "audio_unit")
+            )
+            and not any(
+                marker in uri
+                for marker in ("plugin", "vst", "audio_unit", "external")
+            )
+        )
         return {
             "reference": item["reference"],
             "root": root,
@@ -172,20 +238,12 @@ class SimulatorState(object):
             "name": item["name"],
             "uri": item["uri"],
             "isFolder": item["isFolder"],
+            "isNavigable": is_navigable,
             "isLoadable": item["isLoadable"],
             "isDevice": item["isDevice"],
             "source": item["source"],
-            "isBuiltInDevice": item["isDevice"]
-            and root in ("instruments", "audio_effects", "midi_effects")
-            and not any(
-                marker in source
-                for marker in ("user", "project", "plugin", "vst", "audio_unit")
-            )
-            and uri.startswith("ableton://")
-            and not any(
-                marker in uri
-                for marker in ("user", "plugin", "vst", "audio_unit", "external")
-            ),
+            "isLoadableDevice": is_loadable_device,
+            "isBuiltInDevice": is_loadable_device,
         }
 
     def resolve_browser_item(self, root, path):
@@ -195,7 +253,7 @@ class SimulatorState(object):
         for segment in path:
             index = segment.get("index")
             if (
-                not item["isFolder"]
+                not (item["isFolder"] or item["children"])
                 or not isinstance(index, int)
                 or index < 0
                 or index >= len(item["children"])
@@ -541,6 +599,7 @@ def handle(request, token, state):
                     "browser.search": True,
                     "browser.load_item": True,
                     "clips.create_midi": True,
+                    "clips.inspect_notes": True,
                     "clips.replace_notes": True,
                     "clips.launch": True,
                     "clips.duplicate": True,
@@ -548,6 +607,7 @@ def handle(request, token, state):
                     "clips.set_properties": True,
                     "arrangement.create_midi_clip": True,
                     "arrangement.inspect": True,
+                    "arrangement.inspect_notes": True,
                     "arrangement.delete_clip": True,
                     "arrangement.replace_notes": True,
                     "arrangement.duplicate_clip": True,
@@ -632,11 +692,11 @@ def handle(request, token, state):
             )
         summary = state.browser_item_summary(root, path, item)
         if command == "browser.inspect_children":
-            if not item["isFolder"]:
+            if not summary["isNavigable"]:
                 return failure(
                     request,
                     "conflict",
-                    "The targeted browser item is not a folder",
+                    "The targeted browser item is not a navigable container",
                 )
             offset = params.get("offset", 0)
             limit = params.get("limit", 32)
@@ -676,17 +736,11 @@ def handle(request, token, state):
                     "limit": limit,
                 },
             )
-        if not summary["isBuiltInDevice"]:
+        if not summary["isLoadableDevice"]:
             return failure(
                 request,
                 "conflict",
-                "Only built-in device items may be loaded",
-            )
-        if not item["isLoadable"] or item["isFolder"]:
-            return failure(
-                request,
-                "conflict",
-                "The selected browser item is not directly loadable",
+                "Only supported device or device-preset items may be loaded",
             )
         index = params.get("index")
         if (
@@ -706,7 +760,11 @@ def handle(request, token, state):
                 "stale_reference",
                 "Track identity changed before browser load",
             )
-        if root in ("instruments", "midi_effects") and track["kind"] != "midi":
+        if root in (
+            "drums",
+            "instruments",
+            "midi_effects",
+        ) and track["kind"] != "midi":
             return failure(
                 request,
                 "conflict",
@@ -813,7 +871,7 @@ def handle(request, token, state):
                 if len(items) >= max_results:
                     stop_reason = "result_limit"
                     break
-            if not item["isFolder"]:
+            if not (item["isFolder"] or item["children"]):
                 continue
             if depth >= max_depth:
                 if item["children"]:
@@ -1691,7 +1749,11 @@ def handle(request, token, state):
                 "verified": True,
             },
         )
-    if command in ("clips.create_midi", "clips.replace_notes"):
+    if command in (
+        "clips.create_midi",
+        "clips.inspect_notes",
+        "clips.replace_notes",
+    ):
         index = params.get("index")
         scene_index = params.get("sceneIndex")
         if (
@@ -1759,6 +1821,37 @@ def handle(request, token, state):
                 request,
                 "stale_reference",
                 "Clip identity changed before note replacement",
+            )
+        if command == "clips.inspect_notes":
+            offset = params.get("offset", 0)
+            limit = params.get("limit", 256)
+            notes = sorted(
+                clip["notes"],
+                key=lambda note: (
+                    note["startTime"],
+                    note["pitch"],
+                    note["duration"],
+                ),
+            )
+            selected = notes[offset : offset + limit]
+            return response(
+                request,
+                {
+                    "clip": {
+                        "reference": clip["reference"],
+                        "trackReference": track["reference"],
+                        "trackIndex": index,
+                        "sceneIndex": scene_index,
+                        "name": clip["name"],
+                        "length": clip["length"],
+                        "noteCount": len(notes),
+                    },
+                    "notes": selected,
+                    "totalNotes": len(notes),
+                    "offset": offset,
+                    "limit": limit,
+                    "truncated": offset + len(selected) < len(notes),
+                },
             )
         before_count = len(clip["notes"])
         allow_expression_loss = params.get("allowPerNoteExpressionLoss")
@@ -2172,10 +2265,82 @@ def handle(request, token, state):
         return response(
             request,
             {
-                "clips": clips[offset : offset + limit],
+                "clips": [
+                    {
+                        key: value
+                        for key, value in clip.items()
+                        if key != "notes"
+                    }
+                    for clip in clips[offset : offset + limit]
+                ],
                 "total": len(clips),
                 "offset": offset,
                 "limit": limit,
+            },
+        )
+    if command == "arrangement.inspect_notes":
+        index = params.get("index")
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or index < 0
+            or index >= len(state.tracks)
+        ):
+            return failure(request, "not_found", "Track index is out of range")
+        track = state.tracks[index]
+        if (
+            track["reference"] != params.get("expectedReference")
+            or track["name"] != params.get("expectedName")
+        ):
+            return failure(
+                request,
+                "stale_reference",
+                "Track identity changed before inspection",
+            )
+        target = next(
+            (
+                clip
+                for clip in track["arrangementClips"]
+                if clip["reference"] == params.get("expectedClipReference")
+            ),
+            None,
+        )
+        if target is None or abs(
+            target["startTime"] - params.get("expectedStartTime")
+        ) >= 0.000001:
+            return failure(
+                request,
+                "stale_reference",
+                "Arrangement clip changed before note inspection",
+            )
+        if target["kind"] != "midi":
+            return failure(
+                request, "conflict", "Arrangement clip is not a MIDI clip"
+            )
+        notes = sorted(
+            target.get("notes", []),
+            key=lambda note: (
+                note["startTime"],
+                note["pitch"],
+                note["duration"],
+            ),
+        )
+        offset = params.get("offset", 0)
+        limit = params.get("limit", 256)
+        selected = notes[offset : offset + limit]
+        return response(
+            request,
+            {
+                "clip": {
+                    key: value
+                    for key, value in target.items()
+                    if key != "notes"
+                },
+                "notes": selected,
+                "totalNotes": len(notes),
+                "offset": offset,
+                "limit": limit,
+                "truncated": offset + len(selected) < len(notes),
             },
         )
     if command == "arrangement.delete_clip":

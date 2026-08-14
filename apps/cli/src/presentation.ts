@@ -83,9 +83,12 @@ export function browserRootsMarkdown(
   return [
     `## Browser roots (${result.roots.length})`,
     "",
-    "| Key | Name |",
-    "|---|---|",
-    ...result.roots.map((root) => `| ${root.root} | ${root.name} |`),
+    "| Key | Name | Navigable |",
+    "|---|---|---|",
+    ...result.roots.map(
+      (root) =>
+        `| ${root.root} | ${root.name} | ${(root.isNavigable ?? root.isFolder) ? "yes" : "no"} |`,
+    ),
   ].join("\n");
 }
 

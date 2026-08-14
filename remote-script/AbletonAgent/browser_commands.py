@@ -5,11 +5,13 @@ from __future__ import absolute_import, unicode_literals
 import time
 import uuid
 from collections import deque
+import re
 
 from .device_commands import _device_summary
 from .errors import ProtocolFailure
 from .system_commands import (
     _resolve_track,
+    _same_lom_object,
     _track_kind,
     _track_reference,
     _validate_track_target,
@@ -38,10 +40,12 @@ BROWSER_ROOTS = (
     ("user_library", "User Library", False),
     ("current_project", "Current Project", False),
 )
-BUILT_IN_DEVICE_ROOTS = frozenset(
-    root for root, _label, loadable in BROWSER_ROOTS if loadable
+DEFAULT_SEARCH_ROOTS = frozenset(
+    root
+    for root, _label, is_default_search_root in BROWSER_ROOTS
+    if is_default_search_root
 )
-ROOT_KEYS = tuple(root for root, _label, _loadable in BROWSER_ROOTS)
+ROOT_KEYS = tuple(root for root, _label, _is_default_search_root in BROWSER_ROOTS)
 
 
 def _browser(context):
@@ -78,29 +82,95 @@ def _item_source(item):
     return str(getattr(item, "source", "") or "")
 
 
-def _item_is_built_in_device(root, item):
+_EXTERNAL_PLUGIN_SOURCE_MARKERS = ("plugin", "vst", "audio_unit")
+_EXTERNAL_PLUGIN_URI_MARKERS = ("plugin", "vst", "audio_unit", "external")
+_DEVICE_PRESET_SUFFIXES = (".adv", ".adg", ".amxd")
+
+
+def _item_is_trusted_internal_content(root, item):
+    """Dedicated policy boundary excluding external plugins.
+
+    Exact Browser-resolved device presets may use Ableton or file URIs,
+    especially in User Library. Third-party VST/Audio Unit plugins remain
+    excluded and retain their dedicated search/approval boundary.
+    """
     source = _item_source(item).strip().casefold().replace(" ", "_")
     uri = _item_uri(item).strip().casefold()
-    return (
-        bool(getattr(item, "is_device", False))
-        and root in BUILT_IN_DEVICE_ROOTS
-        and not any(
-            marker in source
-            for marker in ("user", "project", "plugin", "vst", "audio_unit")
-        )
-        and uri.startswith("ableton://")
-        and not any(
-            marker in uri
-            for marker in ("user", "plugin", "vst", "audio_unit", "external")
-        )
-    )
+    if root == "plugins":
+        return False
+    if any(marker in source for marker in _EXTERNAL_PLUGIN_SOURCE_MARKERS):
+        return False
+    if any(marker in uri for marker in _EXTERNAL_PLUGIN_URI_MARKERS):
+        return False
+    return True
 
 
 def _iter_children(item):
-    iterator = getattr(item, "iter_children", None)
-    if callable(iterator):
-        return iter(iterator())
-    return iter(getattr(item, "children", ()))
+    """Yield an item's children, bounded to what can be safely read.
+
+    Live 11 exposes some virtual-container items (for example Drums)
+    whose ``iter_children``/``children`` descriptors can raise instead of
+    returning an empty result. Any failure while obtaining the iterator or
+    while advancing it is treated as "no further children" rather than
+    propagating, since callers only ever need a bounded, best-effort view.
+    """
+    try:
+        iterator = getattr(item, "iter_children", None)
+        if callable(iterator):
+            raw = iter(iterator())
+        else:
+            raw = iter(getattr(item, "children", ()))
+    except Exception:
+        return
+    while True:
+        try:
+            child = next(raw)
+        except StopIteration:
+            return
+        except Exception:
+            return
+        yield child
+
+
+def _item_has_children(item):
+    """Bounded, safe probe for at least one child (does not enumerate)."""
+    for _child in _iter_children(item):
+        return True
+    return False
+
+
+def _item_is_navigable(item):
+    """True if an item can be traversed for children.
+
+    Live 11 Browser virtual containers (for example Drums) may report
+    ``is_folder=False`` while still exposing children, so navigability is
+    determined by ``is_folder`` OR a safe, bounded children probe rather
+    than ``is_folder`` alone.
+    """
+    if bool(getattr(item, "is_folder", False)):
+        return True
+    return _item_has_children(item)
+
+
+def _item_is_loadable_device(root, item):
+    """Safe semantic classification for target-aware device loading.
+
+    A device or device preset may be loaded regardless of which Browser
+    root exposes it (Drums, Packs, User Library, ...), as long as it is
+    reported as a device, is directly loadable, is not itself a
+    navigable container, and is trusted internal content (not an
+    external plugin).
+    """
+    name = _item_name(item).strip().casefold()
+    is_device_or_preset = bool(
+        getattr(item, "is_device", False)
+    ) or name.endswith(_DEVICE_PRESET_SUFFIXES)
+    return (
+        is_device_or_preset
+        and bool(getattr(item, "is_loadable", False))
+        and not _item_is_navigable(item)
+        and _item_is_trusted_internal_content(root, item)
+    )
 
 
 def _item_identity(root, path, item):
@@ -142,17 +212,20 @@ def _item_summary(context, root, path, item):
         "name": _item_name(item),
         "uri": _item_uri(item),
         "isFolder": bool(getattr(item, "is_folder", False)),
+        "isNavigable": _item_is_navigable(item),
         "isLoadable": bool(getattr(item, "is_loadable", False)),
         "isDevice": bool(getattr(item, "is_device", False)),
         "source": _item_source(item),
-        "isBuiltInDevice": _item_is_built_in_device(root, item),
+        "isLoadableDevice": _item_is_loadable_device(root, item),
+        # Retained for protocol compatibility with older application builds.
+        "isBuiltInDevice": _item_is_loadable_device(root, item),
     }
 
 
 def _resolve_path(browser, root, path):
     item = _root_item(browser, root)
     for segment in path:
-        if not bool(getattr(item, "is_folder", False)):
+        if not _item_is_navigable(item):
             raise ProtocolFailure(
                 "stale_reference",
                 "Browser path no longer points through a folder",
@@ -312,9 +385,10 @@ def _inspect_children_params(params):
 
 def inspect_children(context, params):
     _browser_object, item, parent = _resolve_expected_item(context, params)
-    if not parent["isFolder"]:
+    if not parent["isNavigable"]:
         raise ProtocolFailure(
-            "conflict", "The targeted browser item is not a folder"
+            "conflict",
+            "The targeted browser item is not a navigable container",
         )
     offset = params.get("offset", 0)
     limit = params.get("limit", 32)
@@ -364,7 +438,7 @@ def _search_params(params):
         or len(query) > 128
     ):
         return "query must be a non-empty string of at most 128 characters"
-    roots = params.get("roots", list(BUILT_IN_DEVICE_ROOTS))
+    roots = params.get("roots", list(DEFAULT_SEARCH_ROOTS))
     if (
         not isinstance(roots, list)
         or not roots
@@ -393,10 +467,44 @@ def _search_params(params):
     return None
 
 
+def _search_tokens(query):
+    return frozenset(
+        token
+        for token in re.findall(r"[a-z0-9]+", query.casefold())
+        if len(token) > 1
+    )
+
+
+def _search_branch_score(item, query_tokens):
+    if not query_tokens:
+        return 0
+    item_tokens = _search_tokens(_item_name(item))
+    return len(query_tokens.intersection(item_tokens))
+
+
+def _search_result_rank(query, summary):
+    name = summary["name"].casefold()
+    stem = name
+    for suffix in _DEVICE_PRESET_SUFFIXES:
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    return (
+        0 if stem == query else 1,
+        0 if summary.get("isLoadableDevice") else 1,
+        0 if summary["isLoadable"] else 1,
+        0 if not summary.get("isNavigable") else 1,
+        len(summary["path"]),
+        name,
+        summary["uri"],
+    )
+
+
 def search(context, params):
     browser = _browser(context)
     query = params["query"].strip().casefold()
-    requested_roots = set(params.get("roots", list(BUILT_IN_DEVICE_ROOTS)))
+    query_tokens = _search_tokens(query)
+    requested_roots = set(params.get("roots", list(DEFAULT_SEARCH_ROOTS)))
     max_nodes = params.get("maxNodes", 128)
     max_results = params.get("maxResults", 20)
     max_depth = params.get("maxDepth", 4)
@@ -431,26 +539,47 @@ def search(context, params):
             if len(results) >= max_results:
                 stop_reason = "result_limit"
                 break
-        if not bool(getattr(item, "is_folder", False)):
+        if not _item_is_navigable(item):
             continue
         if depth >= max_depth:
-            try:
-                next(_iter_children(item))
+            if _item_has_children(item):
                 depth_limit_truncated = True
-            except StopIteration:
-                pass
             continue
+        children_by_score = {}
         for index, child in enumerate(_iter_children(item)):
             if time.monotonic() >= deadline:
                 stop_reason = "time_limit"
                 break
-            if visited_nodes + len(queue) >= max_nodes:
-                node_limit_truncated = True
-                break
             child_path = list(path) + [
                 {"index": index, "name": _item_name(child)}
             ]
-            queue.append((root, child, child_path, depth + 1))
+            score = _search_branch_score(child, query_tokens)
+            candidates = children_by_score.setdefault(score, [])
+            if len(candidates) < max_nodes:
+                candidates.append((root, child, child_path, depth + 1))
+            else:
+                node_limit_truncated = True
+        available = max(0, max_nodes - visited_nodes - len(queue))
+        selected = []
+        for score in sorted(children_by_score, reverse=True):
+            candidates = children_by_score[score]
+            take = min(available - len(selected), len(candidates))
+            if take > 0:
+                selected.extend(candidates[:take])
+            if take < len(candidates):
+                node_limit_truncated = True
+            if len(selected) >= available:
+                break
+        preferred_count = sum(
+            1
+            for entry in selected
+            if _search_branch_score(entry[1], query_tokens) > 0
+        )
+        preferred_children = selected[:preferred_count]
+        other_children = selected[preferred_count:]
+        for entry in reversed(preferred_children):
+            queue.appendleft(entry)
+        queue.extend(other_children)
         if stop_reason == "time_limit":
             break
     if stop_reason == "complete" and node_limit_truncated:
@@ -459,7 +588,9 @@ def search(context, params):
         stop_reason = "depth_limit"
     return {
         "query": params["query"].strip(),
-        "items": results,
+        "items": sorted(
+            results, key=lambda summary: _search_result_rank(query, summary)
+        ),
         "visitedNodes": visited_nodes,
         "truncated": (
             stop_reason != "complete"
@@ -493,7 +624,7 @@ def _load_item_params(params):
     return _validate_item_target(params, set(params.keys()))
 
 
-def _track_load_state(context, track):
+def _track_load_state(context, track, track_index):
     devices = list(getattr(track, "devices", ()))
     occupied = [
         index
@@ -506,7 +637,7 @@ def _track_load_state(context, track):
             _device_summary(
                 context,
                 _track_reference(context, track),
-                context.song.tracks.index(track),
+                track_index,
                 index,
                 device,
             )["reference"]
@@ -529,26 +660,26 @@ def _state_details(before, after, outcome):
 
 def load_item(context, params):
     track = _resolve_track(context, params)
+    track_index = params["index"]
     browser, item, item_summary = _resolve_expected_item(context, params)
     root = params["expectedItemRoot"]
-    if root not in BUILT_IN_DEVICE_ROOTS or not item_summary[
-        "isBuiltInDevice"
-    ]:
+    if not item_summary["isLoadableDevice"]:
         raise ProtocolFailure(
             "conflict",
-            "Only trusted built-in device items may be loaded",
+            "Only trusted built-in device or device-preset items may be"
+            " loaded",
             details={
                 "root": root,
                 "isDevice": item_summary["isDevice"],
+                "isLoadable": item_summary["isLoadable"],
+                "isNavigable": item_summary["isNavigable"],
                 "source": item_summary["source"],
                 "uri": item_summary["uri"],
             },
         )
-    if not item_summary["isLoadable"] or item_summary["isFolder"]:
-        raise ProtocolFailure(
-            "conflict", "The selected browser item is not directly loadable"
-        )
-    if root in ("instruments", "midi_effects") and _track_kind(track) != "midi":
+    if root in ("drums", "instruments", "midi_effects") and _track_kind(
+        track
+    ) != "midi":
         raise ProtocolFailure(
             "conflict",
             "The selected browser item requires a MIDI track",
@@ -566,13 +697,13 @@ def load_item(context, params):
             "Selected-track targeting is unavailable",
         )
     before_devices = list(getattr(track, "devices", ()))
-    before = _track_load_state(context, track)
+    before = _track_load_state(context, track, track_index)
     previous_selected_track = song_view.selected_track
     load_error = None
     restore_error = None
     try:
         song_view.selected_track = track
-        if song_view.selected_track is not track:
+        if not _same_lom_object(song_view.selected_track, track):
             raise ProtocolFailure(
                 "conflict", "Ableton did not select the requested target track"
             )
@@ -587,13 +718,21 @@ def load_item(context, params):
         except Exception as exc:
             restore_error = exc
     after_devices = list(getattr(track, "devices", ()))
-    after = _track_load_state(context, track)
+    after = _track_load_state(context, track, track_index)
     added = [
         device
         for device in after_devices
-        if not any(device is previous for previous in before_devices)
+        if not any(
+            _same_lom_object(device, previous) for previous in before_devices
+        )
     ]
-    changed = len(after_devices) > len(before_devices) and bool(added)
+    reconfigured_indices = [
+        index
+        for index in range(min(len(before_devices), len(after_devices)))
+        if _same_lom_object(before_devices[index], after_devices[index])
+        and before["deviceNames"][index] != after["deviceNames"][index]
+    ]
+    changed = bool(added) or bool(reconfigured_indices)
     if load_error is not None or restore_error is not None or not changed:
         outcome = "indeterminate" if changed else "not_observed"
         details = _state_details(before, after, outcome)
@@ -606,8 +745,17 @@ def load_item(context, params):
             "Browser load did not produce a fully verified outcome",
             details=details,
         )
-    track_index = context.song.tracks.index(track)
     track_reference = _track_reference(context, track)
+    reconfigured = [
+        _device_summary(
+            context,
+            track_reference,
+            track_index,
+            index,
+            after_devices[index],
+        )
+        for index in reconfigured_indices[:BROWSER_ADDED_DEVICE_LIMIT]
+    ]
     return {
         "track": {
             "index": track_index,
@@ -631,6 +779,17 @@ def load_item(context, params):
             for device in added[:BROWSER_ADDED_DEVICE_LIMIT]
         ],
         "addedDevicesTruncated": len(added) > BROWSER_ADDED_DEVICE_LIMIT,
+        "reconfiguredDevices": reconfigured,
+        "reconfiguredDevicesTruncated": (
+            len(reconfigured_indices) > BROWSER_ADDED_DEVICE_LIMIT
+        ),
+        "mutationMode": (
+            "mixed"
+            if added and reconfigured
+            else "added"
+            if added
+            else "reconfigured"
+        ),
         "verified": True,
     }
 

@@ -1,0 +1,55 @@
+{
+  "formatVersion": 1,
+  "id": "browser-bounds",
+  "group": "inspection",
+  "prompt": "Inspect the Ableton Browser roots, inspect one bounded page of the Drums root, and perform one bounded built-in Browser search for 808. Do not load anything or change the Set.",
+  "artifactPrefix": "AA_SMOKE_BROWSER_",
+  "allowedTools": [
+    "ableton_browser_roots_inspect",
+    "ableton_browser_children_inspect",
+    "ableton_browser_search"
+  ],
+  "allowedRisks": ["read"],
+  "maxToolCalls": 3,
+  "maxMutations": 0,
+  "timeoutMs": 180000,
+  "ordering": [
+    {
+      "before": "ableton_browser_roots_inspect",
+      "after": "ableton_browser_children_inspect"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "connection-capabilities",
+      "requiredCapabilities": [
+        "browser.inspect_roots",
+        "browser.inspect_children",
+        "browser.search"
+      ]
+    },
+    {
+      "type": "tool-calls",
+      "required": [
+        {
+          "toolName": "ableton_browser_roots_inspect",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "toolName": "ableton_browser_children_inspect",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "toolName": "ableton_browser_search",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "type": "session-unchanged"
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "formatVersion": 1,
+  "id": "808-track",
+  "group": "tracks",
+  "prompt": "create a new track and add an 808 drum rack to it",
+  "artifactPrefix": "AA_SMOKE_808_",
+  "allowedTools": [
+    "ableton_connection_status",
+    "ableton_session_inspect",
+    "ableton_browser_roots_inspect",
+    "ableton_browser_children_inspect",
+    "ableton_browser_search",
+    "ableton_tracks_create",
+    "ableton_browser_load_item",
+    "ableton_devices_inspect"
+  ],
+  "allowedRisks": ["read", "reversible"],
+  "maxToolCalls": 12,
+  "maxMutations": 2,
+  "timeoutMs": 180000,
+  "ordering": [
+    {
+      "before": "ableton_browser_search",
+      "after": "ableton_tracks_create"
+    },
+    {
+      "before": "ableton_tracks_create",
+      "after": "ableton_browser_load_item"
+    }
+  ],
+  "trackNameSuffixes": ["808 Drums"],
+  "clipNameSuffixes": [],
+  "browserItemNames": ["808 Core Kit.adg"],
+  "assertions": [
+    {
+      "type": "track-device",
+      "trackNameSuffix": "808 Drums",
+      "trackKind": "midi",
+      "deviceName": "808 Core Kit"
+    }
+  ]
+}

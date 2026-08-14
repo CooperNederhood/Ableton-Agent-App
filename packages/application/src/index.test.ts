@@ -301,6 +301,9 @@ function deviceServices() {
       },
       addedDevices: [{ ...device, name: browserItem.name }],
       addedDevicesTruncated: false,
+      reconfiguredDevices: [],
+      reconfiguredDevicesTruncated: false,
+      mutationMode: "added" as const,
       verified: true as const,
     }),
     inspectRackChains: async (
@@ -534,6 +537,24 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
         verified: true as const,
       }),
     ),
+    inspectMidiNotes: vi.fn(
+      async (params: Parameters<AbletonService["inspectMidiNotes"]>[0]) => ({
+        clip: {
+          reference: params.expectedClipReference,
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          sceneIndex: params.sceneIndex,
+          name: "Beat",
+          length: 4,
+          noteCount: 0,
+        },
+        notes: [],
+        totalNotes: 0,
+        offset: params.offset,
+        limit: params.limit,
+        truncated: false,
+      }),
+    ),
     replaceMidiNotes: vi.fn(
       async (params: Parameters<AbletonService["replaceMidiNotes"]>[0]) => ({
         clip: {
@@ -575,6 +596,28 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
         total: 0,
         offset: params.offset,
         limit: params.limit,
+      }),
+    ),
+    inspectArrangementMidiNotes: vi.fn(
+      async (
+        params: Parameters<AbletonService["inspectArrangementMidiNotes"]>[0],
+      ) => ({
+        clip: {
+          reference: params.expectedClipReference,
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          name: "Arrangement Beat",
+          kind: "midi" as const,
+          startTime: params.expectedStartTime,
+          endTime: params.expectedStartTime + 4,
+          length: 4,
+          noteCount: 0,
+        },
+        notes: [],
+        totalNotes: 0,
+        offset: params.offset,
+        limit: params.limit,
+        truncated: false,
       }),
     ),
     deleteArrangementClip: vi.fn(
@@ -725,6 +768,7 @@ describe("CopilotAgentService", () => {
     let config: SessionConfig | undefined;
     const disconnect = vi.fn(() => Promise.resolve());
     const stop = vi.fn(() => Promise.resolve([]));
+    const abort = vi.fn(() => Promise.resolve());
     const sendAndWait = vi.fn(() =>
       Promise.resolve({ data: { content: "Ableton is connected." } }),
     );
@@ -952,7 +996,7 @@ describe("CopilotAgentService", () => {
           return Promise.resolve({
             sessionId: "session-1",
             sendAndWait,
-            abort: () => Promise.resolve(),
+            abort,
             disconnect,
             on: () => () => undefined,
           });
@@ -964,6 +1008,13 @@ describe("CopilotAgentService", () => {
 
     await service.start();
     const response = await service.send("Check the connection");
+    sendAndWait.mockRejectedValueOnce(
+      new Error("Timeout after 180000ms waiting for session.idle"),
+    );
+    await expect(service.send("Take too long")).rejects.toMatchObject({
+      name: "AgentTurnTimeoutError",
+      timeoutMs: 180_000,
+    });
     await service.stop();
 
     expect(response).toBe("Ableton is connected.");
@@ -1045,7 +1096,9 @@ describe("CopilotAgentService", () => {
         { sessionId: "session" },
       ),
     ).toMatchObject({ permissionDecision: "deny" });
-    expect(sendAndWait).toHaveBeenCalledWith("Check the connection");
+    expect(sendAndWait).toHaveBeenCalledWith("Check the connection", 180_000);
+    expect(sendAndWait).toHaveBeenCalledWith("Take too long", 180_000);
+    expect(abort).toHaveBeenCalledOnce();
     expect(disconnect).toHaveBeenCalledOnce();
     expect(stop).toHaveBeenCalledOnce();
   });
@@ -1340,22 +1393,28 @@ describe("CopilotAgentService", () => {
         type: "operation.started",
         operationId: "tool-1",
         label: "Inspect Ableton session",
+        toolName: "ableton_session_inspect",
+        arguments: {},
       },
       {
         type: "operation.completed",
         operationId: "tool-1",
         summary: "Inspect Ableton session completed",
+        toolName: "ableton_session_inspect",
       },
       {
         type: "operation.started",
         operationId: "tool-2",
         label: "Check Ableton connection",
+        toolName: "ableton_connection_status",
+        arguments: {},
       },
       {
         type: "operation.failed",
         operationId: "tool-2",
         code: "offline",
         message: "Ableton is offline",
+        toolName: "ableton_connection_status",
       },
     ]);
     await service.stop();

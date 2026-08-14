@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { SessionSnapshot } from "@ableton-agent/protocol";
 
 import {
+  browserIntentGuidance,
   compactProjectContext,
   createAgentHooks,
   createAgentPolicy,
@@ -67,6 +68,12 @@ describe("agent policy", () => {
       "stale_reference",
     );
     expect(retryGuidance("unsupported capability")).toContain("Do not retry");
+    expect(
+      structuredErrorCode('lom_error: {"outcome":"applied_indeterminate"}'),
+    ).toBe("applied_indeterminate");
+    expect(retryGuidance("postcondition verification failed")).toContain(
+      "may already have changed Ableton",
+    );
     expect(retryGuidance("connection reset")).toContain("at most once");
   });
 
@@ -99,11 +106,25 @@ describe("agent policy", () => {
     expect(inspectSession).toHaveBeenCalledTimes(2);
   });
 
+  it("injects separate Browser guidance for piano and string bass requests", async () => {
+    const guidance = browserIntentGuidance(
+      "create two new tracks: a piano and a string bass",
+    );
+
+    expect(guidance).toContain('"piano"');
+    expect(guidance).toContain('"upright bass"');
+    expect(guidance).toContain(
+      '["sounds","instruments","packs","user_library"]',
+    );
+    expect(guidance).toContain("every distinct requested sound");
+  });
+
   it("blocks an unchanged retry after a stale or denied tool failure", async () => {
     const hooks = createAgentHooks({
       getAbletonStatus: async () => connected,
       inspectSession: async () => snapshot,
     });
+
     const hookInput = {
       sessionId: "session-1",
       timestamp: new Date(),
@@ -124,6 +145,34 @@ describe("agent policy", () => {
     expect(retry).toMatchObject({
       permissionDecision: "deny",
     });
+  });
+
+  it("blocks an unchanged retry after an indeterminate mutation", async () => {
+    const hooks = createAgentHooks({
+      getAbletonStatus: async () => connected,
+      inspectSession: async () => snapshot,
+    });
+    const hookInput = {
+      sessionId: "session-1",
+      timestamp: new Date(),
+      workingDirectory: "/tmp",
+      toolName: "ableton_tracks_create",
+      toolArgs: { kind: "midi", name: "808 Drums" },
+    };
+
+    const failure = await hooks.onPostToolUseFailure?.(
+      {
+        ...hookInput,
+        error: 'lom_error: mutation failed {"outcome":"applied_indeterminate"}',
+      },
+      { sessionId: "session-1" },
+    );
+    const retry = await hooks.onPreToolUse?.(hookInput, {
+      sessionId: "session-1",
+    });
+
+    expect(failure?.additionalContext).toContain("Re-inspect");
+    expect(retry).toMatchObject({ permissionDecision: "deny" });
   });
 
   it("allows permission denial to block the same tool attempt", async () => {

@@ -752,24 +752,53 @@ def create_track(context, params):
         song.create_midi_track(index)
     else:
         song.create_audio_track(index)
-    created = song.tracks[index]
-    if params.get("name") is not None:
-        created.name = params["name"].strip()
     after_count = len(song.tracks)
+    count_delta_ok = after_count == before_count + 1
+    # Guard against reading past the list when nothing was actually
+    # inserted (index would be out of range).
+    created = song.tracks[index] if count_delta_ok else None
+    if created is not None and params.get("name") is not None:
+        created.name = params["name"].strip()
+
+    # Live can return a fresh (but LOM-equivalent) proxy wrapper for the
+    # same underlying track, so identity must be checked with the
+    # equality-aware helper rather than `is`.
+    track_at_index = song.tracks[index] if count_delta_ok else None
+    identity_ok = (
+        track_at_index is not None
+        and created is not None
+        and _same_lom_object(track_at_index, created)
+    )
+    expected_name = (
+        params["name"].strip() if params.get("name") is not None else None
+    )
     verified = (
-        after_count == before_count + 1
-        and song.tracks[index] is created
-        and _track_kind(created) == params["kind"]
-        and (
-            params.get("name") is None
-            or created.name == params["name"].strip()
-        )
+        count_delta_ok
+        and identity_ok
+        and _track_kind(track_at_index) == params["kind"]
+        and (expected_name is None or track_at_index.name == expected_name)
     )
     if not verified:
+        # Bound the reported outcome to two states: a track count increase
+        # means the mutation may have applied but could not be fully
+        # verified (indeterminate), while no observed increase means it
+        # did not apply.
+        outcome = (
+            "applied_indeterminate"
+            if after_count > before_count
+            else "not_applied"
+        )
         raise ProtocolFailure(
             "conflict",
-            "Track creation completed but postcondition verification failed",
+            (
+                "Track creation may have applied but could not be fully"
+                " verified"
+                if outcome == "applied_indeterminate"
+                else "Track creation was not observed"
+            ),
+            retryable=False,
             details={
+                "outcome": outcome,
                 "beforeTrackCount": before_count,
                 "afterTrackCount": after_count,
             },
@@ -1116,6 +1145,38 @@ def _replace_midi_notes_params(params):
     return None
 
 
+def _inspect_midi_notes_params(params):
+    error = _validate_track_target(
+        params,
+        ["sceneIndex", "expectedClipReference", "offset", "limit"],
+    )
+    if error:
+        return error
+    scene_index = params.get("sceneIndex")
+    if (
+        isinstance(scene_index, bool)
+        or not isinstance(scene_index, int)
+        or scene_index < 0
+    ):
+        return "sceneIndex must be a non-negative integer"
+    try:
+        uuid.UUID(params.get("expectedClipReference"))
+    except (AttributeError, TypeError, ValueError):
+        return "expectedClipReference must be a UUID"
+    offset = params.get("offset", 0)
+    limit = params.get("limit", 256)
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+        return "offset must be a non-negative integer"
+    if (
+        isinstance(limit, bool)
+        or not isinstance(limit, int)
+        or limit < 1
+        or limit > 2048
+    ):
+        return "limit must be an integer from 1 to 2048"
+    return None
+
+
 def _note_value(note, key):
     if isinstance(note, dict):
         return note[key]
@@ -1317,6 +1378,54 @@ def replace_midi_notes(context, params):
     )
 
 
+def inspect_midi_notes(context, params):
+    track = _resolve_track(context, params)
+    scene_index = params["sceneIndex"]
+    if scene_index >= len(track.clip_slots):
+        raise ProtocolFailure("not_found", "Scene index is out of range")
+    slot = track.clip_slots[scene_index]
+    if not slot.has_clip:
+        raise ProtocolFailure("not_found", "Clip slot is empty")
+    clip = slot.clip
+    if not bool(getattr(clip, "is_midi_clip", False)):
+        raise ProtocolFailure("conflict", "Target clip is not a MIDI clip")
+    if _clip_reference(context, clip) != params["expectedClipReference"]:
+        raise ProtocolFailure(
+            "stale_reference",
+            "Clip identity changed before note inspection",
+        )
+    notes = sorted(
+        _clip_notes(clip),
+        key=lambda note: (
+            _note_value(note, "start_time"),
+            _note_value(note, "pitch"),
+            _note_value(note, "duration"),
+        ),
+    )
+    offset = params.get("offset", 0)
+    limit = params.get("limit", 256)
+    selected = notes[offset : offset + limit]
+    return {
+        "clip": _clip_summary(
+            context, track, params["index"], scene_index, clip
+        ),
+        "notes": [
+            {
+                "pitch": _note_value(note, "pitch"),
+                "startTime": _note_value(note, "start_time"),
+                "duration": _note_value(note, "duration"),
+                "velocity": _note_value(note, "velocity"),
+                "mute": bool(_note_value(note, "mute")),
+            }
+            for note in selected
+        ],
+        "totalNotes": len(notes),
+        "offset": offset,
+        "limit": limit,
+        "truncated": offset + len(selected) < len(notes),
+    }
+
+
 def _session_clip_target_params(params, extra_keys=None):
     extras = ["sceneIndex", "expectedClipReference"] + list(
         extra_keys or []
@@ -1417,6 +1526,11 @@ def launch_session_clip(context, params):
             "conflict",
             "Cannot safely launch while this track is playing Arrangement content",
         )
+    if bool(getattr(target, "muted", False)):
+        raise ProtocolFailure(
+            "conflict",
+            "Cannot safely launch a muted Session clip; unmute it first",
+        )
     triggered = [
         index
         for index, candidate in enumerate(track.clip_slots)
@@ -1443,73 +1557,144 @@ def launch_session_clip(context, params):
             "verified": True,
         }
     previous_scene_index = before["trackPlayingSceneIndex"]
-    try:
-        slot.fire()
-        after = _session_clip_launch_state(context, track, target)
-        if not (after["targetIsPlaying"] or after["targetIsTriggered"]):
-            raise ProtocolFailure(
-                "conflict",
-                "Session clip launch completed but verification failed",
-            )
-        result = {
-            "clip": _session_view_clip_summary(
-                context,
-                track,
-                params["index"],
-                params["sceneIndex"],
-                target,
-            ),
-            "before": before,
-            "after": after,
-            "verified": True,
-        }
-    except Exception as exc:
-        try:
-            if (
-                before["targetIsPlaying"]
-                or before["targetIsTriggered"]
-            ):
-                pass
-            elif previous_scene_index is not None:
-                previous_slot = track.clip_slots[previous_scene_index]
-                previous_slot.fire()
-                previous_clip = previous_slot.clip
+
+    def start_verification(on_success, on_failure):
+        def finish_failure(exc):
+            try:
+                if before["targetIsPlaying"] or before["targetIsTriggered"]:
+                    on_failure(exc)
+                    return
+                if previous_scene_index is not None:
+                    track.clip_slots[previous_scene_index].fire()
+                else:
+                    slot.stop()
+            except Exception as recovery_exc:
+                on_failure(
+                    ProtocolFailure(
+                        "lom_error",
+                        "Session clip launch and recovery both failed",
+                        details={
+                            "operationError": str(exc),
+                            "recoveryError": str(recovery_exc),
+                        },
+                    )
+                )
+                return
+
+            def verify_recovery():
+                try:
+                    current_target = slot.clip if slot.has_clip else target
+                    target_active = bool(
+                        getattr(current_target, "is_playing", False)
+                    ) or bool(
+                        getattr(current_target, "is_triggered", False)
+                    )
+                    if target_active:
+                        raise RuntimeError(
+                            "failed Session launch remained active"
+                        )
+                    if previous_scene_index is not None:
+                        previous_slot = track.clip_slots[
+                            previous_scene_index
+                        ]
+                        previous_clip = previous_slot.clip
+                        if not (
+                            bool(
+                                getattr(previous_clip, "is_playing", False)
+                            )
+                            or bool(
+                                getattr(
+                                    previous_clip, "is_triggered", False
+                                )
+                            )
+                        ):
+                            raise RuntimeError(
+                                "previous Session clip did not resume"
+                            )
+                except Exception as recovery_exc:
+                    on_failure(
+                        ProtocolFailure(
+                            "lom_error",
+                            "Session clip launch and recovery both failed",
+                            details={
+                                "operationError": str(exc),
+                                "recoveryError": str(recovery_exc),
+                            },
+                        )
+                    )
+                    return
+                if isinstance(exc, ProtocolFailure):
+                    on_failure(exc)
+                else:
+                    on_failure(
+                        ProtocolFailure(
+                            "lom_error",
+                            "Session clip launch failed; prior playback was restored",
+                            details={"operationError": str(exc)},
+                        )
+                    )
+
+            context.schedule_message(1, verify_recovery)
+
+        def verify():
+            try:
+                if not slot.has_clip:
+                    raise ProtocolFailure(
+                        "conflict",
+                        "Session clip launch completed but the target slot is empty",
+                    )
+                current_target = slot.clip
+                if (
+                    _clip_reference(context, current_target)
+                    != params["expectedClipReference"]
+                ):
+                    raise ProtocolFailure(
+                        "stale_reference",
+                        "Session clip identity changed during launch",
+                    )
+                after = _session_clip_launch_state(
+                    context, track, current_target
+                )
                 if not (
-                    bool(getattr(previous_clip, "is_playing", False))
-                    or bool(getattr(previous_clip, "is_triggered", False))
+                    after["targetIsPlaying"]
+                    or after["targetIsTriggered"]
                 ):
-                    raise RuntimeError(
-                        "previous Session clip did not resume"
+                    raise ProtocolFailure(
+                        "conflict",
+                        "Session clip launch completed but verification failed",
+                        details={
+                            "after": after,
+                            "trackPlayingSlotIndex": (
+                                track.playing_slot_index
+                            ),
+                            "songIsPlaying": bool(context.song.is_playing),
+                        },
                     )
-                if bool(getattr(target, "is_playing", False)) or bool(
-                    getattr(target, "is_triggered", False)
-                ):
-                    raise RuntimeError(
-                        "failed Session launch remained active"
-                    )
-            else:
-                slot.stop()
-                if bool(getattr(target, "is_playing", False)) or bool(
-                    getattr(target, "is_triggered", False)
-                ):
-                    raise RuntimeError("launched Session clip did not stop")
-        except Exception as recovery_exc:
-            raise ProtocolFailure(
-                "lom_error",
-                "Session clip launch and recovery both failed",
-                details={
-                    "operationError": str(exc),
-                    "recoveryError": str(recovery_exc),
-                },
-            )
-        if isinstance(exc, ProtocolFailure):
-            raise exc
-        raise ProtocolFailure(
-            "lom_error",
-            "Session clip launch failed; prior playback was restored",
-            details={"operationError": str(exc)},
-        )
-    return result
+                on_success(
+                    {
+                        "clip": _session_view_clip_summary(
+                            context,
+                            track,
+                            params["index"],
+                            params["sceneIndex"],
+                            current_target,
+                        ),
+                        "before": before,
+                        "after": after,
+                        "verified": True,
+                    }
+                )
+            except Exception as exc:
+                finish_failure(exc)
+
+        try:
+            slot.fire()
+        except Exception as exc:
+            finish_failure(exc)
+            return
+        context.schedule_message(1, verify)
+
+    return DeferredResult(start_verification)
 
 
 def _duplicate_session_clip_params(params):
@@ -1591,10 +1776,10 @@ def duplicate_session_clip(context, params):
             )
         duplicated = destination_slot.clip
         if (
-            source_slot.clip is not source
+            not _same_lom_object(source_slot.clip, source)
             or _clip_reference(context, source)
             != params["expectedClipReference"]
-            or duplicated is source
+            or _same_lom_object(duplicated, source)
             or bool(getattr(duplicated, "is_midi_clip", False))
             != bool(getattr(source, "is_midi_clip", False))
             or abs(duplicated.length - source.length) >= 0.000001
@@ -1744,7 +1929,7 @@ def set_session_clip_properties(context, params):
         after = _session_clip_properties(target)
         if (
             not slot.has_clip
-            or slot.clip is not target
+            or not _same_lom_object(slot.clip, target)
             or _clip_reference(context, target)
             != params["expectedClipReference"]
             or any(after[key] != value for key, value in requested)
@@ -1772,7 +1957,7 @@ def set_session_clip_properties(context, params):
             restored = _session_clip_properties(target)
             if (
                 not slot.has_clip
-                or slot.clip is not target
+                or not _same_lom_object(slot.clip, target)
                 or any(
                     restored[key] != before[key] for key in applied
                 )
@@ -1998,6 +2183,80 @@ def inspect_arrangement(context, params):
         "total": len(clip_records),
         "offset": offset,
         "limit": limit,
+    }
+
+
+def _inspect_arrangement_midi_notes_params(params):
+    error = _validate_track_target(
+        params,
+        [
+            "expectedClipReference",
+            "expectedStartTime",
+            "offset",
+            "limit",
+        ],
+    )
+    if error:
+        return error
+    try:
+        uuid.UUID(params.get("expectedClipReference"))
+    except (AttributeError, TypeError, ValueError):
+        return "expectedClipReference must be a UUID"
+    start_time = params.get("expectedStartTime")
+    if not _is_finite_number(start_time) or start_time < 0:
+        return "expectedStartTime must be a non-negative number"
+    offset = params.get("offset", 0)
+    limit = params.get("limit", 256)
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+        return "offset must be a non-negative integer"
+    if (
+        isinstance(limit, bool)
+        or not isinstance(limit, int)
+        or limit < 1
+        or limit > 2048
+    ):
+        return "limit must be an integer from 1 to 2048"
+    return None
+
+
+def inspect_arrangement_midi_notes(context, params):
+    track = _resolve_track(context, params, allow_group=True)
+    target = _resolve_arrangement_clip(
+        context, track, params, "note inspection"
+    )
+    if not bool(getattr(target, "is_midi_clip", False)):
+        raise ProtocolFailure(
+            "conflict", "Arrangement clip is not a MIDI clip"
+        )
+    notes = sorted(
+        _clip_notes(target),
+        key=lambda note: (
+            _note_value(note, "start_time"),
+            _note_value(note, "pitch"),
+            _note_value(note, "duration"),
+        ),
+    )
+    offset = params.get("offset", 0)
+    limit = params.get("limit", 256)
+    selected = notes[offset : offset + limit]
+    return {
+        "clip": _arrangement_clip_summary(
+            context, track, params["index"], target
+        ),
+        "notes": [
+            {
+                "pitch": _note_value(note, "pitch"),
+                "startTime": _note_value(note, "start_time"),
+                "duration": _note_value(note, "duration"),
+                "velocity": _note_value(note, "velocity"),
+                "mute": bool(_note_value(note, "mute")),
+            }
+            for note in selected
+        ],
+        "totalNotes": len(notes),
+        "offset": offset,
+        "limit": limit,
+        "truncated": offset + len(selected) < len(notes),
     }
 
 
@@ -2482,6 +2741,12 @@ def register_system_commands(registry):
         validator=_create_midi_clip_params,
     )
     registry.register(
+        "clips.inspect_notes",
+        inspect_midi_notes,
+        capability="clips.inspect_notes",
+        validator=_inspect_midi_notes_params,
+    )
+    registry.register(
         "clips.replace_notes",
         replace_midi_notes,
         mutates=True,
@@ -2528,6 +2793,12 @@ def register_system_commands(registry):
         inspect_arrangement,
         capability="arrangement.inspect",
         validator=_inspect_arrangement_params,
+    )
+    registry.register(
+        "arrangement.inspect_notes",
+        inspect_arrangement_midi_notes,
+        capability="arrangement.inspect_notes",
+        validator=_inspect_arrangement_midi_notes_params,
     )
     registry.register(
         "arrangement.delete_clip",

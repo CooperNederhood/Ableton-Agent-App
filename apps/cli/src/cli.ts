@@ -1,3 +1,6 @@
+import { mkdir, rename, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+
 import type { HeadlessApplication } from "@ableton-agent/application";
 import type { BrowserRootKey } from "@ableton-agent/protocol";
 import type { AppEvent } from "@ableton-agent/shared";
@@ -21,6 +24,13 @@ import {
   type Colorizer,
   type TerminalPresentation,
 } from "./terminal.js";
+import {
+  captureScenarioBaseline,
+  sanitizeTraceValue,
+  scenarioPrompt,
+  type ScenarioRunContext,
+  verifyScenario,
+} from "./scenario.js";
 
 export type CliCommand =
   | { name: "chat"; json: false }
@@ -111,7 +121,15 @@ export type CliCommand =
       limit: number;
       json: boolean;
     }
-  | { name: "run"; prompt: string; json: boolean }
+  | {
+      name: "run";
+      prompt: string;
+      json: boolean;
+      scenarioId?: string;
+      sessionId?: string;
+      tracePath?: string;
+      timeoutMs?: number;
+    }
   | { name: "session-new"; json: boolean }
   | { name: "session-resume"; sessionId: string; json: boolean }
   | { name: "session-current"; json: boolean }
@@ -301,13 +319,83 @@ export function parseArgs(args: readonly string[]): CliCommand {
         };
   }
   if (command === "run") {
-    const prompt = positional.slice(1).join(" ").trim();
+    const run = parseRunArgs(positional.slice(1));
+    const prompt = run.promptParts.join(" ").trim();
     if (!prompt) {
       throw new CliUsageError("run requires a prompt");
     }
-    return { name: "run", prompt, json };
+    return {
+      name: "run",
+      prompt,
+      json,
+      ...(run.scenarioId === undefined ? {} : { scenarioId: run.scenarioId }),
+      ...(run.sessionId === undefined ? {} : { sessionId: run.sessionId }),
+      ...(run.tracePath === undefined ? {} : { tracePath: run.tracePath }),
+      ...(run.timeoutMs === undefined ? {} : { timeoutMs: run.timeoutMs }),
+    };
   }
   throw new CliUsageError(`Unknown command: ${command}`);
+}
+
+function parseRunArgs(args: readonly string[]): {
+  promptParts: string[];
+  scenarioId?: string;
+  sessionId?: string;
+  tracePath?: string;
+  timeoutMs?: number;
+} {
+  const promptParts: string[] = [];
+  const options: {
+    scenarioId?: string;
+    sessionId?: string;
+    tracePath?: string;
+    timeoutMs?: number;
+  } = {};
+  const flags: Readonly<
+    Record<string, "scenarioId" | "sessionId" | "tracePath" | "timeoutMs">
+  > = {
+    "--scenario": "scenarioId",
+    "--session": "sessionId",
+    "--trace": "tracePath",
+    "--timeout-ms": "timeoutMs",
+  };
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index] ?? "";
+    const key = flags[argument];
+    if (key === undefined) {
+      if (argument.startsWith("--")) {
+        throw new CliUsageError(`Unknown run option: ${argument}`);
+      }
+      promptParts.push(argument);
+      continue;
+    }
+    if (options[key] !== undefined) {
+      throw new CliUsageError(`${argument} may be specified only once`);
+    }
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith("--") || !value.trim()) {
+      throw new CliUsageError(`${argument} requires a value`);
+    }
+    index += 1;
+    if (key === "timeoutMs") {
+      const timeoutMs = Number(value);
+      if (
+        !Number.isInteger(timeoutMs) ||
+        timeoutMs < 10_000 ||
+        timeoutMs > 600_000
+      ) {
+        throw new CliUsageError(
+          "--timeout-ms must be an integer from 10000 to 600000",
+        );
+      }
+      options.timeoutMs = timeoutMs;
+    } else if (key === "scenarioId" && !/^[a-z0-9][a-z0-9-]*$/.test(value)) {
+      throw new CliUsageError("--scenario must be a lowercase scenario ID");
+    } else {
+      options[key] = value;
+    }
+  }
+  return { promptParts, ...options };
 }
 
 function parsePositiveIndex(value: string, label: string): number {
@@ -568,6 +656,8 @@ export interface RunOptions {
   color?: boolean;
   /** Terminal capabilities used by the interactive rich transcript. */
   terminal?: TerminalPresentation;
+  /** Reviewed integration scenario context, present only for run --scenario. */
+  scenario?: ScenarioRunContext;
 }
 
 function humanOutput(
@@ -611,7 +701,7 @@ export async function runCommand(
         "  ableton-agent drum-pads <track-number> <device-number> [--offset N] [--limit N] [--json]",
         "  ableton-agent pad-chains <track-number> <device-number> <pad-number> [--offset N] [--limit N] [--json]",
         "  ableton-agent pad-chain-devices <track-number> <device-number> <pad-number> <chain-number> [--offset N] [--limit N] [--json]",
-        "  ableton-agent run <prompt> [--json]",
+        "  ableton-agent run <prompt> [--scenario ID] [--session ID] [--trace PATH] [--timeout-ms N] [--json]",
         "  ableton-agent session-current [--json]",
         "  ableton-agent session-new [--json]",
         "  ableton-agent session-resume <session-id> [--json]",
@@ -640,11 +730,16 @@ export async function runCommand(
       command.name === "session-new" ||
       command.name === "session-resume" ||
       command.name === "session-current",
+    ...(command.name === "run" && command.sessionId !== undefined
+      ? { preferredAgentSessionId: command.sessionId }
+      : {}),
   });
   const operationFailures: Array<
     Extract<AppEvent, { type: "operation.failed" }>
   > = [];
+  const turnEvents: AppEvent[] = [];
   const unsubscribe = application.subscribe((event) => {
+    turnEvents.push(event);
     if (event.type === "operation.failed") {
       operationFailures.push(event);
     }
@@ -792,7 +887,7 @@ export async function runCommand(
                 `Browser roots: ${result.roots.length}`,
                 ...result.roots.map(
                   (root) =>
-                    `  ${root.root}: ${root.name}${root.isBuiltInDevice ? " (built-in device loading allowed)" : ""}`,
+                    `  ${root.root}: ${root.name}${(root.isNavigable ?? root.isFolder) ? " (navigable)" : ""}`,
                 ),
               ].join("\n"),
               browserRootsMarkdown(result),
@@ -828,7 +923,7 @@ export async function runCommand(
               `${root.name}: ${result.total}`,
               ...result.items.map(
                 (item, index) =>
-                  `  ${command.offset + index + 1}. ${item.name}${item.isFolder ? "/" : ""}${item.isLoadable ? " (loadable)" : ""}`,
+                  `  ${command.offset + index + 1}. ${item.name}${(item.isNavigable ?? item.isFolder) ? "/" : ""}${(item.isLoadableDevice ?? item.isBuiltInDevice) ? " (device preset)" : item.isLoadable ? " (unsupported load type)" : ""}`,
               ),
             ].join("\n"),
       );
@@ -1171,19 +1266,130 @@ export async function runCommand(
       return EXIT_CODES.SUCCESS;
     }
 
-    const response = await application.send(command.prompt);
-    const ok = operationFailures.length === 0;
+    const scenario = options.scenario;
+    if (
+      command.scenarioId !== undefined &&
+      (scenario === undefined || scenario.manifest.id !== command.scenarioId)
+    ) {
+      throw new CliUsageError(
+        `Scenario '${command.scenarioId}' was not loaded for this run`,
+      );
+    }
+    const baseline =
+      scenario === undefined
+        ? undefined
+        : await captureScenarioBaseline(application);
+    const response = await application.send(
+      scenario === undefined
+        ? command.prompt
+        : scenarioPrompt(command.prompt, scenario),
+    );
+    const assertions =
+      scenario === undefined || baseline === undefined
+        ? []
+        : await verifyScenario(application, scenario, baseline);
+    const approvalDecisions = scenario?.approvals.decisions ?? [];
+    const policyViolations: string[] = [];
+    if (approvalDecisions.some((decision) => !decision.approved)) {
+      policyViolations.push("scenario approval policy denied a tool request");
+    }
+    const startedOperations = turnEvents.filter(
+      (event): event is Extract<AppEvent, { type: "operation.started" }> =>
+        event.type === "operation.started",
+    );
+    if (
+      scenario !== undefined &&
+      startedOperations.length > scenario.manifest.maxToolCalls
+    ) {
+      policyViolations.push("tool call budget exceeded");
+    }
+    if (
+      assertions.some((assertion) => !assertion.passed) &&
+      /\b(done|success|successful|created|loaded|verified)\b/i.test(response)
+    ) {
+      policyViolations.push(
+        "assistant claimed success while deterministic assertions failed",
+      );
+    }
+    const status = await application.getStatus();
+    const ok =
+      operationFailures.length === 0 &&
+      policyViolations.length === 0 &&
+      assertions.every((assertion) => assertion.passed);
+    const payload = {
+      ok,
+      response,
+      sessionId: application.agentSessionId,
+      scenarioId: command.scenarioId,
+      ableton:
+        status.state === "connected"
+          ? {
+              liveVersion: status.liveVersion,
+              remoteScriptVersion: status.remoteScriptVersion,
+            }
+          : { state: status.state },
+      operationFailures: operationFailures.map((failure) =>
+        sanitizeTraceValue(failure),
+      ),
+      operations: turnEvents
+        .filter((event) => event.type.startsWith("operation."))
+        .map((event) => sanitizeTraceValue(event)),
+      approvals: approvalDecisions,
+      assertions,
+      policyViolations,
+      budgets:
+        scenario === undefined
+          ? undefined
+          : {
+              toolCalls: startedOperations.length,
+              maxToolCalls: scenario.manifest.maxToolCalls,
+              mutations: approvalDecisions.filter(
+                (decision) => decision.approved && decision.risk !== "read",
+              ).length,
+              maxMutations: scenario.manifest.maxMutations,
+            },
+      exitClassification: ok
+        ? "success"
+        : policyViolations.length > 0 ||
+            assertions.some((assertion) => !assertion.passed)
+          ? "scenario_failed"
+          : "operation_failed",
+    };
+    if (command.tracePath !== undefined) {
+      await writeTraceFile(command.tracePath, payload);
+    }
     io.write(
       command.json
-        ? JSON.stringify({ ok, response, operationFailures })
+        ? JSON.stringify(payload)
         : humanOutput(response, response, options),
     );
-    return ok
-      ? EXIT_CODES.SUCCESS
-      : exitCodeForOperationFailures(operationFailures);
+    if (ok) return EXIT_CODES.SUCCESS;
+    return operationFailures.length > 0
+      ? exitCodeForOperationFailures(operationFailures)
+      : EXIT_CODES.OPERATION_ERROR;
   } finally {
     unsubscribe();
     await application.stop();
+  }
+
+  async function writeTraceFile(path: string, payload: unknown): Promise<void> {
+    const directory = dirname(path);
+    await mkdir(directory, { recursive: true });
+    const temporaryPath = `${path}.${process.pid}.tmp`;
+    const tracePayload =
+      typeof payload === "object" && payload !== null && "response" in payload
+        ? {
+            ...(payload as Record<string, unknown>),
+            response:
+              "[assistant response omitted from trace; retained in stdout]",
+          }
+        : payload;
+    await writeFile(
+      temporaryPath,
+      `${JSON.stringify(sanitizeTraceValue(tracePayload), undefined, 2)}\n`,
+      { encoding: "utf8", mode: 0o600 },
+    );
+    await rename(temporaryPath, path);
   }
 
   async function resolveTrack(
@@ -1511,6 +1717,12 @@ export async function runInteractive(
           );
         }
       } catch (error) {
+        if (streamingRenderer !== undefined) {
+          streamingRenderer.complete("");
+          streamingRenderer = undefined;
+        } else if (turnProducedOutput) {
+          io.writeRaw("\n");
+        }
         io.writeError(error instanceof Error ? error.message : String(error));
       }
     }

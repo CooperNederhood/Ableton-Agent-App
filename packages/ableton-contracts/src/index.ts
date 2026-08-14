@@ -74,6 +74,9 @@ export interface AbletonService {
   createMidiClip(
     params: Protocol.CreateMidiClipParams,
   ): Promise<Protocol.CreateMidiClipResult>;
+  inspectMidiNotes(
+    params: Protocol.InspectMidiNotesParams,
+  ): Promise<Protocol.InspectMidiNotesResult>;
   replaceMidiNotes(
     params: Protocol.ReplaceMidiNotesParams,
   ): Promise<Protocol.ReplaceMidiNotesResult>;
@@ -95,6 +98,9 @@ export interface AbletonService {
   inspectArrangement(
     params: Protocol.InspectArrangementParams,
   ): Promise<Protocol.InspectArrangementResult>;
+  inspectArrangementMidiNotes(
+    params: Protocol.InspectArrangementMidiNotesParams,
+  ): Promise<Protocol.InspectArrangementMidiNotesResult>;
   deleteArrangementClip(
     params: Protocol.DeleteArrangementClipParams,
   ): Promise<Protocol.DeleteArrangementClipResult>;

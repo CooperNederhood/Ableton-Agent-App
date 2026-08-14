@@ -22,6 +22,8 @@ import {
   helloParamsSchema,
   inspectArrangementParamsSchema,
   inspectArrangementResultSchema,
+  inspectArrangementMidiNotesParamsSchema,
+  inspectArrangementMidiNotesResultSchema,
   inspectArrangementTransportParamsSchema,
   inspectArrangementTransportResultSchema,
   inspectBrowserChildrenParamsSchema,
@@ -38,6 +40,8 @@ import {
   inspectDrumPadChainsResultSchema,
   inspectDrumRackPadsParamsSchema,
   inspectDrumRackPadsResultSchema,
+  inspectMidiNotesParamsSchema,
+  inspectMidiNotesResultSchema,
   inspectRackChainDevicesParamsSchema,
   inspectRackChainDevicesResultSchema,
   inspectRackChainsParamsSchema,
@@ -208,6 +212,10 @@ export const commandCatalog = {
     createMidiClipResultSchema,
     { mutates: true },
   ),
+  "clips.inspect_notes": command(
+    inspectMidiNotesParamsSchema,
+    inspectMidiNotesResultSchema,
+  ),
   "clips.replace_notes": command(
     replaceMidiNotesParamsSchema,
     replaceMidiNotesResultSchema,
@@ -241,6 +249,10 @@ export const commandCatalog = {
   "arrangement.inspect": command(
     inspectArrangementParamsSchema,
     inspectArrangementResultSchema,
+  ),
+  "arrangement.inspect_notes": command(
+    inspectArrangementMidiNotesParamsSchema,
+    inspectArrangementMidiNotesResultSchema,
   ),
   "arrangement.delete_clip": command(
     deleteArrangementClipParamsSchema,

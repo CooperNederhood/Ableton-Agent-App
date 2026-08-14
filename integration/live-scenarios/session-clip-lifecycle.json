@@ -1,0 +1,69 @@
+{
+  "formatVersion": 1,
+  "id": "session-clip-lifecycle",
+  "group": "session-clips",
+  "prompt": "Create a temporary Session MIDI clip, update its properties, duplicate it, launch it, then delete the generated clips and track so the Set returns to its original state.",
+  "artifactPrefix": "AA_SMOKE_SESSION_",
+  "allowedTools": [
+    "ableton_session_inspect",
+    "ableton_tracks_create",
+    "ableton_tracks_delete",
+    "ableton_clips_create_midi",
+    "ableton_clips_set_properties",
+    "ableton_clips_duplicate",
+    "ableton_clips_launch",
+    "ableton_clips_delete",
+    "ableton_transport_set_playing"
+  ],
+  "allowedRisks": ["read", "reversible", "destructive"],
+  "maxToolCalls": 19,
+  "maxMutations": 9,
+  "timeoutMs": 240000,
+  "ordering": [
+    {
+      "before": "ableton_tracks_create",
+      "after": "ableton_clips_create_midi"
+    },
+    {
+      "before": "ableton_clips_create_midi",
+      "after": "ableton_clips_launch"
+    },
+    {
+      "before": "ableton_clips_launch",
+      "after": "ableton_transport_set_playing"
+    },
+    {
+      "before": "ableton_transport_set_playing",
+      "after": "ableton_clips_set_properties"
+    },
+    {
+      "before": "ableton_clips_set_properties",
+      "after": "ableton_clips_duplicate"
+    },
+    {
+      "before": "ableton_clips_duplicate",
+      "after": "ableton_clips_delete"
+    },
+    {
+      "before": "ableton_clips_delete",
+      "after": "ableton_tracks_delete"
+    }
+  ],
+  "trackNameSuffixes": ["Track"],
+  "clipNameSuffixes": ["Source", "Renamed"],
+  "assertions": [
+    {
+      "type": "session-clip-lifecycle",
+      "trackNameSuffix": "Track",
+      "initialClipNameSuffix": "Source",
+      "finalClipNameSuffix": "Renamed",
+      "sourceSceneIndex": 4,
+      "destinationSceneIndex": 5,
+      "length": 4,
+      "properties": {
+        "muted": true,
+        "looping": false
+      }
+    }
+  ]
+}

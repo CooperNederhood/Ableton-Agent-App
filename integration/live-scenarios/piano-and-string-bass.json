@@ -1,0 +1,77 @@
+{
+  "formatVersion": 1,
+  "id": "piano-and-string-bass",
+  "group": "instruments",
+  "prompt": "create two new tracks: a piano and a string bass",
+  "artifactPrefix": "AA_SMOKE_INST_",
+  "allowedTools": [
+    "ableton_connection_status",
+    "ableton_session_inspect",
+    "ableton_browser_search",
+    "ableton_browser_children_inspect",
+    "ableton_tracks_create",
+    "ableton_browser_load_item",
+    "ableton_devices_inspect"
+  ],
+  "allowedRisks": ["read", "reversible"],
+  "maxToolCalls": 14,
+  "maxMutations": 4,
+  "timeoutMs": 240000,
+  "ordering": [
+    {
+      "before": "ableton_browser_search",
+      "after": "ableton_tracks_create"
+    },
+    {
+      "before": "ableton_tracks_create",
+      "after": "ableton_browser_load_item"
+    }
+  ],
+  "trackNameSuffixes": ["Piano", "String Bass"],
+  "clipNameSuffixes": [],
+  "browserItemNames": ["Childhood Home Piano.adg", "Upright Bass.adv"],
+  "browserLoadTargets": [
+    {
+      "trackNameSuffix": "Piano",
+      "itemName": "Childhood Home Piano.adg"
+    },
+    {
+      "trackNameSuffix": "String Bass",
+      "itemName": "Upright Bass.adv"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "track-device",
+      "trackNameSuffix": "Piano",
+      "trackKind": "midi",
+      "deviceName": "Childhood Home Piano"
+    },
+    {
+      "type": "track-device",
+      "trackNameSuffix": "String Bass",
+      "trackKind": "midi",
+      "deviceName": "Upright Bass"
+    },
+    {
+      "type": "tool-calls",
+      "required": [
+        {
+          "toolName": "ableton_browser_search",
+          "min": 2,
+          "max": 4
+        },
+        {
+          "toolName": "ableton_tracks_create",
+          "min": 2,
+          "max": 2
+        },
+        {
+          "toolName": "ableton_browser_load_item",
+          "min": 2,
+          "max": 2
+        }
+      ]
+    }
+  ]
+}

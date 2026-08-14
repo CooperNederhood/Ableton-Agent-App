@@ -541,15 +541,68 @@ class FakeBrowser(object):
             ],
             folder=True,
         )
+        # Live 11 virtual containers (Drums, Packs, User Library) can
+        # report is_folder=False while still exposing children that mix
+        # loadable devices/presets with unsupported content (samples).
+        drum_rack_preset = FakeBrowserItem(
+            "808 Core Kit.adg",
+            "ableton://drums/808-core-kit",
+            loadable=True,
+            device=False,
+            source="drums",
+        )
+        drum_one_shot_sample = FakeBrowserItem(
+            "808 Kick.wav",
+            "ableton://drums/808-kick",
+            loadable=True,
+            device=False,
+            source="drums",
+        )
+        self.drums = FakeBrowserItem(
+            "Drums",
+            "ableton://drums",
+            [drum_rack_preset, drum_one_shot_sample],
+            folder=False,
+        )
+        pack_device_preset = FakeBrowserItem(
+            "Warm Pad.adg",
+            "ableton://packs/warm-pad",
+            loadable=True,
+            device=True,
+            source="packs",
+        )
+        self.packs = FakeBrowserItem(
+            "Packs",
+            "ableton://packs",
+            [pack_device_preset],
+            folder=True,
+        )
+        user_device_preset = FakeBrowserItem(
+            "My Bass.adv",
+            "file:///Users/test/Music/Ableton/User Library/My Bass.adv",
+            loadable=True,
+            device=True,
+            source="user_library",
+        )
+        user_recorded_sample = FakeBrowserItem(
+            "Recorded Loop.wav",
+            "ableton://user-library/recorded-loop",
+            loadable=True,
+            device=False,
+            source="user_library",
+        )
+        self.user_library = FakeBrowserItem(
+            "User Library",
+            "ableton://user_library",
+            [user_device_preset, user_recorded_sample],
+            folder=True,
+        )
         for root, name in (
             ("sounds", "Sounds"),
-            ("drums", "Drums"),
             ("max_for_live", "Max for Live"),
             ("plugins", "Plug-ins"),
             ("clips", "Clips"),
             ("samples", "Samples"),
-            ("packs", "Packs"),
-            ("user_library", "User Library"),
             ("current_project", "Current Project"),
         ):
             setattr(
@@ -1059,6 +1112,126 @@ class ExecutorTests(unittest.TestCase):
         self.assertTrue(responses[1]["result"]["verified"])
         self.assertEqual(len(context.song.tracks), 2)
 
+    def test_create_track_verifies_identity_via_equivalent_proxy_wrapper(self):
+        # Live may hand back a fresh LOM proxy wrapper for the same
+        # underlying track on subsequent reads. Postcondition verification
+        # must recognize these as the same track via equality, not `is`.
+        class EquivalentTrackProxy(object):
+            def __init__(self, target):
+                object.__setattr__(self, "_target", target)
+
+            def __getattr__(self, name):
+                return getattr(object.__getattribute__(self, "_target"), name)
+
+            def __setattr__(self, name, value):
+                setattr(object.__getattribute__(self, "_target"), name, value)
+
+            def __eq__(self, other):
+                target = object.__getattribute__(self, "_target")
+                other_target = getattr(other, "_target", other)
+                return target is other_target
+
+            def __ne__(self, other):
+                return not self.__eq__(other)
+
+        class WrappingTrackList(list):
+            def __getitem__(self, index):
+                return EquivalentTrackProxy(list.__getitem__(self, index))
+
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        context.song.tracks = WrappingTrackList(context.song.tracks)
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request("tracks.create", {"kind": "audio", "name": "Vocals"}),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertTrue(responses[0]["ok"])
+        self.assertTrue(responses[0]["result"]["verified"])
+        self.assertEqual(responses[0]["result"]["track"]["name"], "Vocals")
+        self.assertEqual(responses[0]["result"]["afterTrackCount"], 3)
+
+    def test_create_track_reports_not_applied_when_nothing_is_added(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        # Simulate a mutation call that silently does nothing.
+        context.song.create_audio_track = lambda _index: None
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request("tracks.create", {"kind": "audio", "name": "Silent"}),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertFalse(responses[0]["ok"])
+        self.assertEqual(responses[0]["error"]["code"], "conflict")
+        self.assertFalse(responses[0]["error"]["retryable"])
+        self.assertEqual(
+            responses[0]["error"]["details"]["outcome"], "not_applied"
+        )
+        self.assertEqual(
+            responses[0]["error"]["details"]["beforeTrackCount"],
+            responses[0]["error"]["details"]["afterTrackCount"],
+        )
+
+    def test_create_track_reports_applied_indeterminate_on_kind_mismatch(
+        self,
+    ):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+
+        # Simulate Live inserting a track whose kind does not match what
+        # was requested; a track was added (count delta correct) but the
+        # postcondition cannot be fully verified.
+        def mismatched_create_midi_track(index):
+            context.song.tracks.insert(index, FakeTrack("MIDI", midi=False))
+
+        context.song.create_midi_track = mismatched_create_midi_track
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request("tracks.create", {"kind": "midi", "name": "Lead"}),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertFalse(responses[0]["ok"])
+        self.assertEqual(responses[0]["error"]["code"], "conflict")
+        self.assertFalse(responses[0]["error"]["retryable"])
+        self.assertEqual(
+            responses[0]["error"]["details"]["outcome"],
+            "applied_indeterminate",
+        )
+        self.assertEqual(
+            responses[0]["error"]["details"]["afterTrackCount"], 3
+        )
+        self.assertEqual(len(context.song.tracks), 3)
+
     def test_track_delete_guards_last_track(self):
         scheduled = []
         responses = []
@@ -1280,13 +1453,40 @@ class ExecutorTests(unittest.TestCase):
                             "velocity": 110,
                         },
                         {
-                            "pitch": 38,
+                            "pitch": 36,
                             "startTime": 1.0,
                             "duration": 0.25,
-                            "velocity": 100,
-                            "mute": False,
+                            "velocity": 110,
+                        },
+                        {
+                            "pitch": 36,
+                            "startTime": 2.0,
+                            "duration": 0.25,
+                            "velocity": 110,
+                        },
+                        {
+                            "pitch": 36,
+                            "startTime": 3.0,
+                            "duration": 0.25,
+                            "velocity": 110,
                         },
                     ],
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        executor.submit(
+            request(
+                "clips.inspect_notes",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "sceneIndex": 0,
+                    "expectedClipReference": clip_reference,
+                    "offset": 0,
+                    "limit": 16,
                 },
             ),
             responses.append,
@@ -1296,8 +1496,19 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(responses[0]["result"]["clip"]["name"], "Beat")
         self.assertEqual(responses[0]["result"]["clip"]["noteCount"], 0)
         self.assertEqual(responses[1]["result"]["beforeNoteCount"], 1)
-        self.assertEqual(responses[1]["result"]["afterNoteCount"], 2)
+        self.assertEqual(responses[1]["result"]["afterNoteCount"], 4)
         self.assertTrue(responses[1]["result"]["verified"])
+        self.assertEqual(responses[2]["result"]["totalNotes"], 4)
+        self.assertEqual(
+            [note["startTime"] for note in responses[2]["result"]["notes"]],
+            [0.0, 1.0, 2.0, 3.0],
+        )
+        self.assertTrue(
+            all(
+                note["pitch"] == 36
+                for note in responses[2]["result"]["notes"]
+            )
+        )
 
     def test_midi_clip_creation_refuses_occupied_slot(self):
         scheduled = []
@@ -2003,6 +2214,9 @@ class ExecutorTests(unittest.TestCase):
             responses.append,
         )
         scheduled.pop()()
+        delay, verify = context.scheduled.pop()
+        self.assertEqual(delay, 1)
+        verify()
         executor.submit(
             request(
                 "clips.duplicate",
@@ -2170,6 +2384,9 @@ class ExecutorTests(unittest.TestCase):
             responses.append,
         )
         scheduled.pop()()
+        delay, verify_recovery = context.scheduled.pop()
+        self.assertEqual(delay, 1)
+        verify_recovery()
         executor.submit(
             request(
                 "clips.duplicate",
@@ -2276,6 +2493,22 @@ class ExecutorTests(unittest.TestCase):
         scheduled.pop()()
         executor.submit(
             request(
+                "arrangement.inspect_notes",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "expectedClipReference": clip_reference,
+                    "expectedStartTime": 8.0,
+                    "offset": 0,
+                    "limit": 16,
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+        executor.submit(
+            request(
                 "arrangement.replace_notes",
                 {
                     "index": 0,
@@ -2316,9 +2549,12 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(responses[2]["result"]["clips"][0]["kind"], "midi")
         self.assertEqual(responses[3]["result"]["beforeNoteCount"], 0)
         self.assertEqual(responses[3]["result"]["afterNoteCount"], 1)
-        self.assertEqual(responses[4]["error"]["code"], "invalid_params")
-        self.assertEqual(responses[5]["result"]["beforeClipCount"], 1)
-        self.assertEqual(responses[5]["result"]["afterClipCount"], 0)
+        self.assertEqual(responses[4]["result"]["totalNotes"], 1)
+        self.assertEqual(responses[4]["result"]["notes"][0]["pitch"], 60)
+        self.assertEqual(responses[4]["result"]["notes"][0]["startTime"], 0.0)
+        self.assertEqual(responses[5]["error"]["code"], "invalid_params")
+        self.assertEqual(responses[6]["result"]["beforeClipCount"], 1)
+        self.assertEqual(responses[6]["result"]["afterClipCount"], 0)
         self.assertEqual(track.arrangement_clips, [])
 
     def test_arrangement_creation_rolls_back_when_create_raises(self):
@@ -2876,6 +3112,412 @@ class BrowserCommandTests(unittest.TestCase):
         self.context.application.browser.hotswap_target = None
         track.has_midi_input = False
         with self.assertRaisesRegex(Exception, "requires a MIDI track"):
+            self.execute("browser.load_item", params)
+
+    def test_virtual_container_reports_navigable_without_is_folder(self):
+        # Live 11 Browser items like Drums can report is_folder=False while
+        # still exposing children; navigability must fall back to a safe,
+        # bounded children probe.
+        roots = self.execute("browser.inspect_roots")["roots"]
+        drums = next(root for root in roots if root["root"] == "drums")
+        self.assertFalse(drums["isFolder"])
+        self.assertTrue(drums["isNavigable"])
+        children = self.execute(
+            "browser.inspect_children",
+            {
+                "expectedItemReference": drums["reference"],
+                "expectedItemRoot": drums["root"],
+                "expectedItemPath": drums["path"],
+                "expectedItemName": drums["name"],
+                "expectedItemUri": drums["uri"],
+                "offset": 0,
+                "limit": 8,
+            },
+        )
+        names = [item["name"] for item in children["items"]]
+        self.assertIn("808 Core Kit.adg", names)
+        self.assertIn("808 Kick.wav", names)
+
+    def test_search_traverses_virtual_containers_within_bounds(self):
+        found = self.execute(
+            "browser.search",
+            {
+                "query": "808",
+                "roots": ["drums"],
+                "maxNodes": 8,
+                "maxResults": 5,
+                "maxDepth": 3,
+                "maxDurationMs": 100,
+            },
+        )
+        names = [item["name"] for item in found["items"]]
+        self.assertIn("808 Core Kit.adg", names)
+        self.assertIn("808 Kick.wav", names)
+        self.assertEqual(found["stopReason"], "complete")
+
+        bounded = self.execute(
+            "browser.search",
+            {
+                "query": "808",
+                "roots": ["drums"],
+                "maxNodes": 1,
+                "maxResults": 5,
+                "maxDepth": 3,
+                "maxDurationMs": 100,
+            },
+        )
+        self.assertTrue(bounded["truncated"])
+        self.assertEqual(bounded["stopReason"], "node_limit")
+
+    def test_search_prioritizes_query_matching_categories_and_loadable_results(
+        self,
+    ):
+        sounds = self.context.application.browser.sounds
+        sounds.children = [
+            FakeBrowserItem(
+                "Ambient",
+                "ableton://sounds/ambient",
+                [
+                    FakeBrowserItem(
+                        "Piano Texture.wav",
+                        "ableton://sounds/ambient/piano-texture",
+                        loadable=True,
+                    )
+                ],
+                folder=True,
+            ),
+            FakeBrowserItem(
+                "Piano & Keys",
+                "ableton://sounds/piano",
+                [
+                    FakeBrowserItem(
+                        "Grand Piano.adg",
+                        "ableton://sounds/piano/grand",
+                        loadable=True,
+                        source="Core Library",
+                    ),
+                    FakeBrowserItem(
+                        "Soft Piano.adg",
+                        "ableton://sounds/piano/soft",
+                        loadable=True,
+                        source="Core Library",
+                    ),
+                ],
+                folder=True,
+            ),
+        ]
+
+        found = self.execute(
+            "browser.search",
+            {
+                "query": "piano",
+                "roots": ["sounds"],
+                "maxNodes": 8,
+                "maxResults": 5,
+                "maxDepth": 3,
+                "maxDurationMs": 100,
+            },
+        )
+
+        names = [item["name"] for item in found["items"]]
+        self.assertEqual(names[0], "Grand Piano.adg")
+        self.assertIn("Soft Piano.adg", names)
+        self.assertLess(
+            names.index("Soft Piano.adg"),
+            names.index("Piano Texture.wav"),
+        )
+
+    def test_search_finds_late_children_with_the_strongest_token_overlap(self):
+        bass_children = [
+            FakeBrowserItem(
+                "Bass {0}.adv".format(index),
+                "ableton://sounds/bass/{0}".format(index),
+                loadable=True,
+                source="Core Library",
+            )
+            for index in range(20)
+        ]
+        bass_children.append(
+            FakeBrowserItem(
+                "Upright Bass.adv",
+                "ableton://sounds/bass/upright",
+                loadable=True,
+                source="Core Library",
+            )
+        )
+        self.context.application.browser.sounds.children = [
+            FakeBrowserItem(
+                "Bass",
+                "ableton://sounds/bass",
+                bass_children,
+                folder=True,
+            )
+        ]
+
+        found = self.execute(
+            "browser.search",
+            {
+                "query": "upright bass",
+                "roots": ["sounds"],
+                "maxNodes": 8,
+                "maxResults": 5,
+                "maxDepth": 3,
+                "maxDurationMs": 100,
+            },
+        )
+
+        self.assertEqual(found["items"][0]["name"], "Upright Bass.adv")
+
+    def test_throwing_children_descriptors_are_handled_safely(self):
+        # A throwing `children` property/`iter_children` method must be
+        # treated as bounded "no further children" rather than crashing
+        # inspection or search.
+        class ThrowingChildrenItem(object):
+            def __init__(self, name, uri):
+                self.name = name
+                self.uri = uri
+                self.is_folder = False
+                self.is_loadable = False
+                self.is_device = False
+                self.source = ""
+
+            @property
+            def children(self):
+                raise RuntimeError("children descriptor exploded")
+
+        class ThrowingIterChildrenItem(object):
+            def __init__(self, name, uri):
+                self.name = name
+                self.uri = uri
+                self.is_folder = False
+                self.is_loadable = False
+                self.is_device = False
+                self.source = ""
+
+            def iter_children(self):
+                raise RuntimeError("iter_children exploded")
+
+        instruments = self.context.application.browser.instruments
+        synths_folder = instruments.children[0]
+        synths_folder.children.append(
+            ThrowingChildrenItem(
+                "Broken Children", "ableton://instruments/broken-children"
+            )
+        )
+        synths_folder.children.append(
+            ThrowingIterChildrenItem(
+                "Broken Iterator", "ableton://instruments/broken-iterator"
+            )
+        )
+
+        roots = self.execute("browser.inspect_roots")["roots"]
+        instruments_root = next(
+            root for root in roots if root["root"] == "instruments"
+        )
+        synths_page = self.execute(
+            "browser.inspect_children",
+            {
+                "expectedItemReference": instruments_root["reference"],
+                "expectedItemRoot": instruments_root["root"],
+                "expectedItemPath": instruments_root["path"],
+                "expectedItemName": instruments_root["name"],
+                "expectedItemUri": instruments_root["uri"],
+                "offset": 0,
+                "limit": 1,
+            },
+        )["items"][0]
+        children = self.execute(
+            "browser.inspect_children",
+            {
+                "expectedItemReference": synths_page["reference"],
+                "expectedItemRoot": synths_page["root"],
+                "expectedItemPath": synths_page["path"],
+                "expectedItemName": synths_page["name"],
+                "expectedItemUri": synths_page["uri"],
+                "offset": 0,
+                "limit": 8,
+            },
+        )
+        by_name = dict(
+            (item["name"], item) for item in children["items"]
+        )
+        self.assertFalse(by_name["Broken Children"]["isNavigable"])
+        self.assertFalse(by_name["Broken Iterator"]["isNavigable"])
+
+        found = self.execute(
+            "browser.search",
+            {
+                "query": "broken",
+                "roots": ["instruments"],
+                "maxNodes": 32,
+                "maxResults": 5,
+                "maxDepth": 3,
+                "maxDurationMs": 100,
+            },
+        )
+        names = [item["name"] for item in found["items"]]
+        self.assertIn("Broken Children", names)
+        self.assertIn("Broken Iterator", names)
+        self.assertEqual(found["stopReason"], "complete")
+
+    def test_loads_device_presets_from_drums_packs_and_user_library_roots(
+        self,
+    ):
+        track = self.context.song.tracks[0]
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        self.context._track_references = [(track, track_reference)]
+        cases = (
+            ("drums", "808", "808 Core Kit.adg"),
+            ("packs", "warm", "Warm Pad.adg"),
+            ("user_library", "bass", "My Bass.adv"),
+        )
+        for root, query, item_name in cases:
+            before_device_count = len(track.devices)
+            found = self.execute(
+                "browser.search",
+                {
+                    "query": query,
+                    "roots": [root],
+                    "maxNodes": 8,
+                    "maxResults": 5,
+                    "maxDepth": 3,
+                    "maxDurationMs": 100,
+                },
+            )
+            item = next(
+                candidate
+                for candidate in found["items"]
+                if candidate["name"] == item_name
+            )
+            self.assertTrue(item["isLoadableDevice"])
+            result = self.execute(
+                "browser.load_item",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": track.name,
+                    "expectedItemReference": item["reference"],
+                    "expectedItemRoot": item["root"],
+                    "expectedItemPath": item["path"],
+                    "expectedItemName": item["name"],
+                    "expectedItemUri": item["uri"],
+                },
+            )
+            self.assertTrue(result["verified"])
+            self.assertEqual(len(track.devices), before_device_count + 1)
+            self.assertEqual(
+                result["addedDevices"][0]["name"], item_name
+            )
+            self.assertEqual(result["mutationMode"], "added")
+
+    def test_verifies_preset_loaded_by_reconfiguring_existing_device(self):
+        track = self.context.song.tracks[0]
+        track.devices = [FakeDevice("Drum Rack")]
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        self.context._track_references = [(track, track_reference)]
+        found = self.execute(
+            "browser.search",
+            {
+                "query": "808",
+                "roots": ["drums"],
+                "maxNodes": 8,
+                "maxResults": 5,
+                "maxDepth": 3,
+                "maxDurationMs": 100,
+            },
+        )
+        item = next(
+            candidate
+            for candidate in found["items"]
+            if candidate["name"] == "808 Core Kit.adg"
+        )
+
+        def reconfigure(_item):
+            track.devices[0].name = "808 Core Kit"
+
+        self.context.application.browser.load_item = reconfigure
+        result = self.execute(
+            "browser.load_item",
+            {
+                "index": 0,
+                "expectedReference": track_reference,
+                "expectedName": track.name,
+                "expectedItemReference": item["reference"],
+                "expectedItemRoot": item["root"],
+                "expectedItemPath": item["path"],
+                "expectedItemName": item["name"],
+                "expectedItemUri": item["uri"],
+            },
+        )
+
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["mutationMode"], "reconfigured")
+        self.assertEqual(result["addedDevices"], [])
+        self.assertEqual(
+            result["reconfiguredDevices"][0]["name"], "808 Core Kit"
+        )
+
+    def test_rejects_unsupported_categories_before_mutation(self):
+        track = self.context.song.tracks[0]
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        self.context._track_references = [(track, track_reference)]
+        cases = (
+            ("drums", "808 Kick", "808 Kick.wav"),
+            ("user_library", "Recorded", "Recorded Loop.wav"),
+        )
+        for root, query, item_name in cases:
+            before_device_count = len(track.devices)
+            found = self.execute(
+                "browser.search",
+                {
+                    "query": query,
+                    "roots": [root],
+                    "maxNodes": 8,
+                    "maxResults": 5,
+                    "maxDepth": 3,
+                    "maxDurationMs": 100,
+                },
+            )
+            item = next(
+                candidate
+                for candidate in found["items"]
+                if candidate["name"] == item_name
+            )
+            self.assertFalse(item["isLoadableDevice"])
+            params = {
+                "index": 0,
+                "expectedReference": track_reference,
+                "expectedName": track.name,
+                "expectedItemReference": item["reference"],
+                "expectedItemRoot": item["root"],
+                "expectedItemPath": item["path"],
+                "expectedItemName": item["name"],
+                "expectedItemUri": item["uri"],
+            }
+            with self.assertRaisesRegex(
+                Exception, "Only trusted built-in device"
+            ):
+                self.execute("browser.load_item", params)
+            self.assertEqual(len(track.devices), before_device_count)
+
+        # The Drums root itself is a navigable virtual container, not an
+        # individually loadable device or preset.
+        roots = self.execute("browser.inspect_roots")["roots"]
+        drums = next(root for root in roots if root["root"] == "drums")
+        self.assertFalse(drums["isLoadableDevice"])
+        params = {
+            "index": 0,
+            "expectedReference": track_reference,
+            "expectedName": track.name,
+            "expectedItemReference": drums["reference"],
+            "expectedItemRoot": drums["root"],
+            "expectedItemPath": drums["path"],
+            "expectedItemName": drums["name"],
+            "expectedItemUri": drums["uri"],
+        }
+        with self.assertRaisesRegex(
+            Exception, "Only trusted built-in device"
+        ):
             self.execute("browser.load_item", params)
 
 

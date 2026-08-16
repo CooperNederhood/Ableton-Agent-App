@@ -4,6 +4,7 @@ import {
   useReducer,
   useRef,
   useState,
+  type CSSProperties,
   type FormEvent,
   type KeyboardEvent,
 } from "react";
@@ -14,6 +15,7 @@ import type {
   DesktopConnectionStatus,
   DesktopOutputAssignment,
   DesktopOutputConnection,
+  DesktopProjectSnapshot,
   LatestAcceptedOutput,
   DesktopTrack,
   PlanSection,
@@ -47,6 +49,95 @@ const browserItems = [
   ["Hybrid Reverb", "Audio effect", "Ableton"],
   ["Roar", "Audio effect", "Ableton"],
 ] as const;
+
+const unknownOutputTrackColor = "#8a8f98";
+
+export interface OutputTrackGroup {
+  id: string;
+  label: string;
+  color: string;
+  track?: DesktopTrack | undefined;
+  connections: DesktopOutputConnection[];
+}
+
+function resolvedOutputTrack(
+  connection: DesktopOutputConnection,
+  snapshot: DesktopProjectSnapshot | undefined,
+): { track: DesktopTrack; index: number } | undefined {
+  const name = connection.track?.name;
+  if (snapshot === undefined || name === undefined) return undefined;
+  const regularTracks = snapshot.tracks.filter(
+    (track) => track.kind === "midi" || track.kind === "audio",
+  );
+  const registeredIndex = connection.track?.index;
+  if (registeredIndex !== undefined) {
+    const indexedTrack = regularTracks[registeredIndex];
+    if (indexedTrack?.name === name) {
+      return { track: indexedTrack, index: registeredIndex };
+    }
+  }
+  const nameMatches = regularTracks
+    .map((track, index) => ({ track, index }))
+    .filter((candidate) => candidate.track.name === name);
+  return nameMatches.length === 1 ? nameMatches[0] : undefined;
+}
+
+export function groupOutputsByTrack(
+  connections: DesktopOutputConnection[],
+  snapshot: DesktopProjectSnapshot | undefined,
+): OutputTrackGroup[] {
+  const groups = new Map<
+    string,
+    OutputTrackGroup & { index: number | undefined }
+  >();
+  const unknownConnections: DesktopOutputConnection[] = [];
+
+  for (const connection of connections) {
+    const resolved = resolvedOutputTrack(connection, snapshot);
+    if (resolved === undefined) {
+      unknownConnections.push(connection);
+      continue;
+    }
+    const group = groups.get(resolved.track.id);
+    if (group === undefined) {
+      groups.set(resolved.track.id, {
+        id: resolved.track.id,
+        label: resolved.track.name,
+        color: resolved.track.color,
+        track: resolved.track,
+        connections: [connection],
+        index: resolved.index,
+      });
+    } else {
+      group.connections.push(connection);
+    }
+  }
+
+  const sortedGroups = [...groups.values()].sort(
+    (left, right) => (left.index ?? Infinity) - (right.index ?? Infinity),
+  );
+  for (const group of sortedGroups) {
+    group.connections.sort(
+      (left, right) =>
+        left.displayName.localeCompare(right.displayName) ||
+        left.producerId.localeCompare(right.producerId),
+    );
+  }
+  if (unknownConnections.length > 0) {
+    sortedGroups.push({
+      id: "unknown",
+      label: "Unknown / ungrouped",
+      color: unknownOutputTrackColor,
+      connections: unknownConnections.sort(
+        (left, right) =>
+          left.displayName.localeCompare(right.displayName) ||
+          left.producerId.localeCompare(right.producerId),
+      ),
+      index: undefined,
+    });
+  }
+  return sortedGroups;
+}
 
 export async function loadInitialDesktopState(
   desktop: DesktopApi,
@@ -240,6 +331,10 @@ export function OutputsView({
       },
     });
   const unavailable = state.outputs.status.state !== "listening";
+  const outputGroups = groupOutputsByTrack(
+    state.outputs.connections,
+    state.snapshot,
+  );
   return (
     <section className="outputs-view" aria-labelledby="outputs-heading">
       <div className="panel-heading">
@@ -277,37 +372,64 @@ export function OutputsView({
           detail="Open a compatible MIDI or audio producer in Ableton Live."
         />
       ) : (
-        <div className="output-grid">
-          {state.outputs.connections.map((connection) => {
-            const assignment = state.outputs.assignments.find(
-              (item) => item.producerId === connection.producerId,
-            );
-            const latest = state.outputs.latest
-              .filter((item) => item.producerId === connection.producerId)
-              .sort((left, right) => right.sequence - left.sequence)[0];
-            return (
-              <OutputConnectionCard
-                key={connection.producerId}
-                connection={connection}
-                assignment={assignment}
-                latest={latest}
-                unavailable={unavailable}
-                hasActiveSession={state.outputs.activeSessionId !== undefined}
-                expanded={
-                  !state.collapsedOutputProducerIds.includes(
-                    connection.producerId,
-                  )
-                }
-                onToggleDisclosure={() =>
-                  dispatch({
-                    type: "toggle-output-disclosure",
-                    producerId: connection.producerId,
-                  })
-                }
-                onError={report}
-              />
-            );
-          })}
+        <div className="output-track-groups">
+          {outputGroups.map((group) => (
+            <section
+              key={group.id}
+              className="output-track-group"
+              aria-labelledby={`output-track-${group.id}`}
+              style={
+                {
+                  "--output-track-color": group.color,
+                } as CSSProperties
+              }
+            >
+              <header className="output-track-heading">
+                <span className="output-track-swatch" aria-hidden="true" />
+                <div>
+                  <h3 id={`output-track-${group.id}`}>{group.label}</h3>
+                  <span>
+                    {group.connections.length}{" "}
+                    {group.connections.length === 1 ? "output" : "outputs"}
+                  </span>
+                </div>
+              </header>
+              <div className="output-grid">
+                {group.connections.map((connection) => {
+                  const assignment = state.outputs.assignments.find(
+                    (item) => item.producerId === connection.producerId,
+                  );
+                  const latest = state.outputs.latest
+                    .filter((item) => item.producerId === connection.producerId)
+                    .sort((left, right) => right.sequence - left.sequence)[0];
+                  return (
+                    <OutputConnectionCard
+                      key={connection.producerId}
+                      connection={connection}
+                      assignment={assignment}
+                      latest={latest}
+                      unavailable={unavailable}
+                      hasActiveSession={
+                        state.outputs.activeSessionId !== undefined
+                      }
+                      expanded={
+                        !state.collapsedOutputProducerIds.includes(
+                          connection.producerId,
+                        )
+                      }
+                      onToggleDisclosure={() =>
+                        dispatch({
+                          type: "toggle-output-disclosure",
+                          producerId: connection.producerId,
+                        })
+                      }
+                      onError={report}
+                    />
+                  );
+                })}
+              </div>
+            </section>
+          ))}
         </div>
       )}
     </section>

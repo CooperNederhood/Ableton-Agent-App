@@ -6,6 +6,7 @@ import {
   Arrangement,
   Composer,
   DiagnosticsView,
+  groupOutputsByTrack,
   Inspector,
   loadInitialDesktopState,
   OperationCard,
@@ -228,6 +229,25 @@ describe("desktop components", () => {
   it("renders output state and accessible routing controls", () => {
     const state = {
       ...initialState,
+      snapshot: {
+        id: "project-1",
+        name: "Test Set",
+        tempo: 120,
+        timeSignature: "4/4",
+        tracks: [
+          {
+            id: "track-keys",
+            name: "Keys",
+            kind: "midi" as const,
+            color: "#79c2ff",
+            volume: 0.8,
+            pan: 0,
+            muted: false,
+            clips: [],
+            devices: [],
+          },
+        ],
+      },
       outputs: {
         status: {
           state: "listening" as const,
@@ -245,7 +265,7 @@ describe("desktop components", () => {
             state: "connected" as const,
             receiving: true,
             lastHeartbeatAt: 1,
-            track: { name: "Keys" },
+            track: { index: 0, name: "Keys" },
           },
         ],
         assignments: [
@@ -276,9 +296,158 @@ describe("desktop components", () => {
     expect(html).toContain("Delivery mode");
     expect(html).toContain("Save instruction");
     expect(html).toContain("No notes in this window.");
+    expect(html).toContain("Keys");
+    expect(html).toContain("1 output");
+    expect(html).toContain("--output-track-color:#79c2ff");
     expect(html).toContain('role="switch"');
     expect(html).toContain('aria-expanded="true"');
     expect(html).toContain("Collapse");
+  });
+
+  it("groups outputs by regular Live track order with guarded color matching", () => {
+    const snapshot = {
+      id: "project-1",
+      name: "Test Set",
+      tempo: 120,
+      timeSignature: "4/4",
+      tracks: [
+        {
+          id: "track-return",
+          name: "Return A",
+          kind: "return" as const,
+          color: "#ffffff",
+          volume: 0.8,
+          pan: 0,
+          muted: false,
+          clips: [],
+          devices: [],
+        },
+        {
+          id: "track-drums",
+          name: "Drums",
+          kind: "midi" as const,
+          color: "#ff8a80",
+          volume: 0.8,
+          pan: 0,
+          muted: false,
+          clips: [],
+          devices: [],
+        },
+        {
+          id: "track-bass",
+          name: "Bass",
+          kind: "audio" as const,
+          color: "#80cbc4",
+          volume: 0.8,
+          pan: 0,
+          muted: false,
+          clips: [],
+          devices: [],
+        },
+      ],
+    };
+    const connections = [
+      {
+        connectionId: "connection-bass",
+        producerId: "producer-bass",
+        instanceId: "instance-bass",
+        displayName: "Bass Envelope",
+        signalKind: "audio" as const,
+        state: "connected" as const,
+        receiving: false,
+        lastHeartbeatAt: 1,
+        track: { index: 1, name: "Bass" },
+      },
+      {
+        connectionId: "connection-drums-b",
+        producerId: "producer-drums-b",
+        instanceId: "instance-drums-b",
+        displayName: "Drum Notes",
+        signalKind: "midi" as const,
+        state: "connected" as const,
+        receiving: false,
+        lastHeartbeatAt: 1,
+        track: { index: 0, name: "Drums" },
+      },
+      {
+        connectionId: "connection-drums-a",
+        producerId: "producer-drums-a",
+        instanceId: "instance-drums-a",
+        displayName: "Drum Activity",
+        signalKind: "midi" as const,
+        state: "connected" as const,
+        receiving: false,
+        lastHeartbeatAt: 1,
+        track: { index: 0, name: "Drums" },
+      },
+    ];
+
+    const groups = groupOutputsByTrack(connections, snapshot);
+
+    expect(groups.map((group) => [group.label, group.color])).toEqual([
+      ["Drums", "#ff8a80"],
+      ["Bass", "#80cbc4"],
+    ]);
+    expect(
+      groups[0]?.connections.map((connection) => connection.displayName),
+    ).toEqual(["Drum Activity", "Drum Notes"]);
+  });
+
+  it("uses unique names as a stale-index fallback and leaves ambiguity ungrouped", () => {
+    const track = (id: string, name: string, color: string) => ({
+      id,
+      name,
+      kind: "midi" as const,
+      color,
+      volume: 0.8,
+      pan: 0,
+      muted: false,
+      clips: [],
+      devices: [],
+    });
+    const snapshot = {
+      id: "project-1",
+      name: "Test Set",
+      tempo: 120,
+      timeSignature: "4/4",
+      tracks: [
+        track("track-keys", "Keys", "#79c2ff"),
+        track("track-pad-a", "Pad", "#ffcc80"),
+        track("track-pad-b", "Pad", "#ce93d8"),
+      ],
+    };
+    const connection = (producerId: string, name: string, index: number) => ({
+      connectionId: `connection-${producerId}`,
+      producerId,
+      instanceId: `instance-${producerId}`,
+      displayName: producerId,
+      signalKind: "midi" as const,
+      state: "connected" as const,
+      receiving: false,
+      lastHeartbeatAt: 1,
+      track: { index, name },
+    });
+
+    const groups = groupOutputsByTrack(
+      [
+        connection("keys", "Keys", 2),
+        connection("ambiguous", "Pad", 0),
+        {
+          ...connection("missing", "Missing", 0),
+          track: undefined,
+        },
+      ],
+      snapshot,
+    );
+
+    expect(groups.map((group) => [group.label, group.color])).toEqual([
+      ["Keys", "#79c2ff"],
+      ["Unknown / ungrouped", "#8a8f98"],
+    ]);
+    expect(groups[1]?.connections.map((item) => item.producerId)).toEqual([
+      "ambiguous",
+      "missing",
+    ]);
   });
 
   it("disables unassigned quick toggles without an active conversation", () => {

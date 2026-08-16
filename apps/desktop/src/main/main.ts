@@ -4,25 +4,36 @@ import { fileURLToPath } from "node:url";
 import {
   app,
   BrowserWindow,
+  clipboard,
+  dialog,
   ipcMain,
   safeStorage,
   shell,
   type WebContents,
 } from "electron";
 
+import type { DesktopPreferences } from "../contracts.js";
 import {
   createDesktopComposition,
   type DesktopComposition,
 } from "./composition.js";
+import { createDesktopDiagnosticsActions } from "./diagnostics-actions.js";
 import { forwardEvent, registerIpc } from "./ipc.js";
-import { DesktopFileLogger } from "./logger.js";
+import { DesktopFileLogger, parseLogLevel } from "./logger.js";
 import {
   parseDeepLink,
   startDesktopLifecycle,
   stopDesktopLifecycle,
 } from "./lifecycle.js";
 import { OsCredentialVault } from "./secure-store.js";
-import { createWindowOptions } from "./window-options.js";
+import {
+  signalDescriptorPath,
+  writeSignalSecret,
+} from "./signal-credentials.js";
+import {
+  createWindowOptions,
+  shouldOpenDevelopmentTools,
+} from "./window-options.js";
 
 const currentDirectory = fileURLToPath(new URL(".", import.meta.url));
 let mainWindow: BrowserWindow | undefined;
@@ -31,13 +42,21 @@ let rendererRestartAttempts = 0;
 const maximumRendererRestarts = 3;
 const pendingDeepLinks: string[] = [];
 let lifecycleStarted = false;
+let removeSignalSecret: (() => Promise<void>) | undefined;
 
-const logger = new DesktopFileLogger(
-  join(
-    app.getPath("logs"),
-    app.isPackaged ? "desktop.log" : "desktop-development.log",
-  ),
+const logPath = join(
+  app.getPath("logs"),
+  app.isPackaged ? "desktop.log" : "desktop-development.log",
 );
+const environmentLoggingLevel = parseLogLevel(
+  process.env.ABLETON_AGENT_LOG_LEVEL,
+);
+const logger = new DesktopFileLogger(
+  logPath,
+  environmentLoggingLevel ?? "info",
+);
+let activeLoggingLevel: DesktopPreferences["loggingLevel"] =
+  environmentLoggingLevel ?? "info";
 // Constructed here so any application-managed credential remains outside
 // preferences and encrypted through Electron's OS-backed safeStorage.
 export const credentialVault = new OsCredentialVault(
@@ -91,10 +110,12 @@ async function resumeDeepLink(argv: readonly string[]): Promise<void> {
 }
 
 async function createWindow(): Promise<void> {
+  const development =
+    !app.isPackaged && process.env.VITE_DEV_SERVER_URL !== undefined;
   const window = new BrowserWindow(
     createWindowOptions(
       join(currentDirectory, "../preload/index.cjs"),
-      !app.isPackaged,
+      development,
     ),
   );
   mainWindow = window;
@@ -167,6 +188,14 @@ async function createWindow(): Promise<void> {
   } else {
     await window.loadFile(join(currentDirectory, "../renderer/index.html"));
   }
+  if (
+    shouldOpenDevelopmentTools(
+      development,
+      process.env.ABLETON_AGENT_OPEN_DEVTOOLS,
+    )
+  ) {
+    window.webContents.openDevTools({ mode: "detach" });
+  }
 }
 
 app.on("open-url", (event, url) => {
@@ -184,12 +213,24 @@ async function bootstrap(): Promise<void> {
   await logger.prune();
   await app.whenReady();
   app.setAsDefaultProtocolClient("ableton-agent");
-  await logger.write("info", "Desktop startup", { packaged: app.isPackaged });
+  if (!app.isPackaged)
+    console.info(`Desktop development log (${activeLoggingLevel}): ${logPath}`);
+  await logger.write("info", "Desktop startup", {
+    packaged: app.isPackaged,
+    loggingLevel: activeLoggingLevel,
+    environmentOverride: environmentLoggingLevel !== undefined,
+  });
+  const storedToken = await readStoredToken();
+  const signalSecret = storedToken ?? process.env.ABLETON_AGENT_TOKEN;
+  if (signalSecret !== undefined) {
+    removeSignalSecret = await writeSignalSecret(signalSecret);
+  }
   composition = await createDesktopComposition({
     preferencesPath: join(app.getPath("userData"), "preferences.json"),
     sessionsPath: join(app.getPath("userData"), "sessions.json"),
     agentBaseDirectory: join(app.getPath("userData"), "copilot"),
-    storedToken: await readStoredToken(),
+    signalDescriptorPath,
+    storedToken,
     environment: process.env,
     logger: {
       debug: (message, context) => void logger.write("debug", message, context),
@@ -198,14 +239,51 @@ async function bootstrap(): Promise<void> {
       error: (message, context) => void logger.write("error", message, context),
     },
     onError: (message, context) => void logger.write("error", message, context),
+    onLoggingLevelChange: (level) => {
+      activeLoggingLevel = environmentLoggingLevel ?? level;
+      logger.setLevel(activeLoggingLevel);
+    },
+  });
+  activeLoggingLevel =
+    environmentLoggingLevel ?? composition.preferences.loggingLevel;
+  logger.setLevel(activeLoggingLevel);
+  const diagnostics = createDesktopDiagnosticsActions({
+    logPath,
+    getLoggingLevel: () => activeLoggingLevel,
+    environmentOverride: environmentLoggingLevel !== undefined,
+    appVersion: app.getVersion(),
+    platform: process.platform,
+    chooseExportPath: async () => {
+      const options = {
+        title: "Export support bundle",
+        defaultPath: `ableton-agent-support-${new Date()
+          .toISOString()
+          .slice(0, 10)}.json`,
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      };
+      const result =
+        mainWindow === undefined
+          ? await dialog.showSaveDialog(options)
+          : await dialog.showSaveDialog(mainWindow, options);
+      return result.canceled ? undefined : result.filePath;
+    },
+    revealItem: (path) => shell.showItemInFolder(path),
+    writeClipboard: (text) => clipboard.writeText(text),
   });
   const unregisterIpc = registerIpc(
     ipcMain,
     composition.service,
+    diagnostics,
     (event) =>
       mainWindow !== undefined &&
       event.sender.id === mainWindow.webContents.id &&
       event.senderFrame === event.sender.mainFrame,
+    {
+      debug: (message, context) => void logger.write("debug", message, context),
+      info: (message, context) => void logger.write("info", message, context),
+      warn: (message, context) => void logger.write("warn", message, context),
+      error: (message, context) => void logger.write("error", message, context),
+    },
   );
   app.on("activate", () => {
     if (!mainWindow) void createWindow();
@@ -219,7 +297,12 @@ async function bootstrap(): Promise<void> {
     shuttingDown = true;
     void stopDesktopLifecycle({
       stopServices: () => requireService().stop(),
-    }).finally(() => {
+    }).finally(async () => {
+      await removeSignalSecret?.().catch((error: unknown) =>
+        logger.write("warn", "Signal ingress secret could not be removed", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
       void logger.write("info", "Desktop shutdown");
       unregisterIpc();
       app.exit(0);
@@ -249,6 +332,7 @@ async function bootstrap(): Promise<void> {
 }
 
 void bootstrap().catch(async (error: unknown) => {
+  await removeSignalSecret?.().catch(() => undefined);
   await logger.write("error", "Desktop bootstrap failed", {
     error: error instanceof Error ? error.message : String(error),
   });

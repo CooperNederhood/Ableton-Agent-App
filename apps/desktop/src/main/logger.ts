@@ -9,55 +9,153 @@ import {
 } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
-const sensitiveKey =
-  /token|secret|credential|authorization|prompt|content|notes?|track|device|file|path/iu;
-const bearerToken = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/giu;
-const longSecret = /\b[A-Fa-f0-9]{32,}\b/gu;
+export type LogLevel = "error" | "warn" | "info" | "debug";
+const logLevels = new Set<LogLevel>(["error", "warn", "info", "debug"]);
 
-export function redactDiagnosticValue(value: unknown, key = ""): unknown {
-  if (sensitiveKey.test(key)) return "[REDACTED]";
+const logLevelPriority: Readonly<Record<LogLevel, number>> = {
+  error: 0,
+  warn: 1,
+  info: 2,
+  debug: 3,
+};
+const bearerToken = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/giu;
+const maximumStringLength = 8_192;
+const maximumArrayLength = 100;
+const maximumObjectEntries = 100;
+const maximumDepth = 12;
+const truncated = "[TRUNCATED]";
+const omittedBinary = "[OMITTED BINARY DATA]";
+
+function isCredentialKey(key: string): boolean {
+  const normalized = key.replaceAll(/[^a-z0-9]/giu, "").toLowerCase();
+  return [
+    "token",
+    "secret",
+    "credential",
+    "credentials",
+    "authorization",
+    "password",
+    "passphrase",
+    "apikey",
+    "privatekey",
+  ].some((suffix) => normalized.endsWith(suffix));
+}
+
+function reportLoggingFailure(error: unknown): void {
+  try {
+    process.stderr.write(
+      `[desktop-logger] Failed to write log: ${
+        error instanceof Error ? error.message : String(error)
+      }\n`,
+    );
+  } catch {
+    // Logging failures must not re-enter the logger or crash the process.
+  }
+}
+
+function sanitizeDiagnosticValue(
+  value: unknown,
+  key: string,
+  depth: number,
+  ancestors: WeakSet<object>,
+): unknown {
+  if (isCredentialKey(key)) return "[REDACTED]";
   if (typeof value === "string") {
-    return value
-      .replace(bearerToken, "Bearer [REDACTED]")
-      .replace(longSecret, "[REDACTED]");
+    const redacted = value.replace(bearerToken, "******");
+    return redacted.length <= maximumStringLength
+      ? redacted
+      : `${redacted.slice(0, maximumStringLength)}${truncated}`;
+  }
+  if (
+    Buffer.isBuffer(value) ||
+    value instanceof ArrayBuffer ||
+    ArrayBuffer.isView(value)
+  ) {
+    return omittedBinary;
+  }
+  if (depth >= maximumDepth && value !== null && typeof value === "object") {
+    return truncated;
   }
   if (Array.isArray(value)) {
-    return value.map((item) => redactDiagnosticValue(item));
+    const values = value
+      .slice(0, maximumArrayLength)
+      .map((item) => sanitizeDiagnosticValue(item, "", depth + 1, ancestors));
+    if (value.length > maximumArrayLength) values.push(truncated);
+    return values;
   }
   if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([childKey, child]) => [
-        childKey,
-        redactDiagnosticValue(child, childKey),
-      ]),
+    if (ancestors.has(value)) return "[CIRCULAR]";
+    ancestors.add(value);
+    const entries = Object.entries(value);
+    const sanitized = Object.fromEntries(
+      entries
+        .slice(0, maximumObjectEntries)
+        .map(([childKey, child]) => [
+          childKey,
+          sanitizeDiagnosticValue(child, childKey, depth + 1, ancestors),
+        ]),
     );
+    if (entries.length > maximumObjectEntries) {
+      sanitized.__truncated__ = `${entries.length - maximumObjectEntries} entries`;
+    }
+    ancestors.delete(value);
+    return sanitized;
   }
   return value;
 }
 
+export function redactDiagnosticValue(value: unknown, key = ""): unknown {
+  return sanitizeDiagnosticValue(value, key, 0, new WeakSet());
+}
+
+export function parseLogLevel(value: string | undefined): LogLevel | undefined {
+  return logLevels.has(value as LogLevel) ? (value as LogLevel) : undefined;
+}
+
 export class DesktopFileLogger {
-  public constructor(private readonly path: string) {}
+  private pendingWrite: Promise<void> = Promise.resolve();
+
+  public constructor(
+    private readonly path: string,
+    private level: LogLevel = "info",
+  ) {}
 
   public get filePath(): string {
     return this.path;
   }
 
+  public setLevel(level: LogLevel): void {
+    this.level = level;
+  }
+
   public async write(
-    level: "debug" | "info" | "warn" | "error",
+    level: LogLevel,
     message: string,
     context: Readonly<Record<string, unknown>> = {},
   ): Promise<void> {
-    await mkdir(dirname(this.path), { recursive: true });
-    await appendFile(
-      this.path,
-      `${JSON.stringify({
+    if (logLevelPriority[level] > logLevelPriority[this.level]) return;
+
+    let line: string;
+    try {
+      line = `${JSON.stringify({
         timestamp: new Date().toISOString(),
         level,
         message: redactDiagnosticValue(message),
         context: redactDiagnosticValue(context),
-      })}\n`,
-      { encoding: "utf8", mode: 0o600 },
-    );
+      })}\n`;
+    } catch (error) {
+      reportLoggingFailure(error);
+      return;
+    }
+    this.pendingWrite = this.pendingWrite.then(async () => {
+      try {
+        await mkdir(dirname(this.path), { recursive: true });
+        await appendFile(this.path, line, { encoding: "utf8", mode: 0o600 });
+      } catch (error) {
+        reportLoggingFailure(error);
+      }
+    });
+    await this.pendingWrite;
   }
 
   public async prune(

@@ -82,6 +82,79 @@ export const projectSnapshotSchema = z.object({
 });
 export type DesktopProjectSnapshot = z.infer<typeof projectSnapshotSchema>;
 
+export const outputDeliveryModeSchema = z.enum([
+  "next-prompt",
+  "automatic-analysis",
+  "automatic-action",
+]);
+export type OutputDeliveryMode = z.infer<typeof outputDeliveryModeSchema>;
+
+export const desktopOutputAssignmentSchema = z.object({
+  assignmentId: z.string().min(1),
+  producerId: z.string().min(1),
+  enabled: z.boolean(),
+  deliveryMode: outputDeliveryModeSchema,
+  usageInstruction: z.string().min(1).max(4096),
+  processingPolicyIds: z.array(z.string().min(1)).max(64),
+});
+export type DesktopOutputAssignment = z.infer<
+  typeof desktopOutputAssignmentSchema
+>;
+
+export const desktopOutputConnectionSchema = z.object({
+  connectionId: z.string().min(1),
+  producerId: z.string().min(1),
+  instanceId: z.string().min(1),
+  displayName: z.string().min(1),
+  signalKind: z.enum(["midi", "audio"]),
+  state: z.enum(["connected", "stale", "disconnected"]),
+  receiving: z.boolean(),
+  lastHeartbeatAt: z.number().int().nonnegative(),
+  track: z
+    .object({
+      id: z.string().optional(),
+      index: z.number().int().nonnegative().optional(),
+      name: z.string().optional(),
+    })
+    .optional(),
+  device: z
+    .object({ id: z.string().optional(), name: z.string().optional() })
+    .optional(),
+});
+export type DesktopOutputConnection = z.infer<
+  typeof desktopOutputConnectionSchema
+>;
+
+export const latestAcceptedOutputSchema = z.object({
+  assignmentId: z.string().min(1),
+  producerId: z.string().min(1),
+  sequence: z.number().int().nonnegative(),
+  capturedAt: z.number().int().nonnegative(),
+  summary: z.string().max(2048),
+});
+export type LatestAcceptedOutput = z.infer<typeof latestAcceptedOutputSchema>;
+
+export const signalServiceStatusSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("disabled"), detail: z.string() }),
+  z.object({ state: z.literal("stopped") }),
+  z.object({
+    state: z.literal("listening"),
+    host: z.string(),
+    port: z.number().int().min(1).max(65535),
+  }),
+  z.object({ state: z.literal("error"), detail: z.string() }),
+]);
+export type SignalServiceStatus = z.infer<typeof signalServiceStatusSchema>;
+
+export const desktopOutputsStateSchema = z.object({
+  status: signalServiceStatusSchema,
+  connections: z.array(desktopOutputConnectionSchema),
+  assignments: z.array(desktopOutputAssignmentSchema),
+  latest: z.array(latestAcceptedOutputSchema),
+  activeSessionId: z.string().optional(),
+});
+export type DesktopOutputsState = z.infer<typeof desktopOutputsStateSchema>;
+
 export const planSectionSchema = z.object({
   id: z.string(),
   name: z.string().min(1).max(80),
@@ -124,6 +197,7 @@ export const sessionSchema = z.object({
   projectId: z.string().optional(),
   mode: z.enum(modes).default("explore"),
   productionPlan: z.array(planSectionSchema).default([]),
+  outputAssignments: z.array(desktopOutputAssignmentSchema).default([]),
 });
 export type DesktopSession = z.infer<typeof sessionSchema>;
 
@@ -132,14 +206,37 @@ export const preferencesSchema = z.object({
   /** "auto" keeps whatever model the Copilot runtime selects by default. */
   model: z.string().min(1).default("auto"),
   reasoning: z.enum(["auto", "low", "medium", "high"]).default("auto"),
-  approvalPolicy: z.enum(["always", "risky", "never"]).default("risky"),
+  approvalPolicy: z
+    .enum(["always", "risky", "never", "approve-all"])
+    .default("risky"),
   abletonPort: z.number().int().min(1).max(65535).default(8765),
+  signalPort: z.number().int().min(1).max(65535).default(45832),
   remoteScriptLocation: z.string().default("Auto-detect"),
   loggingLevel: z.enum(["error", "warn", "info", "debug"]).default("info"),
   telemetryEnabled: z.boolean().default(false),
   workflowDensity: z.enum(["compact", "comfortable"]).default("comfortable"),
 });
 export type DesktopPreferences = z.infer<typeof preferencesSchema>;
+
+export const diagnosticCheckSchema = z.object({
+  label: z.string(),
+  status: z.enum(["pass", "warn", "fail"]),
+  detail: z.string(),
+});
+export type DiagnosticCheck = z.infer<typeof diagnosticCheckSchema>;
+
+export const desktopDiagnosticsReportSchema = z.object({
+  checks: z.array(diagnosticCheckSchema),
+  logging: z.object({
+    level: z.enum(["error", "warn", "info", "debug"]),
+    fileName: z.string().min(1),
+    filePath: z.string().min(1),
+    environmentOverride: z.boolean().optional(),
+  }),
+});
+export type DesktopDiagnosticsReport = z.infer<
+  typeof desktopDiagnosticsReportSchema
+>;
 
 export const appEventSchema = z.discriminatedUnion("type", [
   z.object({
@@ -180,6 +277,10 @@ export const appEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("preferences.changed"),
     preferences: preferencesSchema,
+  }),
+  z.object({
+    type: z.literal("outputs.changed"),
+    outputs: desktopOutputsStateSchema,
   }),
   z.object({
     type: z.literal("diagnostic"),
@@ -235,13 +336,22 @@ export const ipcSchemas = {
   },
   "diagnostics:get": {
     request: z.object({}),
-    response: z.array(
-      z.object({
-        label: z.string(),
-        status: z.enum(["pass", "warn", "fail"]),
-        detail: z.string(),
-      }),
-    ),
+    response: desktopDiagnosticsReportSchema,
+  },
+  "diagnostics:reveal-log": {
+    request: z.object({}),
+    response: z.object({ revealed: z.literal(true) }),
+  },
+  "diagnostics:export-support-bundle": {
+    request: z.object({}),
+    response: z.discriminatedUnion("status", [
+      z.object({ status: z.literal("cancelled") }),
+      z.object({ status: z.literal("saved"), filePath: z.string().min(1) }),
+    ]),
+  },
+  "diagnostics:copy-summary": {
+    request: z.object({}),
+    response: z.object({ copied: z.literal(true) }),
   },
   "approvals:resolve": {
     request: z.object({
@@ -270,6 +380,39 @@ export const ipcSchemas = {
   "operation:undo": {
     request: z.object({ id: z.string() }),
     response: z.object({ accepted: z.boolean() }),
+  },
+  "outputs:list": {
+    request: z.object({}),
+    response: desktopOutputsStateSchema,
+  },
+  "outputs:assign": {
+    request: z.object({ producerId: z.string().min(1) }),
+    response: desktopOutputAssignmentSchema,
+  },
+  "outputs:unassign": {
+    request: z.object({ producerId: z.string().min(1) }),
+    response: z.object({ removed: z.boolean() }),
+  },
+  "outputs:set-enabled": {
+    request: z.object({
+      producerId: z.string().min(1),
+      enabled: z.boolean(),
+    }),
+    response: desktopOutputAssignmentSchema,
+  },
+  "outputs:set-delivery-mode": {
+    request: z.object({
+      producerId: z.string().min(1),
+      deliveryMode: outputDeliveryModeSchema,
+    }),
+    response: desktopOutputAssignmentSchema,
+  },
+  "outputs:set-usage-instruction": {
+    request: z.object({
+      producerId: z.string().min(1),
+      usageInstruction: z.string().trim().min(1).max(4096),
+    }),
+    response: desktopOutputAssignmentSchema,
   },
 } as const;
 
@@ -306,9 +449,12 @@ export interface DesktopApi {
     resolve(id: string, decision: ApprovalDecision): Promise<boolean>;
   };
   diagnostics: {
-    get(): Promise<
-      Array<{ label: string; status: "pass" | "warn" | "fail"; detail: string }>
+    get(): Promise<DesktopDiagnosticsReport>;
+    revealLog(): Promise<void>;
+    exportSupportBundle(): Promise<
+      { status: "cancelled" } | { status: "saved"; filePath: string }
     >;
+    copySummary(): Promise<void>;
   };
   preferences: {
     get(): Promise<DesktopPreferences>;
@@ -319,6 +465,23 @@ export interface DesktopApi {
   operations: {
     retry(id: string): Promise<boolean>;
     undo(id: string): Promise<boolean>;
+  };
+  outputs: {
+    list(): Promise<DesktopOutputsState>;
+    assign(producerId: string): Promise<DesktopOutputAssignment>;
+    unassign(producerId: string): Promise<boolean>;
+    setEnabled(
+      producerId: string,
+      enabled: boolean,
+    ): Promise<DesktopOutputAssignment>;
+    setDeliveryMode(
+      producerId: string,
+      deliveryMode: OutputDeliveryMode,
+    ): Promise<DesktopOutputAssignment>;
+    setUsageInstruction(
+      producerId: string,
+      usageInstruction: string,
+    ): Promise<DesktopOutputAssignment>;
   };
   events: { subscribe(handler: (event: DesktopAppEvent) => void): () => void };
 }

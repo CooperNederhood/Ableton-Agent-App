@@ -32,6 +32,9 @@ export default defineConfig({
         "./packages/project-state/src/index.ts",
       ),
       "@ableton-agent/runtime": source("./packages/runtime/src/index.ts"),
+      "@ableton-agent/signal-routing": source(
+        "./packages/signal-routing/src/index.ts",
+      ),
       "@ableton-agent/shared": source("./packages/shared/src/index.ts"),
       "@ableton-agent/test-support": source(
         "./packages/test-support/src/index.ts",

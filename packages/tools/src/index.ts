@@ -453,13 +453,15 @@ export type ToolApprovalRequester = (
   request: ToolApprovalRequest,
 ) => Promise<boolean>;
 
+export type AskForReadApproval = boolean | (() => boolean);
+
 function requiresExplicitTarget(risk: ToolRisk): boolean {
   return risk === "destructive" || risk === "broad";
 }
 
 export function createAbletonPermissionHandler(
   requestApproval?: ToolApprovalRequester,
-  askForReads = false,
+  askForReads: AskForReadApproval = false,
 ): PermissionHandler {
   return async (request, invocation) => {
     if (invocation.managedSettingsEnabled || request.kind !== "custom-tool") {
@@ -471,9 +473,6 @@ export function createAbletonPermissionHandler(
     if (!metadata) {
       return { kind: "reject", feedback: "Unknown Ableton tool" };
     }
-    if (metadata.risk === "read" && !askForReads) {
-      return { kind: "approve-once" };
-    }
     if (
       requiresExplicitTarget(metadata.risk) &&
       Object.keys(request.args ?? {}).length === 0
@@ -483,6 +482,13 @@ export function createAbletonPermissionHandler(
         feedback:
           "Destructive and broad operations require explicit target arguments",
       };
+    }
+    if (metadata.risk === "read") {
+      const shouldAskForReads =
+        typeof askForReads === "function" ? askForReads() : askForReads;
+      if (!shouldAskForReads) {
+        return { kind: "approve-once" };
+      }
     }
     if (!requestApproval) {
       return {

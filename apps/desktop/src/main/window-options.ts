@@ -1,5 +1,12 @@
 import type { BrowserWindowConstructorOptions } from "electron";
 
+export function shouldOpenDevelopmentTools(
+  development: boolean,
+  requested: string | undefined,
+): boolean {
+  return development && requested === "1";
+}
+
 export function createWindowOptions(
   preload: string,
   development: boolean,

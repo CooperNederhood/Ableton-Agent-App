@@ -83,6 +83,7 @@ import type {
   LifecycleState,
   Logger,
 } from "@ableton-agent/shared";
+import { noopLogger } from "@ableton-agent/shared";
 import {
   abletonToolMetadata,
   createAbletonPermissionHandler,
@@ -97,6 +98,12 @@ import {
 } from "@github/copilot-sdk";
 
 import { createAgentPolicy } from "./agent-policy.js";
+import {
+  formatAutomaticSignalPrompt,
+  type SignalContextOptions,
+  type SignalDeliveryService,
+  type SignalTurnRequest,
+} from "./signal-delivery.js";
 
 export {
   compactProjectContext,
@@ -105,8 +112,19 @@ export {
   retryGuidance,
   structuredErrorCode,
 } from "./agent-policy.js";
+export {
+  constructNextPromptSignalContext,
+  DEFAULT_SIGNAL_USAGE_INSTRUCTION,
+  formatAutomaticSignalPrompt,
+  type PendingSignalContext,
+  type SignalContextOptions,
+  type SignalContextProvider,
+  type SignalDeliveryMode,
+  type SignalDeliveryService,
+  type SignalTurnRequest,
+} from "./signal-delivery.js";
 
-export interface AgentService {
+export interface AgentService extends Partial<SignalDeliveryService> {
   /** Identifier of the current agent conversation, when one is open. */
   readonly sessionId: string | undefined;
   start(preferredSessionId?: string): Promise<void>;
@@ -164,6 +182,7 @@ interface CopilotClientAdapter {
 
 export interface CopilotAgentServiceOptions {
   events: EventPublisher;
+  logger?: Logger;
   getAbletonStatus: () => Promise<ConnectionStatus>;
   inspectSession: () => Promise<SessionSnapshot>;
   setTempo: (tempo: number) => Promise<SetTempoResult>;
@@ -256,12 +275,13 @@ export interface CopilotAgentServiceOptions {
     params: SetArrangementClipPropertiesParams,
   ) => Promise<SetArrangementClipPropertiesResult>;
   requestToolApproval?: ToolApprovalRequester;
-  askForReadApproval?: boolean;
+  askForReadApproval?: boolean | (() => boolean);
   clientFactory?: () => CopilotClientAdapter;
   baseDirectory?: string;
   model?: string;
   reasoningEffort?: "low" | "medium" | "high";
   turnTimeoutMs?: number;
+  signalContext?: SignalContextOptions;
 }
 
 export const DEFAULT_AGENT_TURN_TIMEOUT_MS = 180_000;
@@ -298,6 +318,20 @@ export class CopilotAgentService implements AgentService {
   #session: CopilotSessionAdapter | undefined;
   #unsubscribe: (() => void) | undefined;
   #inFlightTurns = 0;
+  #turnQueue: Promise<void> = Promise.resolve();
+  #turnKind: "user" | "automatic-analysis" | "automatic-action" | undefined;
+  #automaticDrainScheduled = false;
+  readonly #pendingAutomatic = new Map<
+    string,
+    {
+      request: SignalTurnRequest;
+      deliveryIds: string[];
+      waiters: Array<{
+        resolve: (response: string) => void;
+        reject: (reason: unknown) => void;
+      }>;
+    }
+  >();
   readonly #operations = new Map<
     string,
     {
@@ -306,8 +340,10 @@ export class CopilotAgentService implements AgentService {
       arguments: Readonly<Record<string, unknown>>;
     }
   >();
+  readonly #logger: Logger;
 
   public constructor(private readonly options: CopilotAgentServiceOptions) {
+    this.#logger = options.logger ?? noopLogger;
     this.#clientFactory =
       options.clientFactory ??
       (() =>
@@ -367,6 +403,11 @@ export class CopilotAgentService implements AgentService {
     const agentPolicy = createAgentPolicy({
       getAbletonStatus: this.options.getAbletonStatus,
       inspectSession: this.options.inspectSession,
+      ...(this.options.signalContext === undefined
+        ? {}
+        : { signalContext: this.options.signalContext }),
+      promptContextEnabled: () => this.#turnKind === "user",
+      mutationBlocked: () => this.#turnKind === "automatic-analysis",
     });
     const permissionHandler = createAbletonPermissionHandler(
       this.options.requestToolApproval,
@@ -419,6 +460,12 @@ export class CopilotAgentService implements AgentService {
           toolName: event.data.toolName,
           arguments: event.data.arguments ?? {},
         });
+        this.#logger.debug("Agent tool started", {
+          sessionId: session.sessionId,
+          operationId: event.data.toolCallId,
+          toolName: event.data.toolName,
+          arguments: event.data.arguments ?? {},
+        });
         this.options.events.publish({
           type: "operation.started",
           operationId: event.data.toolCallId,
@@ -431,6 +478,12 @@ export class CopilotAgentService implements AgentService {
         const label = operation?.label ?? "Tool operation";
         this.#operations.delete(event.data.toolCallId);
         if (event.data.success) {
+          this.#logger.debug("Agent tool completed", {
+            sessionId: session.sessionId,
+            operationId: event.data.toolCallId,
+            toolName: operation?.toolName,
+            result: event.data.result?.content,
+          });
           this.options.events.publish({
             type: "operation.completed",
             operationId: event.data.toolCallId,
@@ -443,6 +496,12 @@ export class CopilotAgentService implements AgentService {
               : { result: event.data.result.content }),
           });
         } else {
+          this.#logger.warn("Agent tool failed", {
+            sessionId: session.sessionId,
+            operationId: event.data.toolCallId,
+            toolName: operation?.toolName,
+            error: event.data.error,
+          });
           this.options.events.publish({
             type: "operation.failed",
             operationId: event.data.toolCallId,
@@ -519,6 +578,10 @@ export class CopilotAgentService implements AgentService {
       this.#client = client;
       this.#session = session;
       this.#observe(session);
+      this.#logger.info("Agent session started", {
+        sessionId: session.sessionId,
+        preferredSessionId,
+      });
     } catch (error) {
       await client.stop();
       throw error;
@@ -532,6 +595,9 @@ export class CopilotAgentService implements AgentService {
     }
     const session = await client.createSession(this.#sessionConfig());
     await this.#replaceSession(session);
+    this.#logger.info("Agent session created", {
+      sessionId: session.sessionId,
+    });
     return session.sessionId;
   }
 
@@ -548,6 +614,7 @@ export class CopilotAgentService implements AgentService {
       this.#sessionConfig(),
     );
     await this.#replaceSession(session);
+    this.#logger.info("Agent session resumed", { sessionId });
   }
 
   public async cancel(): Promise<boolean> {
@@ -587,24 +654,43 @@ export class CopilotAgentService implements AgentService {
     }
   }
 
-  public async send(prompt: string): Promise<string> {
+  async #sendNow(
+    prompt: string,
+    kind: "user" | "automatic-analysis" | "automatic-action",
+  ): Promise<string> {
     const session = this.#session;
     if (!session) {
       throw new Error("Copilot agent service is not started");
     }
     const timeoutMs =
       this.options.turnTimeoutMs ?? DEFAULT_AGENT_TURN_TIMEOUT_MS;
+    const startedAt = Date.now();
+    this.#logger.debug("Agent turn started", {
+      sessionId: session.sessionId,
+      kind,
+      prompt,
+      timeoutMs,
+    });
     this.#inFlightTurns += 1;
+    this.#turnKind = kind;
     let response: CopilotResponse | undefined;
     try {
       response = await session.sendAndWait(prompt, timeoutMs);
     } catch (error) {
+      this.#logger.error("Agent turn failed", {
+        sessionId: session.sessionId,
+        kind,
+        prompt,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
       if (isSessionIdleTimeout(error)) {
         return await this.#abortTimedOutTurn(session, timeoutMs);
       }
       throw error;
     } finally {
       this.#inFlightTurns -= 1;
+      this.#turnKind = undefined;
     }
     if (!response) {
       throw new Error(
@@ -615,7 +701,99 @@ export class CopilotAgentService implements AgentService {
       type: "agent.message_complete",
       content: response.data.content,
     });
+    this.#logger.debug("Agent turn completed", {
+      sessionId: session.sessionId,
+      kind,
+      prompt,
+      response: response.data.content,
+      durationMs: Date.now() - startedAt,
+    });
     return response.data.content;
+  }
+
+  #serialize<T>(run: () => Promise<T>): Promise<T> {
+    const result = this.#turnQueue.then(run, run);
+    this.#turnQueue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
+  public send(prompt: string): Promise<string> {
+    return this.#serialize(() => this.#sendNow(prompt, "user"));
+  }
+
+  public enqueueSignalTurn(request: SignalTurnRequest): Promise<string> {
+    const sessionId = this.#session?.sessionId;
+    if (sessionId === undefined) {
+      return Promise.reject(new Error("Copilot agent service is not started"));
+    }
+    const key = `${sessionId}:${request.context.assignmentId}`;
+    return new Promise<string>((resolve, reject) => {
+      const pending = this.#pendingAutomatic.get(key);
+      if (pending === undefined) {
+        this.#pendingAutomatic.set(key, {
+          request,
+          deliveryIds: [request.deliveryId],
+          waiters: [{ resolve, reject }],
+        });
+      } else {
+        if (request.context.sequence >= pending.request.context.sequence) {
+          pending.request = request;
+        }
+        pending.deliveryIds.push(request.deliveryId);
+        pending.waiters.push({ resolve, reject });
+      }
+      if (!this.#automaticDrainScheduled) {
+        this.#automaticDrainScheduled = true;
+        void this.#serialize(async () => {
+          try {
+            while (this.#pendingAutomatic.size > 0) {
+              const next = this.#pendingAutomatic.entries().next().value as
+                | [
+                    string,
+                    {
+                      request: SignalTurnRequest;
+                      deliveryIds: string[];
+                      waiters: Array<{
+                        resolve: (response: string) => void;
+                        reject: (reason: unknown) => void;
+                      }>;
+                    },
+                  ]
+                | undefined;
+              if (next === undefined) break;
+              const [pendingKey, item] = next;
+              this.#pendingAutomatic.delete(pendingKey);
+              try {
+                if (this.#session?.sessionId !== sessionId) {
+                  throw new Error(
+                    "Signal turn session changed before delivery",
+                  );
+                }
+                const response = await this.#sendNow(
+                  formatAutomaticSignalPrompt(
+                    item.request,
+                    this.options.signalContext,
+                  ),
+                  item.request.context.deliveryMode,
+                );
+                await this.options.signalContext?.provider?.markDelivered(
+                  sessionId,
+                  item.deliveryIds,
+                );
+                for (const waiter of item.waiters) waiter.resolve(response);
+              } catch (error) {
+                for (const waiter of item.waiters) waiter.reject(error);
+              }
+            }
+          } finally {
+            this.#automaticDrainScheduled = false;
+          }
+        });
+      }
+    });
   }
 }
 
@@ -680,6 +858,20 @@ export class HeadlessApplication {
       throw new Error(`Application is not running (${this.#state})`);
     }
     return this.services.agent.send(prompt);
+  }
+
+  public enqueueSignalTurn(request: SignalTurnRequest): Promise<string> {
+    if (this.#state !== "ready" && this.#state !== "degraded") {
+      return Promise.reject(
+        new Error(`Application is not running (${this.#state})`),
+      );
+    }
+    if (this.services.agent.enqueueSignalTurn === undefined) {
+      return Promise.reject(
+        new Error("Configured agent does not support signal delivery"),
+      );
+    }
+    return this.services.agent.enqueueSignalTurn(request);
   }
 
   /**

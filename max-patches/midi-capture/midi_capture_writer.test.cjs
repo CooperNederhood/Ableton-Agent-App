@@ -3,11 +3,14 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { EventEmitter } = require("node:events");
 
 const {
+  JsonlWriter,
   MidiCaptureEngine,
   normalizeOutputPath,
   pitchName,
+  startMaxRuntime,
 } = require("./midi_capture_writer.js");
 
 const parserModule = { exports: {} };
@@ -158,5 +161,61 @@ test("normalizes Max volume-prefixed output paths", () => {
   assert.equal(
     normalizeOutputPath("/Users/cooper/Documents/capture.jsonl"),
     "/Users/cooper/Documents/capture.jsonl",
+  );
+});
+
+test("JSONL writer is optional and exposes readiness without status spam", () => {
+  const statuses = [];
+  const writer = new JsonlWriter((...items) => statuses.push(items));
+  assert.equal(writer.isReady(), false);
+  assert.equal(writer.append({ sample_index: 0 }), false);
+  assert.deepEqual(statuses, []);
+});
+
+test("Max runtime supports live-only capture and independent sink failures", () => {
+  const handlers = new Map();
+  const liveSamples = [];
+  const statuses = [];
+  const signalClient = {
+    start() {},
+    stop() {},
+    sendSample(sample) {
+      liveSamples.push(sample);
+    },
+  };
+  const writer = {
+    isReady: () => false,
+    append: () => assert.fail("unready writer must not be called"),
+    setPath: async () => {},
+  };
+  startMaxRuntime({
+    maxApi: {
+      addHandler: (name, handler) => handlers.set(name, handler),
+      outlet: (message) => statuses.push(message),
+    },
+    lifecycleTarget: new EventEmitter(),
+    signalClient,
+    writer,
+  });
+  handlers.get("configure")(480, 1);
+  handlers.get("capture")(1, 0);
+  handlers.get("transport")(1, 0);
+  handlers.get("boundary")(0);
+  handlers.get("boundary")(480);
+  assert.equal(liveSamples.length, 1);
+
+  writer.isReady = () => true;
+  writer.append = () => {
+    throw new Error("disk unavailable");
+  };
+  handlers.get("boundary")(960);
+  assert.equal(liveSamples.length, 2);
+  assert.ok(
+    statuses.some(
+      (message) =>
+        message[0] === "status" &&
+        message[1] === "error" &&
+        message[2] === "writer_failed disk unavailable",
+    ),
   );
 });

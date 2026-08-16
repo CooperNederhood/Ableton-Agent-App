@@ -38,6 +38,15 @@ describe("desktop IPC contracts", () => {
   });
 
   it("migrates missing version-one preferences through defaults", () => {
-    expect(preferencesSchema.parse({}).abletonPort).toBe(8765);
+    const preferences = preferencesSchema.parse({});
+
+    expect(preferences.abletonPort).toBe(8765);
+    expect(preferences.approvalPolicy).toBe("risky");
+  });
+
+  it("accepts approve-all as an approval policy", () => {
+    expect(
+      preferencesSchema.parse({ approvalPolicy: "approve-all" }).approvalPolicy,
+    ).toBe("approve-all");
   });
 });

@@ -7,9 +7,13 @@ import type {
   ContextChip,
   DesktopAppEvent,
   DesktopConnectionStatus,
+  DiagnosticCheck,
   DesktopLifecycleState,
   DesktopPreferences,
   DesktopProjectSnapshot,
+  DesktopOutputAssignment,
+  DesktopOutputsState,
+  OutputDeliveryMode,
   DesktopSession,
   PlanSection,
   ProductMode,
@@ -32,9 +36,7 @@ export interface DesktopService {
   getStatus(): Promise<DesktopConnectionStatus>;
   getCapabilities(): Promise<string[]>;
   getSnapshot(): Promise<DesktopProjectSnapshot>;
-  getDiagnostics(): Promise<
-    Array<{ label: string; status: "pass" | "warn" | "fail"; detail: string }>
-  >;
+  getDiagnostics(): Promise<DiagnosticCheck[]>;
   resolveApproval(id: string, decision: ApprovalDecision): Promise<boolean>;
   getPreferences(): Promise<DesktopPreferences>;
   setPreferences(value: DesktopPreferences): Promise<DesktopPreferences>;
@@ -42,6 +44,21 @@ export interface DesktopService {
   updatePlan(sections: PlanSection[]): Promise<void>;
   retryOperation(id: string): Promise<boolean>;
   undoOperation(id: string): Promise<boolean>;
+  listOutputs(): Promise<DesktopOutputsState>;
+  assignOutput(producerId: string): Promise<DesktopOutputAssignment>;
+  unassignOutput(producerId: string): Promise<boolean>;
+  setOutputEnabled(
+    producerId: string,
+    enabled: boolean,
+  ): Promise<DesktopOutputAssignment>;
+  setOutputDeliveryMode(
+    producerId: string,
+    deliveryMode: OutputDeliveryMode,
+  ): Promise<DesktopOutputAssignment>;
+  setOutputUsageInstruction(
+    producerId: string,
+    usageInstruction: string,
+  ): Promise<DesktopOutputAssignment>;
   subscribe(listener: (event: DesktopAppEvent) => void): () => void;
   getLifecycleState(): Promise<DesktopLifecycleState>;
 }

@@ -3,6 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createFakeApplication } from "@ableton-agent/test-support";
+import type { SignalRuntime, SignalRuntimeEvent } from "@ableton-agent/runtime";
+import type {
+  OutputAssignment,
+  OutputConnection,
+} from "@ableton-agent/signal-routing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { preferencesSchema, type DesktopAppEvent } from "../contracts.js";
@@ -12,6 +17,63 @@ import { HeadlessDesktopService } from "./headless-desktop-service.js";
 
 const temporaryDirectories: string[] = [];
 
+class FakeSignalRuntime implements SignalRuntime {
+  readonly provider = {
+    getPendingContexts: () => Promise.resolve([]),
+    markDelivered: () => Promise.resolve(),
+  };
+  readonly assignments = new Map<string, OutputAssignment>();
+  readonly connections: OutputConnection[] = [
+    {
+      connectionId: "connection-1",
+      producer: {
+        producerId: "producer-1",
+        instanceId: "instance-1",
+        displayName: "MIDI Capture",
+        signalKind: "midi",
+        schemaVersion: "midi-sample/v1",
+      },
+      status: "connected",
+      connectedAt: 1,
+      lastHeartbeatAt: 1,
+    },
+  ];
+  activeSessionId: string | undefined;
+  constructor(readonly lifecycle: string[] = []) {}
+  getStatus() {
+    return { state: "listening" as const, host: "127.0.0.1", port: 45832 };
+  }
+  start() {
+    this.lifecycle.push("signals:start");
+    return Promise.resolve();
+  }
+  stop() {
+    this.lifecycle.push("signals:stop");
+    return Promise.resolve();
+  }
+  setActiveSession(sessionId: string | undefined) {
+    this.activeSessionId = sessionId;
+  }
+  setDeliveryService() {}
+  listConnections() {
+    return this.connections;
+  }
+  listAssignments() {
+    return [...this.assignments.values()];
+  }
+  upsertAssignment(assignment: OutputAssignment) {
+    this.assignments.set(assignment.assignmentId, assignment);
+    return assignment;
+  }
+  removeAssignment(assignmentId: string) {
+    return this.assignments.delete(assignmentId);
+  }
+  subscribe(listener: (event: SignalRuntimeEvent) => void) {
+    void listener;
+    return () => undefined;
+  }
+}
+
 async function temporaryDirectory(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "ableton-desktop-test-"));
   temporaryDirectories.push(directory);
@@ -20,6 +82,11 @@ async function temporaryDirectory(): Promise<string> {
 
 async function harness(
   options: Parameters<typeof createFakeApplication>[0] = {},
+  serviceOptions: {
+    onApprovalPolicyChange?: (
+      policy: ReturnType<typeof preferencesSchema.parse>["approvalPolicy"],
+    ) => void;
+  } = {},
 ) {
   const directory = await temporaryDirectory();
   const preferencesStore = new JsonPreferencesStore(
@@ -33,6 +100,7 @@ async function harness(
     approvals,
     preferencesStore,
     sessionStore,
+    ...serviceOptions,
   });
   const events: DesktopAppEvent[] = [];
   service.subscribe((event) => events.push(event));
@@ -49,6 +117,16 @@ async function harness(
 
 async function settle(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 afterEach(async () => {
@@ -281,6 +359,85 @@ describe("desktop adapter over the shared application", () => {
     await restarted.service.stop();
   });
 
+  it("persists output assignments and rebinds them to the selected session", async () => {
+    const directory = await temporaryDirectory();
+    const preferencesStore = new JsonPreferencesStore(
+      join(directory, "preferences.json"),
+    );
+    const sessionStore = new JsonSessionStore(join(directory, "sessions.json"));
+    const fake = createFakeApplication();
+    const signals = new FakeSignalRuntime();
+    const service = new HeadlessDesktopService({
+      application: fake.application,
+      approvals: new ApprovalCoordinator(),
+      preferencesStore,
+      sessionStore,
+      signals,
+    });
+    await service.start();
+    const firstSession = fake.agent.sessionId!;
+    const assignment = await service.assignOutput("producer-1");
+    expect(assignment).toMatchObject({
+      enabled: true,
+      deliveryMode: "next-prompt",
+      processingPolicyIds: ["latest-window"],
+    });
+    expect(signals.assignments.get(assignment.assignmentId)?.consumer).toEqual({
+      kind: "agent-session",
+      id: firstSession,
+    });
+
+    const secondSession = await service.createSession();
+    expect(signals.activeSessionId).toBe(secondSession);
+    expect(signals.assignments.size).toBe(0);
+    await service.resumeSession(firstSession);
+    expect(signals.assignments.get(assignment.assignmentId)?.consumer).toEqual({
+      kind: "agent-session",
+      id: firstSession,
+    });
+    expect(
+      (await sessionStore.load()).find(({ id }) => id === firstSession)
+        ?.outputAssignments,
+    ).toContainEqual(assignment);
+    await service.stop();
+    expect(signals.lifecycle).toEqual(["signals:start", "signals:stop"]);
+  });
+
+  it("starts ingress before the application and stops it first", async () => {
+    const directory = await temporaryDirectory();
+    const lifecycle: string[] = [];
+    const fake = createFakeApplication();
+    const originalStart = fake.application.start.bind(fake.application);
+    const originalStop = fake.application.stop.bind(fake.application);
+    fake.application.start = async (options) => {
+      lifecycle.push("application:start");
+      await originalStart(options);
+    };
+    fake.application.stop = async () => {
+      lifecycle.push("application:stop");
+      await originalStop();
+    };
+    const service = new HeadlessDesktopService({
+      application: fake.application,
+      approvals: new ApprovalCoordinator(),
+      preferencesStore: new JsonPreferencesStore(
+        join(directory, "preferences.json"),
+      ),
+      sessionStore: new JsonSessionStore(join(directory, "sessions.json")),
+      signals: new FakeSignalRuntime(lifecycle),
+    });
+
+    await service.start();
+    await service.stop();
+
+    expect(lifecycle).toEqual([
+      "signals:start",
+      "application:start",
+      "signals:stop",
+      "application:stop",
+    ]);
+  });
+
   it("rejects sends while a session transition is in progress", async () => {
     const { service, agent } = await harness();
     await service.start();
@@ -463,6 +620,267 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
+  it("publishes the core snapshot before device reads finish", async () => {
+    const { service, application, events } = await harness();
+    await service.start();
+    events.length = 0;
+
+    const deviceRead = deferred<void>();
+    const order: string[] = [];
+    const originalInspectDevices = application.inspectDevices.bind(application);
+    vi.spyOn(application, "inspectDevices").mockImplementation(
+      async (params) => {
+        order.push("device-read");
+        await deviceRead.promise;
+        return originalInspectDevices(params);
+      },
+    );
+    const unsubscribe = service.subscribe((event) => {
+      if (event.type !== "project.snapshot_changed") return;
+      order.push(
+        event.snapshot.tracks[0]?.devices.length === 0 ? "core" : "enriched",
+      );
+    });
+
+    let completed = false;
+    const refresh = service.getSnapshot().then((snapshot) => {
+      completed = true;
+      return snapshot;
+    });
+    await vi.waitFor(() => expect(order).toEqual(["core", "device-read"]));
+
+    expect(completed).toBe(false);
+    expect(
+      events.filter((event) => event.type === "project.snapshot_changed"),
+    ).toHaveLength(1);
+
+    deviceRead.resolve(undefined);
+    const finalSnapshot = await refresh;
+
+    expect(finalSnapshot.tracks[0]?.devices).toHaveLength(1);
+    expect(order).toEqual(["core", "device-read", "enriched"]);
+    unsubscribe();
+    await service.stop();
+  });
+
+  it("keeps partial snapshots when one track device inspection fails", async () => {
+    const { service, application, ableton, events } = await harness();
+    await service.start();
+
+    const bass = ableton.state.snapshot.tracks[0]!;
+    const bassDevice =
+      ableton.state.devicesByTrackReference[bass.reference]![0]!;
+    const drumsReference = "55555555-5555-4555-8555-555555555555";
+    const drumsDeviceReference = "66666666-6666-4666-8666-666666666666";
+    const drumsParameterReference = "77777777-7777-4777-8777-777777777777";
+    ableton.state.snapshot = {
+      ...ableton.state.snapshot,
+      trackCount: 2,
+      tracks: [
+        bass,
+        {
+          ...bass,
+          index: 1,
+          reference: drumsReference,
+          name: "Drums",
+        },
+      ],
+    };
+    ableton.state.devicesByTrackReference = {
+      ...ableton.state.devicesByTrackReference,
+      [drumsReference]: [
+        {
+          summary: {
+            ...bassDevice.summary,
+            reference: drumsDeviceReference,
+            trackReference: drumsReference,
+            trackIndex: 1,
+            name: "Drum Rack",
+          },
+          parameters: [
+            {
+              ...bassDevice.parameters[0]!,
+              reference: drumsParameterReference,
+              deviceReference: drumsDeviceReference,
+              name: "Chain volume",
+            },
+          ],
+        },
+      ],
+    };
+
+    const originalInspectDevices = application.inspectDevices.bind(application);
+    vi.spyOn(application, "inspectDevices").mockImplementation(
+      async (params) => {
+        if (params.expectedReference === bass.reference) {
+          throw new Error(`device read exploded ${"x".repeat(2_000)}`);
+        }
+        return originalInspectDevices(params);
+      },
+    );
+    events.length = 0;
+
+    const snapshot = await service.getSnapshot();
+
+    expect(snapshot.tracks[0]?.devices).toEqual([]);
+    expect(snapshot.tracks[1]?.devices).toEqual([
+      expect.objectContaining({
+        name: "Drum Rack",
+        parameters: [expect.objectContaining({ name: "Chain volume" })],
+      }),
+    ]);
+    const published = events.filter(
+      (event) => event.type === "project.snapshot_changed",
+    );
+    expect(published).toHaveLength(2);
+    expect(
+      published[0]?.snapshot.tracks.every(
+        (track) => track.devices.length === 0,
+      ),
+    ).toBe(true);
+    expect(published[1]?.snapshot).toEqual(snapshot);
+
+    const warnings = events.flatMap((event) =>
+      event.type === "diagnostic" &&
+      event.level === "warning" &&
+      event.message.startsWith("Could not inspect devices")
+        ? [event.message]
+        : [],
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("track Bass");
+    expect(warnings[0]).toContain("device read exploded");
+    expect(warnings[0]?.length).toBeLessThanOrEqual(512);
+    await service.stop();
+  });
+
+  it("retains devices with empty parameters when one parameter read fails", async () => {
+    const { service, application, ableton, events } = await harness();
+    await service.start();
+
+    const track = ableton.state.snapshot.tracks[0]!;
+    const firstDevice =
+      ableton.state.devicesByTrackReference[track.reference]![0]!;
+    const secondDeviceReference = "88888888-8888-4888-8888-888888888888";
+    const secondParameterReference = "99999999-9999-4999-8999-999999999999";
+    ableton.state.devicesByTrackReference = {
+      ...ableton.state.devicesByTrackReference,
+      [track.reference]: [
+        firstDevice,
+        {
+          summary: {
+            ...firstDevice.summary,
+            reference: secondDeviceReference,
+            index: 1,
+            name: "Compressor",
+            className: "Compressor2",
+            classDisplayName: "Compressor",
+          },
+          parameters: [
+            {
+              ...firstDevice.parameters[0]!,
+              reference: secondParameterReference,
+              deviceReference: secondDeviceReference,
+              name: "Threshold",
+            },
+          ],
+        },
+      ],
+    };
+
+    const originalInspectParameters =
+      application.inspectDeviceParameters.bind(application);
+    vi.spyOn(application, "inspectDeviceParameters").mockImplementation(
+      async (params) => {
+        if (params.expectedDeviceReference === firstDevice.summary.reference) {
+          throw new Error("parameter read exploded");
+        }
+        return originalInspectParameters(params);
+      },
+    );
+    events.length = 0;
+
+    const snapshot = await service.getSnapshot();
+
+    expect(snapshot.tracks[0]?.devices).toEqual([
+      expect.objectContaining({ name: "Wavetable", parameters: [] }),
+      expect.objectContaining({
+        name: "Compressor",
+        parameters: [expect.objectContaining({ name: "Threshold" })],
+      }),
+    ]);
+    const warnings = events.flatMap((event) =>
+      event.type === "diagnostic" &&
+      event.level === "warning" &&
+      event.message.startsWith("Could not inspect parameters")
+        ? [event.message]
+        : [],
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("device Wavetable");
+    expect(warnings[0]).toContain("track Bass");
+    expect(warnings[0]).toContain("parameter read exploded");
+    await service.stop();
+  });
+
+  it("still rejects snapshot refreshes when core inspection fails", async () => {
+    const { service, application, events } = await harness();
+    await service.start();
+    events.length = 0;
+    vi.spyOn(application, "inspectSession").mockRejectedValueOnce(
+      new Error("core inspection exploded"),
+    );
+    const inspectDevices = vi.spyOn(application, "inspectDevices");
+
+    await expect(service.getSnapshot()).rejects.toThrow(
+      "core inspection exploded",
+    );
+    expect(inspectDevices).not.toHaveBeenCalled();
+    expect(
+      events.some((event) => event.type === "project.snapshot_changed"),
+    ).toBe(false);
+    await service.stop();
+  });
+
+  it("coalesces concurrent snapshot refreshes into one Live read", async () => {
+    const { service, application } = await harness();
+    await service.start();
+
+    const deviceRead = deferred<void>();
+    const originalInspectDevices = application.inspectDevices.bind(application);
+    const inspectSession = vi.spyOn(application, "inspectSession");
+    const inspectDevices = vi
+      .spyOn(application, "inspectDevices")
+      .mockImplementation(async (params) => {
+        await deviceRead.promise;
+        return originalInspectDevices(params);
+      });
+    const inspectParameters = vi.spyOn(application, "inspectDeviceParameters");
+
+    const first = service.getSnapshot();
+    const second = service.getSnapshot();
+
+    expect(second).toBe(first);
+    await vi.waitFor(() => {
+      expect(inspectSession).toHaveBeenCalledTimes(1);
+      expect(inspectDevices).toHaveBeenCalledTimes(1);
+    });
+
+    deviceRead.resolve(undefined);
+    const [firstSnapshot, secondSnapshot] = await Promise.all([first, second]);
+
+    expect(secondSnapshot).toEqual(firstSnapshot);
+    expect(inspectSession).toHaveBeenCalledTimes(1);
+    expect(inspectDevices).toHaveBeenCalledTimes(1);
+    expect(inspectParameters).toHaveBeenCalledTimes(1);
+
+    await service.getSnapshot();
+    expect(inspectSession).toHaveBeenCalledTimes(2);
+    expect(inspectDevices).toHaveBeenCalledTimes(2);
+    expect(inspectParameters).toHaveBeenCalledTimes(2);
+    await service.stop();
+  });
+
   it("pins context into later prompts and persists plans", async () => {
     const { service, agent, events } = await harness();
     await service.start();
@@ -507,6 +925,7 @@ describe("desktop adapter over the shared application", () => {
     const firstPaused = new Promise<void>((resolve) => {
       releaseFirst = resolve;
     });
+
     const save = vi
       .spyOn(preferencesStore, "save")
       .mockImplementationOnce(async (value) => {
@@ -539,10 +958,38 @@ describe("desktop adapter over the shared application", () => {
         (event) =>
           event.type === "diagnostic" &&
           event.message.includes("abletonPort") &&
-          event.message.includes("approvalPolicy") &&
           event.message.includes("next time the app starts"),
       ),
     ).toBe(true);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "diagnostic" &&
+          event.message.includes("approvalPolicy") &&
+          event.message.includes("next time the app starts"),
+      ),
+    ).toBe(false);
+    await service.stop();
+  });
+
+  it("applies approval policy changes immediately without a restart warning", async () => {
+    const onApprovalPolicyChange = vi.fn();
+    const { service, events } = await harness({}, { onApprovalPolicyChange });
+    await service.start();
+
+    await service.setPreferences(
+      preferencesSchema.parse({ approvalPolicy: "approve-all" }),
+    );
+
+    expect(onApprovalPolicyChange).toHaveBeenCalledWith("approve-all");
+    expect(
+      events.some(
+        (event) =>
+          event.type === "diagnostic" &&
+          event.message.includes("approvalPolicy") &&
+          event.message.includes("next time the app starts"),
+      ),
+    ).toBe(false);
     await service.stop();
   });
 

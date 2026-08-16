@@ -1,6 +1,12 @@
 import type { SessionSnapshot } from "@ableton-agent/protocol";
 import type { ConnectionStatus } from "@ableton-agent/shared";
 import type { SessionHooks } from "@github/copilot-sdk";
+import { abletonToolMetadata } from "@ableton-agent/tools";
+
+import {
+  constructNextPromptSignalContext,
+  type SignalContextOptions,
+} from "./signal-delivery.js";
 
 const NON_RETRYABLE_CODES = new Set([
   "approval_denied",
@@ -15,6 +21,9 @@ const NON_RETRYABLE_CODES = new Set([
 export interface AgentPolicyServices {
   getAbletonStatus(): Promise<ConnectionStatus>;
   inspectSession(): Promise<SessionSnapshot>;
+  signalContext?: SignalContextOptions;
+  promptContextEnabled?: () => boolean;
+  mutationBlocked?: () => boolean;
 }
 
 export interface AgentPolicy {
@@ -145,11 +154,46 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
   const hooks: SessionHooks = {
     onSessionStart: async () => ({ additionalContext: await context() }),
     onUserPromptSubmitted: async (input) => ({
-      additionalContext: [await context(), browserIntentGuidance(input.prompt)]
-        .filter((value) => value !== undefined)
-        .join("\n\n"),
+      additionalContext: await (async () => {
+        const parts = [await context(), browserIntentGuidance(input.prompt)];
+        const signalOptions = services.signalContext;
+        if (
+          signalOptions?.provider !== undefined &&
+          (services.promptContextEnabled?.() ?? true)
+        ) {
+          const pending = await signalOptions.provider.getPendingContexts(
+            input.sessionId,
+          );
+          const constructed = constructNextPromptSignalContext(
+            pending,
+            signalOptions,
+          );
+          if (constructed.additionalContext !== undefined) {
+            parts.push(constructed.additionalContext);
+            await signalOptions.provider.markDelivered(
+              input.sessionId,
+              constructed.deliveryIds,
+            );
+          }
+        }
+        return parts
+          .filter((value): value is string => value !== undefined)
+          .join("\n\n");
+      })(),
     }),
     onPreToolUse: (input) => {
+      const metadata = abletonToolMetadata.find(
+        ({ name }) => name === input.toolName,
+      );
+      if (services.mutationBlocked?.() && metadata?.risk !== "read") {
+        const reason =
+          "Automatic analysis turns may inspect Ableton but cannot use mutation tools.";
+        return {
+          permissionDecision: "deny",
+          permissionDecisionReason: reason,
+          additionalContext: reason,
+        };
+      }
       const reason = blockedAttempts.get(
         attemptKey(input.toolName, input.toolArgs),
       );

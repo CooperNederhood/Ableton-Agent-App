@@ -1688,4 +1688,49 @@ describe("Ableton tools", () => {
     ).resolves.toEqual({ kind: "approve-once" });
     expect(requests[0]?.metadata.risk).toBe("read");
   });
+
+  it("evaluates read approval policy for each permission request", async () => {
+    let askForReads = false;
+    const requestApproval = vi.fn(() => Promise.resolve(true));
+    const handler = createAbletonPermissionHandler(
+      requestApproval,
+      () => askForReads,
+    );
+    const request = {
+      kind: "custom-tool" as const,
+      toolName: "ableton_session_inspect",
+      toolDescription: "Inspect",
+    };
+
+    await expect(handler(request, { sessionId: "session" })).resolves.toEqual({
+      kind: "approve-once",
+    });
+    expect(requestApproval).not.toHaveBeenCalled();
+
+    askForReads = true;
+    await expect(handler(request, { sessionId: "session" })).resolves.toEqual({
+      kind: "approve-once",
+    });
+    expect(requestApproval).toHaveBeenCalledOnce();
+  });
+
+  it("performs structural rejection checks before evaluating read policy", async () => {
+    const askForReads = vi.fn(() => true);
+    const handler = createAbletonPermissionHandler(
+      vi.fn(() => Promise.resolve(true)),
+      askForReads,
+    );
+
+    await expect(
+      handler(
+        {
+          kind: "custom-tool",
+          toolName: "unknown_tool",
+          toolDescription: "Unknown",
+        },
+        { sessionId: "session" },
+      ),
+    ).resolves.toEqual({ kind: "reject", feedback: "Unknown Ableton tool" });
+    expect(askForReads).not.toHaveBeenCalled();
+  });
 });

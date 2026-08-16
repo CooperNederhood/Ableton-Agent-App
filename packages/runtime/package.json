@@ -20,6 +20,7 @@
     "@ableton-agent/bridge": "workspace:*",
     "@ableton-agent/protocol": "workspace:*",
     "@ableton-agent/shared": "workspace:*",
+    "@ableton-agent/signal-routing": "workspace:*",
     "@ableton-agent/tools": "workspace:*"
   },
   "devDependencies": {

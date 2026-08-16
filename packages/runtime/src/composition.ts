@@ -18,6 +18,11 @@ import {
   CONFIGURATION_MISSING_MESSAGE,
   UnconfiguredAbletonService,
 } from "./unconfigured-ableton-service.js";
+import {
+  DefaultSignalRuntime,
+  type SignalRuntime,
+  type SignalRuntimeOptions,
+} from "./signal-runtime.js";
 
 export const DEFAULT_ABLETON_PORT = 8765;
 export const TOKEN_ENVIRONMENT_VARIABLE = "ABLETON_AGENT_TOKEN";
@@ -52,9 +57,10 @@ export interface AgentRuntimeOptions {
   events?: EventPublisher;
   logger?: Logger;
   requestToolApproval?: ToolApprovalRequester;
-  askForReadApproval?: boolean;
+  askForReadApproval?: boolean | (() => boolean);
   /** Replaces the bridge, used by tests and fakes. */
   abletonService?: AbletonService;
+  signal?: SignalRuntimeOptions;
 }
 
 export interface AgentRuntime {
@@ -65,6 +71,7 @@ export interface AgentRuntime {
   logger: Logger;
   /** False when no token was configured and the bridge is a typed stand-in. */
   abletonConfigured: boolean;
+  signals: SignalRuntime;
 }
 
 /**
@@ -129,12 +136,17 @@ export function createAbletonService(
         events,
         port: settings.port,
         eventSubscriptions: ["project.changed"],
-        onRequest: ({ requestId, correlationId, command }) =>
+        onRequest: ({ requestId, correlationId, command, params }) =>
           logger.debug("Ableton bridge request", {
             requestId,
             correlationId,
             command,
+            params,
           }),
+        onResponse: (response) =>
+          response.ok
+            ? logger.debug("Ableton bridge response", response)
+            : logger.warn("Ableton bridge request failed", response),
       }),
       configured: true,
     };
@@ -157,6 +169,12 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     ? { ableton: options.abletonService, configured: true }
     : createAbletonService(options.ableton, events, logger);
   const agentSettings = options.agent ?? {};
+  const signalSecret = options.signal?.secret ?? options.ableton.token;
+  const signals = new DefaultSignalRuntime({
+    ...(options.signal ?? {}),
+    ...(signalSecret === undefined ? {} : { secret: signalSecret }),
+    logger,
+  });
   const agent = new CopilotAgentService({
     events,
     ...(agentSettings.model === undefined
@@ -224,6 +242,8 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       ableton.duplicateClipToArrangement(params),
     setArrangementClipProperties: (params) =>
       ableton.setArrangementClipProperties(params),
+    signalContext: { provider: signals.provider },
+    logger,
   });
   const application = new HeadlessApplication({
     agent,
@@ -231,6 +251,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     events,
     logger,
   });
+  signals.setDeliveryService(application);
   return {
     application,
     ableton,
@@ -238,5 +259,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     events,
     logger,
     abletonConfigured: configured,
+    signals,
   };
 }

@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { AgentSignalClient } = require("./agent_signal_client.js");
 
 const NOTE_NAMES = [
   "C",
@@ -315,10 +316,13 @@ class JsonlWriter {
     return resolved;
   }
 
+  isReady() {
+    return Boolean(this.filePath) && !this.failed;
+  }
+
   append(sample) {
-    if (!this.filePath || this.failed) {
-      this.onStatus("error", "writer_not_ready");
-      return;
+    if (!this.isReady()) {
+      return false;
     }
     const line = `${JSON.stringify(sample)}\n`;
     this.queue = this.queue
@@ -328,15 +332,36 @@ class JsonlWriter {
         this.failed = true;
         this.onStatus("error", `write_failed ${error.message}`);
       });
+    return true;
   }
 }
 
-function startMaxRuntime() {
-  const maxApi = require("max-api");
+function startMaxRuntime(options = {}) {
+  const maxApi = options.maxApi || require("max-api");
+  const lifecycleTarget = options.lifecycleTarget || process;
   const status = (...items) => maxApi.outlet(["status", ...items]);
-  const writer = new JsonlWriter(status);
+  const writer = options.writer || new JsonlWriter(status);
+  const signalClient =
+    options.signalClient ||
+    new AgentSignalClient({
+      onStatus: status,
+      ...(options.signalClientOptions || {}),
+    });
   const engine = new MidiCaptureEngine({
-    onSample: (sample) => writer.append(sample),
+    onSample: (sample) => {
+      if (writer.isReady()) {
+        try {
+          writer.append(sample);
+        } catch (error) {
+          status("error", `writer_failed ${error.message}`);
+        }
+      }
+      try {
+        signalClient.sendSample(sample);
+      } catch (error) {
+        status("live", "client_error", String(error.message).slice(0, 240));
+      }
+    },
     onStatus: status,
   });
 
@@ -364,7 +389,12 @@ function startMaxRuntime() {
     (channel, pitch, velocity, isNoteOn, tick, sequence) =>
       engine.event(channel, pitch, velocity, isNoteOn, tick, sequence),
   );
+  signalClient.start();
+  const stop = () => signalClient.stop();
+  lifecycleTarget.once("beforeExit", stop);
+  lifecycleTarget.once("SIGTERM", stop);
   status("ready");
+  return { engine, signalClient, stop, writer };
 }
 
 if (process.env.MAX_ENV) {
@@ -376,4 +406,5 @@ module.exports = {
   MidiCaptureEngine,
   normalizeOutputPath,
   pitchName,
+  startMaxRuntime,
 };

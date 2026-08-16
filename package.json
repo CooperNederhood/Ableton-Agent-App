@@ -20,6 +20,8 @@
     "contracts:check": "pnpm --filter @ableton-agent/protocol contracts:check",
     "contracts:compat": "node scripts/check-protocol-compatibility.mjs",
     "contracts:compat:self-test": "node scripts/check-protocol-compatibility.mjs --self-test",
+    "desktop:debug": "pnpm --filter @ableton-agent/desktop dev:debug",
+    "desktop:dev": "pnpm --filter @ableton-agent/desktop dev",
     "docs:check": "node scripts/check-docs.mjs",
     "desktop:dist": "pnpm build && pnpm --filter @ableton-agent/desktop dist",
     "format": "prettier --write .",

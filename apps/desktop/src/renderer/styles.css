@@ -140,6 +140,102 @@ small,
   background: #111416;
   border-bottom: 1px solid var(--line);
 }
+
+.outputs-view {
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 20px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.output-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  align-items: start;
+  gap: 16px;
+  padding-bottom: 20px;
+}
+
+.output-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  background: var(--panel);
+}
+
+.output-card > header,
+.output-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.output-card > header {
+  align-items: flex-start;
+}
+
+.output-card-identity {
+  min-width: 0;
+}
+
+.output-card-identity h3 {
+  margin: 0 0 4px;
+}
+
+.output-card-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.output-quick-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.output-disclosure {
+  min-width: 72px;
+}
+
+.output-card-collapsed {
+  padding-bottom: 12px;
+}
+
+.latest-output {
+  margin: 14px 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.latest-output p {
+  white-space: pre-wrap;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.output-controls {
+  display: grid;
+  gap: 12px;
+}
+
+.output-controls label {
+  display: grid;
+  gap: 6px;
+}
+
+.output-controls textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 110px;
+  max-height: 260px;
+  resize: vertical;
+}
 .view-tabs button {
   border: 0;
   border-radius: 5px 5px 0 0;
@@ -171,6 +267,24 @@ small,
   border-right: 1px solid var(--line);
   overflow: auto;
 }
+.project-context-toggle {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+.project-context-toggle label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.project-context-toggle small {
+  color: var(--muted);
+  line-height: 1.35;
+}
 .inspector {
   border-left: 1px solid var(--line);
   overflow: auto;
@@ -196,6 +310,14 @@ small,
 .panel-heading span {
   color: var(--muted);
   font-size: 12px;
+}
+.project-refresh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.project-refresh .status-error {
+  color: #ff8980;
 }
 .tree,
 .tree ul {
@@ -257,9 +379,127 @@ small,
   font-size: 12px;
   font-weight: 700;
 }
-.message p {
+.message.user p {
   margin: 6px 0 0;
   white-space: pre-wrap;
+}
+.message-markdown {
+  min-width: 0;
+  max-width: 100%;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+.message-markdown > :first-child {
+  margin-top: 0;
+}
+.message-markdown > :last-child {
+  margin-bottom: 0;
+}
+.message-markdown h1,
+.message-markdown h2,
+.message-markdown h3,
+.message-markdown h4,
+.message-markdown h5,
+.message-markdown h6 {
+  margin: 1.25em 0 0.5em;
+  line-height: 1.25;
+}
+.message-markdown h1 {
+  font-size: 1.5em;
+}
+.message-markdown h2 {
+  font-size: 1.3em;
+}
+.message-markdown h3 {
+  font-size: 1.15em;
+}
+.message-markdown h4,
+.message-markdown h5,
+.message-markdown h6 {
+  font-size: 1em;
+}
+.message-markdown p,
+.message-markdown ul,
+.message-markdown ol,
+.message-markdown blockquote,
+.message-markdown pre,
+.message-markdown table,
+.message-markdown hr {
+  margin: 0 0 0.9em;
+}
+.message-markdown ul,
+.message-markdown ol {
+  padding-left: 1.6em;
+}
+.message-markdown li + li {
+  margin-top: 0.25em;
+}
+.message-markdown li > ul,
+.message-markdown li > ol {
+  margin: 0.25em 0 0;
+}
+.message-markdown blockquote {
+  padding: 0.15em 0 0.15em 0.9em;
+  border-left: 3px solid #59656c;
+  color: var(--muted);
+}
+.message-markdown blockquote > :last-child {
+  margin-bottom: 0;
+}
+.message-markdown a {
+  color: var(--focus);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.message-markdown a:hover {
+  color: #b5deff;
+}
+.message-markdown code {
+  padding: 0.12em 0.32em;
+  border: 1px solid #394248;
+  border-radius: 4px;
+  background: #111416;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.9em;
+}
+.message-markdown pre {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 10px 12px;
+  border: 1px solid #394248;
+  border-radius: 6px;
+  background: #111416;
+}
+.message-markdown pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 0.9em;
+  white-space: pre;
+}
+.message-markdown hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.message-markdown table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+.message-markdown th,
+.message-markdown td {
+  padding: 6px 10px;
+  border: 1px solid #3a444a;
+  text-align: left;
+  white-space: nowrap;
+}
+.message-markdown th {
+  background: #20272b;
+}
+.message-markdown tr:nth-child(even) {
+  background: rgb(255 255 255 / 3%);
 }
 .operation {
   padding: 10px 12px;
@@ -455,6 +695,32 @@ kbd {
   z-index: 2;
   background: var(--panel);
 }
+.page-panel > .panel-heading .inline-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-top: 0;
+}
+.diagnostics-log {
+  display: grid;
+  gap: 6px;
+  margin: 20px 20px 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-2);
+}
+.diagnostics-log span,
+.diagnostics-log code {
+  color: var(--muted);
+}
+.diagnostics-log code {
+  overflow-wrap: anywhere;
+}
+.diagnostics-action-status {
+  min-height: 1.2em;
+  margin: 10px 20px 0;
+  color: var(--muted);
+}
 .search,
 .settings-form {
   display: grid;
@@ -548,6 +814,18 @@ kbd {
 .settings-form label {
   display: grid;
   gap: 5px;
+}
+.approval-policy-warning {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid #ff8980;
+  border-radius: 6px;
+  background: rgb(255 137 128 / 12%);
+  color: #ffd0cc;
+}
+.approval-policy-warning strong {
+  color: #ff8980;
 }
 .settings-form .checkbox {
   display: flex;

@@ -8,13 +8,14 @@ import type { Logger } from "@ableton-agent/shared";
 import type { ToolApprovalRequest } from "@ableton-agent/tools";
 
 import { preferencesSchema, type DesktopPreferences } from "../contracts.js";
-import { ApprovalCoordinator } from "./approvals.js";
+import { ApprovalCoordinator, ApprovalPolicyController } from "./approvals.js";
 import { JsonPreferencesStore, JsonSessionStore } from "./desktop-service.js";
 import { HeadlessDesktopService } from "./headless-desktop-service.js";
 
 export interface DesktopCompositionOptions {
   preferencesPath: string;
   sessionsPath: string;
+  signalDescriptorPath?: string;
   /** Copilot session storage owned by the desktop app. */
   agentBaseDirectory: string;
   /** Token from OS-backed secure storage, when one has been provisioned. */
@@ -22,6 +23,7 @@ export interface DesktopCompositionOptions {
   environment?: Readonly<Partial<Record<string, string>>>;
   logger?: Logger;
   onError?: (message: string, context: Record<string, unknown>) => void;
+  onLoggingLevelChange?: (level: DesktopPreferences["loggingLevel"]) => void;
 }
 
 export interface DesktopComposition {
@@ -71,6 +73,10 @@ export async function createDesktopComposition(
   const token =
     options.storedToken ?? environment[TOKEN_ENVIRONMENT_VARIABLE] ?? undefined;
   const approvals = new ApprovalCoordinator();
+  const approvalPolicy = new ApprovalPolicyController(
+    preferences.approvalPolicy,
+    approvals,
+  );
   // Preferences already constrain the port to a valid TCP range.
   const port = preferences.abletonPort;
 
@@ -88,13 +94,15 @@ export async function createDesktopComposition(
         : { reasoningEffort: preferences.reasoning }),
       baseDirectory: options.agentBaseDirectory,
     },
-    ...(preferences.approvalPolicy === "never"
-      ? {}
-      : {
-          requestToolApproval: (request: ToolApprovalRequest) =>
-            approvals.request(request),
-        }),
-    askForReadApproval: preferences.approvalPolicy === "always",
+    requestToolApproval: (request: ToolApprovalRequest) =>
+      approvalPolicy.request(request),
+    askForReadApproval: approvalPolicy.askForReads,
+    signal: {
+      port: preferences.signalPort,
+      ...(options.signalDescriptorPath === undefined
+        ? {}
+        : { descriptorPath: options.signalDescriptorPath }),
+    },
     ...(options.logger === undefined ? {} : { logger: options.logger }),
   };
   let runtime: AgentRuntime;
@@ -131,8 +139,14 @@ export async function createDesktopComposition(
     approvals,
     preferencesStore,
     sessionStore,
+    signals: runtime.signals,
+    ...(options.logger === undefined ? {} : { logger: options.logger }),
     startupNotices: notices,
     ...(options.onError === undefined ? {} : { onError: options.onError }),
+    ...(options.onLoggingLevelChange === undefined
+      ? {}
+      : { onLoggingLevelChange: options.onLoggingLevelChange }),
+    onApprovalPolicyChange: (policy) => approvalPolicy.setPolicy(policy),
   });
   return { service, runtime, preferences };
 }

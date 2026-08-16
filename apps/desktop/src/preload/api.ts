@@ -56,7 +56,17 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
       resolve: async (id, decision) =>
         (await invoke("approvals:resolve", { id, decision })).resolved,
     },
-    diagnostics: { get: () => invoke("diagnostics:get", {}) },
+    diagnostics: {
+      get: () => invoke("diagnostics:get", {}),
+      revealLog: async () => {
+        await invoke("diagnostics:reveal-log", {});
+      },
+      exportSupportBundle: () =>
+        invoke("diagnostics:export-support-bundle", {}),
+      copySummary: async () => {
+        await invoke("diagnostics:copy-summary", {});
+      },
+    },
     preferences: {
       get: () => invoke("preferences:get", {}),
       set: (value) => invoke("preferences:set", value),
@@ -74,6 +84,21 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
     operations: {
       retry: async (id) => (await invoke("operation:retry", { id })).accepted,
       undo: async (id) => (await invoke("operation:undo", { id })).accepted,
+    },
+    outputs: {
+      list: () => invoke("outputs:list", {}),
+      assign: (producerId) => invoke("outputs:assign", { producerId }),
+      unassign: async (producerId) =>
+        (await invoke("outputs:unassign", { producerId })).removed,
+      setEnabled: (producerId, enabled) =>
+        invoke("outputs:set-enabled", { producerId, enabled }),
+      setDeliveryMode: (producerId, deliveryMode) =>
+        invoke("outputs:set-delivery-mode", { producerId, deliveryMode }),
+      setUsageInstruction: (producerId, usageInstruction) =>
+        invoke("outputs:set-usage-instruction", {
+          producerId,
+          usageInstruction,
+        }),
     },
     events: {
       subscribe: (handler) => {

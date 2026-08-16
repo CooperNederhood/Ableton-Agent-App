@@ -1,10 +1,29 @@
 import { spawn } from "node:child_process";
 
+const debug = process.argv.includes("--debug");
 const environment = {
   ...process.env,
   VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
+  ...(debug
+    ? {
+        ABLETON_AGENT_LOG_LEVEL: "debug",
+        ABLETON_AGENT_OPEN_DEVTOOLS: "1",
+      }
+    : {}),
 };
 const children = new Set();
+
+console.log(
+  debug
+    ? "Starting desktop development with debug logging and DevTools enabled."
+    : "Starting desktop development.",
+);
+console.log(
+  "Renderer changes hot reload; main and preload changes require restarting this command.",
+);
+console.log(
+  "The desktop process will print the development log path at startup.",
+);
 
 function run(command, arguments_, options = {}) {
   const child = spawn(command, arguments_, {

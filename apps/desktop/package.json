@@ -13,6 +13,7 @@
     "build:electron": "tsc -p tsconfig.electron.json",
     "clean": "rm -rf dist",
     "dev": "node scripts/run-development.mjs",
+    "dev:debug": "node scripts/run-development.mjs --debug",
     "dist": "electron-builder --config electron-builder.yml --publish never",
     "remote-script": "pnpm --filter @ableton-agent/shared build && pnpm build:electron && node dist/main/remote-script-cli.js",
     "start": "electron .",
@@ -23,9 +24,12 @@
     "@ableton-agent/protocol": "workspace:*",
     "@ableton-agent/runtime": "workspace:*",
     "@ableton-agent/shared": "workspace:*",
+    "@ableton-agent/signal-routing": "workspace:*",
     "@ableton-agent/tools": "workspace:*",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "zod": "^4.0.17"
   },
   "devDependencies": {

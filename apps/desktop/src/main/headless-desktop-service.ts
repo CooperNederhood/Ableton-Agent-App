@@ -1,12 +1,26 @@
 import { randomUUID } from "node:crypto";
 
-import type { HeadlessApplication } from "@ableton-agent/application";
-import type { SessionSnapshot } from "@ableton-agent/protocol";
+import {
+  DEFAULT_SIGNAL_USAGE_INSTRUCTION,
+  type HeadlessApplication,
+} from "@ableton-agent/application";
+import type {
+  InspectDeviceParametersResult,
+  InspectDevicesResult,
+  SessionSnapshot,
+} from "@ableton-agent/protocol";
+import {
+  DefaultSignalRuntime,
+  type SignalRuntime,
+  type SignalRuntimeEvent,
+} from "@ableton-agent/runtime";
 import {
   checkProductCompatibility,
+  noopLogger,
   PRODUCT_VERSIONS,
   type AppEvent,
   type ConnectionStatus,
+  type Logger,
 } from "@ableton-agent/shared";
 
 import {
@@ -15,12 +29,18 @@ import {
   type ContextChip,
   type DesktopAppEvent,
   type DesktopConnectionStatus,
+  type DiagnosticCheck,
   type DesktopLifecycleState,
+  type DesktopOutputAssignment,
+  type DesktopOutputConnection,
+  type DesktopOutputsState,
   type DesktopPreferences,
   type DesktopProjectSnapshot,
   type DesktopSession,
   type PlanSection,
   type ProductMode,
+  type LatestAcceptedOutput,
+  type OutputDeliveryMode,
 } from "../contracts.js";
 import type { ApprovalCoordinator } from "./approvals.js";
 import type {
@@ -40,6 +60,7 @@ import {
 /** Devices and parameters read per track when building a project snapshot. */
 const deviceReadLimit = 32;
 const parameterReadLimit = 64;
+const diagnosticMessageLimit = 512;
 /** The sessions view shows the most recent entries; older ones are dropped. */
 const storedSessionLimit = 100;
 
@@ -48,6 +69,7 @@ export interface HeadlessDesktopServiceOptions {
   approvals: ApprovalCoordinator;
   preferencesStore: JsonPreferencesStore;
   sessionStore: JsonSessionStore;
+  signals?: SignalRuntime;
   /**
    * Composition-time findings (e.g. a missing bridge token) surfaced through
    * diagnostics, because they happen before any renderer can receive events.
@@ -59,6 +81,11 @@ export interface HeadlessDesktopServiceOptions {
   }[];
   /** Reports failures that have no user-visible surface of their own. */
   onError?: (message: string, context: Record<string, unknown>) => void;
+  onLoggingLevelChange?: (level: DesktopPreferences["loggingLevel"]) => void;
+  onApprovalPolicyChange?: (
+    policy: DesktopPreferences["approvalPolicy"],
+  ) => void;
+  logger?: Logger;
 }
 
 interface ActiveTurn {
@@ -79,8 +106,11 @@ export class HeadlessDesktopService implements DesktopService {
   readonly #listeners = new Set<(event: DesktopAppEvent) => void>();
   readonly #application: HeadlessApplication;
   readonly #approvals: ApprovalCoordinator;
+  readonly #signals: SignalRuntime;
+  readonly #logger: Logger;
   #unsubscribeShared: (() => void) | undefined;
   #unsubscribeApprovals: (() => void) | undefined;
+  #unsubscribeSignals: (() => void) | undefined;
   #sessions: DesktopSession[] = [];
   #preferences: DesktopPreferences = preferencesSchema.parse({});
   #preferenceSaveTail: Promise<void> = Promise.resolve();
@@ -91,13 +121,19 @@ export class HeadlessDesktopService implements DesktopService {
   #pinnedContext: ContextChip[] = [];
   #turn: ActiveTurn | undefined;
   #acceptingActions = false;
+  #latestOutputs = new Map<string, LatestAcceptedOutput>();
+  #snapshotRefresh: Promise<DesktopProjectSnapshot> | undefined;
 
   public constructor(private readonly options: HeadlessDesktopServiceOptions) {
     this.#application = options.application;
     this.#approvals = options.approvals;
+    this.#signals = options.signals ?? new DefaultSignalRuntime({});
+    this.#logger = options.logger ?? noopLogger;
   }
 
   public async start(): Promise<void> {
+    const startedAt = Date.now();
+    this.#logger.info("Desktop service starting");
     this.#unsubscribeShared = this.#application.subscribe((event) =>
       this.#onSharedEvent(event),
     );
@@ -106,12 +142,19 @@ export class HeadlessDesktopService implements DesktopService {
       this.emit({ type: "approval.requested", approval });
       return true;
     });
+    this.#unsubscribeSignals = this.#signals.subscribe((event) =>
+      this.#onSignalEvent(event),
+    );
     this.#preferences = await this.#loadPreferences();
     this.#sessions = await this.#loadSessions();
-    this.#acceptingActions = true;
     this.emit({ type: "preferences.changed", preferences: this.#preferences });
     this.emit({ type: "sessions.changed", sessions: this.#sessions });
 
+    try {
+      await this.#signals.start();
+    } catch (error) {
+      this.#report("Signal ingress startup failed", error);
+    }
     try {
       const preferredAgentSessionId = this.#sessions[0]?.id;
       await this.#application.start({
@@ -130,6 +173,9 @@ export class HeadlessDesktopService implements DesktopService {
       });
     }
     await this.#restoreOrRegisterSession();
+    this.#bindActiveOutputAssignments();
+    this.#acceptingActions = true;
+    this.#emitOutputs();
     if ((await this.#application.getStatus()).state === "connected") {
       try {
         await this.getSnapshot();
@@ -137,9 +183,16 @@ export class HeadlessDesktopService implements DesktopService {
         this.#report("Project snapshot could not be read", error);
       }
     }
+    this.#logger.info("Desktop service started", {
+      durationMs: Date.now() - startedAt,
+      sessionId: this.#application.agentSessionId,
+      sessionCount: this.#sessions.length,
+    });
   }
 
   public async stop(): Promise<void> {
+    const startedAt = Date.now();
+    this.#logger.info("Desktop service stopping");
     this.#acceptingActions = false;
     this.#approvals.denyAll();
     await this.#preferenceSaveTail;
@@ -151,6 +204,11 @@ export class HeadlessDesktopService implements DesktopService {
       this.#report("Preferences could not be saved", error);
     }
     try {
+      await this.#signals.stop();
+    } catch (error) {
+      this.#report("Signal ingress shutdown reported failures", error);
+    }
+    try {
       await this.#application.stop();
     } catch (error) {
       this.#report("Shutdown reported failures", error);
@@ -159,7 +217,12 @@ export class HeadlessDesktopService implements DesktopService {
     this.#unsubscribeApprovals = undefined;
     this.#unsubscribeShared?.();
     this.#unsubscribeShared = undefined;
+    this.#unsubscribeSignals?.();
+    this.#unsubscribeSignals = undefined;
     this.#turn = undefined;
+    this.#logger.info("Desktop service stopped", {
+      durationMs: Date.now() - startedAt,
+    });
   }
 
   public async send(
@@ -178,6 +241,12 @@ export class HeadlessDesktopService implements DesktopService {
     const turn: ActiveTurn = { messageId, cancelRequested: false };
     this.#turn = turn;
     const selection = this.#withPinnedContext(context);
+    this.#logger.debug("Desktop agent turn accepted", {
+      messageId,
+      message,
+      context: selection,
+      mode,
+    });
     await this.#updateActiveSession({ mode });
     this.emit({
       type: "operation.changed",
@@ -220,8 +289,15 @@ export class HeadlessDesktopService implements DesktopService {
     prompt: string,
     mode: ProductMode,
   ): Promise<void> {
+    const startedAt = Date.now();
     try {
       await this.#application.send(prompt);
+      this.#logger.debug("Desktop agent turn completed", {
+        messageId: turn.messageId,
+        prompt,
+        mode,
+        durationMs: Date.now() - startedAt,
+      });
       this.#completeTurn(turn, {
         status: "completed",
         label: `Agent turn (${mode})`,
@@ -229,6 +305,13 @@ export class HeadlessDesktopService implements DesktopService {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      this.#logger.error("Desktop agent turn failed", {
+        messageId: turn.messageId,
+        prompt,
+        mode,
+        durationMs: Date.now() - startedAt,
+        error: message,
+      });
       this.#completeTurn(turn, {
         status: turn.cancelRequested ? "cancelled" : "failed",
         label: `Agent turn (${mode})`,
@@ -295,9 +378,11 @@ export class HeadlessDesktopService implements DesktopService {
           "Cannot create a session while an agent turn is running",
         );
       }
-      const sessionId = await this.#application.createAgentSession();
-      await this.#rememberSession(sessionId, "New production session");
-      return sessionId;
+      return this.#withSuspendedSignals(async () => {
+        const sessionId = await this.#application.createAgentSession();
+        await this.#rememberSession(sessionId, "New production session");
+        return sessionId;
+      });
     });
   }
 
@@ -316,8 +401,10 @@ export class HeadlessDesktopService implements DesktopService {
           "Cannot resume a session while an agent turn is running",
         );
       }
-      await this.#application.resumeAgentSession(sessionId);
-      await this.#touchSession(sessionId);
+      await this.#withSuspendedSignals(async () => {
+        await this.#application.resumeAgentSession(sessionId);
+        await this.#touchSession(sessionId);
+      });
       const session = this.#sessions.find((item) => item.id === sessionId);
       if (session !== undefined) {
         this.#pinnedContext = [];
@@ -353,26 +440,71 @@ export class HeadlessDesktopService implements DesktopService {
     return toDesktopCapabilities(capabilities.capabilities);
   }
 
-  public async getSnapshot(): Promise<DesktopProjectSnapshot> {
+  /**
+   * Publishes the deterministic core snapshot before optional device reads,
+   * while resolving callers with the final enriched snapshot on full success.
+   */
+  public getSnapshot(): Promise<DesktopProjectSnapshot> {
+    if (this.#snapshotRefresh !== undefined) return this.#snapshotRefresh;
+
+    const refresh = this.#refreshSnapshot();
+    this.#snapshotRefresh = refresh;
+    void refresh.then(
+      () => {
+        if (this.#snapshotRefresh === refresh) {
+          this.#snapshotRefresh = undefined;
+        }
+      },
+      () => {
+        if (this.#snapshotRefresh === refresh) {
+          this.#snapshotRefresh = undefined;
+        }
+      },
+    );
+    return refresh;
+  }
+
+  async #refreshSnapshot(): Promise<DesktopProjectSnapshot> {
+    const refreshId = randomUUID();
+    const startedAt = Date.now();
+    this.#logger.debug("Project refresh started", { refreshId });
     const status = await this.#application.getStatus();
     if (status.state !== "connected") {
+      this.#logger.warn("Project refresh rejected", {
+        refreshId,
+        status,
+        durationMs: Date.now() - startedAt,
+      });
       throw Object.assign(
         new Error("Ableton is not connected, so no project can be read"),
         { code: "not_connected" },
       );
     }
     const snapshot = await this.#application.inspectSession();
-    const trackDevices = await this.#readTrackDevices(snapshot);
-    const desktopSnapshot = toDesktopSnapshot(snapshot, status, trackDevices);
-    await this.#syncProjectAssociation(
-      desktopSnapshot.id,
-      desktopSnapshot.name,
-    );
+    const coreSnapshot = toDesktopSnapshot(snapshot, status);
+    this.#logger.debug("Project core snapshot read", {
+      refreshId,
+      snapshot,
+      durationMs: Date.now() - startedAt,
+    });
+    await this.#syncProjectAssociation(coreSnapshot.id, coreSnapshot.name);
     this.emit({
       type: "project.snapshot_changed",
-      snapshot: desktopSnapshot,
+      snapshot: coreSnapshot,
     });
-    return desktopSnapshot;
+
+    const trackDevices = await this.#readTrackDevices(snapshot);
+    const enrichedSnapshot = toDesktopSnapshot(snapshot, status, trackDevices);
+    this.#logger.debug("Project refresh completed", {
+      refreshId,
+      snapshot: enrichedSnapshot,
+      durationMs: Date.now() - startedAt,
+    });
+    this.emit({
+      type: "project.snapshot_changed",
+      snapshot: enrichedSnapshot,
+    });
+    return enrichedSnapshot;
   }
 
   async #readTrackDevices(snapshot: SessionSnapshot): Promise<TrackDevices[]> {
@@ -383,11 +515,21 @@ export class HeadlessDesktopService implements DesktopService {
         expectedReference: track.reference,
         expectedName: track.name,
       };
-      const page = await this.#application.inspectDevices({
-        ...target,
-        offset: 0,
-        limit: deviceReadLimit,
-      });
+      let page: InspectDevicesResult;
+      try {
+        page = await this.#application.inspectDevices({
+          ...target,
+          offset: 0,
+          limit: deviceReadLimit,
+        });
+      } catch (error) {
+        this.#warnOptionalEnrichment(
+          `Could not inspect devices on track ${track.name}`,
+          error,
+        );
+        result.push({ trackReference: track.reference, devices: [] });
+        continue;
+      }
       if (page.total > page.devices.length) {
         this.emit({
           type: "diagnostic",
@@ -401,14 +543,24 @@ export class HeadlessDesktopService implements DesktopService {
           devices.push({ device, parameters: [] });
           continue;
         }
-        const parameters = await this.#application.inspectDeviceParameters({
-          ...target,
-          deviceIndex: device.index,
-          expectedDeviceReference: device.reference,
-          expectedDeviceName: device.name,
-          offset: 0,
-          limit: parameterReadLimit,
-        });
+        let parameters: InspectDeviceParametersResult;
+        try {
+          parameters = await this.#application.inspectDeviceParameters({
+            ...target,
+            deviceIndex: device.index,
+            expectedDeviceReference: device.reference,
+            expectedDeviceName: device.name,
+            offset: 0,
+            limit: parameterReadLimit,
+          });
+        } catch (error) {
+          this.#warnOptionalEnrichment(
+            `Could not inspect parameters for device ${device.name} on track ${track.name}`,
+            error,
+          );
+          devices.push({ device, parameters: [] });
+          continue;
+        }
         if (parameters.total > parameters.parameters.length) {
           this.emit({
             type: "diagnostic",
@@ -423,10 +575,18 @@ export class HeadlessDesktopService implements DesktopService {
     return result;
   }
 
-  public async getDiagnostics(): Promise<
-    Array<{ label: string; status: "pass" | "warn" | "fail"; detail: string }>
-  > {
+  #warnOptionalEnrichment(message: string, error: unknown): void {
+    const detail = error instanceof Error ? error.message : String(error);
+    this.emit({
+      type: "diagnostic",
+      level: "warning",
+      message: `${message}: ${detail}`.slice(0, diagnosticMessageLimit),
+    });
+  }
+
+  public async getDiagnostics(): Promise<DiagnosticCheck[]> {
     const status = await this.#application.getStatus();
+    const signalStatus = this.#signals.getStatus();
     const sessionId = this.#application.agentSessionId;
     const compatibility =
       status.state === "connected"
@@ -484,6 +644,22 @@ export class HeadlessDesktopService implements DesktopService {
         detail:
           "Retry and undo are not implemented by the shared runtime; both are reported as unsupported",
       },
+      {
+        label: "Signal ingress",
+        status:
+          signalStatus.state === "listening"
+            ? "pass"
+            : signalStatus.state === "error"
+              ? "fail"
+              : "warn",
+        detail:
+          signalStatus.state === "listening"
+            ? `Listening on ${signalStatus.host}:${signalStatus.port}`
+            : signalStatus.state === "disabled" ||
+                signalStatus.state === "error"
+              ? signalStatus.detail
+              : "Signal ingress is stopped",
+      },
       ...(this.options.startupNotices ?? []),
     ];
   }
@@ -537,8 +713,14 @@ export class HeadlessDesktopService implements DesktopService {
     });
     this.#preferenceSaveTail = update.catch(() => undefined);
     await update;
+    if (previous.loggingLevel !== preferences.loggingLevel) {
+      this.options.onLoggingLevelChange?.(preferences.loggingLevel);
+    }
+    if (previous.approvalPolicy !== preferences.approvalPolicy) {
+      this.options.onApprovalPolicyChange?.(preferences.approvalPolicy);
+    }
     const restartRequired = (
-      ["abletonPort", "model", "reasoning", "approvalPolicy"] as const
+      ["abletonPort", "signalPort", "model", "reasoning"] as const
     ).filter((key) => previous[key] !== preferences[key]);
     if (restartRequired.length > 0) {
       this.emit({
@@ -599,6 +781,7 @@ export class HeadlessDesktopService implements DesktopService {
   }
 
   #onSharedEvent(event: AppEvent): void {
+    this.#logger.debug("Application event received", { event });
     if (event.type === "lifecycle.changed") {
       this.#lifecycle = event.state;
     }
@@ -670,6 +853,7 @@ export class HeadlessDesktopService implements DesktopService {
       projectName: projectLabel(await this.#application.getStatus()),
       mode: "explore",
       productionPlan: [],
+      outputAssignments: [],
     };
     this.#sessions = [
       session,
@@ -692,7 +876,11 @@ export class HeadlessDesktopService implements DesktopService {
     update: Partial<
       Pick<
         DesktopSession,
-        "mode" | "productionPlan" | "projectId" | "projectName"
+        | "mode"
+        | "productionPlan"
+        | "projectId"
+        | "projectName"
+        | "outputAssignments"
       >
     >,
   ): Promise<void> {
@@ -783,6 +971,231 @@ export class HeadlessDesktopService implements DesktopService {
 
   private emit(event: DesktopAppEvent): void {
     for (const listener of this.#listeners) listener(event);
+  }
+
+  public async listOutputs(): Promise<DesktopOutputsState> {
+    return this.#outputsState();
+  }
+
+  public async assignOutput(
+    producerId: string,
+  ): Promise<DesktopOutputAssignment> {
+    this.#assertAccepting();
+    if (
+      !this.#signals
+        .listConnections()
+        .some((connection) => connection.producer.producerId === producerId)
+    ) {
+      throw new Error("Output producer not found");
+    }
+    const existing = this.#activeSession()?.outputAssignments.find(
+      (assignment) => assignment.producerId === producerId,
+    );
+    if (existing !== undefined) return existing;
+    const assignment: DesktopOutputAssignment = {
+      assignmentId: randomUUID(),
+      producerId,
+      enabled: true,
+      deliveryMode: "next-prompt",
+      usageInstruction: DEFAULT_SIGNAL_USAGE_INSTRUCTION,
+      processingPolicyIds: ["latest-window"],
+    };
+    await this.#updateOutputAssignment(assignment);
+    return assignment;
+  }
+
+  public async unassignOutput(producerId: string): Promise<boolean> {
+    this.#assertAccepting();
+    const session = this.#activeSession();
+    const assignment = session?.outputAssignments.find(
+      (item) => item.producerId === producerId,
+    );
+    if (session === undefined || assignment === undefined) return false;
+    this.#signals.removeAssignment(assignment.assignmentId);
+    await this.#replaceOutputAssignments(
+      session.outputAssignments.filter(
+        (item) => item.assignmentId !== assignment.assignmentId,
+      ),
+    );
+    return true;
+  }
+
+  public setOutputEnabled(
+    producerId: string,
+    enabled: boolean,
+  ): Promise<DesktopOutputAssignment> {
+    return this.#editOutput(producerId, { enabled });
+  }
+
+  public setOutputDeliveryMode(
+    producerId: string,
+    deliveryMode: OutputDeliveryMode,
+  ): Promise<DesktopOutputAssignment> {
+    return this.#editOutput(producerId, { deliveryMode });
+  }
+
+  public setOutputUsageInstruction(
+    producerId: string,
+    usageInstruction: string,
+  ): Promise<DesktopOutputAssignment> {
+    return this.#editOutput(producerId, { usageInstruction });
+  }
+
+  #onSignalEvent(event: SignalRuntimeEvent): void {
+    this.#logger.debug("Signal runtime event received", { event });
+    if (event.type === "diagnostic") {
+      this.emit({
+        type: "diagnostic",
+        level: event.level,
+        message: event.message,
+      });
+      return;
+    }
+    if (event.type === "latest-window.changed") {
+      if (event.context === undefined) {
+        this.#latestOutputs.delete(event.assignmentId);
+      } else {
+        this.#latestOutputs.set(event.assignmentId, {
+          assignmentId: event.assignmentId,
+          producerId: event.context.producerId,
+          sequence: event.context.sequence,
+          capturedAt: event.context.capturedAt,
+          summary: event.context.content.slice(0, 2048),
+        });
+        while (this.#latestOutputs.size > 100) {
+          const oldest = this.#latestOutputs.keys().next().value;
+          if (oldest === undefined) break;
+          this.#latestOutputs.delete(oldest);
+        }
+      }
+    }
+    this.#emitOutputs();
+  }
+
+  #outputsState(): DesktopOutputsState {
+    const currentByProducer = new Map<string, DesktopOutputConnection>();
+    for (const connection of this.#signals.listConnections()) {
+      const producerId = connection.producer.producerId;
+      const previous = currentByProducer.get(producerId);
+      if (
+        previous !== undefined &&
+        previous.state === "connected" &&
+        connection.status !== "connected"
+      ) {
+        continue;
+      }
+      currentByProducer.set(producerId, {
+        connectionId: connection.connectionId,
+        producerId,
+        instanceId: connection.producer.instanceId,
+        displayName: connection.producer.displayName,
+        signalKind: connection.producer.signalKind,
+        state: connection.status,
+        receiving: [...this.#latestOutputs.values()].some(
+          (latest) => latest.producerId === producerId,
+        ),
+        lastHeartbeatAt: connection.lastHeartbeatAt,
+        ...(connection.producer.track === undefined
+          ? {}
+          : { track: connection.producer.track }),
+        ...(connection.producer.device === undefined
+          ? {}
+          : { device: connection.producer.device }),
+      });
+    }
+    return {
+      status: this.#signals.getStatus(),
+      connections: [...currentByProducer.values()],
+      assignments: [...(this.#activeSession()?.outputAssignments ?? [])],
+      latest: [...this.#latestOutputs.values()],
+      ...(this.#application.agentSessionId === undefined
+        ? {}
+        : { activeSessionId: this.#application.agentSessionId }),
+    };
+  }
+
+  #emitOutputs(): void {
+    this.emit({ type: "outputs.changed", outputs: this.#outputsState() });
+  }
+
+  #activeSession(): DesktopSession | undefined {
+    const sessionId = this.#application.agentSessionId;
+    return this.#sessions.find((session) => session.id === sessionId);
+  }
+
+  #clearRuntimeAssignments(): void {
+    this.#signals.setActiveSession(undefined);
+    for (const assignment of this.#signals.listAssignments()) {
+      this.#signals.removeAssignment(assignment.assignmentId);
+    }
+  }
+
+  #bindActiveOutputAssignments(): void {
+    this.#clearRuntimeAssignments();
+    const session = this.#activeSession();
+    if (session === undefined) {
+      this.#emitOutputs();
+      return;
+    }
+    for (const assignment of session.outputAssignments) {
+      this.#signals.upsertAssignment({
+        ...assignment,
+        consumer: { kind: "agent-session", id: session.id },
+      });
+    }
+    this.#signals.setActiveSession(session.id);
+    this.#emitOutputs();
+  }
+
+  async #withSuspendedSignals<T>(action: () => Promise<T>): Promise<T> {
+    this.#clearRuntimeAssignments();
+    try {
+      const result = await action();
+      this.#bindActiveOutputAssignments();
+      return result;
+    } catch (error) {
+      this.#bindActiveOutputAssignments();
+      throw error;
+    }
+  }
+
+  async #replaceOutputAssignments(
+    outputAssignments: DesktopOutputAssignment[],
+  ): Promise<void> {
+    await this.#updateActiveSession({ outputAssignments });
+    this.#bindActiveOutputAssignments();
+  }
+
+  async #updateOutputAssignment(
+    assignment: DesktopOutputAssignment,
+  ): Promise<void> {
+    const session = this.#activeSession();
+    if (session === undefined) throw new Error("No active conversation");
+    await this.#replaceOutputAssignments([
+      assignment,
+      ...session.outputAssignments.filter(
+        (item) => item.producerId !== assignment.producerId,
+      ),
+    ]);
+  }
+
+  async #editOutput(
+    producerId: string,
+    update: Partial<
+      Pick<
+        DesktopOutputAssignment,
+        "enabled" | "deliveryMode" | "usageInstruction"
+      >
+    >,
+  ): Promise<DesktopOutputAssignment> {
+    this.#assertAccepting();
+    const assignment = this.#activeSession()?.outputAssignments.find(
+      (item) => item.producerId === producerId,
+    );
+    if (assignment === undefined) throw new Error("Output is not assigned");
+    const updated = { ...assignment, ...update };
+    await this.#updateOutputAssignment(updated);
+    return updated;
   }
 
   #assertAccepting(): void {

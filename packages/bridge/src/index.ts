@@ -175,6 +175,21 @@ export interface AbletonBridgeOptions {
     requestId: string;
     correlationId?: string;
     command: string;
+    params: Readonly<Record<string, unknown>>;
+  }) => void;
+  onResponse?: (response: {
+    requestId: string;
+    correlationId?: string;
+    command: string;
+    durationMs: number;
+    ok: boolean;
+    result?: unknown;
+    error?: {
+      code: string;
+      message: string;
+      retryable: boolean;
+      details?: unknown;
+    };
   }) => void;
 }
 
@@ -815,9 +830,11 @@ export class AbletonBridgeService implements AbletonService {
         : { projectRevision: this.#projectRevision }),
     };
     const correlationId = currentCorrelationId();
+    const startedAt = Date.now();
     this.options.onRequest?.({
       requestId,
       command,
+      params,
       ...(correlationId === undefined ? {} : { correlationId }),
     });
 
@@ -836,8 +853,35 @@ export class AbletonBridgeService implements AbletonService {
       this.#pending.set(requestId, { resolve, reject, timeout });
     });
     socket.write(encodeFrame(request));
-    const envelope = await response;
+    let envelope: ResponseEnvelope;
+    try {
+      envelope = await response;
+    } catch (error) {
+      this.options.onResponse?.({
+        requestId,
+        command,
+        durationMs: Date.now() - startedAt,
+        ok: false,
+        ...(correlationId === undefined ? {} : { correlationId }),
+        error: {
+          code:
+            error instanceof AbletonBridgeError ? error.code : "request_failed",
+          message: error instanceof Error ? error.message : String(error),
+          retryable:
+            error instanceof AbletonBridgeError ? error.retryable : false,
+        },
+      });
+      throw error;
+    }
     if (!envelope.ok) {
+      this.options.onResponse?.({
+        requestId,
+        command,
+        durationMs: Date.now() - startedAt,
+        ok: false,
+        ...(correlationId === undefined ? {} : { correlationId }),
+        error: envelope.error,
+      });
       throw new AbletonBridgeError(
         envelope.error.code,
         envelope.error.message,
@@ -848,6 +892,14 @@ export class AbletonBridgeService implements AbletonService {
     if (envelope.projectRevision !== undefined) {
       this.#projectRevision = envelope.projectRevision;
     }
+    this.options.onResponse?.({
+      requestId,
+      command,
+      durationMs: Date.now() - startedAt,
+      ok: true,
+      result: envelope.result,
+      ...(correlationId === undefined ? {} : { correlationId }),
+    });
     return envelope.result;
   }
 

@@ -44,12 +44,22 @@ describe("AbletonBridgeService", () => {
       requestId: string;
       correlationId?: string;
       command: string;
+      params: Readonly<Record<string, unknown>>;
     }[] = [];
+    const responses: Array<{
+      requestId: string;
+      correlationId?: string;
+      command: string;
+      durationMs: number;
+      ok: boolean;
+      result?: unknown;
+    }> = [];
     const service = new AbletonBridgeService({
       authenticationToken: token,
       events: new InMemoryEventPublisher(),
       port,
       onRequest: (request) => requests.push(request),
+      onResponse: (response) => responses.push(response),
     });
 
     await service.start();
@@ -107,8 +117,17 @@ describe("AbletonBridgeService", () => {
     expect(pingRequest).toMatchObject({
       correlationId: "tool-call-123",
       command: "system.ping",
+      params: {},
     });
     expect(typeof pingRequest?.requestId).toBe("string");
+    expect(
+      responses.find((response) => response.correlationId === "tool-call-123"),
+    ).toMatchObject({
+      requestId: pingRequest?.requestId,
+      command: "system.ping",
+      ok: true,
+      result: { pong: true },
+    });
     await expect(service.inspectSession()).resolves.toMatchObject({
       tempo: 120,
       trackCount: 2,

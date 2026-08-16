@@ -15,6 +15,7 @@ describe("preload API", () => {
       "project",
       "plan",
       "operations",
+      "outputs",
       "events",
     ]);
     expect("invoke" in api).toBe(false);
@@ -54,6 +55,42 @@ describe("preload API", () => {
       transportFor({ "ableton:status": { state: "connected" } }),
     );
     await expect(api.ableton.getStatus()).rejects.toThrow();
+  });
+
+  it("validates output routing requests and responses", async () => {
+    const assignment = {
+      assignmentId: "assignment-1",
+      producerId: "producer-1",
+      enabled: true,
+      deliveryMode: "next-prompt",
+      usageInstruction: "Use safely.",
+      processingPolicyIds: ["latest-window"],
+    };
+    const transport = transportFor({ "outputs:assign": assignment });
+    const api = createDesktopApi(transport);
+    await expect(api.outputs.assign("producer-1")).resolves.toEqual(assignment);
+    await expect(api.outputs.assign("")).rejects.toThrow();
+  });
+
+  it("exposes fixed diagnostics actions without renderer-provided paths", async () => {
+    const transport = transportFor({
+      "diagnostics:reveal-log": { revealed: true },
+      "diagnostics:export-support-bundle": { status: "cancelled" },
+      "diagnostics:copy-summary": { copied: true },
+    });
+    const api = createDesktopApi(transport);
+
+    await api.diagnostics.revealLog();
+    await expect(api.diagnostics.exportSupportBundle()).resolves.toEqual({
+      status: "cancelled",
+    });
+    await api.diagnostics.copySummary();
+
+    expect(vi.mocked(transport).invoke.mock.calls).toEqual([
+      ["diagnostics:reveal-log", {}],
+      ["diagnostics:export-support-bundle", {}],
+      ["diagnostics:copy-summary", {}],
+    ]);
   });
 });
 

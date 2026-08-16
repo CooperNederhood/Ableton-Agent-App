@@ -133,7 +133,9 @@ Shutdown order:
 Store non-secret preferences separately from credentials. Important settings:
 
 - Model and reasoning level.
-- Approval policy.
+- Approval policy: always ask, ask for risky changes, deny changes, or
+  immediately approve all tool requests without prompts. Approve-all remains
+  subject to tool schema validation and structural safety checks.
 - Supported Ableton port override for diagnostics.
 - Remote Script location.
 - Diagnostic logging level.

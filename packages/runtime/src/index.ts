@@ -19,3 +19,10 @@ export {
   type AgentRuntimeOptions,
   type AgentSettings,
 } from "./composition.js";
+export {
+  DefaultSignalRuntime,
+  type SignalRuntime,
+  type SignalRuntimeEvent,
+  type SignalRuntimeOptions,
+  type SignalRuntimeStatus,
+} from "./signal-runtime.js";

@@ -249,11 +249,24 @@ The desktop app uses the same runtime, bridge, tools, and approval policies as
 the CLI:
 
 ```bash
-pnpm --filter @ableton-agent/desktop dev
+pnpm desktop:dev
 ```
 
 Use its Diagnostics view to confirm the bridge, Remote Script compatibility,
 and Copilot session state before testing chat and mutations.
+
+For a debug launch with `ABLETON_AGENT_LOG_LEVEL=debug` and DevTools opened
+automatically, run:
+
+```bash
+pnpm desktop:debug
+```
+
+Renderer changes use Vite hot reload. Changes to the Electron main process or
+preload must be picked up by stopping and restarting the development command.
+The app prints the development log path at startup; follow it in another shell
+with `tail -f "<printed-path>"` on macOS/Linux or
+`Get-Content "<printed-path>" -Wait` in PowerShell.
 
 ## Manual verification checklist
 
@@ -301,6 +314,8 @@ real LOM behavior.
 | ------------------------------------------- | ----------------------------------------------------------- |
 | `pnpm check`                                | Run formatting, lint, docs, contracts, types, and all tests |
 | `pnpm build`                                | Build every workspace                                       |
+| `pnpm desktop:dev`                          | Start the desktop renderer development workflow             |
+| `pnpm desktop:debug`                        | Start desktop development with debug logs and DevTools      |
 | `pnpm test:electron`                        | Run Electron end-to-end tests                               |
 | `pnpm desktop:dist`                         | Produce unsigned local desktop artifacts                    |
 | `pnpm live:validate -- --live-version 12.1` | Record real-Live smoke evidence                             |

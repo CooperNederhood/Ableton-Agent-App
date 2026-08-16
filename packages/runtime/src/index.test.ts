@@ -209,6 +209,7 @@ describe("composed agent session control", () => {
     await application.start();
     await expect(application.cancel()).resolves.toBe(false);
     const turn = application.send("Long running");
+    await new Promise((resolve) => setImmediate(resolve));
     await expect(application.cancel()).resolves.toBe(true);
     await expect(turn).rejects.toThrow("without an assistant response");
     expect(abort).toHaveBeenCalledOnce();

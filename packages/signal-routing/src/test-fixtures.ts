@@ -1,0 +1,26 @@
+export const midiSample = {
+  schema: "midi-sample/v1" as const,
+  sample_index: 0,
+  complete: true,
+  end_reason: "boundary",
+  start_tick: 0,
+  end_tick: 1920,
+  ppq: 480,
+  start_beat: 0,
+  end_beat: 4,
+  length_beats: 4,
+  tempo_bpm_at_start: 120,
+  time_signature_at_start: [4, 4] as [number, number],
+  notes: [
+    {
+      channel: 1,
+      pitch: 60,
+      name: "C4",
+      velocity: 100,
+      onset_beats: 0,
+      duration_beats: 1,
+      continued_from_previous: false,
+      continues_into_next: false,
+    },
+  ],
+};

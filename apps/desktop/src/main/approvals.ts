@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 
 import type { ToolApprovalRequest } from "@ableton-agent/tools";
 
-import type { ApprovalDecision, ApprovalRequest } from "../contracts.js";
+import type {
+  ApprovalDecision,
+  ApprovalRequest,
+  DesktopPreferences,
+} from "../contracts.js";
 
 /**
  * Maps a shared tool approval request into the desktop approval view model.
@@ -84,9 +88,40 @@ export class ApprovalCoordinator {
 
   /** Denies everything still pending, e.g. during shutdown. */
   public denyAll(): void {
+    this.resolveAll(false);
+  }
+
+  public resolveAll(approved: boolean): void {
     for (const [id, resolve] of [...this.#pending]) {
       this.#pending.delete(id);
-      resolve(false);
+      resolve(approved);
     }
+  }
+}
+
+export class ApprovalPolicyController {
+  #policy: DesktopPreferences["approvalPolicy"];
+
+  public constructor(
+    policy: DesktopPreferences["approvalPolicy"],
+    private readonly approvals: ApprovalCoordinator,
+  ) {
+    this.#policy = policy;
+  }
+
+  public readonly request = (
+    request: ToolApprovalRequest,
+  ): Promise<boolean> => {
+    if (this.#policy === "approve-all") return Promise.resolve(true);
+    if (this.#policy === "never") return Promise.resolve(false);
+    return this.approvals.request(request);
+  };
+
+  public readonly askForReads = (): boolean => this.#policy === "always";
+
+  public setPolicy(policy: DesktopPreferences["approvalPolicy"]): void {
+    this.#policy = policy;
+    if (policy === "approve-all") this.approvals.resolveAll(true);
+    if (policy === "never") this.approvals.resolveAll(false);
   }
 }

@@ -8,9 +8,21 @@ import {
   type KeyboardEvent,
 } from "react";
 
-import type { DesktopTrack, PlanSection, ProductMode } from "../contracts";
+import type {
+  DesktopApi,
+  DesktopAppEvent,
+  DesktopConnectionStatus,
+  DesktopOutputAssignment,
+  DesktopOutputConnection,
+  LatestAcceptedOutput,
+  DesktopTrack,
+  PlanSection,
+  ProductMode,
+} from "../contracts";
+import { AssistantMarkdown } from "./AssistantMarkdown";
 import {
   contextForSelection,
+  boundRefreshMessage,
   desktopReducer,
   initialState,
   type DesktopState,
@@ -35,6 +47,33 @@ const browserItems = [
   ["Hybrid Reverb", "Audio effect", "Ableton"],
   ["Roar", "Audio effect", "Ableton"],
 ] as const;
+
+export async function loadInitialDesktopState(
+  desktop: DesktopApi,
+): Promise<DesktopAppEvent[]> {
+  return [
+    {
+      type: "lifecycle.changed",
+      state: await desktop.lifecycle.get(),
+    },
+    {
+      type: "ableton.connection_changed",
+      status: await desktop.ableton.getStatus(),
+    },
+    {
+      type: "preferences.changed",
+      preferences: await desktop.preferences.get(),
+    },
+    {
+      type: "sessions.changed",
+      sessions: await desktop.agent.getSessions(),
+    },
+    {
+      type: "outputs.changed",
+      outputs: await desktop.outputs.list(),
+    },
+  ];
+}
 
 export function App(): React.JSX.Element {
   const [state, dispatch] = useReducer(desktopReducer, initialState);
@@ -75,48 +114,8 @@ export function App(): React.JSX.Element {
   }, []);
   useEffect(() => {
     const load = async (): Promise<void> => {
-      for (const event of [
-        {
-          type: "lifecycle.changed" as const,
-          state: await window.desktop.lifecycle.get(),
-        },
-        {
-          type: "ableton.connection_changed" as const,
-          status: await window.desktop.ableton.getStatus(),
-        },
-        {
-          type: "preferences.changed" as const,
-          preferences: await window.desktop.preferences.get(),
-        },
-        {
-          type: "sessions.changed" as const,
-          sessions: await window.desktop.agent.getSessions(),
-        },
-      ])
+      for (const event of await loadInitialDesktopState(window.desktop))
         dispatch({ type: "event", event });
-      // A snapshot exists only while Ableton is connected, so its absence is
-      // reported instead of blocking the rest of the initial state.
-      try {
-        dispatch({
-          type: "event",
-          event: {
-            type: "project.snapshot_changed",
-            snapshot: await window.desktop.ableton.requestSnapshot(),
-          },
-        });
-      } catch (error) {
-        dispatch({
-          type: "event",
-          event: {
-            type: "diagnostic",
-            level: "info",
-            message:
-              error instanceof Error
-                ? error.message
-                : "No project snapshot is available",
-          },
-        });
-      }
     };
     void load();
   }, []);
@@ -168,6 +167,7 @@ export function App(): React.JSX.Element {
         {(
           [
             "workspace",
+            "outputs",
             "browser",
             "diagnostics",
             "sessions",
@@ -197,10 +197,12 @@ export function App(): React.JSX.Element {
           />
         ) : state.activeView === "workspace" ? (
           <Workspace state={state} dispatch={dispatch} />
+        ) : state.activeView === "outputs" ? (
+          <OutputsView state={state} dispatch={dispatch} />
         ) : state.activeView === "browser" ? (
           <BrowserView state={state} dispatch={dispatch} />
         ) : state.activeView === "diagnostics" ? (
-          <DiagnosticsView state={state} />
+          <DiagnosticsView state={state} dispatch={dispatch} />
         ) : state.activeView === "sessions" ? (
           <SessionsView state={state} />
         ) : (
@@ -216,6 +218,296 @@ export function App(): React.JSX.Element {
         onSubmit={submit}
         dispatch={dispatch}
       />
+    </div>
+  );
+}
+
+export function OutputsView({
+  state,
+  dispatch,
+}: {
+  state: DesktopState;
+  dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+}): React.JSX.Element {
+  const report = (error: unknown): void =>
+    dispatch({
+      type: "event",
+      event: {
+        type: "diagnostic",
+        level: "error",
+        message:
+          error instanceof Error ? error.message : "Output update failed",
+      },
+    });
+  const unavailable = state.outputs.status.state !== "listening";
+  return (
+    <section className="outputs-view" aria-labelledby="outputs-heading">
+      <div className="panel-heading">
+        <div>
+          <h2 id="outputs-heading">Outputs</h2>
+          <p>
+            Discovered MIDI and audio observations routed to the active
+            conversation.
+          </p>
+        </div>
+        <strong>
+          Signal service:{" "}
+          {state.outputs.status.state === "listening"
+            ? `listening on ${state.outputs.status.host}:${state.outputs.status.port}`
+            : state.outputs.status.state}
+        </strong>
+      </div>
+      {unavailable && (
+        <div className="notice" role="status">
+          {state.outputs.status.state === "disabled" ||
+          state.outputs.status.state === "error"
+            ? state.outputs.status.detail
+            : "Signal ingress is not running."}
+        </div>
+      )}
+      {!state.outputs.activeSessionId && (
+        <div className="notice" role="status">
+          No active conversation. Start or resume a session before assigning
+          outputs.
+        </div>
+      )}
+      {state.outputs.connections.length === 0 ? (
+        <EmptyState
+          title="No outputs discovered"
+          detail="Open a compatible MIDI or audio producer in Ableton Live."
+        />
+      ) : (
+        <div className="output-grid">
+          {state.outputs.connections.map((connection) => {
+            const assignment = state.outputs.assignments.find(
+              (item) => item.producerId === connection.producerId,
+            );
+            const latest = state.outputs.latest
+              .filter((item) => item.producerId === connection.producerId)
+              .sort((left, right) => right.sequence - left.sequence)[0];
+            return (
+              <OutputConnectionCard
+                key={connection.producerId}
+                connection={connection}
+                assignment={assignment}
+                latest={latest}
+                unavailable={unavailable}
+                hasActiveSession={state.outputs.activeSessionId !== undefined}
+                expanded={
+                  !state.collapsedOutputProducerIds.includes(
+                    connection.producerId,
+                  )
+                }
+                onToggleDisclosure={() =>
+                  dispatch({
+                    type: "toggle-output-disclosure",
+                    producerId: connection.producerId,
+                  })
+                }
+                onError={report}
+              />
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+export async function setOutputQuickEnabled(
+  outputs: Pick<DesktopApi["outputs"], "assign" | "setEnabled">,
+  producerId: string,
+  assignment: DesktopOutputAssignment | undefined,
+  enabled: boolean,
+): Promise<void> {
+  if (assignment === undefined) {
+    if (enabled) await outputs.assign(producerId);
+    return;
+  }
+  await outputs.setEnabled(producerId, enabled);
+}
+
+export function OutputConnectionCard({
+  connection,
+  assignment,
+  latest,
+  unavailable,
+  hasActiveSession,
+  expanded,
+  onToggleDisclosure,
+  onError,
+}: {
+  connection: DesktopOutputConnection;
+  assignment: DesktopOutputAssignment | undefined;
+  latest: LatestAcceptedOutput | undefined;
+  unavailable: boolean;
+  hasActiveSession: boolean;
+  expanded: boolean;
+  onToggleDisclosure: () => void;
+  onError: (error: unknown) => void;
+}): React.JSX.Element {
+  const [updating, setUpdating] = useState(false);
+  const detailsId = `output-details-${connection.producerId}`;
+  const quickToggleDisabled =
+    updating || unavailable || (assignment === undefined && !hasActiveSession);
+  const updateEnabled = async (enabled: boolean): Promise<void> => {
+    setUpdating(true);
+    try {
+      await setOutputQuickEnabled(
+        window.desktop.outputs,
+        connection.producerId,
+        assignment,
+        enabled,
+      );
+    } catch (error) {
+      onError(error);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  return (
+    <article
+      className={`output-card${expanded ? "" : " output-card-collapsed"}`}
+    >
+      <header>
+        <div className="output-card-identity">
+          <h3>{connection.displayName}</h3>
+          <span>
+            {connection.signalKind.toUpperCase()} ·{" "}
+            {connection.track?.name ?? "Unknown track"}
+            {connection.device?.name ? ` · ${connection.device.name}` : ""}
+          </span>
+        </div>
+        <div className="output-card-header-actions">
+          <strong aria-label={`Connection state: ${connection.state}`}>
+            {connection.state}
+            {connection.receiving ? " · receiving" : ""}
+          </strong>
+          <label className="output-quick-toggle">
+            <input
+              type="checkbox"
+              role="switch"
+              aria-label={`${
+                assignment?.enabled ? "Disable" : "Enable"
+              } ${connection.displayName} delivery`}
+              checked={assignment?.enabled ?? false}
+              disabled={quickToggleDisabled}
+              onChange={(event) => void updateEnabled(event.target.checked)}
+            />
+            <span>{assignment?.enabled ? "On" : "Off"}</span>
+          </label>
+          <button
+            type="button"
+            className="output-disclosure"
+            aria-expanded={expanded}
+            aria-controls={detailsId}
+            onClick={onToggleDisclosure}
+          >
+            {expanded ? "Collapse" : "Expand"}
+          </button>
+        </div>
+      </header>
+      {expanded && (
+        <div id={detailsId} className="output-card-details">
+          <div className="latest-output">
+            <strong>Latest accepted window</strong>
+            <p>
+              {latest?.summary ?? "No accepted sample has been received yet."}
+            </p>
+          </div>
+          {assignment === undefined ? (
+            <button
+              disabled={unavailable || !hasActiveSession}
+              onClick={() =>
+                void window.desktop.outputs
+                  .assign(connection.producerId)
+                  .catch(onError)
+              }
+            >
+              Assign to active conversation
+            </button>
+          ) : (
+            <OutputAssignmentControls
+              assignment={assignment}
+              onError={onError}
+            />
+          )}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function OutputAssignmentControls({
+  assignment,
+  onError,
+}: {
+  assignment: DesktopOutputAssignment;
+  onError: (error: unknown) => void;
+}): React.JSX.Element {
+  const [instruction, setInstruction] = useState(assignment.usageInstruction);
+  return (
+    <div className="output-controls">
+      <label>
+        <input
+          type="checkbox"
+          checked={assignment.enabled}
+          onChange={(event) =>
+            void window.desktop.outputs
+              .setEnabled(assignment.producerId, event.target.checked)
+              .catch(onError)
+          }
+        />{" "}
+        Delivery enabled
+      </label>
+      <label>
+        Delivery mode
+        <select
+          value={assignment.deliveryMode}
+          onChange={(event) =>
+            void window.desktop.outputs
+              .setDeliveryMode(
+                assignment.producerId,
+                event.target.value as DesktopOutputAssignment["deliveryMode"],
+              )
+              .catch(onError)
+          }
+        >
+          <option value="next-prompt">Next prompt</option>
+          <option value="automatic-analysis">Automatic analysis</option>
+          <option value="automatic-action">Automatic action</option>
+        </select>
+      </label>
+      <label>
+        Usage instruction
+        <textarea
+          aria-label={`Usage instruction for ${assignment.producerId}`}
+          value={instruction}
+          onChange={(event) => setInstruction(event.target.value)}
+        />
+      </label>
+      <div className="output-actions">
+        <button
+          disabled={instruction.trim().length === 0}
+          onClick={() =>
+            void window.desktop.outputs
+              .setUsageInstruction(assignment.producerId, instruction)
+              .catch(onError)
+          }
+        >
+          Save instruction
+        </button>
+        <button
+          onClick={() =>
+            void window.desktop.outputs
+              .unassign(assignment.producerId)
+              .catch(onError)
+          }
+        >
+          Unassign
+        </button>
+      </div>
     </div>
   );
 }
@@ -362,45 +654,132 @@ function Workspace({
   );
 }
 
-function ProjectOutline({
+type DesktopDispatch = React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+
+export async function refreshProjectSnapshot(
+  connection: DesktopConnectionStatus,
+  dispatch: DesktopDispatch,
+  requestSnapshot: DesktopApi["ableton"]["requestSnapshot"],
+): Promise<void> {
+  if (connection.state !== "connected") {
+    const message = "Connect to Ableton before refreshing the project.";
+    dispatch({ type: "project-refresh-failed", message });
+    dispatch({
+      type: "event",
+      event: { type: "diagnostic", level: "warning", message },
+    });
+    return;
+  }
+
+  dispatch({ type: "project-refresh-started" });
+  try {
+    const snapshot = await requestSnapshot();
+    dispatch({
+      type: "event",
+      event: { type: "project.snapshot_changed", snapshot },
+    });
+    dispatch({ type: "project-refresh-succeeded" });
+  } catch (error) {
+    const message = boundRefreshMessage(
+      error instanceof Error ? error.message : "Project refresh failed",
+    );
+    dispatch({ type: "project-refresh-failed", message });
+    dispatch({
+      type: "event",
+      event: { type: "diagnostic", level: "warning", message },
+    });
+  }
+}
+
+export function ProjectOutline({
   state,
   dispatch,
 }: {
   state: DesktopState;
-  dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+  dispatch: DesktopDispatch;
 }): React.JSX.Element {
+  useEffect(() => {
+    if (state.projectRefresh.status !== "succeeded") return;
+    const timeout = globalThis.setTimeout(
+      () => dispatch({ type: "project-refresh-reset" }),
+      2_500,
+    );
+    return () => globalThis.clearTimeout(timeout);
+  }, [dispatch, state.projectRefresh.status]);
+
+  const refreshLabel =
+    state.projectRefresh.status === "refreshing"
+      ? "Refreshing…"
+      : state.projectRefresh.status === "succeeded"
+        ? "Updated"
+        : state.projectRefresh.status === "failed"
+          ? "Retry"
+          : "Refresh";
+  const refreshStatus =
+    state.projectRefresh.status === "refreshing"
+      ? "Refreshing project snapshot."
+      : state.projectRefresh.status === "succeeded"
+        ? "Project snapshot updated."
+        : state.projectRefresh.status === "failed"
+          ? state.projectRefresh.message
+          : undefined;
+
   return (
     <aside className="project-outline" aria-label="Project outline">
       <div className="panel-heading">
         <h2>Project</h2>
-        <button
-          aria-label="Refresh project snapshot"
-          onClick={() =>
-            void window.desktop.ableton
-              .requestSnapshot()
-              .then((snapshot) =>
-                dispatch({
-                  type: "event",
-                  event: { type: "project.snapshot_changed", snapshot },
-                }),
+        <div className="project-refresh">
+          <button
+            aria-label={`${refreshLabel} project snapshot`}
+            aria-describedby={
+              refreshStatus === undefined ? undefined : "project-refresh-status"
+            }
+            disabled={state.projectRefresh.status === "refreshing"}
+            onClick={() =>
+              void refreshProjectSnapshot(state.connection, dispatch, () =>
+                window.desktop.ableton.requestSnapshot(),
               )
-              .catch((error: unknown) =>
-                dispatch({
-                  type: "event",
-                  event: {
-                    type: "diagnostic",
-                    level: "warning",
-                    message:
-                      error instanceof Error
-                        ? error.message
-                        : "Snapshot request failed",
-                  },
-                }),
-              )
-          }
-        >
-          ↻
-        </button>
+            }
+          >
+            {refreshLabel}
+          </button>
+          {refreshStatus !== undefined && (
+            <span
+              id="project-refresh-status"
+              className={
+                state.projectRefresh.status === "failed"
+                  ? "status status-error"
+                  : "status"
+              }
+              role={
+                state.projectRefresh.status === "failed" ? "alert" : "status"
+              }
+            >
+              {refreshStatus}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="project-context-toggle">
+        <label>
+          <input
+            type="checkbox"
+            role="switch"
+            checked={state.projectSelectionContextEnabled}
+            onChange={(event) =>
+              dispatch({
+                type: "project-selection-context",
+                enabled: event.target.checked,
+              })
+            }
+          />
+          Use project selection as context
+        </label>
+        <small>
+          {state.projectSelectionContextEnabled
+            ? "Selected tracks, clips, and devices are included in prompts."
+            : "Selections only control the Project and Inspector views."}
+        </small>
       </div>
       {!state.snapshot ? (
         <EmptyState
@@ -472,7 +851,11 @@ function ProjectOutline({
   );
 }
 
-function Timeline({ state }: { state: DesktopState }): React.JSX.Element {
+export function Timeline({
+  state,
+}: {
+  state: DesktopState;
+}): React.JSX.Element {
   const items = useMemo(
     () =>
       [
@@ -507,7 +890,11 @@ function Timeline({ state }: { state: DesktopState }): React.JSX.Element {
               {item.role === "user" ? "You" : "Assistant"}{" "}
               {item.streaming && <span>Streaming…</span>}
             </header>
-            <p>{item.content}</p>
+            {item.role === "assistant" ? (
+              <AssistantMarkdown content={item.content} />
+            ) : (
+              <p className="message-plain-text">{item.content}</p>
+            )}
           </article>
         ) : (
           <OperationCard key={`operation-${item.id}`} operation={item} />
@@ -920,29 +1307,100 @@ function BrowserView({
   );
 }
 
-function DiagnosticsView({
+export function DiagnosticsView({
   state,
+  dispatch,
 }: {
   state: DesktopState;
+  dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
 }): React.JSX.Element {
-  const [checks, setChecks] = useState<
-    Array<{ label: string; status: "pass" | "warn" | "fail"; detail: string }>
-  >([]);
+  const [actionStatus, setActionStatus] = useState("");
+  const refresh = async (): Promise<void> => {
+    const report = await window.desktop.diagnostics.get();
+    dispatch({ type: "diagnostics-loaded", report });
+  };
+  const perform = async (action: () => Promise<string>): Promise<void> => {
+    try {
+      setActionStatus(await action());
+    } catch (error) {
+      setActionStatus(
+        `Diagnostics action failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
   useEffect(() => {
-    void window.desktop.diagnostics.get().then(setChecks);
-  }, []);
+    void refresh().catch((error: unknown) =>
+      setActionStatus(
+        `Diagnostics could not be loaded: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+    );
+  }, [dispatch]);
+  const report = state.diagnosticsReport;
   return (
     <section className="page-panel">
       <div className="panel-heading">
         <h1>Diagnostics</h1>
-        <button
-          onClick={() => void window.desktop.diagnostics.get().then(setChecks)}
-        >
-          Run checks
-        </button>
+        <div className="inline-actions">
+          <button
+            onClick={() =>
+              void perform(async () => {
+                await refresh();
+                return "Diagnostics checks updated.";
+              })
+            }
+          >
+            Run checks
+          </button>
+          <button
+            onClick={() =>
+              void perform(async () => {
+                await window.desktop.diagnostics.revealLog();
+                return "Revealed the active log.";
+              })
+            }
+          >
+            Reveal log
+          </button>
+          <button
+            onClick={() =>
+              void perform(async () => {
+                const result =
+                  await window.desktop.diagnostics.exportSupportBundle();
+                return result.status === "saved"
+                  ? `Support bundle saved to ${result.filePath}`
+                  : "Support bundle export cancelled.";
+              })
+            }
+          >
+            Export support bundle
+          </button>
+          <button
+            onClick={() =>
+              void perform(async () => {
+                await window.desktop.diagnostics.copySummary();
+                return "Diagnostics summary copied.";
+              })
+            }
+          >
+            Copy summary
+          </button>
+        </div>
       </div>
+      {report && (
+        <div className="diagnostics-log">
+          <strong>Active logging level: {report.logging.level}</strong>
+          {report.logging.environmentOverride && (
+            <span>Controlled by ABLETON_AGENT_LOG_LEVEL</span>
+          )}
+          <span>{report.logging.fileName}</span>
+          <code title={report.logging.filePath}>{report.logging.filePath}</code>
+        </div>
+      )}
+      <p className="diagnostics-action-status" aria-live="polite">
+        {actionStatus}
+      </p>
       <div className="diagnostics">
-        {checks.map((check) => (
+        {(report?.checks ?? []).map((check) => (
           <article key={check.label}>
             <span className={`check check-${check.status}`}>
               {check.status === "pass"
@@ -1005,7 +1463,7 @@ function SessionsView({ state }: { state: DesktopState }): React.JSX.Element {
   );
 }
 
-function SettingsView({
+export function SettingsView({
   state,
   dispatch,
 }: {
@@ -1068,9 +1526,20 @@ function SettingsView({
           >
             <option value="always">Always ask</option>
             <option value="risky">Risky changes</option>
+            <option value="approve-all">Approve all (no prompts)</option>
             <option value="never">Deny all changes</option>
           </select>
         </label>
+        {draft.approvalPolicy === "approve-all" && (
+          <div className="approval-policy-warning" role="alert">
+            <strong>
+              Warning: all changes will be approved automatically.
+            </strong>
+            <span>
+              You will not be prompted before Ableton changes are applied.
+            </span>
+          </div>
+        )}
         <label>
           Ableton port
           <input
@@ -1080,6 +1549,18 @@ function SettingsView({
             value={draft.abletonPort}
             onChange={(event) =>
               setDraft({ ...draft, abletonPort: Number(event.target.value) })
+            }
+          />
+        </label>
+        <label>
+          Signal ingress port
+          <input
+            type="number"
+            min="1"
+            max="65535"
+            value={draft.signalPort}
+            onChange={(event) =>
+              setDraft({ ...draft, signalPort: Number(event.target.value) })
             }
           />
         </label>
@@ -1131,7 +1612,7 @@ function SettingsView({
   );
 }
 
-function Composer({
+export function Composer({
   state,
   value,
   busy,
@@ -1164,9 +1645,11 @@ function Composer({
         ) : (
           context.map((chip) => (
             <button
+              type="button"
               key={chip.id}
               title="Remove context"
-              onClick={() => dispatch({ type: "toggle-context", chip })}
+              aria-label={`Remove ${chip.kind} ${chip.label} from context`}
+              onClick={() => dispatch({ type: "remove-context", chip })}
             >
               {chip.kind}: {chip.label} ×
             </button>

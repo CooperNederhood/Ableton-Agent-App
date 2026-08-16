@@ -5,3 +5,4 @@ node_modules
 pnpm-lock.yaml
 playwright-report
 test-results
+max-patches/midi-capture/midi_capture_identity.js

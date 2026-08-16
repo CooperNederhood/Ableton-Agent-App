@@ -33,6 +33,63 @@ function encodedFrameBytes(encoded) {
   return Buffer.byteLength(encoded, "utf8") - 1;
 }
 
+function boundedRequiredString(value, field) {
+  if (typeof value !== "string") {
+    throw new Error(`${field} must be a string`);
+  }
+  const normalized = value.trim();
+  if (normalized.length === 0 || normalized.length > 256) {
+    throw new Error(`${field} must contain 1 to 256 characters`);
+  }
+  return normalized;
+}
+
+function validateProducerIdentity(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("identity must be an object");
+  }
+  const canonicalPath = boundedRequiredString(
+    value.canonicalPath,
+    "canonicalPath",
+  );
+  const track = value.track;
+  const device = value.device;
+  if (!track || typeof track !== "object" || Array.isArray(track)) {
+    throw new Error("track must be an object");
+  }
+  if (!device || typeof device !== "object" || Array.isArray(device)) {
+    throw new Error("device must be an object");
+  }
+  const normalizedTrack = {
+    id: boundedRequiredString(track.id, "track.id"),
+    name: boundedRequiredString(track.name, "track.name"),
+  };
+  if (track.index !== undefined && track.index !== null) {
+    if (!Number.isInteger(track.index) || track.index < 0) {
+      throw new Error("track.index must be a nonnegative integer");
+    }
+    normalizedTrack.index = track.index;
+  }
+  return {
+    canonicalPath,
+    track: normalizedTrack,
+    device: {
+      id: boundedRequiredString(device.id, "device.id"),
+      name: boundedRequiredString(device.name, "device.name"),
+    },
+  };
+}
+
+function producerIdForCanonicalPath(canonicalPath) {
+  const normalized = boundedRequiredString(canonicalPath, "canonicalPath");
+  const digest = crypto
+    .createHash("sha256")
+    .update(`live-path-v1:${normalized}`, "utf8")
+    .digest("hex")
+    .slice(0, 32);
+  return `ableton-midi-capture:path:${digest}`;
+}
+
 function validateDescriptor(value) {
   if (
     !value ||
@@ -76,9 +133,8 @@ class AgentSignalClient {
       this.env[DEFAULT_SECRET_PATH_ENV] ||
       DEFAULT_SECRET_PATH;
     this.instanceId = options.instanceId || this.randomUUID();
-    this.producerId =
-      options.producerId || `ableton-midi-capture:${this.instanceId}`;
     this.displayName = options.displayName || "Midi-Capture";
+    this.producer = null;
     this.maxOfflineSamples = options.maxOfflineSamples || 32;
     this.maxPendingRequests = options.maxPendingRequests || 64;
     this.heartbeatMs = options.heartbeatMs || 5000;
@@ -102,9 +158,29 @@ class AgentSignalClient {
     this.lastStatus = null;
   }
 
+  configureProducer(identity) {
+    if (this.started || this.stopping) {
+      throw new Error("producer identity cannot change after startup");
+    }
+    const normalized = validateProducerIdentity(identity);
+    this.producer = {
+      producerId: producerIdForCanonicalPath(normalized.canonicalPath),
+      instanceId: this.instanceId,
+      displayName: this.displayName,
+      signalKind: "midi",
+      schemaVersion: "midi-sample/v1",
+      track: normalized.track,
+      device: normalized.device,
+    };
+    return this.producer;
+  }
+
   start() {
     if (this.started || this.stopping) {
       return;
+    }
+    if (!this.producer) {
+      throw new Error("producer identity must be configured before startup");
     }
     this.started = true;
     this.emitStatus("live", "starting");
@@ -178,13 +254,7 @@ class AgentSignalClient {
         protocolVersion: PROTOCOL_VERSION,
         requestId: this.nextRequestId("hello"),
         secret,
-        producer: {
-          producerId: this.producerId,
-          instanceId: this.instanceId,
-          displayName: this.displayName,
-          signalKind: "midi",
-          schemaVersion: "midi-sample/v1",
-        },
+        producer: this.producer,
       });
       if (!sent) {
         socket.destroy();
@@ -475,5 +545,7 @@ module.exports = {
   DEFAULT_SECRET_PATH,
   DEFAULT_SECRET_PATH_ENV,
   PROTOCOL_VERSION,
+  producerIdForCanonicalPath,
   validateDescriptor,
+  validateProducerIdentity,
 };

@@ -15,7 +15,7 @@
   "scripts": {
     "bootstrap": "pnpm install --frozen-lockfile && pnpm build",
     "build": "pnpm -r build",
-    "check": "pnpm format:check && pnpm lint && pnpm docs:check && pnpm max-patch-knowledge:check && pnpm tests:ownership && pnpm versions:check && pnpm contracts:check && pnpm contracts:compat:self-test && pnpm typecheck && pnpm test",
+    "check": "pnpm format:check && pnpm lint && pnpm docs:check && pnpm max-patch-knowledge:check && pnpm midi-capture:check && pnpm tests:ownership && pnpm versions:check && pnpm contracts:check && pnpm contracts:compat:self-test && pnpm typecheck && pnpm test",
     "clean": "pnpm -r clean",
     "contracts:check": "pnpm --filter @ableton-agent/protocol contracts:check",
     "contracts:compat": "node scripts/check-protocol-compatibility.mjs",
@@ -29,6 +29,9 @@
     "lint": "node --max-old-space-size=6144 ./node_modules/eslint/bin/eslint.js .",
     "live:validate": "pnpm build && node scripts/live-validation.mjs",
     "live:agent-smoke": "node scripts/agent-smoke.mjs",
+    "midi-capture:check": "node scripts/midi-capture-device.mjs check",
+    "midi-capture:install": "node scripts/midi-capture-device.mjs install",
+    "midi-capture:promote": "node scripts/midi-capture-device.mjs promote",
     "max-patch-knowledge:check": "node scripts/check-max-patch-knowledge.mjs",
     "test": "pnpm test:ts && pnpm test:max-patches && pnpm test:python",
     "test:max-patches": "node --test max-patches/**/*.test.cjs",

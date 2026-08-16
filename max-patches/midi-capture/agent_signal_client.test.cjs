@@ -7,6 +7,8 @@ const test = require("node:test");
 const {
   AgentSignalClient,
   PROTOCOL_VERSION,
+  producerIdForCanonicalPath,
+  validateProducerIdentity,
 } = require("./agent_signal_client.js");
 
 const SECRET = "local-test-secret-that-is-at-least-32-characters";
@@ -83,7 +85,7 @@ async function createIngress(onMessage) {
 }
 
 function createClient(descriptor, overrides = {}) {
-  return new AgentSignalClient({
+  const client = new AgentSignalClient({
     descriptorPath: "descriptor.json",
     secret: SECRET,
     instanceId: "runtime-instance",
@@ -93,6 +95,12 @@ function createClient(descriptor, overrides = {}) {
     heartbeatMs: 25,
     ...overrides,
   });
+  client.configureProducer({
+    canonicalPath: "live_set tracks 2 devices 1",
+    track: { id: "17", index: 2, name: "Drums" },
+    device: { id: "29", name: "Midi-Capture" },
+  });
+  return client;
 }
 
 test("registers, handles chunked acks, sends samples, and heartbeats", async () => {
@@ -127,11 +135,13 @@ test("registers, handles chunked acks, sends samples, and heartbeats", async () 
   );
   const hello = received.find((message) => message.type === "producer.hello");
   assert.deepEqual(hello.producer, {
-    producerId: "ableton-midi-capture:runtime-instance",
+    producerId: producerIdForCanonicalPath("live_set tracks 2 devices 1"),
     instanceId: "runtime-instance",
     displayName: "Midi-Capture",
     signalKind: "midi",
     schemaVersion: "midi-sample/v1",
+    track: { id: "17", index: 2, name: "Drums" },
+    device: { id: "29", name: "Midi-Capture" },
   });
   assert.equal(hello.secret, SECRET);
   const frame = received.find((message) => message.type === "signal.frame");
@@ -226,6 +236,11 @@ test("missing or invalid discovery remains nonfatal and stop cancels retry", asy
     reconnectMaxMs: 10,
     onStatus: (...items) => statuses.push(items),
   });
+  client.configureProducer({
+    canonicalPath: "live_set tracks 0 devices 0",
+    track: { id: "1", index: 0, name: "Track" },
+    device: { id: "2", name: "Midi-Capture" },
+  });
   client.start();
   client.sendSample(sample(0));
   await waitFor(() => attempts >= 2);
@@ -249,6 +264,65 @@ test("missing or invalid discovery remains nonfatal and stop cancels retry", asy
       }).loadDescriptor(),
     /invalid ingress descriptor/,
   );
+});
+
+test("derives deterministic path identities and validates metadata", () => {
+  const first = producerIdForCanonicalPath("live_set tracks 2 devices 1");
+  const second = producerIdForCanonicalPath("live_set tracks 2 devices 1");
+  const duplicate = producerIdForCanonicalPath("live_set tracks 2 devices 2");
+  assert.equal(first, second);
+  assert.notEqual(first, duplicate);
+  assert.match(first, /^ableton-midi-capture:path:[a-f0-9]{32}$/);
+
+  assert.deepEqual(
+    validateProducerIdentity({
+      canonicalPath: " live_set tracks 2 devices 1 ",
+      track: { id: "17", name: "Drums" },
+      device: { id: "29", name: "Midi-Capture" },
+    }),
+    {
+      canonicalPath: "live_set tracks 2 devices 1",
+      track: { id: "17", name: "Drums" },
+      device: { id: "29", name: "Midi-Capture" },
+    },
+  );
+  assert.throws(
+    () =>
+      validateProducerIdentity({
+        canonicalPath: "live_set tracks 2 devices 1",
+        track: { id: "17", index: -1, name: "Drums" },
+        device: { id: "29", name: "Midi-Capture" },
+      }),
+    /track.index/,
+  );
+});
+
+test("requires producer configuration before startup and keeps it immutable", () => {
+  const client = new AgentSignalClient({
+    descriptorPath: "descriptor.json",
+    secret: SECRET,
+    readText: async () => "{}",
+  });
+  assert.throws(
+    () => client.start(),
+    /producer identity must be configured before startup/,
+  );
+  client.configureProducer({
+    canonicalPath: "live_set tracks 0 devices 0",
+    track: { id: "1", index: 0, name: "Track" },
+    device: { id: "2", name: "Midi-Capture" },
+  });
+  client.start();
+  assert.throws(
+    () =>
+      client.configureProducer({
+        canonicalPath: "live_set tracks 0 devices 1",
+        track: { id: "1", index: 0, name: "Track" },
+        device: { id: "3", name: "Midi-Capture" },
+      }),
+    /cannot change after startup/,
+  );
+  client.stop();
 });
 
 test("drops oversized samples without leaking secrets in status", async () => {

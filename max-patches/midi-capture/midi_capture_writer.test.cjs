@@ -9,6 +9,7 @@ const {
   JsonlWriter,
   MidiCaptureEngine,
   normalizeOutputPath,
+  parseIdentity,
   pitchName,
   startMaxRuntime,
 } = require("./midi_capture_writer.js");
@@ -164,6 +165,23 @@ test("normalizes Max volume-prefixed output paths", () => {
   );
 });
 
+test("parses atomic identity JSON from Max message atoms", () => {
+  assert.deepEqual(
+    parseIdentity([
+      '{"canonicalPath":"live_set tracks 2 devices 1",',
+      '"track":{"id":"17","index":2,"name":"Drums"},',
+      '"device":{"id":"29","name":"Midi-Capture"}}',
+    ]),
+    {
+      canonicalPath: "live_set tracks 2 devices 1",
+      track: { id: "17", index: 2, name: "Drums" },
+      device: { id: "29", name: "Midi-Capture" },
+    },
+  );
+  assert.throws(() => parseIdentity([]), /empty/);
+  assert.throws(() => parseIdentity(["not-json"]), /valid JSON/);
+});
+
 test("JSONL writer is optional and exposes readiness without status spam", () => {
   const statuses = [];
   const writer = new JsonlWriter((...items) => statuses.push(items));
@@ -177,7 +195,14 @@ test("Max runtime supports live-only capture and independent sink failures", () 
   const liveSamples = [];
   const statuses = [];
   const signalClient = {
-    start() {},
+    configuredIdentity: null,
+    started: false,
+    configureProducer(identity) {
+      this.configuredIdentity = identity;
+    },
+    start() {
+      this.started = true;
+    },
     stop() {},
     sendSample(sample) {
       liveSamples.push(sample);
@@ -197,6 +222,16 @@ test("Max runtime supports live-only capture and independent sink failures", () 
     signalClient,
     writer,
   });
+  assert.equal(signalClient.started, false);
+  handlers.get("identity")(
+    JSON.stringify({
+      canonicalPath: "live_set tracks 2 devices 1",
+      track: { id: "17", index: 2, name: "Drums" },
+      device: { id: "29", name: "Midi-Capture" },
+    }),
+  );
+  assert.equal(signalClient.started, true);
+  assert.equal(signalClient.configuredIdentity.track.name, "Drums");
   handlers.get("configure")(480, 1);
   handlers.get("capture")(1, 0);
   handlers.get("transport")(1, 0);
@@ -216,6 +251,66 @@ test("Max runtime supports live-only capture and independent sink failures", () 
         message[0] === "status" &&
         message[1] === "error" &&
         message[2] === "writer_failed disk unavailable",
+    ),
+  );
+});
+
+test("Max runtime reports invalid or repeated identity without restarting", () => {
+  const handlers = new Map();
+  const statuses = [];
+  let starts = 0;
+  const signalClient = {
+    configureProducer() {},
+    start() {
+      starts += 1;
+    },
+    stop() {},
+    sendSample() {},
+  };
+  startMaxRuntime({
+    maxApi: {
+      addHandler: (name, handler) => handlers.set(name, handler),
+      outlet: (message) => statuses.push(message),
+    },
+    lifecycleTarget: new EventEmitter(),
+    signalClient,
+    writer: {
+      isReady: () => false,
+      append() {},
+      async setPath() {},
+    },
+  });
+  handlers.get("identity")("not-json");
+  assert.equal(starts, 0);
+  assert.ok(
+    statuses.some(
+      (message) =>
+        message[0] === "status" &&
+        message[1] === "error" &&
+        message[2].startsWith("identity_failed"),
+    ),
+  );
+  handlers.get("identity")(
+    JSON.stringify({
+      canonicalPath: "live_set tracks 0 devices 0",
+      track: { id: "1", index: 0, name: "Track" },
+      device: { id: "2", name: "Midi-Capture" },
+    }),
+  );
+  handlers.get("identity")(
+    JSON.stringify({
+      canonicalPath: "live_set tracks 0 devices 0",
+      track: { id: "1", index: 0, name: "Track" },
+      device: { id: "2", name: "Midi-Capture" },
+    }),
+  );
+  assert.equal(starts, 1);
+  assert.ok(
+    statuses.some(
+      (message) =>
+        message[0] === "status" &&
+        message[1] === "warning" &&
+        message[2] === "identity_already_configured",
     ),
   );
 });

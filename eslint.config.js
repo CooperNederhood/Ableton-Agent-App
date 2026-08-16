@@ -54,6 +54,23 @@ export default tseslint.config(
       "no-unused-vars": "off",
     },
   },
+  {
+    files: ["max-patches/midi-capture/midi_capture_identity.js"],
+    languageOptions: {
+      globals: {
+        autowatch: "writable",
+        inlets: "writable",
+        LiveAPI: "readonly",
+        outlet: "readonly",
+        outlets: "writable",
+        post: "readonly",
+        Task: "readonly",
+      },
+    },
+    rules: {
+      "no-unused-vars": "off",
+    },
+  },
   ...tseslint.configs.recommendedTypeChecked.map((config) => ({
     ...config,
     files: ["**/*.{ts,tsx}"],

@@ -133,6 +133,18 @@ Set these variables in the environment that launches Copilot CLI.
 devices. Max4Live-MCP remains the source of truth for the patch database,
 object documentation, tutorials, scripts, and learning artifacts.
 
+The validated MIDI Capture device has a separate promote/install workflow:
+
+```bash
+pnpm midi-capture:promote -- --source "/path/to/midi-capture.amxd"
+pnpm midi-capture:check
+pnpm midi-capture:install -- --user-library "/path/to/Ableton/User Library"
+```
+
+Promote only after testing the working User Library device in Live. Promotion
+updates the portable repository template; installation is a separate explicit
+step so repository publishing cannot overwrite in-progress Max work.
+
 This repository-level agent is separate from the production assistant embedded
 in the Ableton Agent App. The local path also is not available to
 GitHub-hosted or cloud agents; those environments require the knowledge to be

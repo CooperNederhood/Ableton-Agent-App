@@ -31,6 +31,20 @@ function normalizeOutputPath(filePath) {
   return path.resolve(volumePrefixed ? volumePrefixed[1] : raw);
 }
 
+function parseIdentity(parts) {
+  const raw = parts.join(" ").trim();
+  if (!raw) {
+    throw new Error("identity payload is empty");
+  }
+  let identity;
+  try {
+    identity = JSON.parse(raw);
+  } catch {
+    throw new Error("identity payload is not valid JSON");
+  }
+  return identity;
+}
+
 class MidiCaptureEngine {
   constructor({ onSample = () => {}, onStatus = () => {} } = {}) {
     this.onSample = onSample;
@@ -364,6 +378,7 @@ function startMaxRuntime(options = {}) {
     },
     onStatus: status,
   });
+  let signalStarted = false;
 
   maxApi.addHandler("path", async (...parts) => {
     try {
@@ -389,7 +404,21 @@ function startMaxRuntime(options = {}) {
     (channel, pitch, velocity, isNoteOn, tick, sequence) =>
       engine.event(channel, pitch, velocity, isNoteOn, tick, sequence),
   );
-  signalClient.start();
+  maxApi.addHandler("identity", (...parts) => {
+    if (signalStarted) {
+      status("warning", "identity_already_configured");
+      return;
+    }
+    try {
+      const identity = parseIdentity(parts);
+      signalClient.configureProducer(identity);
+      signalClient.start();
+      signalStarted = true;
+      status("live", "identity_ready");
+    } catch (error) {
+      status("error", `identity_failed ${String(error.message).slice(0, 240)}`);
+    }
+  });
   const stop = () => signalClient.stop();
   lifecycleTarget.once("beforeExit", stop);
   lifecycleTarget.once("SIGTERM", stop);
@@ -405,6 +434,7 @@ module.exports = {
   JsonlWriter,
   MidiCaptureEngine,
   normalizeOutputPath,
+  parseIdentity,
   pitchName,
   startMaxRuntime,
 };

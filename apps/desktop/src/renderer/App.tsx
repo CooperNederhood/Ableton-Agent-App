@@ -352,8 +352,6 @@ export async function cancelWorkspaceAgent(
 
 export function App(): React.JSX.Element {
   const [state, dispatch] = useReducer(desktopReducer, initialState);
-  const [composer, setComposer] = useState("");
-  const [composerError, setComposerError] = useState("");
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const hydratedAgents = useRef(new Set<string>());
 
@@ -398,9 +396,6 @@ export function App(): React.JSX.Element {
   }, []);
   const selectedInstanceId = selectedAgentInstance(state)?.id;
   const activeSessionId = state.sessions[0]?.id;
-  useEffect(() => {
-    setComposerError("");
-  }, [selectedInstanceId]);
   useEffect(() => {
     if (selectedInstanceId === undefined || activeSessionId === undefined)
       return;
@@ -451,32 +446,6 @@ export function App(): React.JSX.Element {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [state]);
-
-  const submit = async (event: FormEvent): Promise<void> => {
-    event.preventDefault();
-    const message = composer.trim();
-    if (!message) return;
-    setComposerError("");
-    setComposer("");
-    try {
-      await sendComposerMessage(window.desktop, state, message, dispatch);
-    } catch (error) {
-      const messageText =
-        error instanceof Error ? error.message : "Agent message failed";
-      if (message.startsWith("/")) setComposer(message);
-      setComposerError(messageText);
-      dispatch({
-        type: "event",
-        event: {
-          type: "diagnostic",
-          level: "error",
-          message: messageText,
-        },
-      });
-    } finally {
-      composerRef.current?.focus();
-    }
-  };
 
   return (
     <div className="app-shell">
@@ -530,17 +499,9 @@ export function App(): React.JSX.Element {
           <SettingsView state={state} dispatch={dispatch} />
         )}
       </main>
-      <Composer
+      <DesktopComposer
         state={state}
-        value={composer}
-        busy={false}
         composerRef={composerRef}
-        error={composerError}
-        onChange={(value) => {
-          setComposer(value);
-          setComposerError("");
-        }}
-        onSubmit={submit}
         dispatch={dispatch}
       />
     </div>
@@ -2709,6 +2670,68 @@ export function SettingsView({
         through OS-backed encryption.
       </p>
     </section>
+  );
+}
+
+export function DesktopComposer({
+  state,
+  composerRef,
+  dispatch,
+}: {
+  state: DesktopState;
+  composerRef: React.RefObject<HTMLTextAreaElement | null>;
+  dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+}): React.JSX.Element {
+  const [value, setValue] = useState("");
+  const [error, setError] = useState("");
+  const selectedInstanceId = selectedAgentInstance(state)?.id;
+
+  useEffect(() => {
+    setError("");
+  }, [selectedInstanceId]);
+
+  const submit = async (event: FormEvent): Promise<void> => {
+    event.preventDefault();
+    const message = value.trim();
+    if (!message) return;
+    setError("");
+    setValue("");
+    try {
+      await sendComposerMessage(window.desktop, state, message, dispatch);
+    } catch (submitError) {
+      const messageText =
+        submitError instanceof Error
+          ? submitError.message
+          : "Agent message failed";
+      if (message.startsWith("/")) setValue(message);
+      setError(messageText);
+      dispatch({
+        type: "event",
+        event: {
+          type: "diagnostic",
+          level: "error",
+          message: messageText,
+        },
+      });
+    } finally {
+      composerRef.current?.focus();
+    }
+  };
+
+  return (
+    <Composer
+      state={state}
+      value={value}
+      busy={false}
+      composerRef={composerRef}
+      error={error}
+      onChange={(nextValue) => {
+        setValue(nextValue);
+        setError("");
+      }}
+      onSubmit={submit}
+      dispatch={dispatch}
+    />
   );
 }
 

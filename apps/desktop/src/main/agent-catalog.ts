@@ -4,6 +4,7 @@ import {
   loadAgentCatalog,
   type AgentCatalog,
 } from "@ableton-agent/agent-config";
+import type { AgentSkillDescriptor } from "@ableton-agent/application";
 
 import {
   desktopAgentCatalogSchema,
@@ -46,6 +47,7 @@ function toDesktopCatalog(catalog: AgentCatalog): DesktopAgentCatalog {
 
 export class AgentCatalogService {
   #catalog: DesktopAgentCatalog = desktopAgentCatalogSchema.parse({});
+  #runtimeSkills: AgentSkillDescriptor[] = [];
 
   public constructor(private readonly options: AgentCatalogOptions) {}
 
@@ -53,18 +55,23 @@ export class AgentCatalogService {
     return this.#catalog;
   }
 
-  public get skillsDirectory(): string {
-    return this.options.skillsDirectory;
+  public get runtimeSkills(): readonly AgentSkillDescriptor[] {
+    return this.#runtimeSkills;
   }
 
   public async refresh(): Promise<DesktopAgentCatalog> {
-    this.#catalog = toDesktopCatalog(
-      await loadAgentCatalog({
-        agentsDirectory: this.options.agentsDirectory,
-        skillsDirectory: this.options.skillsDirectory,
-        availableTools: this.options.availableTools,
-      }),
-    );
+    const loaded = await loadAgentCatalog({
+      agentsDirectory: this.options.agentsDirectory,
+      skillsDirectory: this.options.skillsDirectory,
+      availableTools: this.options.availableTools,
+    });
+    this.#runtimeSkills = loaded.skills.map((skill) => ({
+      name: skill.metadata.name,
+      description: skill.metadata.description,
+      sourcePath: skill.sourcePath,
+      fingerprint: skill.fingerprint,
+    }));
+    this.#catalog = toDesktopCatalog(loaded);
     return this.#catalog;
   }
 }

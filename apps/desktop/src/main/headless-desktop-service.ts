@@ -88,7 +88,7 @@ export interface HeadlessDesktopServiceOptions {
   preferencesStore: JsonPreferencesStore;
   sessionStore: JsonSessionStore;
   agentCatalog?: Pick<AgentCatalogService, "current" | "refresh"> &
-    Partial<Pick<AgentCatalogService, "skillsDirectory">>;
+    Partial<Pick<AgentCatalogService, "runtimeSkills">>;
   signals?: SignalRuntime;
   /**
    * Composition-time findings (e.g. a missing bridge token) surfaced through
@@ -864,11 +864,13 @@ export class HeadlessDesktopService implements DesktopService {
           skillName,
           request: argumentsText,
         }),
-      (instance) => {
-        if (!instance.config.skills.includes(skillName)) {
-          throw new Error(
-            `Skill '${skillName}' is not configured for agent '${instanceId}'`,
-          );
+      () => {
+        if (!(
+          this.options.agentCatalog?.current.skills.some(
+            (skill) => skill.name === skillName,
+          ) ?? false
+        )) {
+          throw new Error(`Unknown skill '${skillName}'`);
         }
       },
     );
@@ -1629,14 +1631,7 @@ export class HeadlessDesktopService implements DesktopService {
       editScope: instance.config.editScope,
       boundTracks: instance.boundTracks,
       skills: instance.config.skills,
-      skillDirectories:
-        instance.config.skills.length === 0
-          ? []
-          : [this.options.agentCatalog?.skillsDirectory].filter(
-              (directory): directory is string => directory !== undefined,
-            ),
-      availableSkills:
-        this.options.agentCatalog?.current.skills.map(({ name }) => name) ?? [],
+      availableSkills: this.options.agentCatalog?.runtimeSkills ?? [],
     };
   }
 

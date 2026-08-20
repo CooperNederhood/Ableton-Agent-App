@@ -235,7 +235,7 @@ describe("composed agent session control", () => {
       editScope: ["session"],
       boundTracks: [],
       skills: [],
-      skillDirectories: [],
+      availableSkills: [],
     };
 
     await runtime.application.start();
@@ -282,7 +282,7 @@ describe("composed agent session control", () => {
       editScope: ["session"],
       boundTracks: [],
       skills: [],
-      skillDirectories: [],
+      availableSkills: [],
     };
 
     await runtime.application.start();

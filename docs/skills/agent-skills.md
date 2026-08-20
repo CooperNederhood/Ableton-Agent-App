@@ -12,8 +12,9 @@ skills/
 
 `SKILL.md` begins with YAML frontmatter containing a lowercase `name` and a
 short `description`. The Markdown body contains reusable Ableton instructions.
-The application validates metadata for display and passes the root directory to
-the Copilot SDK through `skillDirectories`.
+The application validates metadata for discovery while retaining the trusted
+main-process source path needed to load the body on demand. Skill bodies and
+source paths are not copied into renderer state.
 
 ## Agent configuration
 
@@ -24,9 +25,11 @@ skills:
   - midi-composition
 ```
 
-The SDK eagerly loads those skills into that agent's context. Skills are
-opt-in; active agents do not receive every installed skill automatically.
-Unknown skills invalidate the definition.
+The application adds only the enabled skills' `name` and `description`
+frontmatter to the agent's system message. When a description is relevant, the
+agent can call `skill(skill_name="skill-name")`. The tool returns the Markdown
+body only after verifying that the requested skill is enabled in that agent's
+definition. Unknown skills invalidate the definition.
 
 ## Direct invocation
 
@@ -37,10 +40,16 @@ The Desktop composer supports:
 /midi-composition write a sparse two-bar answer phrase
 ```
 
-Slash invocation is available only when the selected active agent configures
-that skill. The application validates the command locally and starts a turn
-that explicitly invokes the already loaded skill. Raw skill contents are not
+Every valid catalog skill is available for explicit slash invocation, even when
+it is not enabled for model-driven use by the selected agent. `/skill-name`
+loads the skill by itself; text after the name asks the agent to apply the skill
+to that request. The application validates the command and loads the body in
+the main process before starting the user turn. Raw skill contents are not
 copied into renderer state.
+
+The two authorization paths are intentionally different: agent-driven
+`skill(...)` calls use the agent definition's allowlist, while user-driven slash
+commands use the complete validated catalog.
 
 ## Built-in skills
 

@@ -176,7 +176,7 @@ describe("desktop components", () => {
     expect(html).toContain('aria-label="Remove section Chorus from context"');
   });
 
-  it("suggests configured skills for the selected active agent", () => {
+  it("suggests catalog skills for direct slash invocation", () => {
     const activeAgentId = "89a535fe-7f2d-4a58-972c-d33d40ca254d";
     const html = renderToStaticMarkup(
       <Composer
@@ -282,7 +282,7 @@ describe("desktop components", () => {
     expect(matchingSlashCompletions(" /mix", skills)).toEqual([]);
   });
 
-  it("uses only catalog skills assigned to the selected agent", () => {
+  it("uses every catalog skill for any selected agent", () => {
     const state = workspaceState(firstAgentId);
     state.sessions[0]!.activeAgents[0]!.config.skills = ["mix-review"];
     state.sessions[0]!.activeAgents[1]!.config.skills = ["sound-design"];
@@ -307,11 +307,11 @@ describe("desktop components", () => {
 
     expect(
       slashCompletionsForState("/", state).map(({ name }) => name),
-    ).toEqual(["mix-review", "yolo"]);
+    ).toEqual(["mix-review", "sound-design", "yolo"]);
     state.sessions[0]!.selectedAgentInstanceId = secondAgentId;
     expect(
       slashCompletionsForState("/", state).map(({ name }) => name),
-    ).toEqual(["sound-design", "yolo"]);
+    ).toEqual(["mix-review", "sound-design", "yolo"]);
   });
 
   it("keeps built-ins without an agent and reserves their names", () => {
@@ -468,9 +468,9 @@ describe("desktop components", () => {
     );
   });
 
-  it("invokes an assigned catalog skill and preserves its request", async () => {
+  it("invokes any catalog skill and preserves its request", async () => {
     const state = workspaceState(secondAgentId);
-    state.sessions[0]!.activeAgents[1]!.config.skills = ["mix-review"];
+    state.sessions[0]!.activeAgents[1]!.config.skills = [];
     state.agentCatalog = {
       definitions: [],
       diagnostics: [],
@@ -604,7 +604,6 @@ describe("desktop components", () => {
   it.each([
     ["/", "Invalid skill command"],
     ["/unknown request", "Unknown skill '/unknown'"],
-    ["/mix-review request", "is not assigned to Default 2"],
   ])(
     "rejects invalid skill command %s without a user turn",
     async (input, error) => {
@@ -649,7 +648,7 @@ describe("desktop components", () => {
 
     await expect(
       sendComposerMessage(staleDesktop, state, "/mix-review request", dispatch),
-    ).rejects.toThrow("definition is unavailable");
+    ).rejects.toThrow("Unknown skill '/mix-review'");
     expect(dispatch).not.toHaveBeenCalled();
 
     state.agentCatalog.skills = [

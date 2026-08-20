@@ -1110,11 +1110,10 @@ describe("CopilotAgentService", () => {
           "ableton_browser_load_item",
         ],
         infer: false,
-        skills: [],
       },
     ]);
     expect(config?.agent).toBe("default-agent");
-    expect(config?.skillDirectories).toEqual([]);
+    expect(config).not.toHaveProperty("skillDirectories");
     expect(config?.systemMessage?.mode).toBe("replace");
     expect(config?.systemMessage?.content).toContain(
       "Ableton Live production assistant",
@@ -1531,7 +1530,14 @@ describe("HeadlessApplication agent and connection ports", () => {
       editScope: ["session"],
       boundTracks: [],
       skills: ["midi"],
-      skillDirectories: ["/repo/skills"],
+      availableSkills: [
+        {
+          name: "midi",
+          description: "Compose MIDI.",
+          sourcePath: "/repo/skills/midi/SKILL.md",
+          fingerprint: "a".repeat(64),
+        },
+      ],
     };
     const history = [
       {

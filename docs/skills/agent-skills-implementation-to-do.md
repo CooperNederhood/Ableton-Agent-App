@@ -4,29 +4,31 @@ Companion specification: [Agent Skills](agent-skills.md)
 
 ## Resources and loading
 
-- [~] Add root canonical skill directories and `SKILL.md` files.
-- [~] Validate bounded YAML frontmatter and duplicate skill names.
-- [ ] Resolve development and packaged skill roots.
-- [ ] Expose skill metadata and diagnostics through typed Desktop APIs.
+- [x] Add root canonical skill directories and `SKILL.md` files.
+- [x] Validate bounded YAML frontmatter and duplicate skill names.
+- [x] Resolve development and packaged skill roots.
+- [x] Expose skill metadata and diagnostics through typed Desktop APIs.
 
-## SDK integration
+## Progressive disclosure
 
-- [ ] Supply canonical roots through SDK `skillDirectories`.
-- [ ] Pass configured skill names to each native custom agent.
-- [ ] Verify active-agent cold resume applies skill edits without losing
-  history.
+- [x] Add enabled skill frontmatter to each agent's system instructions.
+- [x] Register an application-owned `skill(skill_name)` tool.
+- [x] Restrict model-driven tool calls to skills enabled by the agent
+  definition.
+- [x] Keep complete skill bodies out of SDK startup context.
 
 ## Desktop invocation
 
-- [ ] Parse `/skill-name` and optional trailing requests.
-- [ ] Reject unknown or unavailable skills before starting an SDK turn.
-- [ ] Add composer discovery and completion.
-- [ ] Show configured skills in defined and active agent details.
+- [x] Parse `/skill-name` with or without trailing request text.
+- [x] Allow direct slash invocation of every valid catalog skill.
+- [x] Reject unknown or unavailable skills before starting an SDK turn.
+- [x] Add composer discovery and completion.
+- [x] Show configured skills in defined and active agent details.
 
 ## Verification
 
-- [ ] Test canonical metadata parsing and malformed frontmatter.
-- [ ] Test per-agent skill isolation.
-- [ ] Test direct invocation with and without trailing user text.
-- [ ] Test history preservation after skill configuration edits.
-- [ ] Test packaged resource loading.
+- [x] Test canonical metadata parsing and malformed frontmatter.
+- [x] Test per-agent tool isolation.
+- [x] Test direct invocation with and without trailing user text.
+- [x] Test history preservation after skill configuration edits.
+- [x] Test packaged resource loading.

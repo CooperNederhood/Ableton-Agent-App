@@ -34,7 +34,6 @@ import {
   desktopReducer,
   initialState,
   selectedAgentInstance,
-  selectedAgentSkills,
   selectedAgentWorkspace,
   type DesktopState,
   type WorkspaceView,
@@ -92,7 +91,7 @@ export function slashCompletionsForState(
     input,
     selectedAgentInstance(state) === undefined
       ? undefined
-      : selectedAgentSkills(state),
+      : state.agentCatalog.skills,
   );
 }
 
@@ -294,17 +293,7 @@ export async function sendComposerMessage(
       ({ name }) => name === invocation.skillName,
     );
     if (catalogSkill === undefined) {
-      if (agent.config.skills.includes(invocation.skillName)) {
-        throw new Error(
-          `Skill '/${invocation.skillName}' is assigned to ${agent.label} but its definition is unavailable. Refresh definitions or edit the agent.`,
-        );
-      }
       throw new Error(`Unknown skill '/${invocation.skillName}'.`);
-    }
-    if (!agent.config.skills.includes(invocation.skillName)) {
-      throw new Error(
-        `Skill '/${invocation.skillName}' is not assigned to ${agent.label}.`,
-      );
     }
     await desktop.project.setContext(contextForSelection(state));
     await desktop.agents.invokeSkill(

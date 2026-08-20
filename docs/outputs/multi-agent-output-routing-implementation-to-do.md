@@ -15,7 +15,8 @@ Companion specification:
 - [ ] Fan out producer frames to every enabled subscription.
 - [ ] Isolate inboxes, latest windows, acknowledgements, and deduplication.
 - [ ] Route automatic turns to the matching managed agent session.
-- [ ] Preserve subscriptions while producers are missing and reconnect by ID.
+- [x] Preserve subscriptions while producers are missing and reconnect by ID.
+- [x] Exclude disconnected history from the current producer inventory.
 
 ## Desktop
 
@@ -23,12 +24,14 @@ Companion specification:
 - [ ] Scope delivery mode and usage instruction controls to subscriptions.
 - [ ] Reflect subscription changes in active-agent session editing.
 - [ ] Update live when agents are activated, deactivated, or renamed.
+- [x] Separate live outputs from unmatched active-agent subscriptions.
+- [x] Refresh signal state when Outputs opens and on explicit request.
 
 ## Verification
 
 - [ ] Test one producer feeding multiple agents.
 - [ ] Test independent next-prompt acknowledgement.
 - [ ] Test automatic fan-out and per-agent errors.
-- [ ] Test disconnected producer recovery.
+- [x] Test disconnected producer recovery and current-inventory cleanup.
 - [ ] Test legacy assignment migration.
 - [ ] Add renderer, preload, main-process, and real-MIDI integration coverage.

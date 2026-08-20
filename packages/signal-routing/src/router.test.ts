@@ -85,6 +85,26 @@ describe("InMemoryConnectionRegistry", () => {
       "replacement",
     );
     expect(registry.disconnect("replacement")?.disconnectedAt).toBe(200);
+    expect(registry.listCurrent()).toHaveLength(4);
+    expect(
+      registry
+        .listCurrent()
+        .some(({ producer: { producerId } }) => producerId === "producer-0"),
+    ).toBe(false);
+  });
+
+  it("lists only the latest live connection for each producer", () => {
+    const registry = new InMemoryConnectionRegistry({ staleAfterMs: 50 });
+    registry.register("first", producer("producer", "first-instance"));
+    registry.register("replacement", producer("producer", "second-instance"));
+
+    expect(registry.list()).toHaveLength(2);
+    expect(registry.listCurrent()).toEqual([
+      expect.objectContaining({ connectionId: "replacement" }),
+    ]);
+
+    registry.disconnect("replacement");
+    expect(registry.listCurrent()).toEqual([]);
   });
 
   it("publishes only bounded connection summaries", () => {

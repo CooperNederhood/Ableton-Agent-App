@@ -2110,6 +2110,45 @@ describe("desktop adapter over the shared application", () => {
     await restarted.service.stop();
   });
 
+  it("does not assign newly discovered outputs and hides disconnected producers", async () => {
+    const directory = await temporaryDirectory();
+    const fake = createFakeApplication();
+    const signals = new FakeSignalRuntime();
+    const service = new HeadlessDesktopService({
+      application: fake.application,
+      approvals: new ApprovalCoordinator(),
+      preferencesStore: new JsonPreferencesStore(
+        join(directory, "preferences.json"),
+      ),
+      sessionStore: new JsonSessionStore(join(directory, "sessions.json")),
+      signals,
+      agentCatalog: {
+        current: defaultCatalog(),
+        refresh: async () => defaultCatalog(),
+      },
+    });
+
+    await service.start();
+    const session = (await service.getSessions())[0]!;
+    expect(session.activeAgents[0]?.config.inputChannels).toEqual([]);
+    expect(session.activeAgents[0]?.outputSubscriptions).toEqual([]);
+    expect(await service.listOutputs()).toMatchObject({
+      connections: [expect.objectContaining({ producerId: "producer-1" })],
+      assignments: [],
+    });
+
+    signals.connections[0] = {
+      ...signals.connections[0]!,
+      status: "disconnected",
+      disconnectedAt: 2,
+    };
+    expect(await service.listOutputs()).toMatchObject({
+      connections: [],
+      assignments: [],
+    });
+    await service.stop();
+  });
+
   it("persists output assignments and rebinds them to the selected session", async () => {
     const directory = await temporaryDirectory();
     const preferencesStore = new JsonPreferencesStore(

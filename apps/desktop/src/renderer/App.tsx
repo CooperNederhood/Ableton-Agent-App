@@ -521,6 +521,8 @@ export function OutputsView({
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
 }): React.JSX.Element {
+  const [refreshing, setRefreshing] = useState(false);
+  const [removingAssignmentId, setRemovingAssignmentId] = useState<string>();
   const report = (error: unknown): void =>
     dispatch({
       type: "event",
@@ -531,37 +533,55 @@ export function OutputsView({
           error instanceof Error ? error.message : "Output update failed",
       },
     });
+  useEffect(() => {
+    void refreshOutputs(dispatch, () => window.desktop.outputs.list());
+  }, [dispatch]);
   const unavailable = state.outputs.status.state !== "listening";
   const outputGroups = groupOutputsByTrack(
-    [
-      ...state.outputs.connections,
-      ...state.outputs.assignments
-        .filter(
-          (assignment, index, assignments) =>
-            assignments.findIndex(
-              ({ producerId }) => producerId === assignment.producerId,
-            ) === index &&
-            !state.outputs.connections.some(
-              ({ producerId }) => producerId === assignment.producerId,
-            ),
-        )
-        .map((assignment): DesktopOutputConnection => ({
-          connectionId: `missing:${assignment.producerId}`,
-          producerId: assignment.producerId,
-          instanceId: "missing",
-          displayName: assignment.producerId,
-          signalKind: "midi",
-          state: "disconnected",
-          receiving: false,
-          lastHeartbeatAt: 0,
-        })),
-    ],
+    state.outputs.connections,
     state.snapshot,
   );
   const activeSession = state.sessions.find(
     ({ id }) => id === state.outputs.activeSessionId,
   );
   const activeAgents = activeSession?.activeAgents ?? [];
+  const activeAgentById = new Map(
+    activeAgents.map((agent) => [agent.id, agent] as const),
+  );
+  const connectedProducerIds = new Set(
+    state.outputs.connections.map(({ producerId }) => producerId),
+  );
+  const unmatchedAssignments = state.outputs.assignments.filter(
+    (
+      assignment,
+    ): assignment is DesktopOutputAssignment & { agentInstanceId: string } =>
+      assignment.agentInstanceId !== undefined &&
+      activeAgentById.has(assignment.agentInstanceId) &&
+      !connectedProducerIds.has(assignment.producerId),
+  );
+  const removeUnmatched = async (
+    assignment: DesktopOutputAssignment & { agentInstanceId: string },
+  ): Promise<void> => {
+    setRemovingAssignmentId(assignment.assignmentId);
+    try {
+      await window.desktop.outputs.unassign(
+        assignment.agentInstanceId,
+        assignment.producerId,
+      );
+    } catch (error) {
+      report(error);
+    } finally {
+      setRemovingAssignmentId(undefined);
+    }
+  };
+  const refresh = async (): Promise<void> => {
+    setRefreshing(true);
+    try {
+      await refreshOutputs(dispatch, () => window.desktop.outputs.list());
+    } finally {
+      setRefreshing(false);
+    }
+  };
   return (
     <section className="outputs-view" aria-labelledby="outputs-heading">
       <div className="panel-heading">
@@ -572,12 +592,17 @@ export function OutputsView({
             active agents.
           </p>
         </div>
-        <strong>
-          Signal service:{" "}
-          {state.outputs.status.state === "listening"
-            ? `listening on ${state.outputs.status.host}:${state.outputs.status.port}`
-            : state.outputs.status.state}
-        </strong>
+        <div className="output-refresh-actions">
+          <strong>
+            Signal service:{" "}
+            {state.outputs.status.state === "listening"
+              ? `listening on ${state.outputs.status.host}:${state.outputs.status.port}`
+              : state.outputs.status.state}
+          </strong>
+          <button disabled={refreshing} onClick={() => void refresh()}>
+            {refreshing ? "Refreshing…" : "Refresh Outputs"}
+          </button>
+        </div>
       </div>
       {unavailable && (
         <div className="notice" role="status">
@@ -654,8 +679,75 @@ export function OutputsView({
           ))}
         </div>
       )}
+      {unmatchedAssignments.length > 0 && (
+        <section
+          className="unmatched-output-subscriptions"
+          aria-labelledby="unmatched-output-heading"
+        >
+          <header>
+            <div>
+              <h3 id="unmatched-output-heading">Unmatched subscriptions</h3>
+              <p>
+                These active-agent inputs are waiting for a producer with the
+                same stable ID to reconnect.
+              </p>
+            </div>
+            <span>{unmatchedAssignments.length}</span>
+          </header>
+          <div className="unmatched-output-list">
+            {unmatchedAssignments.map((assignment) => {
+              const agent = activeAgentById.get(assignment.agentInstanceId);
+              if (agent === undefined) return null;
+              return (
+                <article key={assignment.assignmentId}>
+                  <div>
+                    <strong>{agent.label}</strong>
+                    <span>Producer unavailable</span>
+                    <code>{assignment.producerId}</code>
+                  </div>
+                  <button
+                    disabled={removingAssignmentId === assignment.assignmentId}
+                    onClick={() => void removeUnmatched(assignment)}
+                  >
+                    {removingAssignmentId === assignment.assignmentId
+                      ? "Removing…"
+                      : "Remove subscription"}
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      )}
     </section>
   );
+}
+
+export async function refreshOutputs(
+  dispatch: DesktopDispatch,
+  requestOutputs: DesktopApi["outputs"]["list"],
+): Promise<boolean> {
+  try {
+    const outputs = await requestOutputs();
+    dispatch({
+      type: "event",
+      event: { type: "outputs.changed", outputs },
+    });
+    return true;
+  } catch (error) {
+    dispatch({
+      type: "event",
+      event: {
+        type: "diagnostic",
+        level: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Outputs could not be refreshed",
+      },
+    });
+    return false;
+  }
 }
 
 export async function setOutputSubscription(

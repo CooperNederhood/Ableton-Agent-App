@@ -125,7 +125,16 @@ export class InMemoryConnectionRegistry {
     return [...this.#connections.values()];
   }
 
+  listCurrent(): readonly OutputConnection[] {
+    const current: OutputConnection[] = [];
+    for (const connectionId of this.#connectionIdByProducer.values()) {
+      const connection = this.#connections.get(connectionId);
+      if (connection !== undefined) current.push(connection);
+    }
+    return current;
+  }
+
   #publish(): void {
-    this.#publisher?.publishConnections(this.list());
+    this.#publisher?.publishConnections(this.listCurrent());
   }
 }

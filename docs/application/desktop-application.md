@@ -47,10 +47,11 @@ The preload script exposes a small typed API:
 ```ts
 interface DesktopApi {
   agent: {
-    send(message: string): Promise<void>;
-    cancel(): Promise<void>;
-    createSession(): Promise<string>;
-    resumeSession(sessionId: string): Promise<void>;
+    send(agentInstanceId: string, message: string): Promise<void>;
+    cancel(agentInstanceId: string): Promise<void>;
+    create(definitionName: string): Promise<string>;
+    select(agentInstanceId: string): Promise<void>;
+    history(agentInstanceId: string): Promise<AgentMessage[]>;
   };
   ableton: {
     connect(): Promise<void>;
@@ -82,6 +83,7 @@ the CLI:
 - Context display.
 - Approvals and cancellation.
 - Session creation and resume.
+- Defined-agent discovery and active-agent lifecycle.
 - Connection, capability, snapshot, and diagnostic status.
 
 It then enhances those capabilities with visual selection, arrangement plans,
@@ -144,3 +146,60 @@ Store non-secret preferences separately from credentials. Important settings:
 
 Credentials must use OS-backed secure storage where application-managed secrets
 are necessary.
+
+### Scoped automatic approval
+
+The composer handles `/yolo` as a local desktop command. Its grammar is
+deliberately strict and case-sensitive:
+
+```text
+/yolo
+/yolo on
+/yolo off
+/yolo on all
+/yolo off all
+```
+
+Only the exact lowercase forms with single spaces and no leading or trailing
+whitespace are valid. `/yolo` is equivalent to `/yolo on` for the selected
+agent. The `all` forms update every agent currently active in the selected
+production session. Malformed forms show the usage
+`/yolo [on|off] [all]`. The command is consumed locally through typed IPC: it
+does not send an SDK prompt, append a conversation turn, or enter SDK history.
+
+Each active-agent production-session snapshot persists an `autoApprove`
+boolean, defaulting to `false` when older version-2 records omit it. The value
+survives configuration reset, session switching, application restart, and
+normal shutdown; deactivating an agent removes its override. Updates are
+serialized with active-agent and session mutations, revalidate the captured
+production session before committing, and are drained during shutdown.
+
+The effective policy is layered:
+
+- **Deny all** (`never`) denies every request, including agents with a YOLO
+  override.
+- **Approve all** (`approve-all`) approves every request globally.
+- **Always ask** and **Risky changes** retain their normal base behavior, but
+  requests attributed to a YOLO-enabled active agent are approved immediately.
+- Unattributed requests and requests from other agents never inherit a
+  per-agent override.
+
+Enabling an override also approves already-pending requests attributed to the
+target agent only. Global policy changes resolve all pending requests when they
+become deny-all or approve-all. Removing an override does not retroactively
+resolve requests that are already pending.
+
+Automatic approval bypasses only the human approval prompt. Tool registration,
+argument schemas, per-agent allowlists, edit-scope authorization, project and
+track identity checks, stale-target detection, mutation locking, and
+post-mutation verification still run. Therefore a permitted in-scope mutation
+may proceed without a prompt, while an out-of-scope track mutation or a global
+mutation requested by a track-scoped agent remains structurally denied.
+
+The textarea uses one completion surface for built-in commands and the selected
+agent's available skills. `/y` completes to `/yolo ` with Tab, Enter, arrow-key
+selection, or mouse selection. Built-ins reserve their names over colliding
+skills, and suggestions are hidden after whitespace or once request text
+begins. YOLO badges appear for enabled agents, the composer warns whenever the
+effective policy auto-approves, and Settings shows both the global base policy
+and the current session's per-agent override count.

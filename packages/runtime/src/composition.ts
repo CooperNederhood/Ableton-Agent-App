@@ -2,6 +2,7 @@ import type { AbletonService } from "@ableton-agent/ableton-contracts";
 import {
   CopilotAgentService,
   HeadlessApplication,
+  type AgentSessionConfiguration,
   type AgentService,
   type CopilotAgentServiceOptions,
 } from "@ableton-agent/application";
@@ -72,6 +73,85 @@ export interface AgentRuntime {
   /** False when no token was configured and the bridge is a typed stand-in. */
   abletonConfigured: boolean;
   signals: SignalRuntime;
+}
+
+class SignalAwareHeadlessApplication extends HeadlessApplication {
+  readonly #managedAgentInstanceIds = new Set<string>();
+
+  public constructor(
+    services: ConstructorParameters<typeof HeadlessApplication>[0],
+    private readonly signals: SignalRuntime,
+  ) {
+    super(services);
+  }
+
+  async #syncSignals(): Promise<void> {
+    const activeAgentInstanceIds = [
+      ...(this.agentSessionId === undefined ? [] : [this.agentSessionId]),
+      ...this.#managedAgentInstanceIds,
+    ];
+    this.signals.setActiveAgentInstances(activeAgentInstanceIds);
+  }
+
+  public override async start(
+    options?: Parameters<HeadlessApplication["start"]>[0],
+  ): Promise<void> {
+    await super.start(options);
+    await this.#syncSignals();
+  }
+
+  public override async stop(): Promise<void> {
+    try {
+      await super.stop();
+    } finally {
+      this.#managedAgentInstanceIds.clear();
+      await this.#syncSignals();
+    }
+  }
+
+  public override async createAgentSession(): Promise<string> {
+    const sessionId = await super.createAgentSession();
+    await this.#syncSignals();
+    return sessionId;
+  }
+
+  public override async resumeAgentSession(sessionId: string): Promise<void> {
+    await super.resumeAgentSession(sessionId);
+    await this.#syncSignals();
+  }
+
+  public override async createManagedAgent(
+    configuration: AgentSessionConfiguration,
+  ): Promise<string> {
+    const sdkSessionId = await super.createManagedAgent(configuration);
+    this.#managedAgentInstanceIds.add(configuration.instanceId);
+    await this.#syncSignals();
+    return sdkSessionId;
+  }
+
+  public override async resumeManagedAgent(
+    configuration: AgentSessionConfiguration,
+    sdkSessionId: string,
+  ): Promise<void> {
+    await super.resumeManagedAgent(configuration, sdkSessionId);
+    this.#managedAgentInstanceIds.add(configuration.instanceId);
+    await this.#syncSignals();
+  }
+
+  public override async reconfigureManagedAgent(
+    configuration: AgentSessionConfiguration,
+  ): Promise<void> {
+    await super.reconfigureManagedAgent(configuration);
+    await this.#syncSignals();
+  }
+
+  public override async deactivateManagedAgent(
+    instanceId: string,
+  ): Promise<void> {
+    await super.deactivateManagedAgent(instanceId);
+    this.#managedAgentInstanceIds.delete(instanceId);
+    await this.#syncSignals();
+  }
 }
 
 /**
@@ -245,12 +325,15 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     signalContext: { provider: signals.provider },
     logger,
   });
-  const application = new HeadlessApplication({
-    agent,
-    ableton,
-    events,
-    logger,
-  });
+  const application = new SignalAwareHeadlessApplication(
+    {
+      agent,
+      ableton,
+      events,
+      logger,
+    },
+    signals,
+  );
   signals.setDeliveryService(application);
   return {
     application,

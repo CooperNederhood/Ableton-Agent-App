@@ -22,13 +22,14 @@ function pending(
   sequence: number,
   deliveryMode: PendingSignalContext["context"]["deliveryMode"] = "next-prompt",
   content = `Notes: C4 sequence ${sequence}`,
+  consumerId = "active",
 ): PendingSignalContext {
   return {
     deliveryId,
     context: {
       assignmentId,
       producerId: "keyboard",
-      consumer: { kind: "agent-session", id: "active" },
+      consumer: { kind: "agent-session", id: consumerId },
       deliveryMode,
       sequence,
       capturedAt: 1_750_000_000_000 + sequence,
@@ -289,15 +290,36 @@ describe("automatic signal delivery", () => {
     const user = service.send("user turn");
     await vi.waitFor(() => expect(releaseUser).toBeDefined());
     const first = service.enqueueSignalTurn(
-      pending("old", "keys", 1, "automatic-analysis") as SignalTurnRequest,
+      pending(
+        "old",
+        "keys",
+        1,
+        "automatic-analysis",
+        undefined,
+        "session",
+      ) as SignalTurnRequest,
     );
     const second = service.enqueueSignalTurn(
-      pending("new", "keys", 2, "automatic-analysis") as SignalTurnRequest,
+      pending(
+        "new",
+        "keys",
+        2,
+        "automatic-analysis",
+        undefined,
+        "session",
+      ) as SignalTurnRequest,
     );
     releaseUser!();
     await Promise.all([user, first, second]);
     await service.enqueueSignalTurn(
-      pending("action", "drums", 3, "automatic-action") as SignalTurnRequest,
+      pending(
+        "action",
+        "drums",
+        3,
+        "automatic-action",
+        undefined,
+        "session",
+      ) as SignalTurnRequest,
     );
 
     expect(maximumActive).toBe(1);

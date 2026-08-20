@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   InMemoryEventPublisher,
@@ -6,6 +6,7 @@ import {
   ShutdownCoordinator,
   ShutdownError,
   systemClock,
+  type AgentEventAttribution,
   type AppEvent,
   type ConfigurationStore,
   type SecureStorage,
@@ -19,10 +20,118 @@ describe("shared runtime contracts", () => {
     const unsubscribe = publisher.subscribe((event) => received.push(event));
 
     publisher.publish({ type: "lifecycle.changed", state: "ready" });
+    publisher.publish({
+      type: "agent.message_complete",
+      content: "done",
+      agentInstanceId: "agent-1",
+      sdkSessionId: "sdk-session-1",
+    });
     unsubscribe();
     publisher.publish({ type: "lifecycle.changed", state: "stopped" });
 
-    expect(received).toEqual([{ type: "lifecycle.changed", state: "ready" }]);
+    expect(received).toEqual([
+      { type: "lifecycle.changed", state: "ready" },
+      {
+        type: "agent.message_complete",
+        content: "done",
+        agentInstanceId: "agent-1",
+        sdkSessionId: "sdk-session-1",
+      },
+    ]);
+  });
+
+  it("preserves optional attribution for concurrent SDK sessions", () => {
+    const publisher = new InMemoryEventPublisher();
+    const received: AppEvent[] = [];
+    publisher.subscribe((event) => received.push(event));
+
+    const events = [
+      {
+        type: "agent.message_delta",
+        content: "first",
+        agentInstanceId: "agent-1",
+        sdkSessionId: "sdk-session-1",
+      },
+      {
+        type: "agent.message_complete",
+        content: "second",
+        agentInstanceId: "agent-1",
+        sdkSessionId: "sdk-session-2",
+      },
+      {
+        type: "operation.started",
+        operationId: "operation-1",
+        label: "Edit track",
+        agentInstanceId: "agent-1",
+        sdkSessionId: "sdk-session-1",
+      },
+      {
+        type: "operation.completed",
+        operationId: "operation-1",
+        summary: "Edited track",
+        agentInstanceId: "agent-1",
+        sdkSessionId: "sdk-session-2",
+      },
+      {
+        type: "operation.failed",
+        operationId: "operation-2",
+        code: "tool_failed",
+        message: "Tool failed",
+        agentInstanceId: "agent-2",
+        sdkSessionId: "sdk-session-2",
+      },
+    ] satisfies AppEvent[];
+
+    for (const event of events) publisher.publish(event);
+
+    expect(received).toEqual(events);
+    expect(
+      received
+        .filter(
+          (event) =>
+            "sdkSessionId" in event && event.sdkSessionId === "sdk-session-2",
+        )
+        .map(({ type }) => type),
+    ).toEqual([
+      "agent.message_complete",
+      "operation.completed",
+      "operation.failed",
+    ]);
+  });
+
+  it("keeps legacy agent and operation events valid without attribution", () => {
+    const legacyEvents = [
+      { type: "agent.message_delta", content: "partial" },
+      { type: "agent.message_complete", content: "complete" },
+      {
+        type: "operation.started",
+        operationId: "operation-1",
+        label: "Edit track",
+      },
+      {
+        type: "operation.completed",
+        operationId: "operation-1",
+        summary: "Edited track",
+      },
+      {
+        type: "operation.failed",
+        operationId: "operation-2",
+        code: "tool_failed",
+        message: "Tool failed",
+      },
+    ] satisfies AppEvent[];
+
+    expect(legacyEvents).toHaveLength(5);
+
+    type AttributableEvent = Extract<
+      AppEvent,
+      { type: `agent.${string}` | `operation.${string}` }
+    >;
+    expectTypeOf<AttributableEvent>().toMatchTypeOf<AgentEventAttribution>();
+    expectTypeOf<AgentEventAttribution>().toMatchTypeOf<{
+      agentInstanceId?: string;
+      sdkSessionId?: string;
+    }>();
   });
 
   it("provides side-effect-safe default runtime adapters", () => {

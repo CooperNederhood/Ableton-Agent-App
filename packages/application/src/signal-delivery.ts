@@ -20,10 +20,10 @@ export interface PendingSignalContext {
 
 export interface SignalContextProvider {
   getPendingContexts(
-    sessionId: string,
+    agentInstanceId: string,
   ): Promise<readonly PendingSignalContext[]>;
   markDelivered(
-    sessionId: string,
+    agentInstanceId: string,
     deliveryIds: readonly string[],
   ): Promise<void>;
 }

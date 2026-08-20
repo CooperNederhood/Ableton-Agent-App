@@ -37,6 +37,11 @@ never left pending, when no renderer is listening or the app is shutting down.
 
 ## Desktop interaction contract
 
+- [~] Add typed definition discovery and refresh APIs.
+- [ ] Add active-agent create, edit, reset, select, deactivate, history, send,
+  and cancel APIs.
+- [ ] Attribute messages, operations, approvals, and busy state to active-agent
+  instances.
 - [x] Implement chat send, cancel, create session, and resume session APIs.
 - [x] Implement connection, status, capability, snapshot, and diagnostic APIs.
 - [x] Implement approval resolution APIs.
@@ -55,9 +60,25 @@ presentation state and say so; they are not applied to Live.
 
 ## Configuration and persistence
 
+- [ ] Migrate stored conversations into versioned production sessions with
+  multiple active agents.
+- [ ] Persist session-level agent overrides and output subscriptions.
+- [x] Persist per-active-agent automatic approval with a safe default, atomic
+  selected/all updates, session-switch revalidation, and shutdown draining.
 - [x] Implement validated preferences and migration support.
 - [x] Store secrets in OS-backed secure storage.
 - [x] Implement development and production logging locations.
+
+## Scoped automatic approval
+
+- [x] Add strict local `/yolo [on|off] [all]` handling without an SDK send or
+  history turn.
+- [x] Layer per-agent overrides beneath deny-all and approve-all global policy,
+  with targeted pending-request resolution and unattributed-request isolation.
+- [x] Add unified built-in/skill textarea completion, YOLO badges, composer
+  warning, and layered Settings status.
+- [x] Verify automatic approval does not bypass tool allowlists, edit scopes,
+  identity validation, mutation locks, or structural mutation denials.
 - [x] Add model, reasoning, approval, diagnostics, and project preferences.
 
 ## Tests

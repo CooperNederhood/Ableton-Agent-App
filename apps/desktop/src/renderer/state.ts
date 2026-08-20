@@ -4,6 +4,9 @@ import type {
   DesktopAppEvent,
   DesktopConnectionStatus,
   DesktopDiagnosticsReport,
+  DesktopAgentCatalog,
+  DesktopActiveAgent,
+  DesktopAgentHistoryMessage,
   DesktopPreferences,
   DesktopOutputsState,
   DesktopProjectSnapshot,
@@ -15,13 +18,25 @@ import type {
 import { preferencesSchema } from "../contracts";
 
 export type WorkspaceView =
-  "workspace" | "outputs" | "browser" | "diagnostics" | "sessions" | "settings";
+  | "workspace"
+  | "agents"
+  | "outputs"
+  | "browser"
+  | "diagnostics"
+  | "sessions"
+  | "settings";
 export interface MessageView {
   id: string;
   role: "user" | "assistant";
   content: string;
   streaming: boolean;
   timestamp: number;
+}
+
+export interface AgentWorkspaceState {
+  messages: MessageView[];
+  operations: OperationView[];
+  approval?: ApprovalRequest | undefined;
 }
 
 export type ProjectRefreshState =
@@ -38,6 +53,7 @@ export interface DesktopState {
   activeView: WorkspaceView;
   messages: MessageView[];
   operations: OperationView[];
+  agentWorkspaces: Record<string, AgentWorkspaceState>;
   context: ContextChip[];
   dismissedContextIds: string[];
   projectSelectionContextEnabled: boolean;
@@ -47,6 +63,7 @@ export interface DesktopState {
   selectedClipId?: string | undefined;
   selectedDeviceId?: string | undefined;
   sessions: DesktopSession[];
+  agentCatalog: DesktopAgentCatalog;
   preferences: DesktopPreferences;
   diagnostics: Array<{ level: "info" | "warning" | "error"; message: string }>;
   diagnosticsReport?: DesktopDiagnosticsReport | undefined;
@@ -64,10 +81,12 @@ export const initialState: DesktopState = {
   activeView: "workspace",
   messages: [],
   operations: [],
+  agentWorkspaces: {},
   context: [],
   dismissedContextIds: [],
   projectSelectionContextEnabled: false,
   sessions: [],
+  agentCatalog: { definitions: [], skills: [], diagnostics: [] },
   preferences: preferencesSchema.parse({}),
   diagnostics: [],
   plan: [
@@ -112,16 +131,20 @@ export const initialState: DesktopState = {
 
 export type DesktopAction =
   | { type: "event"; event: DesktopAppEvent }
-  | { type: "mode"; mode: ProductMode }
   | { type: "view"; view: WorkspaceView }
-  | { type: "user-message"; id: string; content: string }
+  | {
+      type: "user-message";
+      id: string;
+      content: string;
+      agentInstanceId?: string;
+    }
   | { type: "toggle-context"; chip: ContextChip }
   | { type: "remove-context"; chip: ContextChip }
   | { type: "project-selection-context"; enabled: boolean }
   | { type: "select-track"; id: string }
   | { type: "select-clip"; id: string; trackId: string }
   | { type: "select-device"; id: string; trackId: string }
-  | { type: "dismiss-approval" }
+  | { type: "dismiss-approval"; agentInstanceId?: string }
   | { type: "update-plan"; section: PlanSection }
   | { type: "browser-query"; value: string }
   | { type: "diagnostics-loaded"; report: DesktopDiagnosticsReport }
@@ -144,27 +167,31 @@ export function desktopReducer(
   switch (action.type) {
     case "event":
       return reduceEvent(state, action.event);
-    case "mode":
-      return { ...state, mode: action.mode };
     case "view":
       return { ...state, activeView: action.view };
-    case "user-message":
+    case "user-message": {
+      const message = {
+        id: action.id,
+        role: "user" as const,
+        content: action.content,
+        streaming: false,
+        timestamp: Date.now(),
+      };
+      if (action.agentInstanceId !== undefined) {
+        return updateAgentWorkspace(
+          state,
+          action.agentInstanceId,
+          (workspace) => ({
+            ...workspace,
+            messages: bounded([...workspace.messages, message], maxMessages),
+          }),
+        );
+      }
       return {
         ...state,
-        messages: bounded(
-          [
-            ...state.messages,
-            {
-              id: action.id,
-              role: "user",
-              content: action.content,
-              streaming: false,
-              timestamp: Date.now(),
-            },
-          ],
-          maxMessages,
-        ),
+        messages: bounded([...state.messages, message], maxMessages),
       };
+    }
     case "toggle-context": {
       const exists = state.context.some((item) => item.id === action.chip.id);
       return {
@@ -220,8 +247,16 @@ export function desktopReducer(
             id !== `track:${action.trackId}` && id !== `device:${action.id}`,
         ),
       };
-    case "dismiss-approval":
-      return { ...state, approval: undefined };
+    case "dismiss-approval": {
+      const instanceId =
+        action.agentInstanceId ?? selectedAgentInstance(state)?.id;
+      return instanceId === undefined
+        ? { ...state, approval: undefined }
+        : updateAgentWorkspace(state, instanceId, (workspace) => ({
+            ...workspace,
+            approval: undefined,
+          }));
+    }
     case "update-plan":
       return {
         ...state,
@@ -290,9 +325,28 @@ function reduceEvent(
       };
     case "sessions.changed":
       return { ...state, sessions: event.sessions };
+    case "agents.catalog_changed":
+      return { ...state, agentCatalog: event.catalog };
+    case "agent.instance_changed":
+      return reduceAgentInstanceChanged(state, event.instance, event.change);
+    case "agent.history_hydrated":
+      return updateAgentWorkspace(
+        state,
+        event.agentInstanceId,
+        (workspace) => ({
+          ...workspace,
+          messages: mergeHydratedMessages(workspace.messages, event.history),
+        }),
+      );
     case "session.context_restored":
       return {
         ...state,
+        sessions: [
+          event.session,
+          ...state.sessions.filter(
+            (session) => session.id !== event.session.id,
+          ),
+        ],
         mode: event.session.mode,
         plan: event.session.productionPlan,
       };
@@ -301,7 +355,12 @@ function reduceEvent(
     case "outputs.changed":
       return { ...state, outputs: event.outputs };
     case "approval.requested":
-      return { ...state, approval: event.approval };
+      return event.agentInstanceId === undefined
+        ? { ...state, approval: event.approval }
+        : updateAgentWorkspace(state, event.agentInstanceId, (workspace) => ({
+            ...workspace,
+            approval: event.approval,
+          }));
     case "diagnostic":
       return {
         ...state,
@@ -314,57 +373,264 @@ function reduceEvent(
         ),
       };
     case "operation.changed": {
-      const exists = state.operations.some(
-        (operation) => operation.id === event.operation.id,
-      );
-      const operations = exists
-        ? state.operations.map((operation) =>
-            operation.id === event.operation.id ? event.operation : operation,
-          )
-        : [...state.operations, event.operation];
-      return { ...state, operations: bounded(operations, maxOperations) };
-    }
-    case "agent.message_delta": {
-      const index = state.messages.findIndex(
-        (message) => message.id === event.messageId,
-      );
-      if (index < 0) {
-        return {
-          ...state,
-          messages: bounded(
-            [
-              ...state.messages,
-              {
-                id: event.messageId,
-                role: "assistant",
-                content: event.content,
-                streaming: true,
-                timestamp: Date.now(),
-              },
-            ],
-            maxMessages,
-          ),
-        };
+      if (event.agentInstanceId !== undefined) {
+        return updateAgentWorkspace(
+          state,
+          event.agentInstanceId,
+          (workspace) => ({
+            ...workspace,
+            operations: upsertOperation(workspace.operations, event.operation),
+          }),
+        );
       }
       return {
         ...state,
-        messages: state.messages.map((message, messageIndex) =>
-          messageIndex === index
-            ? { ...message, content: message.content + event.content }
-            : message,
+        operations: upsertOperation(state.operations, event.operation),
+      };
+    }
+    case "agent.message_delta": {
+      if (event.agentInstanceId !== undefined) {
+        return updateAgentWorkspace(
+          state,
+          event.agentInstanceId,
+          (workspace) => ({
+            ...workspace,
+            messages: applyMessageDelta(
+              workspace.messages,
+              event.messageId,
+              event.content,
+            ),
+          }),
+        );
+      }
+      return {
+        ...state,
+        messages: applyMessageDelta(
+          state.messages,
+          event.messageId,
+          event.content,
         ),
       };
     }
-    case "agent.message_complete":
+    case "agent.message_complete": {
+      if (event.agentInstanceId !== undefined) {
+        return updateAgentWorkspace(
+          state,
+          event.agentInstanceId,
+          (workspace) => ({
+            ...workspace,
+            messages: applyMessageComplete(
+              workspace.messages,
+              event.messageId,
+              event.content,
+            ),
+          }),
+        );
+      }
       return {
         ...state,
-        messages: state.messages.map((message) =>
-          message.id === event.messageId
-            ? { ...message, content: event.content, streaming: false }
-            : message,
+        messages: applyMessageComplete(
+          state.messages,
+          event.messageId,
+          event.content,
         ),
       };
+    }
   }
+}
+
+const emptyAgentWorkspace = (): AgentWorkspaceState => ({
+  messages: [],
+  operations: [],
+});
+
+function updateAgentWorkspace(
+  state: DesktopState,
+  instanceId: string,
+  update: (workspace: AgentWorkspaceState) => AgentWorkspaceState,
+): DesktopState {
+  return {
+    ...state,
+    agentWorkspaces: {
+      ...state.agentWorkspaces,
+      [instanceId]: update(
+        state.agentWorkspaces[instanceId] ?? emptyAgentWorkspace(),
+      ),
+    },
+  };
+}
+
+function upsertOperation(
+  operations: OperationView[],
+  operation: OperationView,
+): OperationView[] {
+  const exists = operations.some(({ id }) => id === operation.id);
+  return bounded(
+    exists
+      ? operations.map((candidate) =>
+          candidate.id === operation.id ? operation : candidate,
+        )
+      : [...operations, operation],
+    maxOperations,
+  );
+}
+
+function applyMessageDelta(
+  messages: MessageView[],
+  messageId: string,
+  content: string,
+): MessageView[] {
+  const index = messages.findIndex(({ id }) => id === messageId);
+  if (index < 0) {
+    return bounded(
+      [
+        ...messages,
+        {
+          id: messageId,
+          role: "assistant",
+          content,
+          streaming: true,
+          timestamp: Date.now(),
+        },
+      ],
+      maxMessages,
+    );
+  }
+  return messages.map((message, messageIndex) =>
+    messageIndex === index
+      ? { ...message, content: message.content + content, streaming: true }
+      : message,
+  );
+}
+
+function applyMessageComplete(
+  messages: MessageView[],
+  messageId: string,
+  content: string,
+): MessageView[] {
+  const exists = messages.some(({ id }) => id === messageId);
+  return exists
+    ? messages.map((message) =>
+        message.id === messageId
+          ? { ...message, content, streaming: false }
+          : message,
+      )
+    : bounded(
+        [
+          ...messages,
+          {
+            id: messageId,
+            role: "assistant",
+            content,
+            streaming: false,
+            timestamp: Date.now(),
+          },
+        ],
+        maxMessages,
+      );
+}
+
+function mergeHydratedMessages(
+  current: MessageView[],
+  history: DesktopAgentHistoryMessage[],
+): MessageView[] {
+  const hydrated = history.map((message) => ({
+    id: message.eventId,
+    role: message.role,
+    content: message.content,
+    streaming: false,
+    timestamp: Date.parse(message.timestamp) || 0,
+  }));
+  const hydratedIds = new Set(hydrated.map(({ id }) => id));
+  const latestHydratedTimestamp = Math.max(
+    0,
+    ...hydrated.map(({ timestamp }) => timestamp),
+  );
+  return bounded(
+    [
+      ...hydrated,
+      ...current.filter(
+        (message) =>
+          !hydratedIds.has(message.id) &&
+          (message.streaming || message.timestamp > latestHydratedTimestamp),
+      ),
+    ].sort((left, right) => left.timestamp - right.timestamp),
+    maxMessages,
+  );
+}
+
+function reduceAgentInstanceChanged(
+  state: DesktopState,
+  instance: DesktopActiveAgent,
+  change:
+    | "created"
+    | "renamed"
+    | "configured"
+    | "reset"
+    | "selected"
+    | "deactivated"
+    | "lifecycle",
+): DesktopState {
+  const session = state.sessions[0];
+  if (session === undefined) return state;
+  const activeAgents =
+    change === "deactivated"
+      ? session.activeAgents.filter(({ id }) => id !== instance.id)
+      : session.activeAgents.some(({ id }) => id === instance.id)
+        ? session.activeAgents.map((candidate) =>
+            candidate.id === instance.id ? instance : candidate,
+          )
+        : [...session.activeAgents, instance];
+  const selectedAgentInstanceId =
+    change === "selected" || change === "created"
+      ? instance.id
+      : change === "deactivated" &&
+          session.selectedAgentInstanceId === instance.id
+        ? activeAgents[0]?.id
+        : session.selectedAgentInstanceId;
+  return {
+    ...state,
+    sessions: [
+      {
+        ...session,
+        activeAgents,
+        ...(selectedAgentInstanceId === undefined
+          ? { selectedAgentInstanceId: undefined }
+          : { selectedAgentInstanceId }),
+      },
+      ...state.sessions.slice(1),
+    ],
+  };
+}
+
+export function selectedAgentInstance(
+  state: DesktopState,
+): DesktopActiveAgent | undefined {
+  const session = state.sessions[0];
+  return session?.activeAgents.find(
+    ({ id }) => id === session.selectedAgentInstanceId,
+  );
+}
+
+export function selectedAgentWorkspace(
+  state: DesktopState,
+): AgentWorkspaceState {
+  const instanceId = selectedAgentInstance(state)?.id;
+  if (instanceId === undefined) {
+    return {
+      messages: state.messages,
+      operations: state.operations,
+      approval: state.approval,
+    };
+  }
+  return state.agentWorkspaces[instanceId] ?? emptyAgentWorkspace();
+}
+
+export function selectedAgentSkills(
+  state: DesktopState,
+): DesktopAgentCatalog["skills"] {
+  const configured = new Set(selectedAgentInstance(state)?.config.skills ?? []);
+  return state.agentCatalog.skills.filter(({ name }) => configured.has(name));
 }
 
 function bounded<T>(items: T[], maximum: number): T[] {

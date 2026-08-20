@@ -30,6 +30,9 @@ relevant validation pass.
 | Application | [Desktop application](application/desktop-application.md) | [To-do](application/desktop-application-implementation-to-do.md) |
 | CLI | [Terminal client](cli/terminal-client.md) | [To-do](cli/terminal-client-implementation-to-do.md) |
 | Agent | [Agent runtime](agent/agent-runtime.md) | [To-do](agent/agent-runtime-implementation-to-do.md) |
+| Custom agents | [Custom agents](agents/custom-agents.md) | [To-do](agents/custom-agents-implementation-to-do.md) |
+| Agent Skills | [Agent Skills](skills/agent-skills.md) | [To-do](skills/agent-skills-implementation-to-do.md) |
+| Multi-agent outputs | [Output routing](outputs/multi-agent-output-routing.md) | [To-do](outputs/multi-agent-output-routing-implementation-to-do.md) |
 | Bridge | [Ableton bridge](bridge/ableton-bridge.md) | [To-do](bridge/ableton-bridge-implementation-to-do.md) |
 | Remote Script | [Remote Script](remote-script/remote-script.md) | [To-do](remote-script/remote-script-implementation-to-do.md) |
 | Protocol | [IPC protocol](protocol/ipc-protocol.md) | [To-do](protocol/ipc-protocol-implementation-to-do.md) |
@@ -102,6 +105,9 @@ presentation-only and report themselves as unsupported.
 
 ### Stage 6: workflows and release
 
+- [~] Replace fixed modes with definition-driven active agents and canonical
+  Agent Skills.
+- [ ] Route Outputs independently to multiple active agents.
 - [ ] Implement deterministic compose, arrange, sound, and mix workflows.
 - [ ] Complete installation, Remote Script updates, diagnostics, logging, and
   privacy controls.

@@ -4,8 +4,14 @@ import { dirname } from "node:path";
 
 import type {
   ApprovalDecision,
+  AutoApprovalTarget,
   ContextChip,
   DesktopAppEvent,
+  DesktopActiveAgent,
+  DesktopAgentConfigOverrides,
+  DesktopAgentHistoryMessage,
+  DesktopAgentCatalog,
+  DesktopAutoApprovalUpdate,
   DesktopConnectionStatus,
   DiagnosticCheck,
   DesktopLifecycleState,
@@ -18,7 +24,19 @@ import type {
   PlanSection,
   ProductMode,
 } from "../contracts.js";
-import { preferencesSchema, sessionSchema } from "../contracts.js";
+import {
+  legacySessionSchema,
+  preferencesSchema,
+  sessionSchema,
+} from "../contracts.js";
+
+const legacySdkSessionIds = new WeakMap<DesktopSession, string>();
+
+export function legacySdkSessionId(
+  session: DesktopSession,
+): string | undefined {
+  return legacySdkSessionIds.get(session);
+}
 
 export interface DesktopService {
   start(): Promise<void>;
@@ -32,6 +50,38 @@ export interface DesktopService {
   createSession(): Promise<string>;
   getSessions(): Promise<DesktopSession[]>;
   resumeSession(sessionId: string): Promise<void>;
+  getAgentCatalog(): Promise<DesktopAgentCatalog>;
+  refreshAgentCatalog(): Promise<DesktopAgentCatalog>;
+  listActiveAgents(): Promise<DesktopActiveAgent[]>;
+  createActiveAgent(definitionName: string): Promise<DesktopActiveAgent>;
+  renameActiveAgent(
+    instanceId: string,
+    label: string,
+  ): Promise<DesktopActiveAgent>;
+  configureActiveAgent(
+    instanceId: string,
+    overrides: DesktopAgentConfigOverrides,
+  ): Promise<DesktopActiveAgent>;
+  resetActiveAgent(instanceId: string): Promise<DesktopActiveAgent>;
+  selectActiveAgent(instanceId: string): Promise<DesktopActiveAgent>;
+  setAutoApproval(
+    target: AutoApprovalTarget,
+    enabled: boolean,
+  ): Promise<DesktopAutoApprovalUpdate>;
+  deactivateActiveAgent(instanceId: string): Promise<void>;
+  hydrateActiveAgentHistory(
+    instanceId: string,
+  ): Promise<DesktopAgentHistoryMessage[]>;
+  sendToActiveAgent(
+    instanceId: string,
+    message: string,
+  ): Promise<{ accepted: true; messageId: string }>;
+  invokeActiveAgentSkill(
+    instanceId: string,
+    skillName: string,
+    argumentsText: string,
+  ): Promise<{ accepted: true; messageId: string }>;
+  cancelActiveAgent(instanceId: string): Promise<{ cancelled: boolean }>;
   connect(): Promise<DesktopConnectionStatus>;
   getStatus(): Promise<DesktopConnectionStatus>;
   getCapabilities(): Promise<string[]>;
@@ -45,19 +95,30 @@ export interface DesktopService {
   retryOperation(id: string): Promise<boolean>;
   undoOperation(id: string): Promise<boolean>;
   listOutputs(): Promise<DesktopOutputsState>;
-  assignOutput(producerId: string): Promise<DesktopOutputAssignment>;
-  unassignOutput(producerId: string): Promise<boolean>;
+  assignOutput(
+    agentInstanceId: string,
+    producerId: string,
+  ): Promise<DesktopOutputAssignment>;
+  unassignOutput(agentInstanceId: string, producerId: string): Promise<boolean>;
   setOutputEnabled(
+    agentInstanceId: string,
     producerId: string,
     enabled: boolean,
   ): Promise<DesktopOutputAssignment>;
   setOutputDeliveryMode(
+    agentInstanceId: string,
     producerId: string,
     deliveryMode: OutputDeliveryMode,
   ): Promise<DesktopOutputAssignment>;
   setOutputUsageInstruction(
+    agentInstanceId: string,
     producerId: string,
     usageInstruction: string,
+  ): Promise<DesktopOutputAssignment>;
+  setOutputProcessingPolicies(
+    agentInstanceId: string,
+    producerId: string,
+    processingPolicyIds: string[],
   ): Promise<DesktopOutputAssignment>;
   subscribe(listener: (event: DesktopAppEvent) => void): () => void;
   getLifecycleState(): Promise<DesktopLifecycleState>;
@@ -99,12 +160,30 @@ export class JsonPreferencesStore {
 }
 
 export class JsonSessionStore {
+  readonly #legacySessionIds = new Set<string>();
+
   public constructor(private readonly path: string) {}
 
   public async load(): Promise<DesktopSession[]> {
     try {
       const stored: unknown = JSON.parse(await readFile(this.path, "utf8"));
-      return sessionSchema.array().parse(stored);
+      if (!Array.isArray(stored)) {
+        throw new Error("Stored sessions must be an array");
+      }
+      return stored.map((value) => {
+        if (typeof value === "object" && value !== null && "version" in value) {
+          return sessionSchema.parse(value);
+        }
+        const legacy = legacySessionSchema.parse(value);
+        this.#legacySessionIds.add(legacy.id);
+        const migrated = sessionSchema.parse({
+          ...legacy,
+          version: 2,
+          activeAgents: [],
+        });
+        legacySdkSessionIds.set(migrated, legacy.id);
+        return migrated;
+      });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw new Error("Sessions could not be loaded", { cause: error });
@@ -117,7 +196,19 @@ export class JsonSessionStore {
     try {
       await writeFile(
         temporaryPath,
-        JSON.stringify(sessionSchema.array().parse(sessions), undefined, 2),
+        JSON.stringify(
+          sessionSchema
+            .array()
+            .parse(sessions)
+            .map((session) =>
+              this.#legacySessionIds.has(session.id) &&
+              session.activeAgents.length === 0
+                ? legacySessionSchema.parse(session)
+                : session,
+            ),
+          undefined,
+          2,
+        ),
         { encoding: "utf8", mode: 0o600 },
       );
       await rename(temporaryPath, this.path);

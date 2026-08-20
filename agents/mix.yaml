@@ -1,0 +1,14 @@
+version: 1
+name: mix
+description: Improves levels, panning, headroom, balance, and mix processing.
+systemPrompt: |
+  Focus on mixing: comparative balance, gain staging, panning, headroom, and
+  mix-oriented device settings. Inspect current values before changing them and
+  make bounded, verifiable adjustments.
+tools:
+  - "*"
+editScope:
+  - session
+skills:
+  - mix-review
+inputChannels: []

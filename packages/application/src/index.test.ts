@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionConfig, SessionEvent } from "@github/copilot-sdk";
+import type { SkillInvocation } from "@ableton-agent/agent-config";
 
 import {
   InMemoryEventPublisher,
@@ -11,6 +12,7 @@ import {
   CopilotAgentService,
   HeadlessApplication,
   type AbletonService,
+  type AgentSessionConfiguration,
   type AgentService,
 } from "./index.js";
 
@@ -1059,6 +1061,64 @@ describe("CopilotAgentService", () => {
       "custom:ableton_browser_load_item",
     ]);
     expect(config?.tools).toHaveLength(38);
+    expect(config?.customAgents).toEqual([
+      {
+        name: "default-agent",
+        displayName: "Ableton Agent",
+        description:
+          "Primary Ableton Live production assistant for the current session.",
+        prompt:
+          "Follow the session system message exactly and use the available Ableton tools to help the user.",
+        tools: [
+          "ableton_connection_status",
+          "ableton_session_inspect",
+          "ableton_transport_set_tempo",
+          "ableton_transport_set_playing",
+          "ableton_transport_inspect_arrangement",
+          "ableton_transport_set_arrangement_loop",
+          "ableton_transport_create_cue_point",
+          "ableton_transport_delete_cue_point",
+          "ableton_tracks_create",
+          "ableton_tracks_delete",
+          "ableton_tracks_rename",
+          "ableton_tracks_set_mixer",
+          "ableton_clips_create_midi",
+          "ableton_clips_replace_notes",
+          "ableton_clips_launch",
+          "ableton_clips_duplicate",
+          "ableton_clips_delete",
+          "ableton_clips_set_properties",
+          "ableton_arrangement_create_midi_clip",
+          "ableton_arrangement_inspect",
+          "ableton_arrangement_delete_clip",
+          "ableton_arrangement_replace_notes",
+          "ableton_arrangement_duplicate_clip",
+          "ableton_arrangement_set_clip_properties",
+          "ableton_devices_inspect",
+          "ableton_device_parameters_inspect",
+          "ableton_rack_chains_inspect",
+          "ableton_rack_chain_devices_inspect",
+          "ableton_drum_rack_pads_inspect",
+          "ableton_drum_pad_chains_inspect",
+          "ableton_drum_pad_chain_devices_inspect",
+          "ableton_device_set_enabled",
+          "ableton_device_set_parameter",
+          "ableton_browser_roots_inspect",
+          "ableton_browser_children_inspect",
+          "ableton_browser_search",
+          "ableton_browser_search_external_plugins",
+          "ableton_browser_load_item",
+        ],
+        infer: false,
+        skills: [],
+      },
+    ]);
+    expect(config?.agent).toBe("default-agent");
+    expect(config?.skillDirectories).toEqual([]);
+    expect(config?.systemMessage?.mode).toBe("replace");
+    expect(config?.systemMessage?.content).toContain(
+      "Ableton Live production assistant",
+    );
     await expect(
       config?.onPermissionRequest?.(
         {
@@ -1388,19 +1448,25 @@ describe("CopilotAgentService", () => {
     });
 
     expect(received).toEqual([
-      { type: "agent.message_delta", content: "hello" },
+      {
+        type: "agent.message_delta",
+        content: "hello",
+        sdkSessionId: "session-1",
+      },
       {
         type: "operation.started",
         operationId: "tool-1",
         label: "Inspect Ableton session",
         toolName: "ableton_session_inspect",
         arguments: {},
+        sdkSessionId: "session-1",
       },
       {
         type: "operation.completed",
         operationId: "tool-1",
         summary: "Inspect Ableton session completed",
         toolName: "ableton_session_inspect",
+        sdkSessionId: "session-1",
       },
       {
         type: "operation.started",
@@ -1408,6 +1474,7 @@ describe("CopilotAgentService", () => {
         label: "Check Ableton connection",
         toolName: "ableton_connection_status",
         arguments: {},
+        sdkSessionId: "session-1",
       },
       {
         type: "operation.failed",
@@ -1415,6 +1482,7 @@ describe("CopilotAgentService", () => {
         code: "offline",
         message: "Ableton is offline",
         toolName: "ableton_connection_status",
+        sdkSessionId: "session-1",
       },
     ]);
     await service.stop();
@@ -1449,5 +1517,98 @@ describe("HeadlessApplication agent and connection ports", () => {
     await expect(application.connectAbleton()).rejects.toThrow(
       "not running (stopped)",
     );
+  });
+
+  it("delegates managed agent methods explicitly", async () => {
+    const deps = services({ state: "disconnected" });
+    const configuration: AgentSessionConfiguration = {
+      instanceId: "agent-a",
+      definitionName: "compose",
+      label: "Compose",
+      description: "Compose MIDI phrases.",
+      systemPrompt: "Compose MIDI phrases safely.",
+      resolvedTools: ["ableton_session_inspect"],
+      editScope: ["session"],
+      boundTracks: [],
+      skills: ["midi"],
+      skillDirectories: ["/repo/skills"],
+    };
+    const history = [
+      {
+        role: "user" as const,
+        content: "Write a melody",
+        timestamp: "2026-08-08T00:00:00.000Z",
+        eventId: "user-1",
+        agentInstanceId: "agent-a",
+        sdkSessionId: "sdk-agent-a",
+      },
+    ];
+    deps.agent.getManagedAgentSessionId = vi.fn(() => "sdk-agent-a");
+    const createManagedAgent = vi.fn(async () => "sdk-agent-a");
+    const resumeManagedAgent = vi.fn(async () => undefined);
+    const reconfigureManagedAgent = vi.fn(async () => undefined);
+    const deactivateManagedAgent = vi.fn(async () => undefined);
+    const sendToManagedAgent = vi.fn(async (_instanceId, prompt) => {
+      return `managed:${prompt}`;
+    });
+    const invokeManagedAgentSkill = vi.fn(
+      async (_instanceId: string, invocation: string | SkillInvocation) =>
+        `skill:${
+          typeof invocation === "string"
+            ? invocation
+            : `/${invocation.skillName} ${invocation.request}`
+        }`,
+    );
+    const cancelManagedAgent = vi.fn(async () => true);
+    const getManagedAgentHistory = vi.fn(async () => history);
+    deps.agent.createManagedAgent = createManagedAgent;
+    deps.agent.resumeManagedAgent = resumeManagedAgent;
+    deps.agent.reconfigureManagedAgent = reconfigureManagedAgent;
+    deps.agent.deactivateManagedAgent = deactivateManagedAgent;
+    deps.agent.sendToManagedAgent = sendToManagedAgent;
+    deps.agent.invokeManagedAgentSkill = invokeManagedAgentSkill;
+    deps.agent.cancelManagedAgent = cancelManagedAgent;
+    deps.agent.getManagedAgentHistory = getManagedAgentHistory;
+
+    const application = new HeadlessApplication(deps);
+    await application.start();
+
+    expect(application.getManagedAgentSessionId("agent-a")).toBe("sdk-agent-a");
+    await expect(application.createManagedAgent(configuration)).resolves.toBe(
+      "sdk-agent-a",
+    );
+    await application.resumeManagedAgent(configuration, "sdk-agent-a");
+    await application.reconfigureManagedAgent(configuration);
+    await application.deactivateManagedAgent("agent-a");
+    await expect(
+      application.sendToManagedAgent("agent-a", "Follow up"),
+    ).resolves.toBe("managed:Follow up");
+    await expect(
+      application.invokeManagedAgentSkill(
+        "agent-a",
+        "/midi keep the original rhythm",
+      ),
+    ).resolves.toBe("skill:/midi keep the original rhythm");
+    await expect(application.cancelManagedAgent("agent-a")).resolves.toBe(true);
+    await expect(application.getManagedAgentHistory("agent-a")).resolves.toBe(
+      history,
+    );
+
+    expect(createManagedAgent).toHaveBeenCalledWith(configuration);
+    expect(resumeManagedAgent).toHaveBeenCalledWith(
+      configuration,
+      "sdk-agent-a",
+    );
+    expect(reconfigureManagedAgent).toHaveBeenCalledWith(configuration);
+    expect(deactivateManagedAgent).toHaveBeenCalledWith("agent-a");
+    expect(sendToManagedAgent).toHaveBeenCalledWith("agent-a", "Follow up");
+    expect(invokeManagedAgentSkill).toHaveBeenCalledWith(
+      "agent-a",
+      "/midi keep the original rhythm",
+    );
+    expect(cancelManagedAgent).toHaveBeenCalledWith("agent-a");
+    expect(getManagedAgentHistory).toHaveBeenCalledWith("agent-a");
+
+    await application.stop();
   });
 });

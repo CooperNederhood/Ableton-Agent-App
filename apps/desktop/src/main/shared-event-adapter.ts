@@ -37,6 +37,12 @@ export function normalizeSharedEvent(
                     undoable: false,
                     timestamp: Date.now(),
                   },
+                  ...(event.agentInstanceId === undefined
+                    ? {}
+                    : { agentInstanceId: event.agentInstanceId }),
+                  ...(event.sdkSessionId === undefined
+                    ? {}
+                    : { sdkSessionId: event.sdkSessionId }),
                 }
               : event.type === "operation.completed"
                 ? {
@@ -52,6 +58,12 @@ export function normalizeSharedEvent(
                       undoable: false,
                       timestamp: Date.now(),
                     },
+                    ...(event.agentInstanceId === undefined
+                      ? {}
+                      : { agentInstanceId: event.agentInstanceId }),
+                    ...(event.sdkSessionId === undefined
+                      ? {}
+                      : { sdkSessionId: event.sdkSessionId }),
                   }
                 : event.type === "operation.failed"
                   ? {
@@ -68,6 +80,12 @@ export function normalizeSharedEvent(
                         undoable: false,
                         timestamp: Date.now(),
                       },
+                      ...(event.agentInstanceId === undefined
+                        ? {}
+                        : { agentInstanceId: event.agentInstanceId }),
+                      ...(event.sdkSessionId === undefined
+                        ? {}
+                        : { sdkSessionId: event.sdkSessionId }),
                     }
                   : event;
   return appEventSchema.parse(normalized);

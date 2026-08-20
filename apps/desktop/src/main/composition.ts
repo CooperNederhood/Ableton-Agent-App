@@ -5,9 +5,13 @@ import {
   type AgentRuntime,
 } from "@ableton-agent/runtime";
 import type { Logger } from "@ableton-agent/shared";
-import type { ToolApprovalRequest } from "@ableton-agent/tools";
+import {
+  abletonToolMetadata,
+  type ToolApprovalRequest,
+} from "@ableton-agent/tools";
 
 import { preferencesSchema, type DesktopPreferences } from "../contracts.js";
+import { AgentCatalogService } from "./agent-catalog.js";
 import { ApprovalCoordinator, ApprovalPolicyController } from "./approvals.js";
 import { JsonPreferencesStore, JsonSessionStore } from "./desktop-service.js";
 import { HeadlessDesktopService } from "./headless-desktop-service.js";
@@ -15,6 +19,8 @@ import { HeadlessDesktopService } from "./headless-desktop-service.js";
 export interface DesktopCompositionOptions {
   preferencesPath: string;
   sessionsPath: string;
+  agentsDirectory: string;
+  skillsDirectory: string;
   signalDescriptorPath?: string;
   /** Copilot session storage owned by the desktop app. */
   agentBaseDirectory: string;
@@ -68,6 +74,11 @@ export async function createDesktopComposition(
   const environment = options.environment ?? {};
   const preferencesStore = new JsonPreferencesStore(options.preferencesPath);
   const sessionStore = new JsonSessionStore(options.sessionsPath);
+  const agentCatalog = new AgentCatalogService({
+    agentsDirectory: options.agentsDirectory,
+    skillsDirectory: options.skillsDirectory,
+    availableTools: abletonToolMetadata.map((tool) => tool.name),
+  });
   const notices: Notice[] = [];
   const preferences = await loadPreferences(preferencesStore, notices);
   const token =
@@ -139,6 +150,7 @@ export async function createDesktopComposition(
     approvals,
     preferencesStore,
     sessionStore,
+    agentCatalog,
     signals: runtime.signals,
     ...(options.logger === undefined ? {} : { logger: options.logger }),
     startupNotices: notices,
@@ -147,6 +159,8 @@ export async function createDesktopComposition(
       ? {}
       : { onLoggingLevelChange: options.onLoggingLevelChange }),
     onApprovalPolicyChange: (policy) => approvalPolicy.setPolicy(policy),
+    onAutoApprovedAgentIdsChange: (ids) =>
+      approvalPolicy.setAutoApprovedAgentInstanceIds(ids),
   });
   return { service, runtime, preferences };
 }

@@ -2,9 +2,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { preferencesSchema } from "../contracts.js";
+import { ApprovalCoordinator, ApprovalPolicyController } from "./approvals.js";
 import { createDesktopComposition } from "./composition.js";
 
 const directories: string[] = [];
@@ -17,6 +18,8 @@ async function paths() {
     preferencesPath: join(directory, "preferences.json"),
     sessionsPath: join(directory, "sessions.json"),
     agentBaseDirectory: join(directory, "copilot"),
+    agentsDirectory: join(directory, "agents"),
+    skillsDirectory: join(directory, "skills"),
   };
 }
 
@@ -119,5 +122,39 @@ describe("desktop composition", () => {
         expect.objectContaining({ label: "Preferences", status: "warn" }),
       ]),
     );
+  });
+
+  it("wires effective active-agent YOLO IDs into the approval policy", async () => {
+    const location = await paths();
+    const publish = vi.spyOn(
+      ApprovalPolicyController.prototype,
+      "setAutoApprovedAgentInstanceIds",
+    );
+    const approvePending = vi.spyOn(
+      ApprovalCoordinator.prototype,
+      "approveForAgentInstanceIds",
+    );
+    const { service } = await createDesktopComposition({
+      ...location,
+      environment: {},
+    });
+
+    const callback = (
+      service as unknown as {
+        options: {
+          onAutoApprovedAgentIdsChange: (ids: ReadonlySet<string>) => void;
+        };
+      }
+    ).options.onAutoApprovedAgentIdsChange;
+    const ids = new Set(["00000000-0000-4000-8000-000000000001"]);
+    callback(ids);
+    callback(new Set());
+
+    expect(publish).toHaveBeenCalledWith(ids);
+    expect(publish).toHaveBeenLastCalledWith(new Set());
+    expect(approvePending).toHaveBeenCalledWith(ids);
+    expect(approvePending).toHaveBeenCalledTimes(1);
+    publish.mockRestore();
+    approvePending.mockRestore();
   });
 });

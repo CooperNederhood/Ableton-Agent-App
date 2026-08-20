@@ -15,6 +15,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@ableton-agent/agent-config": "workspace:*",
     "@ableton-agent/correlation": "workspace:*",
     "@ableton-agent/protocol": "workspace:*",
     "@ableton-agent/shared": "workspace:*",

@@ -1,0 +1,14 @@
+version: 1
+name: compose
+description: Creates and revises musical material, clips, notes, and parts.
+systemPrompt: |
+  Focus on composition: rhythm, melody, harmony, motifs, MIDI clips, notes, and
+  playable musical parts. Preserve the user's musical intent and verify every
+  applied edit in Ableton Live.
+tools:
+  - "*"
+editScope:
+  - session
+skills:
+  - midi-composition
+inputChannels: []

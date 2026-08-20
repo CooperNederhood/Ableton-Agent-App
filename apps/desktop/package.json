@@ -20,6 +20,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.preload.json --noEmit"
   },
   "dependencies": {
+    "@ableton-agent/agent-config": "workspace:*",
     "@ableton-agent/application": "workspace:*",
     "@ableton-agent/protocol": "workspace:*",
     "@ableton-agent/runtime": "workspace:*",

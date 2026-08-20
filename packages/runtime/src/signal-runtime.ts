@@ -9,6 +9,7 @@ import {
   SignalIngressServer,
   SignalRouter,
   SignalRoutingSummaryPublisher,
+  isAgentInstanceConsumer,
   type OutputAssignment,
   type OutputConnection,
   type SignalIngressEndpoint,
@@ -60,6 +61,9 @@ export interface SignalRuntime {
   getStatus(): SignalRuntimeStatus;
   start(): Promise<void>;
   stop(): Promise<void>;
+  setActiveAgentInstances(agentInstanceIds: readonly string[]): void;
+  addActiveAgentInstance(agentInstanceId: string): void;
+  removeActiveAgentInstance(agentInstanceId: string): void;
   setActiveSession(sessionId: string | undefined): void;
   setDeliveryService(service: SignalDeliveryService): void;
   listConnections(): readonly OutputConnection[];
@@ -69,19 +73,11 @@ export interface SignalRuntime {
   subscribe(listener: (event: SignalRuntimeEvent) => void): () => void;
 }
 
-function deliveryId(context: TranslatedSignalContext): string {
-  return `${context.assignmentId}:${context.sequence}`;
-}
-
-function parseDeliveryId(
-  value: string,
-): { assignmentId: string; sequence: number } | undefined {
-  const separator = value.lastIndexOf(":");
-  const sequence = Number(value.slice(separator + 1));
-  if (separator <= 0 || !Number.isInteger(sequence) || sequence < 0) {
-    return undefined;
-  }
-  return { assignmentId: value.slice(0, separator), sequence };
+interface DeliveryRecord {
+  readonly deliveryId: string;
+  readonly assignmentId: string;
+  readonly agentInstanceId: string;
+  readonly sequence: number;
 }
 
 export class DefaultSignalRuntime
@@ -93,8 +89,9 @@ export class DefaultSignalRuntime
   readonly #ingress: SignalIngressServer | undefined;
   readonly #listeners = new Set<(event: SignalRuntimeEvent) => void>();
   readonly #scheduledAutomatic = new Set<string>();
+  readonly #deliveryRecords = new Map<string, DeliveryRecord>();
+  readonly #activeAgentInstanceIds = new Set<string>();
   readonly #logger: Logger;
-  #activeSessionId: string | undefined;
   #deliveryService: SignalDeliveryService | undefined;
   #status: SignalRuntimeStatus;
 
@@ -189,19 +186,37 @@ export class DefaultSignalRuntime
   }
 
   async stop(): Promise<void> {
-    this.#activeSessionId = undefined;
+    this.#activeAgentInstanceIds.clear();
     if (this.#ingress !== undefined) await this.#ingress.stop();
     this.#logger.info("Signal ingress stopped");
     if (this.#status.state !== "disabled")
       this.#setStatus({ state: "stopped" });
   }
 
+  setActiveAgentInstances(agentInstanceIds: readonly string[]): void {
+    this.#activeAgentInstanceIds.clear();
+    for (const agentInstanceId of agentInstanceIds) {
+      this.#activeAgentInstanceIds.add(agentInstanceId);
+    }
+    this.#schedulePendingAutomatic();
+  }
+
+  addActiveAgentInstance(agentInstanceId: string): void {
+    this.#activeAgentInstanceIds.add(agentInstanceId);
+    this.#schedulePendingAutomatic(agentInstanceId);
+  }
+
+  removeActiveAgentInstance(agentInstanceId: string): void {
+    this.#activeAgentInstanceIds.delete(agentInstanceId);
+  }
+
   setActiveSession(sessionId: string | undefined): void {
-    this.#activeSessionId = sessionId;
+    this.setActiveAgentInstances(sessionId === undefined ? [] : [sessionId]);
   }
 
   setDeliveryService(service: SignalDeliveryService): void {
     this.#deliveryService = service;
+    this.#schedulePendingAutomatic();
   }
 
   listConnections(): readonly OutputConnection[] {
@@ -220,6 +235,13 @@ export class DefaultSignalRuntime
 
   removeAssignment(assignmentId: string): boolean {
     const removed = this.#router.removeAssignment(assignmentId);
+    if (removed) {
+      for (const [id, record] of this.#deliveryRecords) {
+        if (record.assignmentId !== assignmentId) continue;
+        this.#deliveryRecords.delete(id);
+        this.#scheduledAutomatic.delete(id);
+      }
+    }
     this.#logger.debug("Signal assignment removed", {
       assignmentId,
       removed,
@@ -233,74 +255,74 @@ export class DefaultSignalRuntime
   }
 
   async getPendingContexts(
-    sessionId: string,
+    agentInstanceId: string,
   ): Promise<readonly PendingSignalContext[]> {
-    if (sessionId !== this.#activeSessionId) return [];
+    if (!this.#activeAgentInstanceIds.has(agentInstanceId)) return [];
     return this.#router
       .listAssignments()
       .filter(
         (assignment) =>
           assignment.enabled &&
-          assignment.consumer.kind === "agent-session" &&
-          assignment.consumer.id === sessionId &&
+          isAgentInstanceConsumer(assignment.consumer, agentInstanceId) &&
           assignment.deliveryMode === "next-prompt",
       )
       .flatMap((assignment) =>
-        this.#router.inbox(assignment.assignmentId).map((context) => ({
-          deliveryId: deliveryId(context),
-          context,
-          usageInstruction: assignment.usageInstruction,
-        })),
+        this.#router.inbox(assignment.assignmentId).map((context) => {
+          const record = this.#deliveryRecord(assignment, context);
+          return {
+            deliveryId: record.deliveryId,
+            context,
+            usageInstruction: assignment.usageInstruction,
+          };
+        }),
       );
   }
 
   async markDelivered(
-    sessionId: string,
+    agentInstanceId: string,
     deliveryIds: readonly string[],
   ): Promise<void> {
-    if (sessionId !== this.#activeSessionId) return;
+    if (!this.#activeAgentInstanceIds.has(agentInstanceId)) return;
     const grouped = new Map<string, number[]>();
     for (const id of deliveryIds) {
-      const parsed = parseDeliveryId(id);
-      if (parsed === undefined) continue;
+      const record = this.#deliveryRecords.get(id);
+      if (record?.agentInstanceId !== agentInstanceId) continue;
       const assignment = this.#router
         .listAssignments()
-        .find(({ assignmentId }) => assignmentId === parsed.assignmentId);
+        .find(({ assignmentId }) => assignmentId === record.assignmentId);
       if (
-        assignment?.consumer.kind !== "agent-session" ||
-        assignment.consumer.id !== sessionId
+        assignment === undefined ||
+        !isAgentInstanceConsumer(assignment.consumer, agentInstanceId)
       ) {
         continue;
       }
-      const sequences = grouped.get(parsed.assignmentId) ?? [];
-      sequences.push(parsed.sequence);
-      grouped.set(parsed.assignmentId, sequences);
+      const sequences = grouped.get(record.assignmentId) ?? [];
+      sequences.push(record.sequence);
+      grouped.set(record.assignmentId, sequences);
+      this.#deliveryRecords.delete(id);
+      this.#scheduledAutomatic.delete(id);
     }
     for (const [assignmentId, sequences] of grouped) {
       this.#router.acknowledge(assignmentId, sequences);
-      for (const sequence of sequences) {
-        this.#scheduledAutomatic.delete(`${assignmentId}:${sequence}`);
-      }
     }
   }
 
   #scheduleAutomatic(context: TranslatedSignalContext): void {
     if (context.deliveryMode === "next-prompt") return;
-    const sessionId = this.#activeSessionId;
     if (
-      sessionId === undefined ||
-      context.consumer.kind !== "agent-session" ||
-      context.consumer.id !== sessionId
+      !isAgentInstanceConsumer(context.consumer) ||
+      !this.#activeAgentInstanceIds.has(context.consumer.id)
     ) {
       return;
     }
-    const id = deliveryId(context);
-    if (this.#scheduledAutomatic.has(id)) return;
     const assignment = this.#router
       .listAssignments()
       .find(({ assignmentId }) => assignmentId === context.assignmentId);
     const service = this.#deliveryService;
     if (assignment === undefined || service === undefined) return;
+    const record = this.#deliveryRecord(assignment, context);
+    const id = record.deliveryId;
+    if (this.#scheduledAutomatic.has(id)) return;
     this.#scheduledAutomatic.add(id);
     this.#logger.debug("Automatic signal turn scheduled", {
       deliveryId: id,
@@ -330,6 +352,41 @@ export class DefaultSignalRuntime
           }`,
         });
       });
+  }
+
+  #schedulePendingAutomatic(agentInstanceId?: string): void {
+    for (const assignment of this.#router.listAssignments()) {
+      if (
+        !assignment.enabled ||
+        assignment.deliveryMode === "next-prompt" ||
+        !isAgentInstanceConsumer(assignment.consumer, agentInstanceId)
+      ) {
+        continue;
+      }
+      for (const context of this.#router.inbox(assignment.assignmentId)) {
+        this.#scheduleAutomatic(context);
+      }
+    }
+  }
+
+  #deliveryRecord(
+    assignment: OutputAssignment,
+    context: TranslatedSignalContext,
+  ): DeliveryRecord {
+    const deliveryId = `signal-delivery.${JSON.stringify([
+      assignment.assignmentId,
+      context.sequence,
+    ])}`;
+    const existing = this.#deliveryRecords.get(deliveryId);
+    if (existing !== undefined) return existing;
+    const record = {
+      deliveryId,
+      assignmentId: assignment.assignmentId,
+      agentInstanceId: assignment.consumer.id,
+      sequence: context.sequence,
+    };
+    this.#deliveryRecords.set(deliveryId, record);
+    return record;
   }
 
   #setStatus(status: SignalRuntimeStatus): void {

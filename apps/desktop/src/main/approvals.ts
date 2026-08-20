@@ -8,6 +8,19 @@ import type {
   DesktopPreferences,
 } from "../contracts.js";
 
+export interface ApprovalAttribution {
+  readonly agentInstanceId?: string;
+  readonly sdkSessionId?: string;
+}
+
+export type AutoApprovedAgentInstanceIds =
+  ReadonlySet<string> | (() => ReadonlySet<string>);
+
+interface PendingApproval {
+  readonly attribution: ApprovalAttribution;
+  readonly resolve: (approved: boolean) => void;
+}
+
 /**
  * Maps a shared tool approval request into the desktop approval view model.
  * Risk is derived from tool metadata, never guessed from the tool name.
@@ -42,12 +55,17 @@ export function toDesktopApproval(
  * can answer.
  */
 export class ApprovalCoordinator {
-  readonly #pending = new Map<string, (approved: boolean) => void>();
-  #publish: ((approval: ApprovalRequest) => boolean) | undefined;
+  readonly #pending = new Map<string, PendingApproval>();
+  #publish:
+    | ((approval: ApprovalRequest, attribution: ApprovalAttribution) => boolean)
+    | undefined;
 
   /** Registers the sink that shows approvals; returns false when unusable. */
   public setPublisher(
-    publish: (approval: ApprovalRequest) => boolean,
+    publish: (
+      approval: ApprovalRequest,
+      attribution: ApprovalAttribution,
+    ) => boolean,
   ): () => void {
     this.#publish = publish;
     return () => {
@@ -69,11 +87,19 @@ export class ApprovalCoordinator {
     }
     const id = randomUUID();
     const approval = toDesktopApproval(id, request);
-    if (!publish(approval)) {
+    const attribution: ApprovalAttribution = {
+      ...(request.agentInstanceId === undefined
+        ? {}
+        : { agentInstanceId: request.agentInstanceId }),
+      ...(request.sdkSessionId === undefined
+        ? {}
+        : { sdkSessionId: request.sdkSessionId }),
+    };
+    if (!publish(approval, attribution)) {
       return Promise.resolve(false);
     }
     return new Promise<boolean>((resolve) => {
-      this.#pending.set(id, resolve);
+      this.#pending.set(id, { attribution, resolve });
     });
   }
 
@@ -82,8 +108,28 @@ export class ApprovalCoordinator {
     const pending = this.#pending.get(id);
     if (!pending) return false;
     this.#pending.delete(id);
-    pending(decision === "approve");
+    pending.resolve(decision === "approve");
     return true;
+  }
+
+  /** Approves pending requests attributed to one of the selected agents. */
+  public approveForAgentInstanceIds(
+    agentInstanceIds: ReadonlySet<string>,
+  ): number {
+    let resolved = 0;
+    for (const [id, pending] of [...this.#pending]) {
+      const agentInstanceId = pending.attribution.agentInstanceId;
+      if (
+        agentInstanceId === undefined ||
+        !agentInstanceIds.has(agentInstanceId)
+      ) {
+        continue;
+      }
+      this.#pending.delete(id);
+      pending.resolve(true);
+      resolved += 1;
+    }
+    return resolved;
   }
 
   /** Denies everything still pending, e.g. during shutdown. */
@@ -92,21 +138,24 @@ export class ApprovalCoordinator {
   }
 
   public resolveAll(approved: boolean): void {
-    for (const [id, resolve] of [...this.#pending]) {
+    for (const [id, pending] of [...this.#pending]) {
       this.#pending.delete(id);
-      resolve(approved);
+      pending.resolve(approved);
     }
   }
 }
 
 export class ApprovalPolicyController {
   #policy: DesktopPreferences["approvalPolicy"];
+  #autoApprovedAgentInstanceIds: AutoApprovedAgentInstanceIds;
 
   public constructor(
     policy: DesktopPreferences["approvalPolicy"],
     private readonly approvals: ApprovalCoordinator,
+    autoApprovedAgentInstanceIds: AutoApprovedAgentInstanceIds = new Set(),
   ) {
     this.#policy = policy;
+    this.#autoApprovedAgentInstanceIds = autoApprovedAgentInstanceIds;
   }
 
   public readonly request = (
@@ -114,6 +163,12 @@ export class ApprovalPolicyController {
   ): Promise<boolean> => {
     if (this.#policy === "approve-all") return Promise.resolve(true);
     if (this.#policy === "never") return Promise.resolve(false);
+    if (
+      request.agentInstanceId !== undefined &&
+      this.#getAutoApprovedAgentInstanceIds().has(request.agentInstanceId)
+    ) {
+      return Promise.resolve(true);
+    }
     return this.approvals.request(request);
   };
 
@@ -123,5 +178,37 @@ export class ApprovalPolicyController {
     this.#policy = policy;
     if (policy === "approve-all") this.approvals.resolveAll(true);
     if (policy === "never") this.approvals.resolveAll(false);
+    if (policy === "always" || policy === "risky") {
+      this.#approvePendingOverrides();
+    }
+  }
+
+  public setAutoApprovedAgentInstanceIds(
+    autoApprovedAgentInstanceIds: AutoApprovedAgentInstanceIds,
+  ): void {
+    const previous = this.#getAutoApprovedAgentInstanceIds();
+    this.#autoApprovedAgentInstanceIds = autoApprovedAgentInstanceIds;
+    if (this.#policy === "always" || this.#policy === "risky") {
+      const added = new Set(
+        [...this.#getAutoApprovedAgentInstanceIds()].filter(
+          (id) => !previous.has(id),
+        ),
+      );
+      if (added.size > 0) {
+        this.approvals.approveForAgentInstanceIds(added);
+      }
+    }
+  }
+
+  #getAutoApprovedAgentInstanceIds(): ReadonlySet<string> {
+    return typeof this.#autoApprovedAgentInstanceIds === "function"
+      ? this.#autoApprovedAgentInstanceIds()
+      : this.#autoApprovedAgentInstanceIds;
+  }
+
+  #approvePendingOverrides(): void {
+    this.approvals.approveForAgentInstanceIds(
+      this.#getAutoApprovedAgentInstanceIds(),
+    );
   }
 }

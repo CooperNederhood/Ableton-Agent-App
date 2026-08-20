@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+import {
+  MAX_AGENT_INSTANCE_ASSIGNMENT_COMPONENT_LENGTH,
+  MAX_AGENT_INSTANCE_ASSIGNMENT_ID_LENGTH,
+} from "./assignment-id.js";
+
 export const SIGNAL_PROTOCOL_VERSION = 1 as const;
 export const MAX_SIGNAL_PAYLOAD_BYTES = 64 * 1024;
 export const MAX_AUDIO_FEATURES = 256;
@@ -8,7 +13,10 @@ export const MAX_AUDIO_ASSET_BYTES = 32 * 1024 * 1024;
 export const signalKindSchema = z.enum(["midi", "audio"]);
 export type SignalKind = z.infer<typeof signalKindSchema>;
 
-const identifierSchema = z.string().min(1).max(256);
+const identifierSchema = z
+  .string()
+  .min(1)
+  .max(MAX_AGENT_INSTANCE_ASSIGNMENT_COMPONENT_LENGTH);
 const jsonScalarSchema = z.union([
   z.string(),
   z.number(),
@@ -189,14 +197,33 @@ export type SignalConsumerEndpoint = z.infer<
   typeof signalConsumerEndpointSchema
 >;
 
+export const AGENT_INSTANCE_CONSUMER_KIND = "agent-instance" as const;
+export const LEGACY_AGENT_SESSION_CONSUMER_KIND = "agent-session" as const;
+
+export function isAgentInstanceConsumer(
+  consumer: SignalConsumerEndpoint,
+  agentInstanceId?: string,
+): boolean {
+  return (
+    (consumer.kind === AGENT_INSTANCE_CONSUMER_KIND ||
+      consumer.kind === LEGACY_AGENT_SESSION_CONSUMER_KIND) &&
+    (agentInstanceId === undefined || consumer.id === agentInstanceId)
+  );
+}
+
 export const deliveryModeSchema = z.enum([
   "next-prompt",
   "automatic-analysis",
   "automatic-action",
 ]);
 
+export const assignmentIdentifierSchema = z
+  .string()
+  .min(1)
+  .max(MAX_AGENT_INSTANCE_ASSIGNMENT_ID_LENGTH);
+
 export const outputAssignmentSchema = z.object({
-  assignmentId: identifierSchema,
+  assignmentId: assignmentIdentifierSchema,
   producerId: identifierSchema,
   consumer: signalConsumerEndpointSchema,
   deliveryMode: deliveryModeSchema,
@@ -207,7 +234,7 @@ export const outputAssignmentSchema = z.object({
 export type OutputAssignment = z.infer<typeof outputAssignmentSchema>;
 
 export const translatedSignalContextSchema = z.object({
-  assignmentId: identifierSchema,
+  assignmentId: assignmentIdentifierSchema,
   producerId: identifierSchema,
   consumer: signalConsumerEndpointSchema,
   deliveryMode: deliveryModeSchema,

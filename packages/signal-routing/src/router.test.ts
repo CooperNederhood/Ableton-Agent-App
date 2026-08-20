@@ -36,7 +36,7 @@ function assignment(
   return {
     assignmentId,
     producerId,
-    consumer: { kind: "agent-session", id: `${assignmentId}-consumer` },
+    consumer: { kind: "agent-instance", id: `${assignmentId}-consumer` },
     deliveryMode: "next-prompt",
     enabled: true,
     usageInstruction: "Use the signal.",
@@ -137,6 +137,20 @@ describe("SignalRouter", () => {
       shard: 3,
     });
     expect(router.inbox("disabled")).toHaveLength(0);
+  });
+
+  it("preserves assignments while their producer is missing or disconnected", () => {
+    const registry = new InMemoryConnectionRegistry({ staleAfterMs: 1000 });
+    const router = new SignalRouter({ registry });
+    router.upsertAssignment(assignment("desired", "producer"));
+
+    expect(router.listAssignments()).toHaveLength(1);
+    registry.register("connection", producer("producer"));
+    registry.disconnect("connection");
+    expect(router.route(envelope("connection", 0)).accepted).toBe(false);
+    expect(router.listAssignments()).toEqual([
+      expect.objectContaining({ assignmentId: "desired", enabled: true }),
+    ]);
   });
 
   it("isolates multiple producers and preserves frame ordering", () => {

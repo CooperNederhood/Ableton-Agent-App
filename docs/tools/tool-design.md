@@ -1,5 +1,7 @@
 # Tool Design
 
+Current registered catalog: [Ableton Tool List](tool-list.md)
+
 ## Principles
 
 Agent tools should be:
@@ -117,4 +119,3 @@ A workflow operation should:
 6. Verify postconditions.
 7. Persist the operation record.
 8. Return a concise musical summary.
-

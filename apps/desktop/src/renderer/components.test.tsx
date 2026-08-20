@@ -18,6 +18,7 @@ import {
   OutputsView,
   ProjectOutline,
   ResolvedToolsDisclosure,
+  refreshOutputs,
   refreshProjectSnapshot,
   selectWorkspaceAgent,
   sendComposerMessage,
@@ -1146,8 +1147,11 @@ describe("desktop components", () => {
     );
     expect(missingHtml).toContain("Producer unavailable");
     expect(missingHtml).toContain(
-      "Desired subscriptions are retained and will resume when it reconnects.",
+      "These active-agent inputs are waiting for a producer with the same stable ID to reconnect.",
     );
+    expect(missingHtml).toContain("Unmatched subscriptions");
+    expect(missingHtml).toContain("No outputs discovered");
+    expect(missingHtml).not.toContain("Unknown / ungrouped");
     expect(html).toContain('aria-expanded="true"');
     expect(html).toContain("Collapse");
   });
@@ -1496,6 +1500,42 @@ describe("desktop components", () => {
       "outputs.changed",
     ]);
     expect(requestSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("refreshes outputs through the output API and reports failures", async () => {
+    const dispatch = vi.fn<Parameters<typeof refreshOutputs>[0]>();
+    const outputs = {
+      ...initialState.outputs,
+      status: {
+        state: "listening" as const,
+        host: "127.0.0.1",
+        port: 45832,
+      },
+    };
+
+    await expect(
+      refreshOutputs(dispatch, vi.fn().mockResolvedValue(outputs)),
+    ).resolves.toBe(true);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "event",
+      event: { type: "outputs.changed", outputs },
+    });
+
+    dispatch.mockClear();
+    await expect(
+      refreshOutputs(
+        dispatch,
+        vi.fn().mockRejectedValue(new Error("Signal state unavailable")),
+      ),
+    ).resolves.toBe(false);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "event",
+      event: {
+        type: "diagnostic",
+        level: "error",
+        message: "Signal state unavailable",
+      },
+    });
   });
 
   it("does not call refresh while disconnected and reports a failure", async () => {

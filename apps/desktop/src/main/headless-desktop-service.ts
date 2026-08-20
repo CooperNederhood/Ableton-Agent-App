@@ -2219,6 +2219,7 @@ export class HeadlessDesktopService implements DesktopService {
   #outputsState(): DesktopOutputsState {
     const currentByProducer = new Map<string, DesktopOutputConnection>();
     for (const connection of this.#signals.listConnections()) {
+      if (connection.status === "disconnected") continue;
       const producerId = connection.producer.producerId;
       const previous = currentByProducer.get(producerId);
       if (

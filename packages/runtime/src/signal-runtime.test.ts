@@ -102,6 +102,24 @@ describe("default signal runtime", () => {
     expect(runtime.getStatus()).toMatchObject({ state: "disabled" });
   });
 
+  it("removes disconnected producers from the current connection inventory", async () => {
+    await mkdir(artifacts, { recursive: true });
+    const descriptorPath = join(artifacts, `${randomUUID()}.json`);
+    const runtime = new DefaultSignalRuntime({
+      secret: "s".repeat(32),
+      descriptorPath,
+      port: 0,
+    });
+    runtimes.push(runtime);
+    await producer(runtime, descriptorPath);
+    expect(runtime.listConnections()).toHaveLength(1);
+
+    const socket = sockets.at(-1);
+    expect(socket).toBeDefined();
+    socket?.destroy();
+    await vi.waitFor(() => expect(runtime.listConnections()).toEqual([]));
+  });
+
   it("fans out pending contexts and acknowledgements by agent instance", async () => {
     await mkdir(artifacts, { recursive: true });
     const descriptorPath = join(artifacts, `${randomUUID()}.json`);

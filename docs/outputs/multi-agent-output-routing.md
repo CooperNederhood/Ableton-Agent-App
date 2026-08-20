@@ -14,8 +14,10 @@ A subscription is keyed by active-agent instance and producer. It stores:
 - usage instruction;
 - processing-policy IDs.
 
-Canonical agent `inputChannels` seed new instances. Session edits then belong to
-the active instance snapshot and do not rewrite canonical YAML.
+Canonical agent `inputChannels` seed new instances. Each entry is a stable
+producer ID; it does not contain display, track, device, or signal metadata.
+Session edits then belong to the active instance snapshot and do not rewrite
+canonical YAML.
 
 ## Delivery
 
@@ -26,7 +28,8 @@ mode remain isolated per subscription.
 
 Subscribed agents receive observations even when another agent is selected in
 the workspace. Missing or disconnected producers do not delete subscriptions;
-routing resumes when the same stable producer ID reconnects.
+routing resumes when the same stable producer ID reconnects. Disconnected
+connection records are not part of the current output inventory.
 
 ## Runtime consumers
 
@@ -37,10 +40,20 @@ consumer ID.
 
 ## Desktop experience
 
-Each Output row or card contains one checkbox per active agent. Checking creates
-or enables that subscription; unchecking disables or removes only that
+Each live Output row or card contains one checkbox per active agent. Checking
+creates or enables that subscription; unchecking disables or removes only that
 agent/output relationship. Detailed delivery controls are scoped to the chosen
 subscription.
+
+Subscriptions whose producer is absent appear separately as unmatched
+subscriptions for active agents. They do not count as discovered outputs and do
+not appear as synthetic Unknown/ungrouped output cards. Users can remove an
+unmatched subscription or leave it in place for stable-ID reconnection.
+
+The Outputs view refreshes from the signal service when opened and also provides
+an explicit refresh action. Project snapshot refresh remains independent: it
+updates Live track and device metadata used for grouping, but signal ingress
+determines which producers are currently connected.
 
 The same subscriptions appear in active-agent editing and persist with the
 production session.

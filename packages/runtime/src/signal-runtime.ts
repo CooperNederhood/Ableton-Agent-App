@@ -220,7 +220,7 @@ export class DefaultSignalRuntime
   }
 
   listConnections(): readonly OutputConnection[] {
-    return this.#registry.list();
+    return this.#registry.listCurrent();
   }
 
   listAssignments(): readonly OutputAssignment[] {

@@ -950,7 +950,7 @@ describe("desktop components", () => {
     );
   });
 
-  it("shows layered YOLO status in agent, workspace, composer, and settings UI", () => {
+  it("shows YOLO status without occupying composer space", () => {
     const state = workspaceState();
     state.sessions[0]!.activeAgents[0]!.autoApprove = true;
     const header = renderToStaticMarkup(
@@ -980,10 +980,7 @@ describe("desktop components", () => {
     expect(header).toContain("YOLO");
     expect(workspace).toContain("YOLO");
     expect(agents).toContain("YOLO");
-    expect(composer).toContain("Approvals are automatic");
-    expect(composer).toContain(
-      "Tool allowlists, edit scope, and safety checks are still enforced",
-    );
+    expect(composer).not.toContain("Approvals are automatic");
     expect(settings).toContain("Current session: 1 YOLO override");
     expect(settings).toContain("Deny all overrides YOLO");
     expect(settings).toContain("Approve all globally approves every request");

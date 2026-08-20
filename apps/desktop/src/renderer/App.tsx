@@ -2808,14 +2808,6 @@ export function Composer({
           selected={selectedSuggestion}
           onComplete={completeSuggestion}
         />
-        {(state.preferences.approvalPolicy === "approve-all" ||
-          (activeAgent?.autoApprove &&
-            state.preferences.approvalPolicy !== "never")) && (
-          <p className="composer-yolo-warning" role="status">
-            Approvals are automatic. Tool allowlists, edit scope, and safety
-            checks are still enforced.
-          </p>
-        )}
         {error && (
           <p className="composer-error" role="alert">
             {error}

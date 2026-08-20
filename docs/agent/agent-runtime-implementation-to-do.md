@@ -27,10 +27,10 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [x] Implement session-start, prompt, pre-tool, post-tool, and failure hooks.
 - [x] Add retry guidance based on structured error codes.
 - [x] Prevent retry loops for denial, unsupported capability, and stale targets.
-- [x] Define task modes and mode-specific context.
-- [x] Add specialized agents only after parent-agent workflows are stable.
-  - The initial release intentionally keeps one parent agent because the
-    deterministic workflows do not yet justify delegated subagents.
+- [~] Replace task modes with YAML-defined active agents.
+- [~] Add canonical Agent Skills through SDK `skillDirectories`.
+- [ ] Add independent SDK sessions, scoped tools, edit scopes, and attributed
+  events for multiple active agents.
 
 ## Session management
 

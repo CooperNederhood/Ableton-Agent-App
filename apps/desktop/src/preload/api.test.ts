@@ -8,6 +8,7 @@ describe("preload API", () => {
     expect(Object.keys(api)).toEqual([
       "lifecycle",
       "agent",
+      "agents",
       "ableton",
       "approvals",
       "diagnostics",
@@ -66,10 +67,32 @@ describe("preload API", () => {
       usageInstruction: "Use safely.",
       processingPolicyIds: ["latest-window"],
     };
-    const transport = transportFor({ "outputs:assign": assignment });
+    const transport = transportFor({
+      "outputs:assign": assignment,
+      "outputs:set-processing-policies": assignment,
+    });
     const api = createDesktopApi(transport);
-    await expect(api.outputs.assign("producer-1")).resolves.toEqual(assignment);
-    await expect(api.outputs.assign("")).rejects.toThrow();
+    const agentInstanceId = "00000000-0000-4000-8000-000000000001";
+    await expect(
+      api.outputs.assign(agentInstanceId, "producer-1"),
+    ).resolves.toEqual(assignment);
+    await expect(api.outputs.assign(agentInstanceId, "")).rejects.toThrow();
+    expect(vi.mocked(transport).invoke.mock.calls).toContainEqual([
+      "outputs:assign",
+      { agentInstanceId, producerId: "producer-1" },
+    ]);
+    await api.outputs.setProcessingPolicies(agentInstanceId, "producer-1", [
+      "latest-window",
+      "deduplicate",
+    ]);
+    expect(vi.mocked(transport).invoke.mock.calls.at(-1)).toEqual([
+      "outputs:set-processing-policies",
+      {
+        agentInstanceId,
+        producerId: "producer-1",
+        processingPolicyIds: ["latest-window", "deduplicate"],
+      },
+    ]);
   });
 
   it("exposes fixed diagnostics actions without renderer-provided paths", async () => {
@@ -91,6 +114,64 @@ describe("preload API", () => {
       ["diagnostics:export-support-bundle", {}],
       ["diagnostics:copy-summary", {}],
     ]);
+  });
+
+  it("exposes typed targeted managed-agent calls", async () => {
+    const instanceId = "00000000-0000-4000-8000-000000000001";
+    const transport = transportFor({
+      "agents:send": { accepted: true, messageId: "message-1" },
+      "agents:invoke-skill": { accepted: true, messageId: "message-2" },
+      "agents:cancel": { cancelled: true },
+    });
+    const api = createDesktopApi(transport);
+
+    await api.agents.send(instanceId, "hello");
+    await api.agents.invokeSkill(instanceId, "analyze", "the drums");
+    await expect(api.agents.cancel(instanceId)).resolves.toEqual({
+      cancelled: true,
+    });
+    await expect(api.agents.send("invalid", "hello")).rejects.toThrow();
+
+    expect(vi.mocked(transport).invoke.mock.calls).toEqual([
+      ["agents:send", { instanceId, message: "hello" }],
+      [
+        "agents:invoke-skill",
+        { instanceId, skillName: "analyze", request: "the drums" },
+      ],
+      ["agents:cancel", { instanceId }],
+    ]);
+  });
+
+  it("exposes atomic current-session auto approval", async () => {
+    const response = {
+      instances: [],
+      session: {
+        version: 2,
+        id: "production-session",
+        title: "Production session",
+        updatedAt: new Date(0).toISOString(),
+        projectName: "Set",
+        activeAgents: [],
+        mode: "explore",
+        productionPlan: [],
+        outputAssignments: [],
+      },
+    };
+    const transport = transportFor({
+      "agents:set-auto-approval": response,
+    });
+    const api = createDesktopApi(transport);
+
+    await expect(api.agents.setAutoApproval("all", true)).resolves.toEqual(
+      response,
+    );
+    expect(vi.mocked(transport).invoke).toHaveBeenCalledWith(
+      "agents:set-auto-approval",
+      { target: "all", enabled: true },
+    );
+    await expect(
+      api.agents.setAutoApproval("not-an-instance", true),
+    ).rejects.toThrow();
   });
 });
 

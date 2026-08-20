@@ -28,6 +28,10 @@ Tests must catch:
 - UI regressions in approvals and operation progress.
 - CLI regressions in streamed output, approvals, and exit behavior.
 - Packaging and Remote Script installation failures.
+- Invalid agent YAML, skill metadata, wildcard expansion, and packaged-resource
+  discovery.
+- Cross-agent transcript, approval, cancellation, and Output-routing leakage.
+- Edit-scope bypasses and overlapping multi-agent mutation races.
 
 ## Test layers
 
@@ -35,6 +39,9 @@ Tests must catch:
 
 TypeScript:
 
+- Agent and skill definition schemas and loaders.
+- Tool-pattern expansion, scope authorization, and mutation locks.
+- Multi-agent SDK session lifecycle and event attribution.
 - Schemas and normalization.
 - Bar/beat conversion.
 - Reference resolution.
@@ -105,6 +112,11 @@ These tests are not expected to run on ordinary hosted CI.
 
 Critical workflows:
 
+- Definition refresh and active-agent creation.
+- Switching independent Agent Mode conversations.
+- Duplicate instances of one definition.
+- Output subscription fan-out across active agents.
+- Slash-skill discovery and invocation.
 - First launch and Remote Script setup.
 - Connection loss and recovery.
 - Send prompt and render streaming output.
@@ -144,6 +156,7 @@ Every pull request should run:
 - CLI integration and transcript tests.
 - Electron smoke tests on macOS and Windows where practical.
 - Package/build validation.
+- Packaged agents and skills resource validation.
 
 ## Quality gates
 

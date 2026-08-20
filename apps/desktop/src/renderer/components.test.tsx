@@ -1,10 +1,14 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   ApprovalPanel,
+  AgentsView,
   Arrangement,
+  cancelWorkspaceAgent,
   Composer,
+  ConnectionHeader,
   DiagnosticsView,
   groupOutputsByTrack,
   Inspector,
@@ -13,15 +17,67 @@ import {
   OutputConnectionCard,
   OutputsView,
   ProjectOutline,
+  ResolvedToolsDisclosure,
   refreshProjectSnapshot,
+  selectWorkspaceAgent,
+  sendComposerMessage,
   SettingsView,
-  setOutputQuickEnabled,
+  setOutputSubscription,
+  matchingSlashCompletions,
+  slashCompletionKey,
+  slashCompletionsForState,
+  slashCompletionText,
+  SlashCompletionSuggestions,
   Timeline,
+  Workspace,
 } from "./App";
+import type { DesktopApi } from "../contracts";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { desktopReducer, initialState, type DesktopState } from "./state";
 
 describe("desktop components", () => {
+  const firstAgentId = "00000000-0000-4000-8000-000000000001";
+  const secondAgentId = "00000000-0000-4000-8000-000000000002";
+  const workspaceState = (
+    selectedAgentInstanceId = firstAgentId,
+  ): DesktopState => ({
+    ...initialState,
+    lifecycle: "ready" as const,
+    sessions: [
+      {
+        version: 2 as const,
+        id: "session",
+        title: "Session",
+        updatedAt: new Date(0).toISOString(),
+        projectName: "Project",
+        mode: "explore" as const,
+        productionPlan: [],
+        outputAssignments: [],
+        selectedAgentInstanceId,
+        activeAgents: [firstAgentId, secondAgentId].map((id, index) => ({
+          id,
+          definitionName: "default",
+          definitionFingerprint: "a".repeat(64),
+          label: index === 0 ? "Default" : "Default 2",
+          autoApprove: false,
+          lifecycle: "ready" as const,
+          config: {
+            description: "General agent.",
+            systemPrompt: "Help.",
+            tools: ["*"],
+            resolvedTools: [],
+            editScope: ["session" as const],
+            skills: [],
+            inputChannels: [],
+          },
+          boundTracks: [],
+          outputSubscriptions: [],
+          modified: false,
+        })),
+      },
+    ],
+  });
+
   it("renders safe GitHub-flavored assistant Markdown", () => {
     const html = renderToStaticMarkup(
       <AssistantMarkdown
@@ -119,6 +175,539 @@ describe("desktop components", () => {
     expect(html).toContain('aria-label="Remove section Chorus from context"');
   });
 
+  it("suggests configured skills for the selected active agent", () => {
+    const activeAgentId = "89a535fe-7f2d-4a58-972c-d33d40ca254d";
+    const html = renderToStaticMarkup(
+      <Composer
+        state={{
+          ...initialState,
+          lifecycle: "ready",
+          sessions: [
+            {
+              version: 2,
+              id: "production-session",
+              title: "Session",
+              updatedAt: new Date(0).toISOString(),
+              projectName: "Project",
+              mode: "explore",
+              productionPlan: [],
+              outputAssignments: [],
+              selectedAgentInstanceId: activeAgentId,
+              activeAgents: [
+                {
+                  id: activeAgentId,
+                  definitionName: "default",
+                  definitionFingerprint: "a".repeat(64),
+                  label: "Default",
+                  autoApprove: false,
+                  lifecycle: "ready",
+                  config: {
+                    description: "General agent.",
+                    systemPrompt: "Help.",
+                    tools: ["*"],
+                    resolvedTools: ["ableton_session_inspect"],
+                    editScope: ["session"],
+                    skills: ["mix-review"],
+                    inputChannels: [],
+                  },
+                  boundTracks: [],
+                  outputSubscriptions: [],
+                  modified: false,
+                },
+              ],
+            },
+          ],
+          agentCatalog: {
+            definitions: [],
+            diagnostics: [],
+            skills: [
+              {
+                name: "mix-review",
+                description: "Review balance, dynamics, and tone.",
+                sourceFile: "mix-review/SKILL.md",
+                fingerprint: "b".repeat(64),
+              },
+              {
+                name: "sound-design",
+                description: "Create a sound.",
+                sourceFile: "sound-design/SKILL.md",
+                fingerprint: "c".repeat(64),
+              },
+            ],
+          },
+        }}
+        value="/m"
+        busy={false}
+        composerRef={{ current: null }}
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        dispatch={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("Slash command suggestions");
+    expect(html).toContain("/mix-review");
+    expect(html).toContain("Skill");
+    expect(html).toContain("Review balance, dynamics, and tone.");
+    expect(html).not.toContain("/sound-design");
+    expect(html).toContain('aria-current="true"');
+    expect(html).toContain('type="button"');
+  });
+
+  it("filters unified slash completions by the token prefix", () => {
+    const skills = [
+      {
+        name: "mix-review",
+        description: "Review a mix.",
+        sourceFile: "mix-review/SKILL.md",
+        fingerprint: "b".repeat(64),
+      },
+      {
+        name: "sound-design",
+        description: "Create a sound.",
+        sourceFile: "sound-design/SKILL.md",
+        fingerprint: "c".repeat(64),
+      },
+    ];
+
+    expect(
+      matchingSlashCompletions("/m", skills).map(({ name }) => name),
+    ).toEqual(["mix-review"]);
+    expect(
+      matchingSlashCompletions("/y", skills).map(({ name }) => name),
+    ).toEqual(["yolo"]);
+    expect(matchingSlashCompletions("plain", skills)).toEqual([]);
+    expect(matchingSlashCompletions("/mix request", skills)).toEqual([]);
+    expect(matchingSlashCompletions(" /mix", skills)).toEqual([]);
+  });
+
+  it("uses only catalog skills assigned to the selected agent", () => {
+    const state = workspaceState(firstAgentId);
+    state.sessions[0]!.activeAgents[0]!.config.skills = ["mix-review"];
+    state.sessions[0]!.activeAgents[1]!.config.skills = ["sound-design"];
+    state.agentCatalog = {
+      definitions: [],
+      diagnostics: [],
+      skills: [
+        {
+          name: "mix-review",
+          description: "Review a mix.",
+          sourceFile: "mix-review/SKILL.md",
+          fingerprint: "b".repeat(64),
+        },
+        {
+          name: "sound-design",
+          description: "Create a sound.",
+          sourceFile: "sound-design/SKILL.md",
+          fingerprint: "c".repeat(64),
+        },
+      ],
+    };
+
+    expect(
+      slashCompletionsForState("/", state).map(({ name }) => name),
+    ).toEqual(["mix-review", "yolo"]);
+    state.sessions[0]!.selectedAgentInstanceId = secondAgentId;
+    expect(
+      slashCompletionsForState("/", state).map(({ name }) => name),
+    ).toEqual(["sound-design", "yolo"]);
+  });
+
+  it("keeps built-ins without an agent and reserves their names", () => {
+    expect(
+      slashCompletionsForState("/", initialState).map(({ name }) => name),
+    ).toEqual(["yolo"]);
+
+    const entries = matchingSlashCompletions("/", [
+      {
+        name: "yolo",
+        description: "Colliding skill.",
+        sourceFile: "yolo/SKILL.md",
+        fingerprint: "d".repeat(64),
+      },
+    ]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ name: "yolo", source: "built-in" });
+  });
+
+  it("renders mouse-compatible completion buttons with accessible usage", () => {
+    const entry = matchingSlashCompletions("/y", undefined)[0]!;
+    const onComplete = vi.fn();
+    const suggestions = SlashCompletionSuggestions({
+      entries: [entry],
+      selected: 0,
+      onComplete,
+    });
+    const buttons = (
+      suggestions as ReactElement<{
+        children: ReactElement<{ onClick: () => void }>[];
+      }>
+    ).props.children;
+
+    buttons[0]!.props.onClick();
+    expect(onComplete).toHaveBeenCalledWith(entry);
+
+    const html = renderToStaticMarkup(suggestions);
+
+    expect(html).toContain('type="button"');
+    expect(html).toContain("Built-in");
+    expect(html).toContain("Configure automatic approval");
+    expect(html).toContain("Usage: /yolo [on|off] [all]");
+    expect(html).toContain(
+      'aria-label="/yolo. Built-in command. Configure automatic approval',
+    );
+    expect(slashCompletionText(entry)).toBe("/yolo ");
+  });
+
+  it("renders composer skill errors inline", () => {
+    const html = renderToStaticMarkup(
+      <Composer
+        state={initialState}
+        value="/unknown"
+        busy={false}
+        error="Unknown skill &#x27;/unknown&#x27;."
+        composerRef={{ current: null }}
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        dispatch={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain('class="composer-error"');
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("Unknown skill");
+  });
+
+  it("supports keyboard completion navigation and selection", () => {
+    expect(slashCompletionKey("ArrowDown", 0, 2)).toBe(1);
+    expect(slashCompletionKey("ArrowDown", 1, 2)).toBe(0);
+    expect(slashCompletionKey("ArrowUp", 0, 2)).toBe(1);
+    expect(slashCompletionKey("Tab", 1, 2)).toBe("complete");
+    expect(slashCompletionKey("Enter", 0, 2)).toBe("complete");
+    expect(slashCompletionKey("Enter", 0, 0)).toBeUndefined();
+  });
+
+  it("replaces product modes with labeled active-agent instances", () => {
+    const state = workspaceState();
+    const header = renderToStaticMarkup(
+      <ConnectionHeader state={state} dispatch={vi.fn()} />,
+    );
+    const workspace = renderToStaticMarkup(
+      <Workspace state={state} dispatch={vi.fn()} />,
+    );
+
+    expect(header).toContain('aria-label="Agent Mode"');
+    expect(header).toContain("Default");
+    expect(header).toContain("Default 2");
+    expect(header).not.toContain("Compose");
+    expect(header).not.toContain("Explore");
+    expect(workspace).toContain("Default · ready");
+  });
+
+  it("renders only the selected agent conversation", () => {
+    const state = {
+      ...workspaceState(secondAgentId),
+      agentWorkspaces: {
+        [firstAgentId]: {
+          messages: [
+            {
+              id: "first",
+              role: "assistant" as const,
+              content: "First conversation",
+              streaming: false,
+              timestamp: 1,
+            },
+          ],
+          operations: [],
+        },
+        [secondAgentId]: {
+          messages: [
+            {
+              id: "second",
+              role: "assistant" as const,
+              content: "Second conversation",
+              streaming: false,
+              timestamp: 2,
+            },
+          ],
+          operations: [],
+        },
+      },
+    };
+    const html = renderToStaticMarkup(<Timeline state={state} />);
+    expect(html).toContain("Second conversation");
+    expect(html).not.toContain("First conversation");
+  });
+
+  it("targets composer send and cancel to the selected instance", async () => {
+    const state = workspaceState(secondAgentId);
+    const send = vi.fn().mockResolvedValue({
+      accepted: true,
+      messageId: "message",
+    });
+
+    const cancel = vi.fn().mockResolvedValue({ cancelled: true });
+    const setContext = vi.fn().mockResolvedValue(undefined);
+    const desktop = {
+      agents: { send, cancel },
+      project: { setContext },
+    } as unknown as DesktopApi;
+    const dispatch = vi.fn();
+
+    await sendComposerMessage(desktop, state, "Inspect the drums", dispatch);
+    await expect(cancelWorkspaceAgent(desktop, state)).resolves.toBe(true);
+
+    expect(send).toHaveBeenCalledWith(secondAgentId, "Inspect the drums");
+    expect(cancel).toHaveBeenCalledWith(secondAgentId);
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "user-message",
+        agentInstanceId: secondAgentId,
+      }),
+    );
+  });
+
+  it("invokes an assigned catalog skill and preserves its request", async () => {
+    const state = workspaceState(secondAgentId);
+    state.sessions[0]!.activeAgents[1]!.config.skills = ["mix-review"];
+    state.agentCatalog = {
+      definitions: [],
+      diagnostics: [],
+      skills: [
+        {
+          name: "mix-review",
+          description: "Review a mix.",
+          sourceFile: "mix-review/SKILL.md",
+          fingerprint: "a".repeat(64),
+        },
+      ],
+    };
+    const invokeSkill = vi.fn().mockResolvedValue({
+      accepted: true,
+      messageId: "message",
+    });
+    const send = vi.fn();
+    const desktop = {
+      agents: { invokeSkill, send },
+      project: { setContext: vi.fn().mockResolvedValue(undefined) },
+    } as unknown as DesktopApi;
+    const dispatch = vi.fn();
+
+    await sendComposerMessage(
+      desktop,
+      state,
+      "/mix-review preserve the vocal dynamics",
+      dispatch,
+    );
+
+    expect(invokeSkill).toHaveBeenCalledWith(
+      secondAgentId,
+      "mix-review",
+      "preserve the vocal dynamics",
+    );
+    expect(send).not.toHaveBeenCalled();
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "user-message",
+        content: "/mix-review preserve the vocal dynamics",
+      }),
+    );
+  });
+
+  it.each([
+    ["/yolo", secondAgentId, true],
+    ["/yolo off", secondAgentId, false],
+    ["/yolo on all", "all", true],
+    ["/yolo off all", "all", false],
+  ] as const)(
+    "handles %s locally and updates the returned session immediately",
+    async (input, target, enabled) => {
+      const state = workspaceState(secondAgentId);
+      const session = {
+        ...state.sessions[0]!,
+        activeAgents: state.sessions[0]!.activeAgents.map((agent) => ({
+          ...agent,
+          autoApprove: enabled,
+        })),
+      };
+      const setAutoApproval = vi.fn().mockResolvedValue({
+        instances: session.activeAgents,
+        session,
+      });
+      const invokeSkill = vi.fn();
+      const send = vi.fn();
+      const desktop = {
+        agents: { setAutoApproval, invokeSkill, send },
+        project: { setContext: vi.fn() },
+      } as unknown as DesktopApi;
+      const dispatch = vi.fn();
+
+      await sendComposerMessage(desktop, state, input, dispatch);
+
+      expect(setAutoApproval).toHaveBeenCalledWith(target, enabled);
+      expect(invokeSkill).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+      expect(dispatch).toHaveBeenCalledWith({
+        type: "event",
+        event: { type: "session.context_restored", session },
+      });
+      expect(dispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: "user-message" }),
+      );
+    },
+  );
+
+  it("rejects malformed YOLO before skill parsing or SDK prompting", async () => {
+    const state = workspaceState(secondAgentId);
+    const desktop = {
+      agents: {
+        setAutoApproval: vi.fn(),
+        invokeSkill: vi.fn(),
+        send: vi.fn(),
+      },
+      project: { setContext: vi.fn() },
+    } as unknown as DesktopApi;
+    const dispatch = vi.fn();
+
+    await expect(
+      sendComposerMessage(desktop, state, "/YOLO on", dispatch),
+    ).rejects.toThrow("Usage: /yolo [on|off] [all]");
+    expect(desktop.agents.setAutoApproval).not.toHaveBeenCalled();
+    expect(desktop.agents.invokeSkill).not.toHaveBeenCalled();
+    expect(desktop.agents.send).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it.each(["/yolo on", "/yolo off"] as const)(
+    "propagates %s persistence failures without dispatching success",
+    async (input) => {
+      const state = workspaceState(secondAgentId);
+      const failure = new Error("strict save exploded");
+      const desktop = {
+        agents: {
+          setAutoApproval: vi.fn().mockRejectedValue(failure),
+          invokeSkill: vi.fn(),
+          send: vi.fn(),
+        },
+        project: { setContext: vi.fn() },
+      } as unknown as DesktopApi;
+      const dispatch = vi.fn();
+
+      await expect(
+        sendComposerMessage(desktop, state, input, dispatch),
+      ).rejects.toBe(failure);
+      expect(dispatch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["/", "Invalid skill command"],
+    ["/unknown request", "Unknown skill '/unknown'"],
+    ["/mix-review request", "is not assigned to Default 2"],
+  ])(
+    "rejects invalid skill command %s without a user turn",
+    async (input, error) => {
+      const state = workspaceState(secondAgentId);
+      state.agentCatalog = {
+        definitions: [],
+        diagnostics: [],
+        skills: [
+          {
+            name: "mix-review",
+            description: "Review a mix.",
+            sourceFile: "mix-review/SKILL.md",
+            fingerprint: "a".repeat(64),
+          },
+        ],
+      };
+      const invokeSkill = vi.fn();
+      const send = vi.fn();
+      const desktop = {
+        agents: { invokeSkill, send },
+        project: { setContext: vi.fn() },
+      } as unknown as DesktopApi;
+      const dispatch = vi.fn();
+
+      await expect(
+        sendComposerMessage(desktop, state, input, dispatch),
+      ).rejects.toThrow(error);
+      expect(invokeSkill).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+      expect(dispatch).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects stale skills and invocation failures without a user turn", async () => {
+    const state = workspaceState(secondAgentId);
+    state.sessions[0]!.activeAgents[1]!.config.skills = ["mix-review"];
+    const dispatch = vi.fn();
+    const staleDesktop = {
+      agents: { invokeSkill: vi.fn(), send: vi.fn() },
+      project: { setContext: vi.fn() },
+    } as unknown as DesktopApi;
+
+    await expect(
+      sendComposerMessage(staleDesktop, state, "/mix-review request", dispatch),
+    ).rejects.toThrow("definition is unavailable");
+    expect(dispatch).not.toHaveBeenCalled();
+
+    state.agentCatalog.skills = [
+      {
+        name: "mix-review",
+        description: "Review a mix.",
+        sourceFile: "mix-review/SKILL.md",
+        fingerprint: "a".repeat(64),
+      },
+    ];
+    const failingDesktop = {
+      agents: {
+        invokeSkill: vi
+          .fn()
+          .mockRejectedValue(new Error("Skill runtime failed")),
+      },
+      project: { setContext: vi.fn().mockResolvedValue(undefined) },
+    } as unknown as DesktopApi;
+
+    await expect(
+      sendComposerMessage(
+        failingDesktop,
+        state,
+        "/mix-review request",
+        dispatch,
+      ),
+    ).rejects.toThrow("Skill runtime failed");
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("rejects composer sends when no active agent is selected", async () => {
+    const dispatch = vi.fn();
+    await expect(
+      sendComposerMessage(
+        {} as DesktopApi,
+        { ...initialState, lifecycle: "ready" },
+        "/mix-review request",
+        dispatch,
+      ),
+    ).rejects.toThrow("No active agent is selected");
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("persists workspace agent selection through the Desktop API", async () => {
+    const instance =
+      workspaceState(secondAgentId).sessions[0]!.activeAgents[1]!;
+    const select = vi.fn().mockResolvedValue(instance);
+    const desktop = { agents: { select } } as unknown as DesktopApi;
+    const dispatch = vi.fn();
+
+    await selectWorkspaceAgent(desktop, secondAgentId, dispatch);
+
+    expect(select).toHaveBeenCalledWith(secondAgentId);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "event",
+      event: { type: "agent.instance_changed", instance, change: "selected" },
+    });
+  });
+
   it("renders diagnostics log metadata and safe actions", () => {
     const html = renderToStaticMarkup(
       <DiagnosticsView
@@ -144,6 +733,154 @@ describe("desktop components", () => {
     expect(html).toContain("Reveal log");
     expect(html).toContain("Export support bundle");
     expect(html).toContain("Copy summary");
+  });
+
+  it("renders defined and active agents with production controls", () => {
+    const activeAgentId = "89a535fe-7f2d-4a58-972c-d33d40ca254d";
+    const html = renderToStaticMarkup(
+      <AgentsView
+        state={{
+          ...initialState,
+          lifecycle: "ready",
+          sessions: [
+            {
+              version: 2,
+              id: "production-session",
+              title: "Session",
+              updatedAt: new Date(0).toISOString(),
+              projectName: "Project",
+              mode: "explore",
+              productionPlan: [],
+              outputAssignments: [],
+              selectedAgentInstanceId: activeAgentId,
+              activeAgents: [
+                {
+                  id: activeAgentId,
+                  definitionName: "default",
+                  definitionFingerprint: "a".repeat(64),
+                  label: "Default",
+                  autoApprove: false,
+                  lifecycle: "ready",
+                  config: {
+                    description: "General-purpose Ableton agent.",
+                    systemPrompt: "Help with Ableton.",
+                    tools: ["ableton_*"],
+                    resolvedTools: [
+                      "ableton_session_inspect",
+                      "ableton_transport_get",
+                    ],
+                    editScope: ["session"],
+                    skills: ["mix-review"],
+                    inputChannels: ["midi:drums"],
+                  },
+                  boundTracks: [],
+                  outputSubscriptions: [],
+                  modified: true,
+                },
+              ],
+            },
+          ],
+          agentCatalog: {
+            definitions: [
+              {
+                name: "default",
+                description: "General-purpose Ableton agent.",
+                systemPrompt: "Help with Ableton.",
+                tools: ["*"],
+                resolvedTools: ["ableton_session_inspect"],
+                editScope: ["session"],
+                skills: [],
+                inputChannels: [],
+                sourceFile: "default.yaml",
+                fingerprint: "b".repeat(64),
+              },
+            ],
+            skills: [],
+            diagnostics: [
+              {
+                sourceFile: "broken.yaml",
+                code: "invalid_definition",
+                message: "Missing system prompt",
+              },
+            ],
+          },
+        }}
+        dispatch={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("General-purpose Ableton agent.");
+    expect(html).toContain("Defined");
+    expect(html).toContain("Active agents");
+    expect(html).toContain("Selected");
+    expect(html).toContain("Modified");
+    expect(html).toContain("ableton_transport_get");
+    expect(html).toContain("mix-review");
+    expect(html).toContain("midi:drums");
+    expect(html).toContain("Full session");
+    expect(html).toContain("default.yaml");
+    expect(html).toContain("newer definition available");
+    expect(html).toContain("Definition diagnostics");
+    expect(html).toContain("broken.yaml: Missing system prompt");
+    expect(html).toContain("Edit overrides");
+    expect(html).toContain("Reset to current definition");
+    expect(html).toContain("Deactivate");
+    expect(html).toContain("Open");
+    expect(html).toContain("Create agent");
+  });
+
+  it("collapses resolved tools for wildcard selections", () => {
+    const html = renderToStaticMarkup(
+      <ResolvedToolsDisclosure
+        patterns={["ableton_devices_*"]}
+        resolvedTools={[
+          "ableton_devices_inspect",
+          "ableton_device_set_parameter",
+        ]}
+      />,
+    );
+
+    expect(html).toContain("<details");
+    expect(html).not.toContain("<details open");
+    expect(html).toContain("Resolved tools (2)");
+    expect(html).toContain("ableton_devices_inspect");
+  });
+
+  it("shows exact tool resolutions without a disclosure", () => {
+    const html = renderToStaticMarkup(
+      <ResolvedToolsDisclosure
+        patterns={["ableton_session_inspect"]}
+        resolvedTools={["ableton_session_inspect"]}
+      />,
+    );
+
+    expect(html).not.toContain("<details");
+    expect(html).toContain("Resolves to: ableton_session_inspect");
+  });
+
+  it("shows an empty wildcard resolution inside the disclosure", () => {
+    const html = renderToStaticMarkup(
+      <ResolvedToolsDisclosure patterns={["*"]} resolvedTools={[]} />,
+    );
+
+    expect(html).toContain("Resolved tools (0)");
+    expect(html).toContain("no available tools");
+  });
+
+  it("renders the active-agent loading and empty states", () => {
+    const loading = renderToStaticMarkup(
+      <AgentsView state={initialState} dispatch={vi.fn()} />,
+    );
+    const empty = renderToStaticMarkup(
+      <AgentsView
+        state={{ ...initialState, lifecycle: "ready" }}
+        dispatch={vi.fn()}
+      />,
+    );
+
+    expect(loading).toContain("Loading active agents");
+    expect(empty).toContain("No active agents");
+    expect(empty).toContain("No valid agents found");
   });
 
   it("renders operation recovery details without color-only status", () => {
@@ -213,6 +950,45 @@ describe("desktop components", () => {
     );
   });
 
+  it("shows layered YOLO status in agent, workspace, composer, and settings UI", () => {
+    const state = workspaceState();
+    state.sessions[0]!.activeAgents[0]!.autoApprove = true;
+    const header = renderToStaticMarkup(
+      <ConnectionHeader state={state} dispatch={vi.fn()} />,
+    );
+    const workspace = renderToStaticMarkup(
+      <Workspace state={state} dispatch={vi.fn()} />,
+    );
+    const agents = renderToStaticMarkup(
+      <AgentsView state={state} dispatch={vi.fn()} />,
+    );
+    const composer = renderToStaticMarkup(
+      <Composer
+        state={state}
+        value=""
+        busy={false}
+        composerRef={{ current: null }}
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        dispatch={vi.fn()}
+      />,
+    );
+    const settings = renderToStaticMarkup(
+      <SettingsView state={state} dispatch={vi.fn()} />,
+    );
+
+    expect(header).toContain("YOLO");
+    expect(workspace).toContain("YOLO");
+    expect(agents).toContain("YOLO");
+    expect(composer).toContain("Approvals are automatic");
+    expect(composer).toContain(
+      "Tool allowlists, edit scope, and safety checks are still enforced",
+    );
+    expect(settings).toContain("Current session: 1 YOLO override");
+    expect(settings).toContain("Deny all overrides YOLO");
+    expect(settings).toContain("Approve all globally approves every request");
+  });
+
   it("renders plan and empty inspector states", () => {
     expect(
       renderToStaticMarkup(
@@ -227,8 +1003,47 @@ describe("desktop components", () => {
   });
 
   it("renders output state and accessible routing controls", () => {
+    const agentInstanceId = "00000000-0000-4000-8000-000000000001";
+    const secondAgentInstanceId = "00000000-0000-4000-8000-000000000002";
+    const agent = (id: string, label: string) => ({
+      id,
+      definitionName: "default",
+      definitionFingerprint: "a".repeat(64),
+      label,
+      autoApprove: false,
+      lifecycle: "ready" as const,
+      config: {
+        description: "Groove",
+        systemPrompt: "Groove",
+        tools: ["*"],
+        resolvedTools: [],
+        editScope: ["session" as const],
+        skills: [],
+        inputChannels: [],
+      },
+      boundTracks: [],
+      outputSubscriptions: [],
+      modified: false,
+    });
     const state = {
       ...initialState,
+      sessions: [
+        {
+          version: 2 as const,
+          id: "session-1",
+          title: "Session",
+          updatedAt: new Date(0).toISOString(),
+          projectName: "Test Set",
+          activeAgents: [
+            agent(agentInstanceId, "Groove agent"),
+            agent(secondAgentInstanceId, "Mix agent"),
+          ],
+          selectedAgentInstanceId: agentInstanceId,
+          mode: "explore" as const,
+          productionPlan: [],
+          outputAssignments: [],
+        },
+      ],
       snapshot: {
         id: "project-1",
         name: "Test Set",
@@ -271,11 +1086,21 @@ describe("desktop components", () => {
         assignments: [
           {
             assignmentId: "assignment-1",
+            agentInstanceId,
             producerId: "producer-1",
             enabled: true,
             deliveryMode: "next-prompt" as const,
             usageInstruction: "Use as observation.",
             processingPolicyIds: ["latest-window"],
+          },
+          {
+            assignmentId: "assignment-2",
+            agentInstanceId: secondAgentInstanceId,
+            producerId: "producer-1",
+            enabled: true,
+            deliveryMode: "automatic-action" as const,
+            usageInstruction: "React only for the mix agent.",
+            processingPolicyIds: ["deduplicate"],
           },
         ],
         latest: [
@@ -299,7 +1124,30 @@ describe("desktop components", () => {
     expect(html).toContain("Keys");
     expect(html).toContain("1 output");
     expect(html).toContain("--output-track-color:#79c2ff");
-    expect(html).toContain('role="switch"');
+    expect(html).toContain(
+      'aria-label="Groove agent subscription to MIDI Capture"',
+    );
+    expect(html).toContain(
+      'aria-label="Mix agent subscription to MIDI Capture"',
+    );
+    expect(html).toContain(
+      '<option value="automatic-action" selected="">Automatic action</option>',
+    );
+    expect(html).toContain("React only for the mix agent.");
+    expect(html).toContain("Save policies");
+    const missingHtml = renderToStaticMarkup(
+      <OutputsView
+        state={{
+          ...state,
+          outputs: { ...state.outputs, connections: [] },
+        }}
+        dispatch={vi.fn()}
+      />,
+    );
+    expect(missingHtml).toContain("Producer unavailable");
+    expect(missingHtml).toContain(
+      "Desired subscriptions are retained and will resume when it reconnects.",
+    );
     expect(html).toContain('aria-expanded="true"');
     expect(html).toContain("Collapse");
   });
@@ -450,7 +1298,8 @@ describe("desktop components", () => {
     ]);
   });
 
-  it("disables unassigned quick toggles without an active conversation", () => {
+  it("renders an active-agent subscription checkbox", () => {
+    const agentId = "00000000-0000-4000-8000-000000000001";
     const html = renderToStaticMarkup(
       <OutputConnectionCard
         connection={{
@@ -463,30 +1312,59 @@ describe("desktop components", () => {
           receiving: false,
           lastHeartbeatAt: 1,
         }}
-        assignment={undefined}
-        latest={undefined}
+        activeAgents={[
+          {
+            id: agentId,
+            definitionName: "default",
+            definitionFingerprint: "a".repeat(64),
+            label: "Mix agent",
+            autoApprove: false,
+            lifecycle: "ready",
+            config: {
+              description: "Mix",
+              systemPrompt: "Mix",
+              tools: ["*"],
+              resolvedTools: [],
+              editScope: ["session"],
+              skills: [],
+              inputChannels: [],
+            },
+            boundTracks: [],
+            outputSubscriptions: [],
+            modified: false,
+          },
+        ]}
+        assignments={[]}
+        latest={[]}
         unavailable={false}
-        hasActiveSession={false}
         expanded={true}
         onToggleDisclosure={vi.fn()}
         onError={vi.fn()}
       />,
     );
 
-    expect(html).toContain('role="switch"');
-    expect(html).toContain("disabled");
-    expect(html).toContain("Assign to active conversation");
+    expect(html).toContain(
+      'aria-label="Mix agent subscription to MIDI Capture"',
+    );
+    expect(html).toContain("Mix agent");
   });
 
-  it("automatically assigns when an unassigned quick toggle turns on", async () => {
+  it("creates and removes only the requested agent subscription", async () => {
     const outputs = {
       assign: vi.fn().mockResolvedValue({}),
-      setEnabled: vi.fn().mockResolvedValue({}),
+      unassign: vi.fn().mockResolvedValue(true),
     };
+    const agentId = "00000000-0000-4000-8000-000000000001";
 
-    await setOutputQuickEnabled(outputs, "producer-1", undefined, true);
-    expect(outputs.assign).toHaveBeenCalledWith("producer-1");
-    expect(outputs.setEnabled).not.toHaveBeenCalled();
+    await setOutputSubscription(
+      outputs,
+      agentId,
+      "producer-1",
+      undefined,
+      true,
+    );
+    expect(outputs.assign).toHaveBeenCalledWith(agentId, "producer-1");
+    expect(outputs.unassign).not.toHaveBeenCalled();
 
     const assignment = {
       assignmentId: "assignment-1",
@@ -496,8 +1374,14 @@ describe("desktop components", () => {
       usageInstruction: "Observe this.",
       processingPolicyIds: [],
     };
-    await setOutputQuickEnabled(outputs, "producer-1", assignment, false);
-    expect(outputs.setEnabled).toHaveBeenCalledWith("producer-1", false);
+    await setOutputSubscription(
+      outputs,
+      agentId,
+      "producer-1",
+      assignment,
+      false,
+    );
+    expect(outputs.unassign).toHaveBeenCalledWith(agentId, "producer-1");
   });
 
   it.each([
@@ -593,6 +1477,9 @@ describe("desktop components", () => {
       },
       agent: { getSessions: vi.fn().mockResolvedValue([]) },
       outputs: { list: vi.fn().mockResolvedValue(initialState.outputs) },
+      agents: {
+        getCatalog: vi.fn().mockResolvedValue(initialState.agentCatalog),
+      },
     } as unknown as Parameters<typeof loadInitialDesktopState>[0];
 
     const [events] = await Promise.all([
@@ -605,6 +1492,7 @@ describe("desktop components", () => {
       "ableton.connection_changed",
       "preferences.changed",
       "sessions.changed",
+      "agents.catalog_changed",
       "outputs.changed",
     ]);
     expect(requestSnapshot).not.toHaveBeenCalled();

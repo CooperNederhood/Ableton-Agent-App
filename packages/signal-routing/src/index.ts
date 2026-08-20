@@ -1,3 +1,4 @@
+export * from "./assignment-id.js";
 export * from "./contracts.js";
 export * from "./discovery-descriptor.js";
 export * from "./filters.js";

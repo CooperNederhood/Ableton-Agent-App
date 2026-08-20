@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SignalTurnRequest } from "@ableton-agent/application";
+import { createAgentInstanceAssignmentId } from "@ableton-agent/signal-routing";
 
 import { DefaultSignalRuntime } from "./signal-runtime.js";
 
@@ -101,7 +102,7 @@ describe("default signal runtime", () => {
     expect(runtime.getStatus()).toMatchObject({ state: "disabled" });
   });
 
-  it("isolates sessions and selectively acknowledges pending windows", async () => {
+  it("fans out pending contexts and acknowledgements by agent instance", async () => {
     await mkdir(artifacts, { recursive: true });
     const descriptorPath = join(artifacts, `${randomUUID()}.json`);
     const runtime = new DefaultSignalRuntime({
@@ -110,32 +111,53 @@ describe("default signal runtime", () => {
       port: 0,
     });
     runtimes.push(runtime);
-    runtime.upsertAssignment({
-      assignmentId: "assignment-1",
-      producerId: "producer-1",
-      consumer: { kind: "agent-session", id: "session-1" },
-      deliveryMode: "next-prompt",
-      enabled: true,
-      usageInstruction: "Use safely.",
-      processingPolicyIds: [],
-    });
-    runtime.setActiveSession("session-1");
+    for (const agentInstanceId of ["agent-1", "agent-2"]) {
+      runtime.upsertAssignment({
+        assignmentId: createAgentInstanceAssignmentId(
+          agentInstanceId,
+          "producer-1",
+        ),
+        producerId: "producer-1",
+        consumer: { kind: "agent-instance", id: agentInstanceId },
+        deliveryMode: "next-prompt",
+        enabled: true,
+        usageInstruction: `Use safely for ${agentInstanceId}.`,
+        processingPolicyIds: [],
+      });
+    }
+    runtime.setActiveAgentInstances(["agent-1", "agent-2"]);
     const send = await producer(runtime, descriptorPath);
     await send(frame(1));
     await send(frame(2));
 
     await expect(
-      runtime.provider.getPendingContexts("session-2"),
+      runtime.provider.getPendingContexts("agent-3"),
     ).resolves.toEqual([]);
-    const pending = await runtime.provider.getPendingContexts("session-1");
-    expect(pending.map(({ context }) => context.sequence)).toEqual([1, 2]);
-    await runtime.provider.markDelivered("session-1", [pending[0]!.deliveryId]);
+    const firstPending = await runtime.provider.getPendingContexts("agent-1");
+    const secondPending = await runtime.provider.getPendingContexts("agent-2");
+    expect(firstPending.map(({ context }) => context.sequence)).toEqual([1, 2]);
+    expect(secondPending.map(({ context }) => context.sequence)).toEqual([
+      1, 2,
+    ]);
+
+    await runtime.provider.markDelivered("agent-1", [
+      secondPending[0]!.deliveryId,
+    ]);
     await expect(
-      runtime.provider.getPendingContexts("session-1"),
+      runtime.provider.getPendingContexts("agent-1"),
+    ).resolves.toHaveLength(2);
+    await runtime.provider.markDelivered("agent-1", [
+      firstPending[0]!.deliveryId,
+    ]);
+    await expect(
+      runtime.provider.getPendingContexts("agent-1"),
     ).resolves.toMatchObject([{ context: { sequence: 2 } }]);
+    await expect(
+      runtime.provider.getPendingContexts("agent-2"),
+    ).resolves.toHaveLength(2);
   });
 
-  it("triggers each automatic accepted window once", async () => {
+  it("automatically delivers one producer frame to both active agents", async () => {
     await mkdir(artifacts, { recursive: true });
     const descriptorPath = join(artifacts, `${randomUUID()}.json`);
     const runtime = new DefaultSignalRuntime({
@@ -149,22 +171,69 @@ describe("default signal runtime", () => {
       return Promise.resolve("done");
     });
     runtime.setDeliveryService({ enqueueSignalTurn });
-    runtime.upsertAssignment({
-      assignmentId: "assignment-1",
-      producerId: "producer-1",
-      consumer: { kind: "agent-session", id: "session-1" },
-      deliveryMode: "automatic-analysis",
-      enabled: true,
-      usageInstruction: "Analyze safely.",
-      processingPolicyIds: ["latest-window"],
-    });
-    runtime.setActiveSession("session-1");
+    for (const agentInstanceId of ["agent-1", "agent-2"]) {
+      runtime.upsertAssignment({
+        assignmentId: createAgentInstanceAssignmentId(
+          agentInstanceId,
+          "producer-1",
+        ),
+        producerId: "producer-1",
+        consumer: { kind: "agent-instance", id: agentInstanceId },
+        deliveryMode: "automatic-analysis",
+        enabled: true,
+        usageInstruction: "Analyze safely.",
+        processingPolicyIds: ["latest-window"],
+      });
+    }
+    runtime.setActiveAgentInstances(["agent-1", "agent-2"]);
     const send = await producer(runtime, descriptorPath);
     await send(frame(1));
     await new Promise((resolve) => setImmediate(resolve));
-    expect(enqueueSignalTurn).toHaveBeenCalledOnce();
-    const request = enqueueSignalTurn.mock.calls[0]?.[0];
-    expect(request?.deliveryId).toBe("assignment-1:1");
-    expect(request?.context.deliveryMode).toBe("automatic-analysis");
+    expect(enqueueSignalTurn).toHaveBeenCalledTimes(2);
+    expect(
+      enqueueSignalTurn.mock.calls.map(([request]) => request.context.consumer),
+    ).toEqual([
+      { kind: "agent-instance", id: "agent-1" },
+      { kind: "agent-instance", id: "agent-2" },
+    ]);
+    expect(
+      enqueueSignalTurn.mock.calls.every(
+        ([request]) => request.context.deliveryMode === "automatic-analysis",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps setActiveSession and agent-session assignments compatible", async () => {
+    await mkdir(artifacts, { recursive: true });
+    const descriptorPath = join(artifacts, `${randomUUID()}.json`);
+    const runtime = new DefaultSignalRuntime({
+      secret: "s".repeat(32),
+      descriptorPath,
+      port: 0,
+    });
+    runtimes.push(runtime);
+    runtime.upsertAssignment({
+      assignmentId: "legacy-assignment",
+      producerId: "producer-1",
+      consumer: { kind: "agent-session", id: "legacy-session" },
+      deliveryMode: "next-prompt",
+      enabled: true,
+      usageInstruction: "Use safely.",
+      processingPolicyIds: [],
+    });
+    runtime.setActiveSession("legacy-session");
+    const send = await producer(runtime, descriptorPath);
+    await send(frame(1));
+
+    await expect(
+      runtime.provider.getPendingContexts("legacy-session"),
+    ).resolves.toMatchObject([
+      {
+        context: {
+          consumer: { kind: "agent-session", id: "legacy-session" },
+          sequence: 1,
+        },
+      },
+    ]);
   });
 });

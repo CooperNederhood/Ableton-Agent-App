@@ -64,7 +64,6 @@ tools for detail.
 ### User prompt submitted
 
 - Attach explicit UI selections.
-- Add mode information such as Compose, Arrange, Sound Design, or Mix.
 - Avoid silently rewriting musical intent.
 
 ### Pre-tool use
@@ -88,18 +87,16 @@ tools for detail.
 - Tell the agent whether retrying is useful.
 - Prevent retry loops for unsupported capabilities or permission denials.
 
-## Specialized agents
+## Custom agents
 
-Do not begin with many autonomous sub-agents. Add specialized agents only when
-their tool and context boundaries are clear. Candidates include:
+The application supports multiple explicitly activated custom agents. Each
+active instance owns an independent SDK session and uses a YAML-defined prompt,
+tool allowlist, edit scope, skills, and input subscriptions. See
+[Custom Agents](../agents/custom-agents.md).
 
-- Composer: harmonic, melodic, and rhythmic planning.
-- Arranger: section structure and clip placement.
-- Sound designer: browser, devices, racks, and parameters.
-- Mix assistant: levels, pan, device settings, and comparative analysis.
-
-The parent agent remains responsible for user communication and cross-domain
-coordination.
+These are user-selected primary conversations, not autonomous hidden
+sub-agents. The application selects exactly one custom-agent definition inside
+each SDK session and attributes every event to its active instance.
 
 ## Completion
 
@@ -113,4 +110,3 @@ An agent turn is complete only when:
 Use the SDK's idle event as the mechanical completion signal. Application
 workflow completion should be represented separately by operation and
 change-set status.
-

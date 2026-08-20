@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { HeadlessApplication } from "@ableton-agent/application";
 import type { SessionSnapshot } from "@ableton-agent/protocol";
+import { abletonToolMetadata } from "@ableton-agent/tools";
 import type { ToolApprovalRequest } from "@ableton-agent/tools";
 
 import {
@@ -18,13 +19,15 @@ function request(
   risk: ToolApprovalRequest["metadata"]["risk"],
   arguments_: Record<string, unknown>,
 ): ToolApprovalRequest {
+  const metadata = abletonToolMetadata.find((entry) => entry.name === name);
+  if (!metadata) {
+    throw new Error(`Unknown tool metadata: ${name}`);
+  }
+  if (metadata.risk !== risk) {
+    throw new Error(`Unexpected risk for ${name}`);
+  }
   return {
-    metadata: {
-      name,
-      title: name,
-      risk,
-      duration: "short",
-    },
+    metadata,
     arguments: arguments_,
   };
 }

@@ -13,18 +13,21 @@ agent behavior must not diverge.
 React should not shell out to the CLI or reuse terminal rendering components.
 The reusable layer is the headless interaction contract and application core.
 
-## Product modes
+## Agent Mode
 
-The UI should support task-oriented modes without creating separate products:
+The UI switches among active custom-agent instances rather than a fixed mode
+enum. Canonical definitions include:
 
-- **Explore:** inspect and understand the current Live set.
+- **Default:** general inspection and editing.
 - **Compose:** generate or edit notes, rhythm, harmony, and motifs.
 - **Arrange:** build sections and place clips on the timeline.
 - **Sound:** browse, load, and shape instruments/effects.
 - **Mix:** adjust levels, pan, devices, and comparative balance.
 
-Modes influence visible controls, selected context, agent instructions, and
-tool availability.
+Multiple instances may use the same definition and retain independent
+conversation histories. Agent Mode changes the selected conversation, composer
+target, activity, approvals, and cancellation target. Agent-specific placeholder
+panels are not part of the initial custom-agent release.
 
 ## Main workspace
 

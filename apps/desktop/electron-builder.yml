@@ -23,6 +23,15 @@ extraResources:
       - "!**/.ableton-agent-install.json"
       - "!**/__pycache__/**"
       - "!**/*.pyc"
+  - from: ../../agents
+    to: agents
+    filter:
+      - "**/*.yaml"
+      - "**/*.yml"
+  - from: ../../skills
+    to: skills
+    filter:
+      - "**/SKILL.md"
 mac:
   category: public.app-category.music
   target:

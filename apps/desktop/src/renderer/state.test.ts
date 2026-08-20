@@ -1,8 +1,118 @@
 import { describe, expect, it } from "vitest";
 
-import { contextForSelection, desktopReducer, initialState } from "./state";
+import {
+  contextForSelection,
+  desktopReducer,
+  initialState,
+  selectedAgentSkills,
+  selectedAgentWorkspace,
+  type DesktopState,
+} from "./state";
+
+const firstAgentId = "00000000-0000-4000-8000-000000000001";
+const secondAgentId = "00000000-0000-4000-8000-000000000002";
+
+function stateWithAgents(): DesktopState {
+  const agent = (id: string, label: string) => ({
+    id,
+    definitionName: "default",
+    definitionFingerprint: "a".repeat(64),
+    label,
+    autoApprove: false,
+    lifecycle: "ready" as const,
+    config: {
+      description: "General agent",
+      systemPrompt: "Help.",
+      tools: ["*"],
+      resolvedTools: [],
+      editScope: ["session" as const],
+      skills: [],
+      inputChannels: [],
+    },
+    boundTracks: [],
+    outputSubscriptions: [],
+    modified: false,
+  });
+  return {
+    ...initialState,
+    sessions: [
+      {
+        version: 2 as const,
+        id: "session",
+        title: "Session",
+        updatedAt: new Date(0).toISOString(),
+        projectName: "Project",
+        activeAgents: [
+          agent(firstAgentId, "Default"),
+          agent(secondAgentId, "Default 2"),
+        ],
+        selectedAgentInstanceId: firstAgentId,
+        mode: "explore" as const,
+        productionPlan: [],
+        outputAssignments: [],
+      },
+    ],
+  };
+}
 
 describe("desktop reducer", () => {
+  it("applies a returned session with updated YOLO state immediately", () => {
+    const state = stateWithAgents();
+    const session = {
+      ...state.sessions[0]!,
+      activeAgents: state.sessions[0]!.activeAgents.map((agent, index) => ({
+        ...agent,
+        autoApprove: index === 0,
+      })),
+    };
+
+    const updated = desktopReducer(state, {
+      type: "event",
+      event: { type: "session.context_restored", session },
+    });
+
+    expect(updated.sessions[0]?.activeAgents[0]?.autoApprove).toBe(true);
+    expect(updated.sessions[0]?.activeAgents[1]?.autoApprove).toBe(false);
+  });
+
+  it("derives valid skills from the selected agent and updates on switching", () => {
+    const base = stateWithAgents();
+    base.sessions[0]!.activeAgents[0]!.config.skills = [
+      "mix-review",
+      "stale-skill",
+    ];
+    base.sessions[0]!.activeAgents[1]!.config.skills = ["sound-design"];
+    const state = {
+      ...base,
+      agentCatalog: {
+        definitions: [],
+        diagnostics: [],
+        skills: [
+          {
+            name: "mix-review",
+            description: "Review a mix.",
+            sourceFile: "mix-review/SKILL.md",
+            fingerprint: "a".repeat(64),
+          },
+          {
+            name: "sound-design",
+            description: "Design a sound.",
+            sourceFile: "sound-design/SKILL.md",
+            fingerprint: "b".repeat(64),
+          },
+        ],
+      },
+    };
+
+    expect(selectedAgentSkills(state).map(({ name }) => name)).toEqual([
+      "mix-review",
+    ]);
+    state.sessions[0]!.selectedAgentInstanceId = secondAgentId;
+    expect(selectedAgentSkills(state).map(({ name }) => name)).toEqual([
+      "sound-design",
+    ]);
+  });
+
   it("stores the trusted diagnostics report for the diagnostics view", () => {
     const report = {
       checks: [{ label: "Bridge", status: "warn" as const, detail: "Offline" }],
@@ -65,6 +175,169 @@ describe("desktop reducer", () => {
       content: "Hello",
       streaming: false,
     });
+  });
+
+  it("keeps two agent conversations and streaming attribution independent", () => {
+    let state = desktopReducer(stateWithAgents(), {
+      type: "user-message",
+      id: "first-user",
+      content: "First request",
+      agentInstanceId: firstAgentId,
+    });
+    state = desktopReducer(state, {
+      type: "user-message",
+      id: "second-user",
+      content: "Second request",
+      agentInstanceId: secondAgentId,
+    });
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.message_delta",
+        messageId: "reply",
+        content: "One",
+        agentInstanceId: firstAgentId,
+      },
+    });
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.message_delta",
+        messageId: "reply",
+        content: "Two",
+        agentInstanceId: secondAgentId,
+      },
+    });
+
+    expect(
+      state.agentWorkspaces[firstAgentId]?.messages.map(
+        ({ content }) => content,
+      ),
+    ).toEqual(["First request", "One"]);
+    expect(
+      state.agentWorkspaces[secondAgentId]?.messages.map(
+        ({ content }) => content,
+      ),
+    ).toEqual(["Second request", "Two"]);
+  });
+
+  it("isolates operations and approvals while switching selected agents", () => {
+    let state = desktopReducer(stateWithAgents(), {
+      type: "event",
+      event: {
+        type: "operation.changed",
+        agentInstanceId: firstAgentId,
+        operation: {
+          id: "operation",
+          label: "First operation",
+          status: "running",
+          warnings: [],
+          changed: [],
+          unchanged: [],
+          retryable: false,
+          undoable: false,
+          timestamp: 1,
+        },
+      },
+    });
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "approval.requested",
+        agentInstanceId: secondAgentId,
+        approval: {
+          id: "approval",
+          title: "Second approval",
+          risk: "medium",
+          summary: "Change",
+          changes: ["Track"],
+          destructive: false,
+        },
+      },
+    });
+    expect(selectedAgentWorkspace(state).operations).toHaveLength(1);
+    expect(selectedAgentWorkspace(state).approval).toBeUndefined();
+
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.instance_changed",
+        instance: state.sessions[0]!.activeAgents[1]!,
+        change: "selected",
+      },
+    });
+    expect(selectedAgentWorkspace(state).operations).toEqual([]);
+    expect(selectedAgentWorkspace(state).approval?.title).toBe(
+      "Second approval",
+    );
+  });
+
+  it("keeps two concurrent approvals in their originating workspaces", () => {
+    const approval = (id: string, title: string) => ({
+      id,
+      title,
+      risk: "medium" as const,
+      summary: "Change",
+      changes: ["Track"],
+      destructive: false,
+    });
+    let state = desktopReducer(stateWithAgents(), {
+      type: "event",
+      event: {
+        type: "approval.requested",
+        agentInstanceId: firstAgentId,
+        sdkSessionId: "sdk-first",
+        approval: approval("first-approval", "First approval"),
+      },
+    });
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "approval.requested",
+        agentInstanceId: secondAgentId,
+        sdkSessionId: "sdk-second",
+        approval: approval("second-approval", "Second approval"),
+      },
+    });
+
+    expect(state.agentWorkspaces[firstAgentId]?.approval?.id).toBe(
+      "first-approval",
+    );
+    expect(state.agentWorkspaces[secondAgentId]?.approval?.id).toBe(
+      "second-approval",
+    );
+    state = desktopReducer(state, {
+      type: "dismiss-approval",
+      agentInstanceId: firstAgentId,
+    });
+    expect(state.agentWorkspaces[firstAgentId]?.approval).toBeUndefined();
+    expect(state.agentWorkspaces[secondAgentId]?.approval?.id).toBe(
+      "second-approval",
+    );
+  });
+
+  it("hydrates only the requested agent history", () => {
+    const state = desktopReducer(stateWithAgents(), {
+      type: "event",
+      event: {
+        type: "agent.history_hydrated",
+        agentInstanceId: secondAgentId,
+        history: [
+          {
+            role: "assistant",
+            content: "Restored second history",
+            timestamp: new Date(10).toISOString(),
+            eventId: "history-1",
+            agentInstanceId: secondAgentId,
+          },
+        ],
+      },
+    });
+
+    expect(state.agentWorkspaces[firstAgentId]).toBeUndefined();
+    expect(state.agentWorkspaces[secondAgentId]?.messages[0]?.content).toBe(
+      "Restored second history",
+    );
   });
 
   it("turns selected project objects into explicit context", () => {

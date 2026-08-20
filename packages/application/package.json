@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@ableton-agent/ableton-contracts": "workspace:*",
+    "@ableton-agent/agent-config": "workspace:*",
     "@ableton-agent/protocol": "workspace:*",
     "@ableton-agent/shared": "workspace:*",
     "@ableton-agent/tools": "workspace:*",

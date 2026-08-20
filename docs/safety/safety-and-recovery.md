@@ -24,6 +24,14 @@ Large multi-track or arrangement changes. Requires preview and approval.
 
 ## Guardrails
 
+- Agent tool allowlists and edit scopes are enforced by application policy, not
+  only by system prompts.
+- Every mutating tool is classified as session-global, one-track, or
+  multi-track; unclassified mutations are denied for scoped agents.
+- Track selectors bind to stable project identities and are revalidated before
+  mutation.
+- Concurrent mutations acquire global or track-reference locks; overlapping
+  scopes serialize while disjoint track edits may proceed concurrently.
 - Never delete the final required session track.
 - Never overwrite an occupied clip slot without explicit policy.
 - Never resolve ambiguous names by picking the first match.
@@ -87,3 +95,10 @@ For partial workflow failure:
 5. Report completed and incomplete work separately.
 6. Offer a targeted retry or recovery action.
 
+## Multi-agent isolation
+
+Every message, operation, approval, output subscription, and cancellation is
+attributed to one active-agent instance. One agent cannot consume another
+agent's pending Output contexts or acknowledgement state. Project switches
+invalidate track bindings, and active agents block rather than carrying stale
+edit authority into a different Live Set.

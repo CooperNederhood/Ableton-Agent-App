@@ -1,3 +1,7 @@
+import {
+  activeAgentInstanceSchema,
+  outputSubscriptionSchema,
+} from "@ableton-agent/agent-config/schemas";
 import { z } from "zod";
 
 export const modes = ["explore", "compose", "arrange", "sound", "mix"] as const;
@@ -89,13 +93,8 @@ export const outputDeliveryModeSchema = z.enum([
 ]);
 export type OutputDeliveryMode = z.infer<typeof outputDeliveryModeSchema>;
 
-export const desktopOutputAssignmentSchema = z.object({
-  assignmentId: z.string().min(1),
-  producerId: z.string().min(1),
-  enabled: z.boolean(),
-  deliveryMode: outputDeliveryModeSchema,
-  usageInstruction: z.string().min(1).max(4096),
-  processingPolicyIds: z.array(z.string().min(1)).max(64),
+export const desktopOutputAssignmentSchema = outputSubscriptionSchema.extend({
+  agentInstanceId: z.string().uuid().optional(),
 });
 export type DesktopOutputAssignment = z.infer<
   typeof desktopOutputAssignmentSchema
@@ -189,17 +188,102 @@ export const operationSchema = z.object({
 });
 export type OperationView = z.infer<typeof operationSchema>;
 
-export const sessionSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  updatedAt: z.string(),
-  projectName: z.string(),
+export const desktopActiveAgentSchema = activeAgentInstanceSchema.extend({
+  boundTracks: activeAgentInstanceSchema.shape.boundTracks.default([]),
+  outputSubscriptions: z.array(desktopOutputAssignmentSchema).default([]),
+});
+export type DesktopActiveAgent = z.infer<typeof desktopActiveAgentSchema>;
+
+export const autoApprovalTargetSchema = z.union([
+  z.literal("all"),
+  z.string().uuid(),
+]);
+export type AutoApprovalTarget = z.infer<typeof autoApprovalTargetSchema>;
+
+export const desktopAgentConfigOverridesSchema =
+  desktopActiveAgentSchema.shape.config.partial().strict();
+export type DesktopAgentConfigOverrides = z.infer<
+  typeof desktopAgentConfigOverridesSchema
+>;
+
+export const desktopAgentHistoryMessageSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string(),
+  timestamp: z.string().min(1),
+  eventId: z.string().min(1),
+  messageId: z.string().min(1).optional(),
+  agentInstanceId: z.string().uuid(),
+  sdkSessionId: z.string().min(1).optional(),
+});
+export type DesktopAgentHistoryMessage = z.infer<
+  typeof desktopAgentHistoryMessageSchema
+>;
+
+export const sessionSchema = z
+  .object({
+    version: z.literal(2),
+    id: z.string().min(1),
+    title: z.string().min(1),
+    updatedAt: z.string().min(1),
+    projectName: z.string().min(1),
+    projectId: z.string().optional(),
+    activeAgents: z.array(desktopActiveAgentSchema).default([]),
+    selectedAgentInstanceId: z.string().uuid().optional(),
+    // Retained while older renderer workflows move to per-agent state.
+    mode: z.enum(modes).default("explore"),
+    productionPlan: z.array(planSectionSchema).default([]),
+    outputAssignments: z.array(desktopOutputAssignmentSchema).default([]),
+  })
+  .superRefine((session, context) => {
+    const instanceIds = session.activeAgents.map(({ id }) => id);
+    if (new Set(instanceIds).size !== instanceIds.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["activeAgents"],
+        message: "Active agent instance IDs must be unique",
+      });
+    }
+    if (
+      session.selectedAgentInstanceId !== undefined &&
+      !instanceIds.includes(session.selectedAgentInstanceId)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["selectedAgentInstanceId"],
+        message: "Selected agent instance must belong to the session",
+      });
+    }
+    if (
+      session.activeAgents.length > 0 &&
+      session.selectedAgentInstanceId === undefined
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["selectedAgentInstanceId"],
+        message: "A session with active agents must select one",
+      });
+    }
+  });
+export type DesktopSession = z.infer<typeof sessionSchema>;
+
+export const desktopAutoApprovalUpdateSchema = z.object({
+  instances: z.array(desktopActiveAgentSchema),
+  session: sessionSchema,
+});
+export type DesktopAutoApprovalUpdate = z.infer<
+  typeof desktopAutoApprovalUpdateSchema
+>;
+
+export const legacySessionSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  updatedAt: z.string().min(1),
+  projectName: z.string().min(1),
   projectId: z.string().optional(),
   mode: z.enum(modes).default("explore"),
   productionPlan: z.array(planSectionSchema).default([]),
   outputAssignments: z.array(desktopOutputAssignmentSchema).default([]),
 });
-export type DesktopSession = z.infer<typeof sessionSchema>;
 
 export const preferencesSchema = z.object({
   version: z.literal(1).default(1),
@@ -238,6 +322,55 @@ export type DesktopDiagnosticsReport = z.infer<
   typeof desktopDiagnosticsReportSchema
 >;
 
+const desktopTrackScopeSelectorSchema = z.object({
+  track: z.object({
+    name: z.string().min(1),
+    occurrence: z.number().int().nonnegative(),
+  }),
+});
+
+export const desktopAgentDefinitionSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().min(1),
+  systemPrompt: z.string().min(1),
+  tools: z.array(z.string().min(1)),
+  resolvedTools: z.array(z.string().min(1)),
+  editScope: z.array(
+    z.union([z.literal("session"), desktopTrackScopeSelectorSchema]),
+  ),
+  skills: z.array(z.string().min(1)),
+  inputChannels: z.array(z.string().min(1)),
+  sourceFile: z.string().min(1),
+  fingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+});
+export type DesktopAgentDefinition = z.infer<
+  typeof desktopAgentDefinitionSchema
+>;
+
+export const desktopAgentCatalogSchema = z.object({
+  definitions: z.array(desktopAgentDefinitionSchema).default([]),
+  skills: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        description: z.string().min(1),
+        sourceFile: z.string().min(1),
+        fingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+      }),
+    )
+    .default([]),
+  diagnostics: z
+    .array(
+      z.object({
+        sourceFile: z.string().min(1),
+        code: z.string().min(1),
+        message: z.string().min(1),
+      }),
+    )
+    .default([]),
+});
+export type DesktopAgentCatalog = z.infer<typeof desktopAgentCatalogSchema>;
+
 export const appEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("lifecycle.changed"),
@@ -251,17 +384,47 @@ export const appEventSchema = z.discriminatedUnion("type", [
     type: z.literal("agent.message_delta"),
     messageId: z.string(),
     content: z.string(),
+    agentInstanceId: z.string().uuid().optional(),
+    sdkSessionId: z.string().min(1).optional(),
   }),
   z.object({
     type: z.literal("agent.message_complete"),
     messageId: z.string(),
     content: z.string(),
+    agentInstanceId: z.string().uuid().optional(),
+    sdkSessionId: z.string().min(1).optional(),
   }),
   z.object({
     type: z.literal("operation.changed"),
     operation: operationSchema,
+    agentInstanceId: z.string().uuid().optional(),
+    sdkSessionId: z.string().min(1).optional(),
   }),
-  z.object({ type: z.literal("approval.requested"), approval: approvalSchema }),
+  z.object({
+    type: z.literal("agent.instance_changed"),
+    instance: desktopActiveAgentSchema,
+    change: z.enum([
+      "created",
+      "renamed",
+      "configured",
+      "reset",
+      "selected",
+      "deactivated",
+      "lifecycle",
+    ]),
+  }),
+  z.object({
+    type: z.literal("agent.history_hydrated"),
+    agentInstanceId: z.string().uuid(),
+    sdkSessionId: z.string().min(1).optional(),
+    history: z.array(desktopAgentHistoryMessageSchema),
+  }),
+  z.object({
+    type: z.literal("approval.requested"),
+    approval: approvalSchema,
+    agentInstanceId: z.string().uuid().optional(),
+    sdkSessionId: z.string().min(1).optional(),
+  }),
   z.object({
     type: z.literal("project.snapshot_changed"),
     snapshot: projectSnapshotSchema,
@@ -281,6 +444,10 @@ export const appEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("outputs.changed"),
     outputs: desktopOutputsStateSchema,
+  }),
+  z.object({
+    type: z.literal("agents.catalog_changed"),
+    catalog: desktopAgentCatalogSchema,
   }),
   z.object({
     type: z.literal("diagnostic"),
@@ -320,6 +487,88 @@ export const ipcSchemas = {
   "agent:resume-session": {
     request: z.object({ sessionId: z.string().min(1) }),
     response: z.object({ resumed: z.literal(true) }),
+  },
+  "agents:catalog": {
+    request: z.object({}),
+    response: desktopAgentCatalogSchema,
+  },
+  "agents:refresh": {
+    request: z.object({}),
+    response: desktopAgentCatalogSchema,
+  },
+  "agents:active": {
+    request: z.object({}),
+    response: z.array(desktopActiveAgentSchema),
+  },
+  "agents:create": {
+    request: z.object({ definitionName: z.string().min(1) }).strict(),
+    response: desktopActiveAgentSchema,
+  },
+  "agents:rename": {
+    request: z
+      .object({
+        instanceId: z.string().uuid(),
+        label: z.string().trim().min(1).max(128),
+      })
+      .strict(),
+    response: desktopActiveAgentSchema,
+  },
+  "agents:configure": {
+    request: z
+      .object({
+        instanceId: z.string().uuid(),
+        overrides: desktopAgentConfigOverridesSchema,
+      })
+      .strict(),
+    response: desktopActiveAgentSchema,
+  },
+  "agents:reset": {
+    request: z.object({ instanceId: z.string().uuid() }).strict(),
+    response: desktopActiveAgentSchema,
+  },
+  "agents:select": {
+    request: z.object({ instanceId: z.string().uuid() }).strict(),
+    response: desktopActiveAgentSchema,
+  },
+  "agents:set-auto-approval": {
+    request: z
+      .object({
+        target: autoApprovalTargetSchema,
+        enabled: z.boolean(),
+      })
+      .strict(),
+    response: desktopAutoApprovalUpdateSchema,
+  },
+  "agents:deactivate": {
+    request: z.object({ instanceId: z.string().uuid() }).strict(),
+    response: z.object({ deactivated: z.literal(true) }),
+  },
+  "agents:history": {
+    request: z.object({ instanceId: z.string().uuid() }).strict(),
+    response: z.array(desktopAgentHistoryMessageSchema),
+  },
+  "agents:send": {
+    request: z
+      .object({
+        instanceId: z.string().uuid(),
+        message: z.string().trim().min(1).max(20_000),
+      })
+      .strict(),
+    response: z.object({ accepted: z.literal(true), messageId: z.string() }),
+  },
+  "agents:invoke-skill": {
+    request: z
+      .object({
+        instanceId: z.string().uuid(),
+        skillName: z.string().min(1),
+        request: z.string().max(20_000).default(""),
+      })
+      .strict(),
+    response: z.object({ accepted: z.literal(true), messageId: z.string() }),
+  },
+  "agents:cancel": {
+    request: z.object({ instanceId: z.string().uuid() }).strict(),
+    response: z.object({ cancelled: z.boolean() }),
   },
   "ableton:connect": {
     request: z.object({}),
@@ -386,15 +635,22 @@ export const ipcSchemas = {
     response: desktopOutputsStateSchema,
   },
   "outputs:assign": {
-    request: z.object({ producerId: z.string().min(1) }),
+    request: z.object({
+      agentInstanceId: z.string().uuid(),
+      producerId: z.string().min(1),
+    }),
     response: desktopOutputAssignmentSchema,
   },
   "outputs:unassign": {
-    request: z.object({ producerId: z.string().min(1) }),
+    request: z.object({
+      agentInstanceId: z.string().uuid(),
+      producerId: z.string().min(1),
+    }),
     response: z.object({ removed: z.boolean() }),
   },
   "outputs:set-enabled": {
     request: z.object({
+      agentInstanceId: z.string().uuid(),
       producerId: z.string().min(1),
       enabled: z.boolean(),
     }),
@@ -402,6 +658,7 @@ export const ipcSchemas = {
   },
   "outputs:set-delivery-mode": {
     request: z.object({
+      agentInstanceId: z.string().uuid(),
       producerId: z.string().min(1),
       deliveryMode: outputDeliveryModeSchema,
     }),
@@ -409,8 +666,17 @@ export const ipcSchemas = {
   },
   "outputs:set-usage-instruction": {
     request: z.object({
+      agentInstanceId: z.string().uuid(),
       producerId: z.string().min(1),
       usageInstruction: z.string().trim().min(1).max(4096),
+    }),
+    response: desktopOutputAssignmentSchema,
+  },
+  "outputs:set-processing-policies": {
+    request: z.object({
+      agentInstanceId: z.string().uuid(),
+      producerId: z.string().min(1),
+      processingPolicyIds: z.array(z.string().min(1)).max(64),
     }),
     response: desktopOutputAssignmentSchema,
   },
@@ -438,6 +704,35 @@ export interface DesktopApi {
     createSession(): Promise<string>;
     getSessions(): Promise<DesktopSession[]>;
     resumeSession(sessionId: string): Promise<void>;
+  };
+  agents: {
+    getCatalog(): Promise<DesktopAgentCatalog>;
+    refreshCatalog(): Promise<DesktopAgentCatalog>;
+    listActive(): Promise<DesktopActiveAgent[]>;
+    create(definitionName: string): Promise<DesktopActiveAgent>;
+    rename(instanceId: string, label: string): Promise<DesktopActiveAgent>;
+    configure(
+      instanceId: string,
+      overrides: DesktopAgentConfigOverrides,
+    ): Promise<DesktopActiveAgent>;
+    reset(instanceId: string): Promise<DesktopActiveAgent>;
+    select(instanceId: string): Promise<DesktopActiveAgent>;
+    setAutoApproval(
+      target: AutoApprovalTarget,
+      enabled: boolean,
+    ): Promise<DesktopAutoApprovalUpdate>;
+    deactivate(instanceId: string): Promise<void>;
+    hydrateHistory(instanceId: string): Promise<DesktopAgentHistoryMessage[]>;
+    send(
+      instanceId: string,
+      message: string,
+    ): Promise<{ accepted: true; messageId: string }>;
+    invokeSkill(
+      instanceId: string,
+      skillName: string,
+      request?: string,
+    ): Promise<{ accepted: true; messageId: string }>;
+    cancel(instanceId: string): Promise<{ cancelled: boolean }>;
   };
   ableton: {
     connect(): Promise<DesktopConnectionStatus>;
@@ -468,19 +763,30 @@ export interface DesktopApi {
   };
   outputs: {
     list(): Promise<DesktopOutputsState>;
-    assign(producerId: string): Promise<DesktopOutputAssignment>;
-    unassign(producerId: string): Promise<boolean>;
+    assign(
+      agentInstanceId: string,
+      producerId: string,
+    ): Promise<DesktopOutputAssignment>;
+    unassign(agentInstanceId: string, producerId: string): Promise<boolean>;
     setEnabled(
+      agentInstanceId: string,
       producerId: string,
       enabled: boolean,
     ): Promise<DesktopOutputAssignment>;
     setDeliveryMode(
+      agentInstanceId: string,
       producerId: string,
       deliveryMode: OutputDeliveryMode,
     ): Promise<DesktopOutputAssignment>;
     setUsageInstruction(
+      agentInstanceId: string,
       producerId: string,
       usageInstruction: string,
+    ): Promise<DesktopOutputAssignment>;
+    setProcessingPolicies(
+      agentInstanceId: string,
+      producerId: string,
+      processingPolicyIds: string[],
     ): Promise<DesktopOutputAssignment>;
   };
   events: { subscribe(handler: (event: DesktopAppEvent) => void): () => void };

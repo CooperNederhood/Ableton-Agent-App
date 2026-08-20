@@ -19,10 +19,12 @@ describe("Electron security", () => {
   it("has a finite allowlist and no generic IPC channel", () => {
     const channels = Object.keys(ipcSchemas);
     expect(channels.length).toBeGreaterThan(5);
+    expect(channels).toContain("agents:invoke-skill");
     expect(
       channels.every(
         (channel) =>
-          !channel.includes("invoke") && !channel.includes("execute"),
+          channel === "agents:invoke-skill" ||
+          (!channel.includes("invoke") && !channel.includes("execute")),
       ),
     ).toBe(true);
   });

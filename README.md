@@ -9,6 +9,10 @@ tools, sends validated requests over an authenticated local TCP connection, and
 a dependency-free Python Remote Script performs the actual Live Object Model
 (LOM) operations inside Ableton.
 
+Custom production agents are defined in root `agents/*.yaml` files. Reusable
+Agent Skills use canonical `skills/<name>/SKILL.md` directories. The Desktop app
+loads these resources at startup and packages them with production builds.
+
 ```text
 CLI or Electron UI
         |

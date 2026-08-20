@@ -7,8 +7,8 @@ There are three distinct kinds of state:
 1. **Ableton state:** authoritative musical/project state in the LOM.
 2. **Application state:** connection, snapshots, selections, plans, approvals,
    and change sets.
-3. **Agent session state:** conversation and tool history maintained by the
-   Copilot runtime.
+3. **Agent session state:** one conversation and tool history per active agent,
+   maintained by the Copilot runtime.
 
 Agent conversation is never treated as authoritative project state.
 
@@ -80,6 +80,7 @@ Store application metadata in a local SQLite database. Do not duplicate the
 entire Ableton project. Suggested records:
 
 - App sessions.
+- Active agent instances, definition snapshots, bindings, and subscriptions.
 - Ableton project identities.
 - Production plans.
 - Change sets.
@@ -93,4 +94,3 @@ default.
 The database is opened through a versioned migration runner, and every stored
 payload is validated by the state schemas on write and on read. Writes run in
 real SQLite transactions, and the database file is replaced atomically.
-

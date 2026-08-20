@@ -45,9 +45,11 @@ test("launches the packaged desktop contract securely", async () => {
       window.getByRole("heading", { name: "Settings" }),
     ).toBeVisible();
     await window.keyboard.press(`${shortcutModifier}+k`);
-    await expect(
-      window.getByRole("textbox", { name: "Message the Ableton agent" }),
-    ).toBeFocused();
+    const composer = window.getByRole("textbox", {
+      name: "Message the Ableton agent",
+    });
+    await expect(composer).toBeEnabled();
+    await expect(composer).toBeFocused();
   } finally {
     await application.close();
   }

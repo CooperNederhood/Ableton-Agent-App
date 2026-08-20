@@ -1,5 +1,6 @@
 import { InMemoryEventPublisher } from "@ableton-agent/shared";
 import { describe, expect, it, vi } from "vitest";
+import type { AgentSessionConfiguration } from "@ableton-agent/application";
 
 import {
   createAbletonService,
@@ -215,5 +216,99 @@ describe("composed agent session control", () => {
     expect(abort).toHaveBeenCalledOnce();
     await expect(application.cancel()).resolves.toBe(false);
     await application.stop();
+  });
+
+  it("keeps active signal targets synchronized for default and managed agents", async () => {
+    const runtime = runtimeWithSessions([
+      fakeSession("session-1"),
+      fakeSession("managed-sdk"),
+      fakeSession("session-2"),
+    ]);
+    const syncSignals = vi.spyOn(runtime.signals, "setActiveAgentInstances");
+    const configuration: AgentSessionConfiguration = {
+      instanceId: "agent-a",
+      definitionName: "compose",
+      label: "Compose",
+      description: "Compose MIDI phrases.",
+      systemPrompt: "Compose MIDI phrases safely.",
+      resolvedTools: ["ableton_session_inspect"],
+      editScope: ["session"],
+      boundTracks: [],
+      skills: [],
+      skillDirectories: [],
+    };
+
+    await runtime.application.start();
+    expect(syncSignals).toHaveBeenLastCalledWith(["session-1"]);
+
+    await expect(
+      runtime.application.createManagedAgent(configuration),
+    ).resolves.toBe("managed-sdk");
+    expect(syncSignals).toHaveBeenLastCalledWith(["session-1", "agent-a"]);
+
+    await expect(runtime.application.createAgentSession()).resolves.toBe(
+      "session-2",
+    );
+    expect(syncSignals).toHaveBeenLastCalledWith(["session-2", "agent-a"]);
+
+    await runtime.application.deactivateManagedAgent("agent-a");
+    expect(syncSignals).toHaveBeenLastCalledWith(["session-2"]);
+
+    await runtime.application.stop();
+    expect(syncSignals).toHaveBeenLastCalledWith([]);
+  });
+
+  it("preserves signal identity when managed-agent reconfiguration rolls back", async () => {
+    const oldSession = fakeSession("managed-sdk");
+    const replacement = fakeSession("managed-sdk");
+    let failResume = true;
+    const runtime = runtimeWithSessions(
+      [fakeSession("session-1"), oldSession],
+      {
+        resumeSession: async () => {
+          if (failResume) throw new Error("resume failed");
+          return replacement;
+        },
+      },
+    );
+    const syncSignals = vi.spyOn(runtime.signals, "setActiveAgentInstances");
+    const initial: AgentSessionConfiguration = {
+      instanceId: "agent-a",
+      definitionName: "compose",
+      label: "Compose",
+      description: "Compose MIDI phrases.",
+      systemPrompt: "Compose MIDI phrases safely.",
+      resolvedTools: ["ableton_session_inspect"],
+      editScope: ["session"],
+      boundTracks: [],
+      skills: [],
+      skillDirectories: [],
+    };
+
+    await runtime.application.start();
+    await runtime.application.createManagedAgent(initial);
+    syncSignals.mockClear();
+
+    await expect(
+      runtime.application.reconfigureManagedAgent({
+        ...initial,
+        definitionName: "compose-updated",
+      }),
+    ).rejects.toThrow("resume failed");
+    expect(syncSignals).not.toHaveBeenCalled();
+    await expect(
+      runtime.application.sendToManagedAgent("agent-a", "still works"),
+    ).resolves.toBe("done");
+    expect(oldSession.disconnect).not.toHaveBeenCalled();
+
+    failResume = false;
+    await runtime.application.reconfigureManagedAgent({
+      ...initial,
+      definitionName: "compose-updated",
+    });
+    expect(syncSignals).toHaveBeenCalledOnce();
+    expect(syncSignals).toHaveBeenLastCalledWith(["session-1", "agent-a"]);
+    expect(oldSession.disconnect).toHaveBeenCalledOnce();
+    await runtime.application.stop();
   });
 });

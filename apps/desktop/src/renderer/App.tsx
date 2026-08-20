@@ -1,4 +1,9 @@
 import {
+  InvalidSkillInvocationError,
+  parseSkillInvocation,
+  type SkillInvocation,
+} from "@ableton-agent/agent-config/skill-invocation";
+import {
   useEffect,
   useMemo,
   useReducer,
@@ -11,6 +16,7 @@ import {
 
 import type {
   DesktopApi,
+  DesktopActiveAgent,
   DesktopAppEvent,
   DesktopConnectionStatus,
   DesktopOutputAssignment,
@@ -19,7 +25,6 @@ import type {
   LatestAcceptedOutput,
   DesktopTrack,
   PlanSection,
-  ProductMode,
 } from "../contracts";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import {
@@ -27,17 +32,84 @@ import {
   boundRefreshMessage,
   desktopReducer,
   initialState,
+  selectedAgentInstance,
+  selectedAgentSkills,
+  selectedAgentWorkspace,
   type DesktopState,
   type WorkspaceView,
 } from "./state";
+import { parseYoloCommand, yoloCommandUsage } from "./yolo-command";
 
-const modeLabels: Record<ProductMode, string> = {
-  explore: "Explore",
-  compose: "Compose",
-  arrange: "Arrange",
-  sound: "Sound",
-  mix: "Mix",
+type CatalogSkill = DesktopState["agentCatalog"]["skills"][number];
+
+export type SlashCompletionEntry = {
+  name: string;
+  description: string;
+  source: "built-in" | "skill";
+  usage?: string;
 };
+
+const builtInSlashCompletions: readonly SlashCompletionEntry[] = [
+  {
+    name: "yolo",
+    description: "Configure automatic approval for agent actions.",
+    source: "built-in",
+    usage: yoloCommandUsage,
+  },
+];
+
+const reservedSlashCompletionNames = new Set(
+  builtInSlashCompletions.map(({ name }) => name),
+);
+
+export function matchingSlashCompletions(
+  input: string,
+  skills: readonly CatalogSkill[] | undefined,
+): SlashCompletionEntry[] {
+  if (!input.startsWith("/") || /\s/u.test(input)) return [];
+  const prefix = input.slice(1);
+  const entries = [
+    ...builtInSlashCompletions,
+    ...(skills ?? [])
+      .filter(({ name }) => !reservedSlashCompletionNames.has(name))
+      .map(({ name, description }) => ({
+        name,
+        description,
+        source: "skill" as const,
+      })),
+  ];
+  return entries
+    .filter(({ name }) => name.startsWith(prefix))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export function slashCompletionsForState(
+  input: string,
+  state: DesktopState,
+): SlashCompletionEntry[] {
+  return matchingSlashCompletions(
+    input,
+    selectedAgentInstance(state) === undefined
+      ? undefined
+      : selectedAgentSkills(state),
+  );
+}
+
+export function slashCompletionKey(
+  key: string,
+  selected: number,
+  count: number,
+): number | "complete" | undefined {
+  if (count === 0) return undefined;
+  if (key === "ArrowDown") return (selected + 1) % count;
+  if (key === "ArrowUp") return (selected - 1 + count) % count;
+  if (key === "Tab" || key === "Enter") return "complete";
+  return undefined;
+}
+
+export function slashCompletionText(entry: SlashCompletionEntry): string {
+  return `/${entry.name} `;
+}
 
 const browserItems = [
   ["Wavetable", "Instrument", "Ableton"],
@@ -160,29 +232,141 @@ export async function loadInitialDesktopState(
       sessions: await desktop.agent.getSessions(),
     },
     {
+      type: "agents.catalog_changed",
+      catalog: await desktop.agents.getCatalog(),
+    },
+    {
       type: "outputs.changed",
       outputs: await desktop.outputs.list(),
     },
   ];
 }
 
+type DesktopDispatch = React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+
+export async function sendComposerMessage(
+  desktop: DesktopApi,
+  state: DesktopState,
+  message: string,
+  dispatch: DesktopDispatch,
+): Promise<void> {
+  const yolo = parseYoloCommand(message);
+  if (yolo !== undefined) {
+    const session = state.sessions[0];
+    if (session === undefined) throw new Error("No active production session");
+    const selected = selectedAgentInstance(state);
+    if (!yolo.all && selected === undefined) {
+      throw new Error("No active agent is selected");
+    }
+    const update = await desktop.agents.setAutoApproval(
+      yolo.all ? "all" : selected!.id,
+      yolo.enabled,
+    );
+    dispatch({
+      type: "event",
+      event: { type: "session.context_restored", session: update.session },
+    });
+    return;
+  }
+  const agent = selectedAgentInstance(state);
+  if (agent === undefined) throw new Error("No active agent is selected");
+  if (agent.lifecycle !== "ready") {
+    throw new Error(
+      agent.lifecycle === "busy"
+        ? `${agent.label} is already working`
+        : `${agent.label} is ${agent.lifecycle}`,
+    );
+  }
+  let invocation: SkillInvocation | undefined;
+  try {
+    invocation = parseSkillInvocation(message);
+  } catch (error) {
+    if (error instanceof InvalidSkillInvocationError) {
+      throw new Error(
+        "Invalid skill command. Use /skill-name followed by an optional request.",
+      );
+    }
+    throw error;
+  }
+  if (invocation !== undefined) {
+    const catalogSkill = state.agentCatalog.skills.find(
+      ({ name }) => name === invocation.skillName,
+    );
+    if (catalogSkill === undefined) {
+      if (agent.config.skills.includes(invocation.skillName)) {
+        throw new Error(
+          `Skill '/${invocation.skillName}' is assigned to ${agent.label} but its definition is unavailable. Refresh definitions or edit the agent.`,
+        );
+      }
+      throw new Error(`Unknown skill '/${invocation.skillName}'.`);
+    }
+    if (!agent.config.skills.includes(invocation.skillName)) {
+      throw new Error(
+        `Skill '/${invocation.skillName}' is not assigned to ${agent.label}.`,
+      );
+    }
+    await desktop.project.setContext(contextForSelection(state));
+    await desktop.agents.invokeSkill(
+      agent.id,
+      invocation.skillName,
+      invocation.request,
+    );
+    dispatch({
+      type: "user-message",
+      id: crypto.randomUUID(),
+      content: message,
+      agentInstanceId: agent.id,
+    });
+    return;
+  }
+  dispatch({
+    type: "user-message",
+    id: crypto.randomUUID(),
+    content: message,
+    agentInstanceId: agent.id,
+  });
+  await desktop.project.setContext(contextForSelection(state));
+  await desktop.agents.send(agent.id, message);
+}
+
+export async function selectWorkspaceAgent(
+  desktop: DesktopApi,
+  instanceId: string,
+  dispatch: DesktopDispatch,
+): Promise<void> {
+  const instance = await desktop.agents.select(instanceId);
+  dispatch({
+    type: "event",
+    event: { type: "agent.instance_changed", instance, change: "selected" },
+  });
+}
+
+export async function cancelWorkspaceAgent(
+  desktop: DesktopApi,
+  state: DesktopState,
+): Promise<boolean> {
+  const agent = selectedAgentInstance(state);
+  if (agent === undefined) return false;
+  return (await desktop.agents.cancel(agent.id)).cancelled;
+}
+
 export function App(): React.JSX.Element {
   const [state, dispatch] = useReducer(desktopReducer, initialState);
   const [composer, setComposer] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [composerError, setComposerError] = useState("");
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const hydratedAgents = useRef(new Set<string>());
 
   useEffect(() => {
-    const pendingDeltas = new Map<string, string>();
+    const pendingDeltas = new Map<
+      string,
+      Extract<DesktopAppEvent, { type: "agent.message_delta" }>
+    >();
     let frame: number | undefined;
     const flush = (): void => {
       frame = undefined;
-      for (const [messageId, content] of pendingDeltas) {
-        dispatch({
-          type: "event",
-          event: { type: "agent.message_delta", messageId, content },
-        });
-      }
+      for (const event of pendingDeltas.values())
+        dispatch({ type: "event", event });
       pendingDeltas.clear();
     };
     const unsubscribe = window.desktop.events.subscribe((event) => {
@@ -192,10 +376,12 @@ export function App(): React.JSX.Element {
         dispatch({ type: "event", event });
         return;
       }
-      pendingDeltas.set(
-        event.messageId,
-        (pendingDeltas.get(event.messageId) ?? "") + event.content,
-      );
+      const key = `${event.agentInstanceId ?? "legacy"}:${event.messageId}`;
+      const pending = pendingDeltas.get(key);
+      pendingDeltas.set(key, {
+        ...event,
+        content: (pending?.content ?? "") + event.content,
+      });
       frame ??= requestAnimationFrame(flush);
     });
     return () => {
@@ -210,6 +396,44 @@ export function App(): React.JSX.Element {
     };
     void load();
   }, []);
+  const selectedInstanceId = selectedAgentInstance(state)?.id;
+  const activeSessionId = state.sessions[0]?.id;
+  useEffect(() => {
+    setComposerError("");
+  }, [selectedInstanceId]);
+  useEffect(() => {
+    if (selectedInstanceId === undefined || activeSessionId === undefined)
+      return;
+    const key = `${activeSessionId}:${selectedInstanceId}`;
+    if (hydratedAgents.current.has(key)) return;
+    hydratedAgents.current.add(key);
+    void window.desktop.agents
+      .hydrateHistory(selectedInstanceId)
+      .then((history) =>
+        dispatch({
+          type: "event",
+          event: {
+            type: "agent.history_hydrated",
+            agentInstanceId: selectedInstanceId,
+            history,
+          },
+        }),
+      )
+      .catch((error: unknown) => {
+        hydratedAgents.current.delete(key);
+        dispatch({
+          type: "event",
+          event: {
+            type: "diagnostic",
+            level: "error",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Agent history could not be loaded",
+          },
+        });
+      });
+  }, [activeSessionId, selectedInstanceId]);
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent): void => {
       if ((event.metaKey || event.ctrlKey) && event.key === "k") {
@@ -220,33 +444,36 @@ export function App(): React.JSX.Element {
         event.preventDefault();
         dispatch({ type: "view", view: "settings" });
       }
-      if (event.key === "Escape" && state.approval) {
+      if (event.key === "Escape" && selectedAgentWorkspace(state).approval) {
         composerRef.current?.focus();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [state.approval]);
+  }, [state]);
 
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
     const message = composer.trim();
-    if (!message || busy) return;
+    if (!message) return;
+    setComposerError("");
     setComposer("");
-    setBusy(true);
-    dispatch({
-      type: "user-message",
-      id: crypto.randomUUID(),
-      content: message,
-    });
     try {
-      await window.desktop.agent.send(
-        message,
-        contextForSelection(state),
-        state.mode,
-      );
+      await sendComposerMessage(window.desktop, state, message, dispatch);
+    } catch (error) {
+      const messageText =
+        error instanceof Error ? error.message : "Agent message failed";
+      if (message.startsWith("/")) setComposer(message);
+      setComposerError(messageText);
+      dispatch({
+        type: "event",
+        event: {
+          type: "diagnostic",
+          level: "error",
+          message: messageText,
+        },
+      });
     } finally {
-      setBusy(false);
       composerRef.current?.focus();
     }
   };
@@ -258,6 +485,7 @@ export function App(): React.JSX.Element {
         {(
           [
             "workspace",
+            "agents",
             "outputs",
             "browser",
             "diagnostics",
@@ -288,6 +516,8 @@ export function App(): React.JSX.Element {
           />
         ) : state.activeView === "workspace" ? (
           <Workspace state={state} dispatch={dispatch} />
+        ) : state.activeView === "agents" ? (
+          <AgentsView state={state} dispatch={dispatch} />
         ) : state.activeView === "outputs" ? (
           <OutputsView state={state} dispatch={dispatch} />
         ) : state.activeView === "browser" ? (
@@ -303,9 +533,13 @@ export function App(): React.JSX.Element {
       <Composer
         state={state}
         value={composer}
-        busy={busy}
+        busy={false}
         composerRef={composerRef}
-        onChange={setComposer}
+        error={composerError}
+        onChange={(value) => {
+          setComposer(value);
+          setComposerError("");
+        }}
         onSubmit={submit}
         dispatch={dispatch}
       />
@@ -332,17 +566,43 @@ export function OutputsView({
     });
   const unavailable = state.outputs.status.state !== "listening";
   const outputGroups = groupOutputsByTrack(
-    state.outputs.connections,
+    [
+      ...state.outputs.connections,
+      ...state.outputs.assignments
+        .filter(
+          (assignment, index, assignments) =>
+            assignments.findIndex(
+              ({ producerId }) => producerId === assignment.producerId,
+            ) === index &&
+            !state.outputs.connections.some(
+              ({ producerId }) => producerId === assignment.producerId,
+            ),
+        )
+        .map((assignment): DesktopOutputConnection => ({
+          connectionId: `missing:${assignment.producerId}`,
+          producerId: assignment.producerId,
+          instanceId: "missing",
+          displayName: assignment.producerId,
+          signalKind: "midi",
+          state: "disconnected",
+          receiving: false,
+          lastHeartbeatAt: 0,
+        })),
+    ],
     state.snapshot,
   );
+  const activeSession = state.sessions.find(
+    ({ id }) => id === state.outputs.activeSessionId,
+  );
+  const activeAgents = activeSession?.activeAgents ?? [];
   return (
     <section className="outputs-view" aria-labelledby="outputs-heading">
       <div className="panel-heading">
         <div>
           <h2 id="outputs-heading">Outputs</h2>
           <p>
-            Discovered MIDI and audio observations routed to the active
-            conversation.
+            Route each discovered MIDI or audio observation independently to
+            active agents.
           </p>
         </div>
         <strong>
@@ -360,13 +620,12 @@ export function OutputsView({
             : "Signal ingress is not running."}
         </div>
       )}
-      {!state.outputs.activeSessionId && (
+      {activeAgents.length === 0 && (
         <div className="notice" role="status">
-          No active conversation. Start or resume a session before assigning
-          outputs.
+          No active agents. Activate an agent before subscribing to outputs.
         </div>
       )}
-      {state.outputs.connections.length === 0 ? (
+      {outputGroups.length === 0 ? (
         <EmptyState
           title="No outputs discovered"
           detail="Open a compatible MIDI or audio producer in Ableton Live."
@@ -396,22 +655,18 @@ export function OutputsView({
               </header>
               <div className="output-grid">
                 {group.connections.map((connection) => {
-                  const assignment = state.outputs.assignments.find(
-                    (item) => item.producerId === connection.producerId,
-                  );
-                  const latest = state.outputs.latest
-                    .filter((item) => item.producerId === connection.producerId)
-                    .sort((left, right) => right.sequence - left.sequence)[0];
                   return (
                     <OutputConnectionCard
                       key={connection.producerId}
                       connection={connection}
-                      assignment={assignment}
-                      latest={latest}
+                      activeAgents={activeAgents}
+                      assignments={state.outputs.assignments.filter(
+                        (item) => item.producerId === connection.producerId,
+                      )}
+                      latest={state.outputs.latest.filter(
+                        (item) => item.producerId === connection.producerId,
+                      )}
                       unavailable={unavailable}
-                      hasActiveSession={
-                        state.outputs.activeSessionId !== undefined
-                      }
                       expanded={
                         !state.collapsedOutputProducerIds.includes(
                           connection.producerId,
@@ -436,50 +691,54 @@ export function OutputsView({
   );
 }
 
-export async function setOutputQuickEnabled(
-  outputs: Pick<DesktopApi["outputs"], "assign" | "setEnabled">,
+export async function setOutputSubscription(
+  outputs: Pick<DesktopApi["outputs"], "assign" | "unassign">,
+  agentInstanceId: string,
   producerId: string,
   assignment: DesktopOutputAssignment | undefined,
-  enabled: boolean,
+  subscribed: boolean,
 ): Promise<void> {
-  if (assignment === undefined) {
-    if (enabled) await outputs.assign(producerId);
-    return;
-  }
-  await outputs.setEnabled(producerId, enabled);
+  if (subscribed && assignment === undefined)
+    await outputs.assign(agentInstanceId, producerId);
+  if (!subscribed && assignment !== undefined)
+    await outputs.unassign(agentInstanceId, producerId);
 }
 
 export function OutputConnectionCard({
   connection,
-  assignment,
+  activeAgents,
+  assignments,
   latest,
   unavailable,
-  hasActiveSession,
   expanded,
   onToggleDisclosure,
   onError,
 }: {
   connection: DesktopOutputConnection;
-  assignment: DesktopOutputAssignment | undefined;
-  latest: LatestAcceptedOutput | undefined;
+  activeAgents: DesktopState["sessions"][number]["activeAgents"];
+  assignments: DesktopOutputAssignment[];
+  latest: LatestAcceptedOutput[];
   unavailable: boolean;
-  hasActiveSession: boolean;
   expanded: boolean;
   onToggleDisclosure: () => void;
   onError: (error: unknown) => void;
 }): React.JSX.Element {
   const [updating, setUpdating] = useState(false);
   const detailsId = `output-details-${connection.producerId}`;
-  const quickToggleDisabled =
-    updating || unavailable || (assignment === undefined && !hasActiveSession);
-  const updateEnabled = async (enabled: boolean): Promise<void> => {
+  const missing = connection.connectionId.startsWith("missing:");
+  const updateSubscription = async (
+    agentInstanceId: string,
+    assignment: DesktopOutputAssignment | undefined,
+    subscribed: boolean,
+  ): Promise<void> => {
     setUpdating(true);
     try {
-      await setOutputQuickEnabled(
+      await setOutputSubscription(
         window.desktop.outputs,
+        agentInstanceId,
         connection.producerId,
         assignment,
-        enabled,
+        subscribed,
       );
     } catch (error) {
       onError(error);
@@ -496,8 +755,11 @@ export function OutputConnectionCard({
         <div className="output-card-identity">
           <h3>{connection.displayName}</h3>
           <span>
-            {connection.signalKind.toUpperCase()} ·{" "}
-            {connection.track?.name ?? "Unknown track"}
+            {missing
+              ? "Producer unavailable"
+              : `${connection.signalKind.toUpperCase()} · ${
+                  connection.track?.name ?? "Unknown track"
+                }`}
             {connection.device?.name ? ` · ${connection.device.name}` : ""}
           </span>
         </div>
@@ -506,19 +768,6 @@ export function OutputConnectionCard({
             {connection.state}
             {connection.receiving ? " · receiving" : ""}
           </strong>
-          <label className="output-quick-toggle">
-            <input
-              type="checkbox"
-              role="switch"
-              aria-label={`${
-                assignment?.enabled ? "Disable" : "Enable"
-              } ${connection.displayName} delivery`}
-              checked={assignment?.enabled ?? false}
-              disabled={quickToggleDisabled}
-              onChange={(event) => void updateEnabled(event.target.checked)}
-            />
-            <span>{assignment?.enabled ? "On" : "Off"}</span>
-          </label>
           <button
             type="button"
             className="output-disclosure"
@@ -530,31 +779,63 @@ export function OutputConnectionCard({
           </button>
         </div>
       </header>
+      <div className="output-agent-subscriptions">
+        {activeAgents.map((agent) => {
+          const assignment = assignments.find(
+            ({ agentInstanceId }) => agentInstanceId === agent.id,
+          );
+          return (
+            <label key={agent.id}>
+              <input
+                type="checkbox"
+                aria-label={`${agent.label} subscription to ${connection.displayName}`}
+                checked={assignment !== undefined}
+                disabled={updating}
+                onChange={(event) =>
+                  void updateSubscription(
+                    agent.id,
+                    assignment,
+                    event.target.checked,
+                  )
+                }
+              />
+              <span>{agent.label}</span>
+            </label>
+          );
+        })}
+      </div>
       {expanded && (
         <div id={detailsId} className="output-card-details">
-          <div className="latest-output">
-            <strong>Latest accepted window</strong>
-            <p>
-              {latest?.summary ?? "No accepted sample has been received yet."}
-            </p>
-          </div>
-          {assignment === undefined ? (
-            <button
-              disabled={unavailable || !hasActiveSession}
-              onClick={() =>
-                void window.desktop.outputs
-                  .assign(connection.producerId)
-                  .catch(onError)
-              }
-            >
-              Assign to active conversation
-            </button>
-          ) : (
-            <OutputAssignmentControls
-              assignment={assignment}
-              onError={onError}
-            />
+          {missing && (
+            <div className="notice" role="status">
+              This producer is disconnected. Desired subscriptions are retained
+              and will resume when it reconnects.
+            </div>
           )}
+          {activeAgents.map((agent) => {
+            const assignment = assignments.find(
+              ({ agentInstanceId }) => agentInstanceId === agent.id,
+            );
+            if (assignment === undefined) return null;
+            return (
+              <OutputAssignmentControls
+                key={agent.id}
+                agentLabel={agent.label}
+                agentInstanceId={agent.id}
+                assignment={assignment}
+                latest={
+                  latest
+                    .filter(
+                      ({ assignmentId }) =>
+                        assignmentId === assignment.assignmentId,
+                    )
+                    .sort((left, right) => right.sequence - left.sequence)[0]
+                }
+                unavailable={unavailable}
+                onError={onError}
+              />
+            );
+          })}
         </div>
       )}
     </article>
@@ -562,22 +843,47 @@ export function OutputConnectionCard({
 }
 
 function OutputAssignmentControls({
+  agentLabel,
+  agentInstanceId,
   assignment,
+  latest,
+  unavailable,
   onError,
 }: {
+  agentLabel: string;
+  agentInstanceId: string;
   assignment: DesktopOutputAssignment;
+  latest: LatestAcceptedOutput | undefined;
+  unavailable: boolean;
   onError: (error: unknown) => void;
 }): React.JSX.Element {
   const [instruction, setInstruction] = useState(assignment.usageInstruction);
+  const [policies, setPolicies] = useState(
+    assignment.processingPolicyIds.join(", "),
+  );
   return (
-    <div className="output-controls">
+    <section className="output-controls">
+      <h4>{agentLabel}</h4>
+      <div className="latest-output">
+        <strong>Latest accepted window</strong>
+        <p>
+          {latest?.summary ??
+            (unavailable
+              ? "Producer disconnected; waiting to reconnect."
+              : "No accepted sample has been received yet.")}
+        </p>
+      </div>
       <label>
         <input
           type="checkbox"
           checked={assignment.enabled}
           onChange={(event) =>
             void window.desktop.outputs
-              .setEnabled(assignment.producerId, event.target.checked)
+              .setEnabled(
+                agentInstanceId,
+                assignment.producerId,
+                event.target.checked,
+              )
               .catch(onError)
           }
         />{" "}
@@ -590,6 +896,7 @@ function OutputAssignmentControls({
           onChange={(event) =>
             void window.desktop.outputs
               .setDeliveryMode(
+                agentInstanceId,
                 assignment.producerId,
                 event.target.value as DesktopOutputAssignment["deliveryMode"],
               )
@@ -609,12 +916,25 @@ function OutputAssignmentControls({
           onChange={(event) => setInstruction(event.target.value)}
         />
       </label>
+      <label>
+        Processing policies
+        <input
+          aria-label={`Processing policies for ${agentLabel}`}
+          value={policies}
+          onChange={(event) => setPolicies(event.target.value)}
+          placeholder="latest-window"
+        />
+      </label>
       <div className="output-actions">
         <button
           disabled={instruction.trim().length === 0}
           onClick={() =>
             void window.desktop.outputs
-              .setUsageInstruction(assignment.producerId, instruction)
+              .setUsageInstruction(
+                agentInstanceId,
+                assignment.producerId,
+                instruction,
+              )
               .catch(onError)
           }
         >
@@ -623,24 +943,59 @@ function OutputAssignmentControls({
         <button
           onClick={() =>
             void window.desktop.outputs
-              .unassign(assignment.producerId)
+              .setProcessingPolicies(
+                agentInstanceId,
+                assignment.producerId,
+                policies
+                  .split(",")
+                  .map((policy) => policy.trim())
+                  .filter(Boolean),
+              )
+              .catch(onError)
+          }
+        >
+          Save policies
+        </button>
+        <button
+          onClick={() =>
+            void window.desktop.outputs
+              .unassign(agentInstanceId, assignment.producerId)
               .catch(onError)
           }
         >
           Unassign
         </button>
       </div>
-    </div>
+    </section>
   );
 }
 
-function ConnectionHeader({
+export function ConnectionHeader({
   state,
   dispatch,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
 }): React.JSX.Element {
+  const session = state.sessions[0];
+  const activeAgent = selectedAgentInstance(state);
+  const selectAgent = async (instanceId: string): Promise<void> => {
+    try {
+      await selectWorkspaceAgent(window.desktop, instanceId, dispatch);
+    } catch (error) {
+      dispatch({
+        type: "event",
+        event: {
+          type: "diagnostic",
+          level: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Agent selection could not be saved",
+        },
+      });
+    }
+  };
   const connectionText =
     state.connection.state === "connected"
       ? `Connected · Live ${state.connection.liveVersion}`
@@ -669,23 +1024,27 @@ function ConnectionHeader({
       </div>
       <div className="header-controls">
         <label>
-          Mode
+          Agent Mode
           <select
-            value={state.mode}
-            onChange={(event) =>
-              dispatch({
-                type: "mode",
-                mode: event.target.value as ProductMode,
-              })
-            }
+            className="agent-instance-selector"
+            aria-label="Agent Mode"
+            value={activeAgent?.id ?? ""}
+            disabled={(session?.activeAgents.length ?? 0) === 0}
+            onChange={(event) => void selectAgent(event.target.value)}
           >
-            {Object.entries(modeLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
+            {session?.activeAgents.length ? null : (
+              <option value="">No active agents</option>
+            )}
+            {session?.activeAgents.map((agent) => (
+              <option key={agent.id} value={agent.id}>
+                {agent.label}
               </option>
             ))}
           </select>
         </label>
+        {activeAgent?.autoApprove && (
+          <span className="agent-badge yolo-badge">YOLO</span>
+        )}
         <span className="model">
           {state.preferences.model} · {state.preferences.reasoning}
         </span>
@@ -715,15 +1074,16 @@ function ConnectionHeader({
   );
 }
 
-function Workspace({
+export function Workspace({
   state,
   dispatch,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
 }): React.JSX.Element {
+  const activeAgent = selectedAgentInstance(state);
   return (
-    <div className={`workspace mode-${state.mode}`}>
+    <div className="workspace">
       <ProjectOutline state={state} dispatch={dispatch} />
       <section
         className="conversation"
@@ -731,52 +1091,648 @@ function Workspace({
       >
         <div className="panel-heading">
           <h2>Conversation</h2>
-          <span>{modeLabels[state.mode]} workflow</span>
+          <span>
+            {activeAgent === undefined
+              ? "No active agent"
+              : `${activeAgent.label} · ${activeAgent.lifecycle}`}
+            {activeAgent?.autoApprove && (
+              <span className="agent-badge yolo-badge">YOLO</span>
+            )}
+          </span>
         </div>
         <Timeline state={state} />
-        {state.mode === "arrange" && (
-          <Arrangement state={state} dispatch={dispatch} />
-        )}
-        {state.mode === "compose" && (
-          <ModeCard
-            title="Composition controls"
-            items={[
-              "Rhythm density",
-              "Harmonic palette",
-              "Motif variation",
-              "Humanize notes",
-            ]}
-          />
-        )}
-        {state.mode === "sound" && (
-          <ModeCard
-            title="Sound workflow"
-            items={[
-              "Instrument selection",
-              "Device chain",
-              "Macro targets",
-              "A/B preview",
-            ]}
-          />
-        )}
-        {state.mode === "mix" && (
-          <ModeCard
-            title="Mix workflow"
-            items={[
-              "Comparative balance",
-              "Pan field",
-              "Headroom",
-              "Device gain staging",
-            ]}
-          />
-        )}
       </section>
       <Inspector state={state} dispatch={dispatch} />
     </div>
   );
 }
 
-type DesktopDispatch = React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+export function AgentsView({
+  state,
+  dispatch,
+}: {
+  state: DesktopState;
+  dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+}): React.JSX.Element {
+  const [refreshing, setRefreshing] = useState(false);
+  const session = state.sessions[0];
+  const [activeAgents, setActiveAgents] = useState(session?.activeAgents ?? []);
+  const [selectedAgentId, setSelectedAgentId] = useState(
+    session?.selectedAgentInstanceId,
+  );
+  const [busyAgentId, setBusyAgentId] = useState<string>();
+  const [creatingDefinition, setCreatingDefinition] = useState<string>();
+  const [confirmResetId, setConfirmResetId] = useState<string>();
+
+  useEffect(() => {
+    setActiveAgents(session?.activeAgents ?? []);
+    setSelectedAgentId(session?.selectedAgentInstanceId);
+  }, [session]);
+
+  const reportError = (error: unknown, fallback: string): void => {
+    dispatch({
+      type: "event",
+      event: {
+        type: "diagnostic",
+        level: "error",
+        message: error instanceof Error ? error.message : fallback,
+      },
+    });
+  };
+  const replaceAgent = (updated: DesktopActiveAgent): void => {
+    setActiveAgents((agents) =>
+      agents.map((agent) => (agent.id === updated.id ? updated : agent)),
+    );
+  };
+  const runAgentAction = async (
+    instanceId: string,
+    action: () => Promise<DesktopActiveAgent>,
+    fallback: string,
+  ): Promise<DesktopActiveAgent | undefined> => {
+    setBusyAgentId(instanceId);
+    try {
+      const updated = await action();
+      replaceAgent(updated);
+      return updated;
+    } catch (error) {
+      reportError(error, fallback);
+      return undefined;
+    } finally {
+      setBusyAgentId(undefined);
+    }
+  };
+  const refresh = async (): Promise<void> => {
+    setRefreshing(true);
+    try {
+      const catalog = await window.desktop.agents.refreshCatalog();
+      dispatch({
+        type: "event",
+        event: { type: "agents.catalog_changed", catalog },
+      });
+    } catch (error) {
+      reportError(error, "Agent definitions could not be refreshed");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+  const createAgent = async (definitionName: string): Promise<void> => {
+    setCreatingDefinition(definitionName);
+    try {
+      const created = await window.desktop.agents.create(definitionName);
+      setActiveAgents((agents) => [...agents, created]);
+      setSelectedAgentId(created.id);
+    } catch (error) {
+      reportError(error, `Could not create ${definitionName}`);
+    } finally {
+      setCreatingDefinition(undefined);
+    }
+  };
+  const selectAgent = async (
+    instanceId: string,
+    open: boolean,
+  ): Promise<void> => {
+    const selected = await runAgentAction(
+      instanceId,
+      () => window.desktop.agents.select(instanceId),
+      "Could not select agent",
+    );
+    if (selected !== undefined) {
+      setSelectedAgentId(instanceId);
+      if (open) dispatch({ type: "view", view: "workspace" });
+    }
+  };
+  const deactivateAgent = async (instanceId: string): Promise<void> => {
+    setBusyAgentId(instanceId);
+    try {
+      await window.desktop.agents.deactivate(instanceId);
+      const remaining = activeAgents.filter((agent) => agent.id !== instanceId);
+      setActiveAgents(remaining);
+      if (selectedAgentId === instanceId) {
+        setSelectedAgentId(remaining[0]?.id);
+      }
+    } catch (error) {
+      reportError(error, "Could not deactivate agent");
+    } finally {
+      setBusyAgentId(undefined);
+    }
+  };
+  return (
+    <section className="agents-view" aria-labelledby="agents-heading">
+      <div className="panel-heading">
+        <div>
+          <h2 id="agents-heading">Agents</h2>
+          <p>YAML-defined Ableton agents available to production sessions.</p>
+        </div>
+        <button disabled={refreshing} onClick={() => void refresh()}>
+          {refreshing ? "Refreshing…" : "Refresh definitions"}
+        </button>
+      </div>
+      {state.agentCatalog.diagnostics.length > 0 && (
+        <div className="agent-diagnostics" role="status">
+          <strong>Definition diagnostics</strong>
+          {state.agentCatalog.diagnostics.map((diagnostic) => (
+            <p key={`${diagnostic.sourceFile}:${diagnostic.code}`}>
+              {diagnostic.sourceFile}: {diagnostic.message}
+            </p>
+          ))}
+        </div>
+      )}
+      <section
+        className="active-agents"
+        aria-labelledby="active-agents-heading"
+      >
+        <div className="panel-heading">
+          <div>
+            <h3 id="active-agents-heading">Active agents</h3>
+            <p>Independent conversations in the current production session.</p>
+          </div>
+        </div>
+        {activeAgents.length === 0 ? (
+          state.lifecycle === "starting" && session === undefined ? (
+            <p role="status">Loading active agents…</p>
+          ) : (
+            <EmptyState
+              title="No active agents"
+              detail="Create an instance from a definition below."
+            />
+          )
+        ) : (
+          <div className="active-agent-list">
+            {activeAgents.map((agent) => (
+              <ActiveAgentCard
+                agent={agent}
+                availableSkills={state.agentCatalog.skills}
+                definitionSource={
+                  state.agentCatalog.definitions.find(
+                    (definition) => definition.name === agent.definitionName,
+                  )?.sourceFile
+                }
+                definitionUpdated={state.agentCatalog.definitions.some(
+                  (definition) =>
+                    definition.name === agent.definitionName &&
+                    definition.fingerprint !== agent.definitionFingerprint,
+                )}
+                selected={selectedAgentId === agent.id}
+                busy={busyAgentId === agent.id}
+                confirmingReset={confirmResetId === agent.id}
+                onRename={(label) =>
+                  runAgentAction(
+                    agent.id,
+                    () => window.desktop.agents.rename(agent.id, label),
+                    "Could not rename agent",
+                  )
+                }
+                onConfigure={(overrides) =>
+                  runAgentAction(
+                    agent.id,
+                    () => window.desktop.agents.configure(agent.id, overrides),
+                    "Could not update agent configuration",
+                  )
+                }
+                onReset={() => {
+                  if (confirmResetId !== agent.id) {
+                    setConfirmResetId(agent.id);
+                    return Promise.resolve();
+                  }
+                  setConfirmResetId(undefined);
+                  return runAgentAction(
+                    agent.id,
+                    () => window.desktop.agents.reset(agent.id),
+                    "Could not reset agent",
+                  ).then(() => undefined);
+                }}
+                onCancelReset={() => setConfirmResetId(undefined)}
+                onSelect={() => selectAgent(agent.id, false)}
+                onOpen={() => selectAgent(agent.id, true)}
+                onDeactivate={() => deactivateAgent(agent.id)}
+                key={agent.id}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+      <div className="panel-heading agent-definitions-heading">
+        <div>
+          <h3>Defined agents</h3>
+          <p>Templates for creating independent active instances.</p>
+        </div>
+      </div>
+      {state.agentCatalog.definitions.length === 0 ? (
+        <EmptyState
+          title="No valid agents found"
+          detail="Add YAML definitions to the configured agents directory."
+        />
+      ) : (
+        <div className="agent-definition-grid">
+          {state.agentCatalog.definitions.map((definition) => (
+            <article className="agent-definition-card" key={definition.name}>
+              <header>
+                <div>
+                  <h3>{definition.name}</h3>
+                  <p>{definition.description}</p>
+                </div>
+                <span>Defined</span>
+              </header>
+              <dl>
+                <dt>Source</dt>
+                <dd>{definition.sourceFile}</dd>
+                <dt>Fingerprint</dt>
+                <dd>
+                  <code title={definition.fingerprint}>
+                    {definition.fingerprint.slice(0, 12)}
+                  </code>
+                </dd>
+                <dt>Tools</dt>
+                <dd>
+                  {definition.tools.join(", ")}
+                  <ResolvedToolsDisclosure
+                    patterns={definition.tools}
+                    resolvedTools={definition.resolvedTools}
+                  />
+                </dd>
+                <dt>Edit scope</dt>
+                <dd>
+                  {definition.editScope
+                    .map((entry) =>
+                      entry === "session"
+                        ? "Full session"
+                        : `${entry.track.name} #${entry.track.occurrence + 1}`,
+                    )
+                    .join(", ")}
+                </dd>
+                <dt>Skills</dt>
+                <dd>
+                  {definition.skills.length > 0
+                    ? definition.skills.join(", ")
+                    : "None"}
+                </dd>
+                <dt>Inputs</dt>
+                <dd>
+                  {definition.inputChannels.length > 0
+                    ? definition.inputChannels.join(", ")
+                    : "Prompt only"}
+                </dd>
+              </dl>
+              <button
+                disabled={creatingDefinition === definition.name}
+                onClick={() => void createAgent(definition.name)}
+              >
+                {creatingDefinition === definition.name
+                  ? "Creating…"
+                  : "Create agent"}
+              </button>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+type AgentOverrides = Parameters<DesktopApi["agents"]["configure"]>[1];
+
+function scopeLabel(scope: DesktopActiveAgent["config"]["editScope"]): string {
+  return scope
+    .map((entry) =>
+      entry === "session"
+        ? "Full session"
+        : `${entry.track.name} #${entry.track.occurrence + 1}`,
+    )
+    .join(", ");
+}
+
+export function ResolvedToolsDisclosure({
+  patterns,
+  resolvedTools,
+}: {
+  patterns: readonly string[];
+  resolvedTools: readonly string[];
+}): React.JSX.Element {
+  const resolvedLabel =
+    resolvedTools.length > 0 ? resolvedTools.join(", ") : "no available tools";
+  if (patterns.some((pattern) => pattern.includes("*"))) {
+    return (
+      <details className="resolved-tools-disclosure">
+        <summary>Resolved tools ({resolvedTools.length})</summary>
+        <small>{resolvedLabel}</small>
+      </details>
+    );
+  }
+  return <small>Resolves to: {resolvedLabel}</small>;
+}
+
+function listValue(values: string[]): string {
+  return values.join("\n");
+}
+
+function parseList(value: string): string[] {
+  return value
+    .split(/\n|,/u)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function parseTrackScope(
+  value: string,
+): DesktopActiveAgent["config"]["editScope"] {
+  const tracks = parseList(value).map((entry) => {
+    const match = /^(.*?)(?:\s+#(\d+))?$/u.exec(entry);
+    const occurrence = Math.max(0, Number(match?.[2] ?? "1") - 1);
+    return {
+      track: { name: match?.[1]?.trim() || entry, occurrence },
+    };
+  });
+  return tracks.length > 0 ? tracks : ["session"];
+}
+
+function ActiveAgentCard({
+  agent,
+  availableSkills,
+  definitionSource,
+  definitionUpdated,
+  selected,
+  busy,
+  confirmingReset,
+  onRename,
+  onConfigure,
+  onReset,
+  onCancelReset,
+  onSelect,
+  onOpen,
+  onDeactivate,
+}: {
+  agent: DesktopActiveAgent;
+  availableSkills: DesktopState["agentCatalog"]["skills"];
+  definitionSource?: string | undefined;
+  definitionUpdated: boolean;
+  selected: boolean;
+  busy: boolean;
+  confirmingReset: boolean;
+  onRename: (label: string) => Promise<DesktopActiveAgent | undefined>;
+  onConfigure: (
+    overrides: AgentOverrides,
+  ) => Promise<DesktopActiveAgent | undefined>;
+  onReset: () => Promise<void>;
+  onCancelReset: () => void;
+  onSelect: () => Promise<void>;
+  onOpen: () => Promise<void>;
+  onDeactivate: () => Promise<void>;
+}): React.JSX.Element {
+  const [editing, setEditing] = useState(false);
+  const [label, setLabel] = useState(agent.label);
+  const [systemPrompt, setSystemPrompt] = useState(agent.config.systemPrompt);
+  const [tools, setTools] = useState(listValue(agent.config.tools));
+  const [scopeMode, setScopeMode] = useState<"session" | "tracks">(
+    agent.config.editScope.includes("session") ? "session" : "tracks",
+  );
+  const [trackScope, setTrackScope] = useState(
+    agent.config.editScope
+      .filter((entry) => entry !== "session")
+      .map((entry) => `${entry.track.name} #${entry.track.occurrence + 1}`)
+      .join("\n"),
+  );
+  const [skills, setSkills] = useState<string[]>(() => {
+    const validNames = new Set(availableSkills.map(({ name }) => name));
+    return agent.config.skills.filter((name) => validNames.has(name));
+  });
+  const [inputChannels, setInputChannels] = useState(
+    listValue(agent.config.inputChannels),
+  );
+  const availableSkillNames = availableSkills
+    .map(({ name }) => name)
+    .join("\n");
+
+  useEffect(() => {
+    const validNames = new Set(availableSkills.map(({ name }) => name));
+    setSkills(agent.config.skills.filter((name) => validNames.has(name)));
+  }, [agent.config.skills, availableSkillNames]);
+
+  const save = async (): Promise<void> => {
+    const normalizedLabel = label.trim();
+    if (
+      normalizedLabel !== agent.label &&
+      (await onRename(normalizedLabel)) === undefined
+    ) {
+      return;
+    }
+    const configured = await onConfigure({
+      systemPrompt,
+      tools: parseList(tools),
+      editScope:
+        scopeMode === "session" ? ["session"] : parseTrackScope(trackScope),
+      skills,
+      inputChannels: parseList(inputChannels),
+    });
+    if (configured !== undefined) setEditing(false);
+  };
+
+  return (
+    <article className={`active-agent-card${selected ? " is-selected" : ""}`}>
+      <header>
+        <div>
+          <div className="agent-title-line">
+            <h4>{agent.label}</h4>
+            {selected && <span className="agent-badge">Selected</span>}
+            {agent.autoApprove && (
+              <span className="agent-badge yolo-badge">YOLO</span>
+            )}
+            {agent.modified && <span className="agent-badge">Modified</span>}
+          </div>
+          <p>{agent.config.description}</p>
+        </div>
+        <span className={`agent-lifecycle lifecycle-${agent.lifecycle}`}>
+          {agent.lifecycle}
+        </span>
+      </header>
+      <dl className="agent-metadata">
+        <dt>Definition</dt>
+        <dd>
+          {agent.definitionName} ·{" "}
+          <code title={agent.definitionFingerprint}>
+            {agent.definitionFingerprint.slice(0, 12)}
+          </code>
+          {definitionSource !== undefined && (
+            <small>
+              {definitionSource}
+              {definitionUpdated
+                ? " · newer definition available; reset to adopt it"
+                : ""}
+            </small>
+          )}
+        </dd>
+        <dt>Tools</dt>
+        <dd>
+          {agent.config.tools.join(", ")}
+          <ResolvedToolsDisclosure
+            patterns={agent.config.tools}
+            resolvedTools={agent.config.resolvedTools}
+          />
+        </dd>
+        <dt>Scope</dt>
+        <dd>{scopeLabel(agent.config.editScope)}</dd>
+        <dt>Skills</dt>
+        <dd>
+          {agent.config.skills.length > 0
+            ? agent.config.skills.join(", ")
+            : "None"}
+        </dd>
+        <dt>Inputs</dt>
+        <dd>
+          {agent.config.inputChannels.length > 0
+            ? agent.config.inputChannels.join(", ")
+            : "Prompt only"}
+        </dd>
+      </dl>
+      {editing && (
+        <div className="agent-editor">
+          <label>
+            Instance name
+            <input
+              maxLength={128}
+              required
+              value={label}
+              onChange={(event) => setLabel(event.target.value)}
+            />
+          </label>
+          <label>
+            Session prompt
+            <textarea
+              rows={6}
+              value={systemPrompt}
+              onChange={(event) => setSystemPrompt(event.target.value)}
+            />
+          </label>
+          <label>
+            Tool patterns <small>One per line; wildcards are supported.</small>
+            <textarea
+              rows={4}
+              value={tools}
+              onChange={(event) => setTools(event.target.value)}
+            />
+          </label>
+          <fieldset>
+            <legend>Edit scope</legend>
+            <label>
+              <input
+                checked={scopeMode === "session"}
+                name={`scope-${agent.id}`}
+                type="radio"
+                onChange={() => setScopeMode("session")}
+              />
+              Full session
+            </label>
+            <label>
+              <input
+                checked={scopeMode === "tracks"}
+                name={`scope-${agent.id}`}
+                type="radio"
+                onChange={() => setScopeMode("tracks")}
+              />
+              Specific tracks
+            </label>
+            {scopeMode === "tracks" && (
+              <textarea
+                aria-label="Track scope"
+                placeholder={"Drums #1\nBass #1"}
+                rows={3}
+                value={trackScope}
+                onChange={(event) => setTrackScope(event.target.value)}
+              />
+            )}
+          </fieldset>
+          <fieldset>
+            <legend>Skills</legend>
+            {availableSkills.length === 0 ? (
+              <small>No valid skills are available in the catalog.</small>
+            ) : (
+              availableSkills.map((skill) => (
+                <label key={skill.name}>
+                  <input
+                    type="checkbox"
+                    checked={skills.includes(skill.name)}
+                    onChange={(event) =>
+                      setSkills((selected) =>
+                        event.target.checked
+                          ? [...selected, skill.name]
+                          : selected.filter((name) => name !== skill.name),
+                      )
+                    }
+                  />
+                  <span>
+                    /{skill.name}
+                    <small>{skill.description}</small>
+                  </span>
+                </label>
+              ))
+            )}
+          </fieldset>
+          <label>
+            Input channels <small>One per line.</small>
+            <textarea
+              rows={3}
+              value={inputChannels}
+              onChange={(event) => setInputChannels(event.target.value)}
+            />
+          </label>
+          <div className="agent-actions">
+            <button
+              disabled={
+                busy ||
+                label.trim() === "" ||
+                systemPrompt.trim() === "" ||
+                parseList(tools).length === 0
+              }
+              onClick={() => void save()}
+            >
+              {busy ? "Saving…" : "Save overrides"}
+            </button>
+            <button disabled={busy} onClick={() => setEditing(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="agent-actions">
+        {!selected && (
+          <button disabled={busy} onClick={() => void onSelect()}>
+            Select
+          </button>
+        )}
+        <button disabled={busy} onClick={() => void onOpen()}>
+          Open
+        </button>
+        <button disabled={busy} onClick={() => setEditing((value) => !value)}>
+          {editing ? "Close editor" : "Edit overrides"}
+        </button>
+        {confirmingReset ? (
+          <>
+            <button
+              className="danger-button"
+              disabled={busy}
+              onClick={() => void onReset()}
+            >
+              Confirm reset
+            </button>
+            <button disabled={busy} onClick={onCancelReset}>
+              Keep overrides
+            </button>
+          </>
+        ) : (
+          <button disabled={busy} onClick={() => void onReset()}>
+            Reset to current definition
+          </button>
+        )}
+        <button
+          className="danger-button"
+          disabled={busy}
+          onClick={() => void onDeactivate()}
+        >
+          Deactivate
+        </button>
+      </div>
+    </article>
+  );
+}
 
 export async function refreshProjectSnapshot(
   connection: DesktopConnectionStatus,
@@ -978,21 +1934,22 @@ export function Timeline({
 }: {
   state: DesktopState;
 }): React.JSX.Element {
+  const workspace = selectedAgentWorkspace(state);
   const items = useMemo(
     () =>
       [
-        ...state.messages.map((item) => ({
+        ...workspace.messages.map((item) => ({
           ...item,
           itemType: "message" as const,
         })),
-        ...state.operations.map((item) => ({
+        ...workspace.operations.map((item) => ({
           ...item,
           itemType: "operation" as const,
         })),
       ]
         .sort((left, right) => left.timestamp - right.timestamp)
         .slice(-200),
-    [state.messages, state.operations],
+    [workspace.messages, workspace.operations],
   );
   return (
     <div className="timeline" aria-live="polite" aria-label="Recent activity">
@@ -1253,11 +2210,17 @@ export function ApprovalPanel({
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
 }): React.JSX.Element {
-  const approval = state.approval;
+  const approval = selectedAgentWorkspace(state).approval;
+  const approvalAgentInstanceId = selectedAgentInstance(state)?.id;
   const decide = async (decision: "approve" | "deny"): Promise<void> => {
     if (!approval) return;
     await window.desktop.approvals.resolve(approval.id, decision);
-    dispatch({ type: "dismiss-approval" });
+    dispatch({
+      type: "dismiss-approval",
+      ...(approvalAgentInstanceId === undefined
+        ? {}
+        : { agentInstanceId: approvalAgentInstanceId }),
+    });
   };
   return (
     <section
@@ -1593,6 +2556,9 @@ export function SettingsView({
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
 }): React.JSX.Element {
   const [draft, setDraft] = useState(state.preferences);
+  const autoApprovalOverrideCount =
+    state.sessions[0]?.activeAgents.filter(({ autoApprove }) => autoApprove)
+      .length ?? 0;
   const save = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
     const preferences = await window.desktop.preferences.set(draft);
@@ -1652,6 +2618,18 @@ export function SettingsView({
             <option value="never">Deny all changes</option>
           </select>
         </label>
+        <div className="approval-policy-explanation">
+          <strong>
+            Current session: {autoApprovalOverrideCount} YOLO override
+            {autoApprovalOverrideCount === 1 ? "" : "s"}
+          </strong>
+          <span>
+            Per-agent YOLO applies only with Always ask or Risky changes. Deny
+            all overrides YOLO and always denies; Approve all globally approves
+            every request. Tool allowlists, edit scopes, and safety checks
+            remain enforced.
+          </span>
+        </div>
         {draft.approvalPolicy === "approve-all" && (
           <div className="approval-policy-warning" role="alert">
             <strong>
@@ -1738,6 +2716,7 @@ export function Composer({
   state,
   value,
   busy,
+  error,
   composerRef,
   onChange,
   onSubmit,
@@ -1746,13 +2725,58 @@ export function Composer({
   state: DesktopState;
   value: string;
   busy: boolean;
+  error?: string | undefined;
   composerRef: React.RefObject<HTMLTextAreaElement | null>;
   onChange: (value: string) => void;
   onSubmit: (event: FormEvent) => Promise<void>;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
 }): React.JSX.Element {
+  const [selectedSuggestion, setSelectedSuggestion] = useState(0);
   const context = contextForSelection(state);
+  const activeAgent = selectedAgentInstance(state);
+  const workspace = selectedAgentWorkspace(state);
+  const activeBusy =
+    busy ||
+    activeAgent?.lifecycle === "busy" ||
+    workspace.operations.some((operation) => operation.status === "running");
+  const unavailable =
+    activeAgent === undefined ||
+    activeAgent.lifecycle === "starting" ||
+    activeAgent.lifecycle === "blocked" ||
+    activeAgent.lifecycle === "failed" ||
+    state.lifecycle === "stopping" ||
+    state.lifecycle === "crashed";
+  const slashSuggestions = slashCompletionsForState(value, state);
+  const suggestionKey = slashSuggestions
+    .map(({ name, source }) => `${source}:${name}`)
+    .join("\n");
+  useEffect(() => {
+    setSelectedSuggestion(0);
+  }, [suggestionKey, activeAgent?.id]);
+  const completeSuggestion = (entry: SlashCompletionEntry): void => {
+    onChange(slashCompletionText(entry));
+    composerRef.current?.focus();
+  };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (slashSuggestions.length > 0) {
+      const completion = slashCompletionKey(
+        event.key,
+        selectedSuggestion,
+        slashSuggestions.length,
+      );
+      if (typeof completion === "number") {
+        event.preventDefault();
+        setSelectedSuggestion(completion);
+        return;
+      }
+      if (completion === "complete" && !event.shiftKey) {
+        event.preventDefault();
+        completeSuggestion(
+          slashSuggestions[selectedSuggestion] ?? slashSuggestions[0]!,
+        );
+        return;
+      }
+    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       event.currentTarget.form?.requestSubmit();
@@ -1779,6 +2803,24 @@ export function Composer({
         )}
       </div>
       <form onSubmit={(event) => void onSubmit(event)}>
+        <SlashCompletionSuggestions
+          entries={slashSuggestions}
+          selected={selectedSuggestion}
+          onComplete={completeSuggestion}
+        />
+        {(state.preferences.approvalPolicy === "approve-all" ||
+          (activeAgent?.autoApprove &&
+            state.preferences.approvalPolicy !== "never")) && (
+          <p className="composer-yolo-warning" role="status">
+            Approvals are automatic. Tool allowlists, edit scope, and safety
+            checks are still enforced.
+          </p>
+        )}
+        {error && (
+          <p className="composer-error" role="alert">
+            {error}
+          </p>
+        )}
         <label className="sr-only" htmlFor="prompt">
           Message the Ableton agent
         </label>
@@ -1786,26 +2828,31 @@ export function Composer({
           id="prompt"
           ref={composerRef}
           value={value}
-          disabled={state.lifecycle === "stopping"}
+          disabled={unavailable}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={onKeyDown}
           placeholder={
-            state.connection.state === "connected"
-              ? `Ask in ${modeLabels[state.mode]} mode…`
-              : "Ask using the demo adapter, or connect to Ableton…"
+            activeAgent === undefined
+              ? "Select or create an active agent to begin…"
+              : state.connection.state === "connected"
+                ? `Ask ${activeAgent.label}…`
+                : "Ask using the demo adapter, or connect to Ableton…"
           }
           rows={2}
         />
-        {busy ||
-        state.operations.some((operation) => operation.status === "running") ? (
+        {activeBusy ? (
           <button
             type="button"
-            onClick={() => void window.desktop.agent.cancel()}
+            onClick={() => void cancelWorkspaceAgent(window.desktop, state)}
           >
             Cancel
           </button>
         ) : (
-          <button className="primary" type="submit" disabled={!value.trim()}>
+          <button
+            className="primary"
+            type="submit"
+            disabled={unavailable || !value.trim()}
+          >
             Send <kbd>↵</kbd>
           </button>
         )}
@@ -1814,22 +2861,39 @@ export function Composer({
   );
 }
 
-function ModeCard({
-  title,
-  items,
+export function SlashCompletionSuggestions({
+  entries,
+  selected,
+  onComplete,
 }: {
-  title: string;
-  items: string[];
-}): React.JSX.Element {
+  entries: readonly SlashCompletionEntry[];
+  selected: number;
+  onComplete: (entry: SlashCompletionEntry) => void;
+}): React.JSX.Element | null {
+  if (entries.length === 0) return null;
   return (
-    <section className="mode-card">
-      <h2>{title}</h2>
-      <div>
-        {items.map((item) => (
-          <button key={item}>{item}</button>
-        ))}
-      </div>
-    </section>
+    <div className="slash-suggestions" aria-label="Slash command suggestions">
+      {entries.map((entry, index) => (
+        <button
+          type="button"
+          key={entry.name}
+          aria-current={index === selected}
+          aria-label={`/${entry.name}. ${entry.source === "built-in" ? "Built-in command" : "Skill"}. ${entry.description}${entry.usage === undefined ? "" : ` Usage: ${entry.usage}`}`}
+          onClick={() => onComplete(entry)}
+        >
+          <strong>/{entry.name}</strong>
+          <span className="slash-suggestion-source">
+            {entry.source === "built-in" ? "Built-in" : "Skill"}
+          </span>
+          <span>{entry.description}</span>
+          {entry.usage !== undefined && (
+            <span>
+              Usage: <code>{entry.usage}</code>
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
   );
 }
 

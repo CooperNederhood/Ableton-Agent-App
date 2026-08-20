@@ -16,6 +16,11 @@ export type ConnectionStatus =
     }
   | { state: "error"; code: string; message: string };
 
+export interface AgentEventAttribution {
+  agentInstanceId?: string;
+  sdkSessionId?: string;
+}
+
 export type AppEvent =
   | { type: "lifecycle.changed"; state: LifecycleState }
   | { type: "ableton.connection_changed"; status: ConnectionStatus }
@@ -31,29 +36,32 @@ export type AppEvent =
       expectedSequence: number;
       receivedSequence: number;
     }
-  | { type: "agent.message_delta"; content: string }
-  | { type: "agent.message_complete"; content: string }
-  | {
+  | ({ type: "agent.message_delta"; content: string } & AgentEventAttribution)
+  | ({
+      type: "agent.message_complete";
+      content: string;
+    } & AgentEventAttribution)
+  | ({
       type: "operation.started";
       operationId: string;
       label: string;
       toolName?: string;
       arguments?: Readonly<Record<string, unknown>>;
-    }
-  | {
+    } & AgentEventAttribution)
+  | ({
       type: "operation.completed";
       operationId: string;
       summary: string;
       toolName?: string;
       result?: string;
-    }
-  | {
+    } & AgentEventAttribution)
+  | ({
       type: "operation.failed";
       operationId: string;
       code: string;
       message: string;
       toolName?: string;
-    };
+    } & AgentEventAttribution);
 
 export interface EventPublisher {
   publish(event: AppEvent): void;

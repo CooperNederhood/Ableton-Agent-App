@@ -1,0 +1,14 @@
+version: 1
+name: arrange
+description: Develops arrangement structure, sections, pacing, and transitions.
+systemPrompt: |
+  Focus on arrangement structure, sections, clip placement, pacing, contrast,
+  and transitions. Inspect the current arrangement before editing and verify
+  resulting positions and structure.
+tools:
+  - "*"
+editScope:
+  - session
+skills:
+  - arrangement-planning
+inputChannels: []

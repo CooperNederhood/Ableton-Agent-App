@@ -46,6 +46,33 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
         await invoke("agent:resume-session", { sessionId });
       },
     },
+    agents: {
+      getCatalog: () => invoke("agents:catalog", {}),
+      refreshCatalog: () => invoke("agents:refresh", {}),
+      listActive: () => invoke("agents:active", {}),
+      create: (definitionName) => invoke("agents:create", { definitionName }),
+      rename: (instanceId, label) =>
+        invoke("agents:rename", { instanceId, label }),
+      configure: (instanceId, overrides) =>
+        invoke("agents:configure", { instanceId, overrides }),
+      reset: (instanceId) => invoke("agents:reset", { instanceId }),
+      select: (instanceId) => invoke("agents:select", { instanceId }),
+      setAutoApproval: (target, enabled) =>
+        invoke("agents:set-auto-approval", { target, enabled }),
+      deactivate: async (instanceId) => {
+        await invoke("agents:deactivate", { instanceId });
+      },
+      hydrateHistory: (instanceId) => invoke("agents:history", { instanceId }),
+      send: (instanceId, message) =>
+        invoke("agents:send", { instanceId, message }),
+      invokeSkill: (instanceId, skillName, argumentsText = "") =>
+        invoke("agents:invoke-skill", {
+          instanceId,
+          skillName,
+          request: argumentsText,
+        }),
+      cancel: (instanceId) => invoke("agents:cancel", { instanceId }),
+    },
     ableton: {
       connect: () => invoke("ableton:connect", {}),
       getStatus: () => invoke("ableton:status", {}),
@@ -87,17 +114,38 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
     },
     outputs: {
       list: () => invoke("outputs:list", {}),
-      assign: (producerId) => invoke("outputs:assign", { producerId }),
-      unassign: async (producerId) =>
-        (await invoke("outputs:unassign", { producerId })).removed,
-      setEnabled: (producerId, enabled) =>
-        invoke("outputs:set-enabled", { producerId, enabled }),
-      setDeliveryMode: (producerId, deliveryMode) =>
-        invoke("outputs:set-delivery-mode", { producerId, deliveryMode }),
-      setUsageInstruction: (producerId, usageInstruction) =>
+      assign: (agentInstanceId, producerId) =>
+        invoke("outputs:assign", { agentInstanceId, producerId }),
+      unassign: async (agentInstanceId, producerId) =>
+        (await invoke("outputs:unassign", { agentInstanceId, producerId }))
+          .removed,
+      setEnabled: (agentInstanceId, producerId, enabled) =>
+        invoke("outputs:set-enabled", {
+          agentInstanceId,
+          producerId,
+          enabled,
+        }),
+      setDeliveryMode: (agentInstanceId, producerId, deliveryMode) =>
+        invoke("outputs:set-delivery-mode", {
+          agentInstanceId,
+          producerId,
+          deliveryMode,
+        }),
+      setUsageInstruction: (agentInstanceId, producerId, usageInstruction) =>
         invoke("outputs:set-usage-instruction", {
+          agentInstanceId,
           producerId,
           usageInstruction,
+        }),
+      setProcessingPolicies: (
+        agentInstanceId,
+        producerId,
+        processingPolicyIds,
+      ) =>
+        invoke("outputs:set-processing-policies", {
+          agentInstanceId,
+          producerId,
+          processingPolicyIds,
         }),
     },
     events: {

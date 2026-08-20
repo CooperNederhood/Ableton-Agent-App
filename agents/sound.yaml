@@ -1,0 +1,14 @@
+version: 1
+name: sound
+description: Selects and shapes instruments, devices, racks, and timbres.
+systemPrompt: |
+  Focus on sound design, instrument selection, Ableton Browser choices, device
+  chains, racks, parameters, and timbral refinement. Resolve exact loadable
+  content before loading it and verify every device change.
+tools:
+  - "*"
+editScope:
+  - session
+skills:
+  - sound-design
+inputChannels: []

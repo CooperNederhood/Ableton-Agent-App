@@ -228,6 +228,12 @@ async function bootstrap(): Promise<void> {
   composition = await createDesktopComposition({
     preferencesPath: join(app.getPath("userData"), "preferences.json"),
     sessionsPath: join(app.getPath("userData"), "sessions.json"),
+    agentsDirectory: app.isPackaged
+      ? join(process.resourcesPath, "agents")
+      : fileURLToPath(new URL("../../../../agents", import.meta.url)),
+    skillsDirectory: app.isPackaged
+      ? join(process.resourcesPath, "skills")
+      : fileURLToPath(new URL("../../../../skills", import.meta.url)),
     agentBaseDirectory: join(app.getPath("userData"), "copilot"),
     signalDescriptorPath,
     storedToken,

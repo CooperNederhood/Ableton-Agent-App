@@ -19,6 +19,9 @@ typed service calls, and sessions use explicit create/resume operations.
 
 ## Core workspace
 
+- [~] Replace the fixed mode switcher with active-agent Agent Mode selection.
+- [~] Add an Agents tab with definition discovery and diagnostics.
+- [ ] Add active-agent creation, editing, reset, deactivate, and modified state.
 - [x] Build application shell, connection header, mode switcher, and model
   status.
 - [x] Build chat composer with explicit context chips.
@@ -30,7 +33,12 @@ typed service calls, and sessions use explicit create/resume operations.
 
 ## Production workflows
 
-- [x] Implement Explore, Compose, Arrange, Sound, and Mix layouts.
+- [~] Remove hard-coded Explore, Compose, Arrange, Sound, and Mix layouts in
+  favor of definition-driven agents.
+- [ ] Partition transcript, operations, approvals, and cancellation by active
+  agent.
+- [ ] Add per-active-agent Output subscription controls and slash-skill
+  discovery.
 - [x] Implement editable structured production plan.
 - [x] Implement arrangement section/timeline visualization.
 - [x] Implement browser and plug-in selection views.

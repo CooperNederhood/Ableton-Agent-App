@@ -76,6 +76,7 @@ import {
   type Tool,
 } from "@github/copilot-sdk";
 import { z } from "zod";
+import type { MutationTarget } from "./mutation-policy.js";
 
 export type ToolRisk = "read" | "reversible" | "destructive" | "broad";
 export type ToolDuration = "instant" | "short" | "long";
@@ -85,6 +86,7 @@ export interface AbletonToolMetadata {
   title: string;
   risk: ToolRisk;
   duration: ToolDuration;
+  mutationTarget: MutationTarget;
   requiredCapability?: string;
 }
 
@@ -182,12 +184,14 @@ export const abletonToolMetadata = [
     title: "Check Ableton connection",
     risk: "read",
     duration: "instant",
+    mutationTarget: "read",
   },
   {
     name: "ableton_session_inspect",
     title: "Inspect Ableton session",
     risk: "read",
     duration: "short",
+    mutationTarget: "read",
     requiredCapability: "session.inspect",
   },
   {
@@ -195,6 +199,7 @@ export const abletonToolMetadata = [
     title: "Set Ableton tempo",
     risk: "reversible",
     duration: "instant",
+    mutationTarget: "session",
     requiredCapability: "transport.set_tempo",
   },
   {
@@ -202,6 +207,7 @@ export const abletonToolMetadata = [
     title: "Set Ableton transport playback",
     risk: "reversible",
     duration: "instant",
+    mutationTarget: "session",
     requiredCapability: "transport.set_playing",
   },
   {
@@ -209,6 +215,7 @@ export const abletonToolMetadata = [
     title: "Inspect Arrangement transport",
     risk: "read",
     duration: "short",
+    mutationTarget: "read",
     requiredCapability: "transport.inspect_arrangement",
   },
   {
@@ -216,6 +223,7 @@ export const abletonToolMetadata = [
     title: "Set Arrangement loop",
     risk: "reversible",
     duration: "instant",
+    mutationTarget: "session",
     requiredCapability: "transport.set_arrangement_loop",
   },
   {
@@ -223,6 +231,7 @@ export const abletonToolMetadata = [
     title: "Create Arrangement cue point",
     risk: "reversible",
     duration: "short",
+    mutationTarget: "session",
     requiredCapability: "transport.create_cue_point",
   },
   {
@@ -230,6 +239,7 @@ export const abletonToolMetadata = [
     title: "Delete Arrangement cue point",
     risk: "destructive",
     duration: "short",
+    mutationTarget: "session",
     requiredCapability: "transport.delete_cue_point",
   },
   {
@@ -237,6 +247,7 @@ export const abletonToolMetadata = [
     title: "Create Ableton track",
     risk: "reversible",
     duration: "short",
+    mutationTarget: "session",
     requiredCapability: "tracks.create",
   },
   {
@@ -244,6 +255,7 @@ export const abletonToolMetadata = [
     title: "Delete Ableton track",
     risk: "destructive",
     duration: "short",
+    mutationTarget: "track",
     requiredCapability: "tracks.delete",
   },
   {
@@ -251,6 +263,7 @@ export const abletonToolMetadata = [
     title: "Rename Ableton track",
     risk: "reversible",
     duration: "short",
+    mutationTarget: "track",
     requiredCapability: "tracks.rename",
   },
   {
@@ -258,6 +271,7 @@ export const abletonToolMetadata = [
     title: "Set Ableton track mixer",
     risk: "reversible",
     duration: "short",
+    mutationTarget: "track",
     requiredCapability: "tracks.set_mixer",
   },
   {
@@ -265,6 +279,7 @@ export const abletonToolMetadata = [
     title: "Create Ableton MIDI clip",
     risk: "reversible",
     duration: "short",
+    mutationTarget: "track",
     requiredCapability: "clips.create_midi",
   },
   {
@@ -272,6 +287,7 @@ export const abletonToolMetadata = [
     title: "Replace Ableton MIDI notes",
     risk: "destructive",
     duration: "short",
+    mutationTarget: "track",
     requiredCapability: "clips.replace_notes",
   },
   {
@@ -279,6 +295,7 @@ export const abletonToolMetadata = [
     title: "Launch Session clip",
     risk: "reversible",
     duration: "instant",
+    mutationTarget: "track",
     requiredCapability: "clips.launch",
   },
   {
@@ -286,6 +303,7 @@ export const abletonToolMetadata = [
     title: "Duplicate Session clip",
     risk: "reversible",
     duration: "short",
+    mutationTarget: "tracks",
     requiredCapability: "clips.duplicate",
   },
   {
@@ -293,6 +311,7 @@ export const abletonToolMetadata = [
     title: "Delete Session clip",
     risk: "destructive",
     duration: "short",
+    mutationTarget: "track",
     requiredCapability: "clips.delete",
   },
   {
@@ -300,6 +319,7 @@ export const abletonToolMetadata = [
     title: "Set Session clip properties",
     risk: "reversible",
     duration: "short",
+    mutationTarget: "track",
     requiredCapability: "clips.set_properties",
   },
   {
@@ -307,6 +327,7 @@ export const abletonToolMetadata = [
     title: "Create Arrangement MIDI clip",
     risk: "reversible",
     duration: "short",
+    mutationTarget: "track",
     requiredCapability: "arrangement.create_midi_clip",
   },
   {
@@ -314,6 +335,7 @@ export const abletonToolMetadata = [
     title: "Inspect Ableton Arrangement",
     risk: "read",
     duration: "short",
+    mutationTarget: "read",
     requiredCapability: "arrangement.inspect",
   },
   {
@@ -321,6 +343,7 @@ export const abletonToolMetadata = [
     title: "Delete Arrangement clip",
     risk: "destructive",
     duration: "short",
+    mutationTarget: "track",
     requiredCapability: "arrangement.delete_clip",
   },
   {
@@ -328,6 +351,7 @@ export const abletonToolMetadata = [
     title: "Replace Arrangement MIDI notes",
     risk: "destructive",
     duration: "short",
+    mutationTarget: "track",
     requiredCapability: "arrangement.replace_notes",
   },
   {
@@ -335,6 +359,7 @@ export const abletonToolMetadata = [
     title: "Duplicate Session clip to Arrangement",
     risk: "reversible",
     duration: "short",
+    mutationTarget: "track",
     requiredCapability: "arrangement.duplicate_clip",
   },
   {
@@ -342,6 +367,7 @@ export const abletonToolMetadata = [
     title: "Set Arrangement clip properties",
     risk: "reversible",
     duration: "short",
+    mutationTarget: "track",
     requiredCapability: "arrangement.set_clip_properties",
   },
   {
@@ -349,6 +375,7 @@ export const abletonToolMetadata = [
     title: "Inspect track devices",
     risk: "read",
     duration: "short",
+    mutationTarget: "read",
     requiredCapability: "devices.inspect",
   },
   {
@@ -356,6 +383,7 @@ export const abletonToolMetadata = [
     title: "Inspect device parameters",
     risk: "read",
     duration: "short",
+    mutationTarget: "read",
     requiredCapability: "devices.inspect_parameters",
   },
   {
@@ -363,6 +391,7 @@ export const abletonToolMetadata = [
     title: "Inspect rack chains",
     risk: "read",
     duration: "short",
+    mutationTarget: "read",
     requiredCapability: "devices.inspect_rack_chains",
   },
   {
@@ -370,6 +399,7 @@ export const abletonToolMetadata = [
     title: "Inspect rack chain devices",
     risk: "read",
     duration: "short",
+    mutationTarget: "read",
     requiredCapability: "devices.inspect_rack_chain_devices",
   },
   {
@@ -377,6 +407,7 @@ export const abletonToolMetadata = [
     title: "Inspect Drum Rack pads",
     risk: "read",
     duration: "short",
+    mutationTarget: "read",
     requiredCapability: "devices.inspect_drum_rack_pads",
   },
   {
@@ -384,6 +415,7 @@ export const abletonToolMetadata = [
     title: "Inspect Drum Rack pad chains",
     risk: "read",
     duration: "short",
+    mutationTarget: "read",
     requiredCapability: "devices.inspect_drum_pad_chains",
   },
   {
@@ -391,6 +423,7 @@ export const abletonToolMetadata = [
     title: "Inspect Drum Rack pad chain devices",
     risk: "read",
     duration: "short",
+    mutationTarget: "read",
     requiredCapability: "devices.inspect_drum_pad_chain_devices",
   },
   {
@@ -398,6 +431,7 @@ export const abletonToolMetadata = [
     title: "Enable or disable device",
     risk: "reversible",
     duration: "short",
+    mutationTarget: "track",
     requiredCapability: "devices.set_enabled",
   },
   {
@@ -405,6 +439,7 @@ export const abletonToolMetadata = [
     title: "Set normalized device parameter",
     risk: "reversible",
     duration: "short",
+    mutationTarget: "track",
     requiredCapability: "devices.set_parameter",
   },
   {
@@ -412,6 +447,7 @@ export const abletonToolMetadata = [
     title: "Inspect Ableton browser roots",
     risk: "read",
     duration: "instant",
+    mutationTarget: "read",
     requiredCapability: "browser.inspect_roots",
   },
   {
@@ -419,6 +455,7 @@ export const abletonToolMetadata = [
     title: "Inspect Ableton browser category",
     risk: "read",
     duration: "short",
+    mutationTarget: "read",
     requiredCapability: "browser.inspect_children",
   },
   {
@@ -426,6 +463,7 @@ export const abletonToolMetadata = [
     title: "Search Ableton browser",
     risk: "read",
     duration: "short",
+    mutationTarget: "read",
     requiredCapability: "browser.search",
   },
   {
@@ -433,6 +471,7 @@ export const abletonToolMetadata = [
     title: "Search installed external plug-ins",
     risk: "read",
     duration: "short",
+    mutationTarget: "read",
     requiredCapability: "browser.search",
   },
   {
@@ -440,6 +479,7 @@ export const abletonToolMetadata = [
     title: "Load built-in Ableton browser item",
     risk: "reversible",
     duration: "long",
+    mutationTarget: "track",
     requiredCapability: "browser.load_item",
   },
 ] as const satisfies readonly AbletonToolMetadata[];
@@ -447,6 +487,8 @@ export const abletonToolMetadata = [
 export interface ToolApprovalRequest {
   metadata: AbletonToolMetadata;
   arguments: Readonly<Record<string, unknown>>;
+  agentInstanceId?: string;
+  sdkSessionId?: string;
 }
 
 export type ToolApprovalRequester = (
@@ -1345,3 +1387,5 @@ export function createAbletonTools(
     ),
   };
 }
+
+export * from "./mutation-policy.js";

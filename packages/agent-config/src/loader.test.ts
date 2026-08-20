@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 
 import { describe, expect, it } from "vitest";
 
-import { loadAgentCatalog } from "./loader.js";
+import { loadAgentCatalog, readSkillDocument } from "./loader.js";
 
 describe("agent catalog loading", () => {
   it("loads validated definitions and canonical skills", async () => {
@@ -76,5 +76,58 @@ describe("agent catalog loading", () => {
     expect(catalog.diagnostics).toEqual([
       expect.objectContaining({ code: "invalid_definition" }),
     ]);
+  });
+
+  it("reads a validated skill body without frontmatter", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ableton-agent-skill-"));
+    const sourcePath = join(root, "SKILL.md");
+    await writeFile(
+      sourcePath,
+      [
+        "---",
+        "name: mix-review",
+        "description: Review a mix.",
+        "---",
+        "",
+        "# Mix review",
+        "",
+        "Preserve headroom.",
+      ].join("\n"),
+    );
+
+    const document = await readSkillDocument(sourcePath, "mix-review");
+    expect(document).toMatchObject({
+      metadata: {
+        name: "mix-review",
+        description: "Review a mix.",
+      },
+      body: "# Mix review\n\nPreserve headroom.",
+    });
+    expect(document.fingerprint).toMatch(/^[a-f0-9]{64}$/u);
+  });
+
+  it("rejects malformed, empty, and mismatched skill documents", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ableton-agent-skill-"));
+    const sourcePath = join(root, "SKILL.md");
+    await writeFile(sourcePath, "name: missing-frontmatter\n");
+    await expect(readSkillDocument(sourcePath)).rejects.toThrow(
+      "must start with YAML frontmatter",
+    );
+
+    await writeFile(
+      sourcePath,
+      "---\nname: mix-review\ndescription: Review a mix.\n---\n",
+    );
+    await expect(readSkillDocument(sourcePath)).rejects.toThrow(
+      "body must not be empty",
+    );
+
+    await writeFile(
+      sourcePath,
+      "---\nname: mix-review\ndescription: Review a mix.\n---\n\n# Review",
+    );
+    await expect(readSkillDocument(sourcePath, "sound-design")).rejects.toThrow(
+      "does not match expected skill",
+    );
   });
 });

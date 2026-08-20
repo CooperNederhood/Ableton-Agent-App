@@ -36,9 +36,13 @@ Each active instance uses one SDK session configured with:
 - one native `customAgents` entry;
 - that agent selected through the session `agent` option;
 - an exact resolved tool list;
-- root `skillDirectories`;
-- configured per-agent skills;
+- metadata-only system instructions for configured skills;
+- an application-owned `skill` tool when the agent enables skills;
 - inference disabled so the runtime does not switch app-defined agents.
+
+The application does not pass `skillDirectories` or native custom-agent skills
+to the SDK because those paths eagerly preload complete skill bodies. Instead,
+the `skill` tool progressively loads one enabled body when the model selects it.
 
 The SDK owns conversation persistence. The application uses SDK session IDs and
 `getEvents()` to restore a selected agent's transcript.
@@ -55,7 +59,9 @@ tools:
 
 Patterns are expanded against the application tool catalog before creating the
 SDK session. Unmatched patterns invalidate the definition. Only resolved tools
-are registered, and permission policy checks the same allowlist again.
+are registered, and permission policy checks the same allowlist again. The
+application-owned `skill` tool is added independently when the definition
+enables at least one skill.
 
 ## Edit scopes
 

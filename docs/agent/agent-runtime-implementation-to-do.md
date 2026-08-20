@@ -28,7 +28,8 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [x] Add retry guidance based on structured error codes.
 - [x] Prevent retry loops for denial, unsupported capability, and stale targets.
 - [~] Replace task modes with YAML-defined active agents.
-- [~] Add canonical Agent Skills through SDK `skillDirectories`.
+- [x] Add canonical Agent Skills through application-owned progressive
+  disclosure.
 - [ ] Add independent SDK sessions, scoped tools, edit scopes, and attributed
   events for multiple active agents.
 

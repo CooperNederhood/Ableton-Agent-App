@@ -23,6 +23,12 @@ export interface LoadedSkill {
   readonly fingerprint: string;
 }
 
+export interface SkillDocument {
+  readonly metadata: SkillMetadata;
+  readonly body: string;
+  readonly fingerprint: string;
+}
+
 export interface LoadedAgentDefinition {
   readonly definition: AgentDefinition;
   readonly resolvedTools: string[];
@@ -65,14 +71,41 @@ function parseYaml(content: string): unknown {
   return document.toJS({ maxAliasCount: 0 });
 }
 
-function parseSkillFrontmatter(content: string): unknown {
+function parseSkillDocument(content: string): {
+  frontmatter: unknown;
+  body: string;
+} {
   const normalized = content.replace(/\r\n/gu, "\n");
   if (!normalized.startsWith("---\n")) {
     throw new Error("SKILL.md must start with YAML frontmatter");
   }
   const end = normalized.indexOf("\n---\n", 4);
   if (end < 0) throw new Error("SKILL.md frontmatter is not terminated");
-  return parseYaml(normalized.slice(4, end));
+  const body = normalized.slice(end + 5).trim();
+  if (body.length === 0) throw new Error("SKILL.md body must not be empty");
+  return {
+    frontmatter: parseYaml(normalized.slice(4, end)),
+    body,
+  };
+}
+
+export async function readSkillDocument(
+  sourcePath: string,
+  expectedName?: string,
+): Promise<SkillDocument> {
+  const content = await boundedRead(sourcePath, maximumSkillBytes);
+  const parsed = parseSkillDocument(content);
+  const metadata = skillMetadataSchema.parse(parsed.frontmatter);
+  if (expectedName !== undefined && metadata.name !== expectedName) {
+    throw new Error(
+      `Skill '${metadata.name}' does not match expected skill '${expectedName}'`,
+    );
+  }
+  return {
+    metadata,
+    body: parsed.body,
+    fingerprint: fingerprint(content),
+  };
 }
 
 function diagnostic(
@@ -102,15 +135,12 @@ async function loadSkills(skillsDirectory: string): Promise<{
     if (!entry.isDirectory()) continue;
     const sourcePath = join(skillsDirectory, entry.name, "SKILL.md");
     try {
-      const content = await boundedRead(sourcePath, maximumSkillBytes);
-      const metadata = skillMetadataSchema.parse(
-        parseSkillFrontmatter(content),
-      );
+      const document = await readSkillDocument(sourcePath);
       skills.push({
-        metadata,
+        metadata: document.metadata,
         sourcePath,
         directory: join(skillsDirectory, entry.name),
-        fingerprint: fingerprint(content),
+        fingerprint: document.fingerprint,
       });
     } catch (error) {
       const code =

@@ -5,6 +5,7 @@ import type { AbletonService } from "@ableton-agent/ableton-contracts";
 import {
   formatSkillInvocation,
   parseSkillInvocation,
+  readSkillDocument,
   skillNameSchema,
   type BoundTrackScope,
   type EditScopeEntry,
@@ -105,12 +106,14 @@ import {
 } from "@ableton-agent/tools";
 import {
   CopilotClient,
+  defineTool,
   type ResumeSessionConfig,
   type SessionConfig,
   type SessionEvent,
   type Tool,
   type ToolInvocation,
 } from "@github/copilot-sdk";
+import { z } from "zod";
 
 import { createAgentPolicy } from "./agent-policy.js";
 import {
@@ -149,8 +152,14 @@ export interface AgentSessionConfiguration {
   readonly editScope: readonly EditScopeEntry[];
   readonly boundTracks: readonly BoundTrackScope[];
   readonly skills: readonly string[];
-  readonly skillDirectories: readonly string[];
-  readonly availableSkills?: readonly string[];
+  readonly availableSkills?: readonly AgentSkillDescriptor[];
+}
+
+export interface AgentSkillDescriptor {
+  readonly name: string;
+  readonly description: string;
+  readonly sourcePath: string;
+  readonly fingerprint: string;
 }
 
 export interface AgentHistoryMessage {
@@ -355,9 +364,11 @@ export interface CopilotAgentServiceOptions {
 }
 
 export const DEFAULT_AGENT_TURN_TIMEOUT_MS = 180_000;
-export const BASE_SYSTEM_MESSAGE_VERSION = 3;
+export const BASE_SYSTEM_MESSAGE_VERSION = 4;
 export const BASE_SYSTEM_MESSAGE =
-  "You are an Ableton Live production assistant. Use only the provided Ableton tools. Inspect current project state before making claims. Clearly distinguish observed state from suggestions. For every requested instrument, kit, preset, or sound, search the Ableton Browser before creating its destination track. Search each distinct requested sound separately, choose roots deliberately, and resolve an exact supported loadable item. Prefer exact, loadable device or preset results over folders or loose substring matches. If search is truncated or the matches are weak, narrow the roots or try a literal musical synonym before choosing. Only after resolving the content should you create the destination track and load that exact item. Perform dependent mutations sequentially. Never retry a mutation that may already have applied; re-inspect state first and continue from the verified result.";
+  "You are an Ableton Live production assistant. Use only the provided tools. Inspect current project state before making claims. Clearly distinguish observed state from suggestions. For every requested instrument, kit, preset, or sound, search the Ableton Browser before creating its destination track. Search each distinct requested sound separately, choose roots deliberately, and resolve an exact supported loadable item. Prefer exact, loadable device or preset results over folders or loose substring matches. If search is truncated or the matches are weak, narrow the roots or try a literal musical synonym before choosing. Only after resolving the content should you create the destination track and load that exact item. Perform dependent mutations sequentially. Never retry a mutation that may already have applied; re-inspect state first and continue from the verified result.";
+export const SKILL_TOOL_NAME = "skill";
+const directSkillHistoryPrefix = "<!-- ableton-agent:direct-skill ";
 
 export class AgentTurnTimeoutError extends Error {
   public constructor(
@@ -435,6 +446,99 @@ function bareToolNames(toolNames: readonly string[]): string[] {
   return dedupeStrings(toolNames.map(stripCustomSourcePrefix));
 }
 
+function enabledSkillDescriptors(
+  configuration: AgentSessionConfiguration,
+): AgentSkillDescriptor[] {
+  const availableByName = new Map(
+    (configuration.availableSkills ?? []).map((skill) => [skill.name, skill]),
+  );
+  return configuration.skills.map((name) => {
+    const skill = availableByName.get(name);
+    if (skill === undefined) {
+      throw new Error(`Configured skill '${name}' is unavailable`);
+    }
+    return skill;
+  });
+}
+
+function yamlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+export function formatSkillSystemInstructions(
+  skills: readonly AgentSkillDescriptor[],
+): string | undefined {
+  if (skills.length === 0) return undefined;
+  const frontmatters = skills.map((skill) =>
+    [
+      "---",
+      `name: ${skill.name}`,
+      `description: ${yamlString(skill.description)}`,
+      "---",
+    ].join("\n"),
+  );
+  return [
+    "<skill_instructions>",
+    'Below are skill names and descriptions. If, based on the description, a skill is relevant to your work, you SHOULD call the skill via the skill(skill_name="{skill-name}") tool.',
+    "",
+    ...frontmatters.flatMap((frontmatter, index) =>
+      index === frontmatters.length - 1 ? [frontmatter] : [frontmatter, ""],
+    ),
+    "</skill_instructions>",
+  ].join("\n");
+}
+
+function formatDirectSkillPrompt(
+  skillName: string,
+  body: string,
+  request: string,
+): string {
+  return [
+    `${directSkillHistoryPrefix}${skillName} ${Buffer.from(request, "utf8").toString("base64url")} -->`,
+    `The user explicitly invoked the '${skillName}' skill for this turn.`,
+    "",
+    `<skill_body name="${skillName}">`,
+    body,
+    "</skill_body>",
+    "",
+    request.length === 0
+      ? "Follow these skill instructions for this turn."
+      : [
+          "Apply these skill instructions to the following request:",
+          request,
+        ].join("\n\n"),
+  ].join("\n");
+}
+
+function displayUserPrompt(content: string): string {
+  const firstLineEnd = content.indexOf("\n");
+  const firstLine =
+    firstLineEnd === -1 ? content : content.slice(0, firstLineEnd);
+  if (
+    !firstLine.startsWith(directSkillHistoryPrefix) ||
+    !firstLine.endsWith(" -->")
+  ) {
+    return content;
+  }
+  const encoded = firstLine.slice(
+    directSkillHistoryPrefix.length,
+    -" -->".length,
+  );
+  const separator = encoded.indexOf(" ");
+  if (separator < 1) return content;
+  const parsedSkillName = skillNameSchema.safeParse(
+    encoded.slice(0, separator),
+  );
+  const encodedRequest = encoded.slice(separator + 1);
+  if (!parsedSkillName.success || !/^[A-Za-z0-9_-]*$/u.test(encodedRequest)) {
+    return content;
+  }
+  return formatSkillInvocation({
+    skillName: parsedSkillName.data,
+    request: Buffer.from(encodedRequest, "base64url").toString("utf8"),
+  });
+}
+
 function qualifyAvailableTools(toolNames: readonly string[]): string[] {
   return bareToolNames(toolNames).map((toolName) => `custom:${toolName}`);
 }
@@ -448,23 +552,56 @@ function normalizeSessionConfiguration(
   const availableSkills =
     configuration.availableSkills === undefined
       ? undefined
-      : dedupeStrings(
-          configuration.availableSkills.map((skill) =>
-            skillNameSchema.parse(skill),
-          ),
-        );
+      : [
+          ...new Map(
+            configuration.availableSkills.map((skill) => {
+              const normalized = {
+                name: skillNameSchema.parse(skill.name),
+                description: skill.description.trim(),
+                sourcePath: skill.sourcePath,
+                fingerprint: skill.fingerprint,
+              };
+              if (normalized.description.length === 0) {
+                throw new Error(
+                  `Skill '${normalized.name}' requires a description`,
+                );
+              }
+              if (normalized.sourcePath.length === 0) {
+                throw new Error(
+                  `Skill '${normalized.name}' requires a source path`,
+                );
+              }
+              if (!/^[a-f0-9]{64}$/u.test(normalized.fingerprint)) {
+                throw new Error(
+                  `Skill '${normalized.name}' requires a valid fingerprint`,
+                );
+              }
+              return [normalized.name, normalized] as const;
+            }),
+          ).values(),
+        ];
   if (
     availableSkills !== undefined &&
-    skills.some((skill) => !availableSkills.includes(skill))
+    skills.some(
+      (skill) =>
+        !availableSkills.some(
+          (availableSkill) => availableSkill.name === skill,
+        ),
+    )
   ) {
     throw new Error(
       `Configured skills must exist in the loaded skill catalog: ${skills
-        .filter((skill) => !availableSkills.includes(skill))
+        .filter(
+          (skill) =>
+            !availableSkills.some(
+              (availableSkill) => availableSkill.name === skill,
+            ),
+        )
         .join(", ")}`,
     );
   }
-  if (skills.length > 0 && configuration.skillDirectories.length === 0) {
-    throw new Error("Configured skills require at least one skill directory");
+  if (skills.length > 0 && availableSkills === undefined) {
+    throw new Error("Configured skills require the loaded skill catalog");
   }
   const hasSessionScope = configuration.editScope.some(
     (entry) => entry === "session",
@@ -537,7 +674,6 @@ function normalizeSessionConfiguration(
       expectedName: binding.expectedName,
     })),
     skills,
-    skillDirectories: dedupeStrings(configuration.skillDirectories),
     ...(availableSkills === undefined ? {} : { availableSkills }),
   };
 }
@@ -552,7 +688,7 @@ function normalizeHistoryEvent(
   if (event.type === "user.message") {
     return {
       role: "user",
-      content: event.data.content,
+      content: displayUserPrompt(event.data.content),
       timestamp: event.timestamp,
       eventId: event.id,
       ...attribution,
@@ -768,7 +904,7 @@ export class CopilotAgentService implements AgentService {
       editScope: ["session"],
       boundTracks: [],
       skills: [],
-      skillDirectories: [],
+      availableSkills: [],
     };
   }
 
@@ -864,21 +1000,34 @@ export class CopilotAgentService implements AgentService {
     };
   }
 
-  #knownSkillNames(): Set<string> {
-    const names = new Set<string>();
-    for (const state of this.#states.values()) {
-      for (const skill of state.configuration.skills) names.add(skill);
-      for (const skill of state.configuration.availableSkills ?? []) {
-        names.add(skill);
-      }
+  async #readSkillBody(
+    state: ManagedSessionState,
+    skillName: string,
+    requireEnabled: boolean,
+  ): Promise<string> {
+    if (requireEnabled && !state.configuration.skills.includes(skillName)) {
+      throw new Error(
+        `Skill '${skillName}' is not enabled for managed agent '${state.configuration.instanceId}'.`,
+      );
     }
-    return names;
+    const descriptor = state.configuration.availableSkills?.find(
+      (skill) => skill.name === skillName,
+    );
+    if (descriptor === undefined)
+      throw new Error(`Unknown skill '/${skillName}'.`);
+    const document = await readSkillDocument(descriptor.sourcePath, skillName);
+    if (document.fingerprint !== descriptor.fingerprint) {
+      throw new Error(
+        `Skill '${skillName}' changed after the catalog was loaded. Refresh agent definitions before invoking it.`,
+      );
+    }
+    return document.body;
   }
 
-  #prepareSkillInvocation(
+  async #prepareSkillInvocation(
     state: ManagedSessionState,
     input: string | SkillInvocation,
-  ): string {
+  ): Promise<string> {
     const invocation =
       typeof input === "string" ? parseSkillInvocation(input) : input;
     if (invocation === undefined) {
@@ -887,22 +1036,40 @@ export class CopilotAgentService implements AgentService {
       );
     }
     const skillName = skillNameSchema.parse(invocation.skillName);
-    if (!state.configuration.skills.includes(skillName)) {
-      if (this.#knownSkillNames().has(skillName)) {
-        throw new Error(
-          `Skill '/${skillName}' is not assigned to managed agent '${state.configuration.instanceId}'.`,
-        );
-      }
-      throw new Error(`Unknown skill '/${skillName}'.`);
-    }
-    return formatSkillInvocation({
-      skillName,
-      request: invocation.request,
-    });
+    const body = await this.#readSkillBody(state, skillName, false);
+    return formatDirectSkillPrompt(skillName, body, invocation.request);
+  }
+
+  #skillTool(state: ManagedSessionState): Tool | undefined {
+    if (state.configuration.skills.length === 0) return undefined;
+    return defineTool(SKILL_TOOL_NAME, {
+      description:
+        "Loads the instructions for one skill enabled for the active agent. Call this when an enabled skill description is relevant to the current work.",
+      parameters: z
+        .object({
+          skill_name: skillNameSchema.describe(
+            "Name of a skill listed in the system skill instructions",
+          ),
+        })
+        .strict(),
+      handler: async ({ skill_name }) =>
+        this.#readSkillBody(state, skill_name, true),
+    }) as Tool;
   }
 
   #sessionConfig(state: ManagedSessionState): SessionConfig {
-    const tools = this.#scopedAbletonTools(state);
+    const skillTool = this.#skillTool(state);
+    const tools = [
+      ...this.#scopedAbletonTools(state),
+      ...(skillTool === undefined ? [] : [skillTool]),
+    ];
+    const configuredToolNames = [
+      ...bareToolNames(state.configuration.resolvedTools),
+      ...(skillTool === undefined ? [] : [SKILL_TOOL_NAME]),
+    ];
+    const skillInstructions = formatSkillSystemInstructions(
+      enabledSkillDescriptors(state.configuration),
+    );
     const scopedSignalContext = this.#scopedSignalContext(state);
     const agentPolicy = createAgentPolicy({
       getAbletonStatus: this.options.getAbletonStatus,
@@ -939,21 +1106,25 @@ export class CopilotAgentService implements AgentService {
         ? {}
         : { reasoningEffort: this.options.reasoningEffort }),
       tools,
-      availableTools: qualifyAvailableTools(state.configuration.resolvedTools),
+      availableTools: qualifyAvailableTools(configuredToolNames),
       customAgents: [
         {
           name: state.configuration.definitionName,
           displayName: state.configuration.label,
           description: state.configuration.description,
           prompt: state.configuration.systemPrompt,
-          tools: bareToolNames(state.configuration.resolvedTools),
+          tools: configuredToolNames,
           infer: false,
-          skills: [...state.configuration.skills],
         },
       ],
       agent: state.configuration.definitionName,
-      skillDirectories: [...state.configuration.skillDirectories],
       onPermissionRequest: async (request, invocation) => {
+        if (
+          request.kind === "custom-tool" &&
+          request.toolName === SKILL_TOOL_NAME
+        ) {
+          return { kind: "approve-once" };
+        }
         const result = await permissionHandler(request, invocation);
         if (result.kind === "reject" && request.kind === "custom-tool") {
           agentPolicy.blockAttempt(
@@ -967,7 +1138,10 @@ export class CopilotAgentService implements AgentService {
       hooks: agentPolicy.hooks,
       systemMessage: {
         mode: "replace",
-        content: BASE_SYSTEM_MESSAGE,
+        content:
+          skillInstructions === undefined
+            ? BASE_SYSTEM_MESSAGE
+            : `${BASE_SYSTEM_MESSAGE}\n\n${skillInstructions}`,
       },
     };
   }
@@ -1012,6 +1186,7 @@ export class CopilotAgentService implements AgentService {
       } else if (event.type === "tool.execution_complete") {
         const operation = state.operations.get(event.data.toolCallId);
         const label = operation?.label ?? "Tool operation";
+        const exposeResult = operation?.toolName !== SKILL_TOOL_NAME;
         state.operations.delete(event.data.toolCallId);
         if (event.data.success) {
           this.#logger.debug("Agent tool completed", {
@@ -1021,7 +1196,7 @@ export class CopilotAgentService implements AgentService {
               : {}),
             operationId: event.data.toolCallId,
             toolName: operation?.toolName,
-            result: event.data.result?.content,
+            ...(exposeResult ? { result: event.data.result?.content } : {}),
           });
           this.options.events.publish({
             type: "operation.completed",
@@ -1030,7 +1205,7 @@ export class CopilotAgentService implements AgentService {
             ...(operation === undefined
               ? {}
               : { toolName: operation.toolName }),
-            ...(event.data.result?.content === undefined
+            ...(!exposeResult || event.data.result?.content === undefined
               ? {}
               : { result: event.data.result.content }),
             ...this.#eventAttribution(state),
@@ -1588,21 +1763,21 @@ export class CopilotAgentService implements AgentService {
     prompt: string,
   ): Promise<string> {
     const state = this.#requireManagedState(instanceId);
-    let turnPrompt: string;
+    let invocation: SkillInvocation | undefined;
     try {
-      const invocation = parseSkillInvocation(prompt);
-      turnPrompt =
-        invocation === undefined
-          ? prompt
-          : this.#prepareSkillInvocation(state, invocation);
+      invocation = parseSkillInvocation(prompt);
     } catch (error) {
       return Promise.reject(
         error instanceof Error ? error : new Error(String(error)),
       );
     }
-    return this.#serialize(state, () =>
-      this.#sendNow(state, turnPrompt, "user"),
-    );
+    return this.#serialize(state, async () => {
+      const turnPrompt =
+        invocation === undefined
+          ? prompt
+          : await this.#prepareSkillInvocation(state, invocation);
+      return this.#sendNow(state, turnPrompt, "user");
+    });
   }
 
   public invokeManagedAgentSkill(
@@ -1610,15 +1785,13 @@ export class CopilotAgentService implements AgentService {
     invocation: string | SkillInvocation,
   ): Promise<string> {
     const state = this.#requireManagedState(instanceId);
-    let prompt: string;
-    try {
-      prompt = this.#prepareSkillInvocation(state, invocation);
-    } catch (error) {
-      return Promise.reject(
-        error instanceof Error ? error : new Error(String(error)),
-      );
-    }
-    return this.#serialize(state, () => this.#sendNow(state, prompt, "user"));
+    return this.#serialize(state, async () =>
+      this.#sendNow(
+        state,
+        await this.#prepareSkillInvocation(state, invocation),
+        "user",
+      ),
+    );
   }
 
   public async getManagedAgentHistory(

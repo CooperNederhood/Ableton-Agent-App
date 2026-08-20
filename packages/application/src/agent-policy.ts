@@ -205,6 +205,9 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
       };
     },
     onPostToolUse: (input) => {
+      if (!abletonToolMetadata.some(({ name }) => name === input.toolName)) {
+        return;
+      }
       blockedAttempts.delete(attemptKey(input.toolName, input.toolArgs));
       return {
         additionalContext:
@@ -212,6 +215,9 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
       };
     },
     onPostToolUseFailure: (input) => {
+      if (!abletonToolMetadata.some(({ name }) => name === input.toolName)) {
+        return;
+      }
       const guidance = retryGuidance(input.error);
       if (structuredErrorCode(input.error) !== undefined) {
         blockedAttempts.set(

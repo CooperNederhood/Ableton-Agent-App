@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createFakeApplication } from "@ableton-agent/test-support";
+import type { AgentSkillDescriptor } from "@ableton-agent/application";
 import type { SignalRuntime, SignalRuntimeEvent } from "@ableton-agent/runtime";
 import type {
   OutputAssignment,
@@ -127,7 +128,7 @@ async function harness(
     ) => void;
     agentCatalog?: {
       current: DesktopAgentCatalog;
-      skillsDirectory?: string;
+      runtimeSkills?: readonly AgentSkillDescriptor[];
       refresh: () => Promise<DesktopAgentCatalog>;
     };
     signals?: SignalRuntime;
@@ -782,7 +783,7 @@ describe("desktop adapter over the shared application", () => {
     expect(agent.managedPrompts.get(second.id)).toContain("/analyze the drums");
     await expect(
       service.invokeActiveAgentSkill(second.id, "missing", ""),
-    ).rejects.toThrow("not configured");
+    ).rejects.toThrow("Unknown skill");
     expect(await service.hydrateActiveAgentHistory(first.id)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ role: "user", content: "first history" }),
@@ -1158,7 +1159,7 @@ describe("desktop adapter over the shared application", () => {
     );
   });
 
-  it("passes the canonical catalog skills directory to skill-enabled managed agents", async () => {
+  it("passes trusted runtime skill descriptors to skill-enabled managed agents", async () => {
     const catalog = defaultCatalog();
     catalog.definitions[0]!.skills = ["analyze"];
     catalog.skills = [
@@ -1174,7 +1175,14 @@ describe("desktop adapter over the shared application", () => {
       {
         agentCatalog: {
           current: catalog,
-          skillsDirectory: "/canonical/desktop/skills",
+          runtimeSkills: [
+            {
+              name: "analyze",
+              description: "Analyze material.",
+              sourcePath: "/canonical/desktop/skills/analyze/SKILL.md",
+              fingerprint: "c".repeat(64),
+            },
+          ],
           refresh: () => Promise.resolve(catalog),
         },
       },
@@ -1185,8 +1193,14 @@ describe("desktop adapter over the shared application", () => {
     const [active] = await service.listActiveAgents();
     expect(agent.managedConfigurations.get(active!.id)).toMatchObject({
       skills: ["analyze"],
-      skillDirectories: ["/canonical/desktop/skills"],
-      availableSkills: ["analyze"],
+      availableSkills: [
+        {
+          name: "analyze",
+          description: "Analyze material.",
+          sourcePath: "/canonical/desktop/skills/analyze/SKILL.md",
+          fingerprint: "c".repeat(64),
+        },
+      ],
     });
     await service.stop();
   });

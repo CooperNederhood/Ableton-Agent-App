@@ -1,3 +1,8 @@
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
+import { readSkillDocument } from "@ableton-agent/agent-config";
 import { describe, expect, it, vi } from "vitest";
 import type {
   ResumeSessionConfig,
@@ -9,6 +14,7 @@ import { InMemoryEventPublisher, type AppEvent } from "@ableton-agent/shared";
 
 import {
   CopilotAgentService,
+  type AgentSkillDescriptor,
   type AgentSessionConfiguration,
   type CopilotAgentServiceOptions,
 } from "./index.js";
@@ -25,6 +31,42 @@ const emptySnapshot = {
   tracks: [],
 };
 
+function skillDescriptor(name: string): AgentSkillDescriptor {
+  return {
+    name,
+    description: `Description for ${name}`,
+    sourcePath: `/repo/skills/${name}/SKILL.md`,
+    fingerprint: "a".repeat(64),
+  };
+}
+
+async function createSkillDescriptor(
+  root: string,
+  name: string,
+  body: string,
+): Promise<AgentSkillDescriptor> {
+  const directory = join(root, name);
+  const sourcePath = join(directory, "SKILL.md");
+  await mkdir(directory, { recursive: true });
+  await writeFile(
+    sourcePath,
+    [
+      "---",
+      `name: ${name}`,
+      `description: Description for ${name}`,
+      "---",
+      "",
+      body,
+    ].join("\n"),
+  );
+  const document = await readSkillDocument(sourcePath, name);
+  return {
+    ...document.metadata,
+    sourcePath,
+    fingerprint: document.fingerprint,
+  };
+}
+
 function configuration(
   instanceId: string,
   overrides: Partial<Omit<AgentSessionConfiguration, "instanceId">> = {},
@@ -39,7 +81,7 @@ function configuration(
     editScope: ["session"],
     boundTracks: [],
     skills: [],
-    skillDirectories: [],
+    availableSkills: [],
     ...overrides,
   };
 }
@@ -211,7 +253,6 @@ describe("CopilotAgentService managed sessions", () => {
         configuration("managed", {
           skills: ["missing-skill"],
           availableSkills: [],
-          skillDirectories: ["/repo/skills"],
         }),
       ),
     ).rejects.toThrow("missing-skill");
@@ -904,9 +945,27 @@ describe("CopilotAgentService managed sessions", () => {
     await service.stop();
   });
 
-  it("configures and invokes only the selected managed agent's canonical skills", async () => {
+  it("isolates model-selected skills while allowing catalog-wide direct invocation", async () => {
+    const events = new InMemoryEventPublisher();
+    const received: AppEvent[] = [];
+    events.subscribe((event) => received.push(event));
+    const root = await mkdtemp(join(tmpdir(), "ableton-agent-skills-"));
+    const midiSkill = await createSkillDescriptor(
+      root,
+      "midi-compose",
+      "# MIDI compose\n\nKeep phrases playable.",
+    );
+    const mixSkill = await createSkillDescriptor(
+      root,
+      "mix-review",
+      "# Mix review\n\nPreserve dynamics.",
+    );
+    const availableSkills = [midiSkill, mixSkill];
     const defaultSession = createFakeSession("default-session");
-    const midiSession = createFakeSession("midi-session");
+    const midiHistory: SessionEvent[] = [];
+    const midiSession = createFakeSession("midi-session", {
+      history: midiHistory,
+    });
     const mixSession = createFakeSession("mix-session");
     const createSession = vi.fn(async (config: SessionConfig) => {
       void config;
@@ -918,6 +977,7 @@ describe("CopilotAgentService managed sessions", () => {
     });
     const service = new CopilotAgentService(
       baseOptions({
+        events,
         clientFactory: () => ({
           createSession,
           resumeSession: vi.fn(async () => {
@@ -932,57 +992,158 @@ describe("CopilotAgentService managed sessions", () => {
     await service.createManagedAgent(
       configuration("midi-agent", {
         skills: ["midi-compose"],
-        skillDirectories: ["/repo/midi-skills"],
-        availableSkills: ["midi-compose", "mix-review"],
+        availableSkills,
       }),
     );
     await service.createManagedAgent(
       configuration("mix-agent", {
         skills: ["mix-review"],
-        skillDirectories: ["/repo/mix-skills"],
-        availableSkills: ["midi-compose", "mix-review"],
+        availableSkills,
       }),
     );
 
     const midiConfig = createSession.mock.calls[1]?.[0];
     const mixConfig = createSession.mock.calls[2]?.[0];
-    expect(midiConfig?.customAgents?.[0]?.skills).toEqual(["midi-compose"]);
-    expect(midiConfig?.skillDirectories).toEqual(["/repo/midi-skills"]);
-    expect(mixConfig?.customAgents?.[0]?.skills).toEqual(["mix-review"]);
-    expect(mixConfig?.skillDirectories).toEqual(["/repo/mix-skills"]);
+    expect(midiConfig?.customAgents?.[0]).not.toHaveProperty("skills");
+    expect(midiConfig).not.toHaveProperty("skillDirectories");
+    expect(mixConfig?.customAgents?.[0]).not.toHaveProperty("skills");
+    expect(mixConfig).not.toHaveProperty("skillDirectories");
+    expect(midiConfig?.systemMessage?.content).toContain("name: midi-compose");
+    expect(midiConfig?.systemMessage?.content).not.toContain(
+      "Keep phrases playable.",
+    );
+    expect(mixConfig?.systemMessage?.content).toContain("name: mix-review");
+    expect(mixConfig?.systemMessage?.content).not.toContain(
+      "Preserve dynamics.",
+    );
+    expect(midiConfig?.availableTools).toContain("custom:skill");
+    const midiSkillTool = midiConfig?.tools?.find(
+      (tool) => tool.name === "skill",
+    );
+    await expect(
+      midiSkillTool?.handler?.(
+        { skill_name: "midi-compose" },
+        {
+          sessionId: "midi-session",
+          toolCallId: "skill-call-1",
+          toolName: "skill",
+          arguments: { skill_name: "midi-compose" },
+        },
+      ),
+    ).resolves.toContain("Keep phrases playable.");
+    await expect(
+      midiSkillTool?.handler?.(
+        { skill_name: "mix-review" },
+        {
+          sessionId: "midi-session",
+          toolCallId: "skill-call-2",
+          toolName: "skill",
+          arguments: { skill_name: "mix-review" },
+        },
+      ),
+    ).rejects.toThrow("not enabled");
+    await expect(
+      midiConfig?.onPermissionRequest?.(
+        {
+          kind: "custom-tool",
+          toolName: "skill",
+          toolDescription: "Load a skill",
+          args: { skill_name: "midi-compose" },
+        },
+        { sessionId: "midi-session" },
+      ),
+    ).resolves.toEqual({ kind: "approve-once" });
+    midiSession.emit(toolStart("skill-load", "skill"));
+    midiSession.emit({
+      type: "tool.execution_complete",
+      id: "complete-skill-load",
+      parentId: null,
+      timestamp: "2026-08-08T00:00:03.000Z",
+      data: {
+        toolCallId: "skill-load",
+        success: true,
+        result: { content: "Keep phrases playable." },
+      },
+    });
+    const completedSkillLoad = received.find(
+      (event) =>
+        event.type === "operation.completed" &&
+        event.operationId === "skill-load",
+    );
+    expect(completedSkillLoad).toMatchObject({
+      type: "operation.completed",
+      operationId: "skill-load",
+    });
+    expect(completedSkillLoad).not.toHaveProperty("result");
 
     await expect(
       service.invokeManagedAgentSkill(
         "midi-agent",
         "/midi-compose keep the pickup notes and syncopation",
       ),
-    ).resolves.toBe(
-      "reply:midi-session:/midi-compose keep the pickup notes and syncopation",
-    );
+    ).resolves.toContain("keep the pickup notes and syncopation");
     await expect(
       service.sendToManagedAgent("mix-agent", "/mix-review preserve dynamics"),
-    ).resolves.toBe("reply:mix-session:/mix-review preserve dynamics");
+    ).resolves.toContain("preserve dynamics");
+    await expect(
+      service.invokeManagedAgentSkill("mix-agent", "/mix-review"),
+    ).resolves.toContain("Follow these skill instructions for this turn.");
     await expect(
       service.sendToManagedAgent("midi-agent", "Write a legacy prompt"),
     ).resolves.toBe("reply:midi-session:Write a legacy prompt");
 
-    expect(midiSession.prompts).toEqual([
-      "/midi-compose keep the pickup notes and syncopation",
-      "Write a legacy prompt",
-    ]);
-    expect(mixSession.prompts).toEqual(["/mix-review preserve dynamics"]);
+    expect(midiSession.prompts[0]).toContain("Keep phrases playable.");
+    expect(midiSession.prompts[0]).toContain(
+      "keep the pickup notes and syncopation",
+    );
+    expect(midiSession.prompts[1]).toBe("Write a legacy prompt");
+    expect(mixSession.prompts[0]).toContain("Preserve dynamics.");
+    expect(mixSession.prompts[0]).toContain("preserve dynamics");
+    expect(mixSession.prompts[1]).toContain(
+      "Follow these skill instructions for this turn.",
+    );
     await expect(
       service.invokeManagedAgentSkill("midi-agent", "/mix-review rebalance"),
-    ).rejects.toThrow(
-      "Skill '/mix-review' is not assigned to managed agent 'midi-agent'.",
-    );
+    ).resolves.toContain("rebalance");
+    expect(midiSession.prompts[2]).toContain("Preserve dynamics.");
     await expect(
       service.invokeManagedAgentSkill("midi-agent", "/unknown-skill request"),
     ).rejects.toThrow("Unknown skill '/unknown-skill'.");
     await expect(
       service.sendToManagedAgent("midi-agent", "/Not-A-Skill request"),
     ).rejects.toThrow("Invalid skill invocation");
-    expect(midiSession.prompts).toHaveLength(2);
+    expect(midiSession.prompts).toHaveLength(3);
+    midiHistory.push(
+      userMessage(
+        "direct-skill-user",
+        midiSession.prompts[0]!,
+        "2026-08-08T00:00:00.000Z",
+      ),
+    );
+    await expect(service.getManagedAgentHistory("midi-agent")).resolves.toEqual(
+      [
+        expect.objectContaining({
+          role: "user",
+          content: "/midi-compose keep the pickup notes and syncopation",
+        }),
+      ],
+    );
+
+    await writeFile(
+      midiSkill.sourcePath,
+      "---\nname: midi-compose\ndescription: Changed.\n---\n\n# Changed",
+    );
+    await expect(
+      midiSkillTool?.handler?.(
+        { skill_name: "midi-compose" },
+        {
+          sessionId: "midi-session",
+          toolCallId: "skill-call-3",
+          toolName: "skill",
+          arguments: { skill_name: "midi-compose" },
+        },
+      ),
+    ).rejects.toThrow("changed after the catalog was loaded");
 
     await service.stop();
   });
@@ -1287,7 +1448,7 @@ describe("CopilotAgentService managed sessions", () => {
       systemPrompt: "Updated managed prompt",
       resolvedTools: ["ableton_session_inspect", "ableton_tracks_create"],
       skills: ["mix-balance"],
-      skillDirectories: ["/repo/skills"],
+      availableSkills: [skillDescriptor("mix-balance")],
     });
     await service.reconfigureManagedAgent(updated);
 
@@ -1298,6 +1459,7 @@ describe("CopilotAgentService managed sessions", () => {
     expect(latestResumeConfig?.availableTools).toEqual([
       "custom:ableton_session_inspect",
       "custom:ableton_tracks_create",
+      "custom:skill",
     ]);
     expect(latestResumeConfig?.customAgents).toEqual([
       {
@@ -1305,12 +1467,14 @@ describe("CopilotAgentService managed sessions", () => {
         displayName: "Updated Managed Agent",
         description: "Updated managed session",
         prompt: "Updated managed prompt",
-        tools: ["ableton_session_inspect", "ableton_tracks_create"],
+        tools: ["ableton_session_inspect", "ableton_tracks_create", "skill"],
         infer: false,
-        skills: ["mix-balance"],
       },
     ]);
-    expect(latestResumeConfig?.skillDirectories).toEqual(["/repo/skills"]);
+    expect(latestResumeConfig).not.toHaveProperty("skillDirectories");
+    expect(latestResumeConfig?.systemMessage?.content).toContain(
+      "name: mix-balance",
+    );
     await expect(service.send("still legacy")).resolves.toBe(
       "legacy:still legacy",
     );

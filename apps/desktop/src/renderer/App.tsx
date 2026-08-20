@@ -5,6 +5,7 @@ import {
 } from "@ableton-agent/agent-config/skill-invocation";
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -352,10 +353,9 @@ export async function cancelWorkspaceAgent(
 
 export function App(): React.JSX.Element {
   const [state, dispatch] = useReducer(desktopReducer, initialState);
-  const [composer, setComposer] = useState("");
-  const [composerError, setComposerError] = useState("");
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const hydratedAgents = useRef(new Set<string>());
+  const timelineScrollPositions = useRef(new Map<string, number>());
 
   useEffect(() => {
     const pendingDeltas = new Map<
@@ -398,9 +398,6 @@ export function App(): React.JSX.Element {
   }, []);
   const selectedInstanceId = selectedAgentInstance(state)?.id;
   const activeSessionId = state.sessions[0]?.id;
-  useEffect(() => {
-    setComposerError("");
-  }, [selectedInstanceId]);
   useEffect(() => {
     if (selectedInstanceId === undefined || activeSessionId === undefined)
       return;
@@ -452,32 +449,6 @@ export function App(): React.JSX.Element {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [state]);
 
-  const submit = async (event: FormEvent): Promise<void> => {
-    event.preventDefault();
-    const message = composer.trim();
-    if (!message) return;
-    setComposerError("");
-    setComposer("");
-    try {
-      await sendComposerMessage(window.desktop, state, message, dispatch);
-    } catch (error) {
-      const messageText =
-        error instanceof Error ? error.message : "Agent message failed";
-      if (message.startsWith("/")) setComposer(message);
-      setComposerError(messageText);
-      dispatch({
-        type: "event",
-        event: {
-          type: "diagnostic",
-          level: "error",
-          message: messageText,
-        },
-      });
-    } finally {
-      composerRef.current?.focus();
-    }
-  };
-
   return (
     <div className="app-shell">
       <ConnectionHeader state={state} dispatch={dispatch} />
@@ -515,7 +486,11 @@ export function App(): React.JSX.Element {
             detail="Reload the window; main-process services remain isolated."
           />
         ) : state.activeView === "workspace" ? (
-          <Workspace state={state} dispatch={dispatch} />
+          <Workspace
+            state={state}
+            dispatch={dispatch}
+            timelineScrollPositions={timelineScrollPositions.current}
+          />
         ) : state.activeView === "agents" ? (
           <AgentsView state={state} dispatch={dispatch} />
         ) : state.activeView === "outputs" ? (
@@ -530,17 +505,9 @@ export function App(): React.JSX.Element {
           <SettingsView state={state} dispatch={dispatch} />
         )}
       </main>
-      <Composer
+      <DesktopComposer
         state={state}
-        value={composer}
-        busy={false}
         composerRef={composerRef}
-        error={composerError}
-        onChange={(value) => {
-          setComposer(value);
-          setComposerError("");
-        }}
-        onSubmit={submit}
         dispatch={dispatch}
       />
     </div>
@@ -1077,9 +1044,11 @@ export function ConnectionHeader({
 export function Workspace({
   state,
   dispatch,
+  timelineScrollPositions,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+  timelineScrollPositions?: Map<string, number> | undefined;
 }): React.JSX.Element {
   const activeAgent = selectedAgentInstance(state);
   return (
@@ -1100,7 +1069,7 @@ export function Workspace({
             )}
           </span>
         </div>
-        <Timeline state={state} />
+        <Timeline state={state} scrollPositions={timelineScrollPositions} />
       </section>
       <Inspector state={state} dispatch={dispatch} />
     </div>
@@ -1931,10 +1900,19 @@ export function ProjectOutline({
 
 export function Timeline({
   state,
+  scrollPositions,
 }: {
   state: DesktopState;
+  scrollPositions?: Map<string, number> | undefined;
 }): React.JSX.Element {
   const workspace = selectedAgentWorkspace(state);
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const scrollKey = selectedAgentInstance(state)?.id ?? "no-agent";
+  useLayoutEffect(() => {
+    if (timelineRef.current !== null) {
+      timelineRef.current.scrollTop = scrollPositions?.get(scrollKey) ?? 0;
+    }
+  }, [scrollKey, scrollPositions]);
   const items = useMemo(
     () =>
       [
@@ -1952,7 +1930,15 @@ export function Timeline({
     [workspace.messages, workspace.operations],
   );
   return (
-    <div className="timeline" aria-live="polite" aria-label="Recent activity">
+    <div
+      ref={timelineRef}
+      className="timeline"
+      aria-live="polite"
+      aria-label="Recent activity"
+      onScroll={(event) =>
+        scrollPositions?.set(scrollKey, event.currentTarget.scrollTop)
+      }
+    >
       {items.length === 0 && (
         <EmptyState
           title="Ready to create"
@@ -2709,6 +2695,68 @@ export function SettingsView({
         through OS-backed encryption.
       </p>
     </section>
+  );
+}
+
+export function DesktopComposer({
+  state,
+  composerRef,
+  dispatch,
+}: {
+  state: DesktopState;
+  composerRef: React.RefObject<HTMLTextAreaElement | null>;
+  dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+}): React.JSX.Element {
+  const [value, setValue] = useState("");
+  const [error, setError] = useState("");
+  const selectedInstanceId = selectedAgentInstance(state)?.id;
+
+  useEffect(() => {
+    setError("");
+  }, [selectedInstanceId]);
+
+  const submit = async (event: FormEvent): Promise<void> => {
+    event.preventDefault();
+    const message = value.trim();
+    if (!message) return;
+    setError("");
+    setValue("");
+    try {
+      await sendComposerMessage(window.desktop, state, message, dispatch);
+    } catch (submitError) {
+      const messageText =
+        submitError instanceof Error
+          ? submitError.message
+          : "Agent message failed";
+      if (message.startsWith("/")) setValue(message);
+      setError(messageText);
+      dispatch({
+        type: "event",
+        event: {
+          type: "diagnostic",
+          level: "error",
+          message: messageText,
+        },
+      });
+    } finally {
+      composerRef.current?.focus();
+    }
+  };
+
+  return (
+    <Composer
+      state={state}
+      value={value}
+      busy={false}
+      composerRef={composerRef}
+      error={error}
+      onChange={(nextValue) => {
+        setValue(nextValue);
+        setError("");
+      }}
+      onSubmit={submit}
+      dispatch={dispatch}
+    />
   );
 }
 

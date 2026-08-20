@@ -5,6 +5,7 @@ import {
 } from "@ableton-agent/agent-config/skill-invocation";
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -354,6 +355,7 @@ export function App(): React.JSX.Element {
   const [state, dispatch] = useReducer(desktopReducer, initialState);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const hydratedAgents = useRef(new Set<string>());
+  const timelineScrollPositions = useRef(new Map<string, number>());
 
   useEffect(() => {
     const pendingDeltas = new Map<
@@ -484,7 +486,11 @@ export function App(): React.JSX.Element {
             detail="Reload the window; main-process services remain isolated."
           />
         ) : state.activeView === "workspace" ? (
-          <Workspace state={state} dispatch={dispatch} />
+          <Workspace
+            state={state}
+            dispatch={dispatch}
+            timelineScrollPositions={timelineScrollPositions.current}
+          />
         ) : state.activeView === "agents" ? (
           <AgentsView state={state} dispatch={dispatch} />
         ) : state.activeView === "outputs" ? (
@@ -1038,9 +1044,11 @@ export function ConnectionHeader({
 export function Workspace({
   state,
   dispatch,
+  timelineScrollPositions,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+  timelineScrollPositions?: Map<string, number> | undefined;
 }): React.JSX.Element {
   const activeAgent = selectedAgentInstance(state);
   return (
@@ -1061,7 +1069,7 @@ export function Workspace({
             )}
           </span>
         </div>
-        <Timeline state={state} />
+        <Timeline state={state} scrollPositions={timelineScrollPositions} />
       </section>
       <Inspector state={state} dispatch={dispatch} />
     </div>
@@ -1892,10 +1900,19 @@ export function ProjectOutline({
 
 export function Timeline({
   state,
+  scrollPositions,
 }: {
   state: DesktopState;
+  scrollPositions?: Map<string, number> | undefined;
 }): React.JSX.Element {
   const workspace = selectedAgentWorkspace(state);
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const scrollKey = selectedAgentInstance(state)?.id ?? "no-agent";
+  useLayoutEffect(() => {
+    if (timelineRef.current !== null) {
+      timelineRef.current.scrollTop = scrollPositions?.get(scrollKey) ?? 0;
+    }
+  }, [scrollKey, scrollPositions]);
   const items = useMemo(
     () =>
       [
@@ -1913,7 +1930,15 @@ export function Timeline({
     [workspace.messages, workspace.operations],
   );
   return (
-    <div className="timeline" aria-live="polite" aria-label="Recent activity">
+    <div
+      ref={timelineRef}
+      className="timeline"
+      aria-live="polite"
+      aria-label="Recent activity"
+      onScroll={(event) =>
+        scrollPositions?.set(scrollKey, event.currentTarget.scrollTop)
+      }
+    >
       {items.length === 0 && (
         <EmptyState
           title="Ready to create"

@@ -126,27 +126,27 @@ Likely files:
 
 ## Phase 4: application event runtime and delivery
 
-- [ ] Add an application-owned Live Event runtime that keeps one active Remote
+- [x] Add an application-owned Live Event runtime that keeps one active Remote
   Script subscription per enabled event definition.
-- [ ] Maintain resolution status, latest state, and bounded per-event history.
-- [ ] Fan one occurrence out to every enabled `AgentEventListener`.
-- [ ] Reuse or extract Output delivery primitives for per-agent inboxes,
+- [x] Maintain resolution status, latest state, and bounded per-event history.
+- [x] Fan one occurrence out to every enabled `AgentEventListener`.
+- [x] Reuse or extract Output delivery primitives for per-agent inboxes,
   cursors, automatic-turn scheduling, and deduplication without adding Live
   Events to the Output producer inventory.
-- [ ] Implement `Next prompt`: latest-only continuous context and bounded
+- [x] Implement `Next prompt`: latest-only continuous context and bounded
   ordered discrete context.
-- [ ] Implement `Automatic`: settled continuous delivery and ordered discrete
+- [x] Implement `Automatic`: settled continuous delivery and ordered discrete
   delivery through the target managed agent session.
-- [ ] Prepend the configured message immediately before the normalized event
+- [x] Prepend the configured message immediately before the normalized event
   summary.
-- [ ] Preserve normal agent tool permissions, edit scopes, auto-approval, and
+- [x] Preserve normal agent tool permissions, edit scopes, auto-approval, and
   mutation locks for automatic turns.
-- [ ] Define busy-agent behavior: queue one delivery per discrete occurrence
+- [x] Define busy-agent behavior: queue one delivery per discrete occurrence
   and coalesce continuous deliveries to the latest unsettled value.
-- [ ] Reconcile from current state after a bridge event gap rather than
+- [x] Reconcile from current state after a bridge event gap rather than
   replaying uncertain transitions.
 - [ ] Transactionally remove agent listeners when an event is deleted.
-- [ ] Add unit tests for fan-out, per-agent isolation, response modes, prefix
+- [x] Add unit tests for fan-out, per-agent isolation, response modes, prefix
   formatting, coalescing, deletion, reconnect, and failure isolation.
 
 Likely files:

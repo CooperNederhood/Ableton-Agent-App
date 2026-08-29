@@ -7,6 +7,10 @@ import {
   constructNextPromptSignalContext,
   type SignalContextOptions,
 } from "./signal-delivery.js";
+import {
+  constructNextPromptLiveEventContext,
+  type LiveEventContextOptions,
+} from "./live-event-delivery.js";
 
 const NON_RETRYABLE_CODES = new Set([
   "approval_denied",
@@ -22,6 +26,7 @@ export interface AgentPolicyServices {
   getAbletonStatus(): Promise<ConnectionStatus>;
   inspectSession(): Promise<SessionSnapshot>;
   signalContext?: SignalContextOptions;
+  liveEventContext?: LiveEventContextOptions;
   promptContextEnabled?: () => boolean;
   mutationBlocked?: () => boolean;
 }
@@ -171,6 +176,27 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
           if (constructed.additionalContext !== undefined) {
             parts.push(constructed.additionalContext);
             await signalOptions.provider.markDelivered(
+              input.sessionId,
+              constructed.deliveryIds,
+            );
+          }
+        }
+        const liveEventOptions = services.liveEventContext;
+        if (
+          liveEventOptions?.provider !== undefined &&
+          (services.promptContextEnabled?.() ?? true)
+        ) {
+          const pending =
+            await liveEventOptions.provider.getPendingLiveEventContexts(
+              input.sessionId,
+            );
+          const constructed = constructNextPromptLiveEventContext(
+            pending,
+            liveEventOptions,
+          );
+          if (constructed.additionalContext !== undefined) {
+            parts.push(constructed.additionalContext);
+            await liveEventOptions.provider.markLiveEventContextsDelivered(
               input.sessionId,
               constructed.deliveryIds,
             );

@@ -159,6 +159,7 @@ export async function createDesktopComposition(
     projectSessionStore,
     agentCatalog,
     signals: runtime.signals,
+    liveEvents: runtime.liveEvents,
     ...(options.logger === undefined ? {} : { logger: options.logger }),
     startupNotices: notices,
     ...(options.onError === undefined ? {} : { onError: options.onError }),

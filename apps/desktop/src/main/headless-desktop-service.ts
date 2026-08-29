@@ -17,6 +17,7 @@ import type {
 } from "@ableton-agent/protocol";
 import {
   DefaultSignalRuntime,
+  type LiveEventRuntime,
   type SignalRuntime,
   type SignalRuntimeEvent,
 } from "@ableton-agent/runtime";
@@ -100,6 +101,7 @@ export interface HeadlessDesktopServiceOptions {
   agentCatalog?: Pick<AgentCatalogService, "current" | "refresh"> &
     Partial<Pick<AgentCatalogService, "runtimeSkills">>;
   signals?: SignalRuntime;
+  liveEvents?: LiveEventRuntime;
   /**
    * Composition-time findings (e.g. a missing bridge token) surfaced through
    * diagnostics, because they happen before any renderer can receive events.
@@ -151,6 +153,7 @@ export class HeadlessDesktopService implements DesktopService {
   readonly #application: HeadlessApplication;
   readonly #approvals: ApprovalCoordinator;
   readonly #signals: SignalRuntime;
+  readonly #liveEvents: LiveEventRuntime | undefined;
   readonly #logger: Logger;
   #unsubscribeShared: (() => void) | undefined;
   #unsubscribeApprovals: (() => void) | undefined;
@@ -185,6 +188,7 @@ export class HeadlessDesktopService implements DesktopService {
     this.#application = options.application;
     this.#approvals = options.approvals;
     this.#signals = options.signals ?? new DefaultSignalRuntime({});
+    this.#liveEvents = options.liveEvents;
     this.#logger = options.logger ?? noopLogger;
   }
 
@@ -3047,6 +3051,7 @@ export class HeadlessDesktopService implements DesktopService {
 
   #clearRuntimeAssignments(): void {
     this.#signals.setActiveAgentInstances([]);
+    this.#liveEvents?.setActiveAgentInstances([]);
     for (const assignment of this.#signals.listAssignments()) {
       this.#signals.removeAssignment(assignment.assignmentId);
     }
@@ -3056,11 +3061,22 @@ export class HeadlessDesktopService implements DesktopService {
     this.#clearRuntimeAssignments();
     const session = this.#activeSession();
     if (session === undefined) {
+      this.#liveEvents?.setConfiguration([], []);
       this.#emitOutputs();
       return;
     }
     const activeAgentIds = session.activeAgents.map(({ id }) => id);
     this.#signals.setActiveAgentInstances(activeAgentIds);
+    this.#liveEvents?.setActiveAgentInstances(activeAgentIds);
+    this.#liveEvents?.setConfiguration(
+      session.liveEvents,
+      session.activeAgents.flatMap((agent) =>
+        agent.eventListeners.map((listener) => ({
+          agentInstanceId: agent.id,
+          listener,
+        })),
+      ),
+    );
     const activeAssignmentIds = new Set(
       session.activeAgents.flatMap((agent) =>
         agent.outputSubscriptions.map(({ assignmentId }) => assignmentId),

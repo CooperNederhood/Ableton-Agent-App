@@ -230,6 +230,9 @@ importers:
       '@ableton-agent/ableton-contracts':
         specifier: workspace:*
         version: link:../ableton-contracts
+      '@ableton-agent/agent-config':
+        specifier: workspace:*
+        version: link:../agent-config
       '@ableton-agent/application':
         specifier: workspace:*
         version: link:../application

@@ -102,11 +102,19 @@ export const capabilityDocumentSchema = z.object({
   liveVersion: z.string().min(1),
   remoteScriptVersion: z.string().min(1),
   projectId: z.string().min(1),
+  projectName: z.string().min(1).optional(),
+  saved: z.boolean().optional(),
   capabilities: z.record(z.string(), z.boolean()),
   limits: z.object({
     maxFrameBytes: z.number().int().positive(),
     maxBatchItems: z.number().int().positive(),
   }),
+});
+
+export const projectIdentitySchema = z.object({
+  projectId: z.string().min(1),
+  projectName: z.string().min(1),
+  saved: z.boolean(),
 });
 
 export const pingResultSchema = z.object({
@@ -943,6 +951,7 @@ export const setArrangementClipPropertiesResultSchema = z.object({
 
 export type HelloParams = z.infer<typeof helloParamsSchema>;
 export type CapabilityDocument = z.infer<typeof capabilityDocumentSchema>;
+export type ProjectIdentity = z.infer<typeof projectIdentitySchema>;
 export type PingResult = z.infer<typeof pingResultSchema>;
 export type SessionSnapshot = z.infer<typeof sessionSnapshotSchema>;
 export type SetTempoParams = z.infer<typeof setTempoParamsSchema>;

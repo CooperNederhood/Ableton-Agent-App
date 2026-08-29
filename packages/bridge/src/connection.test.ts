@@ -99,6 +99,49 @@ afterEach(async () => {
 });
 
 describe("Ableton bridge connection manager", () => {
+  it("reads and parses changing project identity without reconnecting", async () => {
+    let identity = {
+      projectId: "project-before-save",
+      projectName: "Untitled",
+      saved: false,
+    };
+    const testServer = await startServer((request, socket) => {
+      if (request.command !== "project.get_identity") return;
+      const response: ResponseEnvelope = {
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "response",
+        requestId: request.requestId,
+        ok: true,
+        result: identity,
+        warnings: [],
+      };
+      socket.write(encodeFrame(response));
+    });
+    servers.push(testServer.server);
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port: testServer.port,
+    });
+    services.push(service);
+
+    await service.start();
+    await expect(service.getProjectIdentity()).resolves.toEqual(identity);
+
+    identity = {
+      projectId: "project-after-save-as",
+      projectName: "Saved Set",
+      saved: true,
+    };
+    await expect(service.getProjectIdentity()).resolves.toEqual(identity);
+    expect(testServer.sockets).toHaveLength(1);
+    expect(
+      testServer.requests.filter(
+        (request) => request.command === "project.get_identity",
+      ),
+    ).toHaveLength(2);
+  });
+
   it("stays disconnected when stopped during an in-flight handshake", async () => {
     const testServer = await startServer(undefined, false);
     servers.push(testServer.server);

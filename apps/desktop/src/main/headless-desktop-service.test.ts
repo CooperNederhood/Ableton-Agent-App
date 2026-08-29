@@ -2,7 +2,10 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createFakeApplication } from "@ableton-agent/test-support";
+import {
+  createFakeApplication,
+  defaultFakeState,
+} from "@ableton-agent/test-support";
 import type { AgentSkillDescriptor } from "@ableton-agent/application";
 import type { SignalRuntime, SignalRuntimeEvent } from "@ableton-agent/runtime";
 import type {
@@ -23,6 +26,10 @@ import {
 import { ApprovalCoordinator, ApprovalPolicyController } from "./approvals.js";
 import { JsonPreferencesStore, JsonSessionStore } from "./desktop-service.js";
 import { HeadlessDesktopService } from "./headless-desktop-service.js";
+import {
+  JsonProjectSessionStore,
+  type ProjectSessionStore,
+} from "./project-session-store.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -135,6 +142,8 @@ async function harness(
     onAutoApprovedAgentIdsChange?: (
       agentInstanceIds: ReadonlySet<string>,
     ) => void;
+    projectSessionStore?: ProjectSessionStore;
+    projectIdentityPollIntervalMs?: number;
   } = {},
 ) {
   const directory = await temporaryDirectory();
@@ -145,12 +154,14 @@ async function harness(
   const fake = createFakeApplication(options);
   const approvals = new ApprovalCoordinator();
   const catalog = serviceOptions.agentCatalog?.current ?? defaultCatalog();
-  const { agentCatalog, ...remainingServiceOptions } = serviceOptions;
+  const { agentCatalog, projectSessionStore, ...remainingServiceOptions } =
+    serviceOptions;
   const service = new HeadlessDesktopService({
     application: fake.application,
     approvals,
     preferencesStore,
     sessionStore,
+    ...(projectSessionStore === undefined ? {} : { projectSessionStore }),
     agentCatalog: agentCatalog ?? {
       current: catalog,
       refresh: () => Promise.resolve(catalog),
@@ -927,7 +938,7 @@ describe("desktop adapter over the shared application", () => {
   ])(
     "rolls back every auto-approval effect when an all-agent $requested save fails",
     async ({ initial, requested }) => {
-      let policy!: ApprovalPolicyController;
+      const policyReference: { current?: ApprovalPolicyController } = {};
       const published: string[][] = [];
       const { service, approvals, sessionStore, preferencesStore, events } =
         await harness(
@@ -935,11 +946,12 @@ describe("desktop adapter over the shared application", () => {
           {
             onAutoApprovedAgentIdsChange: (ids) => {
               published.push([...ids].sort());
-              policy?.setAutoApprovedAgentInstanceIds(ids);
+              policyReference.current?.setAutoApprovedAgentInstanceIds(ids);
             },
           },
         );
-      policy = new ApprovalPolicyController("risky", approvals);
+      const policy = new ApprovalPolicyController("risky", approvals);
+      policyReference.current = policy;
       await service.start();
       const first = (await service.listActiveAgents())[0]!;
       const second = await service.createActiveAgent("default");
@@ -1077,13 +1089,14 @@ describe("desktop adapter over the shared application", () => {
         if (ableton.state.status.state !== "connected") {
           throw new Error("Expected the fake Ableton service to be connected");
         }
-        ableton.state.status = {
-          ...ableton.state.status,
-          projectId: "ordered-project",
+        ableton.state.projectIdentity = {
+          projectId: ableton.state.status.projectId,
+          projectName: "Ordered Project",
+          saved: true,
         };
         await service.getSnapshot();
       },
-      isMutationApplied: (session) => session.projectId === "ordered-project",
+      isMutationApplied: (session) => session.projectName === "Ordered Project",
     });
   });
 
@@ -2133,6 +2146,326 @@ describe("desktop adapter over the shared application", () => {
     await restarted.service.stop();
   });
 
+  it("starts clean instead of resuming the newest session from another Live Set", async () => {
+    const directory = await temporaryDirectory();
+    const preferencesStore = new JsonPreferencesStore(
+      join(directory, "preferences.json"),
+    );
+    const sessionStore = new JsonSessionStore(join(directory, "sessions.json"));
+    const projectSessionStore = new JsonProjectSessionStore(
+      join(directory, "project-sessions.json"),
+    );
+    const catalog = defaultCatalog();
+    const build = (projectId: string, projectName: string) => {
+      const ableton = defaultFakeState();
+      if (ableton.status.state !== "connected") {
+        throw new Error("Expected connected fake state");
+      }
+      ableton.status = { ...ableton.status, projectId };
+      ableton.projectIdentity = { projectId, projectName, saved: true };
+      const fake = createFakeApplication({ ableton });
+      return {
+        fake,
+        service: new HeadlessDesktopService({
+          application: fake.application,
+          approvals: new ApprovalCoordinator(),
+          preferencesStore,
+          sessionStore,
+          projectSessionStore,
+          agentCatalog: {
+            current: catalog,
+            refresh: () => Promise.resolve(catalog),
+          },
+        }),
+      };
+    };
+
+    const first = build("project-a", "Project A");
+    await first.service.start();
+    const firstSession = (await first.service.getSessions())[0]!;
+    await first.service.sendToActiveAgent(
+      firstSession.activeAgents[0]!.id,
+      "Remember project A",
+    );
+    await settle();
+    await first.service.stop();
+
+    const second = build("project-b", "Project B");
+    await second.service.start();
+    const active = (await second.service.getSessions())[0]!;
+    expect(active.id).not.toBe(firstSession.id);
+    expect(active.projectId).toBe("project-b");
+    await expect(
+      second.service.hydrateActiveAgentHistory(active.activeAgents[0]!.id),
+    ).resolves.toEqual([]);
+    await second.service.stop();
+  });
+
+  it("keeps unsaved Live Set sessions ephemeral across shutdown", async () => {
+    const directory = await temporaryDirectory();
+    const ableton = defaultFakeState();
+    ableton.projectIdentity = {
+      projectId: "untitled-name-hash",
+      projectName: "Untitled",
+      saved: false,
+    };
+    const fake = createFakeApplication({ ableton });
+    const sessionStore = new JsonSessionStore(join(directory, "sessions.json"));
+    const service = new HeadlessDesktopService({
+      application: fake.application,
+      approvals: new ApprovalCoordinator(),
+      preferencesStore: new JsonPreferencesStore(
+        join(directory, "preferences.json"),
+      ),
+      sessionStore,
+      projectSessionStore: new JsonProjectSessionStore(
+        join(directory, "project-sessions.json"),
+      ),
+      agentCatalog: {
+        current: defaultCatalog(),
+        refresh: () => Promise.resolve(defaultCatalog()),
+      },
+    });
+
+    await service.start();
+    const active = (await service.getSessions())[0]!;
+    expect(active.projectId).toBeUndefined();
+    await service.sendToActiveAgent(
+      active.activeAgents[0]!.id,
+      "Temporary idea",
+    );
+    await settle();
+    await service.stop();
+
+    await expect(sessionStore.load()).resolves.toEqual([]);
+  });
+
+  it("requests a decision when the open Live Set changes mid-run", async () => {
+    const directory = await temporaryDirectory();
+    const projectSessionStore = new JsonProjectSessionStore(
+      join(directory, "project-sessions.json"),
+    );
+    const { service, ableton, events } = await harness(
+      {},
+      { projectSessionStore },
+    );
+    await service.start();
+    ableton.state.projectIdentity = {
+      projectId: "project-b",
+      projectName: "Project B",
+      saved: true,
+    };
+    if (ableton.state.status.state === "connected") {
+      ableton.state.status = {
+        ...ableton.state.status,
+        projectId: "project-b",
+      };
+    }
+
+    await service.getSnapshot();
+    const requested = events.find(
+      (event) => event.type === "project.transition_requested",
+    );
+    expect(requested).toMatchObject({
+      transition: {
+        kind: "unassociated",
+        project: { projectId: "project-b" },
+        decisions: ["fork-current", "start-fresh"],
+      },
+    });
+    const activeAgentId = (await service.listActiveAgents())[0]!.id;
+    expect(() =>
+      service.sendToActiveAgent(activeAgentId, "Do not run"),
+    ).toThrow("transition decision");
+    if (requested?.type !== "project.transition_requested") {
+      throw new Error("Expected a pending project transition");
+    }
+    const session = await service.resolveProjectTransition(
+      requested.transition.token,
+      "start-fresh",
+    );
+    expect(session.projectId).toBe("project-b");
+    expect(session.productionPlan).toEqual([]);
+    await service.stop();
+  });
+
+  it("detects a Live Set change through the lifecycle-owned identity monitor", async () => {
+    const directory = await temporaryDirectory();
+    const { service, ableton, events } = await harness(
+      {},
+      {
+        projectSessionStore: new JsonProjectSessionStore(
+          join(directory, "project-sessions.json"),
+        ),
+        projectIdentityPollIntervalMs: 5,
+      },
+    );
+    await service.start();
+    ableton.state.projectIdentity = {
+      projectId: "polled-project",
+      projectName: "Polled Project",
+      saved: true,
+    };
+
+    await vi.waitFor(
+      () => {
+        expect(
+          events.some(
+            (event) =>
+              event.type === "project.transition_requested" &&
+              event.transition.project.projectId === "polled-project",
+          ),
+        ).toBe(true);
+      },
+      { timeout: 500 },
+    );
+    await service.stop();
+  });
+
+  it("forks conversation context without sharing SDK sessions across Live Sets", async () => {
+    const directory = await temporaryDirectory();
+    const projectSessionStore = new JsonProjectSessionStore(
+      join(directory, "project-sessions.json"),
+    );
+    const { service, ableton, events } = await harness(
+      {},
+      { projectSessionStore },
+    );
+    await service.start();
+    const source = (await service.getSessions())[0]!;
+    const sourceAgent = source.activeAgents[0]!;
+    await service.sendToActiveAgent(sourceAgent.id, "Remember this direction");
+    await settle();
+    ableton.state.projectIdentity = {
+      projectId: "project-fork",
+      projectName: "Forked Project",
+      saved: true,
+    };
+    if (ableton.state.status.state === "connected") {
+      ableton.state.status = {
+        ...ableton.state.status,
+        projectId: "project-fork",
+      };
+    }
+    events.length = 0;
+    await service.getSnapshot();
+    const requested = events.find(
+      (event) => event.type === "project.transition_requested",
+    );
+    if (requested?.type !== "project.transition_requested") {
+      throw new Error("Expected a pending project transition");
+    }
+
+    const fork = await service.resolveProjectTransition(
+      requested.transition.token,
+      "fork-current",
+    );
+    expect(fork.projectId).toBe("project-fork");
+    expect(fork.id).not.toBe(source.id);
+    expect(fork.activeAgents[0]?.id).not.toBe(sourceAgent.id);
+    expect(fork.activeAgents[0]?.sdkSessionId).not.toBe(
+      sourceAgent.sdkSessionId,
+    );
+    await expect(
+      service.hydrateActiveAgentHistory(fork.activeAgents[0]!.id),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "user",
+          content: "Remember this direction",
+        }),
+      ]),
+    );
+    expect(
+      (await service.getSessions()).some(({ id }) => id === source.id),
+    ).toBe(true);
+    await service.stop();
+  });
+
+  it("resumes the canonical saved session when switching back to an associated Live Set", async () => {
+    const directory = await temporaryDirectory();
+    const preferencesStore = new JsonPreferencesStore(
+      join(directory, "preferences.json"),
+    );
+    const sessionStore = new JsonSessionStore(join(directory, "sessions.json"));
+    const projectSessionStore = new JsonProjectSessionStore(
+      join(directory, "project-sessions.json"),
+    );
+    const catalog = defaultCatalog();
+    const build = (projectId: string, projectName: string) => {
+      const ableton = defaultFakeState();
+      if (ableton.status.state !== "connected") {
+        throw new Error("Expected connected fake state");
+      }
+      ableton.status = { ...ableton.status, projectId };
+      ableton.projectIdentity = { projectId, projectName, saved: true };
+      const fake = createFakeApplication({ ableton });
+      const events: DesktopAppEvent[] = [];
+      const service = new HeadlessDesktopService({
+        application: fake.application,
+        approvals: new ApprovalCoordinator(),
+        preferencesStore,
+        sessionStore,
+        projectSessionStore,
+        agentCatalog: {
+          current: catalog,
+          refresh: () => Promise.resolve(catalog),
+        },
+      });
+      service.subscribe((event) => events.push(event));
+      return { ...fake, service, events };
+    };
+
+    const projectA = build("project-a", "Project A");
+    await projectA.service.start();
+    const projectASession = (await projectA.service.getSessions())[0]!;
+    await projectA.service.stop();
+
+    const projectB = build("project-b", "Project B");
+    await projectB.service.start();
+    const projectBSession = (await projectB.service.getSessions())[0]!;
+    await projectB.service.stop();
+
+    const activeA = build("project-a", "Project A");
+    await activeA.service.start();
+    expect((await activeA.service.getSessions())[0]?.id).toBe(
+      projectASession.id,
+    );
+    activeA.ableton.state.projectIdentity = {
+      projectId: "project-b",
+      projectName: "Project B",
+      saved: true,
+    };
+    if (activeA.ableton.state.status.state !== "connected") {
+      throw new Error("Expected connected fake state");
+    }
+    activeA.ableton.state.status = {
+      ...activeA.ableton.state.status,
+      projectId: "project-b",
+    };
+    activeA.events.length = 0;
+    await activeA.service.getSnapshot();
+    const requested = activeA.events.find(
+      (event) => event.type === "project.transition_requested",
+    );
+    expect(requested).toMatchObject({
+      transition: {
+        kind: "associated",
+        associatedSession: { id: projectBSession.id },
+        decisions: ["resume-associated", "start-fresh"],
+      },
+    });
+    if (requested?.type !== "project.transition_requested") {
+      throw new Error("Expected an associated project transition");
+    }
+    const resumed = await activeA.service.resolveProjectTransition(
+      requested.transition.token,
+      "resume-associated",
+    );
+    expect(resumed.id).toBe(projectBSession.id);
+    await activeA.service.stop();
+  });
+
   it("does not assign newly discovered outputs and hides disconnected producers", async () => {
     const directory = await temporaryDirectory();
     const fake = createFakeApplication();
@@ -3003,6 +3336,11 @@ describe("desktop adapter over the shared application", () => {
       ...ableton.state.status,
       projectId: "shutdown-project",
     };
+    ableton.state.projectIdentity = {
+      projectId: "shutdown-project",
+      projectName: "Shutdown Project",
+      saved: true,
+    };
 
     const inspectionEntered = deferred<void>();
     const releaseInspection = deferred<void>();
@@ -3057,13 +3395,12 @@ describe("desktop adapter over the shared application", () => {
 
     expect(lifecycle).toEqual([
       "snapshot:complete",
-      "project-sync:saved",
       "snapshot:event",
       "snapshot:event",
       "final:persistence",
       "application:stop",
     ]);
-    expect((await sessionStore.load())[0]?.projectId).toBe("shutdown-project");
+    expect((await sessionStore.load())[0]?.projectId).toBe("project-fake");
 
     const postStopLifecycle = [...lifecycle];
     const postStopSnapshotEvents = events.filter(

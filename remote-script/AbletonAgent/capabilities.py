@@ -2,14 +2,13 @@
 
 from __future__ import absolute_import, unicode_literals
 
-import hashlib
-
 try:
     from Live.Clip import MidiNoteSpecification
 except ImportError:  # pragma: no cover - available only inside Live
     MidiNoteSpecification = None
 
 from .protocol import DEFAULT_MAX_FRAME_BYTES
+from .identity import build_project_identity
 from .version import PROTOCOL_VERSION, REMOTE_SCRIPT_VERSION
 
 
@@ -32,11 +31,7 @@ def build_capability_document(
     note_editing_supported=None,
 ):
     live_version = application.get_version_string()
-    project_source = _lom_getattr(song, "file_path", "") or _lom_getattr(
-        song, "name", "untitled"
-    )
-    project_source = str(project_source)
-    project_id = hashlib.sha256(project_source.encode("utf-8")).hexdigest()[:24]
+    project_identity = build_project_identity(song)
     capabilities = {name: True for name in registry.metadata()}
     if note_editing_supported is None:
         note_editing_supported = MidiNoteSpecification is not None
@@ -201,14 +196,15 @@ def build_capability_document(
     for name, supported in browser_support.items():
         if name in capabilities:
             capabilities[name] = supported
-    return {
+    document = {
         "selectedProtocolVersion": PROTOCOL_VERSION,
         "liveVersion": live_version,
         "remoteScriptVersion": REMOTE_SCRIPT_VERSION,
-        "projectId": project_id,
         "capabilities": capabilities,
         "limits": {
             "maxFrameBytes": DEFAULT_MAX_FRAME_BYTES,
             "maxBatchItems": max_batch_items,
         },
     }
+    document.update(project_identity)
+    return document

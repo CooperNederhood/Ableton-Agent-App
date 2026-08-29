@@ -45,6 +45,7 @@ import type {
   SetSessionClipPropertiesParams,
   SetSessionClipPropertiesResult,
   PingResult,
+  ProjectIdentity,
   InspectArrangementParams,
   InspectArrangementResult,
   InspectArrangementMidiNotesParams,
@@ -2093,6 +2094,10 @@ export class HeadlessApplication {
 
   public getCapabilities(): Promise<CapabilityDocument> {
     return this.services.ableton.getCapabilities();
+  }
+
+  public getProjectIdentity(): Promise<ProjectIdentity> {
+    return this.services.ableton.getProjectIdentity();
   }
 
   public ping(): Promise<PingResult> {

@@ -49,6 +49,7 @@ import {
   inspectRackChainsResultSchema,
   encodeFrame,
   pingResultSchema,
+  projectIdentitySchema,
   sessionSnapshotSchema,
   setPlayingParamsSchema,
   setPlayingResultSchema,
@@ -125,6 +126,7 @@ import {
   type EventEnvelope,
   type MessageEnvelope,
   type PingResult,
+  type ProjectIdentity,
   type RequestEnvelope,
   type ResponseEnvelope,
   type SessionSnapshot,
@@ -212,6 +214,7 @@ export interface AbletonBridge {
   stop(): Promise<void>;
   getStatus(): Promise<ConnectionStatus>;
   getCapabilities(): Promise<CapabilityDocument>;
+  getProjectIdentity(): Promise<ProjectIdentity>;
   getProjectRevision(): number | undefined;
   subscribe(listener: (event: AbletonBridgeEvent) => void): () => void;
 }
@@ -376,6 +379,12 @@ export class AbletonBridgeService implements AbletonService {
 
   public async ping(): Promise<PingResult> {
     return pingResultSchema.parse(await this.#request("system.ping", {}));
+  }
+
+  public async getProjectIdentity(): Promise<ProjectIdentity> {
+    return projectIdentitySchema.parse(
+      await this.#request("project.get_identity", {}),
+    );
   }
 
   public async inspectSession(): Promise<SessionSnapshot> {

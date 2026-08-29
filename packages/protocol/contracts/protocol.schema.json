@@ -321,6 +321,8 @@
           "liveVersion": { "type": "string", "minLength": 1 },
           "remoteScriptVersion": { "type": "string", "minLength": 1 },
           "projectId": { "type": "string", "minLength": 1 },
+          "projectName": { "type": "string", "minLength": 1 },
+          "saved": { "type": "boolean" },
           "capabilities": {
             "type": "object",
             "propertyNames": { "type": "string" },
@@ -369,6 +371,27 @@
         "type": "object",
         "properties": { "pong": { "type": "boolean", "const": true } },
         "required": ["pong"],
+        "additionalProperties": false
+      }
+    },
+    "project.get_identity": {
+      "mutates": false,
+      "timeoutClass": "normal",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string", "minLength": 1 },
+          "projectName": { "type": "string", "minLength": 1 },
+          "saved": { "type": "boolean" }
+        },
+        "required": ["projectId", "projectName", "saved"],
         "additionalProperties": false
       }
     },

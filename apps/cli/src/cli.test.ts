@@ -91,6 +91,11 @@ function application(
     start: vi.fn(async () => undefined),
     stop: vi.fn(async () => undefined),
     getStatus: vi.fn(async () => status),
+    getProjectIdentity: vi.fn(async () => ({
+      projectId: "project",
+      projectName: "Test Set",
+      saved: true,
+    })),
     getCapabilities: vi.fn(async () => ({
       selectedProtocolVersion: 2 as const,
       liveVersion: "12.1",

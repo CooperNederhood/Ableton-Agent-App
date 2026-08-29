@@ -165,10 +165,11 @@ describe("preload API", () => {
     await expect(api.agents.setAutoApproval("all", true)).resolves.toEqual(
       response,
     );
-    expect(vi.mocked(transport).invoke).toHaveBeenCalledWith(
-      "agents:set-auto-approval",
-      { target: "all", enabled: true },
-    );
+    const invoke = vi.mocked(transport.invoke);
+    expect(invoke).toHaveBeenCalledWith("agents:set-auto-approval", {
+      target: "all",
+      enabled: true,
+    });
     await expect(
       api.agents.setAutoApproval("not-an-instance", true),
     ).rejects.toThrow();

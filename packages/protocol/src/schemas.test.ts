@@ -18,6 +18,7 @@ import {
   inspectRackChainDevicesParamsSchema,
   inspectRackChainsParamsSchema,
   launchSessionClipParamsSchema,
+  projectIdentitySchema,
   setDeviceEnabledParamsSchema,
   setDeviceParameterParamsSchema,
   setArrangementLoopParamsSchema,
@@ -35,6 +36,28 @@ describe("protocol negotiation", () => {
   it("selects the highest mutually supported version", () => {
     expect(selectProtocolVersion([1, 2, 3], [1, 2])).toBe(2);
     expect(selectProtocolVersion([1], [2])).toBeUndefined();
+  });
+});
+
+describe("project identity schema", () => {
+  it("requires a display name and explicit saved state without a path", () => {
+    expect(
+      projectIdentitySchema.parse({
+        projectId: "project-1",
+        projectName: "My Set",
+        saved: true,
+      }),
+    ).toEqual({
+      projectId: "project-1",
+      projectName: "My Set",
+      saved: true,
+    });
+    expect(
+      projectIdentitySchema.safeParse({
+        projectId: "project-1",
+        projectName: "My Set",
+      }).success,
+    ).toBe(false);
   });
 });
 

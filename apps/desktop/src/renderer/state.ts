@@ -11,6 +11,7 @@ import type {
   DesktopOutputsState,
   DesktopProjectSnapshot,
   DesktopSession,
+  PendingProjectTransition,
   OperationView,
   PlanSection,
   ProductMode,
@@ -63,6 +64,8 @@ export interface DesktopState {
   selectedClipId?: string | undefined;
   selectedDeviceId?: string | undefined;
   sessions: DesktopSession[];
+  activeSessionId?: string | undefined;
+  pendingProjectTransition?: PendingProjectTransition | undefined;
   agentCatalog: DesktopAgentCatalog;
   preferences: DesktopPreferences;
   diagnostics: Array<{ level: "info" | "warning" | "error"; message: string }>;
@@ -324,7 +327,11 @@ function reduceEvent(
         selectedTrackId: state.selectedTrackId ?? event.snapshot.tracks[0]?.id,
       };
     case "sessions.changed":
-      return { ...state, sessions: event.sessions };
+      return {
+        ...state,
+        sessions: event.sessions,
+        activeSessionId: event.activeSessionId ?? state.activeSessionId,
+      };
     case "agents.catalog_changed":
       return { ...state, agentCatalog: event.catalog };
     case "agent.instance_changed":
@@ -347,9 +354,20 @@ function reduceEvent(
             (session) => session.id !== event.session.id,
           ),
         ],
+        activeSessionId: event.session.id,
+        agentWorkspaces:
+          state.activeSessionId === event.session.id
+            ? state.agentWorkspaces
+            : {},
         mode: event.session.mode,
         plan: event.session.productionPlan,
       };
+    case "project.transition_requested":
+      return { ...state, pendingProjectTransition: event.transition };
+    case "project.transition_cleared":
+      return state.pendingProjectTransition?.token === event.token
+        ? { ...state, pendingProjectTransition: undefined }
+        : state;
     case "preferences.changed":
       return { ...state, preferences: event.preferences };
     case "outputs.changed":
@@ -571,7 +589,7 @@ function reduceAgentInstanceChanged(
     | "deactivated"
     | "lifecycle",
 ): DesktopState {
-  const session = state.sessions[0];
+  const session = activeSession(state);
   if (session === undefined) return state;
   const activeAgents =
     change === "deactivated"
@@ -590,23 +608,31 @@ function reduceAgentInstanceChanged(
         : session.selectedAgentInstanceId;
   return {
     ...state,
-    sessions: [
-      {
-        ...session,
-        activeAgents,
-        ...(selectedAgentInstanceId === undefined
-          ? { selectedAgentInstanceId: undefined }
-          : { selectedAgentInstanceId }),
-      },
-      ...state.sessions.slice(1),
-    ],
+    sessions: state.sessions.map((candidate) =>
+      candidate.id === session.id
+        ? {
+            ...session,
+            activeAgents,
+            ...(selectedAgentInstanceId === undefined
+              ? { selectedAgentInstanceId: undefined }
+              : { selectedAgentInstanceId }),
+          }
+        : candidate,
+    ),
   };
+}
+
+export function activeSession(state: DesktopState): DesktopSession | undefined {
+  return (
+    state.sessions.find(({ id }) => id === state.activeSessionId) ??
+    state.sessions[0]
+  );
 }
 
 export function selectedAgentInstance(
   state: DesktopState,
 ): DesktopActiveAgent | undefined {
-  const session = state.sessions[0];
+  const session = activeSession(state);
   return session?.activeAgents.find(
     ({ id }) => id === session.selectedAgentInstanceId,
   );

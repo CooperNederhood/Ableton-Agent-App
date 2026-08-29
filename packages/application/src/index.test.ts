@@ -449,6 +449,11 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
       capabilities: {},
       limits: { maxFrameBytes: 1024, maxBatchItems: 128 },
     })),
+    getProjectIdentity: vi.fn(async () => ({
+      projectId: "project",
+      projectName: "Test Set",
+      saved: true,
+    })),
     ping: vi.fn(async () => ({ pong: true as const })),
     inspectSession: vi.fn(async () => ({
       tempo: 120,
@@ -1507,6 +1512,11 @@ describe("HeadlessApplication agent and connection ports", () => {
     );
     await application.resumeAgentSession("created-session");
     expect(resumeSession).toHaveBeenCalledWith("created-session");
+    await expect(application.getProjectIdentity()).resolves.toEqual({
+      projectId: "project",
+      projectName: "Test Set",
+      saved: true,
+    });
 
     await expect(application.connectAbleton()).resolves.toEqual({
       state: "disconnected",

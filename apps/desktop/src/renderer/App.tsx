@@ -30,6 +30,7 @@ import type {
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import {
   contextForSelection,
+  activeSession,
   boundRefreshMessage,
   desktopReducer,
   initialState,
@@ -214,6 +215,7 @@ export function groupOutputsByTrack(
 export async function loadInitialDesktopState(
   desktop: DesktopApi,
 ): Promise<DesktopAppEvent[]> {
+  const sessions = await desktop.agent.getSessions();
   return [
     {
       type: "lifecycle.changed",
@@ -229,7 +231,8 @@ export async function loadInitialDesktopState(
     },
     {
       type: "sessions.changed",
-      sessions: await desktop.agent.getSessions(),
+      sessions,
+      ...(sessions[0] === undefined ? {} : { activeSessionId: sessions[0].id }),
     },
     {
       type: "agents.catalog_changed",
@@ -252,7 +255,7 @@ export async function sendComposerMessage(
 ): Promise<void> {
   const yolo = parseYoloCommand(message);
   if (yolo !== undefined) {
-    const session = state.sessions[0];
+    const session = activeSession(state);
     if (session === undefined) throw new Error("No active production session");
     const selected = selectedAgentInstance(state);
     if (!yolo.all && selected === undefined) {
@@ -386,7 +389,7 @@ export function App(): React.JSX.Element {
     void load();
   }, []);
   const selectedInstanceId = selectedAgentInstance(state)?.id;
-  const activeSessionId = state.sessions[0]?.id;
+  const activeSessionId = activeSession(state)?.id;
   useEffect(() => {
     if (state.lifecycle !== "ready" && state.lifecycle !== "degraded") return;
     if (selectedInstanceId === undefined || activeSessionId === undefined)
@@ -442,6 +445,7 @@ export function App(): React.JSX.Element {
   return (
     <div className="app-shell">
       <ConnectionHeader state={state} dispatch={dispatch} />
+      <ProjectTransitionModal state={state} dispatch={dispatch} />
       <nav className="view-tabs" aria-label="Application views">
         {(
           [
@@ -1019,6 +1023,105 @@ function OutputAssignmentControls({
   );
 }
 
+export function ProjectTransitionModal({
+  state,
+  dispatch,
+}: {
+  state: DesktopState;
+  dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+}): React.JSX.Element | null {
+  const transition = state.pendingProjectTransition;
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string>();
+  if (transition === undefined) return null;
+
+  const resolve = async (
+    decision: Parameters<DesktopApi["project"]["resolveTransition"]>[1],
+  ): Promise<void> => {
+    setSubmitting(true);
+    setError(undefined);
+    try {
+      const session = await window.desktop.project.resolveTransition(
+        transition.token,
+        decision,
+      );
+      dispatch({
+        type: "event",
+        event: { type: "session.context_restored", session },
+      });
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "The Live Set transition could not be completed.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="project-transition-backdrop">
+      <section
+        className="project-transition-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="project-transition-title"
+      >
+        <h1 id="project-transition-title">Live Set changed</h1>
+        <p>
+          Ableton is now using <strong>{transition.project.projectName}</strong>
+          .
+        </p>
+        {transition.kind === "associated" ? (
+          <p>
+            This Live Set has a saved App session
+            {transition.associatedSession === undefined
+              ? "."
+              : ` from ${new Date(
+                  transition.associatedSession.updatedAt,
+                ).toLocaleString()}.`}
+          </p>
+        ) : (
+          <p>
+            No saved App session exists for this Live Set. Continue by forking
+            the current setup, or start with one clean Default agent.
+          </p>
+        )}
+        {error !== undefined && <p className="error">{error}</p>}
+        <div className="project-transition-actions">
+          {transition.decisions.includes("resume-associated") && (
+            <button
+              className="primary"
+              autoFocus
+              disabled={submitting}
+              onClick={() => void resolve("resume-associated")}
+            >
+              Resume saved session
+            </button>
+          )}
+          {transition.decisions.includes("fork-current") && (
+            <button
+              className="primary"
+              autoFocus
+              disabled={submitting}
+              onClick={() => void resolve("fork-current")}
+            >
+              Continue current session
+            </button>
+          )}
+          <button
+            disabled={submitting}
+            onClick={() => void resolve("start-fresh")}
+          >
+            Start fresh
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function ConnectionHeader({
   state,
   dispatch,
@@ -1026,7 +1129,7 @@ export function ConnectionHeader({
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
 }): React.JSX.Element {
-  const session = state.sessions[0];
+  const session = activeSession(state);
   const activeAgent = selectedAgentInstance(state);
   const selectAgent = async (instanceId: string): Promise<void> => {
     try {
@@ -1166,7 +1269,7 @@ export function AgentsView({
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
 }): React.JSX.Element {
   const [refreshing, setRefreshing] = useState(false);
-  const session = state.sessions[0];
+  const session = activeSession(state);
   const [activeAgents, setActiveAgents] = useState(session?.activeAgents ?? []);
   const [selectedAgentId, setSelectedAgentId] = useState(
     session?.selectedAgentInstanceId,
@@ -2577,6 +2680,7 @@ export function DiagnosticsView({
 }
 
 function SessionsView({ state }: { state: DesktopState }): React.JSX.Element {
+  const currentSession = activeSession(state);
   return (
     <section className="page-panel">
       <div className="panel-heading">
@@ -2600,8 +2704,13 @@ function SessionsView({ state }: { state: DesktopState }): React.JSX.Element {
                   {session.projectName} ·{" "}
                   {new Date(session.updatedAt).toLocaleString()}
                 </p>
+                {session.id === currentSession?.id && <strong>Current</strong>}
+                {session.projectId === undefined && (
+                  <span className="muted"> Ephemeral</span>
+                )}
               </div>
               <button
+                disabled={session.id === currentSession?.id}
                 onClick={() =>
                   void window.desktop.agent.resumeSession(session.id)
                 }
@@ -2625,7 +2734,7 @@ export function SettingsView({
 }): React.JSX.Element {
   const [draft, setDraft] = useState(state.preferences);
   const autoApprovalOverrideCount =
-    state.sessions[0]?.activeAgents.filter(({ autoApprove }) => autoApprove)
+    activeSession(state)?.activeAgents.filter(({ autoApprove }) => autoApprove)
       .length ?? 0;
   const save = async (event: FormEvent): Promise<void> => {
     event.preventDefault();

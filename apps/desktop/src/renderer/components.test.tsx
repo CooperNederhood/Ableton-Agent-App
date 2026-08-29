@@ -17,6 +17,7 @@ import {
   OutputConnectionCard,
   OutputsView,
   ProjectOutline,
+  ProjectTransitionModal,
   ResolvedToolsDisclosure,
   refreshOutputs,
   refreshProjectSnapshot,
@@ -77,6 +78,32 @@ describe("desktop components", () => {
         })),
       },
     ],
+  });
+
+  it("renders the required choices for an unassociated Live Set transition", () => {
+    const state: DesktopState = {
+      ...workspaceState(),
+      pendingProjectTransition: {
+        token: "00000000-0000-4000-8000-000000000099",
+        kind: "unassociated",
+        project: {
+          projectId: "project-b",
+          projectName: "Project B",
+          saved: true,
+        },
+        currentSessionId: "session-a",
+        decisions: ["fork-current", "start-fresh"],
+      },
+    };
+    const html = renderToStaticMarkup(
+      <ProjectTransitionModal state={state} dispatch={vi.fn()} />,
+    );
+
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain("Project B");
+    expect(html).toContain("Continue current session");
+    expect(html).toContain("Start fresh");
+    expect(html).not.toContain("Resume saved session");
   });
 
   it("renders safe GitHub-flavored assistant Markdown", () => {
@@ -560,11 +587,14 @@ describe("desktop components", () => {
 
   it("rejects malformed YOLO before skill parsing or SDK prompting", async () => {
     const state = workspaceState(secondAgentId);
+    const setAutoApproval = vi.fn();
+    const invokeSkill = vi.fn();
+    const send = vi.fn();
     const desktop = {
       agents: {
-        setAutoApproval: vi.fn(),
-        invokeSkill: vi.fn(),
-        send: vi.fn(),
+        setAutoApproval,
+        invokeSkill,
+        send,
       },
       project: { setContext: vi.fn() },
     } as unknown as DesktopApi;
@@ -573,9 +603,9 @@ describe("desktop components", () => {
     await expect(
       sendComposerMessage(desktop, state, "/YOLO on", dispatch),
     ).rejects.toThrow("Usage: /yolo [on|off] [all]");
-    expect(desktop.agents.setAutoApproval).not.toHaveBeenCalled();
-    expect(desktop.agents.invokeSkill).not.toHaveBeenCalled();
-    expect(desktop.agents.send).not.toHaveBeenCalled();
+    expect(setAutoApproval).not.toHaveBeenCalled();
+    expect(invokeSkill).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
     expect(dispatch).not.toHaveBeenCalled();
   });
 

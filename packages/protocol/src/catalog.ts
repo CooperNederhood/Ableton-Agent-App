@@ -51,6 +51,7 @@ import {
   loadBrowserItemParamsSchema,
   loadBrowserItemResultSchema,
   pingResultSchema,
+  projectIdentitySchema,
   renameTrackParamsSchema,
   renameTrackResultSchema,
   replaceArrangementMidiNotesParamsSchema,
@@ -107,6 +108,7 @@ function command(
 export const commandCatalog = {
   "system.hello": command(helloParamsSchema, capabilityDocumentSchema),
   "system.ping": command(emptyParamsSchema, pingResultSchema),
+  "project.get_identity": command(emptyParamsSchema, projectIdentitySchema),
   "session.inspect": command(emptyParamsSchema, sessionSnapshotSchema),
   "transport.set_tempo": command(setTempoParamsSchema, setTempoResultSchema, {
     mutates: true,

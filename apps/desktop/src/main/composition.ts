@@ -15,10 +15,12 @@ import { AgentCatalogService } from "./agent-catalog.js";
 import { ApprovalCoordinator, ApprovalPolicyController } from "./approvals.js";
 import { JsonPreferencesStore, JsonSessionStore } from "./desktop-service.js";
 import { HeadlessDesktopService } from "./headless-desktop-service.js";
+import { JsonProjectSessionStore } from "./project-session-store.js";
 
 export interface DesktopCompositionOptions {
   preferencesPath: string;
   sessionsPath: string;
+  projectSessionsPath?: string;
   agentsDirectory: string;
   skillsDirectory: string;
   signalDescriptorPath?: string;
@@ -74,6 +76,10 @@ export async function createDesktopComposition(
   const environment = options.environment ?? {};
   const preferencesStore = new JsonPreferencesStore(options.preferencesPath);
   const sessionStore = new JsonSessionStore(options.sessionsPath);
+  const projectSessionStore = new JsonProjectSessionStore(
+    options.projectSessionsPath ??
+      join(dirname(options.sessionsPath), "project-sessions.json"),
+  );
   const agentCatalog = new AgentCatalogService({
     agentsDirectory: options.agentsDirectory,
     skillsDirectory: options.skillsDirectory,
@@ -150,6 +156,7 @@ export async function createDesktopComposition(
     approvals,
     preferencesStore,
     sessionStore,
+    projectSessionStore,
     agentCatalog,
     signals: runtime.signals,
     ...(options.logger === undefined ? {} : { logger: options.logger }),
@@ -164,3 +171,4 @@ export async function createDesktopComposition(
   });
   return { service, runtime, preferences };
 }
+import { dirname, join } from "node:path";

@@ -21,11 +21,13 @@ composition is built, changing them takes effect on the next launch, which the
 app states explicitly when those preferences are saved.
 
 Actual startup order differs from the specification's sketch: logging and the
-composition are prepared first, then preferences and stored sessions load, then
-the shared application starts the Ableton bridge before the Copilot session,
-then the newest stored conversation is resumed, and finally a project snapshot
-is read only when Live is connected. Remote Script detection and installation
-are still not implemented.
+composition are prepared first, then preferences, stored sessions, and saved
+Live Set associations load. The shared application starts the Ableton bridge
+and reads the current LOM project identity before Desktop selects a production
+session. A saved Live Set resumes only its own canonical session; an unmatched
+or unsaved set starts with a clean Default agent. The app no longer resumes the
+newest global conversation merely because it was updated most recently.
+Remote Script detection and installation are still not implemented.
 
 The shared application gained only the ports the desktop contract needs:
 `cancel`, `createAgentSession`, `resumeAgentSession`, `agentSessionId`, and
@@ -66,6 +68,10 @@ presentation state and say so; they are not applied to Live.
 - [x] Persist per-active-agent automatic approval with a safe default, atomic
   selected/all updates, session-switch revalidation, and shutdown draining.
 - [x] Implement validated preferences and migration support.
+- [x] Persist saved Live Set-to-session associations in
+  `project-sessions.json` under Electron user data.
+- [x] Keep unsaved Live Set sessions ephemeral instead of indexing their
+  name-derived identity.
 - [x] Store secrets in OS-backed secure storage.
 - [x] Implement development and production logging locations.
 

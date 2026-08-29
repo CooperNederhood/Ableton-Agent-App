@@ -86,6 +86,42 @@ export const projectSnapshotSchema = z.object({
 });
 export type DesktopProjectSnapshot = z.infer<typeof projectSnapshotSchema>;
 
+export const desktopProjectIdentitySchema = z.object({
+  projectId: z.string().min(1),
+  projectName: z.string().min(1),
+  saved: z.boolean(),
+});
+export type DesktopProjectIdentity = z.infer<
+  typeof desktopProjectIdentitySchema
+>;
+
+export const projectTransitionDecisionSchema = z.enum([
+  "resume-associated",
+  "fork-current",
+  "start-fresh",
+]);
+export type ProjectTransitionDecision = z.infer<
+  typeof projectTransitionDecisionSchema
+>;
+
+export const pendingProjectTransitionSchema = z.object({
+  token: z.string().uuid(),
+  kind: z.enum(["associated", "unassociated"]),
+  project: desktopProjectIdentitySchema,
+  currentSessionId: z.string().min(1).optional(),
+  associatedSession: z
+    .object({
+      id: z.string().min(1),
+      title: z.string().min(1),
+      updatedAt: z.string().min(1),
+    })
+    .optional(),
+  decisions: z.array(projectTransitionDecisionSchema).min(1),
+});
+export type PendingProjectTransition = z.infer<
+  typeof pendingProjectTransitionSchema
+>;
+
 export const outputDeliveryModeSchema = z.enum([
   "next-prompt",
   "automatic-analysis",
@@ -188,9 +224,18 @@ export const operationSchema = z.object({
 });
 export type OperationView = z.infer<typeof operationSchema>;
 
+const forkedAgentHistoryMessageSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string(),
+  timestamp: z.string().min(1),
+  eventId: z.string().min(1),
+  messageId: z.string().min(1).optional(),
+});
+
 export const desktopActiveAgentSchema = activeAgentInstanceSchema.extend({
   boundTracks: activeAgentInstanceSchema.shape.boundTracks.default([]),
   outputSubscriptions: z.array(desktopOutputAssignmentSchema).default([]),
+  forkedHistory: z.array(forkedAgentHistoryMessageSchema).optional(),
 });
 export type DesktopActiveAgent = z.infer<typeof desktopActiveAgentSchema>;
 
@@ -432,10 +477,19 @@ export const appEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("sessions.changed"),
     sessions: z.array(sessionSchema),
+    activeSessionId: z.string().min(1).optional(),
   }),
   z.object({
     type: z.literal("session.context_restored"),
     session: sessionSchema,
+  }),
+  z.object({
+    type: z.literal("project.transition_requested"),
+    transition: pendingProjectTransitionSchema,
+  }),
+  z.object({
+    type: z.literal("project.transition_cleared"),
+    token: z.string().uuid(),
   }),
   z.object({
     type: z.literal("preferences.changed"),
@@ -618,6 +672,15 @@ export const ipcSchemas = {
     request: z.object({ context: z.array(contextChipSchema).max(20) }),
     response: z.object({ updated: z.literal(true) }),
   },
+  "project:resolve-transition": {
+    request: z
+      .object({
+        token: z.string().uuid(),
+        decision: projectTransitionDecisionSchema,
+      })
+      .strict(),
+    response: z.object({ session: sessionSchema }),
+  },
   "plan:update": {
     request: z.object({ sections: z.array(planSectionSchema).max(100) }),
     response: z.object({ updated: z.literal(true) }),
@@ -755,7 +818,13 @@ export interface DesktopApi {
     get(): Promise<DesktopPreferences>;
     set(value: DesktopPreferences): Promise<DesktopPreferences>;
   };
-  project: { setContext(context: ContextChip[]): Promise<void> };
+  project: {
+    setContext(context: ContextChip[]): Promise<void>;
+    resolveTransition(
+      token: string,
+      decision: ProjectTransitionDecision,
+    ): Promise<DesktopSession>;
+  };
   plan: { update(sections: PlanSection[]): Promise<void> };
   operations: {
     retry(id: string): Promise<boolean>;

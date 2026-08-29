@@ -17,6 +17,7 @@ import type {
   DesktopLifecycleState,
   DesktopPreferences,
   DesktopProjectSnapshot,
+  ProjectTransitionDecision,
   DesktopOutputAssignment,
   DesktopOutputsState,
   OutputDeliveryMode,
@@ -91,6 +92,10 @@ export interface DesktopService {
   getPreferences(): Promise<DesktopPreferences>;
   setPreferences(value: DesktopPreferences): Promise<DesktopPreferences>;
   setContext(context: ContextChip[]): Promise<void>;
+  resolveProjectTransition(
+    token: string,
+    decision: ProjectTransitionDecision,
+  ): Promise<DesktopSession>;
   updatePlan(sections: PlanSection[]): Promise<void>;
   retryOperation(id: string): Promise<boolean>;
   undoOperation(id: string): Promise<boolean>;

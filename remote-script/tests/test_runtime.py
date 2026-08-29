@@ -1,3 +1,4 @@
+import hashlib
 import os
 import socket
 import sys
@@ -382,6 +383,7 @@ class FakeSong(object):
         self.is_playing = True
         self.current_song_time = 4.0
         self.file_path = "/tmp/example.als"
+        self.name = "Example"
         self._loop = False
         self._loop_start = 0.0
         self._loop_length = 16.0
@@ -3547,6 +3549,12 @@ class CapabilityAndTokenTests(unittest.TestCase):
         )
 
         self.assertEqual(document["liveVersion"], "12.1-test")
+        self.assertEqual(document["projectName"], "Example")
+        self.assertTrue(document["saved"])
+        self.assertEqual(
+            document["projectId"],
+            hashlib.sha256(b"/tmp/example.als").hexdigest()[:24],
+        )
         self.assertTrue(document["capabilities"]["session.inspect"])
         self.assertTrue(
             document["capabilities"]["arrangement.create_midi_clip"]
@@ -3734,6 +3742,43 @@ class CapabilityAndTokenTests(unittest.TestCase):
             live_eleven_document["capabilities"][
                 "arrangement.create_midi_clip"
             ]
+        )
+
+    def test_project_identity_is_dynamic_for_saved_and_unsaved_sets(self):
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        command = registry.get("project.get_identity")
+        song = FakeSong()
+        context = type("Context", (), {"song": song})()
+
+        saved = command.execute(context, {})
+        self.assertEqual(saved["projectName"], "Example")
+        self.assertTrue(saved["saved"])
+        self.assertEqual(
+            saved["projectId"],
+            hashlib.sha256(b"/tmp/example.als").hexdigest()[:24],
+        )
+        self.assertEqual(
+            set(saved.keys()), {"projectId", "projectName", "saved"}
+        )
+
+        song.file_path = ""
+        song.name = "Untitled Session"
+        unsaved = command.execute(context, {})
+        self.assertEqual(unsaved["projectName"], "Untitled Session")
+        self.assertFalse(unsaved["saved"])
+        self.assertEqual(
+            unsaved["projectId"],
+            hashlib.sha256(b"Untitled Session").hexdigest()[:24],
+        )
+        self.assertNotEqual(unsaved["projectId"], saved["projectId"])
+
+        song.file_path = "/projects/Saved As.als"
+        saved_as = command.execute(context, {})
+        self.assertTrue(saved_as["saved"])
+        self.assertEqual(
+            saved_as["projectId"],
+            hashlib.sha256(b"/projects/Saved As.als").hexdigest()[:24],
         )
 
     def test_token_is_created_once(self):

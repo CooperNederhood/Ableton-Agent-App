@@ -19,6 +19,7 @@ export interface FakeDevice {
 
 export interface FakeAbletonState {
   status: ConnectionStatus;
+  projectIdentity: Protocol.ProjectIdentity;
   snapshot: Protocol.SessionSnapshot;
   devicesByTrackReference: Record<string, FakeDevice[]>;
   capabilities: Protocol.CapabilityDocument;
@@ -45,6 +46,11 @@ export function defaultFakeState(): FakeAbletonState {
       projectId: "project-fake",
       capabilities: { "session.inspect": true, "transport.set_tempo": false },
       limits: { maxFrameBytes: 262_144, maxBatchItems: 64 },
+    },
+    projectIdentity: {
+      projectId: "project-fake",
+      projectName: "Fake Set",
+      saved: true,
     },
     snapshot: {
       tempo: 122,
@@ -144,6 +150,10 @@ export class FakeAbletonService implements AbletonService {
 
   public async getCapabilities(): Promise<Protocol.CapabilityDocument> {
     return this.state.capabilities;
+  }
+
+  public async getProjectIdentity(): Promise<Protocol.ProjectIdentity> {
+    return this.state.projectIdentity;
   }
 
   public async ping(): Promise<Protocol.PingResult> {

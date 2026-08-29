@@ -11,15 +11,15 @@ import {
 import { eventChannel } from "../main/ipc.js";
 
 export interface PreloadTransport {
-  invoke(channel: string, payload: unknown): Promise<unknown>;
-  on(
+  invoke: (channel: string, payload: unknown) => Promise<unknown>;
+  on: (
     channel: string,
     listener: (event: IpcRendererEvent, value: unknown) => void,
-  ): void;
-  removeListener(
+  ) => void;
+  removeListener: (
     channel: string,
     listener: (event: IpcRendererEvent, value: unknown) => void,
-  ): void;
+  ) => void;
 }
 
 export function createDesktopApi(transport: PreloadTransport): DesktopApi {
@@ -102,6 +102,9 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
       setContext: async (context) => {
         await invoke("project:set-context", { context });
       },
+      resolveTransition: async (token, decision) =>
+        (await invoke("project:resolve-transition", { token, decision }))
+          .session,
     },
     plan: {
       update: async (sections) => {

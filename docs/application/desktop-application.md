@@ -116,11 +116,27 @@ event version.
 Startup order:
 
 1. Initialize logging and configuration.
-2. Start the Copilot SDK client.
-3. Start the Ableton bridge connection manager.
-4. Detect or install the Remote Script.
-5. Load recent sessions and user preferences.
-6. Open the main window.
+2. Load preferences, production sessions, and saved Live Set associations.
+3. Start the Ableton bridge and read the current dynamic project identity.
+4. Resume the canonical production session for that saved Live Set, or create
+   one clean Default agent for an unmatched or unsaved set.
+5. Start or resume only the selected agents' Copilot SDK conversations.
+6. Open the main window and read the project snapshot.
+
+Desktop stores production sessions in `sessions.json`, saved Live Set
+associations in `project-sessions.json`, and Copilot SDK conversation data
+under `copilot/`, all below Electron's application-data directory. On macOS,
+the packaged app uses `~/Library/Application Support/Ableton Agent/`; the
+`pnpm desktop:dev` package currently uses
+`~/Library/Application Support/@ableton-agent/desktop/`.
+
+Unsaved Live Sets are ephemeral because a name such as `Untitled` is not a
+durable identity. If the open Live Set changes after startup, Desktop blocks
+agent actions and Output delivery until the user resumes the associated App
+session, forks the current setup for the new set, or starts fresh.
+Forking creates new active-agent and Copilot SDK session IDs, carries the prior
+transcript forward as bounded conversation context, and leaves the source Live
+Set's stored session unchanged.
 
 Shutdown order:
 

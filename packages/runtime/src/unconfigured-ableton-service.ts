@@ -24,6 +24,7 @@ import type {
   LaunchSessionClipResult,
   LoadBrowserItemResult,
   PingResult,
+  ProjectIdentity,
   RenameTrackResult,
   ReplaceArrangementMidiNotesResult,
   ReplaceMidiNotesResult,
@@ -73,6 +74,9 @@ export class UnconfiguredAbletonService implements AbletonService {
     };
   }
   public async getCapabilities(): Promise<CapabilityDocument> {
+    this.#unavailable();
+  }
+  public async getProjectIdentity(): Promise<ProjectIdentity> {
     this.#unavailable();
   }
   public async ping(): Promise<PingResult> {

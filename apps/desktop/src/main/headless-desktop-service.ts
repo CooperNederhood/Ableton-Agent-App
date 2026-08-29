@@ -52,11 +52,14 @@ import {
   type DesktopActiveAgent,
   type DesktopPreferences,
   type DesktopProjectSnapshot,
+  type DesktopProjectIdentity,
   type DesktopSession,
   type PlanSection,
   type ProductMode,
   type LatestAcceptedOutput,
   type OutputDeliveryMode,
+  type PendingProjectTransition,
+  type ProjectTransitionDecision,
 } from "../contracts.js";
 import type { ApprovalCoordinator } from "./approvals.js";
 import type { AgentCatalogService } from "./agent-catalog.js";
@@ -74,11 +77,17 @@ import {
   toDesktopSnapshot,
   type TrackDevices,
 } from "./snapshot-adapter.js";
+import type {
+  ProjectSessionAssociation,
+  ProjectSessionStore,
+} from "./project-session-store.js";
 
 /** Devices and parameters read per track when building a project snapshot. */
 const deviceReadLimit = 32;
 const parameterReadLimit = 64;
 const diagnosticMessageLimit = 512;
+const forkedHistoryMessageLimit = 100;
+const forkedHistoryCharacterLimit = 40_000;
 /** The sessions view shows the most recent entries; older ones are dropped. */
 const storedSessionLimit = 100;
 
@@ -87,6 +96,7 @@ export interface HeadlessDesktopServiceOptions {
   approvals: ApprovalCoordinator;
   preferencesStore: JsonPreferencesStore;
   sessionStore: JsonSessionStore;
+  projectSessionStore?: ProjectSessionStore;
   agentCatalog?: Pick<AgentCatalogService, "current" | "refresh"> &
     Partial<Pick<AgentCatalogService, "runtimeSkills">>;
   signals?: SignalRuntime;
@@ -109,6 +119,7 @@ export interface HeadlessDesktopServiceOptions {
     agentInstanceIds: ReadonlySet<string>,
   ) => void;
   logger?: Logger;
+  projectIdentityPollIntervalMs?: number;
 }
 
 interface ActiveTurn {
@@ -162,6 +173,13 @@ export class HeadlessDesktopService implements DesktopService {
   #snapshotRefresh: Promise<DesktopProjectSnapshot> | undefined;
   #activeProductionSessionId: string | undefined;
   readonly #sdkSessionIds = new Map<string, string>();
+  readonly #ephemeralSessionIds = new Set<string>();
+  #projectAssociations: ProjectSessionAssociation[] = [];
+  #projectIdentity: DesktopProjectIdentity | undefined;
+  #pendingProjectTransition: PendingProjectTransition | undefined;
+  #projectIdentityTimer: NodeJS.Timeout | undefined;
+  #projectIdentityRefresh: Promise<void> | undefined;
+  #transitionCommitting = false;
 
   public constructor(private readonly options: HeadlessDesktopServiceOptions) {
     this.#application = options.application;
@@ -203,7 +221,8 @@ export class HeadlessDesktopService implements DesktopService {
       }
     }
     const migratedSessions = this.#migrateAgentModes(catalog);
-    this.#activeProductionSessionId = this.#sessions[0]?.id;
+    this.#projectAssociations = await this.#loadProjectAssociations();
+    this.#activeProductionSessionId = undefined;
     this.#publishAutoApprovedAgentIds();
     this.emit({ type: "preferences.changed", preferences: this.#preferences });
     this.emit({ type: "sessions.changed", sessions: this.#sessions });
@@ -216,15 +235,8 @@ export class HeadlessDesktopService implements DesktopService {
       this.#report("Signal ingress startup failed", error);
     }
     try {
-      const preferredAgentSessionId = this.#selectedSdkSessionId(
-        this.#sessions[0],
-      );
       await this.#application.start({
         startAgent: true,
-        ...(this.options.agentCatalog !== undefined ||
-        preferredAgentSessionId === undefined
-          ? {}
-          : { preferredAgentSessionId }),
       });
     } catch (error) {
       this.#report("Agent startup failed", error);
@@ -235,7 +247,7 @@ export class HeadlessDesktopService implements DesktopService {
         status: await this.#application.getStatus(),
       });
     }
-    await this.#restoreOrRegisterSession();
+    await this.#restoreOrRegisterSession(await this.#readProjectIdentity());
     this.#bindActiveOutputAssignments();
     this.#acceptingActions = true;
     this.#publishPendingActionableLifecycle();
@@ -247,6 +259,7 @@ export class HeadlessDesktopService implements DesktopService {
         this.#report("Project snapshot could not be read", error);
       }
     }
+    this.#scheduleProjectIdentityRefresh();
     this.#logger.info("Desktop service started", {
       durationMs: Date.now() - startedAt,
       sessionId: this.#application.agentSessionId,
@@ -258,6 +271,11 @@ export class HeadlessDesktopService implements DesktopService {
     const startedAt = Date.now();
     this.#logger.info("Desktop service stopping");
     this.#acceptingActions = false;
+    if (this.#projectIdentityTimer !== undefined) {
+      clearTimeout(this.#projectIdentityTimer);
+      this.#projectIdentityTimer = undefined;
+    }
+    await this.#projectIdentityRefresh;
     this.#pendingActionableLifecycle = undefined;
     this.#approvals.denyAll();
     await this.#preferenceSaveTail;
@@ -659,6 +677,7 @@ export class HeadlessDesktopService implements DesktopService {
           ),
           label: current.label,
           autoApprove: current.autoApprove,
+          forkedHistory: current.forkedHistory ?? [],
         });
         await this.#application.reconfigureManagedAgent(
           this.#managedConfiguration(reset),
@@ -820,17 +839,29 @@ export class HeadlessDesktopService implements DesktopService {
     const target = this.#captureActiveAgentTarget(instanceId);
     return this.#queueActiveAgentTransaction(
       target,
-      async ({ instance }) =>
-        (await this.#application.getManagedAgentHistory(instanceId)).map(
-          (message) => {
-            const sdkSessionId = message.sdkSessionId ?? instance.sdkSessionId;
-            return {
-              ...message,
-              agentInstanceId: instanceId,
-              ...(sdkSessionId === undefined ? {} : { sdkSessionId }),
-            };
-          },
-        ),
+      async ({ instance }) => {
+        const current = (
+          await this.#application.getManagedAgentHistory(instanceId)
+        ).map((message) => {
+          const sdkSessionId = message.sdkSessionId ?? instance.sdkSessionId;
+          return {
+            ...message,
+            agentInstanceId: instanceId,
+            ...(sdkSessionId === undefined ? {} : { sdkSessionId }),
+          };
+        });
+        return [
+          ...(instance.forkedHistory ?? []).map((message) => ({
+            ...message,
+            eventId: `fork:${instance.id}:${message.eventId}`,
+            agentInstanceId: instance.id,
+            ...(instance.sdkSessionId === undefined
+              ? {}
+              : { sdkSessionId: instance.sdkSessionId }),
+          })),
+          ...current,
+        ];
+      },
       async ({ instance }, history) => {
         this.emit({
           type: "agent.history_hydrated",
@@ -902,53 +933,68 @@ export class HeadlessDesktopService implements DesktopService {
   public async resumeSession(sessionId: string): Promise<void> {
     this.#assertAccepting();
     await this.#queueSessionAction(async () => {
-      if (!this.#sessions.some((session) => session.id === sessionId)) {
-        throw new Error("Session not found");
-      }
-      if (this.#turn) {
-        throw new Error(
-          "Cannot resume a session while an agent turn is running",
-        );
-      }
-      if (this.#managedTurns.size > 0 || this.#managedTurnCleanup.size > 0) {
-        throw new Error(
-          "Cannot resume a session while a managed agent turn is running",
-        );
-      }
-      await this.#withSuspendedSignals(async () => {
-        const session = this.#sessions.find((item) => item.id === sessionId)!;
-        if (this.options.agentCatalog !== undefined) {
-          const previous = this.#activeSession();
-          if (previous?.id !== session.id) {
-            const resumed = await this.#switchManagedProductionSession(
-              previous,
-              session,
-            );
-            session.activeAgents = resumed;
-          } else {
-            session.activeAgents = await this.#resumeManagedAgents(session);
-          }
+      await this.#resumeSessionInTransaction(sessionId);
+    });
+  }
+
+  async #resumeSessionInTransaction(sessionId: string): Promise<void> {
+    const requested = this.#sessions.find(
+      (session) => session.id === sessionId,
+    );
+    if (requested === undefined) {
+      throw new Error("Session not found");
+    }
+    if (
+      this.#projectIdentity?.saved === true &&
+      requested.projectId !== undefined &&
+      requested.projectId !== this.#projectIdentity.projectId
+    ) {
+      throw new Error(
+        "Session belongs to a different Live Set; switch Live Sets before resuming it",
+      );
+    }
+    if (this.#turn) {
+      throw new Error("Cannot resume a session while an agent turn is running");
+    }
+    if (this.#managedTurns.size > 0 || this.#managedTurnCleanup.size > 0) {
+      throw new Error(
+        "Cannot resume a session while a managed agent turn is running",
+      );
+    }
+    await this.#withSuspendedSignals(async () => {
+      const session = this.#sessions.find((item) => item.id === sessionId)!;
+      if (this.options.agentCatalog !== undefined) {
+        const previous = this.#activeSession();
+        if (previous?.id !== session.id) {
+          const resumed = await this.#switchManagedProductionSession(
+            previous,
+            session,
+          );
+          session.activeAgents = resumed;
         } else {
-          const sdkSessionId = this.#selectedSdkSessionId(session);
-          if (sdkSessionId === undefined) {
-            throw new Error("Selected agent has no SDK session to resume");
-          }
-          await this.#application.resumeAgentSession(sdkSessionId);
+          session.activeAgents = await this.#resumeManagedAgents(session);
         }
-        this.#activeProductionSessionId = sessionId;
-        await this.#touchSession(sessionId);
-        this.#publishAutoApprovedAgentIds();
-      });
-      const session = this.#sessions.find((item) => item.id === sessionId);
-      if (session !== undefined) {
-        this.#pinnedContext = [];
-        this.emit({ type: "session.context_restored", session });
+      } else {
+        const sdkSessionId = this.#selectedSdkSessionId(session);
+        if (sdkSessionId === undefined) {
+          throw new Error("Selected agent has no SDK session to resume");
+        }
+        await this.#application.resumeAgentSession(sdkSessionId);
       }
-      this.emit({
-        type: "diagnostic",
-        level: "info",
-        message: `Resumed production session ${sessionId}.`,
-      });
+      this.#activeProductionSessionId = sessionId;
+      await this.#touchSession(sessionId);
+      await this.#associateActiveSession(this.#projectIdentity);
+      this.#publishAutoApprovedAgentIds();
+    });
+    const session = this.#sessions.find((item) => item.id === sessionId);
+    if (session !== undefined) {
+      this.#pinnedContext = [];
+      this.emit({ type: "session.context_restored", session });
+    }
+    this.emit({
+      type: "diagnostic",
+      level: "info",
+      message: `Resumed production session ${sessionId}.`,
     });
   }
 
@@ -965,8 +1011,314 @@ export class HeadlessDesktopService implements DesktopService {
     return status;
   }
 
+  public async resolveProjectTransition(
+    token: string,
+    decision: ProjectTransitionDecision,
+  ): Promise<DesktopSession> {
+    this.#assertAccepting(true);
+    return this.#queueSessionAction(async () => {
+      const transition = this.#pendingProjectTransition;
+      if (transition === undefined || transition.token !== token) {
+        throw new Error("Project transition is no longer pending");
+      }
+      if (!transition.decisions.includes(decision)) {
+        throw new Error("Project transition decision is not valid");
+      }
+      this.#transitionCommitting = true;
+      const previousIdentity = this.#projectIdentity;
+      this.#projectIdentity = transition.project;
+      try {
+        let session: DesktopSession;
+        if (decision === "resume-associated") {
+          if (transition.associatedSession === undefined) {
+            throw new Error("Associated project session is unavailable");
+          }
+          await this.#resumeSessionInTransaction(
+            transition.associatedSession.id,
+          );
+          session = this.#requireActiveSession();
+        } else if (decision === "fork-current") {
+          session = await this.#forkCurrentSession(transition.project);
+        } else {
+          await this.#createManagedProductionSession(
+            "Production session",
+            transition.project,
+          );
+          session = this.#requireActiveSession();
+        }
+        this.#pendingProjectTransition = undefined;
+        await this.#associateActiveSession(transition.project);
+        this.#bindActiveOutputAssignments();
+        this.emit({ type: "project.transition_cleared", token });
+        this.emit({ type: "session.context_restored", session });
+        return session;
+      } catch (error) {
+        this.#projectIdentity = previousIdentity;
+        throw error;
+      } finally {
+        this.#transitionCommitting = false;
+      }
+    });
+  }
+
+  async #forkCurrentSession(
+    identity: DesktopProjectIdentity,
+  ): Promise<DesktopSession> {
+    const source = this.#requireActiveSession();
+    const created: DesktopActiveAgent[] = [];
+    try {
+      for (const instance of source.activeAgents) {
+        const id = randomUUID();
+        const forkedHistory = (
+          await this.#application.getManagedAgentHistory(instance.id)
+        )
+          .slice(-forkedHistoryMessageLimit)
+          .map(({ role, content, timestamp, eventId, messageId }) => ({
+            role,
+            content,
+            timestamp,
+            eventId,
+            ...(messageId === undefined ? {} : { messageId }),
+          }));
+        const candidate = desktopActiveAgentSchema.parse({
+          ...structuredClone(instance),
+          id,
+          sdkSessionId: undefined,
+          lifecycle: "starting",
+          boundTracks: [],
+          forkedHistory,
+          outputSubscriptions: instance.outputSubscriptions.map(
+            (subscription) => ({
+              ...subscription,
+              assignmentId: createAgentInstanceAssignmentId(
+                id,
+                subscription.producerId,
+              ),
+              agentInstanceId: id,
+            }),
+          ),
+        });
+        const resolved = await this.#resolveAgentBindings(candidate);
+        const sdkSessionId = await this.#application.createManagedAgent(
+          this.#managedConfiguration(resolved),
+        );
+        created.push({ ...resolved, sdkSessionId, lifecycle: "ready" });
+      }
+      const selectedIndex = source.activeAgents.findIndex(
+        ({ id }) => id === source.selectedAgentInstanceId,
+      );
+      const target: DesktopSession = {
+        ...structuredClone(source),
+        id: randomUUID(),
+        title: `${source.title} (fork)`,
+        updatedAt: new Date().toISOString(),
+        projectId: identity.projectId,
+        projectName: identity.projectName,
+        activeAgents: created,
+        selectedAgentInstanceId:
+          created[Math.max(0, selectedIndex)]?.id ?? created[0]?.id,
+        outputAssignments:
+          created[Math.max(0, selectedIndex)]?.outputSubscriptions ?? [],
+      };
+      target.activeAgents = await this.#switchManagedProductionSession(
+        source,
+        target,
+        true,
+      );
+      this.#sessions = [target, ...this.#sessions].slice(0, storedSessionLimit);
+      this.#activeProductionSessionId = target.id;
+      await this.#persistSessions();
+      this.#publishAutoApprovedAgentIds();
+      return target;
+    } catch (error) {
+      await this.#deactivateAgents(created);
+      throw error;
+    }
+  }
+
   public getStatus(): Promise<DesktopConnectionStatus> {
     return this.#application.getStatus();
+  }
+
+  async #readProjectIdentity(): Promise<DesktopProjectIdentity | undefined> {
+    const status = await this.#application.getStatus();
+    if (status.state !== "connected") return undefined;
+    return this.#application.getProjectIdentity();
+  }
+
+  #scheduleProjectIdentityRefresh(): void {
+    if (!this.#acceptingActions || this.#projectIdentityTimer !== undefined) {
+      return;
+    }
+    const interval = this.options.projectIdentityPollIntervalMs ?? 1_500;
+    this.#projectIdentityTimer = setTimeout(() => {
+      this.#projectIdentityTimer = undefined;
+      const refresh = this.#refreshProjectIdentity();
+      this.#projectIdentityRefresh = refresh;
+      void refresh.finally(() => {
+        if (this.#projectIdentityRefresh === refresh) {
+          this.#projectIdentityRefresh = undefined;
+        }
+        this.#scheduleProjectIdentityRefresh();
+      });
+    }, interval);
+    this.#projectIdentityTimer.unref?.();
+  }
+
+  async #refreshProjectIdentity(): Promise<void> {
+    let identity: DesktopProjectIdentity | undefined;
+    try {
+      identity = await this.#readProjectIdentity();
+    } catch (error) {
+      this.#logger.warn("Live Set identity refresh failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+    if (identity === undefined) return;
+    await this.#observeProjectIdentity(identity);
+  }
+
+  async #observeProjectIdentity(
+    identity: DesktopProjectIdentity,
+  ): Promise<void> {
+    if (
+      this.#pendingProjectTransition?.project.projectId ===
+        identity.projectId &&
+      this.#pendingProjectTransition.project.saved === identity.saved
+    ) {
+      return;
+    }
+    const previous = this.#projectIdentity;
+    if (
+      previous?.projectId === identity.projectId &&
+      previous.saved === identity.saved &&
+      previous.projectName === identity.projectName
+    ) {
+      return;
+    }
+    if (
+      previous?.projectId === identity.projectId &&
+      previous.saved === identity.saved
+    ) {
+      await this.#queueSessionAction(async () => {
+        const current = this.#activeSession();
+        this.#projectIdentity = identity;
+        if (current === undefined) return;
+        const updated = {
+          ...current,
+          projectName: identity.projectName,
+          updatedAt: new Date().toISOString(),
+        };
+        this.#sessions = [
+          updated,
+          ...this.#sessions.filter(({ id }) => id !== current.id),
+        ];
+        await this.#persistSessions();
+        await this.#associateActiveSession(identity);
+        this.emit({ type: "session.context_restored", session: updated });
+      });
+      return;
+    }
+    if (previous === undefined) {
+      this.#projectIdentity = identity;
+      return;
+    }
+    await this.#queueSessionAction(async () => {
+      if (this.#transitionCommitting) return;
+      if (!previous.saved && !identity.saved) {
+        this.#projectIdentity = identity;
+        const current = this.#activeSession();
+        if (current !== undefined) {
+          const updated = { ...current, projectName: identity.projectName };
+          this.#sessions = [
+            updated,
+            ...this.#sessions.filter(({ id }) => id !== current.id),
+          ];
+          this.emit({ type: "session.context_restored", session: updated });
+        }
+        return;
+      }
+      if (!identity.saved) {
+        this.#projectIdentity = identity;
+        await this.#createManagedProductionSession(
+          "Unsaved production session",
+          identity,
+        );
+        return;
+      }
+      const associated = this.#associatedSession(identity.projectId);
+      if (
+        associated === undefined &&
+        (await this.#activeSessionIsCleanEphemeral())
+      ) {
+        const current = this.#requireActiveSession();
+        const updated = {
+          ...current,
+          projectId: identity.projectId,
+          projectName: identity.projectName,
+          updatedAt: new Date().toISOString(),
+        };
+        this.#ephemeralSessionIds.delete(current.id);
+        this.#sessions = [
+          updated,
+          ...this.#sessions.filter(({ id }) => id !== current.id),
+        ];
+        this.#projectIdentity = identity;
+        await this.#persistSessions();
+        await this.#associateActiveSession(identity);
+        this.emit({ type: "session.context_restored", session: updated });
+        return;
+      }
+      const transition: PendingProjectTransition = {
+        token: randomUUID(),
+        kind: associated === undefined ? "unassociated" : "associated",
+        project: identity,
+        ...(this.#activeProductionSessionId === undefined
+          ? {}
+          : { currentSessionId: this.#activeProductionSessionId }),
+        ...(associated === undefined
+          ? {}
+          : {
+              associatedSession: {
+                id: associated.id,
+                title: associated.title,
+                updatedAt: associated.updatedAt,
+              },
+            }),
+        decisions:
+          associated === undefined
+            ? ["fork-current", "start-fresh"]
+            : ["resume-associated", "start-fresh"],
+      };
+      this.#pendingProjectTransition = transition;
+      this.#approvals.denyAll();
+      this.#signals.setActiveAgentInstances([]);
+      this.emit({ type: "project.transition_requested", transition });
+    });
+  }
+
+  async #activeSessionIsCleanEphemeral(): Promise<boolean> {
+    const session = this.#activeSession();
+    if (
+      session === undefined ||
+      !this.#ephemeralSessionIds.has(session.id) ||
+      session.productionPlan.length > 0 ||
+      session.activeAgents.some(
+        ({ autoApprove, modified, outputSubscriptions }) =>
+          autoApprove || modified || outputSubscriptions.length > 0,
+      )
+    ) {
+      return false;
+    }
+    for (const instance of session.activeAgents) {
+      if (
+        (await this.#application.getManagedAgentHistory(instance.id)).length
+      ) {
+        return false;
+      }
+    }
+    return true;
   }
 
   public async getCapabilities(): Promise<string[]> {
@@ -1030,20 +1382,41 @@ export class HeadlessDesktopService implements DesktopService {
       );
     }
     const snapshot = await this.#application.inspectSession();
-    const coreSnapshot = toDesktopSnapshot(snapshot, status);
+    const identity = await this.#readProjectIdentity();
+    if (identity !== undefined) await this.#observeProjectIdentity(identity);
+    const baseSnapshot = toDesktopSnapshot(snapshot, status);
+    const coreSnapshot =
+      identity === undefined
+        ? baseSnapshot
+        : {
+            ...baseSnapshot,
+            id: identity.projectId,
+            name: identity.projectName,
+          };
     this.#logger.debug("Project core snapshot read", {
       refreshId,
       snapshot,
       durationMs: Date.now() - startedAt,
     });
-    await this.#syncProjectAssociation(coreSnapshot.id, coreSnapshot.name);
     this.emit({
       type: "project.snapshot_changed",
       snapshot: coreSnapshot,
     });
 
     const trackDevices = await this.#readTrackDevices(snapshot);
-    const enrichedSnapshot = toDesktopSnapshot(snapshot, status, trackDevices);
+    const baseEnrichedSnapshot = toDesktopSnapshot(
+      snapshot,
+      status,
+      trackDevices,
+    );
+    const enrichedSnapshot =
+      identity === undefined
+        ? baseEnrichedSnapshot
+        : {
+            ...baseEnrichedSnapshot,
+            id: identity.projectId,
+            name: identity.projectName,
+          };
     this.#logger.debug("Project refresh completed", {
       refreshId,
       snapshot: enrichedSnapshot,
@@ -1392,31 +1765,76 @@ export class HeadlessDesktopService implements DesktopService {
     }
   }
 
-  /**
-   * Continues the most recent stored conversation on a cold start, and only
-   * records a brand new one when no stored session can be reopened.
-   */
-  async #restoreOrRegisterSession(): Promise<void> {
+  async #loadProjectAssociations(): Promise<ProjectSessionAssociation[]> {
+    if (this.options.projectSessionStore === undefined) {
+      return this.#sessions
+        .filter(
+          (
+            session,
+          ): session is DesktopSession & {
+            projectId: string;
+          } => session.projectId !== undefined,
+        )
+        .filter(
+          (session, index, sessions) =>
+            sessions.findIndex(
+              ({ projectId }) => projectId === session.projectId,
+            ) === index,
+        )
+        .map((session) => ({
+          projectId: session.projectId,
+          projectName: session.projectName,
+          sessionId: session.id,
+          updatedAt: session.updatedAt,
+        }));
+    }
+    try {
+      return await this.options.projectSessionStore.load(this.#sessions);
+    } catch (error) {
+      this.#report("Project session associations could not be loaded", error);
+      return [];
+    }
+  }
+
+  async #restoreOrRegisterSession(
+    identity: DesktopProjectIdentity | undefined,
+  ): Promise<void> {
+    this.#projectIdentity = identity;
+    const associatedSession =
+      identity?.saved === true
+        ? this.#associatedSession(identity.projectId)
+        : undefined;
+    const startupSession =
+      associatedSession ??
+      (this.options.projectSessionStore === undefined
+        ? this.#sessions[0]
+        : undefined);
     if (this.options.agentCatalog !== undefined) {
-      const [latest] = this.#sessions;
-      if (latest !== undefined) {
-        const pendingLegacySdkSessionId = this.#selectedSdkSessionId(latest);
+      if (startupSession !== undefined) {
+        const pendingLegacySdkSessionId =
+          this.#selectedSdkSessionId(startupSession);
         if (
-          latest.activeAgents.length === 0 &&
+          startupSession.activeAgents.length === 0 &&
           pendingLegacySdkSessionId !== undefined
         ) {
           await this.#application.resumeAgentSession(pendingLegacySdkSessionId);
-          this.#activeProductionSessionId = latest.id;
+          this.#activeProductionSessionId = startupSession.id;
           this.#publishAutoApprovedAgentIds();
-          this.emit({ type: "session.context_restored", session: latest });
+          this.emit({
+            type: "session.context_restored",
+            session: startupSession,
+          });
           return;
         }
         try {
-          latest.activeAgents = await this.#resumeManagedAgents(latest);
-          this.#activeProductionSessionId = latest.id;
-          await this.#touchSession(latest.id);
+          startupSession.activeAgents =
+            await this.#resumeManagedAgents(startupSession);
+          this.#activeProductionSessionId = startupSession.id;
+          await this.#touchSession(startupSession.id);
           this.#publishAutoApprovedAgentIds();
-          const restored = this.#sessions.find(({ id }) => id === latest.id);
+          const restored = this.#sessions.find(
+            ({ id }) => id === startupSession.id,
+          );
           if (restored !== undefined) {
             this.emit({ type: "session.context_restored", session: restored });
           }
@@ -1425,30 +1843,32 @@ export class HeadlessDesktopService implements DesktopService {
           this.emit({
             type: "diagnostic",
             level: "warning",
-            message: `Previous session ${latest.id} could not be resumed (${
+            message: `Project session ${startupSession.id} could not be resumed (${
               error instanceof Error ? error.message : String(error)
             }); a new session was started.`,
           });
         }
       }
-      await this.#createManagedProductionSession("Production session");
+      await this.#createManagedProductionSession(
+        "Production session",
+        identity,
+      );
       return;
     }
     const initialSdkSessionId = this.#application.agentSessionId;
     if (initialSdkSessionId === undefined) return;
-    const [latest] = this.#sessions;
-    if (latest !== undefined) {
-      const sdkSessionId = this.#selectedSdkSessionId(latest);
+    if (startupSession !== undefined) {
+      const sdkSessionId = this.#selectedSdkSessionId(startupSession);
       try {
         if (sdkSessionId === undefined) {
           throw new Error("selected agent has no SDK session");
         }
         await this.#application.resumeAgentSession(sdkSessionId);
-        this.#activeProductionSessionId = latest.id;
-        await this.#touchSession(latest.id);
+        this.#activeProductionSessionId = startupSession.id;
+        await this.#touchSession(startupSession.id);
         this.#publishAutoApprovedAgentIds();
         const restored = this.#sessions.find(
-          (session) => session.id === latest.id,
+          (session) => session.id === startupSession.id,
         );
         if (restored !== undefined) {
           this.emit({ type: "session.context_restored", session: restored });
@@ -1458,7 +1878,7 @@ export class HeadlessDesktopService implements DesktopService {
         this.emit({
           type: "diagnostic",
           level: "warning",
-          message: `Previous session ${latest.id} could not be resumed (${
+          message: `Project session ${startupSession.id} could not be resumed (${
             error instanceof Error ? error.message : String(error)
           }); a new session was started.`,
         });
@@ -1466,10 +1886,18 @@ export class HeadlessDesktopService implements DesktopService {
     }
     const currentSdkSessionId =
       this.#application.agentSessionId ?? initialSdkSessionId;
-    await this.#rememberSession(currentSdkSessionId, "Production session");
+    await this.#rememberSession(
+      currentSdkSessionId,
+      "Production session",
+      identity,
+    );
   }
 
-  async #rememberSession(sdkSessionId: string, title: string): Promise<string> {
+  async #rememberSession(
+    sdkSessionId: string,
+    title: string,
+    identity = this.#projectIdentity,
+  ): Promise<string> {
     const defaultDefinition =
       this.options.agentCatalog?.current.definitions.find(
         (definition) => definition.name === "default",
@@ -1485,7 +1913,10 @@ export class HeadlessDesktopService implements DesktopService {
       id: productionSessionId,
       title,
       updatedAt: new Date().toISOString(),
-      projectName: projectLabel(await this.#application.getStatus()),
+      projectName:
+        identity?.projectName ??
+        projectLabel(await this.#application.getStatus()),
+      ...(identity?.saved === true ? { projectId: identity.projectId } : {}),
       mode: "explore",
       productionPlan: [],
       outputAssignments: [],
@@ -1498,12 +1929,19 @@ export class HeadlessDesktopService implements DesktopService {
     };
     this.#sessions = [session, ...this.#sessions].slice(0, storedSessionLimit);
     this.#activeProductionSessionId = productionSessionId;
+    if (identity?.saved !== true) {
+      this.#ephemeralSessionIds.add(productionSessionId);
+    }
     await this.#persistSessions();
+    await this.#associateActiveSession(identity);
     this.#publishAutoApprovedAgentIds();
     return productionSessionId;
   }
 
-  async #createManagedProductionSession(title: string): Promise<string> {
+  async #createManagedProductionSession(
+    title: string,
+    identity = this.#projectIdentity,
+  ): Promise<string> {
     const definition = this.#requireDefinition("default");
     const productionSessionId = randomUUID();
     const activeAgent = this.#activeAgentFromDefinition(definition);
@@ -1516,16 +1954,28 @@ export class HeadlessDesktopService implements DesktopService {
       id: productionSessionId,
       title,
       updatedAt: new Date().toISOString(),
-      projectName: projectLabel(await this.#application.getStatus()),
+      projectName:
+        identity?.projectName ??
+        projectLabel(await this.#application.getStatus()),
+      ...(identity?.saved === true ? { projectId: identity.projectId } : {}),
       activeAgents: [connected],
       selectedAgentInstanceId: connected.id,
       mode: "explore",
       productionPlan: [],
       outputAssignments: [],
     };
+    session.activeAgents = await this.#switchManagedProductionSession(
+      this.#activeSession(),
+      session,
+      true,
+    );
     this.#sessions = [session, ...this.#sessions].slice(0, storedSessionLimit);
     this.#activeProductionSessionId = productionSessionId;
+    if (identity?.saved !== true) {
+      this.#ephemeralSessionIds.add(productionSessionId);
+    }
     await this.#persistSessions();
+    await this.#associateActiveSession(identity);
     this.#publishAutoApprovedAgentIds();
     this.emit({
       type: "agent.instance_changed",
@@ -1569,8 +2019,11 @@ export class HeadlessDesktopService implements DesktopService {
   async #switchManagedProductionSession(
     previous: DesktopSession | undefined,
     target: DesktopSession,
+    targetAlreadyActive = false,
   ): Promise<DesktopActiveAgent[]> {
-    const resumed = await this.#resumeManagedAgents(target);
+    const resumed = targetAlreadyActive
+      ? target.activeAgents
+      : await this.#resumeManagedAgents(target);
 
     const deactivatedPrevious: DesktopActiveAgent[] = [];
     try {
@@ -1641,18 +2094,38 @@ export class HeadlessDesktopService implements DesktopService {
   #managedConfiguration(
     instance: DesktopActiveAgent,
   ): AgentSessionConfiguration {
+    const inheritedContext = this.#forkedHistoryContext(instance);
     return {
       instanceId: instance.id,
       definitionName: instance.definitionName,
       label: instance.label,
       description: instance.config.description,
-      systemPrompt: instance.config.systemPrompt,
+      systemPrompt:
+        inheritedContext === ""
+          ? instance.config.systemPrompt
+          : `${instance.config.systemPrompt}\n\n${inheritedContext}`,
       resolvedTools: instance.config.resolvedTools,
       editScope: instance.config.editScope,
       boundTracks: instance.boundTracks,
       skills: instance.config.skills,
       availableSkills: this.options.agentCatalog?.runtimeSkills ?? [],
     };
+  }
+
+  #forkedHistoryContext(instance: DesktopActiveAgent): string {
+    const history = instance.forkedHistory ?? [];
+    if (history.length === 0) return "";
+    const lines = [
+      "The following conversation was carried forward from a prior Live Set session. Treat it as conversation context, but inspect the current Live Set before relying on project-specific facts.",
+    ];
+    let characters = lines[0]!.length;
+    for (const message of history) {
+      const line = `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`;
+      if (characters + line.length > forkedHistoryCharacterLimit) break;
+      lines.push(line);
+      characters += line.length;
+    }
+    return lines.join("\n");
   }
 
   #activeAgentFromDefinition(
@@ -1669,6 +2142,7 @@ export class HeadlessDesktopService implements DesktopService {
           ? "Default"
           : `${definition.name[0]?.toUpperCase()}${definition.name.slice(1)}`,
       autoApprove: false,
+      forkedHistory: [],
       config: {
         description: definition.description,
         systemPrompt: definition.systemPrompt,
@@ -1784,65 +2258,57 @@ export class HeadlessDesktopService implements DesktopService {
     await this.#persistSessions();
   }
 
-  async #syncProjectAssociation(
-    projectId: string,
-    projectName: string,
-  ): Promise<void> {
-    await this.#queueSessionAction(() =>
-      this.#syncProjectAssociationInTransaction(projectId, projectName),
-    );
-  }
-
-  async #syncProjectAssociationInTransaction(
-    projectId: string,
-    projectName: string,
-  ): Promise<void> {
-    const sessionId = this.#activeProductionSessionId;
-    const current = this.#sessions.find((session) => session.id === sessionId);
-    if (current === undefined) return;
-    if (
-      current.activeAgents.length === 0 &&
-      this.#selectedSdkSessionId(current) !== undefined
-    ) {
-      return;
-    }
-    if (current.projectId !== undefined && current.projectId !== projectId) {
-      this.#pinnedContext = [];
-      await this.#updateActiveSessionInTransaction({
-        projectId,
-        projectName,
-        productionPlan: [],
-      });
-      const updated = this.#sessions.find(
-        (session) => session.id === sessionId,
-      );
-      if (updated !== undefined) {
-        this.emit({ type: "session.context_restored", session: updated });
-      }
-      this.emit({
-        type: "diagnostic",
-        level: "warning",
-        message:
-          "Ableton project changed; pinned selections and the production plan were cleared to prevent stale context.",
-      });
-      return;
-    }
-    if (
-      current.projectId !== projectId ||
-      current.projectName !== projectName
-    ) {
-      await this.#updateActiveSessionInTransaction({ projectId, projectName });
-    }
-  }
-
   async #persistSessions(): Promise<void> {
-    const snapshot = [...this.#sessions];
+    const snapshot = this.#sessions.filter(
+      ({ id }) => !this.#ephemeralSessionIds.has(id),
+    );
     try {
       await this.options.sessionStore.save(snapshot);
     } catch (error) {
       this.#report("Sessions could not be saved", error);
     }
-    this.emit({ type: "sessions.changed", sessions: snapshot });
+    this.emit({
+      type: "sessions.changed",
+      sessions: [...this.#sessions],
+      ...(this.#activeProductionSessionId === undefined
+        ? {}
+        : { activeSessionId: this.#activeProductionSessionId }),
+    });
+  }
+
+  #associatedSession(projectId: string): DesktopSession | undefined {
+    const association = this.#projectAssociations.find(
+      (candidate) => candidate.projectId === projectId,
+    );
+    return association === undefined
+      ? undefined
+      : this.#sessions.find(({ id }) => id === association.sessionId);
+  }
+
+  async #associateActiveSession(
+    identity: DesktopProjectIdentity | undefined,
+  ): Promise<void> {
+    if (
+      identity?.saved !== true ||
+      this.#activeProductionSessionId === undefined
+    ) {
+      return;
+    }
+    const association: ProjectSessionAssociation = {
+      projectId: identity.projectId,
+      projectName: identity.projectName,
+      sessionId: this.#activeProductionSessionId,
+      updatedAt: new Date().toISOString(),
+    };
+    this.#projectAssociations = [
+      association,
+      ...this.#projectAssociations.filter(
+        ({ projectId }) => projectId !== identity.projectId,
+      ),
+    ];
+    if (this.options.projectSessionStore !== undefined) {
+      await this.options.projectSessionStore.save(this.#projectAssociations);
+    }
   }
 
   async #queueSessionAction<T>(action: () => Promise<T>): Promise<T> {
@@ -2408,9 +2874,17 @@ export class HeadlessDesktopService implements DesktopService {
       { ...session, updatedAt: new Date().toISOString() },
       ...this.#sessions.filter(({ id }) => id !== session.id),
     ];
-    await this.options.sessionStore.save(sessions);
+    await this.options.sessionStore.save(
+      sessions.filter(({ id }) => !this.#ephemeralSessionIds.has(id)),
+    );
     this.#sessions = sessions;
-    this.emit({ type: "sessions.changed", sessions });
+    this.emit({
+      type: "sessions.changed",
+      sessions,
+      ...(this.#activeProductionSessionId === undefined
+        ? {}
+        : { activeSessionId: this.#activeProductionSessionId }),
+    });
   }
 
   async #replaceAgent(
@@ -2674,9 +3148,16 @@ export class HeadlessDesktopService implements DesktopService {
     );
   }
 
-  #assertAccepting(): void {
+  #assertAccepting(allowPendingTransition = false): void {
     if (!this.#acceptingActions) {
       throw new Error("Desktop service is not accepting actions");
+    }
+    if (
+      !allowPendingTransition &&
+      (this.#pendingProjectTransition !== undefined ||
+        this.#transitionCommitting)
+    ) {
+      throw new Error("A Live Set transition decision is required");
     }
   }
 }

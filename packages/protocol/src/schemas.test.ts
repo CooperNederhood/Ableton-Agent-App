@@ -15,6 +15,7 @@ import {
   inspectDrumPadChainDevicesParamsSchema,
   inspectDrumPadChainsParamsSchema,
   inspectDrumRackPadsParamsSchema,
+  inspectEventSelectionResultSchema,
   inspectRackChainDevicesParamsSchema,
   inspectRackChainsParamsSchema,
   launchSessionClipParamsSchema,
@@ -24,6 +25,9 @@ import {
   setArrangementLoopParamsSchema,
   setArrangementClipPropertiesParamsSchema,
   setSessionClipPropertiesParamsSchema,
+  subscribeEventParamsSchema,
+  subscribeEventResultSchema,
+  liveEventEnvelopeSchema,
 } from "./schemas.js";
 
 const identity = {
@@ -51,6 +55,68 @@ describe("project identity schema", () => {
       projectId: "project-1",
       projectName: "My Set",
       saved: true,
+    });
+
+    describe("Live event protocol schemas", () => {
+      const eventId = "live-event.00000000-0000-4000-8000-000000000099";
+      const trackReference = "00000000-0000-4000-8000-000000000010";
+      const trackIdentity = {
+        index: 0,
+        expectedReference: trackReference,
+        expectedName: "Drums",
+      };
+
+      it("strictly matches command parameters and correlated results", () => {
+        expect(
+          subscribeEventParamsSchema.safeParse({
+            ...trackIdentity,
+            eventId,
+            projectId: "project",
+            kind: "track.playing_clip_changed",
+            deviceIndex: 0,
+          }).success,
+        ).toBe(false);
+        expect(
+          inspectEventSelectionResultSchema.parse({
+            track: trackIdentity,
+            parameter: null,
+          }),
+        ).toEqual({ track: trackIdentity, parameter: null });
+        expect(
+          subscribeEventResultSchema.safeParse({
+            eventId,
+            kind: "track.playing_clip_changed",
+            target: { trackReference, track: { name: "Drums" } },
+            state: { state: "stopped" },
+            resolution: {
+              status: "resolved",
+              projectId: "project",
+              trackReference,
+              track: { name: "Drums" },
+            },
+            initialState: {
+              kind: "track.triggered_clip_changed",
+              state: { state: "none" },
+            },
+          }).success,
+        ).toBe(false);
+      });
+
+      it("parses typed occurred and invalidated event envelopes", () => {
+        expect(
+          liveEventEnvelopeSchema.parse({
+            protocolVersion: 2,
+            kind: "event",
+            event: "live_event.invalidated",
+            sequence: 2,
+            payload: {
+              eventId,
+              observedAt: "2000-01-01T00:00:00Z",
+              reason: "target-deleted",
+            },
+          }).event,
+        ).toBe("live_event.invalidated");
+      });
     });
     expect(
       projectIdentitySchema.safeParse({

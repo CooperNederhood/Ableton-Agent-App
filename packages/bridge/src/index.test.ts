@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { InMemoryEventPublisher } from "@ableton-agent/shared";
 import { withCorrelation } from "@ableton-agent/correlation";
 
-import { AbletonBridgeService } from "./index.js";
+import { AbletonBridgeService, type AbletonLiveEvent } from "./index.js";
 
 const token = "test-token-that-is-at-least-thirty-two-characters";
 let simulator: ChildProcessWithoutNullStreams | undefined;
@@ -30,6 +30,14 @@ async function startSimulator(expectedToken = token): Promise<number> {
   });
   lines.close();
   return (JSON.parse(line) as { port: number }).port;
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 1_000;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error("Timed out waiting for state");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 afterEach(() => {
@@ -834,6 +842,83 @@ describe("AbletonBridgeService", () => {
       code: "unsupported_capability",
       retryable: false,
     });
+    await service.stop();
+  });
+
+  it("manages simulator subscriptions and decodes typed Live events", async () => {
+    const port = await startSimulator();
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      eventSubscriptions: ["live_event.occurred", "live_event.invalidated"],
+    });
+    const liveEvents: AbletonLiveEvent[] = [];
+    service.subscribeLiveEvents((event) => liveEvents.push(event));
+
+    await service.start();
+    const selection = await service.inspectEventSelection();
+    expect(selection.parameter).not.toBeNull();
+    const eventId = "live-event.00000000-0000-4000-8000-000000000123";
+    const result = await service.subscribeLiveEvent({
+      ...selection.parameter!,
+      eventId,
+      kind: "parameter.value_changed",
+      projectId: "simulated-project",
+      observationPolicy: {
+        minimumNormalizedDelta: 0.01,
+        throttleMs: 100,
+      },
+    });
+    expect(result).toMatchObject({
+      eventId,
+      kind: "parameter.value_changed",
+      resolution: { status: "resolved" },
+      initialState: { kind: "parameter.value_changed" },
+    });
+    expect(service.getLiveEventSubscriptionStatuses()).toMatchObject([
+      { eventId, status: "resolved" },
+    ]);
+
+    await service.setDeviceParameter({
+      ...selection.parameter!,
+      normalizedValue: 0.9,
+    });
+    await waitFor(() => liveEvents.length === 1);
+    expect(liveEvents).toHaveLength(1);
+    expect(liveEvents[0]).toMatchObject({
+      event: "live_event.occurred",
+      payload: {
+        eventId,
+        kind: "parameter.value_changed",
+        sequence: 0,
+      },
+    });
+    await expect(service.listLiveEventSubscriptions()).resolves.toMatchObject({
+      subscriptions: [{ eventId }],
+    });
+    await expect(service.unsubscribeLiveEvent(eventId)).resolves.toEqual({
+      eventId,
+      unsubscribed: true,
+    });
+    expect(service.getLiveEventSubscriptionStatuses()).toEqual([]);
+    await service.subscribeLiveEvent({
+      ...selection.parameter!,
+      eventId,
+      kind: "parameter.value_changed",
+      projectId: "simulated-project",
+    });
+    await expect(service.clearLiveEventSubscriptions()).resolves.toEqual({
+      clearedEventIds: [eventId],
+    });
+    await waitFor(() => liveEvents.at(-1)?.event === "live_event.invalidated");
+    expect(liveEvents.at(-1)).toMatchObject({
+      event: "live_event.invalidated",
+      payload: { eventId, reason: "subscription-cleared" },
+    });
+    expect(service.getLiveEventSubscriptionStatuses()).toMatchObject([
+      { eventId, status: "invalidated" },
+    ]);
     await service.stop();
   });
 

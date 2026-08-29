@@ -41,7 +41,7 @@ describe("generated protocol contracts", () => {
     expect(fixture.producer).toBe("typescript");
     expect(
       fixture.messages.map((message) => messageEnvelopeSchema.parse(message)),
-    ).toHaveLength(5);
+    ).toHaveLength(7);
     const errors = fixture.errors.map((message) =>
       failureResponseEnvelopeSchema.parse(message),
     );

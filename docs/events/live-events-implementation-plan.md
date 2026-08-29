@@ -100,19 +100,19 @@ Likely files:
 
 ## Phase 3: protocol and bridge
 
-- [ ] Add TypeScript command schemas and generated protocol contract fixtures.
-- [ ] Add Python validation matching the canonical TypeScript schemas.
-- [ ] Extend the bridge with inspect-selection and dynamic event subscription
+- [x] Add TypeScript command schemas and generated protocol contract fixtures.
+- [x] Add Python validation matching the canonical TypeScript schemas.
+- [x] Extend the bridge with inspect-selection and dynamic event subscription
   methods.
-- [ ] Request `live_event.occurred` and `live_event.invalidated` during the
+- [x] Request `live_event.occurred` and `live_event.invalidated` during the
   authenticated handshake.
-- [ ] Decode occurrences into typed bridge events.
-- [ ] Preserve sequence-gap reporting and expose a reconciliation signal to
+- [x] Decode occurrences into typed bridge events.
+- [x] Preserve sequence-gap reporting and expose a reconciliation signal to
   the event runtime.
-- [ ] Replay enabled event definitions after reconnect without delivering the
+- [x] Replay enabled event definitions after reconnect without delivering the
   returned initial state as a trigger.
-- [ ] Mark unresolved and invalidated targets explicitly.
-- [ ] Add contract tests and simulator-backed bridge tests for subscribe,
+- [x] Mark unresolved and invalidated targets explicitly.
+- [x] Add contract tests and simulator-backed bridge tests for subscribe,
   unsubscribe, reconnect replay, event ordering, and gaps.
 
 Likely files:

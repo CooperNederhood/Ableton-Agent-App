@@ -211,6 +211,9 @@ importers:
 
   packages/protocol:
     dependencies:
+      '@ableton-agent/agent-config':
+        specifier: workspace:*
+        version: link:../agent-config
       zod:
         specifier: ^4.0.17
         version: 4.4.3

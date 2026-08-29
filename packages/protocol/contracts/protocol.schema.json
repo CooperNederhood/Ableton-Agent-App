@@ -551,6 +551,1377 @@
         "additionalProperties": false
       }
     },
+    "events.inspect_selection": {
+      "mutates": false,
+      "timeoutClass": "normal",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "track": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "index": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "expectedReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "expectedName": { "type": "string", "minLength": 1 }
+                },
+                "required": ["index", "expectedReference", "expectedName"],
+                "additionalProperties": false
+              },
+              { "type": "null" }
+            ]
+          },
+          "parameter": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "index": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "expectedReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "expectedName": { "type": "string", "minLength": 1 },
+                  "deviceIndex": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "expectedDeviceReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "expectedDeviceName": { "type": "string", "minLength": 1 },
+                  "parameterIndex": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "expectedParameterReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "expectedParameterName": { "type": "string", "minLength": 1 }
+                },
+                "required": [
+                  "index",
+                  "expectedReference",
+                  "expectedName",
+                  "deviceIndex",
+                  "expectedDeviceReference",
+                  "expectedDeviceName",
+                  "parameterIndex",
+                  "expectedParameterReference",
+                  "expectedParameterName"
+                ],
+                "additionalProperties": false
+              },
+              { "type": "null" }
+            ]
+          }
+        },
+        "required": ["track", "parameter"],
+        "additionalProperties": false
+      }
+    },
+    "events.subscribe": {
+      "mutates": false,
+      "timeoutClass": "normal",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "expectedReference": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "expectedName": { "type": "string", "minLength": 1 },
+              "deviceIndex": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "expectedDeviceReference": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "expectedDeviceName": { "type": "string", "minLength": 1 },
+              "parameterIndex": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "expectedParameterReference": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "expectedParameterName": { "type": "string", "minLength": 1 },
+              "eventId": {
+                "type": "string",
+                "pattern": "^live-event\\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              },
+              "projectId": { "type": "string", "minLength": 1 },
+              "kind": { "type": "string", "const": "parameter.value_changed" },
+              "observationPolicy": {
+                "type": "object",
+                "properties": {
+                  "minimumNormalizedDelta": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "throttleMs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 60000
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "index",
+              "expectedReference",
+              "expectedName",
+              "deviceIndex",
+              "expectedDeviceReference",
+              "expectedDeviceName",
+              "parameterIndex",
+              "expectedParameterReference",
+              "expectedParameterName",
+              "eventId",
+              "projectId",
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "expectedReference": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "expectedName": { "type": "string", "minLength": 1 },
+              "eventId": {
+                "type": "string",
+                "pattern": "^live-event\\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              },
+              "projectId": { "type": "string", "minLength": 1 },
+              "kind": {
+                "type": "string",
+                "const": "track.playing_clip_changed"
+              }
+            },
+            "required": [
+              "index",
+              "expectedReference",
+              "expectedName",
+              "eventId",
+              "projectId",
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "expectedReference": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "expectedName": { "type": "string", "minLength": 1 },
+              "eventId": {
+                "type": "string",
+                "pattern": "^live-event\\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              },
+              "projectId": { "type": "string", "minLength": 1 },
+              "kind": {
+                "type": "string",
+                "const": "track.triggered_clip_changed"
+              }
+            },
+            "required": [
+              "index",
+              "expectedReference",
+              "expectedName",
+              "eventId",
+              "projectId",
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "expectedReference": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "expectedName": { "type": "string", "minLength": 1 },
+              "eventId": {
+                "type": "string",
+                "pattern": "^live-event\\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              },
+              "projectId": { "type": "string", "minLength": 1 },
+              "kind": {
+                "type": "string",
+                "const": "track.recording_state_changed"
+              }
+            },
+            "required": [
+              "index",
+              "expectedReference",
+              "expectedName",
+              "eventId",
+              "projectId",
+              "kind"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "eventId": {
+                "type": "string",
+                "pattern": "^live-event\\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              },
+              "kind": { "type": "string", "const": "parameter.value_changed" },
+              "target": {
+                "type": "object",
+                "properties": {
+                  "trackReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "track": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "color": { "type": "string", "maxLength": 64 }
+                    },
+                    "required": ["name"],
+                    "additionalProperties": false
+                  },
+                  "deviceReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "parameterReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": [
+                  "trackReference",
+                  "track",
+                  "deviceReference",
+                  "parameterReference"
+                ],
+                "additionalProperties": false
+              },
+              "resolution": {
+                "type": "object",
+                "properties": {
+                  "trackReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "track": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "color": { "type": "string", "maxLength": 64 }
+                    },
+                    "required": ["name"],
+                    "additionalProperties": false
+                  },
+                  "deviceReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "parameterReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "status": { "type": "string", "const": "resolved" },
+                  "projectId": { "type": "string", "minLength": 1 }
+                },
+                "required": [
+                  "trackReference",
+                  "track",
+                  "deviceReference",
+                  "parameterReference",
+                  "status",
+                  "projectId"
+                ],
+                "additionalProperties": false
+              },
+              "state": {
+                "type": "object",
+                "properties": {
+                  "normalizedValue": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "value": { "type": "number" },
+                  "displayValue": { "type": "string", "maxLength": 256 }
+                },
+                "required": ["normalizedValue", "value", "displayValue"],
+                "additionalProperties": false
+              },
+              "initialState": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "parameter.value_changed"
+                  },
+                  "state": {
+                    "type": "object",
+                    "properties": {
+                      "normalizedValue": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "value": { "type": "number" },
+                      "displayValue": { "type": "string", "maxLength": 256 }
+                    },
+                    "required": ["normalizedValue", "value", "displayValue"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["kind", "state"],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "eventId",
+              "kind",
+              "target",
+              "resolution",
+              "state",
+              "initialState"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "eventId": {
+                "type": "string",
+                "pattern": "^live-event\\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              },
+              "kind": {
+                "type": "string",
+                "const": "track.playing_clip_changed"
+              },
+              "target": {
+                "type": "object",
+                "properties": {
+                  "trackReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "track": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "color": { "type": "string", "maxLength": 64 }
+                    },
+                    "required": ["name"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["trackReference", "track"],
+                "additionalProperties": false
+              },
+              "resolution": {
+                "type": "object",
+                "properties": {
+                  "trackReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "track": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "color": { "type": "string", "maxLength": 64 }
+                    },
+                    "required": ["name"],
+                    "additionalProperties": false
+                  },
+                  "status": { "type": "string", "const": "resolved" },
+                  "projectId": { "type": "string", "minLength": 1 }
+                },
+                "required": ["trackReference", "track", "status", "projectId"],
+                "additionalProperties": false
+              },
+              "state": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "state": { "type": "string", "const": "stopped" }
+                    },
+                    "required": ["state"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "state": { "type": "string", "const": "arrangement" }
+                    },
+                    "required": ["state"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "state": { "type": "string", "const": "session-clip" },
+                      "slotIndex": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "clipName": { "type": "string", "maxLength": 128 }
+                    },
+                    "required": ["state", "slotIndex"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "initialState": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "track.playing_clip_changed"
+                  },
+                  "state": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "state": { "type": "string", "const": "stopped" }
+                        },
+                        "required": ["state"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "state": { "type": "string", "const": "arrangement" }
+                        },
+                        "required": ["state"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "state": {
+                            "type": "string",
+                            "const": "session-clip"
+                          },
+                          "slotIndex": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "clipName": { "type": "string", "maxLength": 128 }
+                        },
+                        "required": ["state", "slotIndex"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "required": ["kind", "state"],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "eventId",
+              "kind",
+              "target",
+              "resolution",
+              "state",
+              "initialState"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "eventId": {
+                "type": "string",
+                "pattern": "^live-event\\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              },
+              "kind": {
+                "type": "string",
+                "const": "track.triggered_clip_changed"
+              },
+              "target": {
+                "type": "object",
+                "properties": {
+                  "trackReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "track": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "color": { "type": "string", "maxLength": 64 }
+                    },
+                    "required": ["name"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["trackReference", "track"],
+                "additionalProperties": false
+              },
+              "resolution": {
+                "type": "object",
+                "properties": {
+                  "trackReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "track": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "color": { "type": "string", "maxLength": 64 }
+                    },
+                    "required": ["name"],
+                    "additionalProperties": false
+                  },
+                  "status": { "type": "string", "const": "resolved" },
+                  "projectId": { "type": "string", "minLength": 1 }
+                },
+                "required": ["trackReference", "track", "status", "projectId"],
+                "additionalProperties": false
+              },
+              "state": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "state": { "type": "string", "const": "none" }
+                    },
+                    "required": ["state"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "state": { "type": "string", "const": "stop" }
+                    },
+                    "required": ["state"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "state": { "type": "string", "const": "session-clip" },
+                      "slotIndex": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "clipName": { "type": "string", "maxLength": 128 }
+                    },
+                    "required": ["state", "slotIndex"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "initialState": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "track.triggered_clip_changed"
+                  },
+                  "state": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "state": { "type": "string", "const": "none" }
+                        },
+                        "required": ["state"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "state": { "type": "string", "const": "stop" }
+                        },
+                        "required": ["state"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "state": {
+                            "type": "string",
+                            "const": "session-clip"
+                          },
+                          "slotIndex": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "clipName": { "type": "string", "maxLength": 128 }
+                        },
+                        "required": ["state", "slotIndex"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "required": ["kind", "state"],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "eventId",
+              "kind",
+              "target",
+              "resolution",
+              "state",
+              "initialState"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "eventId": {
+                "type": "string",
+                "pattern": "^live-event\\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              },
+              "kind": {
+                "type": "string",
+                "const": "track.recording_state_changed"
+              },
+              "target": {
+                "type": "object",
+                "properties": {
+                  "trackReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "track": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "color": { "type": "string", "maxLength": 64 }
+                    },
+                    "required": ["name"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["trackReference", "track"],
+                "additionalProperties": false
+              },
+              "resolution": {
+                "type": "object",
+                "properties": {
+                  "trackReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "track": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "color": { "type": "string", "maxLength": 64 }
+                    },
+                    "required": ["name"],
+                    "additionalProperties": false
+                  },
+                  "status": { "type": "string", "const": "resolved" },
+                  "projectId": { "type": "string", "minLength": 1 }
+                },
+                "required": ["trackReference", "track", "status", "projectId"],
+                "additionalProperties": false
+              },
+              "state": {
+                "type": "object",
+                "properties": {
+                  "recording": { "type": "boolean" },
+                  "source": {
+                    "type": "string",
+                    "enum": ["track", "session-clip", "arrangement"]
+                  }
+                },
+                "required": ["recording", "source"],
+                "additionalProperties": false
+              },
+              "initialState": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "track.recording_state_changed"
+                  },
+                  "state": {
+                    "type": "object",
+                    "properties": {
+                      "recording": { "type": "boolean" },
+                      "source": {
+                        "type": "string",
+                        "enum": ["track", "session-clip", "arrangement"]
+                      }
+                    },
+                    "required": ["recording", "source"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["kind", "state"],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "eventId",
+              "kind",
+              "target",
+              "resolution",
+              "state",
+              "initialState"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "events.unsubscribe": {
+      "mutates": false,
+      "timeoutClass": "normal",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "pattern": "^live-event\\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          }
+        },
+        "required": ["eventId"],
+        "additionalProperties": false
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "pattern": "^live-event\\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "unsubscribed": { "type": "boolean", "const": true }
+        },
+        "required": ["eventId", "unsubscribed"],
+        "additionalProperties": false
+      }
+    },
+    "events.list_subscriptions": {
+      "mutates": false,
+      "timeoutClass": "normal",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "subscriptions": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "eventId": {
+                      "type": "string",
+                      "pattern": "^live-event\\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "const": "parameter.value_changed"
+                    },
+                    "target": {
+                      "type": "object",
+                      "properties": {
+                        "trackReference": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "track": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "color": { "type": "string", "maxLength": 64 }
+                          },
+                          "required": ["name"],
+                          "additionalProperties": false
+                        },
+                        "deviceReference": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "parameterReference": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        }
+                      },
+                      "required": [
+                        "trackReference",
+                        "track",
+                        "deviceReference",
+                        "parameterReference"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "resolution": {
+                      "type": "object",
+                      "properties": {
+                        "trackReference": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "track": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "color": { "type": "string", "maxLength": 64 }
+                          },
+                          "required": ["name"],
+                          "additionalProperties": false
+                        },
+                        "deviceReference": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "parameterReference": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "status": { "type": "string", "const": "resolved" },
+                        "projectId": { "type": "string", "minLength": 1 }
+                      },
+                      "required": [
+                        "trackReference",
+                        "track",
+                        "deviceReference",
+                        "parameterReference",
+                        "status",
+                        "projectId"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "state": {
+                      "type": "object",
+                      "properties": {
+                        "normalizedValue": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        "value": { "type": "number" },
+                        "displayValue": { "type": "string", "maxLength": 256 }
+                      },
+                      "required": ["normalizedValue", "value", "displayValue"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "eventId",
+                    "kind",
+                    "target",
+                    "resolution",
+                    "state"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "eventId": {
+                      "type": "string",
+                      "pattern": "^live-event\\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "const": "track.playing_clip_changed"
+                    },
+                    "target": {
+                      "type": "object",
+                      "properties": {
+                        "trackReference": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "track": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "color": { "type": "string", "maxLength": 64 }
+                          },
+                          "required": ["name"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["trackReference", "track"],
+                      "additionalProperties": false
+                    },
+                    "resolution": {
+                      "type": "object",
+                      "properties": {
+                        "trackReference": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "track": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "color": { "type": "string", "maxLength": 64 }
+                          },
+                          "required": ["name"],
+                          "additionalProperties": false
+                        },
+                        "status": { "type": "string", "const": "resolved" },
+                        "projectId": { "type": "string", "minLength": 1 }
+                      },
+                      "required": [
+                        "trackReference",
+                        "track",
+                        "status",
+                        "projectId"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "state": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": { "type": "string", "const": "stopped" }
+                          },
+                          "required": ["state"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "const": "arrangement"
+                            }
+                          },
+                          "required": ["state"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "const": "session-clip"
+                            },
+                            "slotIndex": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "clipName": { "type": "string", "maxLength": 128 }
+                          },
+                          "required": ["state", "slotIndex"],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "eventId",
+                    "kind",
+                    "target",
+                    "resolution",
+                    "state"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "eventId": {
+                      "type": "string",
+                      "pattern": "^live-event\\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "const": "track.triggered_clip_changed"
+                    },
+                    "target": {
+                      "type": "object",
+                      "properties": {
+                        "trackReference": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "track": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "color": { "type": "string", "maxLength": 64 }
+                          },
+                          "required": ["name"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["trackReference", "track"],
+                      "additionalProperties": false
+                    },
+                    "resolution": {
+                      "type": "object",
+                      "properties": {
+                        "trackReference": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "track": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "color": { "type": "string", "maxLength": 64 }
+                          },
+                          "required": ["name"],
+                          "additionalProperties": false
+                        },
+                        "status": { "type": "string", "const": "resolved" },
+                        "projectId": { "type": "string", "minLength": 1 }
+                      },
+                      "required": [
+                        "trackReference",
+                        "track",
+                        "status",
+                        "projectId"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "state": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": { "type": "string", "const": "none" }
+                          },
+                          "required": ["state"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": { "type": "string", "const": "stop" }
+                          },
+                          "required": ["state"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "const": "session-clip"
+                            },
+                            "slotIndex": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "clipName": { "type": "string", "maxLength": 128 }
+                          },
+                          "required": ["state", "slotIndex"],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "eventId",
+                    "kind",
+                    "target",
+                    "resolution",
+                    "state"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "eventId": {
+                      "type": "string",
+                      "pattern": "^live-event\\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "const": "track.recording_state_changed"
+                    },
+                    "target": {
+                      "type": "object",
+                      "properties": {
+                        "trackReference": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "track": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "color": { "type": "string", "maxLength": 64 }
+                          },
+                          "required": ["name"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["trackReference", "track"],
+                      "additionalProperties": false
+                    },
+                    "resolution": {
+                      "type": "object",
+                      "properties": {
+                        "trackReference": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "track": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "color": { "type": "string", "maxLength": 64 }
+                          },
+                          "required": ["name"],
+                          "additionalProperties": false
+                        },
+                        "status": { "type": "string", "const": "resolved" },
+                        "projectId": { "type": "string", "minLength": 1 }
+                      },
+                      "required": [
+                        "trackReference",
+                        "track",
+                        "status",
+                        "projectId"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "state": {
+                      "type": "object",
+                      "properties": {
+                        "recording": { "type": "boolean" },
+                        "source": {
+                          "type": "string",
+                          "enum": ["track", "session-clip", "arrangement"]
+                        }
+                      },
+                      "required": ["recording", "source"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "eventId",
+                    "kind",
+                    "target",
+                    "resolution",
+                    "state"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          }
+        },
+        "required": ["subscriptions"],
+        "additionalProperties": false
+      }
+    },
+    "events.clear_subscriptions": {
+      "mutates": false,
+      "timeoutClass": "normal",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clearedEventIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^live-event\\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            }
+          }
+        },
+        "required": ["clearedEventIds"],
+        "additionalProperties": false
+      }
+    },
     "transport.set_tempo": {
       "mutates": true,
       "timeoutClass": "normal",

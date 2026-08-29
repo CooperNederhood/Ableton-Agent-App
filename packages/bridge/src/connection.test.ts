@@ -12,7 +12,7 @@ import {
 } from "@ableton-agent/protocol";
 import { InMemoryEventPublisher, type AppEvent } from "@ableton-agent/shared";
 
-import { AbletonBridgeService } from "./index.js";
+import { AbletonBridgeService, type AbletonLiveEvent } from "./index.js";
 
 const token = "test-token-that-is-at-least-thirty-two-characters";
 const projectId = "bridge-test-project";
@@ -49,7 +49,14 @@ async function startServer(
               liveVersion: "12.1-test",
               remoteScriptVersion: "0.4.0",
               projectId,
-              capabilities: { "system.ping": true },
+              capabilities: {
+                "system.ping": true,
+                "events.inspect_selection": true,
+                "events.subscribe": true,
+                "events.unsubscribe": true,
+                "events.list_subscriptions": true,
+                "events.clear_subscriptions": true,
+              },
               limits: { maxFrameBytes: 1_048_576, maxBatchItems: 128 },
             },
             warnings: [],
@@ -185,6 +192,7 @@ describe("Ableton bridge connection manager", () => {
     const appEvents: AppEvent[] = [];
     publisher.subscribe((event) => appEvents.push(event));
     const bridgeEvents: string[] = [];
+    const reconciliations: Array<{ reason: string }> = [];
     const service = new AbletonBridgeService({
       authenticationToken: token,
       events: publisher,
@@ -193,6 +201,9 @@ describe("Ableton bridge connection manager", () => {
     });
     services.push(service);
     service.subscribe((event) => bridgeEvents.push(event.event));
+    service.subscribeLiveEventReconciliation((signal) =>
+      reconciliations.push(signal),
+    );
 
     await service.start();
     const socket = testServer.sockets[0];
@@ -218,6 +229,13 @@ describe("Ableton bridge connection manager", () => {
       expectedSequence: 5,
       receivedSequence: 6,
     });
+    expect(reconciliations).toEqual([
+      {
+        reason: "sequence-gap",
+        expectedSequence: 5,
+        receivedSequence: 6,
+      },
+    ]);
     expect(service.getProjectRevision()).toBe(8);
 
     await service.ping();
@@ -263,5 +281,143 @@ describe("Ableton bridge connection manager", () => {
       state: "connected",
       projectId,
     });
+  });
+
+  it("replays desired subscriptions after reconnect without emitting initial occurrences", async () => {
+    const eventId = "live-event.00000000-0000-4000-8000-000000000123";
+    const trackReference = "00000000-0000-4000-8000-000000000124";
+    const testServer = await startServer((request, socket) => {
+      let result: unknown;
+      if (request.command === "events.list_subscriptions") {
+        result = { subscriptions: [] };
+      } else if (request.command === "events.subscribe") {
+        result = {
+          eventId,
+          kind: "track.playing_clip_changed",
+          target: {
+            trackReference,
+            track: { name: "Drums" },
+          },
+          state: { state: "stopped" },
+          resolution: {
+            status: "resolved",
+            projectId,
+            trackReference,
+            track: { name: "Drums" },
+          },
+          initialState: {
+            kind: "track.playing_clip_changed",
+            state: { state: "stopped" },
+          },
+        };
+      } else {
+        return;
+      }
+      socket.write(
+        encodeFrame({
+          protocolVersion: PROTOCOL_VERSION,
+          kind: "response",
+          requestId: request.requestId,
+          ok: true,
+          result,
+          warnings: [],
+        }),
+      );
+    });
+    servers.push(testServer.server);
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port: testServer.port,
+      reconnect: {
+        maxAttempts: 2,
+        initialDelayMs: 5,
+        maxDelayMs: 5,
+        jitterRatio: 0,
+      },
+    });
+    services.push(service);
+    const liveEvents: AbletonLiveEvent[] = [];
+    const reconciliations: Array<{ reason: string }> = [];
+    service.subscribeLiveEvents((event) => liveEvents.push(event));
+    service.subscribeLiveEventReconciliation((signal) =>
+      reconciliations.push(signal),
+    );
+
+    await service.start();
+    await service.subscribeLiveEvent({
+      eventId,
+      kind: "track.playing_clip_changed",
+      projectId,
+      index: 0,
+      expectedReference: trackReference,
+      expectedName: "Drums",
+    });
+    testServer.sockets[0]?.destroy();
+    await waitFor(
+      () =>
+        testServer.requests.filter(
+          (request) => request.command === "events.subscribe",
+        ).length === 2,
+    );
+
+    expect(liveEvents).toEqual([]);
+    expect(reconciliations).toMatchObject([
+      { reason: "reconnect", subscriptions: [{ eventId, status: "resolved" }] },
+    ]);
+    expect(service.getLiveEventSubscriptionStatuses()).toMatchObject([
+      { eventId, status: "resolved" },
+    ]);
+  });
+
+  it("exposes unresolved subscription status after a protocol failure", async () => {
+    const eventId = "live-event.00000000-0000-4000-8000-000000000123";
+    const testServer = await startServer((request, socket) => {
+      if (request.command !== "events.subscribe") return;
+      socket.write(
+        encodeFrame({
+          protocolVersion: PROTOCOL_VERSION,
+          kind: "response",
+          requestId: request.requestId,
+          ok: false,
+          error: {
+            code: "stale_reference",
+            message: "Track identity changed",
+            retryable: false,
+            details: {},
+          },
+        }),
+      );
+    });
+    servers.push(testServer.server);
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port: testServer.port,
+    });
+    services.push(service);
+
+    await service.start();
+    await expect(
+      service.subscribeLiveEvent({
+        eventId,
+        kind: "track.playing_clip_changed",
+        projectId,
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000124",
+        expectedName: "Drums",
+      }),
+    ).rejects.toMatchObject({ code: "stale_reference" });
+    expect(service.getLiveEventSubscriptionStatuses()).toEqual([
+      {
+        eventId,
+        status: "unresolved",
+        error: {
+          code: "stale_reference",
+          message: "Track identity changed",
+          retryable: false,
+        },
+      },
+    ]);
   });
 });

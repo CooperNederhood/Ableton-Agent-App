@@ -1,3 +1,4 @@
+import json
 import sys
 import unittest
 import uuid
@@ -198,6 +199,27 @@ class DynamicSubscriptionTests(unittest.TestCase):
         self.assertTrue(
             capabilities["events.track.recording_state_changed"]
         )
+
+    def test_typescript_event_command_fixtures_match_python_validation(self):
+        fixture_path = (
+            REMOTE_SCRIPT_ROOT.parent
+            / "packages"
+            / "protocol"
+            / "contracts"
+            / "command-fixtures.json"
+        )
+        fixtures = json.loads(fixture_path.read_text(encoding="utf-8"))
+        registry = CommandRegistry()
+        register_event_commands(registry, self.manager)
+        for name in (
+            "events.inspect_selection",
+            "events.subscribe",
+            "events.unsubscribe",
+            "events.list_subscriptions",
+            "events.clear_subscriptions",
+        ):
+            params = fixtures["commands"][name]["request"]["params"]
+            self.assertIsNone(registry.get(name).validator(params), name)
 
     def test_parameter_initial_state_coalescing_delta_and_cleanup(self):
         params = self.params("parameter.value_changed")

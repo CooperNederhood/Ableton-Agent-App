@@ -2,6 +2,8 @@ import { z, type ZodType } from "zod";
 
 import {
   capabilityDocumentSchema,
+  clearEventSubscriptionsParamsSchema,
+  clearEventSubscriptionsResultSchema,
   createArrangementMidiClipParamsSchema,
   createArrangementMidiClipResultSchema,
   createCuePointParamsSchema,
@@ -40,6 +42,8 @@ import {
   inspectDrumPadChainsResultSchema,
   inspectDrumRackPadsParamsSchema,
   inspectDrumRackPadsResultSchema,
+  inspectEventSelectionParamsSchema,
+  inspectEventSelectionResultSchema,
   inspectMidiNotesParamsSchema,
   inspectMidiNotesResultSchema,
   inspectRackChainDevicesParamsSchema,
@@ -48,6 +52,8 @@ import {
   inspectRackChainsResultSchema,
   launchSessionClipParamsSchema,
   launchSessionClipResultSchema,
+  listEventSubscriptionsParamsSchema,
+  listEventSubscriptionsResultSchema,
   loadBrowserItemParamsSchema,
   loadBrowserItemResultSchema,
   pingResultSchema,
@@ -77,7 +83,11 @@ import {
   setTempoResultSchema,
   setTrackMixerParamsSchema,
   setTrackMixerResultSchema,
+  subscribeEventParamsSchema,
+  subscribeEventResultSchema,
   trackMutationResultSchema,
+  unsubscribeEventParamsSchema,
+  unsubscribeEventResultSchema,
 } from "./schemas.js";
 
 export const timeoutClassSchema = z.enum(["normal", "long"]);
@@ -110,6 +120,26 @@ export const commandCatalog = {
   "system.ping": command(emptyParamsSchema, pingResultSchema),
   "project.get_identity": command(emptyParamsSchema, projectIdentitySchema),
   "session.inspect": command(emptyParamsSchema, sessionSnapshotSchema),
+  "events.inspect_selection": command(
+    inspectEventSelectionParamsSchema,
+    inspectEventSelectionResultSchema,
+  ),
+  "events.subscribe": command(
+    subscribeEventParamsSchema,
+    subscribeEventResultSchema,
+  ),
+  "events.unsubscribe": command(
+    unsubscribeEventParamsSchema,
+    unsubscribeEventResultSchema,
+  ),
+  "events.list_subscriptions": command(
+    listEventSubscriptionsParamsSchema,
+    listEventSubscriptionsResultSchema,
+  ),
+  "events.clear_subscriptions": command(
+    clearEventSubscriptionsParamsSchema,
+    clearEventSubscriptionsResultSchema,
+  ),
   "transport.set_tempo": command(setTempoParamsSchema, setTempoResultSchema, {
     mutates: true,
   }),

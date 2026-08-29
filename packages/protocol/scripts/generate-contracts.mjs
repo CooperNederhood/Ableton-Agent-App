@@ -11,6 +11,8 @@ import { PROTOCOL_VERSION } from "../src/constants.ts";
 import {
   eventEnvelopeSchema,
   failureResponseEnvelopeSchema,
+  liveEventInvalidatedEnvelopeSchema,
+  liveEventOccurredEnvelopeSchema,
   messageEnvelopeSchema,
   protocolErrorCodeSchema,
   requestEnvelopeSchema,
@@ -29,6 +31,13 @@ function sampleFromSchema(schema) {
     const candidate =
       schema.anyOf.find((entry) => entry.type !== "null") ?? schema.anyOf[0];
     return sampleFromSchema(candidate);
+  }
+  if (schema.oneOf !== undefined) return sampleFromSchema(schema.oneOf[0]);
+  if (schema.allOf !== undefined) {
+    return Object.assign(
+      {},
+      ...schema.allOf.map((entry) => sampleFromSchema(entry)),
+    );
   }
   switch (schema.type) {
     case "object": {
@@ -53,7 +62,10 @@ function sampleFromSchema(schema) {
     case "string":
       if (schema.format === "uuid")
         return "00000000-0000-4000-8000-000000000099";
+      if (schema.format === "date-time") return "2000-01-01T00:00:00Z";
       if (schema.format === "uri") return "ableton://fixture";
+      if (schema.pattern?.startsWith("^live-event"))
+        return "live-event.00000000-0000-4000-8000-000000000099";
       return "x".repeat(Math.max(1, schema.minLength ?? 0));
     case "integer":
     case "number": {
@@ -151,6 +163,51 @@ const fixtures = {
       event: "project.changed",
       sequence: 7,
       payload: { reason: "track_added" },
+      projectRevision: 4,
+    }),
+    liveEventOccurredEnvelopeSchema.parse({
+      protocolVersion: PROTOCOL_VERSION,
+      kind: "event",
+      event: "live_event.occurred",
+      sequence: 8,
+      payload: {
+        occurrenceId: "00000000-0000-4000-8000-000000000098",
+        eventId: "live-event.00000000-0000-4000-8000-000000000099",
+        kind: "parameter.value_changed",
+        sequence: 8,
+        projectRevision: 4,
+        observedAt: "2000-01-01T00:00:00Z",
+        target: {
+          trackReference: "00000000-0000-4000-8000-000000000097",
+          track: { name: "Track" },
+          deviceReference: "00000000-0000-4000-8000-000000000096",
+          parameterReference: "00000000-0000-4000-8000-000000000095",
+        },
+        previous: {
+          normalizedValue: 0.25,
+          value: 0.25,
+          displayValue: "25%",
+        },
+        current: {
+          normalizedValue: 0.5,
+          value: 0.5,
+          displayValue: "50%",
+        },
+        summary: "Parameter changed to 50%",
+      },
+      projectRevision: 4,
+    }),
+    liveEventInvalidatedEnvelopeSchema.parse({
+      protocolVersion: PROTOCOL_VERSION,
+      kind: "event",
+      event: "live_event.invalidated",
+      sequence: 9,
+      payload: {
+        eventId: "live-event.00000000-0000-4000-8000-000000000099",
+        observedAt: "2000-01-01T00:00:01Z",
+        projectRevision: 4,
+        reason: "target-deleted",
+      },
       projectRevision: 4,
     }),
   ],

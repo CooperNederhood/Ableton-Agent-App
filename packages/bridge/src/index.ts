@@ -41,6 +41,8 @@ import {
   inspectDrumPadChainsResultSchema,
   inspectDrumRackPadsParamsSchema,
   inspectDrumRackPadsResultSchema,
+  inspectEventSelectionParamsSchema,
+  inspectEventSelectionResultSchema,
   inspectMidiNotesParamsSchema,
   inspectMidiNotesResultSchema,
   inspectRackChainDevicesParamsSchema,
@@ -63,6 +65,9 @@ import {
   inspectArrangementTransportResultSchema,
   launchSessionClipParamsSchema,
   launchSessionClipResultSchema,
+  listEventSubscriptionsParamsSchema,
+  listEventSubscriptionsResultSchema,
+  liveEventEnvelopeSchema,
   replaceMidiNotesParamsSchema,
   replaceMidiNotesResultSchema,
   replaceArrangementMidiNotesParamsSchema,
@@ -75,6 +80,8 @@ import {
   setSessionClipPropertiesResultSchema,
   setTrackMixerParamsSchema,
   setTrackMixerResultSchema,
+  subscribeEventParamsSchema,
+  subscribeEventResultSchema,
   setDeviceEnabledParamsSchema,
   setDeviceEnabledResultSchema,
   setDeviceParameterParamsSchema,
@@ -82,6 +89,10 @@ import {
   setTempoParamsSchema,
   setTempoResultSchema,
   trackMutationResultSchema,
+  unsubscribeEventParamsSchema,
+  unsubscribeEventResultSchema,
+  clearEventSubscriptionsParamsSchema,
+  clearEventSubscriptionsResultSchema,
   type CapabilityDocument,
   type CreateCuePointParams,
   type CuePointMutationResult,
@@ -111,12 +122,17 @@ import {
   type SearchBrowserResult,
   type LoadBrowserItemParams,
   type LoadBrowserItemResult,
+  type ListEventSubscriptionsResult,
+  type LiveEventInitialStatePayload,
+  type LiveEventInvalidationPayload,
+  type LiveEventOccurrencePayload,
   type InspectDrumPadChainDevicesParams,
   type InspectDrumPadChainDevicesResult,
   type InspectDrumPadChainsParams,
   type InspectDrumPadChainsResult,
   type InspectDrumRackPadsParams,
   type InspectDrumRackPadsResult,
+  type InspectEventSelectionResult,
   type InspectMidiNotesParams,
   type InspectMidiNotesResult,
   type InspectRackChainDevicesParams,
@@ -153,12 +169,17 @@ import {
   type SetSessionClipPropertiesResult,
   type SetTrackMixerParams,
   type SetTrackMixerResult,
+  type SubscribeEventParams,
+  type SubscribeEventResult,
   type SetDeviceEnabledParams,
   type SetDeviceEnabledResult,
   type SetDeviceParameterParams,
   type SetDeviceParameterResult,
   type SetTempoResult,
   type TrackMutationResult,
+  type UnsubscribeEventResult,
+  type ClearEventSubscriptionsResult,
+  type EventSubscriptionDescriptor,
 } from "@ableton-agent/protocol";
 import { currentCorrelationId } from "@ableton-agent/correlation";
 import type { ConnectionStatus, EventPublisher } from "@ableton-agent/shared";
@@ -209,6 +230,53 @@ export interface AbletonBridgeEvent {
   readonly projectRevision?: number;
 }
 
+export type AbletonLiveEvent =
+  | {
+      readonly event: "live_event.occurred";
+      readonly sequence: number;
+      readonly payload: LiveEventOccurrencePayload;
+      readonly projectRevision?: number;
+    }
+  | {
+      readonly event: "live_event.invalidated";
+      readonly sequence: number;
+      readonly payload: LiveEventInvalidationPayload;
+      readonly projectRevision?: number;
+    };
+
+export type LiveEventSubscriptionStatus =
+  | {
+      readonly eventId: string;
+      readonly status: "resolved";
+      readonly subscription: EventSubscriptionDescriptor;
+      readonly initialState?: LiveEventInitialStatePayload;
+    }
+  | {
+      readonly eventId: string;
+      readonly status: "unresolved";
+      readonly error: {
+        readonly code: string;
+        readonly message: string;
+        readonly retryable: boolean;
+      };
+    }
+  | {
+      readonly eventId: string;
+      readonly status: "invalidated";
+      readonly invalidation: LiveEventInvalidationPayload;
+    };
+
+export type LiveEventReconciliationSignal =
+  | {
+      readonly reason: "sequence-gap";
+      readonly expectedSequence: number;
+      readonly receivedSequence: number;
+    }
+  | {
+      readonly reason: "reconnect";
+      readonly subscriptions: readonly LiveEventSubscriptionStatus[];
+    };
+
 export interface AbletonBridge {
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -216,7 +284,22 @@ export interface AbletonBridge {
   getCapabilities(): Promise<CapabilityDocument>;
   getProjectIdentity(): Promise<ProjectIdentity>;
   getProjectRevision(): number | undefined;
+  inspectEventSelection(): Promise<InspectEventSelectionResult>;
+  subscribeLiveEvent(
+    params: SubscribeEventParams,
+  ): Promise<SubscribeEventResult>;
+  unsubscribeLiveEvent(eventId: string): Promise<UnsubscribeEventResult>;
+  listLiveEventSubscriptions(): Promise<ListEventSubscriptionsResult>;
+  clearLiveEventSubscriptions(): Promise<ClearEventSubscriptionsResult>;
   subscribe(listener: (event: AbletonBridgeEvent) => void): () => void;
+  subscribeLiveEvents(listener: (event: AbletonLiveEvent) => void): () => void;
+  subscribeLiveEventReconciliation(
+    listener: (signal: LiveEventReconciliationSignal) => void,
+  ): () => void;
+  getLiveEventSubscriptionStatuses(): readonly LiveEventSubscriptionStatus[];
+  reconcileLiveEventSubscriptions(): Promise<
+    readonly LiveEventSubscriptionStatus[]
+  >;
 }
 
 interface PendingRequest {
@@ -248,6 +331,18 @@ export class AbletonBridgeService implements AbletonService {
   readonly #decoder = new FrameDecoder();
   readonly #pending = new Map<string, PendingRequest>();
   readonly #eventListeners = new Set<(event: AbletonBridgeEvent) => void>();
+  readonly #liveEventListeners = new Set<(event: AbletonLiveEvent) => void>();
+  readonly #reconciliationListeners = new Set<
+    (signal: LiveEventReconciliationSignal) => void
+  >();
+  readonly #desiredLiveEventSubscriptions = new Map<
+    string,
+    SubscribeEventParams
+  >();
+  readonly #liveEventSubscriptionStatuses = new Map<
+    string,
+    LiveEventSubscriptionStatus
+  >();
   #mutationTail: Promise<void> = Promise.resolve();
   #socket: Socket | undefined;
   #reconnectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -260,6 +355,7 @@ export class AbletonBridgeService implements AbletonService {
   #reconnectAttempt = 0;
   #lastEventSequence: number | undefined;
   #projectRevision: number | undefined;
+  #successfulConnections = 0;
 
   public constructor(private readonly options: AbletonBridgeOptions) {
     if (options.authenticationToken.length < 32) {
@@ -310,6 +406,28 @@ export class AbletonBridgeService implements AbletonService {
     };
   }
 
+  public subscribeLiveEvents(
+    listener: (event: AbletonLiveEvent) => void,
+  ): () => void {
+    this.#liveEventListeners.add(listener);
+    return () => {
+      this.#liveEventListeners.delete(listener);
+    };
+  }
+
+  public subscribeLiveEventReconciliation(
+    listener: (signal: LiveEventReconciliationSignal) => void,
+  ): () => void {
+    this.#reconciliationListeners.add(listener);
+    return () => {
+      this.#reconciliationListeners.delete(listener);
+    };
+  }
+
+  public getLiveEventSubscriptionStatuses(): readonly LiveEventSubscriptionStatus[] {
+    return [...this.#liveEventSubscriptionStatuses.values()];
+  }
+
   async #ensureConnected(): Promise<void> {
     this.#connectPromise ??= this.#startConnection().finally(() => {
       this.#connectPromise = undefined;
@@ -337,8 +455,17 @@ export class AbletonBridgeService implements AbletonService {
       }
       this.#capabilities = capabilities;
       this.#handshakeComplete = true;
-      this.#reconnectAttempt = 0;
       this.#lastEventSequence = undefined;
+      const reconnecting = this.#successfulConnections > 0;
+      const replayedSubscriptions = await this.#replayLiveEventSubscriptions();
+      if (reconnecting) {
+        this.#publishReconciliation({
+          reason: "reconnect",
+          subscriptions: replayedSubscriptions,
+        });
+      }
+      this.#successfulConnections += 1;
+      this.#reconnectAttempt = 0;
       this.#setStatus({
         state: "connected",
         liveVersion: capabilities.liveVersion,
@@ -385,6 +512,87 @@ export class AbletonBridgeService implements AbletonService {
     return projectIdentitySchema.parse(
       await this.#request("project.get_identity", {}),
     );
+  }
+
+  public async inspectEventSelection(): Promise<InspectEventSelectionResult> {
+    this.#requireCapability("events.inspect_selection");
+    return inspectEventSelectionResultSchema.parse(
+      await this.#request(
+        "events.inspect_selection",
+        inspectEventSelectionParamsSchema.parse({}),
+      ),
+    );
+  }
+
+  public async subscribeLiveEvent(
+    params: SubscribeEventParams,
+  ): Promise<SubscribeEventResult> {
+    this.#requireCapability("events.subscribe");
+    const validated = subscribeEventParamsSchema.parse(params);
+    this.#desiredLiveEventSubscriptions.set(validated.eventId, validated);
+    return this.#requestLiveEventSubscription(validated);
+  }
+
+  public async unsubscribeLiveEvent(
+    eventId: string,
+  ): Promise<UnsubscribeEventResult> {
+    this.#requireCapability("events.unsubscribe");
+    const params = unsubscribeEventParamsSchema.parse({ eventId });
+    this.#desiredLiveEventSubscriptions.delete(eventId);
+    this.#liveEventSubscriptionStatuses.delete(eventId);
+    return unsubscribeEventResultSchema.parse(
+      await this.#request("events.unsubscribe", params),
+    );
+  }
+
+  public async listLiveEventSubscriptions(): Promise<ListEventSubscriptionsResult> {
+    this.#requireCapability("events.list_subscriptions");
+    return listEventSubscriptionsResultSchema.parse(
+      await this.#request(
+        "events.list_subscriptions",
+        listEventSubscriptionsParamsSchema.parse({}),
+      ),
+    );
+  }
+
+  public async clearLiveEventSubscriptions(): Promise<ClearEventSubscriptionsResult> {
+    this.#requireCapability("events.clear_subscriptions");
+    this.#desiredLiveEventSubscriptions.clear();
+    this.#liveEventSubscriptionStatuses.clear();
+    return clearEventSubscriptionsResultSchema.parse(
+      await this.#request(
+        "events.clear_subscriptions",
+        clearEventSubscriptionsParamsSchema.parse({}),
+      ),
+    );
+  }
+
+  public async reconcileLiveEventSubscriptions(): Promise<
+    readonly LiveEventSubscriptionStatus[]
+  > {
+    this.#requireCapability("events.list_subscriptions");
+    const current = await this.listLiveEventSubscriptions();
+    const remote = new Map(
+      current.subscriptions.map((subscription) => [
+        subscription.eventId,
+        subscription,
+      ]),
+    );
+    for (const [eventId, params] of [
+      ...this.#desiredLiveEventSubscriptions.entries(),
+    ].sort(([left], [right]) => left.localeCompare(right))) {
+      const subscription = remote.get(eventId);
+      if (subscription !== undefined) {
+        this.#liveEventSubscriptionStatuses.set(eventId, {
+          eventId,
+          status: "resolved",
+          subscription,
+        });
+        continue;
+      }
+      await this.#requestLiveEventSubscription(params).catch(() => undefined);
+    }
+    return this.getLiveEventSubscriptionStatuses();
   }
 
   public async inspectSession(): Promise<SessionSnapshot> {
@@ -759,6 +967,75 @@ export class AbletonBridgeService implements AbletonService {
     );
   }
 
+  async #requestLiveEventSubscription(
+    params: SubscribeEventParams,
+  ): Promise<SubscribeEventResult> {
+    try {
+      const result = subscribeEventResultSchema.parse(
+        await this.#request("events.subscribe", params),
+      );
+      const { initialState, ...subscription } = result;
+      this.#liveEventSubscriptionStatuses.set(params.eventId, {
+        eventId: params.eventId,
+        status: "resolved",
+        subscription,
+        initialState,
+      });
+      return result;
+    } catch (error) {
+      const bridgeError =
+        error instanceof AbletonBridgeError
+          ? error
+          : new AbletonBridgeError(
+              "invalid_response",
+              error instanceof Error ? error.message : String(error),
+              false,
+            );
+      this.#liveEventSubscriptionStatuses.set(params.eventId, {
+        eventId: params.eventId,
+        status: "unresolved",
+        error: {
+          code: bridgeError.code,
+          message: bridgeError.message,
+          retryable: bridgeError.retryable,
+        },
+      });
+      throw error;
+    }
+  }
+
+  async #replayLiveEventSubscriptions(): Promise<
+    readonly LiveEventSubscriptionStatus[]
+  > {
+    if (this.#desiredLiveEventSubscriptions.size === 0) {
+      return this.getLiveEventSubscriptionStatuses();
+    }
+    try {
+      return await this.reconcileLiveEventSubscriptions();
+    } catch (error) {
+      const bridgeError =
+        error instanceof AbletonBridgeError
+          ? error
+          : new AbletonBridgeError(
+              "reconciliation_failed",
+              error instanceof Error ? error.message : String(error),
+              true,
+            );
+      for (const eventId of this.#desiredLiveEventSubscriptions.keys()) {
+        this.#liveEventSubscriptionStatuses.set(eventId, {
+          eventId,
+          status: "unresolved",
+          error: {
+            code: bridgeError.code,
+            message: bridgeError.message,
+            retryable: bridgeError.retryable,
+          },
+        });
+      }
+      return this.getLiveEventSubscriptionStatuses();
+    }
+  }
+
   #requireCapability(capability: string): void {
     if (!this.#capabilities?.capabilities[capability]) {
       throw new AbletonBridgeError(
@@ -992,15 +1269,42 @@ export class AbletonBridgeService implements AbletonService {
         expectedSequence: expected,
         receivedSequence: message.sequence,
       });
+      this.#publishReconciliation({
+        reason: "sequence-gap",
+        expectedSequence: expected,
+        receivedSequence: message.sequence,
+      });
     }
     this.#lastEventSequence = message.sequence;
     if (message.projectRevision !== undefined) {
       this.#projectRevision = message.projectRevision;
     }
+    let liveEvent: AbletonLiveEvent | undefined;
+    if (
+      message.event === "live_event.occurred" ||
+      message.event === "live_event.invalidated"
+    ) {
+      const envelope = liveEventEnvelopeSchema.parse(message);
+      liveEvent = {
+        event: envelope.event,
+        sequence: envelope.sequence,
+        payload: envelope.payload,
+        ...(envelope.projectRevision === undefined
+          ? {}
+          : { projectRevision: envelope.projectRevision }),
+      } as AbletonLiveEvent;
+      if (envelope.event === "live_event.invalidated") {
+        this.#liveEventSubscriptionStatuses.set(envelope.payload.eventId, {
+          eventId: envelope.payload.eventId,
+          status: "invalidated",
+          invalidation: envelope.payload,
+        });
+      }
+    }
     const event: AbletonBridgeEvent = {
       event: message.event,
       sequence: message.sequence,
-      payload: message.payload,
+      payload: liveEvent?.payload ?? message.payload,
       ...(message.projectRevision === undefined
         ? {}
         : { projectRevision: message.projectRevision }),
@@ -1010,6 +1314,13 @@ export class AbletonBridgeService implements AbletonService {
       ...event,
     });
     for (const listener of this.#eventListeners) listener(event);
+    if (liveEvent !== undefined) {
+      for (const listener of this.#liveEventListeners) listener(liveEvent);
+    }
+  }
+
+  #publishReconciliation(signal: LiveEventReconciliationSignal): void {
+    for (const listener of this.#reconciliationListeners) listener(signal);
   }
 
   #failConnection(error: unknown): void {

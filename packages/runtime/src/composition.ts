@@ -215,7 +215,11 @@ export function createAbletonService(
         authenticationToken: settings.token,
         events,
         port: settings.port,
-        eventSubscriptions: ["project.changed"],
+        eventSubscriptions: [
+          "project.changed",
+          "live_event.occurred",
+          "live_event.invalidated",
+        ],
         onRequest: ({ requestId, correlationId, command, params }) =>
           logger.debug("Ableton bridge request", {
             requestId,

@@ -165,6 +165,7 @@ export class HeadlessDesktopService implements DesktopService {
   #pinnedContext: ContextChip[] = [];
   #turn: ActiveTurn | undefined;
   readonly #managedTurns = new Map<string, ActiveTurn>();
+  readonly #streamMessageIds = new Map<string, string>();
   readonly #managedTurnCleanup = new Set<string>();
   #acceptingActions = false;
   #pendingActionableLifecycle:
@@ -1723,20 +1724,39 @@ export class HeadlessDesktopService implements DesktopService {
       this.#pendingActionableLifecycle = undefined;
       this.#lifecycle = event.state;
     }
-    this.emit(
-      normalizeSharedEvent(
-        event,
-        () =>
-          (event.type === "agent.message_delta" ||
-          event.type === "agent.message_complete"
-            ? event.agentInstanceId === undefined
-              ? undefined
-              : this.#managedTurns.get(event.agentInstanceId)?.messageId
-            : undefined) ??
-          this.#turn?.messageId ??
-          randomUUID(),
-      ),
-    );
+    const messageId =
+      event.type === "agent.message_delta" ||
+      event.type === "agent.message_complete"
+        ? this.#resolveStreamMessageId(event)
+        : undefined;
+    this.emit(normalizeSharedEvent(event, () => messageId ?? randomUUID()));
+  }
+
+  #resolveStreamMessageId(
+    event: Extract<
+      AppEvent,
+      { type: "agent.message_delta" | "agent.message_complete" }
+    >,
+  ): string {
+    const streamKey =
+      event.agentInstanceId === undefined
+        ? event.sdkSessionId === undefined
+          ? "legacy"
+          : `session:${event.sdkSessionId}`
+        : `agent:${event.agentInstanceId}`;
+    const activeMessageId =
+      event.agentInstanceId === undefined
+        ? this.#turn?.messageId
+        : this.#managedTurns.get(event.agentInstanceId)?.messageId;
+    const messageId =
+      activeMessageId ?? this.#streamMessageIds.get(streamKey) ?? randomUUID();
+
+    if (event.type === "agent.message_complete") {
+      this.#streamMessageIds.delete(streamKey);
+    } else {
+      this.#streamMessageIds.set(streamKey, messageId);
+    }
+    return messageId;
   }
 
   #publishPendingActionableLifecycle(): void {

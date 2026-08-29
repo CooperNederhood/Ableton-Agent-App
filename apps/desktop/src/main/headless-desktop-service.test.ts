@@ -172,6 +172,7 @@ async function harness(
   service.subscribe((event) => events.push(event));
   return {
     ...fake,
+    sharedEvents: fake.events,
     approvals,
     service,
     events,
@@ -1990,6 +1991,97 @@ describe("desktop adapter over the shared application", () => {
           event.operation.status === "completed",
       ),
     ).toBe(true);
+    await service.stop();
+  });
+
+  it("keeps unmanaged response chunks under one message id until completion", async () => {
+    const { service, events, sharedEvents } = await harness();
+    await service.start();
+    const agentInstanceId = "00000000-0000-4000-8000-000000000001";
+
+    sharedEvents.publish({
+      type: "agent.message_delta",
+      content: "This",
+      agentInstanceId,
+      sdkSessionId: "sdk-session",
+    });
+    sharedEvents.publish({
+      type: "agent.message_delta",
+      content: " is one response",
+      agentInstanceId,
+      sdkSessionId: "sdk-session",
+    });
+    sharedEvents.publish({
+      type: "agent.message_complete",
+      content: "This is one response",
+      agentInstanceId,
+      sdkSessionId: "sdk-session",
+    });
+
+    const firstResponse = events.flatMap((event) =>
+      (event.type === "agent.message_delta" ||
+        event.type === "agent.message_complete") &&
+      event.agentInstanceId === agentInstanceId
+        ? [event]
+        : [],
+    );
+    expect(firstResponse).toHaveLength(3);
+    const firstMessageId = firstResponse[0]!.messageId;
+    expect(
+      firstResponse.every(({ messageId }) => messageId === firstMessageId),
+    ).toBe(true);
+
+    sharedEvents.publish({
+      type: "agent.message_delta",
+      content: "A later response",
+      agentInstanceId,
+      sdkSessionId: "sdk-session",
+    });
+    const laterDelta = events.at(-1);
+    expect(laterDelta?.type).toBe("agent.message_delta");
+    if (laterDelta?.type === "agent.message_delta") {
+      expect(laterDelta.messageId).not.toBe(firstMessageId);
+    }
+    await service.stop();
+  });
+
+  it("tracks unmanaged streams independently for concurrent agents", async () => {
+    const { service, events, sharedEvents } = await harness();
+    await service.start();
+    const firstAgentId = "00000000-0000-4000-8000-000000000001";
+    const secondAgentId = "00000000-0000-4000-8000-000000000002";
+
+    for (const [agentInstanceId, content] of [
+      [firstAgentId, "First"],
+      [secondAgentId, "Second"],
+      [firstAgentId, " response"],
+      [secondAgentId, " response"],
+    ] as const) {
+      sharedEvents.publish({
+        type: "agent.message_delta",
+        content,
+        agentInstanceId,
+      });
+    }
+
+    const messageIdsByAgent = new Map<string, Set<string>>();
+    for (const event of events) {
+      if (
+        event.type !== "agent.message_delta" ||
+        event.agentInstanceId === undefined
+      ) {
+        continue;
+      }
+      const messageIds =
+        messageIdsByAgent.get(event.agentInstanceId) ?? new Set<string>();
+      messageIds.add(event.messageId);
+      messageIdsByAgent.set(event.agentInstanceId, messageIds);
+    }
+    expect(messageIdsByAgent.get(firstAgentId)?.size).toBe(1);
+    expect(messageIdsByAgent.get(secondAgentId)?.size).toBe(1);
+    expect([...messageIdsByAgent.get(firstAgentId)!]).not.toEqual([
+      ...messageIdsByAgent.get(secondAgentId)!,
+    ]);
     await service.stop();
   });
 

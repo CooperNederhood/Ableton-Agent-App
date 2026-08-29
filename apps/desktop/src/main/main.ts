@@ -341,6 +341,9 @@ void bootstrap().catch(async (error: unknown) => {
   await removeSignalSecret?.().catch(() => undefined);
   await logger.write("error", "Desktop bootstrap failed", {
     error: error instanceof Error ? error.message : String(error),
+    ...(error instanceof Error && error.stack !== undefined
+      ? { stack: error.stack }
+      : {}),
   });
   app.exit(1);
 });

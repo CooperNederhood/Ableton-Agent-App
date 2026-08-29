@@ -388,6 +388,7 @@ export function App(): React.JSX.Element {
   const selectedInstanceId = selectedAgentInstance(state)?.id;
   const activeSessionId = state.sessions[0]?.id;
   useEffect(() => {
+    if (state.lifecycle !== "ready" && state.lifecycle !== "degraded") return;
     if (selectedInstanceId === undefined || activeSessionId === undefined)
       return;
     const key = `${activeSessionId}:${selectedInstanceId}`;
@@ -419,7 +420,7 @@ export function App(): React.JSX.Element {
           },
         });
       });
-  }, [activeSessionId, selectedInstanceId]);
+  }, [activeSessionId, selectedInstanceId, state.lifecycle]);
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent): void => {
       if ((event.metaKey || event.ctrlKey) && event.key === "k") {

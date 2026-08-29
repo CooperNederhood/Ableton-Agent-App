@@ -8,6 +8,7 @@
   "main": "dist/main/main.js",
   "scripts": {
     "build": "pnpm build:renderer && pnpm build:preload && pnpm build:electron",
+    "build:dependencies": "pnpm --filter '@ableton-agent/desktop^...' build",
     "build:renderer": "vite build",
     "build:preload": "vite build --config vite.preload.config.ts",
     "build:electron": "tsc -p tsconfig.electron.json",

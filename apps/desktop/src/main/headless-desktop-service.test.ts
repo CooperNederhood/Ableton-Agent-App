@@ -1924,12 +1924,21 @@ describe("desktop adapter over the shared application", () => {
 
   it("starts the shared application and reports its real lifecycle", async () => {
     const { service, ableton, agent, events } = await harness();
+    let snapshotAtReady: ReturnType<typeof service.getSnapshot> | undefined;
+    service.subscribe((event) => {
+      if (event.type === "lifecycle.changed" && event.state === "ready") {
+        snapshotAtReady = service.getSnapshot();
+      }
+    });
 
     await service.start();
 
     expect(agent.started).toBe(true);
     expect(ableton.started).toBe(true);
     expect(await service.getLifecycleState()).toBe("ready");
+    await expect(snapshotAtReady).resolves.toMatchObject({
+      tracks: [expect.objectContaining({ name: "Bass" })],
+    });
     expect(await service.getStatus()).toMatchObject({ state: "connected" });
     expect(
       events.some(

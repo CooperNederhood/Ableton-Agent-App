@@ -43,7 +43,11 @@ function stop() {
 process.once("SIGINT", stop);
 process.once("SIGTERM", stop);
 
-for (const build of ["build:preload", "build:electron"]) {
+for (const build of [
+  "build:dependencies",
+  "build:preload",
+  "build:electron",
+]) {
   const child = run("pnpm", [build]);
   const code = await new Promise((resolve) => child.once("exit", resolve));
   if (code !== 0) process.exit(code ?? 1);

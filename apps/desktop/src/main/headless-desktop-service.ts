@@ -156,6 +156,8 @@ export class HeadlessDesktopService implements DesktopService {
   readonly #managedTurns = new Map<string, ActiveTurn>();
   readonly #managedTurnCleanup = new Set<string>();
   #acceptingActions = false;
+  #pendingActionableLifecycle:
+    Extract<DesktopLifecycleState, "ready" | "degraded"> | undefined;
   #latestOutputs = new Map<string, LatestAcceptedOutput>();
   #snapshotRefresh: Promise<DesktopProjectSnapshot> | undefined;
   #activeProductionSessionId: string | undefined;
@@ -236,6 +238,7 @@ export class HeadlessDesktopService implements DesktopService {
     await this.#restoreOrRegisterSession();
     this.#bindActiveOutputAssignments();
     this.#acceptingActions = true;
+    this.#publishPendingActionableLifecycle();
     this.#emitOutputs();
     if ((await this.#application.getStatus()).state === "connected") {
       try {
@@ -255,6 +258,7 @@ export class HeadlessDesktopService implements DesktopService {
     const startedAt = Date.now();
     this.#logger.info("Desktop service stopping");
     this.#acceptingActions = false;
+    this.#pendingActionableLifecycle = undefined;
     this.#approvals.denyAll();
     await this.#preferenceSaveTail;
     await this.#drainSnapshotRefresh();
@@ -1336,6 +1340,14 @@ export class HeadlessDesktopService implements DesktopService {
   #onSharedEvent(event: AppEvent): void {
     this.#logger.debug("Application event received", { event });
     if (event.type === "lifecycle.changed") {
+      if (
+        !this.#acceptingActions &&
+        (event.state === "ready" || event.state === "degraded")
+      ) {
+        this.#pendingActionableLifecycle = event.state;
+        return;
+      }
+      this.#pendingActionableLifecycle = undefined;
       this.#lifecycle = event.state;
     }
     this.emit(
@@ -1352,6 +1364,14 @@ export class HeadlessDesktopService implements DesktopService {
           randomUUID(),
       ),
     );
+  }
+
+  #publishPendingActionableLifecycle(): void {
+    const state = this.#pendingActionableLifecycle;
+    if (state === undefined) return;
+    this.#pendingActionableLifecycle = undefined;
+    this.#lifecycle = state;
+    this.emit({ type: "lifecycle.changed", state });
   }
 
   async #loadPreferences(): Promise<DesktopPreferences> {

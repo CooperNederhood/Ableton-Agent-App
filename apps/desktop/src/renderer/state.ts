@@ -4,6 +4,7 @@ import type {
   DesktopAppEvent,
   DesktopConnectionStatus,
   DesktopDiagnosticsReport,
+  DesktopEventsState,
   DesktopAgentCatalog,
   DesktopActiveAgent,
   DesktopAgentHistoryMessage,
@@ -22,6 +23,7 @@ export type WorkspaceView =
   | "workspace"
   | "agents"
   | "outputs"
+  | "events"
   | "browser"
   | "diagnostics"
   | "sessions"
@@ -44,6 +46,11 @@ export type ProjectRefreshState =
   | { status: "idle" }
   | { status: "refreshing" }
   | { status: "succeeded" }
+  | { status: "failed"; message: string };
+
+export type EventsLoadState =
+  | { status: "loading" }
+  | { status: "loaded" }
   | { status: "failed"; message: string };
 
 export interface DesktopState {
@@ -73,7 +80,10 @@ export interface DesktopState {
   plan: PlanSection[];
   browserQuery: string;
   outputs: DesktopOutputsState;
+  events: DesktopEventsState;
+  eventsLoad: EventsLoadState;
   collapsedOutputProducerIds: string[];
+  expandedEventActivityIds: string[];
   projectRefresh: ProjectRefreshState;
 }
 
@@ -128,7 +138,10 @@ export const initialState: DesktopState = {
     assignments: [],
     latest: [],
   },
+  events: { events: [] },
+  eventsLoad: { status: "loading" },
   collapsedOutputProducerIds: [],
+  expandedEventActivityIds: [],
   projectRefresh: { status: "idle" },
 };
 
@@ -152,6 +165,9 @@ export type DesktopAction =
   | { type: "browser-query"; value: string }
   | { type: "diagnostics-loaded"; report: DesktopDiagnosticsReport }
   | { type: "toggle-output-disclosure"; producerId: string }
+  | { type: "toggle-event-activity"; eventId: string }
+  | { type: "events-load-started" }
+  | { type: "events-load-failed"; message: string }
   | { type: "project-refresh-started" }
   | { type: "project-refresh-succeeded" }
   | { type: "project-refresh-failed"; message: string }
@@ -161,6 +177,7 @@ const maxMessages = 500;
 const maxOperations = 500;
 const maxDismissedContextIds = 500;
 const maxCollapsedOutputProducerIds = 500;
+const maxExpandedEventActivityIds = 500;
 const maxRefreshMessageLength = 200;
 
 export function desktopReducer(
@@ -287,6 +304,30 @@ export function desktopReducer(
             ),
       };
     }
+    case "toggle-event-activity": {
+      const expanded = state.expandedEventActivityIds.includes(action.eventId);
+      return {
+        ...state,
+        expandedEventActivityIds: expanded
+          ? state.expandedEventActivityIds.filter(
+              (eventId) => eventId !== action.eventId,
+            )
+          : bounded(
+              [...state.expandedEventActivityIds, action.eventId],
+              maxExpandedEventActivityIds,
+            ),
+      };
+    }
+    case "events-load-started":
+      return { ...state, eventsLoad: { status: "loading" } };
+    case "events-load-failed":
+      return {
+        ...state,
+        eventsLoad: {
+          status: "failed",
+          message: boundRefreshMessage(action.message),
+        },
+      };
     case "project-refresh-started":
       return { ...state, projectRefresh: { status: "refreshing" } };
     case "project-refresh-succeeded":
@@ -372,6 +413,12 @@ function reduceEvent(
       return { ...state, preferences: event.preferences };
     case "outputs.changed":
       return { ...state, outputs: event.outputs };
+    case "events.changed":
+      return {
+        ...state,
+        events: event.events,
+        eventsLoad: { status: "loaded" },
+      };
     case "approval.requested":
       return event.agentInstanceId === undefined
         ? { ...state, approval: event.approval }

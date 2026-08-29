@@ -123,6 +123,12 @@ import {
   type SignalDeliveryService,
   type SignalTurnRequest,
 } from "./signal-delivery.js";
+import {
+  formatAutomaticLiveEventPrompt,
+  type LiveEventContextOptions,
+  type LiveEventDeliveryService,
+  type LiveEventTurnRequest,
+} from "./live-event-delivery.js";
 
 export {
   compactProjectContext,
@@ -142,6 +148,15 @@ export {
   type SignalDeliveryService,
   type SignalTurnRequest,
 } from "./signal-delivery.js";
+export {
+  constructNextPromptLiveEventContext,
+  formatAutomaticLiveEventPrompt,
+  type LiveEventContextOptions,
+  type LiveEventContextProvider,
+  type LiveEventDeliveryService,
+  type LiveEventTurnRequest,
+  type PendingLiveEventContext,
+} from "./live-event-delivery.js";
 
 export interface AgentSessionConfiguration {
   readonly instanceId: string;
@@ -173,7 +188,8 @@ export interface AgentHistoryMessage {
   readonly sdkSessionId?: string;
 }
 
-export interface AgentService extends Partial<SignalDeliveryService> {
+export interface AgentService
+  extends Partial<SignalDeliveryService>, Partial<LiveEventDeliveryService> {
   /** Identifier of the current agent conversation, when one is open. */
   readonly sessionId: string | undefined;
   start(preferredSessionId?: string): Promise<void>;
@@ -362,6 +378,7 @@ export interface CopilotAgentServiceOptions {
   reasoningEffort?: "low" | "medium" | "high";
   turnTimeoutMs?: number;
   signalContext?: SignalContextOptions;
+  liveEventContext?: LiveEventContextOptions;
 }
 
 export const DEFAULT_AGENT_TURN_TIMEOUT_MS = 180_000;
@@ -1001,6 +1018,27 @@ export class CopilotAgentService implements AgentService {
     };
   }
 
+  #scopedLiveEventContext(
+    state: ManagedSessionState,
+  ): LiveEventContextOptions | undefined {
+    const liveEventContext = this.options.liveEventContext;
+    if (liveEventContext?.provider === undefined) return liveEventContext;
+    return {
+      ...liveEventContext,
+      provider: {
+        getPendingLiveEventContexts: async () =>
+          liveEventContext.provider!.getPendingLiveEventContexts(
+            state.signalTargetId,
+          ),
+        markLiveEventContextsDelivered: async (...[, deliveryIds]) =>
+          liveEventContext.provider!.markLiveEventContextsDelivered(
+            state.signalTargetId,
+            deliveryIds,
+          ),
+      },
+    };
+  }
+
   async #readSkillBody(
     state: ManagedSessionState,
     skillName: string,
@@ -1072,12 +1110,16 @@ export class CopilotAgentService implements AgentService {
       enabledSkillDescriptors(state.configuration),
     );
     const scopedSignalContext = this.#scopedSignalContext(state);
+    const scopedLiveEventContext = this.#scopedLiveEventContext(state);
     const agentPolicy = createAgentPolicy({
       getAbletonStatus: this.options.getAbletonStatus,
       inspectSession: this.options.inspectSession,
       ...(scopedSignalContext === undefined
         ? {}
         : { signalContext: scopedSignalContext }),
+      ...(scopedLiveEventContext === undefined
+        ? {}
+        : { liveEventContext: scopedLiveEventContext }),
       promptContextEnabled: () => state.turnKind === "user",
       mutationBlocked: () => state.turnKind === "automatic-analysis",
     });
@@ -1873,6 +1915,24 @@ export class CopilotAgentService implements AgentService {
       }
     });
   }
+
+  public enqueueLiveEventTurn(request: LiveEventTurnRequest): Promise<string> {
+    const state = this.#findStateBySignalTargetId(request.agentInstanceId);
+    if (state?.session === undefined) {
+      return Promise.reject(
+        new Error(
+          `No active Copilot session for Live event listener '${request.agentInstanceId}'`,
+        ),
+      );
+    }
+    return this.#serialize(state, () =>
+      this.#sendNow(
+        state,
+        formatAutomaticLiveEventPrompt(request, this.options.liveEventContext),
+        "automatic-action",
+      ),
+    );
+  }
 }
 
 export class HeadlessApplication {
@@ -1963,12 +2023,27 @@ export class HeadlessApplication {
         new Error(`Application is not running (${this.#state})`),
       );
     }
+
     if (this.services.agent.enqueueSignalTurn === undefined) {
       return Promise.reject(
         new Error("Configured agent does not support signal delivery"),
       );
     }
     return this.services.agent.enqueueSignalTurn(request);
+  }
+
+  public enqueueLiveEventTurn(request: LiveEventTurnRequest): Promise<string> {
+    if (this.#state !== "ready" && this.#state !== "degraded") {
+      return Promise.reject(
+        new Error(`Application is not running (${this.#state})`),
+      );
+    }
+    if (this.services.agent.enqueueLiveEventTurn === undefined) {
+      return Promise.reject(
+        new Error("Configured agent does not support Live event delivery"),
+      );
+    }
+    return this.services.agent.enqueueLiveEventTurn(request);
   }
 
   /**

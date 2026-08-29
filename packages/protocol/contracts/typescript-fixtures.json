@@ -50,6 +50,51 @@
       "sequence": 7,
       "payload": { "reason": "track_added" },
       "projectRevision": 4
+    },
+    {
+      "protocolVersion": 2,
+      "kind": "event",
+      "event": "live_event.occurred",
+      "sequence": 8,
+      "payload": {
+        "occurrenceId": "00000000-0000-4000-8000-000000000098",
+        "eventId": "live-event.00000000-0000-4000-8000-000000000099",
+        "sequence": 8,
+        "projectRevision": 4,
+        "observedAt": "2000-01-01T00:00:00Z",
+        "target": {
+          "trackReference": "00000000-0000-4000-8000-000000000097",
+          "track": { "name": "Track" },
+          "deviceReference": "00000000-0000-4000-8000-000000000096",
+          "parameterReference": "00000000-0000-4000-8000-000000000095"
+        },
+        "summary": "Parameter changed to 50%",
+        "kind": "parameter.value_changed",
+        "previous": {
+          "normalizedValue": 0.25,
+          "value": 0.25,
+          "displayValue": "25%"
+        },
+        "current": {
+          "normalizedValue": 0.5,
+          "value": 0.5,
+          "displayValue": "50%"
+        }
+      },
+      "projectRevision": 4
+    },
+    {
+      "protocolVersion": 2,
+      "kind": "event",
+      "event": "live_event.invalidated",
+      "sequence": 9,
+      "payload": {
+        "eventId": "live-event.00000000-0000-4000-8000-000000000099",
+        "observedAt": "2000-01-01T00:00:01Z",
+        "projectRevision": 4,
+        "reason": "target-deleted"
+      },
+      "projectRevision": 4
     }
   ],
   "errors": [

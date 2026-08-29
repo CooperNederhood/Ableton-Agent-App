@@ -71,6 +71,7 @@ describe("preload API", () => {
       "outputs:assign": assignment,
       "outputs:set-processing-policies": assignment,
     });
+
     const api = createDesktopApi(transport);
     const agentInstanceId = "00000000-0000-4000-8000-000000000001";
     await expect(
@@ -91,6 +92,88 @@ describe("preload API", () => {
         agentInstanceId,
         producerId: "producer-1",
         processingPolicyIds: ["latest-window", "deduplicate"],
+      },
+    ]);
+  });
+
+  it("validates Live event operations and explicit agent attribution", async () => {
+    const eventId = "live-event.00000000-0000-4000-8000-000000000001";
+    const agentInstanceId = "00000000-0000-4000-8000-000000000002";
+    const definition = {
+      id: eventId,
+      projectId: "project-1",
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+      kind: "track.playing_clip_changed",
+      classification: "discrete",
+      name: "Keys clip",
+      enabled: true,
+      target: { track: { name: "Keys", occurrence: 0 } },
+    };
+    const attributedListener = {
+      agentInstanceId,
+      agentLabel: "Keys agent",
+      listener: {
+        id: "event-listener.00000000-0000-4000-8000-000000000003",
+        eventId,
+        enabled: true,
+        responseMode: "automatic",
+      },
+    };
+    const transport = transportFor({
+      "events:list": {
+        activeSessionId: "session-1",
+        events: [
+          {
+            definition,
+            resolution: {
+              status: "unresolved",
+              reason: "not-connected",
+            },
+            history: [],
+            listeners: [attributedListener],
+          },
+        ],
+      },
+      "events:create": definition,
+      "events:assign-listener": attributedListener,
+    });
+    const api = createDesktopApi(transport);
+    const draft = {
+      kind: "track.playing_clip_changed" as const,
+      classification: "discrete" as const,
+      name: "Keys clip",
+      enabled: true,
+      target: { track: { name: "Keys", occurrence: 0 } },
+    };
+
+    await expect(api.events.list()).resolves.toMatchObject({
+      activeSessionId: "session-1",
+    });
+    await expect(api.events.create(draft)).resolves.toEqual(definition);
+    await expect(
+      api.events.assignListener(agentInstanceId, eventId, {
+        enabled: true,
+        responseMode: "automatic",
+      }),
+    ).resolves.toEqual(attributedListener);
+    await expect(
+      api.events.assignListener("selected-agent", eventId, {
+        enabled: true,
+        responseMode: "automatic",
+      }),
+    ).rejects.toThrow();
+    await expect(
+      api.events.updateListener(agentInstanceId, eventId, {}),
+    ).rejects.toThrow();
+
+    expect(vi.mocked(transport).invoke.mock.calls).toContainEqual([
+      "events:assign-listener",
+      {
+        agentInstanceId,
+        eventId,
+        enabled: true,
+        responseMode: "automatic",
       },
     ]);
   });
@@ -146,7 +229,7 @@ describe("preload API", () => {
     const response = {
       instances: [],
       session: {
-        version: 2,
+        version: 3,
         id: "production-session",
         title: "Production session",
         updatedAt: new Date(0).toISOString(),
@@ -155,6 +238,7 @@ describe("preload API", () => {
         mode: "explore",
         productionPlan: [],
         outputAssignments: [],
+        liveEvents: [],
       },
     };
     const transport = transportFor({

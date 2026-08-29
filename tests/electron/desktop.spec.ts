@@ -27,6 +27,27 @@ test("launches the packaged desktop contract securely", async () => {
     await expect(
       window.getByRole("button", { name: "Settings" }),
     ).toBeVisible();
+    await window.getByRole("button", { name: "Events" }).click();
+    await expect(window.getByRole("heading", { name: "Events" })).toBeVisible();
+    await expect(window.getByText("No Live Events")).toBeVisible();
+
+    await window.getByRole("button", { name: "Agents" }).click();
+    await expect(
+      window.getByRole("heading", { name: "Agents", exact: true }),
+    ).toBeVisible();
+    const editOverrides = window.getByRole("button", {
+      name: "Edit overrides",
+    });
+    await expect(editOverrides.first()).toBeVisible();
+    await editOverrides.first().click();
+    await expect(
+      window.getByRole("group", { name: "Listening Events" }).first(),
+    ).toBeVisible();
+    await expect(
+      window.getByText(
+        "No Live events are available in this production session.",
+      ),
+    ).toBeVisible();
 
     const isolation = await window.evaluate(() => ({
       desktop: typeof window.desktop,

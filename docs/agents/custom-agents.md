@@ -109,6 +109,12 @@ canonical YAML definition: it follows that instance across selection changes
 and restarts, remains isolated from instances created from the same definition,
 and disappears when the instance is deactivated.
 
+Active instances may also listen to project-scoped
+[Live Events](../events/live-events.md). Each listener stores its own response
+mode and message prefix. These listeners are session overrides and are not
+seeded from canonical agent YAML in the initial implementation. One event may
+feed multiple agents without creating duplicate LOM subscriptions.
+
 Legacy Explore sessions migrate to Default. Compose, Arrange, Sound, and Mix
 sessions migrate to matching definitions while retaining their SDK history,
 plans, and outputs.
@@ -140,6 +146,12 @@ can create, rename, edit, reset, deactivate, and refresh. The workspace's
 **Agent Mode** selector switches among active instances and therefore switches
 the visible transcript, activity, approvals, composer target, and cancellation
 target.
+
+**Edit overrides** includes a **Listening Events** selector populated from the
+current session's event catalog. Each selected event configures `Automatic` or
+`Next prompt` response plus an optional message prefix. The existing **Inputs**
+editor remains unchanged. Output subscriptions remain managed in Outputs until
+those workflows are deliberately consolidated.
 
 The canonical definitions are Default, Compose, Arrange, Sound, and Mix. They
 initially have every Ableton tool and session scope.

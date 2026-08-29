@@ -15,7 +15,7 @@ function session(
   updatedAt: string,
 ): DesktopSession {
   return sessionSchema.parse({
-    version: 2,
+    version: 3,
     id,
     title: id,
     updatedAt,

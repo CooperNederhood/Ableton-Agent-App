@@ -144,6 +144,48 @@ export function createIpcHandlers(
         producerId,
         processingPolicyIds,
       ),
+    "events:list": () => service.listLiveEvents(),
+    "events:inspect-selection": () => service.inspectLiveEventSelection(),
+    "events:create": ({ definition }) => service.createLiveEvent(definition),
+    "events:update": ({ eventId, definition }) =>
+      service.updateLiveEvent(eventId, definition),
+    "events:enable": ({ eventId }) =>
+      service.setLiveEventEnabled(eventId, true),
+    "events:disable": ({ eventId }) =>
+      service.setLiveEventEnabled(eventId, false),
+    "events:delete": async ({ eventId }) => ({
+      removed: await service.deleteLiveEvent(eventId),
+    }),
+    "events:assign-listener": ({
+      agentInstanceId,
+      eventId,
+      enabled,
+      responseMode,
+      messagePrefix,
+    }) =>
+      service.assignLiveEventListener(agentInstanceId, eventId, {
+        enabled,
+        responseMode,
+        ...(messagePrefix === undefined ? {} : { messagePrefix }),
+      }),
+    "events:unassign-listener": async ({ agentInstanceId, eventId }) => ({
+      removed: await service.unassignLiveEventListener(
+        agentInstanceId,
+        eventId,
+      ),
+    }),
+    "events:update-listener": ({
+      agentInstanceId,
+      eventId,
+      enabled,
+      responseMode,
+      messagePrefix,
+    }) =>
+      service.updateLiveEventListener(agentInstanceId, eventId, {
+        ...(enabled === undefined ? {} : { enabled }),
+        ...(responseMode === undefined ? {} : { responseMode }),
+        ...(messagePrefix === undefined ? {} : { messagePrefix }),
+      }),
   };
 }
 

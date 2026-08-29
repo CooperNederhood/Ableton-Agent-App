@@ -152,6 +152,34 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
         }),
     },
     events: {
+      list: () => invoke("events:list", {}),
+      inspectSelection: () => invoke("events:inspect-selection", {}),
+      create: (definition) => invoke("events:create", { definition }),
+      update: (eventId, definition) =>
+        invoke("events:update", { eventId, definition }),
+      enable: (eventId) => invoke("events:enable", { eventId }),
+      disable: (eventId) => invoke("events:disable", { eventId }),
+      delete: async (eventId) =>
+        (await invoke("events:delete", { eventId })).removed,
+      assignListener: (agentInstanceId, eventId, settings) =>
+        invoke("events:assign-listener", {
+          agentInstanceId,
+          eventId,
+          ...settings,
+        }),
+      unassignListener: async (agentInstanceId, eventId) =>
+        (
+          await invoke("events:unassign-listener", {
+            agentInstanceId,
+            eventId,
+          })
+        ).removed,
+      updateListener: (agentInstanceId, eventId, settings) =>
+        invoke("events:update-listener", {
+          agentInstanceId,
+          eventId,
+          ...settings,
+        }),
       subscribe: (handler) => {
         const listener = (_event: IpcRendererEvent, value: unknown): void => {
           const parsed = appEventSchema.safeParse(value);

@@ -59,6 +59,8 @@ class SimulatorState(object):
                 "clips": [None, None],
                 "arrangementClips": [],
                 "playingSceneIndex": None,
+                "firedSceneIndex": None,
+                "recording": False,
                 "devices": [self.simulated_device("Drum Rack")],
             },
             {
@@ -76,10 +78,141 @@ class SimulatorState(object):
                 "clips": [None, None],
                 "arrangementClips": [],
                 "playingSceneIndex": None,
+                "firedSceneIndex": None,
+                "recording": False,
                 "devices": [self.simulated_device("Operator")],
             },
         ]
+        self.live_event_subscriptions = {}
+        self.live_event_messages = deque()
+        self.live_event_sequence = 0
         self.browser_roots = self.create_browser_roots()
+
+    def live_event_target(self, track, device=None, parameter=None):
+        target = {
+            "trackReference": track["reference"],
+            "track": {"name": track["name"]},
+        }
+        if track.get("color") is not None:
+            target["track"]["color"] = "#{0:06X}".format(
+                track["color"] & 0xFFFFFF
+            )
+        if device is not None:
+            target["deviceReference"] = device["reference"]
+        if parameter is not None:
+            target["parameterReference"] = parameter["reference"]
+        return target
+
+    def live_event_resolution(self, target):
+        result = {
+            "status": "resolved",
+            "projectId": "simulated-project",
+        }
+        result.update(target)
+        return result
+
+    def live_event_state(self, subscription):
+        track = subscription["track"]
+        kind = subscription["kind"]
+        if kind == "parameter.value_changed":
+            parameter = subscription["parameter"]
+            value = parameter["value"]
+            span = parameter["max"] - parameter["min"]
+            normalized = (
+                0.0 if span == 0 else (value - parameter["min"]) / span
+            )
+            return {
+                "normalizedValue": min(1.0, max(0.0, normalized)),
+                "value": value,
+                "displayValue": "{0:.6g}".format(value),
+            }
+        if kind == "track.playing_clip_changed":
+            index = track["playingSceneIndex"]
+            if index == -2:
+                return {"state": "arrangement"}
+            if index is None:
+                return {"state": "stopped"}
+            result = {"state": "session-clip", "slotIndex": index}
+            clip = track["clips"][index]
+            if clip is not None and clip["name"]:
+                result["clipName"] = clip["name"]
+            return result
+        if kind == "track.triggered_clip_changed":
+            index = track["firedSceneIndex"]
+            if index == -2:
+                return {"state": "stop"}
+            if index is None:
+                return {"state": "none"}
+            result = {"state": "session-clip", "slotIndex": index}
+            clip = track["clips"][index]
+            if clip is not None and clip["name"]:
+                result["clipName"] = clip["name"]
+            return result
+        return {
+            "recording": bool(track["recording"]),
+            "source": (
+                "arrangement"
+                if track["playingSceneIndex"] == -2
+                else "session-clip"
+                if track["playingSceneIndex"] is not None
+                else "track"
+            ),
+        }
+
+    def publish_live_event_changes(self):
+        for event_id in sorted(self.live_event_subscriptions):
+            subscription = self.live_event_subscriptions[event_id]
+            current = self.live_event_state(subscription)
+            previous = subscription["state"]
+            if current == previous:
+                continue
+            subscription["state"] = current
+            sequence = self.live_event_sequence
+            self.live_event_sequence += 1
+            payload = {
+                "occurrenceId": str(
+                    uuid.uuid5(
+                        uuid.NAMESPACE_URL,
+                        "{0}:{1}".format(event_id, sequence),
+                    )
+                ),
+                "eventId": event_id,
+                "kind": subscription["kind"],
+                "sequence": sequence,
+                "projectRevision": 0,
+                "observedAt": "2000-01-01T00:00:{0:02d}Z".format(
+                    sequence % 60
+                ),
+                "target": subscription["target"],
+                "previous": previous,
+                "current": current,
+                "summary": "Simulator Live event changed",
+            }
+            self.live_event_messages.append({
+                "protocolVersion": PROTOCOL_VERSION,
+                "kind": "event",
+                "event": "live_event.occurred",
+                "sequence": sequence,
+                "payload": payload,
+            })
+
+    def invalidate_live_event(self, event_id, reason):
+        sequence = self.live_event_sequence
+        self.live_event_sequence += 1
+        self.live_event_messages.append({
+            "protocolVersion": PROTOCOL_VERSION,
+            "kind": "event",
+            "event": "live_event.invalidated",
+            "sequence": sequence,
+            "payload": {
+                "eventId": event_id,
+                "observedAt": "2000-01-01T00:00:{0:02d}Z".format(
+                    sequence % 60
+                ),
+                "projectRevision": 0,
+                "reason": reason,
+            },
+        })
 
     def browser_item(
         self,
@@ -612,6 +745,15 @@ def handle(request, token, state):
                     "arrangement.replace_notes": True,
                     "arrangement.duplicate_clip": True,
                     "arrangement.set_clip_properties": True,
+                    "events.inspect_selection": True,
+                    "events.subscribe": True,
+                    "events.unsubscribe": True,
+                    "events.list_subscriptions": True,
+                    "events.clear_subscriptions": True,
+                    "events.parameter.value_changed": True,
+                    "events.track.playing_clip_changed": True,
+                    "events.track.triggered_clip_changed": True,
+                    "events.track.recording_state_changed": True,
                 },
                 "limits": {
                     "maxFrameBytes": 4 * 1024 * 1024,
@@ -621,6 +763,175 @@ def handle(request, token, state):
         )
     if command == "system.ping":
         return response(request, {"pong": True})
+    if command == "events.inspect_selection":
+        if params:
+            return failure(
+                request, "invalid_params", "Command does not accept parameters"
+            )
+        track = state.tracks[0]
+        device = track["devices"][0]
+        parameter = device["parameters"][1]
+        track_target = {
+            "index": 0,
+            "expectedReference": track["reference"],
+            "expectedName": track["name"],
+        }
+        parameter_target = dict(track_target)
+        parameter_target.update({
+            "deviceIndex": 0,
+            "expectedDeviceReference": device["reference"],
+            "expectedDeviceName": device["name"],
+            "parameterIndex": 1,
+            "expectedParameterReference": parameter["reference"],
+            "expectedParameterName": parameter["name"],
+        })
+        return response(
+            request,
+            {"track": track_target, "parameter": parameter_target},
+        )
+    if command == "events.subscribe":
+        kinds = (
+            "parameter.value_changed",
+            "track.playing_clip_changed",
+            "track.triggered_clip_changed",
+            "track.recording_state_changed",
+        )
+        event_id = params.get("eventId")
+        kind = params.get("kind")
+        index = params.get("index")
+        if (
+            not isinstance(event_id, str)
+            or not event_id.startswith("live-event.")
+            or kind not in kinds
+            or params.get("projectId") != "simulated-project"
+            or isinstance(index, bool)
+            or not isinstance(index, int)
+            or index < 0
+            or index >= len(state.tracks)
+        ):
+            return failure(
+                request, "invalid_params", "Invalid Live event subscription"
+            )
+        if event_id in state.live_event_subscriptions:
+            return failure(
+                request, "conflict", "Event ID is already subscribed"
+            )
+        track = state.tracks[index]
+        if (
+            track["reference"] != params.get("expectedReference")
+            or track["name"] != params.get("expectedName")
+        ):
+            return failure(
+                request,
+                "stale_reference",
+                "Track identity changed before subscribe",
+            )
+        device = None
+        parameter = None
+        if kind == "parameter.value_changed":
+            device_index = params.get("deviceIndex")
+            parameter_index = params.get("parameterIndex")
+            if (
+                isinstance(device_index, bool)
+                or not isinstance(device_index, int)
+                or device_index < 0
+                or device_index >= len(track["devices"])
+            ):
+                return failure(
+                    request, "not_found", "Device index is out of range"
+                )
+            device = track["devices"][device_index]
+            if (
+                device["reference"] != params.get("expectedDeviceReference")
+                or device["name"] != params.get("expectedDeviceName")
+                or isinstance(parameter_index, bool)
+                or not isinstance(parameter_index, int)
+                or parameter_index < 0
+                or parameter_index >= len(device["parameters"])
+            ):
+                return failure(
+                    request, "stale_reference", "Device identity changed"
+                )
+            parameter = device["parameters"][parameter_index]
+            if (
+                parameter["reference"]
+                != params.get("expectedParameterReference")
+                or parameter["name"] != params.get("expectedParameterName")
+            ):
+                return failure(
+                    request, "stale_reference", "Parameter identity changed"
+                )
+        subscription = {
+            "eventId": event_id,
+            "kind": kind,
+            "track": track,
+            "parameter": parameter,
+            "target": state.live_event_target(track, device, parameter),
+        }
+        subscription["state"] = state.live_event_state(subscription)
+        state.live_event_subscriptions[event_id] = subscription
+        resolution = state.live_event_resolution(subscription["target"])
+        return response(
+            request,
+            {
+                "eventId": event_id,
+                "kind": kind,
+                "target": subscription["target"],
+                "resolution": resolution,
+                "state": subscription["state"],
+                "initialState": {
+                    "kind": kind,
+                    "state": subscription["state"],
+                },
+            },
+        )
+    if command == "events.unsubscribe":
+        event_id = params.get("eventId")
+        if set(params.keys()) != set(["eventId"]):
+            return failure(
+                request, "invalid_params", "eventId is required"
+            )
+        if state.live_event_subscriptions.pop(event_id, None) is None:
+            return failure(
+                request, "not_found", "Subscription was not found"
+            )
+        return response(
+            request, {"eventId": event_id, "unsubscribed": True}
+        )
+    if command == "events.list_subscriptions":
+        if params:
+            return failure(
+                request, "invalid_params", "Command does not accept parameters"
+            )
+        return response(
+            request,
+            {
+                "subscriptions": [
+                    {
+                        "eventId": item["eventId"],
+                        "kind": item["kind"],
+                        "target": item["target"],
+                        "state": item["state"],
+                        "resolution": state.live_event_resolution(
+                            item["target"]
+                        ),
+                    }
+                    for _event_id, item in sorted(
+                        state.live_event_subscriptions.items()
+                    )
+                ]
+            },
+        )
+    if command == "events.clear_subscriptions":
+        if params:
+            return failure(
+                request, "invalid_params", "Command does not accept parameters"
+            )
+        event_ids = sorted(state.live_event_subscriptions)
+        state.live_event_subscriptions = {}
+        for event_id in event_ids:
+            state.invalidate_live_event(event_id, "subscription-cleared")
+        return response(request, {"clearedEventIds": event_ids})
     if command == "session.inspect":
         return response(
             request,
@@ -1166,6 +1477,8 @@ def handle(request, token, state):
             "clips": [None, None],
             "arrangementClips": [],
             "playingSceneIndex": None,
+            "firedSceneIndex": None,
+            "recording": False,
             "devices": [],
         }
         state.tracks.append(track)
@@ -1203,7 +1516,15 @@ def handle(request, token, state):
                 "Track identity changed before deletion",
             )
         before_count = len(state.tracks)
+        invalidated = [
+            event_id
+            for event_id, subscription in state.live_event_subscriptions.items()
+            if subscription["track"] is track
+        ]
         del state.tracks[index]
+        for event_id in sorted(invalidated):
+            del state.live_event_subscriptions[event_id]
+            state.invalidate_live_event(event_id, "target-deleted")
         return response(
             request,
             {
@@ -1737,6 +2058,7 @@ def handle(request, token, state):
             parameter["value"] = parameter["min"] + (
                 parameter["max"] - parameter["min"]
             ) * normalized
+        state.publish_live_event_changes()
         return response(
             request,
             {
@@ -1952,6 +2274,8 @@ def handle(request, token, state):
                 )
             source["isPlaying"] = False
             source["isTriggered"] = True
+            track["firedSceneIndex"] = scene_index
+            state.publish_live_event_changes()
             after = {
                 "trackPlayingSceneIndex": previous_scene_index,
                 "trackPlayingClipReference": (
@@ -2565,7 +2889,15 @@ def serve(host, port, token, connections=1):
                         result = handle(request, token, state)
                         if result is not None:
                             connection.sendall(encode_frame(result))
+                        while state.live_event_messages:
+                            connection.sendall(
+                                encode_frame(
+                                    state.live_event_messages.popleft()
+                                )
+                            )
             finally:
+                state.live_event_subscriptions = {}
+                state.live_event_messages.clear()
                 connection.close()
     finally:
         server.close()

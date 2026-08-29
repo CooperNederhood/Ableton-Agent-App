@@ -6,6 +6,12 @@ Outputs are stable MIDI or audio producers. Active agents subscribe
 independently, so one producer may feed any number of agents and each agent may
 listen to any number of producers.
 
+Outputs are not the same as
+[Live Events](../events/live-events.md). Outputs ingest MIDI/audio observation
+streams from producers; Live Events observe LOM properties and semantic
+transitions. They may share delivery primitives but retain separate source
+inventories and user interfaces.
+
 A subscription is keyed by active-agent instance and producer. It stores:
 
 - stable producer ID;

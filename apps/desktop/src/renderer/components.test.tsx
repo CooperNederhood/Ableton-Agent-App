@@ -3,6 +3,7 @@ import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  AddEventPanel,
   ApprovalPanel,
   AgentsView,
   Arrangement,
@@ -10,17 +11,25 @@ import {
   Composer,
   ConnectionHeader,
   DiagnosticsView,
+  EventCard,
+  EventsView,
+  groupEventsByTrack,
   groupOutputsByTrack,
   Inspector,
+  ListeningEventsEditor,
   loadInitialDesktopState,
+  loadLiveEvents,
   OperationCard,
   OutputConnectionCard,
   OutputsView,
+  parameterDraftFromSelection,
+  parameterDraftFromSnapshot,
   ProjectOutline,
   ProjectTransitionModal,
   ResolvedToolsDisclosure,
   refreshOutputs,
   refreshProjectSnapshot,
+  saveAgentEventListeners,
   selectWorkspaceAgent,
   sendComposerMessage,
   SettingsView,
@@ -40,6 +49,69 @@ import { desktopReducer, initialState, type DesktopState } from "./state";
 describe("desktop components", () => {
   const firstAgentId = "00000000-0000-4000-8000-000000000001";
   const secondAgentId = "00000000-0000-4000-8000-000000000002";
+  const firstEventId = "live-event.00000000-0000-4000-8000-000000000011";
+  const secondEventId = "live-event.00000000-0000-4000-8000-000000000012";
+  const liveEventStates = (): DesktopState["events"]["events"] => [
+    {
+      definition: {
+        id: firstEventId,
+        kind: "track.playing_clip_changed",
+        classification: "discrete",
+        name: "Keys clip",
+        projectId: "project",
+        enabled: true,
+        target: { track: { name: "Keys", occurrence: 0 } },
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString(),
+      },
+      resolution: {
+        status: "resolved",
+        projectId: "project",
+        trackReference: "00000000-0000-4000-8000-000000000021",
+        track: { name: "Keys" },
+      },
+      history: [],
+      listeners: [
+        {
+          agentInstanceId: firstAgentId,
+          agentLabel: "Default",
+          listener: {
+            id: "event-listener.00000000-0000-4000-8000-000000000031",
+            eventId: firstEventId,
+            enabled: true,
+            responseMode: "automatic",
+            messagePrefix: "Notice:",
+          },
+        },
+        {
+          agentInstanceId: secondAgentId,
+          agentLabel: "Default 2",
+          listener: {
+            id: "event-listener.00000000-0000-4000-8000-000000000032",
+            eventId: firstEventId,
+            enabled: false,
+            responseMode: "next-prompt",
+          },
+        },
+      ],
+    },
+    {
+      definition: {
+        id: secondEventId,
+        kind: "track.recording_state_changed",
+        classification: "discrete",
+        name: "Vocal recording",
+        projectId: "project",
+        enabled: false,
+        target: { track: { name: "Vocal", occurrence: 0 } },
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString(),
+      },
+      resolution: { status: "unresolved", reason: "missing" },
+      history: [],
+      listeners: [],
+    },
+  ];
   const workspaceState = (
     selectedAgentInstanceId = firstAgentId,
   ): DesktopState => ({
@@ -47,7 +119,7 @@ describe("desktop components", () => {
     lifecycle: "ready" as const,
     sessions: [
       {
-        version: 2 as const,
+        version: 3 as const,
         id: "session",
         title: "Session",
         updatedAt: new Date(0).toISOString(),
@@ -55,6 +127,7 @@ describe("desktop components", () => {
         mode: "explore" as const,
         productionPlan: [],
         outputAssignments: [],
+        liveEvents: [],
         selectedAgentInstanceId,
         activeAgents: [firstAgentId, secondAgentId].map((id, index) => ({
           id,
@@ -74,6 +147,7 @@ describe("desktop components", () => {
           },
           boundTracks: [],
           outputSubscriptions: [],
+          eventListeners: [],
           modified: false,
         })),
       },
@@ -212,7 +286,7 @@ describe("desktop components", () => {
           lifecycle: "ready",
           sessions: [
             {
-              version: 2,
+              version: 3,
               id: "production-session",
               title: "Session",
               updatedAt: new Date(0).toISOString(),
@@ -220,6 +294,7 @@ describe("desktop components", () => {
               mode: "explore",
               productionPlan: [],
               outputAssignments: [],
+              liveEvents: [],
               selectedAgentInstanceId: activeAgentId,
               activeAgents: [
                 {
@@ -240,6 +315,7 @@ describe("desktop components", () => {
                   },
                   boundTracks: [],
                   outputSubscriptions: [],
+                  eventListeners: [],
                   modified: false,
                 },
               ],
@@ -774,7 +850,7 @@ describe("desktop components", () => {
           lifecycle: "ready",
           sessions: [
             {
-              version: 2,
+              version: 3,
               id: "production-session",
               title: "Session",
               updatedAt: new Date(0).toISOString(),
@@ -782,6 +858,7 @@ describe("desktop components", () => {
               mode: "explore",
               productionPlan: [],
               outputAssignments: [],
+              liveEvents: [],
               selectedAgentInstanceId: activeAgentId,
               activeAgents: [
                 {
@@ -805,6 +882,7 @@ describe("desktop components", () => {
                   },
                   boundTracks: [],
                   outputSubscriptions: [],
+                  eventListeners: [],
                   modified: true,
                 },
               ],
@@ -857,6 +935,84 @@ describe("desktop components", () => {
     expect(html).toContain("Deactivate");
     expect(html).toContain("Open");
     expect(html).toContain("Create agent");
+  });
+
+  it("renders per-agent Listening Events summaries and editor states", () => {
+    const state = workspaceState();
+    state.events = {
+      activeSessionId: "session",
+      events: liveEventStates(),
+    };
+    const html = renderToStaticMarkup(
+      <AgentsView state={state} dispatch={vi.fn()} />,
+    );
+    const editor = renderToStaticMarkup(
+      <ListeningEventsEditor
+        agentInstanceId={firstAgentId}
+        events={state.events.events}
+        busy={false}
+        onError={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("Keys clip · Automatic");
+    expect(html).toContain("Keys clip · Next prompt (listener disabled)");
+    expect(editor).toContain("Keys clip");
+    expect(editor).toContain("Vocal recording");
+    expect(editor).toContain("Event disabled");
+    expect(editor).toContain("Unresolved target");
+    expect(editor).toContain("Automatic");
+    expect(editor).toContain("Next prompt");
+    expect(editor).toContain("Message prefix");
+    expect(editor).toContain("Notice:");
+    expect(editor).toContain("Save listening events");
+  });
+
+  it("saves listener selections without using agent configuration APIs", async () => {
+    const events = liveEventStates();
+    const assignListener = vi.fn().mockResolvedValue({});
+    const updateListener = vi.fn().mockResolvedValue({});
+    const unassignListener = vi.fn().mockResolvedValue(true);
+    const api = {
+      assignListener,
+      updateListener,
+      unassignListener,
+    } as unknown as DesktopApi["events"];
+
+    await saveAgentEventListeners(api, firstAgentId, events, {
+      [firstEventId]: {
+        selected: true,
+        enabled: false,
+        responseMode: "next-prompt",
+        messagePrefix: "",
+      },
+      [secondEventId]: {
+        selected: true,
+        enabled: true,
+        responseMode: "automatic",
+        messagePrefix: "Track this:",
+      },
+    });
+    await saveAgentEventListeners(api, secondAgentId, events, {
+      [firstEventId]: {
+        selected: false,
+        enabled: false,
+        responseMode: "next-prompt",
+        messagePrefix: "",
+      },
+    });
+
+    expect(updateListener).toHaveBeenCalledWith(firstAgentId, firstEventId, {
+      enabled: false,
+      responseMode: "next-prompt",
+      messagePrefix: null,
+    });
+    expect(assignListener).toHaveBeenCalledWith(firstAgentId, secondEventId, {
+      enabled: true,
+      responseMode: "automatic",
+      messagePrefix: "Track this:",
+    });
+    expect(unassignListener).toHaveBeenCalledWith(secondAgentId, firstEventId);
   });
 
   it("collapses resolved tools for wildcard selections", () => {
@@ -1050,13 +1206,14 @@ describe("desktop components", () => {
       },
       boundTracks: [],
       outputSubscriptions: [],
+      eventListeners: [],
       modified: false,
     });
     const state = {
       ...initialState,
       sessions: [
         {
-          version: 2 as const,
+          version: 3 as const,
           id: "session-1",
           title: "Session",
           updatedAt: new Date(0).toISOString(),
@@ -1069,6 +1226,7 @@ describe("desktop components", () => {
           mode: "explore" as const,
           productionPlan: [],
           outputAssignments: [],
+          liveEvents: [],
         },
       ],
       snapshot: {
@@ -1361,6 +1519,7 @@ describe("desktop components", () => {
             },
             boundTracks: [],
             outputSubscriptions: [],
+            eventListeners: [],
             modified: false,
           },
         ]}
@@ -1507,6 +1666,7 @@ describe("desktop components", () => {
       },
       agent: { getSessions: vi.fn().mockResolvedValue([]) },
       outputs: { list: vi.fn().mockResolvedValue(initialState.outputs) },
+      events: { list: vi.fn().mockResolvedValue(initialState.events) },
       agents: {
         getCatalog: vi.fn().mockResolvedValue(initialState.agentCatalog),
       },
@@ -1526,6 +1686,292 @@ describe("desktop components", () => {
       "outputs.changed",
     ]);
     expect(requestSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("hydrates Live Events independently and reports bounded errors", async () => {
+    const dispatch = vi.fn();
+    const events = { activeSessionId: "session", events: [] };
+    await expect(
+      loadLiveEvents(dispatch, vi.fn().mockResolvedValue(events)),
+    ).resolves.toBe(true);
+    expect(dispatch).toHaveBeenCalledWith({ type: "events-load-started" });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "event",
+      event: { type: "events.changed", events },
+    });
+
+    dispatch.mockClear();
+    await expect(
+      loadLiveEvents(
+        dispatch,
+        vi.fn().mockRejectedValue(new Error("Selection service unavailable")),
+      ),
+    ).resolves.toBe(false);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "events-load-failed",
+      message: "Selection service unavailable",
+    });
+  });
+
+  it("builds safe parameter drafts from Live selection and snapshot pickers", () => {
+    const snapshot = {
+      id: "project",
+      name: "Project",
+      tempo: 120,
+      timeSignature: "4/4",
+      tracks: [
+        {
+          id: "00000000-0000-4000-8000-000000000010",
+          name: "Bass",
+          kind: "midi" as const,
+          color: "#335577",
+          volume: 0.8,
+          pan: 0,
+          muted: false,
+          clips: [],
+          devices: [
+            {
+              id: "00000000-0000-4000-8000-000000000020",
+              name: "Operator",
+              type: "Instrument",
+              enabled: true,
+              parameters: [
+                {
+                  id: "00000000-0000-4000-8000-000000000030",
+                  name: "Filter Freq",
+                  value: 0.5,
+                  displayValue: "1.20 kHz",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const selection = {
+      track: {
+        index: 0,
+        expectedReference: snapshot.tracks[0]!.id,
+        expectedName: "Bass",
+      },
+      parameter: {
+        index: 0,
+        expectedReference: snapshot.tracks[0]!.id,
+        expectedName: "Bass",
+        deviceIndex: 0,
+        expectedDeviceReference: snapshot.tracks[0]!.devices[0]!.id,
+        expectedDeviceName: "Operator",
+        parameterIndex: 0,
+        expectedParameterReference:
+          snapshot.tracks[0]!.devices[0]!.parameters[0]!.id,
+        expectedParameterName: "Filter Freq",
+      },
+    };
+
+    expect(parameterDraftFromSelection(selection, snapshot)).toEqual(
+      parameterDraftFromSnapshot(
+        snapshot,
+        snapshot.tracks[0]!.id,
+        snapshot.tracks[0]!.devices[0]!.id,
+        snapshot.tracks[0]!.devices[0]!.parameters[0]!.id,
+      ),
+    );
+    expect(
+      parameterDraftFromSelection({ track: selection.track, parameter: null }),
+    ).toBeUndefined();
+
+    const picker = renderToStaticMarkup(
+      <AddEventPanel
+        state={{
+          ...initialState,
+          snapshot,
+          selectedTrackId: snapshot.tracks[0]!.id,
+        }}
+        dispatch={vi.fn()}
+        onCreated={vi.fn()}
+      />,
+    );
+    expect(picker).toContain("Selected track: Bass");
+    expect(picker).toContain("Playing clip");
+    expect(picker).toContain("Triggered clip");
+    expect(picker).toContain("Recording state");
+    expect(picker).toContain("Browse all");
+    expect(picker).toContain("Operator");
+    expect(picker).toContain("Filter Freq");
+  });
+
+  it("groups resolved events by snapshot color and isolates stale targets", () => {
+    const eventId = "live-event.00000000-0000-4000-8000-000000000001";
+    const definition = {
+      id: eventId,
+      projectId: "project",
+      name: "Bass clip",
+      enabled: true,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      kind: "track.playing_clip_changed" as const,
+      classification: "discrete" as const,
+      target: { track: { name: "Bass", occurrence: 0 } },
+    };
+    const trackId = "00000000-0000-4000-8000-000000000010";
+    const snapshot = {
+      id: "project",
+      name: "Project",
+      tempo: 120,
+      timeSignature: "4/4",
+      tracks: [
+        {
+          id: trackId,
+          name: "Bass",
+          kind: "midi" as const,
+          color: "#335577",
+          volume: 0.8,
+          pan: 0,
+          muted: false,
+          clips: [],
+          devices: [],
+        },
+      ],
+    };
+    const resolved = {
+      definition,
+      resolution: {
+        status: "resolved" as const,
+        projectId: "project",
+        trackReference: trackId,
+        track: { name: "Bass", color: "#335577" },
+      },
+      history: [],
+      listeners: [],
+    };
+    const stale = {
+      ...resolved,
+      definition: {
+        ...definition,
+        id: "live-event.00000000-0000-4000-8000-000000000002",
+      },
+      resolution: {
+        status: "invalidated" as const,
+        reason: "target-deleted" as const,
+      },
+    };
+
+    const groups = groupEventsByTrack([resolved, stale], snapshot);
+    expect(groups.map(({ label }) => label)).toEqual(["Bass", "Unresolved"]);
+    expect(groups[0]?.color).toBe("#335577");
+  });
+
+  it("renders event state, listeners, disclosure, and empty/error states", () => {
+    const eventId = "live-event.00000000-0000-4000-8000-000000000001";
+    const event = {
+      definition: {
+        id: eventId,
+        projectId: "project",
+        name: "Bass clip",
+        enabled: true,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        kind: "track.playing_clip_changed" as const,
+        classification: "discrete" as const,
+        target: { track: { name: "Bass", occurrence: 0 } },
+      },
+      resolution: {
+        status: "resolved" as const,
+        projectId: "project",
+        trackReference: "00000000-0000-4000-8000-000000000010",
+        track: { name: "Bass" },
+      },
+      latestState: {
+        kind: "track.playing_clip_changed" as const,
+        state: {
+          state: "session-clip" as const,
+          slotIndex: 1,
+          clipName: "Verse",
+        },
+      },
+      history: [
+        {
+          occurrenceId: "00000000-0000-4000-8000-000000000101",
+          eventId,
+          sequence: 1,
+          observedAt: "2026-01-01T00:00:01.000Z",
+          kind: "track.playing_clip_changed" as const,
+          target: {
+            trackReference: "00000000-0000-4000-8000-000000000010",
+            track: { name: "Bass" },
+          },
+          summary: "Older",
+          current: { state: "stopped" as const },
+        },
+        {
+          occurrenceId: "00000000-0000-4000-8000-000000000102",
+          eventId,
+          sequence: 2,
+          observedAt: "2026-01-01T00:00:02.000Z",
+          kind: "track.playing_clip_changed" as const,
+          target: {
+            trackReference: "00000000-0000-4000-8000-000000000010",
+            track: { name: "Bass" },
+          },
+          summary: "Newer",
+          current: { state: "arrangement" as const },
+        },
+      ],
+      listeners: [
+        {
+          agentInstanceId: firstAgentId,
+          agentLabel: "Mix agent",
+          listener: {
+            id: "event-listener.00000000-0000-4000-8000-000000000201",
+            eventId,
+            enabled: true,
+            responseMode: "next-prompt" as const,
+          },
+        },
+      ],
+    };
+    const collapsed = renderToStaticMarkup(
+      <EventCard
+        event={event}
+        activityExpanded={false}
+        onToggleActivity={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    expect(collapsed).toContain("Verse");
+    expect(collapsed).toContain("Resolved to Bass");
+    expect(collapsed).toContain("Mix agent");
+    expect(collapsed).toContain('aria-expanded="false"');
+    expect(collapsed).not.toContain("<ol>");
+
+    const expanded = renderToStaticMarkup(
+      <EventCard
+        event={event}
+        activityExpanded
+        onToggleActivity={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    expect(expanded.indexOf("Newer")).toBeLessThan(expanded.indexOf("Older"));
+
+    const empty = renderToStaticMarkup(
+      <EventsView
+        state={{ ...initialState, eventsLoad: { status: "loaded" } }}
+        dispatch={vi.fn()}
+      />,
+    );
+    expect(empty).toContain("No Live Events");
+    const failed = renderToStaticMarkup(
+      <EventsView
+        state={{
+          ...initialState,
+          eventsLoad: { status: "failed", message: "Bridge offline" },
+        }}
+        dispatch={vi.fn()}
+      />,
+    );
+    expect(failed).toContain('role="alert"');
+    expect(failed).toContain("Bridge offline");
   });
 
   it("refreshes outputs through the output API and reports failures", async () => {

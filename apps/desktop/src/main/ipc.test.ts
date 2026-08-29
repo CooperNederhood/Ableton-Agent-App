@@ -88,6 +88,7 @@ describe("desktop IPC", () => {
       agentInstanceId,
       producerId: "producer-1",
     });
+
     await handlers["outputs:set-processing-policies"]({
       agentInstanceId,
       producerId: "producer-1",
@@ -100,6 +101,83 @@ describe("desktop IPC", () => {
       "producer-1",
       ["latest-window", "deduplicate"],
     );
+  });
+
+  it("routes Live event listeners to the explicit active agent", async () => {
+    const listener = {
+      agentInstanceId: "00000000-0000-4000-8000-000000000001",
+      agentLabel: "First",
+      listener: {
+        id: "event-listener.00000000-0000-4000-8000-000000000002",
+        eventId: "live-event.00000000-0000-4000-8000-000000000003",
+        enabled: true,
+        responseMode: "automatic" as const,
+      },
+    };
+    const assignLiveEventListener = vi.fn().mockResolvedValue(listener);
+    const updateLiveEventListener = vi.fn().mockResolvedValue(listener);
+    const handlers = createIpcHandlers(
+      {
+        assignLiveEventListener,
+        updateLiveEventListener,
+      } as unknown as DesktopService,
+      {} as DiagnosticsActions,
+    );
+
+    await handlers["events:assign-listener"]({
+      agentInstanceId: listener.agentInstanceId,
+      eventId: listener.listener.eventId,
+      enabled: true,
+      responseMode: "automatic",
+    });
+    await handlers["events:update-listener"]({
+      agentInstanceId: listener.agentInstanceId,
+      eventId: listener.listener.eventId,
+      messagePrefix: "React",
+    });
+
+    expect(assignLiveEventListener).toHaveBeenCalledWith(
+      listener.agentInstanceId,
+      listener.listener.eventId,
+      { enabled: true, responseMode: "automatic" },
+    );
+    expect(updateLiveEventListener).toHaveBeenCalledWith(
+      listener.agentInstanceId,
+      listener.listener.eventId,
+      { messagePrefix: "React" },
+    );
+  });
+
+  it("rejects malformed Live event payloads before invoking the service", async () => {
+    const registered = new Map<
+      string,
+      (event: never, payload: unknown) => Promise<unknown>
+    >();
+    const ipcMain = {
+      handle: (
+        channel: string,
+        handler: (event: never, payload: unknown) => Promise<unknown>,
+      ) => registered.set(channel, handler),
+      removeHandler: vi.fn(),
+    };
+    const assignLiveEventListener = vi.fn();
+    registerIpc(
+      ipcMain,
+      { assignLiveEventListener } as unknown as DesktopService,
+      {} as DiagnosticsActions,
+      () => true,
+    );
+
+    await expect(
+      registered.get("events:assign-listener")?.({} as never, {
+        agentInstanceId: "selected-agent",
+        eventId: "not-an-event",
+        enabled: "yes",
+        responseMode: "immediate",
+        extra: true,
+      }),
+    ).rejects.toThrow();
+    expect(assignLiveEventListener).not.toHaveBeenCalled();
   });
 
   it("guards diagnostics filesystem actions with the trusted sender check", async () => {

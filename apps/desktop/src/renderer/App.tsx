@@ -4,6 +4,10 @@ import {
   type SkillInvocation,
 } from "@ableton-agent/agent-config/skill-invocation";
 import {
+  MAX_LIVE_EVENT_MESSAGE_PREFIX_LENGTH,
+  type AgentEventListener,
+} from "@ableton-agent/agent-config/schemas";
+import {
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -23,8 +27,11 @@ import type {
   DesktopOutputAssignment,
   DesktopOutputConnection,
   DesktopProjectSnapshot,
+  DesktopLiveEventState,
   LatestAcceptedOutput,
   DesktopTrack,
+  LiveEventDefinitionDraft,
+  LiveEventSelection,
   PlanSection,
 } from "../contracts";
 import { AssistantMarkdown } from "./AssistantMarkdown";
@@ -124,6 +131,173 @@ const browserItems = [
 ] as const;
 
 const unknownOutputTrackColor = "#8a8f98";
+const eventPickerLimit = 128;
+const defaultParameterPolicy = {
+  minimumNormalizedDelta: 0.01,
+  throttleMs: 100,
+} as const;
+const trackEventKinds = [
+  "track.playing_clip_changed",
+  "track.triggered_clip_changed",
+  "track.recording_state_changed",
+] as const;
+
+type TrackEventKind = (typeof trackEventKinds)[number];
+
+const eventKindLabels: Record<LiveEventDefinitionDraft["kind"], string> = {
+  "parameter.value_changed": "Parameter value",
+  "track.playing_clip_changed": "Playing clip",
+  "track.triggered_clip_changed": "Triggered clip",
+  "track.recording_state_changed": "Recording state",
+};
+
+function namedOccurrence<T extends { name: string }>(
+  items: readonly T[],
+  index: number,
+): number {
+  const name = items[index]?.name;
+  if (name === undefined) return 0;
+  return items.slice(0, index).filter((item) => item.name === name).length;
+}
+
+function trackDraft(
+  track: DesktopTrack,
+  snapshot: DesktopProjectSnapshot,
+  kind: TrackEventKind,
+): LiveEventDefinitionDraft {
+  const index = snapshot.tracks.findIndex(({ id }) => id === track.id);
+  return {
+    kind,
+    classification: "discrete",
+    name: `${track.name}: ${eventKindLabels[kind]}`,
+    enabled: true,
+    target: {
+      track: {
+        name: track.name,
+        occurrence: namedOccurrence(snapshot.tracks, index),
+      },
+    },
+  };
+}
+
+export function parameterDraftFromSnapshot(
+  snapshot: DesktopProjectSnapshot,
+  trackId: string,
+  deviceId: string,
+  parameterId: string,
+): LiveEventDefinitionDraft | undefined {
+  const trackIndex = snapshot.tracks.findIndex(({ id }) => id === trackId);
+  const track = snapshot.tracks[trackIndex];
+  const deviceIndex =
+    track?.devices.findIndex(({ id }) => id === deviceId) ?? -1;
+  const device = track?.devices[deviceIndex];
+  const parameterIndex =
+    device?.parameters.findIndex(({ id }) => id === parameterId) ?? -1;
+  const parameter = device?.parameters[parameterIndex];
+  if (!track || !device || !parameter) return undefined;
+  return {
+    kind: "parameter.value_changed",
+    classification: "continuous",
+    name: `${track.name}: ${device.name} ${parameter.name}`,
+    enabled: true,
+    target: {
+      track: {
+        name: track.name,
+        occurrence: namedOccurrence(snapshot.tracks, trackIndex),
+      },
+      device: {
+        name: device.name,
+        occurrence: namedOccurrence(track.devices, deviceIndex),
+      },
+      parameter: {
+        name: parameter.name,
+        occurrence: namedOccurrence(device.parameters, parameterIndex),
+      },
+    },
+    observationPolicy: defaultParameterPolicy,
+  };
+}
+
+export function parameterDraftFromSelection(
+  selection: LiveEventSelection,
+  snapshot?: DesktopProjectSnapshot,
+): LiveEventDefinitionDraft | undefined {
+  const identity = selection.parameter;
+  if (identity === null || snapshot === undefined) return undefined;
+  return parameterDraftFromSnapshot(
+    snapshot,
+    identity.expectedReference,
+    identity.expectedDeviceReference,
+    identity.expectedParameterReference,
+  );
+}
+
+export interface EventTrackGroup {
+  id: string;
+  label: string;
+  color: string;
+  events: DesktopLiveEventState[];
+}
+
+export function groupEventsByTrack(
+  events: DesktopLiveEventState[],
+  snapshot: DesktopProjectSnapshot | undefined,
+): EventTrackGroup[] {
+  const tracks = new Map(
+    (snapshot?.tracks ?? []).map((track, index) => [
+      track.id,
+      { track, index },
+    ]),
+  );
+  const grouped = new Map<string, EventTrackGroup & { index: number }>();
+  const unresolved: DesktopLiveEventState[] = [];
+  const global: DesktopLiveEventState[] = [];
+  for (const event of events) {
+    if (!("track" in event.definition.target)) {
+      global.push(event);
+      continue;
+    }
+    if (event.resolution.status !== "resolved") {
+      unresolved.push(event);
+      continue;
+    }
+    const resolved = tracks.get(event.resolution.trackReference);
+    if (resolved === undefined) {
+      unresolved.push(event);
+      continue;
+    }
+    const existing = grouped.get(resolved.track.id);
+    if (existing) existing.events.push(event);
+    else
+      grouped.set(resolved.track.id, {
+        id: resolved.track.id,
+        label: resolved.track.name,
+        color: resolved.track.color,
+        events: [event],
+        index: resolved.index,
+      });
+  }
+  const result = [...grouped.values()].sort(
+    (left, right) => left.index - right.index,
+  );
+  if (global.length)
+    result.push({
+      id: "global",
+      label: "Global",
+      color: unknownOutputTrackColor,
+      events: global,
+      index: Infinity,
+    });
+  if (unresolved.length)
+    result.push({
+      id: "unresolved",
+      label: "Unresolved",
+      color: "#d69b54",
+      events: unresolved,
+      index: Infinity,
+    });
+  return result;
+}
 
 export interface OutputTrackGroup {
   id: string;
@@ -245,6 +419,29 @@ export async function loadInitialDesktopState(
   ];
 }
 
+export async function loadLiveEvents(
+  dispatch: DesktopDispatch,
+  requestEvents: DesktopApi["events"]["list"],
+): Promise<boolean> {
+  dispatch({ type: "events-load-started" });
+  try {
+    const events = await requestEvents();
+    dispatch({ type: "event", event: { type: "events.changed", events } });
+    return true;
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Live Events could not be loaded";
+    dispatch({ type: "events-load-failed", message });
+    dispatch({
+      type: "event",
+      event: { type: "diagnostic", level: "error", message },
+    });
+    return false;
+  }
+}
+
 type DesktopDispatch = React.Dispatch<Parameters<typeof desktopReducer>[1]>;
 
 export async function sendComposerMessage(
@@ -355,6 +552,9 @@ export function App(): React.JSX.Element {
       Extract<DesktopAppEvent, { type: "agent.message_delta" }>
     >();
     let frame: number | undefined;
+    let eventsFrame: number | undefined;
+    let pendingEvents:
+      Extract<DesktopAppEvent, { type: "events.changed" }> | undefined;
     const flush = (): void => {
       frame = undefined;
       for (const event of pendingDeltas.values())
@@ -362,6 +562,16 @@ export function App(): React.JSX.Element {
       pendingDeltas.clear();
     };
     const unsubscribe = window.desktop.events.subscribe((event) => {
+      if (event.type === "events.changed") {
+        pendingEvents = event;
+        eventsFrame ??= requestAnimationFrame(() => {
+          eventsFrame = undefined;
+          if (pendingEvents !== undefined)
+            dispatch({ type: "event", event: pendingEvents });
+          pendingEvents = undefined;
+        });
+        return;
+      }
       if (event.type !== "agent.message_delta") {
         if (frame !== undefined) cancelAnimationFrame(frame);
         if (pendingDeltas.size > 0) flush();
@@ -379,6 +589,7 @@ export function App(): React.JSX.Element {
     return () => {
       unsubscribe();
       if (frame !== undefined) cancelAnimationFrame(frame);
+      if (eventsFrame !== undefined) cancelAnimationFrame(eventsFrame);
     };
   }, []);
   useEffect(() => {
@@ -387,6 +598,7 @@ export function App(): React.JSX.Element {
         dispatch({ type: "event", event });
     };
     void load();
+    void loadLiveEvents(dispatch, () => window.desktop.events.list());
   }, []);
   const selectedInstanceId = selectedAgentInstance(state)?.id;
   const activeSessionId = activeSession(state)?.id;
@@ -452,6 +664,7 @@ export function App(): React.JSX.Element {
             "workspace",
             "agents",
             "outputs",
+            "events",
             "browser",
             "diagnostics",
             "sessions",
@@ -489,6 +702,8 @@ export function App(): React.JSX.Element {
           <AgentsView state={state} dispatch={dispatch} />
         ) : state.activeView === "outputs" ? (
           <OutputsView state={state} dispatch={dispatch} />
+        ) : state.activeView === "events" ? (
+          <EventsView state={state} dispatch={dispatch} />
         ) : state.activeView === "browser" ? (
           <BrowserView state={state} dispatch={dispatch} />
         ) : state.activeView === "diagnostics" ? (
@@ -505,6 +720,598 @@ export function App(): React.JSX.Element {
         dispatch={dispatch}
       />
     </div>
+  );
+}
+
+function eventError(
+  dispatch: DesktopDispatch,
+  error: unknown,
+  fallback = "Live Event update failed",
+): void {
+  dispatch({
+    type: "event",
+    event: {
+      type: "diagnostic",
+      level: "error",
+      message: error instanceof Error ? error.message : fallback,
+    },
+  });
+}
+
+function selectionTrack(
+  selection: LiveEventSelection | undefined,
+  snapshot: DesktopProjectSnapshot | undefined,
+): DesktopTrack | undefined {
+  if (!selection?.track || !snapshot) return undefined;
+  return (
+    snapshot.tracks.find(
+      ({ id }) => id === selection.track?.expectedReference,
+    ) ??
+    snapshot.tracks[selection.track.index] ??
+    snapshot.tracks.find(({ name }) => name === selection.track?.expectedName)
+  );
+}
+
+function latestStateLabel(event: DesktopLiveEventState): string {
+  const latest = event.latestState;
+  if (latest === undefined) return "Waiting for initial state";
+  switch (latest.kind) {
+    case "parameter.value_changed":
+      return latest.state.displayValue;
+    case "track.playing_clip_changed":
+    case "track.triggered_clip_changed":
+      return latest.state.state === "session-clip"
+        ? (latest.state.clipName ??
+            `Session clip ${latest.state.slotIndex + 1}`)
+        : latest.state.state;
+    case "track.recording_state_changed":
+      return `${latest.state.recording ? "Recording" : "Not recording"} (${latest.state.source})`;
+  }
+}
+
+function editableDraft(
+  event: DesktopLiveEventState,
+  name: string,
+  minimumNormalizedDelta: number,
+  throttleMs: number,
+): LiveEventDefinitionDraft {
+  const definition = event.definition;
+  if (definition.kind === "parameter.value_changed") {
+    return {
+      kind: definition.kind,
+      classification: definition.classification,
+      name,
+      enabled: definition.enabled,
+      target: definition.target,
+      observationPolicy: { minimumNormalizedDelta, throttleMs },
+    };
+  }
+  return {
+    kind: definition.kind,
+    classification: definition.classification,
+    name,
+    enabled: definition.enabled,
+    target: definition.target,
+  };
+}
+
+export function EventsView({
+  state,
+  dispatch,
+}: {
+  state: DesktopState;
+  dispatch: DesktopDispatch;
+}): React.JSX.Element {
+  const [adding, setAdding] = useState(false);
+  const groups = groupEventsByTrack(state.events.events, state.snapshot);
+  return (
+    <section className="events-view" aria-labelledby="events-heading">
+      <div className="panel-heading">
+        <div>
+          <h2 id="events-heading">Events</h2>
+          <p>
+            Watch bounded Ableton state changes without adding a Max for Live
+            device.
+          </p>
+        </div>
+        <button
+          type="button"
+          aria-expanded={adding}
+          aria-controls="add-event-panel"
+          onClick={() => setAdding((value) => !value)}
+        >
+          {adding ? "Close" : "Add event"}
+        </button>
+      </div>
+      {adding && (
+        <AddEventPanel
+          state={state}
+          dispatch={dispatch}
+          onCreated={() => setAdding(false)}
+        />
+      )}
+      {state.eventsLoad.status === "loading" ? (
+        <PresentationState
+          title="Loading Events…"
+          detail="Reading event definitions and current Live state."
+        />
+      ) : state.eventsLoad.status === "failed" ? (
+        <div className="event-load-error" role="alert">
+          <strong>Events could not be loaded</strong>
+          <p>{state.eventsLoad.message}</p>
+          <button
+            type="button"
+            onClick={() =>
+              void loadLiveEvents(dispatch, () => window.desktop.events.list())
+            }
+          >
+            Retry
+          </button>
+        </div>
+      ) : groups.length === 0 ? (
+        <EmptyState
+          title="No Live Events"
+          detail="Add an event to watch a selected parameter or track state."
+        />
+      ) : (
+        <div className="event-track-groups">
+          {groups.map((group) => (
+            <section
+              key={group.id}
+              className="event-track-group"
+              aria-labelledby={`event-track-${group.id}`}
+              style={{ "--event-track-color": group.color } as CSSProperties}
+            >
+              <header className="event-track-heading">
+                <span className="event-track-swatch" aria-hidden="true" />
+                <div>
+                  <h3 id={`event-track-${group.id}`}>{group.label}</h3>
+                  <span>
+                    {group.events.length}{" "}
+                    {group.events.length === 1 ? "event" : "events"}
+                  </span>
+                </div>
+              </header>
+              <div className="event-grid">
+                {group.events.map((event) => (
+                  <EventCard
+                    key={event.definition.id}
+                    event={event}
+                    activityExpanded={state.expandedEventActivityIds.includes(
+                      event.definition.id,
+                    )}
+                    onToggleActivity={() =>
+                      dispatch({
+                        type: "toggle-event-activity",
+                        eventId: event.definition.id,
+                      })
+                    }
+                    onError={(error) => eventError(dispatch, error)}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function AddEventPanel({
+  state,
+  dispatch,
+  onCreated,
+}: {
+  state: DesktopState;
+  dispatch: DesktopDispatch;
+  onCreated: () => void;
+}): React.JSX.Element {
+  const snapshot = state.snapshot;
+  const appTrack = snapshot?.tracks.find(
+    ({ id }) => id === state.selectedTrackId,
+  );
+  const [selection, setSelection] = useState<LiveEventSelection>();
+  const [selectionError, setSelectionError] = useState<string>();
+  const [creating, setCreating] = useState(false);
+  const [source, setSource] = useState<"parameter" | "track">("parameter");
+  const [trackId, setTrackId] = useState(appTrack?.id ?? "");
+  const tracks = (snapshot?.tracks ?? []).slice(0, eventPickerLimit);
+  const pickerTrack = tracks.find(({ id }) => id === trackId) ?? tracks[0];
+  const [deviceId, setDeviceId] = useState(pickerTrack?.devices[0]?.id ?? "");
+  const device =
+    pickerTrack?.devices.find(({ id }) => id === deviceId) ??
+    pickerTrack?.devices[0];
+  const [parameterId, setParameterId] = useState(
+    device?.parameters[0]?.id ?? "",
+  );
+  const liveTrack = selectionTrack(selection, snapshot);
+  const selectedTrack = appTrack ?? liveTrack;
+  const selectedParameterDraft =
+    selection === undefined
+      ? undefined
+      : parameterDraftFromSelection(selection, snapshot);
+
+  useEffect(() => {
+    void window.desktop.events
+      .inspectSelection()
+      .then(setSelection)
+      .catch((error: unknown) =>
+        setSelectionError(
+          error instanceof Error
+            ? error.message
+            : "Live selection could not be inspected",
+        ),
+      );
+  }, []);
+
+  const create = async (draft: LiveEventDefinitionDraft | undefined) => {
+    if (draft === undefined) return;
+    setCreating(true);
+    try {
+      await window.desktop.events.create(draft);
+      onCreated();
+    } catch (error) {
+      eventError(dispatch, error, "Event could not be created");
+    } finally {
+      setCreating(false);
+    }
+  };
+  const chooseTrack = (id: string): void => {
+    setTrackId(id);
+    const next = tracks.find((track) => track.id === id);
+    setDeviceId(next?.devices[0]?.id ?? "");
+    setParameterId(next?.devices[0]?.parameters[0]?.id ?? "");
+  };
+  const chooseDevice = (id: string): void => {
+    setDeviceId(id);
+    setParameterId(
+      pickerTrack?.devices.find((candidate) => candidate.id === id)
+        ?.parameters[0]?.id ?? "",
+    );
+  };
+
+  return (
+    <section id="add-event-panel" className="add-event-panel">
+      <h3>Quick add</h3>
+      <div className="event-quick-actions">
+        <button
+          type="button"
+          disabled={creating || selectedParameterDraft === undefined}
+          onClick={() => void create(selectedParameterDraft)}
+        >
+          Watch selected parameter
+        </button>
+        {selectionError ? (
+          <span role="status">{selectionError}</span>
+        ) : selection === undefined ? (
+          <span role="status">Inspecting Live selection…</span>
+        ) : selection.parameter === null ? (
+          <span>No parameter is selected in Live.</span>
+        ) : selectedParameterDraft === undefined ? (
+          <span>
+            Refresh the project snapshot to safely match the selected parameter.
+          </span>
+        ) : null}
+      </div>
+      <div className="selected-track-events">
+        <strong>
+          Selected track: {selectedTrack?.name ?? "No track selected"}
+        </strong>
+        <div className="event-quick-actions">
+          {trackEventKinds.map((kind) => (
+            <button
+              type="button"
+              key={kind}
+              disabled={creating || !selectedTrack || !snapshot}
+              onClick={() =>
+                void create(trackDraft(selectedTrack!, snapshot!, kind))
+              }
+            >
+              {eventKindLabels[kind]}
+            </button>
+          ))}
+        </div>
+      </div>
+      <details className="event-picker">
+        <summary>Browse all</summary>
+        {!snapshot ? (
+          <p>Refresh the project snapshot to browse tracks and parameters.</p>
+        ) : (
+          <div className="event-picker-fields">
+            <label>
+              Source
+              <select
+                value={source}
+                onChange={(event) =>
+                  setSource(event.target.value as "parameter" | "track")
+                }
+              >
+                <option value="parameter">Parameter</option>
+                <option value="track">Track event</option>
+              </select>
+            </label>
+            <label>
+              Track
+              <select
+                value={pickerTrack?.id ?? ""}
+                onChange={(event) => chooseTrack(event.target.value)}
+              >
+                {tracks.map((track) => (
+                  <option key={track.id} value={track.id}>
+                    {track.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {source === "parameter" ? (
+              <>
+                <label>
+                  Device
+                  <select
+                    value={device?.id ?? ""}
+                    onChange={(event) => chooseDevice(event.target.value)}
+                  >
+                    {(pickerTrack?.devices ?? [])
+                      .slice(0, eventPickerLimit)
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <label>
+                  Parameter
+                  <select
+                    value={parameterId}
+                    onChange={(event) => setParameterId(event.target.value)}
+                  >
+                    {(device?.parameters ?? [])
+                      .slice(0, eventPickerLimit)
+                      .map((parameter) => (
+                        <option key={parameter.id} value={parameter.id}>
+                          {parameter.name} — {parameter.displayValue}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  disabled={creating || !pickerTrack || !device || !parameterId}
+                  onClick={() =>
+                    void create(
+                      parameterDraftFromSnapshot(
+                        snapshot,
+                        pickerTrack!.id,
+                        device!.id,
+                        parameterId,
+                      ),
+                    )
+                  }
+                >
+                  Add parameter event
+                </button>
+              </>
+            ) : (
+              <div className="event-quick-actions">
+                {trackEventKinds.map((kind) => (
+                  <button
+                    type="button"
+                    key={kind}
+                    disabled={creating || !pickerTrack}
+                    onClick={() =>
+                      void create(trackDraft(pickerTrack!, snapshot, kind))
+                    }
+                  >
+                    {eventKindLabels[kind]}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </details>
+    </section>
+  );
+}
+
+export function EventCard({
+  event,
+  activityExpanded,
+  onToggleActivity,
+  onError,
+}: {
+  event: DesktopLiveEventState;
+  activityExpanded: boolean;
+  onToggleActivity: () => void;
+  onError: (error: unknown) => void;
+}): React.JSX.Element {
+  const definition = event.definition;
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(definition.name);
+  const [minimumDelta, setMinimumDelta] = useState(
+    definition.kind === "parameter.value_changed"
+      ? definition.observationPolicy.minimumNormalizedDelta
+      : defaultParameterPolicy.minimumNormalizedDelta,
+  );
+  const [throttleMs, setThrottleMs] = useState(
+    definition.kind === "parameter.value_changed"
+      ? definition.observationPolicy.throttleMs
+      : defaultParameterPolicy.throttleMs,
+  );
+  const [updating, setUpdating] = useState(false);
+  const detailsId = `event-activity-${definition.id}`;
+  const listeners = event.listeners.filter(({ listener }) => listener.enabled);
+  const update = async (operation: () => Promise<unknown>): Promise<void> => {
+    setUpdating(true);
+    try {
+      await operation();
+    } catch (error) {
+      onError(error);
+    } finally {
+      setUpdating(false);
+    }
+  };
+  const resolutionDetail =
+    event.resolution.status === "resolved"
+      ? `Resolved to ${event.resolution.track.name}`
+      : `${event.resolution.status}: ${event.resolution.reason}${
+          event.resolution.detail ? ` — ${event.resolution.detail}` : ""
+        }`;
+  const history = [...event.history]
+    .sort(
+      (left, right) =>
+        Date.parse(right.observedAt) - Date.parse(left.observedAt) ||
+        right.sequence - left.sequence,
+    )
+    .slice(0, 50);
+
+  return (
+    <article className="event-card">
+      <header>
+        <div>
+          <h4>{definition.name}</h4>
+          <span>{eventKindLabels[definition.kind]}</span>
+        </div>
+        <strong>{definition.enabled ? "Enabled" : "Disabled"}</strong>
+      </header>
+      <dl className="event-metadata">
+        <dt>Current</dt>
+        <dd>{latestStateLabel(event)}</dd>
+        <dt>Resolution</dt>
+        <dd>{resolutionDetail}</dd>
+        <dt>Listening agents</dt>
+        <dd>
+          {listeners.length
+            ? listeners.map(({ agentLabel }) => agentLabel).join(", ")
+            : "None"}
+        </dd>
+      </dl>
+      <div className="event-actions">
+        <button
+          type="button"
+          disabled={updating}
+          onClick={() =>
+            void update(() =>
+              definition.enabled
+                ? window.desktop.events.disable(definition.id)
+                : window.desktop.events.enable(definition.id),
+            )
+          }
+        >
+          {definition.enabled ? "Disable" : "Enable"}
+        </button>
+        <button
+          type="button"
+          aria-expanded={editing}
+          onClick={() => setEditing((value) => !value)}
+        >
+          Edit
+        </button>
+        <button
+          type="button"
+          className="danger-button"
+          disabled={updating}
+          onClick={() => {
+            if (
+              window.confirm(
+                `Delete “${definition.name}”? Listening agent assignments will also be removed.`,
+              )
+            )
+              void update(() => window.desktop.events.delete(definition.id));
+          }}
+        >
+          Delete
+        </button>
+      </div>
+      {editing && (
+        <form
+          className="event-editor"
+          onSubmit={(submitEvent) => {
+            submitEvent.preventDefault();
+            void update(async () => {
+              await window.desktop.events.update(
+                definition.id,
+                editableDraft(event, name, minimumDelta, throttleMs),
+              );
+              setEditing(false);
+            });
+          }}
+        >
+          <label>
+            Event name
+            <input
+              value={name}
+              maxLength={160}
+              required
+              onChange={(changeEvent) => setName(changeEvent.target.value)}
+            />
+          </label>
+          {definition.kind === "parameter.value_changed" && (
+            <>
+              <label>
+                Minimum normalized change
+                <input
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.001"
+                  value={minimumDelta}
+                  onChange={(changeEvent) =>
+                    setMinimumDelta(Number(changeEvent.target.value))
+                  }
+                />
+              </label>
+              <label>
+                Update throttle (milliseconds)
+                <input
+                  type="number"
+                  min="0"
+                  max="60000"
+                  step="10"
+                  value={throttleMs}
+                  onChange={(changeEvent) =>
+                    setThrottleMs(Number(changeEvent.target.value))
+                  }
+                />
+              </label>
+            </>
+          )}
+          <button type="submit" disabled={updating || name.trim().length === 0}>
+            Save event
+          </button>
+        </form>
+      )}
+      <div className="event-activity-heading">
+        <button
+          type="button"
+          aria-expanded={activityExpanded}
+          aria-controls={detailsId}
+          onClick={onToggleActivity}
+        >
+          Recent activity ({history.length})
+        </button>
+      </div>
+      {activityExpanded && (
+        <div id={detailsId} className="event-activity">
+          {history.length === 0 ? (
+            <p>No activity recorded yet.</p>
+          ) : (
+            <ol>
+              {history.map((occurrence) => (
+                <li key={occurrence.occurrenceId}>
+                  <time dateTime={occurrence.observedAt}>
+                    {new Date(occurrence.observedAt).toLocaleTimeString()}
+                  </time>
+                  <span>{occurrence.summary}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
+    </article>
   );
 }
 
@@ -1416,6 +2223,7 @@ export function AgentsView({
               <ActiveAgentCard
                 agent={agent}
                 availableSkills={state.agentCatalog.skills}
+                liveEvents={state.events.events}
                 definitionSource={
                   state.agentCatalog.definitions.find(
                     (definition) => definition.name === agent.definitionName,
@@ -1456,6 +2264,9 @@ export function AgentsView({
                   ).then(() => undefined);
                 }}
                 onCancelReset={() => setConfirmResetId(undefined)}
+                onEventError={(error) =>
+                  reportError(error, "Could not update listening events")
+                }
                 onSelect={() => selectAgent(agent.id, false)}
                 onOpen={() => selectAgent(agent.id, true)}
                 onDeactivate={() => deactivateAgent(agent.id)}
@@ -1599,9 +2410,235 @@ function parseTrackScope(
   return tracks.length > 0 ? tracks : ["session"];
 }
 
+export type EventListenerDraft = Pick<
+  AgentEventListener,
+  "enabled" | "responseMode"
+> & {
+  selected: boolean;
+  messagePrefix: string;
+};
+
+function listenerForAgent(
+  event: DesktopLiveEventState,
+  agentInstanceId: string,
+): AgentEventListener | undefined {
+  return event.listeners.find(
+    (entry) => entry.agentInstanceId === agentInstanceId,
+  )?.listener;
+}
+
+function eventListenerDraft(
+  event: DesktopLiveEventState,
+  agentInstanceId: string,
+): EventListenerDraft {
+  const listener = listenerForAgent(event, agentInstanceId);
+  return {
+    selected: listener !== undefined,
+    enabled: listener?.enabled ?? true,
+    responseMode: listener?.responseMode ?? "next-prompt",
+    messagePrefix: listener?.messagePrefix ?? "",
+  };
+}
+
+export async function saveAgentEventListeners(
+  api: DesktopApi["events"],
+  agentInstanceId: string,
+  events: readonly DesktopLiveEventState[],
+  drafts: Readonly<Record<string, EventListenerDraft>>,
+): Promise<void> {
+  for (const event of events) {
+    const draft = drafts[event.definition.id];
+    if (draft === undefined) continue;
+    const listener = listenerForAgent(event, agentInstanceId);
+    if (!draft.selected) {
+      if (listener !== undefined) {
+        await api.unassignListener(agentInstanceId, event.definition.id);
+      }
+      continue;
+    }
+    const messagePrefix = draft.messagePrefix.trim();
+    if (listener === undefined) {
+      await api.assignListener(agentInstanceId, event.definition.id, {
+        enabled: draft.enabled,
+        responseMode: draft.responseMode,
+        ...(messagePrefix === "" ? {} : { messagePrefix }),
+      });
+      continue;
+    }
+    const normalizedCurrentPrefix = listener.messagePrefix ?? "";
+    if (
+      listener.enabled !== draft.enabled ||
+      listener.responseMode !== draft.responseMode ||
+      normalizedCurrentPrefix !== messagePrefix
+    ) {
+      await api.updateListener(agentInstanceId, event.definition.id, {
+        enabled: draft.enabled,
+        responseMode: draft.responseMode,
+        messagePrefix: messagePrefix === "" ? null : messagePrefix,
+      });
+    }
+  }
+}
+
+export function ListeningEventsEditor({
+  agentInstanceId,
+  events,
+  busy,
+  onError,
+}: {
+  agentInstanceId: string;
+  events: readonly DesktopLiveEventState[];
+  busy: boolean;
+  onError: (error: unknown) => void;
+}): React.JSX.Element {
+  const [drafts, setDrafts] = useState<Record<string, EventListenerDraft>>(() =>
+    Object.fromEntries(
+      events.map((event) => [
+        event.definition.id,
+        eventListenerDraft(event, agentInstanceId),
+      ]),
+    ),
+  );
+  const [saving, setSaving] = useState(false);
+  const eventIds = events.map(({ definition }) => definition.id).join("\n");
+
+  useEffect(() => {
+    setDrafts((current) =>
+      Object.fromEntries(
+        events.map((event) => [
+          event.definition.id,
+          current[event.definition.id] ??
+            eventListenerDraft(event, agentInstanceId),
+        ]),
+      ),
+    );
+  }, [agentInstanceId, eventIds, events]);
+
+  const updateDraft = (
+    eventId: string,
+    update: Partial<EventListenerDraft>,
+  ): void => {
+    setDrafts((current) => ({
+      ...current,
+      [eventId]: {
+        ...(current[eventId] ?? {
+          selected: false,
+          enabled: true,
+          responseMode: "next-prompt",
+          messagePrefix: "",
+        }),
+        ...update,
+      },
+    }));
+  };
+  const save = async (): Promise<void> => {
+    setSaving(true);
+    try {
+      await saveAgentEventListeners(
+        window.desktop.events,
+        agentInstanceId,
+        events,
+        drafts,
+      );
+    } catch (error) {
+      onError(error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <fieldset className="listening-events-editor">
+      <legend>Listening Events</legend>
+      {events.length === 0 ? (
+        <small>No Live events are available in this production session.</small>
+      ) : (
+        events.map((event) => {
+          const draft =
+            drafts[event.definition.id] ??
+            eventListenerDraft(event, agentInstanceId);
+          const unavailable = !event.definition.enabled;
+          const unresolved = event.resolution.status !== "resolved";
+          return (
+            <div className="listening-event-row" key={event.definition.id}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={draft.selected}
+                  onChange={(change) =>
+                    updateDraft(event.definition.id, {
+                      selected: change.target.checked,
+                    })
+                  }
+                />
+                <span>
+                  {event.definition.name}
+                  <small>
+                    {unavailable ? "Event disabled" : "Event enabled"}
+                    {" · "}
+                    {unresolved ? "Unresolved target" : "Resolved target"}
+                  </small>
+                </span>
+              </label>
+              {draft.selected && (
+                <div className="listening-event-settings">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={draft.enabled}
+                      onChange={(change) =>
+                        updateDraft(event.definition.id, {
+                          enabled: change.target.checked,
+                        })
+                      }
+                    />
+                    Listener enabled
+                  </label>
+                  <label>
+                    Delivery
+                    <select
+                      value={draft.responseMode}
+                      onChange={(change) =>
+                        updateDraft(event.definition.id, {
+                          responseMode: change.target.value as
+                            "automatic" | "next-prompt",
+                        })
+                      }
+                    >
+                      <option value="automatic">Automatic</option>
+                      <option value="next-prompt">Next prompt</option>
+                    </select>
+                  </label>
+                  <label>
+                    Message prefix <small>Optional.</small>
+                    <textarea
+                      maxLength={MAX_LIVE_EVENT_MESSAGE_PREFIX_LENGTH}
+                      rows={3}
+                      value={draft.messagePrefix}
+                      onChange={(change) =>
+                        updateDraft(event.definition.id, {
+                          messagePrefix: change.target.value,
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+      <button disabled={busy || saving} onClick={() => void save()}>
+        {saving ? "Saving…" : "Save listening events"}
+      </button>
+    </fieldset>
+  );
+}
+
 function ActiveAgentCard({
   agent,
   availableSkills,
+  liveEvents,
   definitionSource,
   definitionUpdated,
   selected,
@@ -1611,12 +2648,14 @@ function ActiveAgentCard({
   onConfigure,
   onReset,
   onCancelReset,
+  onEventError,
   onSelect,
   onOpen,
   onDeactivate,
 }: {
   agent: DesktopActiveAgent;
   availableSkills: DesktopState["agentCatalog"]["skills"];
+  liveEvents: readonly DesktopLiveEventState[];
   definitionSource?: string | undefined;
   definitionUpdated: boolean;
   selected: boolean;
@@ -1628,6 +2667,7 @@ function ActiveAgentCard({
   ) => Promise<DesktopActiveAgent | undefined>;
   onReset: () => Promise<void>;
   onCancelReset: () => void;
+  onEventError: (error: unknown) => void;
   onSelect: () => Promise<void>;
   onOpen: () => Promise<void>;
   onDeactivate: () => Promise<void>;
@@ -1655,6 +2695,9 @@ function ActiveAgentCard({
   const availableSkillNames = availableSkills
     .map(({ name }) => name)
     .join("\n");
+  const listeningEvents = liveEvents.filter(
+    (event) => listenerForAgent(event, agent.id) !== undefined,
+  );
 
   useEffect(() => {
     const validNames = new Set(availableSkills.map(({ name }) => name));
@@ -1735,6 +2778,28 @@ function ActiveAgentCard({
           {agent.config.inputChannels.length > 0
             ? agent.config.inputChannels.join(", ")
             : "Prompt only"}
+        </dd>
+        <dt>Listening Events</dt>
+        <dd>
+          {listeningEvents.length === 0
+            ? "None"
+            : listeningEvents
+                .map((event) => {
+                  const listener = listenerForAgent(event, agent.id)!;
+                  const status = [
+                    listener.enabled ? undefined : "listener disabled",
+                    event.definition.enabled ? undefined : "event disabled",
+                    event.resolution.status === "resolved"
+                      ? undefined
+                      : "unresolved",
+                  ].filter(Boolean);
+                  return `${event.definition.name} · ${
+                    listener.responseMode === "automatic"
+                      ? "Automatic"
+                      : "Next prompt"
+                  }${status.length === 0 ? "" : ` (${status.join(", ")})`}`;
+                })
+                .join("; ")}
         </dd>
       </dl>
       {editing && (
@@ -1820,6 +2885,12 @@ function ActiveAgentCard({
               ))
             )}
           </fieldset>
+          <ListeningEventsEditor
+            agentInstanceId={agent.id}
+            events={liveEvents}
+            busy={busy}
+            onError={onEventError}
+          />
           <label>
             Input channels <small>One per line.</small>
             <textarea

@@ -15,20 +15,29 @@ import type {
   DesktopConnectionStatus,
   DiagnosticCheck,
   DesktopLifecycleState,
+  DesktopAgentEventListener,
+  DesktopEventsState,
   DesktopPreferences,
   DesktopProjectSnapshot,
   ProjectTransitionDecision,
   DesktopOutputAssignment,
   DesktopOutputsState,
   OutputDeliveryMode,
+  LiveEventDefinitionDraft,
+  LiveEventSelection,
   DesktopSession,
   PlanSection,
   ProductMode,
 } from "../contracts.js";
+import type {
+  AgentEventListener,
+  LiveEventDefinition,
+} from "@ableton-agent/agent-config";
 import {
   legacySessionSchema,
   preferencesSchema,
   sessionSchema,
+  versionTwoSessionSchema,
 } from "../contracts.js";
 
 const legacySdkSessionIds = new WeakMap<DesktopSession, string>();
@@ -125,6 +134,41 @@ export interface DesktopService {
     producerId: string,
     processingPolicyIds: string[],
   ): Promise<DesktopOutputAssignment>;
+  listLiveEvents(): Promise<DesktopEventsState>;
+  inspectLiveEventSelection(): Promise<LiveEventSelection>;
+  createLiveEvent(
+    definition: LiveEventDefinitionDraft,
+  ): Promise<LiveEventDefinition>;
+  updateLiveEvent(
+    eventId: string,
+    definition: LiveEventDefinitionDraft,
+  ): Promise<LiveEventDefinition>;
+  setLiveEventEnabled(
+    eventId: string,
+    enabled: boolean,
+  ): Promise<LiveEventDefinition>;
+  deleteLiveEvent(eventId: string): Promise<boolean>;
+  assignLiveEventListener(
+    agentInstanceId: string,
+    eventId: string,
+    settings: Pick<
+      AgentEventListener,
+      "enabled" | "responseMode" | "messagePrefix"
+    >,
+  ): Promise<DesktopAgentEventListener>;
+  unassignLiveEventListener(
+    agentInstanceId: string,
+    eventId: string,
+  ): Promise<boolean>;
+  updateLiveEventListener(
+    agentInstanceId: string,
+    eventId: string,
+    settings: Partial<
+      Pick<AgentEventListener, "enabled" | "responseMode"> & {
+        messagePrefix: string | null;
+      }
+    >,
+  ): Promise<DesktopAgentEventListener>;
   subscribe(listener: (event: DesktopAppEvent) => void): () => void;
   getLifecycleState(): Promise<DesktopLifecycleState>;
 }
@@ -175,16 +219,30 @@ export class JsonSessionStore {
       if (!Array.isArray(stored)) {
         throw new Error("Stored sessions must be an array");
       }
-      return stored.map((value) => {
+      const values: unknown[] = stored;
+      return values.map((value) => {
         if (typeof value === "object" && value !== null && "version" in value) {
+          if (value.version === 2) {
+            const versionTwo = versionTwoSessionSchema.parse(value);
+            return sessionSchema.parse({
+              ...versionTwo,
+              version: 3,
+              liveEvents: [],
+              activeAgents: versionTwo.activeAgents.map((agent) => ({
+                ...agent,
+                eventListeners: [],
+              })),
+            });
+          }
           return sessionSchema.parse(value);
         }
         const legacy = legacySessionSchema.parse(value);
         this.#legacySessionIds.add(legacy.id);
         const migrated = sessionSchema.parse({
           ...legacy,
-          version: 2,
+          version: 3,
           activeAgents: [],
+          liveEvents: [],
         });
         legacySdkSessionIds.set(migrated, legacy.id);
         return migrated;

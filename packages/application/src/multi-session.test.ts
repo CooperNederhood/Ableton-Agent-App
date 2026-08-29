@@ -19,6 +19,7 @@ import {
   type CopilotAgentServiceOptions,
 } from "./index.js";
 import type { SignalTurnRequest } from "./signal-delivery.js";
+import type { LiveEventTurnRequest } from "./live-event-delivery.js";
 
 const disconnected = { state: "disconnected" } as const;
 const trackAReference = "00000000-0000-4000-8000-000000000001";
@@ -1440,6 +1441,38 @@ describe("CopilotAgentService managed sessions", () => {
     );
     expect(markDelivered).toHaveBeenCalledWith("managed", ["delivery-1"]);
     expect(managedSession.prompts.at(-1)).toContain("Internal signal event");
+
+    const liveEventTurn = {
+      deliveryId: "live-delivery-1",
+      agentInstanceId: "managed",
+      listener: {
+        id: "event-listener.00000000-0000-4000-8000-000000000001",
+        eventId: "live-event.00000000-0000-4000-8000-000000000001",
+        enabled: true,
+        responseMode: "automatic",
+        messagePrefix: "Check the launch.",
+      },
+      occurrence: {
+        occurrenceId: "00000000-0000-4000-8000-000000000003",
+        eventId: "live-event.00000000-0000-4000-8000-000000000001",
+        kind: "track.playing_clip_changed",
+        sequence: 3,
+        observedAt: "2026-08-29T18:00:03.000Z",
+        target: {
+          trackReference: trackAReference,
+          track: { name: "Keys" },
+        },
+        summary: "Keys started clip 1.",
+        current: { state: "session-clip", slotIndex: 0 },
+      },
+    } satisfies LiveEventTurnRequest;
+    await expect(
+      service.enqueueLiveEventTurn(liveEventTurn),
+    ).resolves.toContain("Internal Live event");
+    expect(managedSession.prompts.at(-1)).toContain(
+      "Check the launch.\nKeys started clip 1.",
+    );
+    expect(defaultSession.prompts).toEqual(["legacy"]);
 
     const updated = configuration("managed", {
       definitionName: "managed-updated",

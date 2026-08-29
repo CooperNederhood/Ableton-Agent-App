@@ -31,13 +31,14 @@ function stateWithAgents(): DesktopState {
     },
     boundTracks: [],
     outputSubscriptions: [],
+    eventListeners: [],
     modified: false,
   });
   return {
     ...initialState,
     sessions: [
       {
-        version: 2 as const,
+        version: 3 as const,
         id: "session",
         title: "Session",
         updatedAt: new Date(0).toISOString(),
@@ -50,6 +51,7 @@ function stateWithAgents(): DesktopState {
         mode: "explore" as const,
         productionPlan: [],
         outputAssignments: [],
+        liveEvents: [],
       },
     ],
   };
@@ -490,6 +492,41 @@ describe("desktop reducer", () => {
       event: { type: "outputs.changed", outputs },
     });
     expect(state.outputs).toEqual(outputs);
+  });
+
+  it("reduces renderer-safe Live event snapshots", () => {
+    const events = { activeSessionId: "session-1", events: [] };
+    const state = desktopReducer(initialState, {
+      type: "event",
+      event: { type: "events.changed", events },
+    });
+    expect(state.events).toEqual(events);
+    expect(state.eventsLoad).toEqual({ status: "loaded" });
+  });
+
+  it("tracks Live event loading errors and disclosure state", () => {
+    let state = desktopReducer(initialState, { type: "events-load-started" });
+    expect(state.eventsLoad).toEqual({ status: "loading" });
+
+    state = desktopReducer(state, {
+      type: "events-load-failed",
+      message: "Remote Script unavailable",
+    });
+    expect(state.eventsLoad).toEqual({
+      status: "failed",
+      message: "Remote Script unavailable",
+    });
+
+    state = desktopReducer(state, {
+      type: "toggle-event-activity",
+      eventId: "live-event.00000000-0000-4000-8000-000000000001",
+    });
+    expect(state.expandedEventActivityIds).toHaveLength(1);
+    state = desktopReducer(state, {
+      type: "toggle-event-activity",
+      eventId: "live-event.00000000-0000-4000-8000-000000000001",
+    });
+    expect(state.expandedEventActivityIds).toEqual([]);
   });
 
   it("preserves collapsed output cards across view changes", () => {

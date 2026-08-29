@@ -7,7 +7,15 @@ import {
   defaultFakeState,
 } from "@ableton-agent/test-support";
 import type { AgentSkillDescriptor } from "@ableton-agent/application";
-import type { SignalRuntime, SignalRuntimeEvent } from "@ableton-agent/runtime";
+import type {
+  AgentLiveEventListener,
+  LiveEventRuntime,
+  LiveEventRuntimeEvent,
+  LiveEventRuntimeState,
+  SignalRuntime,
+  SignalRuntimeEvent,
+} from "@ableton-agent/runtime";
+import type { LiveEventDefinition } from "@ableton-agent/agent-config";
 import type {
   OutputAssignment,
   OutputConnection,
@@ -121,6 +129,78 @@ class FakeSignalRuntime implements SignalRuntime {
   }
 }
 
+class FakeLiveEventRuntime implements LiveEventRuntime {
+  readonly provider = this;
+  readonly states = new Map<string, LiveEventRuntimeState>();
+  readonly subscribers = new Set<(event: LiveEventRuntimeEvent) => void>();
+  configurations: Array<{
+    definitions: readonly LiveEventDefinition[];
+    listeners: readonly AgentLiveEventListener[];
+  }> = [];
+  activeAgentIds: string[] = [];
+  inspectSelectionResult = {
+    track: {
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000010",
+      expectedName: "Keys",
+    },
+    parameter: null,
+  };
+  start() {
+    return Promise.resolve();
+  }
+  stop() {
+    return Promise.resolve();
+  }
+  setDeliveryService() {}
+  setActiveAgentInstances(agentInstanceIds: readonly string[]) {
+    this.activeAgentIds = [...agentInstanceIds];
+  }
+  setConfiguration(
+    definitions: readonly LiveEventDefinition[],
+    listeners: readonly AgentLiveEventListener[],
+  ) {
+    this.configurations.push({ definitions, listeners });
+    const ids = new Set(definitions.map(({ id }) => id));
+    for (const id of this.states.keys()) {
+      if (!ids.has(id)) this.states.delete(id);
+    }
+    for (const definition of definitions) {
+      const existing = this.states.get(definition.id);
+      this.states.set(definition.id, {
+        definition,
+        resolution: existing?.resolution ?? {
+          status: "unresolved",
+          reason: "not-connected",
+        },
+        ...(existing?.latestState === undefined
+          ? {}
+          : { latestState: existing.latestState }),
+        history: existing?.history ?? [],
+      });
+    }
+  }
+  inspectSelection() {
+    return Promise.resolve(this.inspectSelectionResult);
+  }
+  listStates() {
+    return [...this.states.values()];
+  }
+  getState(eventId: string) {
+    return this.states.get(eventId);
+  }
+  subscribe(listener: (event: LiveEventRuntimeEvent) => void) {
+    this.subscribers.add(listener);
+    return () => this.subscribers.delete(listener);
+  }
+  getPendingLiveEventContexts() {
+    return Promise.resolve([]);
+  }
+  markLiveEventContextsDelivered() {
+    return Promise.resolve();
+  }
+}
+
 async function temporaryDirectory(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "ableton-desktop-test-"));
   temporaryDirectories.push(directory);
@@ -139,6 +219,7 @@ async function harness(
       refresh: () => Promise<DesktopAgentCatalog>;
     };
     signals?: SignalRuntime;
+    liveEvents?: LiveEventRuntime;
     onAutoApprovedAgentIdsChange?: (
       agentInstanceIds: ReadonlySet<string>,
     ) => void;
@@ -349,7 +430,8 @@ describe("desktop persistence stores", () => {
       await service.start();
       const [session] = await new JsonSessionStore(sessionsPath).load();
       expect(session).toMatchObject({
-        version: 2,
+        version: 3,
+        liveEvents: [],
         selectedAgentInstanceId: session?.activeAgents[0]?.id,
         activeAgents: [
           {
@@ -586,11 +668,12 @@ describe("desktop persistence stores", () => {
       lifecycle: "ready" as const,
       boundTracks: [],
       outputSubscriptions: [],
+      eventListeners: [],
       modified: false,
     };
     const sessions = [
       {
-        version: 2 as const,
+        version: 3 as const,
         id: "00000000-0000-4000-8000-000000000010",
         title: "Production session",
         updatedAt: new Date().toISOString(),
@@ -638,6 +721,7 @@ describe("desktop persistence stores", () => {
         mode: "explore" as const,
         productionPlan: [],
         outputAssignments: [],
+        liveEvents: [],
       },
     ];
 
@@ -645,6 +729,73 @@ describe("desktop persistence stores", () => {
 
     await expect(store.load()).resolves.toEqual(sessions);
     expect(await readdir(directory)).toEqual(["sessions.json"]);
+  });
+
+  it("migrates version-two sessions without changing inputs or Output subscriptions", async () => {
+    const directory = await temporaryDirectory();
+    const path = join(directory, "sessions.json");
+    const agentId = "00000000-0000-4000-8000-000000000001";
+    const subscription = {
+      assignmentId: "assignment-legacy",
+      producerId: "producer-legacy",
+      enabled: true,
+      deliveryMode: "next-prompt",
+      usageInstruction: "Use the legacy output.",
+      processingPolicyIds: ["latest-window"],
+    };
+    await writeFile(
+      path,
+      JSON.stringify([
+        {
+          version: 2,
+          id: "production-session",
+          title: "Version two",
+          updatedAt: new Date().toISOString(),
+          projectName: "Set",
+          activeAgents: [
+            {
+              id: agentId,
+              definitionName: "default",
+              definitionFingerprint: "a".repeat(64),
+              label: "Default",
+              lifecycle: "ready",
+              config: {
+                description: "General agent.",
+                systemPrompt: "Help.",
+                tools: ["*"],
+                resolvedTools: [],
+                editScope: ["session"],
+                skills: [],
+                inputChannels: ["producer-legacy"],
+              },
+              boundTracks: [],
+              outputSubscriptions: [subscription],
+              modified: false,
+            },
+          ],
+          selectedAgentInstanceId: agentId,
+          mode: "explore",
+          productionPlan: [],
+          outputAssignments: [subscription],
+        },
+      ]),
+      "utf8",
+    );
+
+    const [migrated] = await new JsonSessionStore(path).load();
+
+    expect(migrated).toMatchObject({
+      version: 3,
+      liveEvents: [],
+      outputAssignments: [subscription],
+      activeAgents: [
+        {
+          config: { inputChannels: ["producer-legacy"] },
+          outputSubscriptions: [subscription],
+          eventListeners: [],
+        },
+      ],
+    });
   });
 
   it("rejects invalid and corrupt session data without overwriting it", async () => {
@@ -2501,6 +2652,185 @@ describe("desktop adapter over the shared application", () => {
     expect(await service.listOutputs()).toMatchObject({
       connections: [],
       assignments: [],
+    });
+    await service.stop();
+  });
+
+  it("manages Live events and explicitly attributed listeners across agents", async () => {
+    const liveEvents = new FakeLiveEventRuntime();
+    const { service, events } = await harness({}, { liveEvents });
+    await service.start();
+    const first = (await service.listActiveAgents())[0]!;
+    const second = await service.createActiveAgent("default");
+    const firstConfig = first.config;
+
+    const definition = await service.createLiveEvent({
+      kind: "track.playing_clip_changed",
+      classification: "discrete",
+      name: "Keys clip",
+      enabled: true,
+      target: { track: { name: "Keys", occurrence: 0 } },
+    });
+    liveEvents.states.set(definition.id, {
+      definition,
+      resolution: {
+        status: "resolved",
+        projectId: definition.projectId,
+        trackReference: "00000000-0000-4000-8000-000000000010",
+        track: { name: "Keys" },
+      },
+      latestState: {
+        kind: "track.playing_clip_changed",
+        state: { state: "stopped" },
+      },
+      history: [],
+    });
+
+    await service.assignLiveEventListener(first.id, definition.id, {
+      enabled: true,
+      responseMode: "next-prompt",
+      messagePrefix: "First",
+    });
+    await service.assignLiveEventListener(second.id, definition.id, {
+      enabled: true,
+      responseMode: "automatic",
+    });
+    const recording = await service.createLiveEvent({
+      kind: "track.recording_state_changed",
+      classification: "discrete",
+      name: "Keys recording",
+      enabled: true,
+      target: { track: { name: "Keys", occurrence: 0 } },
+    });
+    await service.assignLiveEventListener(first.id, recording.id, {
+      enabled: false,
+      responseMode: "next-prompt",
+      messagePrefix: "Recording changed:",
+    });
+    const updated = await service.updateLiveEventListener(
+      first.id,
+      definition.id,
+      {
+        enabled: false,
+        responseMode: "automatic",
+        messagePrefix: null,
+      },
+    );
+    expect(updated).toMatchObject({
+      agentInstanceId: first.id,
+      agentLabel: first.label,
+      listener: {
+        enabled: false,
+        responseMode: "automatic",
+      },
+    });
+    expect(updated.listener).not.toHaveProperty("messagePrefix");
+
+    const state = await service.listLiveEvents();
+    expect(state.activeSessionId).toBeDefined();
+    expect(state.events[0]?.definition).toEqual(definition);
+    expect(state.events[0]?.resolution.status).toBe("resolved");
+    expect(state.events[0]?.latestState).toEqual({
+      kind: "track.playing_clip_changed",
+      state: { state: "stopped" },
+    });
+    expect(state.events[0]?.history).toEqual([]);
+    expect(
+      state.events[0]?.listeners.map(({ agentInstanceId }) => agentInstanceId),
+    ).toEqual(expect.arrayContaining([first.id, second.id]));
+    const recordingListeners = state.events.find(
+      ({ definition }) => definition.id === recording.id,
+    )?.listeners;
+    expect(recordingListeners).toHaveLength(1);
+    expect(recordingListeners?.[0]?.agentInstanceId).toBe(first.id);
+    expect(recordingListeners?.[0]?.listener).toMatchObject({
+      enabled: false,
+      responseMode: "next-prompt",
+      messagePrefix: "Recording changed:",
+    });
+    const persistedAgents = (await service.getSessions())[0]!.activeAgents;
+    expect(
+      persistedAgents.find(({ id }) => id === first.id)?.eventListeners,
+    ).toHaveLength(2);
+    expect(
+      persistedAgents.find(({ id }) => id === second.id)?.eventListeners,
+    ).toHaveLength(1);
+    expect(persistedAgents.find(({ id }) => id === first.id)?.config).toEqual(
+      firstConfig,
+    );
+    await expect(service.inspectLiveEventSelection()).resolves.toEqual(
+      liveEvents.inspectSelectionResult,
+    );
+
+    const disabled = await service.setLiveEventEnabled(definition.id, false);
+    expect(disabled.enabled).toBe(false);
+    const renamed = await service.updateLiveEvent(definition.id, {
+      kind: "track.playing_clip_changed",
+      classification: "discrete",
+      name: "Renamed clip event",
+      enabled: false,
+      target: { track: { name: "Keys", occurrence: 0 } },
+    });
+    expect(renamed).toMatchObject({
+      id: definition.id,
+      name: "Renamed clip event",
+      createdAt: definition.createdAt,
+    });
+    expect(
+      events.some(
+        (event) =>
+          event.type === "events.changed" &&
+          event.events.events[0]?.definition.name === "Renamed clip event",
+      ),
+    ).toBe(true);
+    await service.stop();
+  });
+
+  it("transactionally cascades Live event deletion across multiple agents", async () => {
+    const liveEvents = new FakeLiveEventRuntime();
+    const { service, sessionStore } = await harness({}, { liveEvents });
+    await service.start();
+    const first = (await service.listActiveAgents())[0]!;
+    const second = await service.createActiveAgent("default");
+    const definition = await service.createLiveEvent({
+      kind: "track.recording_state_changed",
+      classification: "discrete",
+      name: "Recording",
+      enabled: true,
+      target: { track: { name: "Keys", occurrence: 0 } },
+    });
+    await service.assignLiveEventListener(first.id, definition.id, {
+      enabled: true,
+      responseMode: "next-prompt",
+    });
+    await service.assignLiveEventListener(second.id, definition.id, {
+      enabled: true,
+      responseMode: "automatic",
+    });
+
+    const save = vi.spyOn(sessionStore, "save");
+    save.mockRejectedValueOnce(new Error("disk unavailable"));
+    await expect(service.deleteLiveEvent(definition.id)).rejects.toThrow(
+      "disk unavailable",
+    );
+    expect((await service.listLiveEvents()).events).toHaveLength(1);
+    expect(
+      (await service.getSessions())[0]?.activeAgents.map(
+        ({ eventListeners }) => eventListeners.length,
+      ),
+    ).toEqual([1, 1]);
+    expect(liveEvents.configurations.at(-1)?.definitions).toHaveLength(1);
+
+    save.mockRestore();
+    await expect(service.deleteLiveEvent(definition.id)).resolves.toBe(true);
+    const session = (await service.getSessions())[0]!;
+    expect(session.liveEvents).toEqual([]);
+    expect(
+      session.activeAgents.map(({ eventListeners }) => eventListeners),
+    ).toEqual([[], []]);
+    expect(liveEvents.configurations.at(-1)).toMatchObject({
+      definitions: [],
+      listeners: [],
     });
     await service.stop();
   });

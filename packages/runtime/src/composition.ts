@@ -24,6 +24,12 @@ import {
   type SignalRuntime,
   type SignalRuntimeOptions,
 } from "./signal-runtime.js";
+import {
+  DefaultLiveEventRuntime,
+  type LiveEventBridge,
+  type LiveEventRuntime,
+  type LiveEventRuntimeOptions,
+} from "./live-event-runtime.js";
 
 export const DEFAULT_ABLETON_PORT = 8765;
 export const TOKEN_ENVIRONMENT_VARIABLE = "ABLETON_AGENT_TOKEN";
@@ -62,6 +68,7 @@ export interface AgentRuntimeOptions {
   /** Replaces the bridge, used by tests and fakes. */
   abletonService?: AbletonService;
   signal?: SignalRuntimeOptions;
+  liveEvents?: Omit<LiveEventRuntimeOptions, "bridge" | "logger">;
 }
 
 export interface AgentRuntime {
@@ -73,14 +80,16 @@ export interface AgentRuntime {
   /** False when no token was configured and the bridge is a typed stand-in. */
   abletonConfigured: boolean;
   signals: SignalRuntime;
+  liveEvents: LiveEventRuntime;
 }
 
-class SignalAwareHeadlessApplication extends HeadlessApplication {
+class RuntimeAwareHeadlessApplication extends HeadlessApplication {
   readonly #managedAgentInstanceIds = new Set<string>();
 
   public constructor(
     services: ConstructorParameters<typeof HeadlessApplication>[0],
     private readonly signals: SignalRuntime,
+    private readonly liveEvents: LiveEventRuntime,
   ) {
     super(services);
   }
@@ -91,17 +100,20 @@ class SignalAwareHeadlessApplication extends HeadlessApplication {
       ...this.#managedAgentInstanceIds,
     ];
     this.signals.setActiveAgentInstances(activeAgentInstanceIds);
+    this.liveEvents.setActiveAgentInstances(activeAgentInstanceIds);
   }
 
   public override async start(
     options?: Parameters<HeadlessApplication["start"]>[0],
   ): Promise<void> {
     await super.start(options);
+    await this.liveEvents.start();
     await this.#syncSignals();
   }
 
   public override async stop(): Promise<void> {
     try {
+      await this.liveEvents.stop();
       await super.stop();
     } finally {
       this.#managedAgentInstanceIds.clear();
@@ -151,6 +163,55 @@ class SignalAwareHeadlessApplication extends HeadlessApplication {
     await super.deactivateManagedAgent(instanceId);
     this.#managedAgentInstanceIds.delete(instanceId);
     await this.#syncSignals();
+  }
+}
+
+function isLiveEventBridge(
+  value: AbletonService,
+): value is AbletonService & LiveEventBridge {
+  const candidate = value as Partial<LiveEventBridge>;
+  return (
+    typeof candidate.inspectEventSelection === "function" &&
+    typeof candidate.subscribeLiveEvent === "function" &&
+    typeof candidate.unsubscribeLiveEvent === "function" &&
+    typeof candidate.subscribeLiveEvents === "function" &&
+    typeof candidate.subscribeLiveEventReconciliation === "function" &&
+    typeof candidate.reconcileLiveEventSubscriptions === "function"
+  );
+}
+
+class UnavailableLiveEventBridge implements LiveEventBridge {
+  public constructor(private readonly ableton: AbletonService) {}
+  public inspectSession() {
+    return this.ableton.inspectSession();
+  }
+  public async inspectEventSelection(): Promise<never> {
+    throw new Error("Configured Ableton service does not support Live events");
+  }
+  public inspectDevices(
+    params: Parameters<AbletonService["inspectDevices"]>[0],
+  ) {
+    return this.ableton.inspectDevices(params);
+  }
+  public inspectDeviceParameters(
+    params: Parameters<AbletonService["inspectDeviceParameters"]>[0],
+  ) {
+    return this.ableton.inspectDeviceParameters(params);
+  }
+  public async subscribeLiveEvent(): Promise<never> {
+    throw new Error("Configured Ableton service does not support Live events");
+  }
+  public async unsubscribeLiveEvent(): Promise<never> {
+    throw new Error("Configured Ableton service does not support Live events");
+  }
+  public async reconcileLiveEventSubscriptions() {
+    return [];
+  }
+  public subscribeLiveEvents(): () => void {
+    return () => undefined;
+  }
+  public subscribeLiveEventReconciliation(): () => void {
+    return () => undefined;
   }
 }
 
@@ -215,7 +276,11 @@ export function createAbletonService(
         authenticationToken: settings.token,
         events,
         port: settings.port,
-        eventSubscriptions: ["project.changed"],
+        eventSubscriptions: [
+          "project.changed",
+          "live_event.occurred",
+          "live_event.invalidated",
+        ],
         onRequest: ({ requestId, correlationId, command, params }) =>
           logger.debug("Ableton bridge request", {
             requestId,
@@ -253,6 +318,13 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
   const signals = new DefaultSignalRuntime({
     ...(options.signal ?? {}),
     ...(signalSecret === undefined ? {} : { secret: signalSecret }),
+    logger,
+  });
+  const liveEvents = new DefaultLiveEventRuntime({
+    ...(options.liveEvents ?? {}),
+    bridge: isLiveEventBridge(ableton)
+      ? ableton
+      : new UnavailableLiveEventBridge(ableton),
     logger,
   });
   const agent = new CopilotAgentService({
@@ -323,9 +395,10 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     setArrangementClipProperties: (params) =>
       ableton.setArrangementClipProperties(params),
     signalContext: { provider: signals.provider },
+    liveEventContext: { provider: liveEvents.provider },
     logger,
   });
-  const application = new SignalAwareHeadlessApplication(
+  const application = new RuntimeAwareHeadlessApplication(
     {
       agent,
       ableton,
@@ -333,8 +406,10 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       logger,
     },
     signals,
+    liveEvents,
   );
   signals.setDeliveryService(application);
+  liveEvents.setDeliveryService(application);
   return {
     application,
     ableton,
@@ -343,5 +418,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     logger,
     abletonConfigured: configured,
     signals,
+    liveEvents,
   };
 }

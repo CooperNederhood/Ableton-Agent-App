@@ -33,9 +33,33 @@ def build_capability_document(
     live_version = application.get_version_string()
     project_identity = build_project_identity(song)
     capabilities = {name: True for name in registry.metadata()}
+    tracks = list(song.tracks)
+    capabilities.update({
+        "events.parameter.value_changed": any(
+            any(
+                any(
+                    _lom_hasattr(parameter, "add_value_listener")
+                    for parameter in _lom_getattr(device, "parameters", [])
+                )
+                for device in _lom_getattr(track, "devices", [])
+            )
+            for track in tracks
+        ),
+        "events.track.playing_clip_changed": any(
+            _lom_hasattr(track, "add_playing_slot_index_listener")
+            for track in tracks
+        ),
+        "events.track.triggered_clip_changed": any(
+            _lom_hasattr(track, "add_fired_slot_index_listener")
+            for track in tracks
+        ),
+        "events.track.recording_state_changed": any(
+            _lom_hasattr(track, "add_playing_slot_index_listener")
+            for track in tracks
+        ),
+    })
     if note_editing_supported is None:
         note_editing_supported = MidiNoteSpecification is not None
-    tracks = list(song.tracks)
     arrangement_support = {
         "arrangement.create_midi_clip": any(
             _lom_hasattr(track, "arrangement_clips")

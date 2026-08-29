@@ -90,19 +90,39 @@ The script should:
 - Keep serializers stable across versions.
 - Maintain an explicit supported Live-version matrix.
 
+## Live Set identity
+
+The Remote Script derives project identity directly from the LOM:
+
+- saved sets use a SHA-256 hash of `Song.file_path`, truncated to 24
+  hexadecimal characters;
+- unsaved sets use the same hash shape over `Song.name`, but explicitly report
+  `saved: false`.
+
+`project.get_identity` computes this value on demand and returns only
+`projectId`, `projectName`, and `saved`. It never sends the raw filesystem path.
+Capability negotiation and the dynamic command share the same helper so Save
+As and reconnect behavior cannot use different identity rules.
+
 ## Events
 
-Initially emit a conservative event set:
+The script has two listener layers:
 
-- Song tempo/signature changed.
-- Track list changed.
-- Track name or mixer state changed.
-- Selected track/clip changed.
-- Transport state changed.
-- Clip-slot occupancy changed.
+- fixed low-frequency listeners that invalidate project state;
+- dynamic user-defined Live Event subscriptions.
 
-Listeners must be removed during disconnect. High-frequency parameter events
-require throttling and are not part of the first milestone.
+Dynamic subscriptions are installed and removed at runtime through validated
+protocol commands. They initially support parameter value changes, playing and
+triggered clip transitions, and recording-state transitions. The script
+normalizes raw LOM values into semantic occurrences before publishing them.
+
+Listeners must be removed during unsubscribe, client disconnect, Set
+replacement, and script shutdown. Continuous parameter changes are coalesced
+and bounded before crossing the socket. The application persists subscription
+intent and reinstalls listeners after reconnect; runtime LOM references are not
+durable.
+
+See [Live Events](../events/live-events.md).
 
 ## Security
 
@@ -112,4 +132,3 @@ require throttling and are not part of the first milestone.
 - Limit frame size and queue depth.
 - Validate every command and parameter.
 - Never implement arbitrary Python evaluation or unrestricted filesystem access.
-

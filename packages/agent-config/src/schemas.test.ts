@@ -1,13 +1,24 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MAX_LIVE_EVENT_MESSAGE_PREFIX_LENGTH,
   MAX_AGENT_ASSIGNMENT_COMPONENT_LENGTH,
   MAX_AGENT_ASSIGNMENT_ID_LENGTH,
+  agentEventListenerSchema,
   agentDefinitionSchema,
   editScopeSchema,
   activeAgentInstanceSchema,
+  liveEventDefinitionSchema,
+  liveEventInitialStateSchema,
+  liveEventInvalidationSchema,
+  liveEventOccurrenceSchema,
+  liveEventResolutionSchema,
   outputSubscriptionSchema,
 } from "./schemas.js";
+import {
+  createAgentEventListenerId,
+  createLiveEventId,
+} from "./live-event-id.js";
 
 describe("agent configuration schemas", () => {
   it("accepts a complete session-scoped definition", () => {
@@ -111,5 +122,133 @@ describe("agent configuration schemas", () => {
     });
 
     expect(instance.autoApprove).toBe(false);
+  });
+
+  it("validates every live event definition kind as a discriminated union", () => {
+    const common = {
+      id: createLiveEventId("00000000-0000-4000-8000-000000000001"),
+      name: "Watched source",
+      projectId: "project-1",
+      enabled: true,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const trackTarget = {
+      track: { name: "Drums", occurrence: 0 },
+    };
+    const definitions = [
+      {
+        ...common,
+        kind: "parameter.value_changed",
+        classification: "continuous",
+        target: {
+          ...trackTarget,
+          device: { name: "Rack", occurrence: 0 },
+          parameter: { name: "Macro 1", occurrence: 0 },
+        },
+        observationPolicy: {
+          minimumNormalizedDelta: 0.01,
+          throttleMs: 50,
+        },
+      },
+      {
+        ...common,
+        kind: "track.playing_clip_changed",
+        classification: "discrete",
+        target: trackTarget,
+      },
+      {
+        ...common,
+        kind: "track.triggered_clip_changed",
+        classification: "discrete",
+        target: trackTarget,
+      },
+      {
+        ...common,
+        kind: "track.recording_state_changed",
+        classification: "discrete",
+        target: trackTarget,
+      },
+    ];
+
+    for (const definition of definitions) {
+      expect(liveEventDefinitionSchema.safeParse(definition).success).toBe(
+        true,
+      );
+    }
+    expect(
+      liveEventDefinitionSchema.safeParse({
+        ...definitions[1],
+        classification: "continuous",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("validates live event runtime boundary records", () => {
+    const eventId = createLiveEventId("00000000-0000-4000-8000-000000000001");
+    expect(
+      liveEventResolutionSchema.safeParse({
+        status: "resolved",
+        projectId: "project-1",
+        trackReference: "00000000-0000-4000-8000-000000000010",
+        track: { name: "Drums" },
+      }).success,
+    ).toBe(true);
+    expect(
+      liveEventInitialStateSchema.safeParse({
+        kind: "track.playing_clip_changed",
+        state: { state: "stopped" },
+      }).success,
+    ).toBe(true);
+    expect(
+      liveEventOccurrenceSchema.safeParse({
+        occurrenceId: "00000000-0000-4000-8000-000000000020",
+        eventId,
+        kind: "track.recording_state_changed",
+        sequence: 7,
+        observedAt: "2026-01-01T00:00:00.000Z",
+        target: {
+          trackReference: "00000000-0000-4000-8000-000000000010",
+          track: { name: "Drums" },
+        },
+        summary: "Drums started recording.",
+        previous: { recording: false, source: "track" },
+        current: { recording: true, source: "track" },
+      }).success,
+    ).toBe(true);
+    expect(
+      liveEventInvalidationSchema.safeParse({
+        eventId,
+        observedAt: "2026-01-01T00:00:00.000Z",
+        reason: "target-deleted",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("keeps event and listener IDs distinct and bounds listener prefixes", () => {
+    const uuid = "00000000-0000-4000-8000-000000000001";
+    const eventId = createLiveEventId(uuid);
+    const listenerId = createAgentEventListenerId(uuid);
+    expect(eventId).not.toBe(listenerId);
+    expect(eventId.startsWith("live-event.")).toBe(true);
+    expect(listenerId.startsWith("event-listener.")).toBe(true);
+    expect(
+      agentEventListenerSchema.safeParse({
+        id: listenerId,
+        eventId,
+        enabled: true,
+        responseMode: "automatic",
+        messagePrefix: "When this changes:",
+      }).success,
+    ).toBe(true);
+    expect(
+      agentEventListenerSchema.safeParse({
+        id: listenerId,
+        eventId,
+        enabled: true,
+        responseMode: "automatic",
+        messagePrefix: "x".repeat(MAX_LIVE_EVENT_MESSAGE_PREFIX_LENGTH + 1),
+      }).success,
+    ).toBe(false);
   });
 });

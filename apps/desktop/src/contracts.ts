@@ -1,7 +1,16 @@
 import {
+  MAX_LIVE_EVENTS_PER_SESSION,
   activeAgentInstanceSchema,
+  agentEventListenerSchema,
+  liveEventDefinitionSchema,
+  liveEventInitialStateSchema,
+  liveEventOccurrenceSchema,
+  liveEventResolutionSchema,
   outputSubscriptionSchema,
+  type AgentEventListener,
+  type LiveEventDefinition,
 } from "@ableton-agent/agent-config/schemas";
+import { inspectEventSelectionResultSchema } from "@ableton-agent/protocol";
 import { z } from "zod";
 
 export const modes = ["explore", "compose", "arrange", "sound", "mix"] as const;
@@ -190,6 +199,92 @@ export const desktopOutputsStateSchema = z.object({
 });
 export type DesktopOutputsState = z.infer<typeof desktopOutputsStateSchema>;
 
+const liveEventLocatorSchema = z.object({
+  name: z.string().trim().min(1).max(128),
+  occurrence: z.number().int().nonnegative().default(0),
+});
+const desktopTrackEventTargetSchema = z.object({
+  track: liveEventLocatorSchema,
+});
+const desktopParameterEventTargetSchema = desktopTrackEventTargetSchema.extend({
+  device: liveEventLocatorSchema,
+  parameter: liveEventLocatorSchema,
+});
+const desktopLiveEventObservationPolicySchema = z.object({
+  minimumNormalizedDelta: z.number().min(0).max(1),
+  throttleMs: z.number().int().nonnegative().max(60_000),
+});
+
+export const liveEventDefinitionDraftSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("parameter.value_changed"),
+      classification: z.literal("continuous"),
+      name: z.string().trim().min(1).max(160),
+      enabled: z.boolean(),
+      target: desktopParameterEventTargetSchema,
+      observationPolicy: desktopLiveEventObservationPolicySchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("track.playing_clip_changed"),
+      classification: z.literal("discrete"),
+      name: z.string().trim().min(1).max(160),
+      enabled: z.boolean(),
+      target: desktopTrackEventTargetSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("track.triggered_clip_changed"),
+      classification: z.literal("discrete"),
+      name: z.string().trim().min(1).max(160),
+      enabled: z.boolean(),
+      target: desktopTrackEventTargetSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("track.recording_state_changed"),
+      classification: z.literal("discrete"),
+      name: z.string().trim().min(1).max(160),
+      enabled: z.boolean(),
+      target: desktopTrackEventTargetSchema,
+    })
+    .strict(),
+]);
+export type LiveEventDefinitionDraft = z.infer<
+  typeof liveEventDefinitionDraftSchema
+>;
+
+export const desktopAgentEventListenerSchema = z.object({
+  agentInstanceId: z.string().uuid(),
+  agentLabel: z.string().min(1).max(128),
+  listener: agentEventListenerSchema,
+});
+export type DesktopAgentEventListener = z.infer<
+  typeof desktopAgentEventListenerSchema
+>;
+
+export const desktopLiveEventStateSchema = z.object({
+  definition: liveEventDefinitionSchema,
+  resolution: liveEventResolutionSchema,
+  latestState: liveEventInitialStateSchema.optional(),
+  history: z.array(liveEventOccurrenceSchema),
+  listeners: z.array(desktopAgentEventListenerSchema),
+});
+export type DesktopLiveEventState = z.infer<typeof desktopLiveEventStateSchema>;
+
+export const desktopEventsStateSchema = z.object({
+  events: z.array(desktopLiveEventStateSchema),
+  activeSessionId: z.string().min(1).optional(),
+});
+export type DesktopEventsState = z.infer<typeof desktopEventsStateSchema>;
+export type LiveEventSelection = z.infer<
+  typeof inspectEventSelectionResultSchema
+>;
+
 export const planSectionSchema = z.object({
   id: z.string(),
   name: z.string().min(1).max(80),
@@ -266,7 +361,7 @@ export type DesktopAgentHistoryMessage = z.infer<
 
 export const sessionSchema = z
   .object({
-    version: z.literal(2),
+    version: z.literal(3),
     id: z.string().min(1),
     title: z.string().min(1),
     updatedAt: z.string().min(1),
@@ -278,6 +373,10 @@ export const sessionSchema = z
     mode: z.enum(modes).default("explore"),
     productionPlan: z.array(planSectionSchema).default([]),
     outputAssignments: z.array(desktopOutputAssignmentSchema).default([]),
+    liveEvents: z
+      .array(liveEventDefinitionSchema)
+      .max(MAX_LIVE_EVENTS_PER_SESSION)
+      .default([]),
   })
   .superRefine((session, context) => {
     const instanceIds = session.activeAgents.map(({ id }) => id);
@@ -308,8 +407,63 @@ export const sessionSchema = z
         message: "A session with active agents must select one",
       });
     }
+    const eventIds = session.liveEvents.map(({ id }) => id);
+    if (new Set(eventIds).size !== eventIds.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["liveEvents"],
+        message: "Live event IDs must be unique",
+      });
+    }
+    const eventIdSet = new Set(eventIds);
+    const listenerIds = new Set<string>();
+    for (const [agentIndex, agent] of session.activeAgents.entries()) {
+      for (const [listenerIndex, listener] of agent.eventListeners.entries()) {
+        if (listenerIds.has(listener.id)) {
+          context.addIssue({
+            code: "custom",
+            path: [
+              "activeAgents",
+              agentIndex,
+              "eventListeners",
+              listenerIndex,
+              "id",
+            ],
+            message: "Agent event listener IDs must be unique",
+          });
+        }
+        listenerIds.add(listener.id);
+        if (!eventIdSet.has(listener.eventId)) {
+          context.addIssue({
+            code: "custom",
+            path: [
+              "activeAgents",
+              agentIndex,
+              "eventListeners",
+              listenerIndex,
+              "eventId",
+            ],
+            message: "Agent event listeners must reference a session event",
+          });
+        }
+      }
+    }
   });
 export type DesktopSession = z.infer<typeof sessionSchema>;
+
+export const versionTwoSessionSchema = z.object({
+  version: z.literal(2),
+  id: z.string().min(1),
+  title: z.string().min(1),
+  updatedAt: z.string().min(1),
+  projectName: z.string().min(1),
+  projectId: z.string().optional(),
+  activeAgents: z.array(desktopActiveAgentSchema).default([]),
+  selectedAgentInstanceId: z.string().uuid().optional(),
+  mode: z.enum(modes).default("explore"),
+  productionPlan: z.array(planSectionSchema).default([]),
+  outputAssignments: z.array(desktopOutputAssignmentSchema).default([]),
+});
 
 export const desktopAutoApprovalUpdateSchema = z.object({
   instances: z.array(desktopActiveAgentSchema),
@@ -498,6 +652,10 @@ export const appEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("outputs.changed"),
     outputs: desktopOutputsStateSchema,
+  }),
+  z.object({
+    type: z.literal("events.changed"),
+    events: desktopEventsStateSchema,
   }),
   z.object({
     type: z.literal("agents.catalog_changed"),
@@ -743,6 +901,87 @@ export const ipcSchemas = {
     }),
     response: desktopOutputAssignmentSchema,
   },
+  "events:list": {
+    request: z.object({}).strict(),
+    response: desktopEventsStateSchema,
+  },
+  "events:inspect-selection": {
+    request: z.object({}).strict(),
+    response: inspectEventSelectionResultSchema,
+  },
+  "events:create": {
+    request: z.object({ definition: liveEventDefinitionDraftSchema }).strict(),
+    response: liveEventDefinitionSchema,
+  },
+  "events:update": {
+    request: z
+      .object({
+        eventId: liveEventDefinitionSchema.options[0].shape.id,
+        definition: liveEventDefinitionDraftSchema,
+      })
+      .strict(),
+    response: liveEventDefinitionSchema,
+  },
+  "events:enable": {
+    request: z
+      .object({ eventId: liveEventDefinitionSchema.options[0].shape.id })
+      .strict(),
+    response: liveEventDefinitionSchema,
+  },
+  "events:disable": {
+    request: z
+      .object({ eventId: liveEventDefinitionSchema.options[0].shape.id })
+      .strict(),
+    response: liveEventDefinitionSchema,
+  },
+  "events:delete": {
+    request: z
+      .object({ eventId: liveEventDefinitionSchema.options[0].shape.id })
+      .strict(),
+    response: z.object({ removed: z.boolean() }),
+  },
+  "events:assign-listener": {
+    request: z
+      .object({
+        agentInstanceId: z.string().uuid(),
+        eventId: liveEventDefinitionSchema.options[0].shape.id,
+        enabled: z.boolean(),
+        responseMode: agentEventListenerSchema.shape.responseMode,
+        messagePrefix: agentEventListenerSchema.shape.messagePrefix,
+      })
+      .strict(),
+    response: desktopAgentEventListenerSchema,
+  },
+  "events:unassign-listener": {
+    request: z
+      .object({
+        agentInstanceId: z.string().uuid(),
+        eventId: liveEventDefinitionSchema.options[0].shape.id,
+      })
+      .strict(),
+    response: z.object({ removed: z.boolean() }),
+  },
+  "events:update-listener": {
+    request: z
+      .object({
+        agentInstanceId: z.string().uuid(),
+        eventId: liveEventDefinitionSchema.options[0].shape.id,
+        enabled: z.boolean().optional(),
+        responseMode: agentEventListenerSchema.shape.responseMode.optional(),
+        messagePrefix: z
+          .union([agentEventListenerSchema.shape.messagePrefix, z.null()])
+          .optional(),
+      })
+      .strict()
+      .refine(
+        ({ enabled, responseMode, messagePrefix }) =>
+          enabled !== undefined ||
+          responseMode !== undefined ||
+          messagePrefix !== undefined,
+        "At least one listener setting must be provided",
+      ),
+    response: desktopAgentEventListenerSchema,
+  },
 } as const;
 
 export type IpcChannel = keyof typeof ipcSchemas;
@@ -858,5 +1097,38 @@ export interface DesktopApi {
       processingPolicyIds: string[],
     ): Promise<DesktopOutputAssignment>;
   };
-  events: { subscribe(handler: (event: DesktopAppEvent) => void): () => void };
+  events: {
+    list(): Promise<DesktopEventsState>;
+    inspectSelection(): Promise<LiveEventSelection>;
+    create(definition: LiveEventDefinitionDraft): Promise<LiveEventDefinition>;
+    update(
+      eventId: string,
+      definition: LiveEventDefinitionDraft,
+    ): Promise<LiveEventDefinition>;
+    enable(eventId: string): Promise<LiveEventDefinition>;
+    disable(eventId: string): Promise<LiveEventDefinition>;
+    delete(eventId: string): Promise<boolean>;
+    assignListener(
+      agentInstanceId: string,
+      eventId: string,
+      settings: Pick<
+        AgentEventListener,
+        "enabled" | "responseMode" | "messagePrefix"
+      >,
+    ): Promise<DesktopAgentEventListener>;
+    unassignListener(
+      agentInstanceId: string,
+      eventId: string,
+    ): Promise<boolean>;
+    updateListener(
+      agentInstanceId: string,
+      eventId: string,
+      settings: Partial<
+        Pick<AgentEventListener, "enabled" | "responseMode"> & {
+          messagePrefix: string | null;
+        }
+      >,
+    ): Promise<DesktopAgentEventListener>;
+    subscribe(handler: (event: DesktopAppEvent) => void): () => void;
+  };
 }

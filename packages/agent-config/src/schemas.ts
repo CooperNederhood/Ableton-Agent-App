@@ -1,9 +1,46 @@
 import { z } from "zod";
 
+import {
+  liveEventIdSchema,
+  liveEventInitialStateSchema,
+  liveEventInvalidationSchema,
+  liveEventOccurrenceSchema,
+  MAX_LIVE_EVENT_OCCURRENCE_BYTES,
+  parameterInitialStateSchema,
+  parameterValueStateSchema,
+  playingClipInitialStateSchema,
+  playingClipStateSchema,
+  recordingInitialStateSchema,
+  recordingStateSchema,
+  triggeredClipInitialStateSchema,
+  triggeredClipStateSchema,
+} from "@ableton-agent/protocol";
+
+export {
+  liveEventIdSchema,
+  liveEventInitialStateSchema,
+  liveEventInvalidationSchema,
+  liveEventOccurrenceSchema,
+  MAX_LIVE_EVENT_OCCURRENCE_BYTES,
+  parameterValueStateSchema,
+  playingClipStateSchema,
+  recordingStateSchema,
+  triggeredClipStateSchema,
+};
+export type {
+  LiveEventInitialStatePayload as LiveEventInitialState,
+  LiveEventInvalidationPayload as LiveEventInvalidation,
+  LiveEventOccurrencePayload as LiveEventOccurrence,
+} from "@ableton-agent/protocol";
+
 /** Producer/component limit shared with canonical signal-routing assignments. */
 export const MAX_AGENT_ASSIGNMENT_COMPONENT_LENGTH = 256;
 /** Maximum canonical encoded assignment ID length supported by signal routing. */
 export const MAX_AGENT_ASSIGNMENT_ID_LENGTH = 4_121;
+export const MAX_LIVE_EVENTS_PER_SESSION = 256;
+export const MAX_EVENT_LISTENERS_PER_AGENT = 256;
+export const MAX_LIVE_EVENT_MESSAGE_PREFIX_LENGTH = 2_048;
+export const MAX_LIVE_EVENT_HISTORY_LENGTH = 100;
 
 const producerIdSchema = z
   .string()
@@ -13,6 +50,128 @@ const assignmentIdSchema = z
   .string()
   .min(1)
   .max(MAX_AGENT_ASSIGNMENT_ID_LENGTH);
+export const agentEventListenerIdSchema = z
+  .string()
+  .regex(
+    /^event-listener\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu,
+  );
+
+const namedLocatorSchema = z.object({
+  name: z.string().trim().min(1).max(128),
+  occurrence: z.number().int().nonnegative().default(0),
+});
+
+const liveEventDefinitionBase = {
+  id: liveEventIdSchema,
+  name: z.string().trim().min(1).max(160),
+  projectId: z.string().min(1),
+  enabled: z.boolean(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+};
+
+const trackEventTargetSchema = z.object({
+  track: namedLocatorSchema,
+});
+
+const parameterEventTargetSchema = trackEventTargetSchema.extend({
+  device: namedLocatorSchema,
+  parameter: namedLocatorSchema,
+});
+
+const observationPolicySchema = z.object({
+  minimumNormalizedDelta: z.number().min(0).max(1),
+  throttleMs: z.number().int().nonnegative().max(60_000),
+});
+
+const trackDisplayMetadataSchema = z.object({
+  name: z.string().min(1).max(128),
+  color: z.string().max(64).optional(),
+});
+
+export const liveEventResolutionSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("unresolved"),
+    reason: z.enum([
+      "not-connected",
+      "project-mismatch",
+      "missing",
+      "ambiguous",
+    ]),
+    detail: z.string().max(512).optional(),
+  }),
+  z.object({
+    status: z.literal("resolved"),
+    projectId: z.string().min(1),
+    trackReference: z.string().uuid(),
+    deviceReference: z.string().uuid().optional(),
+    parameterReference: z.string().uuid().optional(),
+    track: trackDisplayMetadataSchema,
+  }),
+  z.object({
+    status: z.literal("invalidated"),
+    reason: z.enum([
+      "target-deleted",
+      "target-replaced",
+      "project-changed",
+      "subscription-cleared",
+      "unknown",
+    ]),
+    detail: z.string().max(512).optional(),
+  }),
+]);
+export type LiveEventResolution = z.infer<typeof liveEventResolutionSchema>;
+
+export const liveEventDefinitionSchema = z.discriminatedUnion("kind", [
+  z.object({
+    ...liveEventDefinitionBase,
+    kind: z.literal("parameter.value_changed"),
+    classification: z.literal("continuous"),
+    target: parameterEventTargetSchema,
+    observationPolicy: observationPolicySchema,
+    resolution: liveEventResolutionSchema.optional(),
+    initialState: parameterInitialStateSchema.optional(),
+  }),
+  z.object({
+    ...liveEventDefinitionBase,
+    kind: z.literal("track.playing_clip_changed"),
+    classification: z.literal("discrete"),
+    target: trackEventTargetSchema,
+    resolution: liveEventResolutionSchema.optional(),
+    initialState: playingClipInitialStateSchema.optional(),
+  }),
+  z.object({
+    ...liveEventDefinitionBase,
+    kind: z.literal("track.triggered_clip_changed"),
+    classification: z.literal("discrete"),
+    target: trackEventTargetSchema,
+    resolution: liveEventResolutionSchema.optional(),
+    initialState: triggeredClipInitialStateSchema.optional(),
+  }),
+  z.object({
+    ...liveEventDefinitionBase,
+    kind: z.literal("track.recording_state_changed"),
+    classification: z.literal("discrete"),
+    target: trackEventTargetSchema,
+    resolution: liveEventResolutionSchema.optional(),
+    initialState: recordingInitialStateSchema.optional(),
+  }),
+]);
+export type LiveEventDefinition = z.infer<typeof liveEventDefinitionSchema>;
+
+export const agentEventListenerSchema = z.object({
+  id: agentEventListenerIdSchema,
+  eventId: liveEventIdSchema,
+  enabled: z.boolean(),
+  responseMode: z.enum(["next-prompt", "automatic"]),
+  messagePrefix: z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_LIVE_EVENT_MESSAGE_PREFIX_LENGTH)
+    .optional(),
+});
+export type AgentEventListener = z.infer<typeof agentEventListenerSchema>;
 
 export const agentDefinitionNameSchema = z
   .string()
@@ -152,6 +311,10 @@ export const activeAgentInstanceSchema = z.object({
   config: activeAgentConfigSchema,
   boundTracks: z.array(boundTrackScopeSchema).max(128),
   outputSubscriptions: z.array(outputSubscriptionSchema).max(256),
+  eventListeners: z
+    .array(agentEventListenerSchema)
+    .max(MAX_EVENT_LISTENERS_PER_AGENT)
+    .default([]),
   modified: z.boolean(),
 });
 export type ActiveAgentInstance = z.infer<typeof activeAgentInstanceSchema>;

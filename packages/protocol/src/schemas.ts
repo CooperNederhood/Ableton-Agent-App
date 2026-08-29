@@ -2,6 +2,126 @@ import { z } from "zod";
 
 import { PROTOCOL_VERSION } from "./constants.js";
 
+export const MAX_LIVE_EVENT_OCCURRENCE_BYTES = 16_384;
+export const liveEventIdSchema = z
+  .string()
+  .regex(
+    /^live-event\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu,
+  );
+const trackDisplayMetadataSchema = z.object({
+  name: z.string().min(1).max(128),
+  color: z.string().max(64).optional(),
+});
+export const parameterValueStateSchema = z.object({
+  normalizedValue: z.number().min(0).max(1),
+  value: z.number(),
+  displayValue: z.string().max(256),
+});
+export const playingClipStateSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("stopped") }),
+  z.object({ state: z.literal("arrangement") }),
+  z.object({
+    state: z.literal("session-clip"),
+    slotIndex: z.number().int().nonnegative(),
+    clipName: z.string().max(128).optional(),
+  }),
+]);
+export const triggeredClipStateSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("none") }),
+  z.object({ state: z.literal("stop") }),
+  z.object({
+    state: z.literal("session-clip"),
+    slotIndex: z.number().int().nonnegative(),
+    clipName: z.string().max(128).optional(),
+  }),
+]);
+export const recordingStateSchema = z.object({
+  recording: z.boolean(),
+  source: z.enum(["track", "session-clip", "arrangement"]),
+});
+export const parameterInitialStateSchema = z.object({
+  kind: z.literal("parameter.value_changed"),
+  state: parameterValueStateSchema,
+});
+export const playingClipInitialStateSchema = z.object({
+  kind: z.literal("track.playing_clip_changed"),
+  state: playingClipStateSchema,
+});
+export const triggeredClipInitialStateSchema = z.object({
+  kind: z.literal("track.triggered_clip_changed"),
+  state: triggeredClipStateSchema,
+});
+export const recordingInitialStateSchema = z.object({
+  kind: z.literal("track.recording_state_changed"),
+  state: recordingStateSchema,
+});
+export const liveEventInitialStateSchema = z.discriminatedUnion("kind", [
+  parameterInitialStateSchema,
+  playingClipInitialStateSchema,
+  triggeredClipInitialStateSchema,
+  recordingInitialStateSchema,
+]);
+const liveEventOccurrenceBase = {
+  occurrenceId: z.string().uuid(),
+  eventId: liveEventIdSchema,
+  sequence: z.number().int().nonnegative(),
+  projectRevision: z.number().int().nonnegative().optional(),
+  observedAt: z.string().datetime(),
+  target: z.object({
+    trackReference: z.string().uuid(),
+    track: trackDisplayMetadataSchema,
+    deviceReference: z.string().uuid().optional(),
+    parameterReference: z.string().uuid().optional(),
+  }),
+  summary: z.string().min(1).max(2_048),
+};
+export const liveEventOccurrenceSchema = z
+  .discriminatedUnion("kind", [
+    z.object({
+      ...liveEventOccurrenceBase,
+      kind: z.literal("parameter.value_changed"),
+      previous: parameterValueStateSchema.optional(),
+      current: parameterValueStateSchema,
+    }),
+    z.object({
+      ...liveEventOccurrenceBase,
+      kind: z.literal("track.playing_clip_changed"),
+      previous: playingClipStateSchema.optional(),
+      current: playingClipStateSchema,
+    }),
+    z.object({
+      ...liveEventOccurrenceBase,
+      kind: z.literal("track.triggered_clip_changed"),
+      previous: triggeredClipStateSchema.optional(),
+      current: triggeredClipStateSchema,
+    }),
+    z.object({
+      ...liveEventOccurrenceBase,
+      kind: z.literal("track.recording_state_changed"),
+      previous: recordingStateSchema.optional(),
+      current: recordingStateSchema,
+    }),
+  ])
+  .refine(
+    (occurrence) =>
+      new TextEncoder().encode(JSON.stringify(occurrence)).byteLength <=
+      MAX_LIVE_EVENT_OCCURRENCE_BYTES,
+    `Live event occurrences must not exceed ${MAX_LIVE_EVENT_OCCURRENCE_BYTES} bytes`,
+  );
+export const liveEventInvalidationSchema = z.object({
+  eventId: liveEventIdSchema,
+  observedAt: z.string().datetime(),
+  projectRevision: z.number().int().nonnegative().optional(),
+  reason: z.enum([
+    "target-deleted",
+    "target-replaced",
+    "project-changed",
+    "subscription-cleared",
+    "unknown",
+  ]),
+  detail: z.string().max(512).optional(),
+});
+
 export const requestIdSchema = z.string().uuid();
 
 export const protocolErrorCodeSchema = z.enum([
@@ -66,6 +186,21 @@ export const eventEnvelopeSchema = envelopeBaseSchema.extend({
   projectRevision: z.number().int().nonnegative().optional(),
 });
 
+export const liveEventOccurredEnvelopeSchema = eventEnvelopeSchema.extend({
+  event: z.literal("live_event.occurred"),
+  payload: liveEventOccurrenceSchema,
+});
+
+export const liveEventInvalidatedEnvelopeSchema = eventEnvelopeSchema.extend({
+  event: z.literal("live_event.invalidated"),
+  payload: liveEventInvalidationSchema,
+});
+
+export const liveEventEnvelopeSchema = z.discriminatedUnion("event", [
+  liveEventOccurredEnvelopeSchema,
+  liveEventInvalidatedEnvelopeSchema,
+]);
+
 export const messageEnvelopeSchema = z.union([
   requestEnvelopeSchema,
   successResponseEnvelopeSchema,
@@ -78,6 +213,16 @@ export type ResponseEnvelope =
   | z.infer<typeof successResponseEnvelopeSchema>
   | z.infer<typeof failureResponseEnvelopeSchema>;
 export type EventEnvelope = z.infer<typeof eventEnvelopeSchema>;
+export type LiveEventOccurredEnvelope = z.infer<
+  typeof liveEventOccurredEnvelopeSchema
+>;
+export type LiveEventInvalidatedEnvelope = z.infer<
+  typeof liveEventInvalidatedEnvelopeSchema
+>;
+export type LiveEventEnvelope = z.infer<typeof liveEventEnvelopeSchema>;
+export type LiveEventOccurrencePayload = LiveEventOccurredEnvelope["payload"];
+export type LiveEventInvalidationPayload =
+  LiveEventInvalidatedEnvelope["payload"];
 export type MessageEnvelope = z.infer<typeof messageEnvelopeSchema>;
 
 export function selectProtocolVersion(
@@ -120,6 +265,205 @@ export const projectIdentitySchema = z.object({
 export const pingResultSchema = z.object({
   pong: z.literal(true),
 });
+
+export const eventTrackIdentitySchema = z
+  .object({
+    index: z.number().int().nonnegative(),
+    expectedReference: z.string().uuid(),
+    expectedName: z.string().min(1),
+  })
+  .strict();
+
+export const eventParameterIdentitySchema = eventTrackIdentitySchema
+  .extend({
+    deviceIndex: z.number().int().nonnegative(),
+    expectedDeviceReference: z.string().uuid(),
+    expectedDeviceName: z.string().min(1),
+    parameterIndex: z.number().int().nonnegative(),
+    expectedParameterReference: z.string().uuid(),
+    expectedParameterName: z.string().min(1),
+  })
+  .strict();
+
+export const inspectEventSelectionParamsSchema = z.object({}).strict();
+export const inspectEventSelectionResultSchema = z
+  .object({
+    track: eventTrackIdentitySchema.nullable(),
+    parameter: eventParameterIdentitySchema.nullable(),
+  })
+  .strict();
+
+const eventObservationPolicySchema = z
+  .object({
+    minimumNormalizedDelta: z.number().finite().min(0).max(1).optional(),
+    throttleMs: z.number().int().nonnegative().max(60_000).optional(),
+  })
+  .strict();
+
+const subscribeEventBase = {
+  eventId: liveEventIdSchema,
+  projectId: z.string().min(1),
+};
+
+export const subscribeEventParamsSchema = z.discriminatedUnion("kind", [
+  eventParameterIdentitySchema.extend({
+    ...subscribeEventBase,
+    kind: z.literal("parameter.value_changed"),
+    observationPolicy: eventObservationPolicySchema.optional(),
+  }),
+  eventTrackIdentitySchema.extend({
+    ...subscribeEventBase,
+    kind: z.literal("track.playing_clip_changed"),
+  }),
+  eventTrackIdentitySchema.extend({
+    ...subscribeEventBase,
+    kind: z.literal("track.triggered_clip_changed"),
+  }),
+  eventTrackIdentitySchema.extend({
+    ...subscribeEventBase,
+    kind: z.literal("track.recording_state_changed"),
+  }),
+]);
+
+const resolvedTrackEventTargetSchema = z
+  .object({
+    trackReference: z.string().uuid(),
+    track: z
+      .object({
+        name: z.string().min(1).max(128),
+        color: z.string().max(64).optional(),
+      })
+      .strict(),
+  })
+  .strict();
+
+const resolvedParameterEventTargetSchema =
+  resolvedTrackEventTargetSchema.extend({
+    deviceReference: z.string().uuid(),
+    parameterReference: z.string().uuid(),
+  });
+
+const resolvedTrackEventResolutionSchema =
+  resolvedTrackEventTargetSchema.extend({
+    status: z.literal("resolved"),
+    projectId: z.string().min(1),
+  });
+
+const resolvedParameterEventResolutionSchema =
+  resolvedParameterEventTargetSchema.extend({
+    status: z.literal("resolved"),
+    projectId: z.string().min(1),
+  });
+
+const eventSubscriptionDescriptorBase = {
+  eventId: liveEventIdSchema,
+};
+
+export const eventSubscriptionDescriptorSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      ...eventSubscriptionDescriptorBase,
+      kind: z.literal("parameter.value_changed"),
+      target: resolvedParameterEventTargetSchema,
+      resolution: resolvedParameterEventResolutionSchema,
+      state: parameterValueStateSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...eventSubscriptionDescriptorBase,
+      kind: z.literal("track.playing_clip_changed"),
+      target: resolvedTrackEventTargetSchema,
+      resolution: resolvedTrackEventResolutionSchema,
+      state: playingClipStateSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...eventSubscriptionDescriptorBase,
+      kind: z.literal("track.triggered_clip_changed"),
+      target: resolvedTrackEventTargetSchema,
+      resolution: resolvedTrackEventResolutionSchema,
+      state: triggeredClipStateSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...eventSubscriptionDescriptorBase,
+      kind: z.literal("track.recording_state_changed"),
+      target: resolvedTrackEventTargetSchema,
+      resolution: resolvedTrackEventResolutionSchema,
+      state: recordingStateSchema,
+    })
+    .strict(),
+]);
+
+export const subscribeEventResultSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      ...eventSubscriptionDescriptorBase,
+      kind: z.literal("parameter.value_changed"),
+      target: resolvedParameterEventTargetSchema,
+      resolution: resolvedParameterEventResolutionSchema,
+      state: parameterValueStateSchema,
+      initialState: liveEventInitialStateSchema.options[0],
+    })
+    .strict(),
+  z
+    .object({
+      ...eventSubscriptionDescriptorBase,
+      kind: z.literal("track.playing_clip_changed"),
+      target: resolvedTrackEventTargetSchema,
+      resolution: resolvedTrackEventResolutionSchema,
+      state: playingClipStateSchema,
+      initialState: liveEventInitialStateSchema.options[1],
+    })
+    .strict(),
+  z
+    .object({
+      ...eventSubscriptionDescriptorBase,
+      kind: z.literal("track.triggered_clip_changed"),
+      target: resolvedTrackEventTargetSchema,
+      resolution: resolvedTrackEventResolutionSchema,
+      state: triggeredClipStateSchema,
+      initialState: liveEventInitialStateSchema.options[2],
+    })
+    .strict(),
+  z
+    .object({
+      ...eventSubscriptionDescriptorBase,
+      kind: z.literal("track.recording_state_changed"),
+      target: resolvedTrackEventTargetSchema,
+      resolution: resolvedTrackEventResolutionSchema,
+      state: recordingStateSchema,
+      initialState: liveEventInitialStateSchema.options[3],
+    })
+    .strict(),
+]);
+
+export const unsubscribeEventParamsSchema = z
+  .object({ eventId: liveEventIdSchema })
+  .strict();
+export const unsubscribeEventResultSchema = z
+  .object({
+    eventId: liveEventIdSchema,
+    unsubscribed: z.literal(true),
+  })
+  .strict();
+
+export const listEventSubscriptionsParamsSchema = z.object({}).strict();
+export const listEventSubscriptionsResultSchema = z
+  .object({
+    subscriptions: z.array(eventSubscriptionDescriptorSchema),
+  })
+  .strict();
+
+export const clearEventSubscriptionsParamsSchema = z.object({}).strict();
+export const clearEventSubscriptionsResultSchema = z
+  .object({
+    clearedEventIds: z.array(liveEventIdSchema),
+  })
+  .strict();
 
 export const trackKindSchema = z.enum(["midi", "audio"]);
 
@@ -953,6 +1297,34 @@ export type HelloParams = z.infer<typeof helloParamsSchema>;
 export type CapabilityDocument = z.infer<typeof capabilityDocumentSchema>;
 export type ProjectIdentity = z.infer<typeof projectIdentitySchema>;
 export type PingResult = z.infer<typeof pingResultSchema>;
+export type EventTrackIdentity = z.infer<typeof eventTrackIdentitySchema>;
+export type EventParameterIdentity = z.infer<
+  typeof eventParameterIdentitySchema
+>;
+export type InspectEventSelectionParams = z.infer<
+  typeof inspectEventSelectionParamsSchema
+>;
+export type InspectEventSelectionResult = z.infer<
+  typeof inspectEventSelectionResultSchema
+>;
+export type SubscribeEventParams = z.infer<typeof subscribeEventParamsSchema>;
+export type EventSubscriptionDescriptor = z.infer<
+  typeof eventSubscriptionDescriptorSchema
+>;
+export type SubscribeEventResult = z.infer<typeof subscribeEventResultSchema>;
+export type LiveEventInitialStatePayload = SubscribeEventResult["initialState"];
+export type UnsubscribeEventParams = z.infer<
+  typeof unsubscribeEventParamsSchema
+>;
+export type UnsubscribeEventResult = z.infer<
+  typeof unsubscribeEventResultSchema
+>;
+export type ListEventSubscriptionsResult = z.infer<
+  typeof listEventSubscriptionsResultSchema
+>;
+export type ClearEventSubscriptionsResult = z.infer<
+  typeof clearEventSubscriptionsResultSchema
+>;
 export type SessionSnapshot = z.infer<typeof sessionSnapshotSchema>;
 export type SetTempoParams = z.infer<typeof setTempoParamsSchema>;
 export type SetTempoResult = z.infer<typeof setTempoResultSchema>;

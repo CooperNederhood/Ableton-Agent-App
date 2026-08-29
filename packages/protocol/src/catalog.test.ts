@@ -8,7 +8,7 @@ import { commandCatalog, commandNames } from "./catalog.js";
 function quotedCommands(source: string): string[] {
   return [
     ...source.matchAll(
-      /"(?:system|project|session|transport|tracks|clips|arrangement|devices|browser)\.[a-z_]+"/g,
+      /"(?:system|project|session|transport|tracks|clips|arrangement|devices|browser|events)\.[a-z_]+"/g,
     ),
   ]
     .map(([match]) => match.slice(1, -1))
@@ -40,6 +40,7 @@ describe("command catalog", () => {
       "remote-script/AbletonAgent/system_commands.py",
       "remote-script/AbletonAgent/device_commands.py",
       "remote-script/AbletonAgent/browser_commands.py",
+      "remote-script/AbletonAgent/event_subscriptions.py",
     ].map((path) => readFileSync(resolve(process.cwd(), path), "utf8"));
     const registered = quotedCommands(sources.join("\n"));
     const expected = commandNames

@@ -49,6 +49,25 @@ The conversation/operation timeline is the graphical form of the reference
 CLI chat experience. The surrounding project outline, inspector, context
 controls, and plan/change views progressively enhance it.
 
+## Events
+
+The top-level **Events** view manages user-defined observations of Live. Event
+creation prioritizes current context:
+
+- **Watch selected parameter** creates a continuous parameter event.
+- **Watch selected track** presents playing clip, triggered clip, and recording
+  transitions first.
+- **Browse all event types** provides a bounded fallback picker.
+
+Events are grouped by track and use the track's color without relying on color
+alone. Cards show current state, resolution, continuous/discrete classification,
+and listening agents. A bounded **Recent activity** disclosure is hidden by
+default.
+
+Active-agent editing provides a Skills-style **Listening Events** selector.
+Each selected event has an `Automatic` or `Next prompt` response mode and
+an optional message prefix.
+
 ## Superset interaction model
 
 Every essential CLI action has a React equivalent:

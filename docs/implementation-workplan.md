@@ -33,6 +33,7 @@ relevant validation pass.
 | Custom agents | [Custom agents](agents/custom-agents.md) | [To-do](agents/custom-agents-implementation-to-do.md) |
 | Agent Skills | [Agent Skills](skills/agent-skills.md) | [To-do](skills/agent-skills-implementation-to-do.md) |
 | Multi-agent outputs | [Output routing](outputs/multi-agent-output-routing.md) | [To-do](outputs/multi-agent-output-routing-implementation-to-do.md) |
+| Live Events | [Live Events](events/live-events.md) | [Plan](events/live-events-implementation-plan.md) |
 | Bridge | [Ableton bridge](bridge/ableton-bridge.md) | [To-do](bridge/ableton-bridge-implementation-to-do.md) |
 | Remote Script | [Remote Script](remote-script/remote-script.md) | [To-do](remote-script/remote-script-implementation-to-do.md) |
 | Protocol | [IPC protocol](protocol/ipc-protocol.md) | [To-do](protocol/ipc-protocol-implementation-to-do.md) |
@@ -108,6 +109,7 @@ presentation-only and report themselves as unsupported.
 - [~] Replace fixed modes with definition-driven active agents and canonical
   Agent Skills.
 - [ ] Route Outputs independently to multiple active agents.
+- [ ] Implement Remote Script-owned Live Events and per-agent event listeners.
 - [ ] Implement deterministic compose, arrange, sound, and mix workflows.
 - [ ] Complete installation, Remote Script updates, diagnostics, logging, and
   privacy controls.

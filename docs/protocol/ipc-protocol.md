@@ -87,6 +87,22 @@ Event:
 }
 ```
 
+Dynamic Live Event subscriptions use validated commands rather than arbitrary
+LOM paths:
+
+```text
+events.inspect_selection
+events.subscribe
+events.unsubscribe
+events.list_subscriptions
+events.clear_subscriptions
+```
+
+The Remote Script emits typed `live_event.occurred` and
+`live_event.invalidated` envelopes. Continuous sources are coalesced before
+transport; discrete transitions preserve sequence order. See
+[Live Events](../events/live-events.md).
+
 ## Handshake
 
 The client begins with `system.hello` containing:

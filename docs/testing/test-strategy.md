@@ -31,6 +31,8 @@ Tests must catch:
 - Invalid agent YAML, skill metadata, wildcard expansion, and packaged-resource
   discovery.
 - Cross-agent transcript, approval, cancellation, and Output-routing leakage.
+- Live Event listener leaks, cross-agent delivery leakage, event gaps, and
+  continuous-source floods.
 - Edit-scope bypasses and overlapping multi-agent mutation races.
 
 ## Test layers
@@ -58,6 +60,8 @@ Python:
 - Capability detection.
 - Command handlers with fake LOM objects.
 - Listener registration/removal.
+- Dynamic event subscription resolution, semantic transition translation,
+  parameter coalescing, invalidation, and reconnect cleanup.
 
 ### Protocol contract tests
 
@@ -81,6 +85,8 @@ Test:
 - Timeouts and disconnects.
 - Reconnection.
 - Event sequencing.
+- Dynamic Live Event replay and reconciliation after reconnect or sequence
+  gaps.
 - Oversized and malformed frames.
 - Mutation serialization.
 
@@ -116,6 +122,8 @@ Critical workflows:
 - Switching independent Agent Mode conversations.
 - Duplicate instances of one definition.
 - Output subscription fan-out across active agents.
+- Live Event creation, per-agent response modes, message prefixes, and hidden
+  occurrence history.
 - Slash-skill discovery and invocation.
 - First launch and Remote Script setup.
 - Connection loss and recovery.

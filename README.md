@@ -293,6 +293,32 @@ pnpm desktop:debug
 
 Renderer changes use Vite hot reload. Changes to the Electron main process or
 preload must be picked up by stopping and restarting the development command.
+`pnpm desktop:dev` rebuilds the desktop's workspace dependencies, preload, and
+Electron main process before it launches, so a separate `pnpm build` is not
+required.
+
+Use the workflow that matches the files changed:
+
+| Changed files                   | Required development action                                                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/desktop/src/renderer/**`  | Keep `pnpm desktop:dev` running; Vite hot reloads the renderer.                                                                       |
+| Electron main or preload files  | Stop and restart `pnpm desktop:dev`.                                                                                                  |
+| Shared TypeScript packages      | Stop and restart `pnpm desktop:dev`; it rebuilds desktop dependencies.                                                                |
+| `remote-script/AbletonAgent/**` | Fully quit Live, run `pnpm --filter @ableton-agent/desktop remote-script update --confirm`, reopen Live, then run `pnpm desktop:dev`. |
+
+`pnpm build` only compiles repository artifacts. It does not copy Remote Script
+changes into Ableton's User Library, and restarting Live does not update the
+installed files. If desktop startup reports an unknown Remote Script command,
+check and update the installation:
+
+```bash
+pnpm --filter @ableton-agent/desktop remote-script detect
+pnpm --filter @ableton-agent/desktop remote-script update --confirm
+```
+
+Fully quit and reopen Ableton Live after the update. Toggling the Control
+Surface does not reliably reload Python modules.
+
 The app prints the development log path at startup; follow it in another shell
 with `tail -f "<printed-path>"` on macOS/Linux or
 `Get-Content "<printed-path>" -Wait` in PowerShell.
@@ -339,16 +365,17 @@ real LOM behavior.
 
 ## Common commands
 
-| Command                                     | Purpose                                                     |
-| ------------------------------------------- | ----------------------------------------------------------- |
-| `pnpm check`                                | Run formatting, lint, docs, contracts, types, and all tests |
-| `pnpm build`                                | Build every workspace                                       |
-| `pnpm desktop:dev`                          | Start the desktop renderer development workflow             |
-| `pnpm desktop:debug`                        | Start desktop development with debug logs and DevTools      |
-| `pnpm test:electron`                        | Run Electron end-to-end tests                               |
-| `pnpm desktop:dist`                         | Produce unsigned local desktop artifacts                    |
-| `pnpm live:validate -- --live-version 12.1` | Record real-Live smoke evidence                             |
-| `node apps/cli/dist/main.js help`           | List CLI commands and options                               |
+| Command                                                               | Purpose                                                     |
+| --------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `pnpm check`                                                          | Run formatting, lint, docs, contracts, types, and all tests |
+| `pnpm build`                                                          | Compile every workspace; does not install the Remote Script |
+| `pnpm desktop:dev`                                                    | Start the desktop renderer development workflow             |
+| `pnpm desktop:debug`                                                  | Start desktop development with debug logs and DevTools      |
+| `pnpm --filter @ableton-agent/desktop remote-script update --confirm` | Install current Remote Script files into the User Library   |
+| `pnpm test:electron`                                                  | Run Electron end-to-end tests                               |
+| `pnpm desktop:dist`                                                   | Produce unsigned local desktop artifacts                    |
+| `pnpm live:validate -- --live-version 12.1`                           | Record real-Live smoke evidence                             |
+| `node apps/cli/dist/main.js help`                                     | List CLI commands and options                               |
 
 ## Troubleshooting
 

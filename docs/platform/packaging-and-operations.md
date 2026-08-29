@@ -38,6 +38,25 @@ pnpm --filter @ableton-agent/desktop remote-script install --confirm \
   --path "/path/to/User Library"
 ```
 
+Building and installing are separate operations. `pnpm build` compiles the
+workspace but does not copy Python files into Ableton's User Library.
+`pnpm desktop:dev` rebuilds the desktop's TypeScript dependencies, preload, and
+Electron main process automatically; it also does not install the Remote
+Script.
+
+After changing `remote-script/AbletonAgent/**`, use this development sequence:
+
+1. Fully quit Ableton Live.
+2. Run
+   `pnpm --filter @ableton-agent/desktop remote-script update --confirm`.
+3. Reopen Live so its embedded Python runtime loads the updated modules.
+4. Run `pnpm desktop:dev`.
+
+Renderer changes hot reload. Electron main, preload, and shared TypeScript
+package changes require restarting `pnpm desktop:dev`, but do not require a
+Remote Script update unless files under `remote-script/AbletonAgent/**` also
+changed.
+
 Detection covers the standard macOS Music/Documents and Windows
 Documents/OneDrive User Library locations. `ABLETON_USER_LIBRARY` overrides
 detection. Installation is staged, keeps the bridge token, and moves the prior

@@ -2662,6 +2662,7 @@ describe("desktop adapter over the shared application", () => {
     await service.start();
     const first = (await service.listActiveAgents())[0]!;
     const second = await service.createActiveAgent("default");
+    const firstConfig = first.config;
 
     const definition = await service.createLiveEvent({
       kind: "track.playing_clip_changed",
@@ -2694,6 +2695,18 @@ describe("desktop adapter over the shared application", () => {
       enabled: true,
       responseMode: "automatic",
     });
+    const recording = await service.createLiveEvent({
+      kind: "track.recording_state_changed",
+      classification: "discrete",
+      name: "Keys recording",
+      enabled: true,
+      target: { track: { name: "Keys", occurrence: 0 } },
+    });
+    await service.assignLiveEventListener(first.id, recording.id, {
+      enabled: false,
+      responseMode: "next-prompt",
+      messagePrefix: "Recording changed:",
+    });
     const updated = await service.updateLiveEventListener(
       first.id,
       definition.id,
@@ -2725,6 +2738,26 @@ describe("desktop adapter over the shared application", () => {
     expect(
       state.events[0]?.listeners.map(({ agentInstanceId }) => agentInstanceId),
     ).toEqual(expect.arrayContaining([first.id, second.id]));
+    const recordingListeners = state.events.find(
+      ({ definition }) => definition.id === recording.id,
+    )?.listeners;
+    expect(recordingListeners).toHaveLength(1);
+    expect(recordingListeners?.[0]?.agentInstanceId).toBe(first.id);
+    expect(recordingListeners?.[0]?.listener).toMatchObject({
+      enabled: false,
+      responseMode: "next-prompt",
+      messagePrefix: "Recording changed:",
+    });
+    const persistedAgents = (await service.getSessions())[0]!.activeAgents;
+    expect(
+      persistedAgents.find(({ id }) => id === first.id)?.eventListeners,
+    ).toHaveLength(2);
+    expect(
+      persistedAgents.find(({ id }) => id === second.id)?.eventListeners,
+    ).toHaveLength(1);
+    expect(persistedAgents.find(({ id }) => id === first.id)?.config).toEqual(
+      firstConfig,
+    );
     await expect(service.inspectLiveEventSelection()).resolves.toEqual(
       liveEvents.inspectSelectionResult,
     );

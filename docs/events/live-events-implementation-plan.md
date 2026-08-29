@@ -209,16 +209,16 @@ Likely files:
 
 ## Phase 7: Agents tab UX
 
-- [ ] Add a **Listening Events** summary to every active-agent card.
-- [ ] Add a Skills-style event selector inside **Edit overrides**.
-- [ ] Expand selected event rows to show `Automatic` or `Next prompt`.
-- [ ] Add the optional message-prefix textarea per listener.
-- [ ] Save listener edits independently from canonical agent config overrides
+- [x] Add a **Listening Events** summary to every active-agent card.
+- [x] Add a Skills-style event selector inside **Edit overrides**.
+- [x] Expand selected event rows to show `Automatic` or `Next prompt`.
+- [x] Add the optional message-prefix textarea per listener.
+- [x] Save listener edits independently from canonical agent config overrides
   so event changes do not rewrite tools, scope, skills, or `inputChannels`.
-- [ ] Leave the existing free-form **Inputs** editor unchanged alongside the new
+- [x] Leave the existing free-form **Inputs** editor unchanged alongside the new
   **Listening Events** editor.
-- [ ] Update live when Events are created, renamed, disabled, or deleted.
-- [ ] Add renderer and service tests for multiple agents listening to one event,
+- [x] Update live when Events are created, renamed, disabled, or deleted.
+- [x] Add renderer and service tests for multiple agents listening to one event,
   one agent listening to many events, and independent listener settings.
 
 Likely files:

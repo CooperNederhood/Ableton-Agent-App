@@ -16,6 +16,7 @@ import {
   groupEventsByTrack,
   groupOutputsByTrack,
   Inspector,
+  ListeningEventsEditor,
   loadInitialDesktopState,
   loadLiveEvents,
   OperationCard,
@@ -28,6 +29,7 @@ import {
   ResolvedToolsDisclosure,
   refreshOutputs,
   refreshProjectSnapshot,
+  saveAgentEventListeners,
   selectWorkspaceAgent,
   sendComposerMessage,
   SettingsView,
@@ -47,6 +49,69 @@ import { desktopReducer, initialState, type DesktopState } from "./state";
 describe("desktop components", () => {
   const firstAgentId = "00000000-0000-4000-8000-000000000001";
   const secondAgentId = "00000000-0000-4000-8000-000000000002";
+  const firstEventId = "live-event.00000000-0000-4000-8000-000000000011";
+  const secondEventId = "live-event.00000000-0000-4000-8000-000000000012";
+  const liveEventStates = (): DesktopState["events"]["events"] => [
+    {
+      definition: {
+        id: firstEventId,
+        kind: "track.playing_clip_changed",
+        classification: "discrete",
+        name: "Keys clip",
+        projectId: "project",
+        enabled: true,
+        target: { track: { name: "Keys", occurrence: 0 } },
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString(),
+      },
+      resolution: {
+        status: "resolved",
+        projectId: "project",
+        trackReference: "00000000-0000-4000-8000-000000000021",
+        track: { name: "Keys" },
+      },
+      history: [],
+      listeners: [
+        {
+          agentInstanceId: firstAgentId,
+          agentLabel: "Default",
+          listener: {
+            id: "event-listener.00000000-0000-4000-8000-000000000031",
+            eventId: firstEventId,
+            enabled: true,
+            responseMode: "automatic",
+            messagePrefix: "Notice:",
+          },
+        },
+        {
+          agentInstanceId: secondAgentId,
+          agentLabel: "Default 2",
+          listener: {
+            id: "event-listener.00000000-0000-4000-8000-000000000032",
+            eventId: firstEventId,
+            enabled: false,
+            responseMode: "next-prompt",
+          },
+        },
+      ],
+    },
+    {
+      definition: {
+        id: secondEventId,
+        kind: "track.recording_state_changed",
+        classification: "discrete",
+        name: "Vocal recording",
+        projectId: "project",
+        enabled: false,
+        target: { track: { name: "Vocal", occurrence: 0 } },
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString(),
+      },
+      resolution: { status: "unresolved", reason: "missing" },
+      history: [],
+      listeners: [],
+    },
+  ];
   const workspaceState = (
     selectedAgentInstanceId = firstAgentId,
   ): DesktopState => ({
@@ -870,6 +935,84 @@ describe("desktop components", () => {
     expect(html).toContain("Deactivate");
     expect(html).toContain("Open");
     expect(html).toContain("Create agent");
+  });
+
+  it("renders per-agent Listening Events summaries and editor states", () => {
+    const state = workspaceState();
+    state.events = {
+      activeSessionId: "session",
+      events: liveEventStates(),
+    };
+    const html = renderToStaticMarkup(
+      <AgentsView state={state} dispatch={vi.fn()} />,
+    );
+    const editor = renderToStaticMarkup(
+      <ListeningEventsEditor
+        agentInstanceId={firstAgentId}
+        events={state.events.events}
+        busy={false}
+        onError={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("Keys clip · Automatic");
+    expect(html).toContain("Keys clip · Next prompt (listener disabled)");
+    expect(editor).toContain("Keys clip");
+    expect(editor).toContain("Vocal recording");
+    expect(editor).toContain("Event disabled");
+    expect(editor).toContain("Unresolved target");
+    expect(editor).toContain("Automatic");
+    expect(editor).toContain("Next prompt");
+    expect(editor).toContain("Message prefix");
+    expect(editor).toContain("Notice:");
+    expect(editor).toContain("Save listening events");
+  });
+
+  it("saves listener selections without using agent configuration APIs", async () => {
+    const events = liveEventStates();
+    const assignListener = vi.fn().mockResolvedValue({});
+    const updateListener = vi.fn().mockResolvedValue({});
+    const unassignListener = vi.fn().mockResolvedValue(true);
+    const api = {
+      assignListener,
+      updateListener,
+      unassignListener,
+    } as unknown as DesktopApi["events"];
+
+    await saveAgentEventListeners(api, firstAgentId, events, {
+      [firstEventId]: {
+        selected: true,
+        enabled: false,
+        responseMode: "next-prompt",
+        messagePrefix: "",
+      },
+      [secondEventId]: {
+        selected: true,
+        enabled: true,
+        responseMode: "automatic",
+        messagePrefix: "Track this:",
+      },
+    });
+    await saveAgentEventListeners(api, secondAgentId, events, {
+      [firstEventId]: {
+        selected: false,
+        enabled: false,
+        responseMode: "next-prompt",
+        messagePrefix: "",
+      },
+    });
+
+    expect(updateListener).toHaveBeenCalledWith(firstAgentId, firstEventId, {
+      enabled: false,
+      responseMode: "next-prompt",
+      messagePrefix: null,
+    });
+    expect(assignListener).toHaveBeenCalledWith(firstAgentId, secondEventId, {
+      enabled: true,
+      responseMode: "automatic",
+      messagePrefix: "Track this:",
+    });
+    expect(unassignListener).toHaveBeenCalledWith(secondAgentId, firstEventId);
   });
 
   it("collapses resolved tools for wildcard selections", () => {

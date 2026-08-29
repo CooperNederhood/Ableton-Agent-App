@@ -4,6 +4,10 @@ import {
   type SkillInvocation,
 } from "@ableton-agent/agent-config/skill-invocation";
 import {
+  MAX_LIVE_EVENT_MESSAGE_PREFIX_LENGTH,
+  type AgentEventListener,
+} from "@ableton-agent/agent-config/schemas";
+import {
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -2219,6 +2223,7 @@ export function AgentsView({
               <ActiveAgentCard
                 agent={agent}
                 availableSkills={state.agentCatalog.skills}
+                liveEvents={state.events.events}
                 definitionSource={
                   state.agentCatalog.definitions.find(
                     (definition) => definition.name === agent.definitionName,
@@ -2259,6 +2264,9 @@ export function AgentsView({
                   ).then(() => undefined);
                 }}
                 onCancelReset={() => setConfirmResetId(undefined)}
+                onEventError={(error) =>
+                  reportError(error, "Could not update listening events")
+                }
                 onSelect={() => selectAgent(agent.id, false)}
                 onOpen={() => selectAgent(agent.id, true)}
                 onDeactivate={() => deactivateAgent(agent.id)}
@@ -2402,9 +2410,235 @@ function parseTrackScope(
   return tracks.length > 0 ? tracks : ["session"];
 }
 
+export type EventListenerDraft = Pick<
+  AgentEventListener,
+  "enabled" | "responseMode"
+> & {
+  selected: boolean;
+  messagePrefix: string;
+};
+
+function listenerForAgent(
+  event: DesktopLiveEventState,
+  agentInstanceId: string,
+): AgentEventListener | undefined {
+  return event.listeners.find(
+    (entry) => entry.agentInstanceId === agentInstanceId,
+  )?.listener;
+}
+
+function eventListenerDraft(
+  event: DesktopLiveEventState,
+  agentInstanceId: string,
+): EventListenerDraft {
+  const listener = listenerForAgent(event, agentInstanceId);
+  return {
+    selected: listener !== undefined,
+    enabled: listener?.enabled ?? true,
+    responseMode: listener?.responseMode ?? "next-prompt",
+    messagePrefix: listener?.messagePrefix ?? "",
+  };
+}
+
+export async function saveAgentEventListeners(
+  api: DesktopApi["events"],
+  agentInstanceId: string,
+  events: readonly DesktopLiveEventState[],
+  drafts: Readonly<Record<string, EventListenerDraft>>,
+): Promise<void> {
+  for (const event of events) {
+    const draft = drafts[event.definition.id];
+    if (draft === undefined) continue;
+    const listener = listenerForAgent(event, agentInstanceId);
+    if (!draft.selected) {
+      if (listener !== undefined) {
+        await api.unassignListener(agentInstanceId, event.definition.id);
+      }
+      continue;
+    }
+    const messagePrefix = draft.messagePrefix.trim();
+    if (listener === undefined) {
+      await api.assignListener(agentInstanceId, event.definition.id, {
+        enabled: draft.enabled,
+        responseMode: draft.responseMode,
+        ...(messagePrefix === "" ? {} : { messagePrefix }),
+      });
+      continue;
+    }
+    const normalizedCurrentPrefix = listener.messagePrefix ?? "";
+    if (
+      listener.enabled !== draft.enabled ||
+      listener.responseMode !== draft.responseMode ||
+      normalizedCurrentPrefix !== messagePrefix
+    ) {
+      await api.updateListener(agentInstanceId, event.definition.id, {
+        enabled: draft.enabled,
+        responseMode: draft.responseMode,
+        messagePrefix: messagePrefix === "" ? null : messagePrefix,
+      });
+    }
+  }
+}
+
+export function ListeningEventsEditor({
+  agentInstanceId,
+  events,
+  busy,
+  onError,
+}: {
+  agentInstanceId: string;
+  events: readonly DesktopLiveEventState[];
+  busy: boolean;
+  onError: (error: unknown) => void;
+}): React.JSX.Element {
+  const [drafts, setDrafts] = useState<Record<string, EventListenerDraft>>(() =>
+    Object.fromEntries(
+      events.map((event) => [
+        event.definition.id,
+        eventListenerDraft(event, agentInstanceId),
+      ]),
+    ),
+  );
+  const [saving, setSaving] = useState(false);
+  const eventIds = events.map(({ definition }) => definition.id).join("\n");
+
+  useEffect(() => {
+    setDrafts((current) =>
+      Object.fromEntries(
+        events.map((event) => [
+          event.definition.id,
+          current[event.definition.id] ??
+            eventListenerDraft(event, agentInstanceId),
+        ]),
+      ),
+    );
+  }, [agentInstanceId, eventIds, events]);
+
+  const updateDraft = (
+    eventId: string,
+    update: Partial<EventListenerDraft>,
+  ): void => {
+    setDrafts((current) => ({
+      ...current,
+      [eventId]: {
+        ...(current[eventId] ?? {
+          selected: false,
+          enabled: true,
+          responseMode: "next-prompt",
+          messagePrefix: "",
+        }),
+        ...update,
+      },
+    }));
+  };
+  const save = async (): Promise<void> => {
+    setSaving(true);
+    try {
+      await saveAgentEventListeners(
+        window.desktop.events,
+        agentInstanceId,
+        events,
+        drafts,
+      );
+    } catch (error) {
+      onError(error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <fieldset className="listening-events-editor">
+      <legend>Listening Events</legend>
+      {events.length === 0 ? (
+        <small>No Live events are available in this production session.</small>
+      ) : (
+        events.map((event) => {
+          const draft =
+            drafts[event.definition.id] ??
+            eventListenerDraft(event, agentInstanceId);
+          const unavailable = !event.definition.enabled;
+          const unresolved = event.resolution.status !== "resolved";
+          return (
+            <div className="listening-event-row" key={event.definition.id}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={draft.selected}
+                  onChange={(change) =>
+                    updateDraft(event.definition.id, {
+                      selected: change.target.checked,
+                    })
+                  }
+                />
+                <span>
+                  {event.definition.name}
+                  <small>
+                    {unavailable ? "Event disabled" : "Event enabled"}
+                    {" · "}
+                    {unresolved ? "Unresolved target" : "Resolved target"}
+                  </small>
+                </span>
+              </label>
+              {draft.selected && (
+                <div className="listening-event-settings">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={draft.enabled}
+                      onChange={(change) =>
+                        updateDraft(event.definition.id, {
+                          enabled: change.target.checked,
+                        })
+                      }
+                    />
+                    Listener enabled
+                  </label>
+                  <label>
+                    Delivery
+                    <select
+                      value={draft.responseMode}
+                      onChange={(change) =>
+                        updateDraft(event.definition.id, {
+                          responseMode: change.target.value as
+                            "automatic" | "next-prompt",
+                        })
+                      }
+                    >
+                      <option value="automatic">Automatic</option>
+                      <option value="next-prompt">Next prompt</option>
+                    </select>
+                  </label>
+                  <label>
+                    Message prefix <small>Optional.</small>
+                    <textarea
+                      maxLength={MAX_LIVE_EVENT_MESSAGE_PREFIX_LENGTH}
+                      rows={3}
+                      value={draft.messagePrefix}
+                      onChange={(change) =>
+                        updateDraft(event.definition.id, {
+                          messagePrefix: change.target.value,
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+      <button disabled={busy || saving} onClick={() => void save()}>
+        {saving ? "Saving…" : "Save listening events"}
+      </button>
+    </fieldset>
+  );
+}
+
 function ActiveAgentCard({
   agent,
   availableSkills,
+  liveEvents,
   definitionSource,
   definitionUpdated,
   selected,
@@ -2414,12 +2648,14 @@ function ActiveAgentCard({
   onConfigure,
   onReset,
   onCancelReset,
+  onEventError,
   onSelect,
   onOpen,
   onDeactivate,
 }: {
   agent: DesktopActiveAgent;
   availableSkills: DesktopState["agentCatalog"]["skills"];
+  liveEvents: readonly DesktopLiveEventState[];
   definitionSource?: string | undefined;
   definitionUpdated: boolean;
   selected: boolean;
@@ -2431,6 +2667,7 @@ function ActiveAgentCard({
   ) => Promise<DesktopActiveAgent | undefined>;
   onReset: () => Promise<void>;
   onCancelReset: () => void;
+  onEventError: (error: unknown) => void;
   onSelect: () => Promise<void>;
   onOpen: () => Promise<void>;
   onDeactivate: () => Promise<void>;
@@ -2458,6 +2695,9 @@ function ActiveAgentCard({
   const availableSkillNames = availableSkills
     .map(({ name }) => name)
     .join("\n");
+  const listeningEvents = liveEvents.filter(
+    (event) => listenerForAgent(event, agent.id) !== undefined,
+  );
 
   useEffect(() => {
     const validNames = new Set(availableSkills.map(({ name }) => name));
@@ -2538,6 +2778,28 @@ function ActiveAgentCard({
           {agent.config.inputChannels.length > 0
             ? agent.config.inputChannels.join(", ")
             : "Prompt only"}
+        </dd>
+        <dt>Listening Events</dt>
+        <dd>
+          {listeningEvents.length === 0
+            ? "None"
+            : listeningEvents
+                .map((event) => {
+                  const listener = listenerForAgent(event, agent.id)!;
+                  const status = [
+                    listener.enabled ? undefined : "listener disabled",
+                    event.definition.enabled ? undefined : "event disabled",
+                    event.resolution.status === "resolved"
+                      ? undefined
+                      : "unresolved",
+                  ].filter(Boolean);
+                  return `${event.definition.name} · ${
+                    listener.responseMode === "automatic"
+                      ? "Automatic"
+                      : "Next prompt"
+                  }${status.length === 0 ? "" : ` (${status.join(", ")})`}`;
+                })
+                .join("; ")}
         </dd>
       </dl>
       {editing && (
@@ -2623,6 +2885,12 @@ function ActiveAgentCard({
               ))
             )}
           </fieldset>
+          <ListeningEventsEditor
+            agentInstanceId={agent.id}
+            events={liveEvents}
+            busy={busy}
+            onError={onEventError}
+          />
           <label>
             Input channels <small>One per line.</small>
             <textarea

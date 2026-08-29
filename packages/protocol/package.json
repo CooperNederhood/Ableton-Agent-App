@@ -17,7 +17,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@ableton-agent/agent-config": "workspace:*",
     "zod": "^4.0.17"
   },
   "devDependencies": {

@@ -25,6 +25,19 @@ Python Ableton Remote Script
 Ableton Live Object Model
 ```
 
+### Live Events
+
+The desktop app's **Events** tab can watch a selected device parameter or
+track playback, trigger, and recording transitions. Event definitions are
+shared by the production session, while each active agent independently chooses
+which events to hear in **Agents > Edit overrides > Listening Events**.
+
+Listeners support **Automatic** delivery for an immediate internal agent turn
+or **Next prompt** delivery to attach the latest event context to that agent's
+next user prompt. An optional message prefix can tell the agent how to use the
+observation. The Remote Script owns the dynamic Live Object Model listeners, so
+no Max for Live device is required.
+
 ## Setup
 
 ### Requirements

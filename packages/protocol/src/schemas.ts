@@ -1,17 +1,126 @@
 import { z } from "zod";
 
-import {
-  liveEventIdSchema,
-  liveEventInitialStateSchema,
-  liveEventInvalidationSchema,
-  liveEventOccurrenceSchema,
-  parameterValueStateSchema,
-  playingClipStateSchema,
-  recordingStateSchema,
-  triggeredClipStateSchema,
-} from "@ableton-agent/agent-config";
-
 import { PROTOCOL_VERSION } from "./constants.js";
+
+export const MAX_LIVE_EVENT_OCCURRENCE_BYTES = 16_384;
+export const liveEventIdSchema = z
+  .string()
+  .regex(
+    /^live-event\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu,
+  );
+const trackDisplayMetadataSchema = z.object({
+  name: z.string().min(1).max(128),
+  color: z.string().max(64).optional(),
+});
+export const parameterValueStateSchema = z.object({
+  normalizedValue: z.number().min(0).max(1),
+  value: z.number(),
+  displayValue: z.string().max(256),
+});
+export const playingClipStateSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("stopped") }),
+  z.object({ state: z.literal("arrangement") }),
+  z.object({
+    state: z.literal("session-clip"),
+    slotIndex: z.number().int().nonnegative(),
+    clipName: z.string().max(128).optional(),
+  }),
+]);
+export const triggeredClipStateSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("none") }),
+  z.object({ state: z.literal("stop") }),
+  z.object({
+    state: z.literal("session-clip"),
+    slotIndex: z.number().int().nonnegative(),
+    clipName: z.string().max(128).optional(),
+  }),
+]);
+export const recordingStateSchema = z.object({
+  recording: z.boolean(),
+  source: z.enum(["track", "session-clip", "arrangement"]),
+});
+export const parameterInitialStateSchema = z.object({
+  kind: z.literal("parameter.value_changed"),
+  state: parameterValueStateSchema,
+});
+export const playingClipInitialStateSchema = z.object({
+  kind: z.literal("track.playing_clip_changed"),
+  state: playingClipStateSchema,
+});
+export const triggeredClipInitialStateSchema = z.object({
+  kind: z.literal("track.triggered_clip_changed"),
+  state: triggeredClipStateSchema,
+});
+export const recordingInitialStateSchema = z.object({
+  kind: z.literal("track.recording_state_changed"),
+  state: recordingStateSchema,
+});
+export const liveEventInitialStateSchema = z.discriminatedUnion("kind", [
+  parameterInitialStateSchema,
+  playingClipInitialStateSchema,
+  triggeredClipInitialStateSchema,
+  recordingInitialStateSchema,
+]);
+const liveEventOccurrenceBase = {
+  occurrenceId: z.string().uuid(),
+  eventId: liveEventIdSchema,
+  sequence: z.number().int().nonnegative(),
+  projectRevision: z.number().int().nonnegative().optional(),
+  observedAt: z.string().datetime(),
+  target: z.object({
+    trackReference: z.string().uuid(),
+    track: trackDisplayMetadataSchema,
+    deviceReference: z.string().uuid().optional(),
+    parameterReference: z.string().uuid().optional(),
+  }),
+  summary: z.string().min(1).max(2_048),
+};
+export const liveEventOccurrenceSchema = z
+  .discriminatedUnion("kind", [
+    z.object({
+      ...liveEventOccurrenceBase,
+      kind: z.literal("parameter.value_changed"),
+      previous: parameterValueStateSchema.optional(),
+      current: parameterValueStateSchema,
+    }),
+    z.object({
+      ...liveEventOccurrenceBase,
+      kind: z.literal("track.playing_clip_changed"),
+      previous: playingClipStateSchema.optional(),
+      current: playingClipStateSchema,
+    }),
+    z.object({
+      ...liveEventOccurrenceBase,
+      kind: z.literal("track.triggered_clip_changed"),
+      previous: triggeredClipStateSchema.optional(),
+      current: triggeredClipStateSchema,
+    }),
+    z.object({
+      ...liveEventOccurrenceBase,
+      kind: z.literal("track.recording_state_changed"),
+      previous: recordingStateSchema.optional(),
+      current: recordingStateSchema,
+    }),
+  ])
+  .refine(
+    (occurrence) =>
+      new TextEncoder().encode(JSON.stringify(occurrence)).byteLength <=
+      MAX_LIVE_EVENT_OCCURRENCE_BYTES,
+    `Live event occurrences must not exceed ${MAX_LIVE_EVENT_OCCURRENCE_BYTES} bytes`,
+  );
+export const liveEventInvalidationSchema = z.object({
+  eventId: liveEventIdSchema,
+  observedAt: z.string().datetime(),
+  projectRevision: z.number().int().nonnegative().optional(),
+  reason: z.enum([
+    "target-deleted",
+    "target-replaced",
+    "project-changed",
+    "subscription-cleared",
+    "unknown",
+  ]),
+  detail: z.string().max(512).optional(),
+});
 
 export const requestIdSchema = z.string().uuid();
 

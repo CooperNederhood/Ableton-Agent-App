@@ -74,6 +74,7 @@ export interface LiveEventRuntimeOptions {
   readonly logger?: Logger;
   readonly historyLimit?: number;
   readonly nextPromptDiscreteLimit?: number;
+  readonly automaticDiscreteLimit?: number;
   readonly continuousSettleMs?: number;
 }
 
@@ -156,6 +157,19 @@ function deliveryId(
   return `live-event-delivery.${listener.id}.${occurrence.occurrenceId}`;
 }
 
+function listenerSignature(
+  agentInstanceId: string,
+  listener: AgentEventListener,
+): string {
+  return JSON.stringify([
+    agentInstanceId,
+    listener.eventId,
+    listener.enabled,
+    listener.responseMode,
+    listener.messagePrefix ?? null,
+  ]);
+}
+
 export class DefaultLiveEventRuntime
   implements LiveEventRuntime, LiveEventContextProvider
 {
@@ -163,6 +177,7 @@ export class DefaultLiveEventRuntime
   readonly #logger: Logger;
   readonly #historyLimit: number;
   readonly #nextPromptDiscreteLimit: number;
+  readonly #automaticDiscreteLimit: number;
   readonly #continuousSettleMs: number;
   readonly #states = new Map<string, MutableState>();
   readonly #listenersByEvent = new Map<string, AgentLiveEventListener[]>();
@@ -189,6 +204,10 @@ export class DefaultLiveEventRuntime
     this.#nextPromptDiscreteLimit = Math.max(
       1,
       options.nextPromptDiscreteLimit ?? 32,
+    );
+    this.#automaticDiscreteLimit = Math.max(
+      1,
+      options.automaticDiscreteLimit ?? 128,
     );
     this.#continuousSettleMs = Math.max(0, options.continuousSettleMs ?? 120);
   }
@@ -370,6 +389,22 @@ export class DefaultLiveEventRuntime
         state.latestState = result.initialState;
         this.#emitState(state);
       } catch (error) {
+        if (this.#subscriptionFingerprints.has(state.definition.id)) {
+          const deactivated = await this.#bridge
+            .unsubscribeLiveEvent(state.definition.id)
+            .then(() => true)
+            .catch((unsubscribeError: unknown) => {
+              this.#diagnostic(
+                "warning",
+                `Failed to deactivate unresolved Live event '${state.definition.name}'`,
+                unsubscribeError,
+              );
+              return false;
+            });
+          if (deactivated) {
+            this.#subscriptionFingerprints.delete(state.definition.id);
+          }
+        }
         state.resolution = unresolved(
           error instanceof Error ? error.message : String(error),
         );
@@ -530,6 +565,19 @@ export class DefaultLiveEventRuntime
     this.#automatic.set(pending.agentInstanceId, queue);
     if (classification === "discrete") {
       queue.discrete.push(pending);
+      if (queue.discrete.length > this.#automaticDiscreteLimit) {
+        queue.discrete.splice(
+          0,
+          queue.discrete.length - this.#automaticDiscreteLimit,
+        );
+        this.#diagnostic(
+          "warning",
+          `Automatic Live event queue overflowed for agent '${pending.agentInstanceId}'`,
+          new Error(
+            `Dropped oldest discrete occurrences after reaching the ${this.#automaticDiscreteLimit}-event limit`,
+          ),
+        );
+      }
       this.#drainAutomatic(pending.agentInstanceId);
       return;
     }
@@ -632,32 +680,54 @@ export class DefaultLiveEventRuntime
     const enabledEvents = new Set(
       definitions.filter(({ enabled }) => enabled).map(({ id }) => id),
     );
-    const enabledListeners = new Set(
+    const enabledListeners = new Map<string, string>(
       listeners
         .filter(
           ({ listener }) =>
             listener.enabled && enabledEvents.has(listener.eventId),
         )
-        .map(({ listener }) => listener.id),
+        .map(({ agentInstanceId, listener }) => [
+          listener.id,
+          listenerSignature(agentInstanceId, listener),
+        ]),
     );
+    const isCurrent = ({
+      agentInstanceId,
+      listener,
+    }: PendingLiveEventContext): boolean =>
+      enabledListeners.get(listener.id) ===
+      listenerSignature(agentInstanceId, listener);
     for (const [agentId, entries] of this.#nextPrompt) {
-      this.#nextPrompt.set(
-        agentId,
-        entries.filter(({ listener }) => enabledListeners.has(listener.id)),
-      );
+      this.#nextPrompt.set(agentId, entries.filter(isCurrent));
     }
     for (const queue of this.#automatic.values()) {
       queue.discrete.splice(
         0,
         queue.discrete.length,
-        ...queue.discrete.filter(({ listener }) =>
-          enabledListeners.has(listener.id),
-        ),
+        ...queue.discrete.filter(isCurrent),
       );
-      for (const listenerId of queue.continuous.keys()) {
-        if (!enabledListeners.has(listenerId)) {
+      for (const [listenerId, pending] of queue.continuous) {
+        if (!isCurrent(pending)) {
           queue.continuous.delete(listenerId);
         }
+      }
+    }
+    for (const [timerKey, timer] of this.#settleTimers) {
+      const separator = timerKey.lastIndexOf(":");
+      const agentInstanceId = timerKey.slice(0, separator);
+      const listenerId = timerKey.slice(separator + 1);
+      const binding = listeners.find(
+        ({ agentInstanceId: agentId, listener }) =>
+          agentId === agentInstanceId && listener.id === listenerId,
+      );
+      if (
+        binding === undefined ||
+        binding.listener.responseMode !== "automatic" ||
+        enabledListeners.get(listenerId) !==
+          listenerSignature(binding.agentInstanceId, binding.listener)
+      ) {
+        clearTimeout(timer);
+        this.#settleTimers.delete(timerKey);
       }
     }
   }

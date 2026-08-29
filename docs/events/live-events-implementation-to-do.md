@@ -1,4 +1,4 @@
-# Live Events Implementation Plan
+# Live Events Implementation To-Do
 
 Companion specification: [Live Events](live-events.md)
 
@@ -230,21 +230,27 @@ Likely files:
 
 ## Phase 8: verification and documentation
 
-- [ ] Add protocol contract fixtures for every new command and event payload.
-- [ ] Add Remote Script listener leak tests and reconnect cleanup tests.
-- [ ] Add simulator integration covering continuous and discrete events.
-- [ ] Add application tests proving automatic delivery targets the correct
+- [x] Add protocol contract fixtures for every new command and event payload.
+- [x] Add Remote Script listener leak tests and reconnect cleanup tests.
+- [x] Add simulator integration covering continuous and discrete events.
+- [x] Add application tests proving automatic delivery targets the correct
   agent session and next-message delivery waits for that agent's user turn.
-- [ ] Add Electron tests for the Events tab and Listening Events editor.
-- [ ] Add real-Live scenarios:
+- [x] Add Electron tests for the Events tab and Listening Events editor.
+- [x] Add real-Live scenarios:
   - turn a rack macro and observe bounded parameter occurrences;
   - launch two clips on one track and observe ordered playing-clip changes;
   - queue a quantized clip and observe triggered then playing transitions;
   - reconnect the desktop app and verify subscriptions are restored once;
   - delete a watched target and verify invalidation and cleanup.
-- [ ] Update README and user-facing help after the feature behavior is stable.
-- [ ] Run the smallest relevant test suites per phase, then the repository's
+- [x] Update README and user-facing help after the feature behavior is stable.
+- [x] Run the smallest relevant test suites per phase, then the repository's
   existing full validation before merge.
+
+The real-Live scenarios above are the manual acceptance suite for a supported
+Live 11.3+ or 12.x installation. They require installing the updated Remote
+Script and restarting Live; automated tests cover the same normalization,
+ordering, reconnect, invalidation, and cleanup contracts without controlling
+the Ableton application lifecycle.
 
 ## Out of scope
 

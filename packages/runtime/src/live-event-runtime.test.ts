@@ -125,6 +125,7 @@ class FakeBridge implements LiveEventBridge {
   reconciliationListener:
     ((signal: LiveEventReconciliationSignal) => void) | undefined;
   statuses: LiveEventSubscriptionStatus[] = [];
+  unsubscribeFailures = 0;
 
   async inspectSession() {
     return {
@@ -287,6 +288,10 @@ class FakeBridge implements LiveEventBridge {
 
   async unsubscribeLiveEvent(eventId: string) {
     this.unsubscribed.push(eventId);
+    if (this.unsubscribeFailures > 0) {
+      this.unsubscribeFailures -= 1;
+      throw new Error("unsubscribe failed");
+    }
     return { eventId, unsubscribed: true };
   }
 
@@ -567,5 +572,139 @@ describe("DefaultLiveEventRuntime", () => {
       occurrence("00000000-0000-4000-8000-000000000102", eventOne, 2),
     );
     await vi.waitFor(() => expect(delivered).toEqual([1, 2]));
+  });
+
+  it("deactivates the old subscription when an edited target is unresolved", async () => {
+    const bridge = new FakeBridge();
+    const runtime = new DefaultLiveEventRuntime({ bridge });
+    runtime.setConfiguration([definition()], []);
+    await runtime.start();
+    expect(bridge.subscribed).toHaveLength(1);
+
+    const edited = definition();
+    if (edited.kind !== "track.playing_clip_changed") {
+      throw new Error("Expected a track event definition");
+    }
+    runtime.setConfiguration(
+      [
+        {
+          ...edited,
+          target: { track: { name: "Missing", occurrence: 0 } },
+          updatedAt: "2026-08-29T18:01:00.000Z",
+        },
+      ],
+      [],
+    );
+
+    await vi.waitFor(() => expect(bridge.unsubscribed).toContain(eventOne));
+    expect(runtime.getState(eventOne)?.resolution.status).toBe("unresolved");
+  });
+
+  it("retries deactivation when unsubscribing an unresolved edit fails", async () => {
+    const bridge = new FakeBridge();
+    const runtime = new DefaultLiveEventRuntime({ bridge });
+    const edited = definition();
+    if (edited.kind !== "track.playing_clip_changed") {
+      throw new Error("Expected a track event definition");
+    }
+    const unresolvedEdit = {
+      ...edited,
+      target: { track: { name: "Missing", occurrence: 0 } },
+      updatedAt: "2026-08-29T18:01:00.000Z",
+    };
+    runtime.setConfiguration([definition()], []);
+    await runtime.start();
+    bridge.unsubscribeFailures = 1;
+
+    runtime.setConfiguration([unresolvedEdit], []);
+    await vi.waitFor(() => expect(bridge.unsubscribed).toHaveLength(1));
+    runtime.setConfiguration([unresolvedEdit], []);
+
+    await vi.waitFor(() => expect(bridge.unsubscribed).toHaveLength(2));
+  });
+
+  it("discards queued deliveries when listener settings change", async () => {
+    const bridge = new FakeBridge();
+    const runtime = new DefaultLiveEventRuntime({ bridge });
+    runtime.setConfiguration(
+      [definition()],
+      [binding("agent", listener(listenerOne, eventOne, "automatic", "Old"))],
+    );
+    runtime.setActiveAgentInstances(["agent"]);
+    await runtime.start();
+    const delivered: number[] = [];
+    let release: (() => void) | undefined;
+    runtime.setDeliveryService({
+      enqueueLiveEventTurn: async ({ occurrence: item }) => {
+        delivered.push(item.sequence);
+        if (item.sequence === 1) {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        }
+        return "ok";
+      },
+    });
+    bridge.emit(
+      occurrence("00000000-0000-4000-8000-000000000101", eventOne, 1),
+    );
+    bridge.emit(
+      occurrence("00000000-0000-4000-8000-000000000102", eventOne, 2),
+    );
+
+    runtime.setConfiguration(
+      [definition()],
+      [binding("agent", listener(listenerOne, eventOne, "next-prompt", "New"))],
+    );
+    bridge.emit(
+      occurrence("00000000-0000-4000-8000-000000000103", eventOne, 3),
+    );
+    release!();
+
+    await vi.waitFor(() => expect(delivered).toEqual([1]));
+    expect(
+      (await runtime.getPendingLiveEventContexts("agent")).map(
+        ({ occurrence: item }) => item.sequence,
+      ),
+    ).toEqual([3]);
+  });
+
+  it("bounds queued automatic discrete occurrences", async () => {
+    const bridge = new FakeBridge();
+    const runtime = new DefaultLiveEventRuntime({
+      bridge,
+      automaticDiscreteLimit: 2,
+    });
+    runtime.setConfiguration(
+      [definition()],
+      [binding("agent", listener(listenerOne, eventOne, "automatic"))],
+    );
+    runtime.setActiveAgentInstances(["agent"]);
+    await runtime.start();
+    const delivered: number[] = [];
+    let release: (() => void) | undefined;
+    runtime.setDeliveryService({
+      enqueueLiveEventTurn: async ({ occurrence: item }) => {
+        delivered.push(item.sequence);
+        if (item.sequence === 1) {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        }
+        return "ok";
+      },
+    });
+    for (const sequence of [1, 2, 3, 4]) {
+      bridge.emit(
+        occurrence(
+          `00000000-0000-4000-8000-${String(100 + sequence).padStart(12, "0")}`,
+          eventOne,
+          sequence,
+        ),
+      );
+    }
+    release!();
+
+    await vi.waitFor(() => expect(delivered).toEqual([1, 3, 4]));
   });
 });

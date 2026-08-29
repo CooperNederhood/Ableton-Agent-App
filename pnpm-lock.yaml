@@ -151,6 +151,9 @@ importers:
 
   packages/agent-config:
     dependencies:
+      '@ableton-agent/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       yaml:
         specifier: ^2.8.1
         version: 2.9.0
@@ -211,9 +214,6 @@ importers:
 
   packages/protocol:
     dependencies:
-      '@ableton-agent/agent-config':
-        specifier: workspace:*
-        version: link:../agent-config
       zod:
         specifier: ^4.0.17
         version: 4.4.3
@@ -1746,6 +1746,7 @@ packages:
   eslint@9.39.5:
     resolution: {integrity: sha512-DgZS62aPLXKlnxILS/AYCoRvHaZeXceIzlXPkkGGzJWSow1aEk0lbTlxUSlyjC8jcaKxAdOnTDz+o1JFSBsyjw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'

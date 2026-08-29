@@ -61,31 +61,31 @@ Likely files:
 
 ## Phase 2: Remote Script dynamic subscriptions
 
-- [ ] Introduce a `LomSubscriptionManager` separate from fixed project revision
+- [x] Introduce a `LomSubscriptionManager` separate from fixed project revision
   listeners.
-- [ ] Register dynamic command handlers for selection inspection, subscribe,
+- [x] Register dynamic command handlers for selection inspection, subscribe,
   unsubscribe, list, and clear.
-- [ ] Resolve parameter targets using exact track/device/parameter identities
+- [x] Resolve parameter targets using exact track/device/parameter identities
   and track targets using exact track identity.
-- [ ] Return initial semantic state when a subscription is installed.
-- [ ] Implement parameter `value` listeners with normalization and display
+- [x] Return initial semantic state when a subscription is installed.
+- [x] Implement parameter `value` listeners with normalization and display
   formatting.
-- [ ] Implement `playing_slot_index` translation for Session clip,
+- [x] Implement `playing_slot_index` translation for Session clip,
   Arrangement, and stopped states.
-- [ ] Implement `fired_slot_index` translation for pending clip launches and
+- [x] Implement `fired_slot_index` translation for pending clip launches and
   stop triggers.
-- [ ] Implement recording-state observation using the narrowest documented
+- [x] Implement recording-state observation using the narrowest documented
   track/clip listeners validated against supported Live versions.
-- [ ] Deduplicate discrete callbacks whose semantic state did not change.
-- [ ] Coalesce parameter callbacks with named, tested frequency and delta
+- [x] Deduplicate discrete callbacks whose semantic state did not change.
+- [x] Coalesce parameter callbacks with named, tested frequency and delta
   limits.
-- [ ] Publish `live_event.occurred` and `live_event.invalidated`.
-- [ ] Remove callback references on unsubscribe, disconnect, Set replacement,
+- [x] Publish `live_event.occurred` and `live_event.invalidated`.
+- [x] Remove callback references on unsubscribe, disconnect, Set replacement,
   and control-surface shutdown.
-- [ ] Add capability flags per supported event kind.
-- [ ] Extend the simulator with deterministic subscription and occurrence
+- [x] Add capability flags per supported event kind.
+- [x] Extend the simulator with deterministic subscription and occurrence
   behavior.
-- [ ] Add Python tests for registration, initial state, translation,
+- [x] Add Python tests for registration, initial state, translation,
   throttling, invalidation, and complete cleanup.
 
 Likely files:

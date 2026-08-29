@@ -7,6 +7,10 @@ import os
 from _Framework.ControlSurface import ControlSurface
 
 from .capabilities import build_capability_document
+from .event_subscriptions import (
+    LomSubscriptionManager,
+    register_event_commands,
+)
 from .executor import MainThreadExecutor
 from .listeners import LomListenerManager
 from .registry import CommandRegistry
@@ -27,10 +31,18 @@ class AbletonAgentControlSurface(ControlSurface):
     def __init__(self, c_instance):
         ControlSurface.__init__(self, c_instance)
         registry = CommandRegistry()
-        register_system_commands(registry)
         context = RuntimeContext(
             self.application(), self.song(), self.schedule_message
         )
+        self._subscription_manager = LomSubscriptionManager(
+            context,
+            lambda name, payload, revision=None: self._server.publish_event(
+                name, payload, revision
+            ),
+            logger=self.log_message,
+        )
+        register_system_commands(registry)
+        register_event_commands(registry, self._subscription_manager)
         self._executor = MainThreadExecutor(
             self.schedule_message, registry, context
         )
@@ -43,6 +55,9 @@ class AbletonAgentControlSurface(ControlSurface):
             token,
             capabilities,
             logger=self.log_message,
+            on_client_disconnect=lambda: self.schedule_message(
+                0, self._subscription_manager.clear
+            ),
         )
         self._server.start()
         self._listeners = LomListenerManager(
@@ -51,6 +66,7 @@ class AbletonAgentControlSurface(ControlSurface):
         self._listeners.start()
 
     def disconnect(self):
+        self._subscription_manager.stop()
         self._listeners.stop()
         self._server.stop()
         self._executor.close()

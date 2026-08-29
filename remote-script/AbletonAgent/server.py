@@ -32,12 +32,14 @@ class RemoteScriptServer(object):
         port=8765,
         max_outbound=128,
         logger=None,
+        on_client_disconnect=None,
     ):
         self._executor = executor
         self._authentication_token = authentication_token
         self._capability_document = capability_document
         self._port = port
         self._logger = logger or (lambda _message: None)
+        self._on_client_disconnect = on_client_disconnect
         self._outbound = queue.Queue(maxsize=max_outbound)
         self._stop_event = threading.Event()
         self._thread = None
@@ -110,6 +112,13 @@ class RemoteScriptServer(object):
                 self._client_socket = None
                 self._client_authenticated = False
                 self._event_subscriptions = set()
+                if self._on_client_disconnect is not None:
+                    try:
+                        self._on_client_disconnect()
+                    except Exception as exc:
+                        self._logger(
+                            "Client disconnect cleanup failed: {0}".format(exc)
+                        )
 
     def _serve_client(self, client):
         generation = self._client_generation

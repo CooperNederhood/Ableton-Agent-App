@@ -1516,6 +1516,7 @@ describe("desktop components", () => {
       },
       agent: { getSessions: vi.fn().mockResolvedValue([]) },
       outputs: { list: vi.fn().mockResolvedValue(initialState.outputs) },
+      events: { list: vi.fn().mockResolvedValue(initialState.events) },
       agents: {
         getCatalog: vi.fn().mockResolvedValue(initialState.agentCatalog),
       },
@@ -1533,6 +1534,7 @@ describe("desktop components", () => {
       "sessions.changed",
       "agents.catalog_changed",
       "outputs.changed",
+      "events.changed",
     ]);
     expect(requestSnapshot).not.toHaveBeenCalled();
   });

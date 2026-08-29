@@ -22,6 +22,7 @@ import type {
   InspectDeviceParametersResult,
   InspectDevicesParams,
   InspectDevicesResult,
+  InspectEventSelectionResult,
   SessionSnapshot,
   SubscribeEventParams,
   SubscribeEventResult,
@@ -30,6 +31,7 @@ import { noopLogger, type Logger } from "@ableton-agent/shared";
 
 export interface LiveEventBridge {
   inspectSession(): Promise<SessionSnapshot>;
+  inspectEventSelection(): Promise<InspectEventSelectionResult>;
   inspectDevices(params: InspectDevicesParams): Promise<InspectDevicesResult>;
   inspectDeviceParameters(
     params: InspectDeviceParametersParams,
@@ -85,6 +87,7 @@ export interface LiveEventRuntime extends LiveEventContextProvider {
     definitions: readonly LiveEventDefinition[],
     listeners: readonly AgentLiveEventListener[],
   ): void;
+  inspectSelection(): Promise<InspectEventSelectionResult>;
   listStates(): readonly LiveEventRuntimeState[];
   getState(eventId: string): LiveEventRuntimeState | undefined;
   subscribe(listener: (event: LiveEventRuntimeEvent) => void): () => void;
@@ -274,6 +277,10 @@ export class DefaultLiveEventRuntime
     }
     this.#pruneDeliveries(definitions, listeners);
     this.#scheduleSync();
+  }
+
+  public inspectSelection(): Promise<InspectEventSelectionResult> {
+    return this.#bridge.inspectEventSelection();
   }
 
   public listStates(): readonly LiveEventRuntimeState[] {

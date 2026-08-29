@@ -242,6 +242,10 @@ export async function loadInitialDesktopState(
       type: "outputs.changed",
       outputs: await desktop.outputs.list(),
     },
+    {
+      type: "events.changed",
+      events: await desktop.events.list(),
+    },
   ];
 }
 

@@ -494,6 +494,15 @@ describe("desktop reducer", () => {
     expect(state.outputs).toEqual(outputs);
   });
 
+  it("reduces renderer-safe Live event snapshots", () => {
+    const events = { activeSessionId: "session-1", events: [] };
+    const state = desktopReducer(initialState, {
+      type: "event",
+      event: { type: "events.changed", events },
+    });
+    expect(state.events).toEqual(events);
+  });
+
   it("preserves collapsed output cards across view changes", () => {
     let state = desktopReducer(initialState, {
       type: "toggle-output-disclosure",

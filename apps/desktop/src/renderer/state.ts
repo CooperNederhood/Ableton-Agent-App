@@ -4,6 +4,7 @@ import type {
   DesktopAppEvent,
   DesktopConnectionStatus,
   DesktopDiagnosticsReport,
+  DesktopEventsState,
   DesktopAgentCatalog,
   DesktopActiveAgent,
   DesktopAgentHistoryMessage,
@@ -73,6 +74,7 @@ export interface DesktopState {
   plan: PlanSection[];
   browserQuery: string;
   outputs: DesktopOutputsState;
+  events: DesktopEventsState;
   collapsedOutputProducerIds: string[];
   projectRefresh: ProjectRefreshState;
 }
@@ -128,6 +130,7 @@ export const initialState: DesktopState = {
     assignments: [],
     latest: [],
   },
+  events: { events: [] },
   collapsedOutputProducerIds: [],
   projectRefresh: { status: "idle" },
 };
@@ -372,6 +375,8 @@ function reduceEvent(
       return { ...state, preferences: event.preferences };
     case "outputs.changed":
       return { ...state, outputs: event.outputs };
+    case "events.changed":
+      return { ...state, events: event.events };
     case "approval.requested":
       return event.agentInstanceId === undefined
         ? { ...state, approval: event.approval }

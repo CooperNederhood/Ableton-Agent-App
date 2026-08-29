@@ -6,11 +6,16 @@ import {
   type HeadlessApplication,
 } from "@ableton-agent/application";
 import {
+  createAgentEventListenerId,
+  createLiveEventId,
   skillNameSchema,
+  type AgentEventListener,
   type BoundTrackScope,
+  type LiveEventDefinition,
   type OutputSubscription,
 } from "@ableton-agent/agent-config";
 import type {
+  InspectEventSelectionResult,
   InspectDeviceParametersResult,
   InspectDevicesResult,
   SessionSnapshot,
@@ -18,6 +23,7 @@ import type {
 import {
   DefaultSignalRuntime,
   type LiveEventRuntime,
+  type LiveEventRuntimeEvent,
   type SignalRuntime,
   type SignalRuntimeEvent,
 } from "@ableton-agent/runtime";
@@ -42,6 +48,8 @@ import {
   type DesktopConnectionStatus,
   type DiagnosticCheck,
   type DesktopLifecycleState,
+  type DesktopAgentEventListener,
+  type DesktopEventsState,
   type DesktopOutputAssignment,
   type DesktopOutputConnection,
   type DesktopOutputsState,
@@ -58,6 +66,7 @@ import {
   type PlanSection,
   type ProductMode,
   type LatestAcceptedOutput,
+  type LiveEventDefinitionDraft,
   type OutputDeliveryMode,
   type PendingProjectTransition,
   type ProjectTransitionDecision,
@@ -158,6 +167,7 @@ export class HeadlessDesktopService implements DesktopService {
   #unsubscribeShared: (() => void) | undefined;
   #unsubscribeApprovals: (() => void) | undefined;
   #unsubscribeSignals: (() => void) | undefined;
+  #unsubscribeLiveEvents: (() => void) | undefined;
   #sessions: DesktopSession[] = [];
   #preferences: DesktopPreferences = preferencesSchema.parse({});
   #preferenceSaveTail: Promise<void> = Promise.resolve();
@@ -211,6 +221,9 @@ export class HeadlessDesktopService implements DesktopService {
     );
     this.#unsubscribeSignals = this.#signals.subscribe((event) =>
       this.#onSignalEvent(event),
+    );
+    this.#unsubscribeLiveEvents = this.#liveEvents?.subscribe((event) =>
+      this.#onLiveEventRuntimeEvent(event),
     );
     const catalog =
       (await this.options.agentCatalog?.refresh()) ??
@@ -308,6 +321,8 @@ export class HeadlessDesktopService implements DesktopService {
     this.#unsubscribeShared = undefined;
     this.#unsubscribeSignals?.();
     this.#unsubscribeSignals = undefined;
+    this.#unsubscribeLiveEvents?.();
+    this.#unsubscribeLiveEvents = undefined;
     this.#turn = undefined;
     this.#activeProductionSessionId = undefined;
     this.#publishAutoApprovedAgentIds();
@@ -2673,6 +2688,262 @@ export class HeadlessDesktopService implements DesktopService {
     });
   }
 
+  public async listLiveEvents(): Promise<DesktopEventsState> {
+    return this.#eventsState();
+  }
+
+  public async inspectLiveEventSelection(): Promise<InspectEventSelectionResult> {
+    this.#assertAccepting();
+    if (this.#liveEvents === undefined) {
+      throw new Error("Live events are not configured");
+    }
+    return this.#liveEvents.inspectSelection();
+  }
+
+  public async createLiveEvent(
+    draft: LiveEventDefinitionDraft,
+  ): Promise<LiveEventDefinition> {
+    this.#assertAccepting();
+    return this.#queueSessionAction(async () => {
+      const session = this.#requireActiveSession();
+      const projectId = session.projectId ?? this.#projectIdentity?.projectId;
+      if (projectId === undefined) {
+        throw new Error("The active Ableton project has no stable identity");
+      }
+      const now = new Date().toISOString();
+      const definition = {
+        ...draft,
+        id: createLiveEventId(randomUUID()),
+        projectId,
+        createdAt: now,
+        updatedAt: now,
+      } as LiveEventDefinition;
+      await this.#commitLiveEventSession({
+        ...session,
+        liveEvents: [...session.liveEvents, definition],
+      });
+      return definition;
+    });
+  }
+
+  public async updateLiveEvent(
+    eventId: string,
+    draft: LiveEventDefinitionDraft,
+  ): Promise<LiveEventDefinition> {
+    this.#assertAccepting();
+    return this.#queueSessionAction(async () => {
+      const session = this.#requireActiveSession();
+      const existing = this.#requireLiveEvent(session, eventId);
+      const definition = {
+        ...draft,
+        id: existing.id,
+        projectId: existing.projectId,
+        createdAt: existing.createdAt,
+        updatedAt: new Date().toISOString(),
+      } as LiveEventDefinition;
+      await this.#commitLiveEventSession({
+        ...session,
+        liveEvents: session.liveEvents.map((candidate) =>
+          candidate.id === eventId ? definition : candidate,
+        ),
+      });
+      return definition;
+    });
+  }
+
+  public async setLiveEventEnabled(
+    eventId: string,
+    enabled: boolean,
+  ): Promise<LiveEventDefinition> {
+    this.#assertAccepting();
+    return this.#queueSessionAction(async () => {
+      const session = this.#requireActiveSession();
+      const existing = this.#requireLiveEvent(session, eventId);
+      const definition = {
+        ...existing,
+        enabled,
+        updatedAt: new Date().toISOString(),
+      };
+      await this.#commitLiveEventSession({
+        ...session,
+        liveEvents: session.liveEvents.map((candidate) =>
+          candidate.id === eventId ? definition : candidate,
+        ),
+      });
+      return definition;
+    });
+  }
+
+  public async deleteLiveEvent(eventId: string): Promise<boolean> {
+    this.#assertAccepting();
+    return this.#queueSessionAction(async () => {
+      const session = this.#requireActiveSession();
+      if (!session.liveEvents.some(({ id }) => id === eventId)) return false;
+      await this.#commitLiveEventSession({
+        ...session,
+        liveEvents: session.liveEvents.filter(({ id }) => id !== eventId),
+        activeAgents: session.activeAgents.map((agent) => ({
+          ...agent,
+          eventListeners: agent.eventListeners.filter(
+            (listener) => listener.eventId !== eventId,
+          ),
+        })),
+      });
+      return true;
+    });
+  }
+
+  public async assignLiveEventListener(
+    agentInstanceId: string,
+    eventId: string,
+    settings: Pick<
+      AgentEventListener,
+      "enabled" | "responseMode" | "messagePrefix"
+    >,
+  ): Promise<DesktopAgentEventListener> {
+    this.#assertAccepting();
+    const target = this.#captureActiveAgentTarget(agentInstanceId);
+    return this.#queueSessionAction(async () => {
+      const { session, instance } = this.#resolveActiveAgentTarget(target);
+      this.#requireLiveEvent(session, eventId);
+      if (
+        instance.eventListeners.some((listener) => listener.eventId === eventId)
+      ) {
+        throw new Error(
+          `Agent instance '${agentInstanceId}' already listens to '${eventId}'`,
+        );
+      }
+      const listener: AgentEventListener = {
+        id: createAgentEventListenerId(randomUUID()),
+        eventId,
+        enabled: settings.enabled,
+        responseMode: settings.responseMode,
+        ...(settings.messagePrefix === undefined
+          ? {}
+          : { messagePrefix: settings.messagePrefix }),
+      };
+      await this.#commitLiveEventSession({
+        ...session,
+        activeAgents: session.activeAgents.map((agent) =>
+          agent.id === agentInstanceId
+            ? {
+                ...agent,
+                eventListeners: [...agent.eventListeners, listener],
+              }
+            : agent,
+        ),
+      });
+      return {
+        agentInstanceId,
+        agentLabel: instance.label,
+        listener,
+      };
+    });
+  }
+
+  public async unassignLiveEventListener(
+    agentInstanceId: string,
+    eventId: string,
+  ): Promise<boolean> {
+    this.#assertAccepting();
+    const target = this.#captureActiveAgentTarget(agentInstanceId);
+    return this.#queueSessionAction(async () => {
+      const { session, instance } = this.#resolveActiveAgentTarget(target);
+      if (
+        !instance.eventListeners.some(
+          (listener) => listener.eventId === eventId,
+        )
+      ) {
+        return false;
+      }
+      await this.#commitLiveEventSession({
+        ...session,
+        activeAgents: session.activeAgents.map((agent) =>
+          agent.id === agentInstanceId
+            ? {
+                ...agent,
+                eventListeners: agent.eventListeners.filter(
+                  (listener) => listener.eventId !== eventId,
+                ),
+              }
+            : agent,
+        ),
+      });
+      return true;
+    });
+  }
+
+  public async updateLiveEventListener(
+    agentInstanceId: string,
+    eventId: string,
+    settings: Partial<
+      Pick<AgentEventListener, "enabled" | "responseMode"> & {
+        messagePrefix: string | null;
+      }
+    >,
+  ): Promise<DesktopAgentEventListener> {
+    this.#assertAccepting();
+    const target = this.#captureActiveAgentTarget(agentInstanceId);
+    return this.#queueSessionAction(async () => {
+      const { session, instance } = this.#resolveActiveAgentTarget(target);
+      this.#requireLiveEvent(session, eventId);
+      const existing = instance.eventListeners.find(
+        (listener) => listener.eventId === eventId,
+      );
+      if (existing === undefined) {
+        throw new Error(
+          `Agent instance '${agentInstanceId}' does not listen to '${eventId}'`,
+        );
+      }
+      const updatedListener: AgentEventListener = {
+        ...existing,
+        ...(settings.enabled === undefined
+          ? {}
+          : { enabled: settings.enabled }),
+        ...(settings.responseMode === undefined
+          ? {}
+          : { responseMode: settings.responseMode }),
+        ...(settings.messagePrefix === undefined ||
+        settings.messagePrefix === null
+          ? {}
+          : { messagePrefix: settings.messagePrefix }),
+      };
+      const listener = { ...updatedListener };
+      if (settings.messagePrefix === null) delete listener.messagePrefix;
+      await this.#commitLiveEventSession({
+        ...session,
+        activeAgents: session.activeAgents.map((agent) =>
+          agent.id === agentInstanceId
+            ? {
+                ...agent,
+                eventListeners: agent.eventListeners.map((candidate) =>
+                  candidate.eventId === eventId ? listener : candidate,
+                ),
+              }
+            : agent,
+        ),
+      });
+      return {
+        agentInstanceId,
+        agentLabel: instance.label,
+        listener,
+      };
+    });
+  }
+
+  #onLiveEventRuntimeEvent(event: LiveEventRuntimeEvent): void {
+    this.#logger.debug("Live event runtime event received", { event });
+    if (event.type === "diagnostic") {
+      this.emit({
+        type: "diagnostic",
+        level: event.level,
+        message: event.message,
+      });
+      return;
+    }
+    this.#emitLiveEvents();
+  }
+
   #onSignalEvent(event: SignalRuntimeEvent): void {
     this.#logger.debug("Signal runtime event received", { event });
     if (event.type === "diagnostic") {
@@ -2753,6 +3024,46 @@ export class HeadlessDesktopService implements DesktopService {
     };
   }
 
+  #eventsState(): DesktopEventsState {
+    const session = this.#activeSession();
+    if (session === undefined) return { events: [] };
+    const runtimeStates = new Map(
+      (this.#liveEvents?.listStates() ?? []).map((state) => [
+        state.definition.id,
+        state,
+      ]),
+    );
+    return {
+      activeSessionId: session.id,
+      events: session.liveEvents.map((definition) => {
+        const runtime = runtimeStates.get(definition.id);
+        return {
+          definition,
+          resolution: runtime?.resolution ??
+            definition.resolution ?? {
+              status: "unresolved" as const,
+              reason: "not-connected" as const,
+            },
+          ...(runtime?.latestState === undefined
+            ? definition.initialState === undefined
+              ? {}
+              : { latestState: definition.initialState }
+            : { latestState: runtime.latestState }),
+          history: [...(runtime?.history ?? [])],
+          listeners: session.activeAgents.flatMap((agent) =>
+            agent.eventListeners
+              .filter((listener) => listener.eventId === definition.id)
+              .map((listener) => ({
+                agentInstanceId: agent.id,
+                agentLabel: agent.label,
+                listener,
+              })),
+          ),
+        };
+      }),
+    };
+  }
+
   async #resolveAgentBindings(
     instance: DesktopActiveAgent,
   ): Promise<DesktopActiveAgent> {
@@ -2806,6 +3117,10 @@ export class HeadlessDesktopService implements DesktopService {
     this.emit({ type: "outputs.changed", outputs: this.#outputsState() });
   }
 
+  #emitLiveEvents(): void {
+    this.emit({ type: "events.changed", events: this.#eventsState() });
+  }
+
   #activeSession(): DesktopSession | undefined {
     const sessionId = this.#activeProductionSessionId;
     return this.#sessions.find((session) => session.id === sessionId);
@@ -2840,6 +3155,17 @@ export class HeadlessDesktopService implements DesktopService {
       throw new Error(`Agent instance '${instanceId}' not found`);
     }
     return instance;
+  }
+
+  #requireLiveEvent(
+    session: DesktopSession,
+    eventId: string,
+  ): LiveEventDefinition {
+    const definition = session.liveEvents.find(({ id }) => id === eventId);
+    if (definition === undefined) {
+      throw new Error(`Live event '${eventId}' not found`);
+    }
+    return definition;
   }
 
   #requireDefinition(definitionName: string): DesktopAgentDefinition {
@@ -2892,6 +3218,11 @@ export class HeadlessDesktopService implements DesktopService {
         ? {}
         : { activeSessionId: this.#activeProductionSessionId }),
     });
+  }
+
+  async #commitLiveEventSession(session: DesktopSession): Promise<void> {
+    await this.#replaceActiveProductionSessionStrict(session);
+    this.#bindActiveOutputAssignments();
   }
 
   async #replaceAgent(
@@ -3063,6 +3394,7 @@ export class HeadlessDesktopService implements DesktopService {
     if (session === undefined) {
       this.#liveEvents?.setConfiguration([], []);
       this.#emitOutputs();
+      this.#emitLiveEvents();
       return;
     }
     const activeAgentIds = session.activeAgents.map(({ id }) => id);
@@ -3096,6 +3428,7 @@ export class HeadlessDesktopService implements DesktopService {
       }
     }
     this.#emitOutputs();
+    this.#emitLiveEvents();
   }
 
   async #withSuspendedSignals<T>(action: () => Promise<T>): Promise<T> {

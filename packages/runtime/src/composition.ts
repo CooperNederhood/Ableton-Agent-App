@@ -171,6 +171,7 @@ function isLiveEventBridge(
 ): value is AbletonService & LiveEventBridge {
   const candidate = value as Partial<LiveEventBridge>;
   return (
+    typeof candidate.inspectEventSelection === "function" &&
     typeof candidate.subscribeLiveEvent === "function" &&
     typeof candidate.unsubscribeLiveEvent === "function" &&
     typeof candidate.subscribeLiveEvents === "function" &&
@@ -183,6 +184,9 @@ class UnavailableLiveEventBridge implements LiveEventBridge {
   public constructor(private readonly ableton: AbletonService) {}
   public inspectSession() {
     return this.ableton.inspectSession();
+  }
+  public async inspectEventSelection(): Promise<never> {
+    throw new Error("Configured Ableton service does not support Live events");
   }
   public inspectDevices(
     params: Parameters<AbletonService["inspectDevices"]>[0],

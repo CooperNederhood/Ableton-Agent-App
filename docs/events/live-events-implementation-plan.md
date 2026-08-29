@@ -145,7 +145,7 @@ Likely files:
   and coalesce continuous deliveries to the latest unsettled value.
 - [x] Reconcile from current state after a bridge event gap rather than
   replaying uncertain transitions.
-- [ ] Transactionally remove agent listeners when an event is deleted.
+- [x] Transactionally remove agent listeners when an event is deleted.
 - [x] Add unit tests for fan-out, per-agent isolation, response modes, prefix
   formatting, coalescing, deletion, reconnect, and failure isolation.
 
@@ -159,14 +159,14 @@ Likely files:
 
 ## Phase 5: desktop IPC and preload
 
-- [ ] Add IPC operations to list, create, update, enable, disable, and delete
+- [x] Add IPC operations to list, create, update, enable, disable, and delete
   Live Events.
-- [ ] Add selection-inspection IPC used by **Watch selected parameter**.
-- [ ] Add IPC operations to assign/unassign an event listener to an explicit
+- [x] Add selection-inspection IPC used by **Watch selected parameter**.
+- [x] Add IPC operations to assign/unassign an event listener to an explicit
   active-agent instance and update response mode or message prefix.
-- [ ] Include Events state in initial hydration and shared desktop events.
-- [ ] Add preload methods with schema validation for every operation.
-- [ ] Test malformed payload rejection and explicit agent attribution.
+- [x] Include Events state in initial hydration and shared desktop events.
+- [x] Add preload methods with schema validation for every operation.
+- [x] Test malformed payload rejection and explicit agent attribution.
 
 Likely files:
 

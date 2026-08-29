@@ -149,6 +149,17 @@ class FakeBridge implements LiveEventBridge {
     };
   }
 
+  async inspectEventSelection() {
+    return {
+      track: {
+        index: 0,
+        expectedReference: trackReference,
+        expectedName: "Keys",
+      },
+      parameter: null,
+    };
+  }
+
   async inspectDevices(_params: InspectDevicesParams) {
     void _params;
     return {
@@ -316,6 +327,19 @@ function binding(
 }
 
 describe("DefaultLiveEventRuntime", () => {
+  it("exposes the current Ableton event selection", async () => {
+    const bridge = new FakeBridge();
+    const runtime = new DefaultLiveEventRuntime({ bridge });
+
+    await expect(runtime.inspectSelection()).resolves.toEqual({
+      track: {
+        index: 0,
+        expectedReference: trackReference,
+        expectedName: "Keys",
+      },
+      parameter: null,
+    });
+  });
   it("subscribes once, keeps bounded state, fans out, and isolates agents", async () => {
     const bridge = new FakeBridge();
     const runtime = new DefaultLiveEventRuntime({

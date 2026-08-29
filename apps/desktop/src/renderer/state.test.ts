@@ -501,6 +501,32 @@ describe("desktop reducer", () => {
       event: { type: "events.changed", events },
     });
     expect(state.events).toEqual(events);
+    expect(state.eventsLoad).toEqual({ status: "loaded" });
+  });
+
+  it("tracks Live event loading errors and disclosure state", () => {
+    let state = desktopReducer(initialState, { type: "events-load-started" });
+    expect(state.eventsLoad).toEqual({ status: "loading" });
+
+    state = desktopReducer(state, {
+      type: "events-load-failed",
+      message: "Remote Script unavailable",
+    });
+    expect(state.eventsLoad).toEqual({
+      status: "failed",
+      message: "Remote Script unavailable",
+    });
+
+    state = desktopReducer(state, {
+      type: "toggle-event-activity",
+      eventId: "live-event.00000000-0000-4000-8000-000000000001",
+    });
+    expect(state.expandedEventActivityIds).toHaveLength(1);
+    state = desktopReducer(state, {
+      type: "toggle-event-activity",
+      eventId: "live-event.00000000-0000-4000-8000-000000000001",
+    });
+    expect(state.expandedEventActivityIds).toEqual([]);
   });
 
   it("preserves collapsed output cards across view changes", () => {

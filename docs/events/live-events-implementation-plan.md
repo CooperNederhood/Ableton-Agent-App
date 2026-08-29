@@ -179,25 +179,25 @@ Likely files:
 
 ## Phase 6: Events tab UX
 
-- [ ] Add `events` to `WorkspaceView` and the top-level navigation.
-- [ ] Add the Events state slice, hydration, reducer actions, loading states,
+- [x] Add `events` to `WorkspaceView` and the top-level navigation.
+- [x] Add the Events state slice, hydration, reducer actions, loading states,
   and diagnostics.
-- [ ] Build **Add event** with quick actions for selected parameter and selected
+- [x] Build **Add event** with quick actions for selected parameter and selected
   track.
-- [ ] Present the selected track first and show only the three recommended
+- [x] Present the selected track first and show only the three recommended
   discrete events before **Browse all**.
-- [ ] Add a bounded Parameter → Track → Device → Parameter fallback picker.
-- [ ] Group event cards by track using snapshot color metadata.
-- [ ] Add separate Global and Unresolved groups.
-- [ ] Show type, current value/state, resolution, enabled state, and listening
+- [x] Add a bounded Parameter → Track → Device → Parameter fallback picker.
+- [x] Group event cards by track using snapshot color metadata.
+- [x] Add separate Global and Unresolved groups.
+- [x] Show type, current value/state, resolution, enabled state, and listening
   agents on each card.
-- [ ] Add edit, disable, and delete actions with appropriate confirmation.
-- [ ] Add collapsed-by-default **Recent activity** with bounded newest-first
+- [x] Add edit, disable, and delete actions with appropriate confirmation.
+- [x] Add collapsed-by-default **Recent activity** with bounded newest-first
   occurrences.
-- [ ] Ensure event state is not represented by color alone and all controls are
+- [x] Ensure event state is not represented by color alone and all controls are
   keyboard accessible.
-- [ ] Throttle renderer updates independently from socket ingestion.
-- [ ] Add renderer tests for creation paths, grouping, stale targets,
+- [x] Throttle renderer updates independently from socket ingestion.
+- [x] Add renderer tests for creation paths, grouping, stale targets,
   disclosure state, listener labels, and empty/error states.
 
 Likely files:

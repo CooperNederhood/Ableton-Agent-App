@@ -3,6 +3,7 @@ import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  AddEventPanel,
   ApprovalPanel,
   AgentsView,
   Arrangement,
@@ -10,12 +11,18 @@ import {
   Composer,
   ConnectionHeader,
   DiagnosticsView,
+  EventCard,
+  EventsView,
+  groupEventsByTrack,
   groupOutputsByTrack,
   Inspector,
   loadInitialDesktopState,
+  loadLiveEvents,
   OperationCard,
   OutputConnectionCard,
   OutputsView,
+  parameterDraftFromSelection,
+  parameterDraftFromSnapshot,
   ProjectOutline,
   ProjectTransitionModal,
   ResolvedToolsDisclosure,
@@ -1534,9 +1541,294 @@ describe("desktop components", () => {
       "sessions.changed",
       "agents.catalog_changed",
       "outputs.changed",
-      "events.changed",
     ]);
     expect(requestSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("hydrates Live Events independently and reports bounded errors", async () => {
+    const dispatch = vi.fn();
+    const events = { activeSessionId: "session", events: [] };
+    await expect(
+      loadLiveEvents(dispatch, vi.fn().mockResolvedValue(events)),
+    ).resolves.toBe(true);
+    expect(dispatch).toHaveBeenCalledWith({ type: "events-load-started" });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "event",
+      event: { type: "events.changed", events },
+    });
+
+    dispatch.mockClear();
+    await expect(
+      loadLiveEvents(
+        dispatch,
+        vi.fn().mockRejectedValue(new Error("Selection service unavailable")),
+      ),
+    ).resolves.toBe(false);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "events-load-failed",
+      message: "Selection service unavailable",
+    });
+  });
+
+  it("builds safe parameter drafts from Live selection and snapshot pickers", () => {
+    const snapshot = {
+      id: "project",
+      name: "Project",
+      tempo: 120,
+      timeSignature: "4/4",
+      tracks: [
+        {
+          id: "00000000-0000-4000-8000-000000000010",
+          name: "Bass",
+          kind: "midi" as const,
+          color: "#335577",
+          volume: 0.8,
+          pan: 0,
+          muted: false,
+          clips: [],
+          devices: [
+            {
+              id: "00000000-0000-4000-8000-000000000020",
+              name: "Operator",
+              type: "Instrument",
+              enabled: true,
+              parameters: [
+                {
+                  id: "00000000-0000-4000-8000-000000000030",
+                  name: "Filter Freq",
+                  value: 0.5,
+                  displayValue: "1.20 kHz",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const selection = {
+      track: {
+        index: 0,
+        expectedReference: snapshot.tracks[0]!.id,
+        expectedName: "Bass",
+      },
+      parameter: {
+        index: 0,
+        expectedReference: snapshot.tracks[0]!.id,
+        expectedName: "Bass",
+        deviceIndex: 0,
+        expectedDeviceReference: snapshot.tracks[0]!.devices[0]!.id,
+        expectedDeviceName: "Operator",
+        parameterIndex: 0,
+        expectedParameterReference:
+          snapshot.tracks[0]!.devices[0]!.parameters[0]!.id,
+        expectedParameterName: "Filter Freq",
+      },
+    };
+
+    expect(parameterDraftFromSelection(selection, snapshot)).toEqual(
+      parameterDraftFromSnapshot(
+        snapshot,
+        snapshot.tracks[0]!.id,
+        snapshot.tracks[0]!.devices[0]!.id,
+        snapshot.tracks[0]!.devices[0]!.parameters[0]!.id,
+      ),
+    );
+    expect(
+      parameterDraftFromSelection({ track: selection.track, parameter: null }),
+    ).toBeUndefined();
+
+    const picker = renderToStaticMarkup(
+      <AddEventPanel
+        state={{
+          ...initialState,
+          snapshot,
+          selectedTrackId: snapshot.tracks[0]!.id,
+        }}
+        dispatch={vi.fn()}
+        onCreated={vi.fn()}
+      />,
+    );
+    expect(picker).toContain("Selected track: Bass");
+    expect(picker).toContain("Playing clip");
+    expect(picker).toContain("Triggered clip");
+    expect(picker).toContain("Recording state");
+    expect(picker).toContain("Browse all");
+    expect(picker).toContain("Operator");
+    expect(picker).toContain("Filter Freq");
+  });
+
+  it("groups resolved events by snapshot color and isolates stale targets", () => {
+    const eventId = "live-event.00000000-0000-4000-8000-000000000001";
+    const definition = {
+      id: eventId,
+      projectId: "project",
+      name: "Bass clip",
+      enabled: true,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      kind: "track.playing_clip_changed" as const,
+      classification: "discrete" as const,
+      target: { track: { name: "Bass", occurrence: 0 } },
+    };
+    const trackId = "00000000-0000-4000-8000-000000000010";
+    const snapshot = {
+      id: "project",
+      name: "Project",
+      tempo: 120,
+      timeSignature: "4/4",
+      tracks: [
+        {
+          id: trackId,
+          name: "Bass",
+          kind: "midi" as const,
+          color: "#335577",
+          volume: 0.8,
+          pan: 0,
+          muted: false,
+          clips: [],
+          devices: [],
+        },
+      ],
+    };
+    const resolved = {
+      definition,
+      resolution: {
+        status: "resolved" as const,
+        projectId: "project",
+        trackReference: trackId,
+        track: { name: "Bass", color: "#335577" },
+      },
+      history: [],
+      listeners: [],
+    };
+    const stale = {
+      ...resolved,
+      definition: {
+        ...definition,
+        id: "live-event.00000000-0000-4000-8000-000000000002",
+      },
+      resolution: {
+        status: "invalidated" as const,
+        reason: "target-deleted" as const,
+      },
+    };
+
+    const groups = groupEventsByTrack([resolved, stale], snapshot);
+    expect(groups.map(({ label }) => label)).toEqual(["Bass", "Unresolved"]);
+    expect(groups[0]?.color).toBe("#335577");
+  });
+
+  it("renders event state, listeners, disclosure, and empty/error states", () => {
+    const eventId = "live-event.00000000-0000-4000-8000-000000000001";
+    const event = {
+      definition: {
+        id: eventId,
+        projectId: "project",
+        name: "Bass clip",
+        enabled: true,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        kind: "track.playing_clip_changed" as const,
+        classification: "discrete" as const,
+        target: { track: { name: "Bass", occurrence: 0 } },
+      },
+      resolution: {
+        status: "resolved" as const,
+        projectId: "project",
+        trackReference: "00000000-0000-4000-8000-000000000010",
+        track: { name: "Bass" },
+      },
+      latestState: {
+        kind: "track.playing_clip_changed" as const,
+        state: {
+          state: "session-clip" as const,
+          slotIndex: 1,
+          clipName: "Verse",
+        },
+      },
+      history: [
+        {
+          occurrenceId: "00000000-0000-4000-8000-000000000101",
+          eventId,
+          sequence: 1,
+          observedAt: "2026-01-01T00:00:01.000Z",
+          kind: "track.playing_clip_changed" as const,
+          target: {
+            trackReference: "00000000-0000-4000-8000-000000000010",
+            track: { name: "Bass" },
+          },
+          summary: "Older",
+          current: { state: "stopped" as const },
+        },
+        {
+          occurrenceId: "00000000-0000-4000-8000-000000000102",
+          eventId,
+          sequence: 2,
+          observedAt: "2026-01-01T00:00:02.000Z",
+          kind: "track.playing_clip_changed" as const,
+          target: {
+            trackReference: "00000000-0000-4000-8000-000000000010",
+            track: { name: "Bass" },
+          },
+          summary: "Newer",
+          current: { state: "arrangement" as const },
+        },
+      ],
+      listeners: [
+        {
+          agentInstanceId: firstAgentId,
+          agentLabel: "Mix agent",
+          listener: {
+            id: "event-listener.00000000-0000-4000-8000-000000000201",
+            eventId,
+            enabled: true,
+            responseMode: "next-prompt" as const,
+          },
+        },
+      ],
+    };
+    const collapsed = renderToStaticMarkup(
+      <EventCard
+        event={event}
+        activityExpanded={false}
+        onToggleActivity={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    expect(collapsed).toContain("Verse");
+    expect(collapsed).toContain("Resolved to Bass");
+    expect(collapsed).toContain("Mix agent");
+    expect(collapsed).toContain('aria-expanded="false"');
+    expect(collapsed).not.toContain("<ol>");
+
+    const expanded = renderToStaticMarkup(
+      <EventCard
+        event={event}
+        activityExpanded
+        onToggleActivity={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    expect(expanded.indexOf("Newer")).toBeLessThan(expanded.indexOf("Older"));
+
+    const empty = renderToStaticMarkup(
+      <EventsView
+        state={{ ...initialState, eventsLoad: { status: "loaded" } }}
+        dispatch={vi.fn()}
+      />,
+    );
+    expect(empty).toContain("No Live Events");
+    const failed = renderToStaticMarkup(
+      <EventsView
+        state={{
+          ...initialState,
+          eventsLoad: { status: "failed", message: "Bridge offline" },
+        }}
+        dispatch={vi.fn()}
+      />,
+    );
+    expect(failed).toContain('role="alert"');
+    expect(failed).toContain("Bridge offline");
   });
 
   it("refreshes outputs through the output API and reports failures", async () => {

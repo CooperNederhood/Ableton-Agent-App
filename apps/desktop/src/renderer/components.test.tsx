@@ -47,7 +47,7 @@ describe("desktop components", () => {
     lifecycle: "ready" as const,
     sessions: [
       {
-        version: 2 as const,
+        version: 3 as const,
         id: "session",
         title: "Session",
         updatedAt: new Date(0).toISOString(),
@@ -55,6 +55,7 @@ describe("desktop components", () => {
         mode: "explore" as const,
         productionPlan: [],
         outputAssignments: [],
+        liveEvents: [],
         selectedAgentInstanceId,
         activeAgents: [firstAgentId, secondAgentId].map((id, index) => ({
           id,
@@ -74,6 +75,7 @@ describe("desktop components", () => {
           },
           boundTracks: [],
           outputSubscriptions: [],
+          eventListeners: [],
           modified: false,
         })),
       },
@@ -212,7 +214,7 @@ describe("desktop components", () => {
           lifecycle: "ready",
           sessions: [
             {
-              version: 2,
+              version: 3,
               id: "production-session",
               title: "Session",
               updatedAt: new Date(0).toISOString(),
@@ -220,6 +222,7 @@ describe("desktop components", () => {
               mode: "explore",
               productionPlan: [],
               outputAssignments: [],
+              liveEvents: [],
               selectedAgentInstanceId: activeAgentId,
               activeAgents: [
                 {
@@ -240,6 +243,7 @@ describe("desktop components", () => {
                   },
                   boundTracks: [],
                   outputSubscriptions: [],
+                  eventListeners: [],
                   modified: false,
                 },
               ],
@@ -774,7 +778,7 @@ describe("desktop components", () => {
           lifecycle: "ready",
           sessions: [
             {
-              version: 2,
+              version: 3,
               id: "production-session",
               title: "Session",
               updatedAt: new Date(0).toISOString(),
@@ -782,6 +786,7 @@ describe("desktop components", () => {
               mode: "explore",
               productionPlan: [],
               outputAssignments: [],
+              liveEvents: [],
               selectedAgentInstanceId: activeAgentId,
               activeAgents: [
                 {
@@ -805,6 +810,7 @@ describe("desktop components", () => {
                   },
                   boundTracks: [],
                   outputSubscriptions: [],
+                  eventListeners: [],
                   modified: true,
                 },
               ],
@@ -1050,13 +1056,14 @@ describe("desktop components", () => {
       },
       boundTracks: [],
       outputSubscriptions: [],
+      eventListeners: [],
       modified: false,
     });
     const state = {
       ...initialState,
       sessions: [
         {
-          version: 2 as const,
+          version: 3 as const,
           id: "session-1",
           title: "Session",
           updatedAt: new Date(0).toISOString(),
@@ -1069,6 +1076,7 @@ describe("desktop components", () => {
           mode: "explore" as const,
           productionPlan: [],
           outputAssignments: [],
+          liveEvents: [],
         },
       ],
       snapshot: {
@@ -1361,6 +1369,7 @@ describe("desktop components", () => {
             },
             boundTracks: [],
             outputSubscriptions: [],
+            eventListeners: [],
             modified: false,
           },
         ]}

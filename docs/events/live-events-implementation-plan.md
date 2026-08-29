@@ -9,7 +9,7 @@ to-do files remain broader roadmaps and must not duplicate this checklist.
 ## Status
 
 - Branch: `feature/event-listen`
-- Overall: `[ ] Not started`
+- Overall: `[~] In progress`
 - Scope: Remote Script-owned subscriptions; no Max for Live dependency
 
 Status markers:
@@ -33,22 +33,22 @@ Status markers:
 
 ## Phase 1: contracts and persisted state
 
-- [ ] Add discriminated schemas for `LiveEventDefinition` target kinds:
+- [x] Add discriminated schemas for `LiveEventDefinition` target kinds:
   `parameter.value_changed`, `track.playing_clip_changed`,
   `track.triggered_clip_changed`, and `track.recording_state_changed`.
-- [ ] Add schemas for `LiveEventOccurrence`, resolution status, initial state,
+- [x] Add schemas for `LiveEventOccurrence`, resolution status, initial state,
   and invalidation.
-- [ ] Add `AgentEventListener` with event ID, enabled state, response mode,
+- [x] Add `AgentEventListener` with event ID, enabled state, response mode,
   message prefix, and delivery cursor metadata.
-- [ ] Increment the desktop session version and migrate existing sessions with
+- [x] Increment the desktop session version and migrate existing sessions with
   empty `liveEvents` and `eventListeners`.
-- [ ] Persist event definitions at production-session scope and listeners on
+- [x] Persist event definitions at production-session scope and listeners on
   active-agent instances.
-- [ ] Add stable ID helpers that cannot collide across events, listeners, and
+- [x] Add stable ID helpers that cannot collide across events, listeners, and
   Output assignments.
-- [ ] Define bounded limits for event count, listeners per agent, prefix length,
+- [x] Define bounded limits for event count, listeners per agent, prefix length,
   occurrence size, and history length.
-- [ ] Add schema and migration tests, including legacy Output subscriptions and
+- [x] Add schema and migration tests, including legacy Output subscriptions and
   `inputChannels`.
 
 Likely files:

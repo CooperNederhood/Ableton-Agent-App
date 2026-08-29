@@ -146,7 +146,7 @@ describe("preload API", () => {
     const response = {
       instances: [],
       session: {
-        version: 2,
+        version: 3,
         id: "production-session",
         title: "Production session",
         updatedAt: new Date(0).toISOString(),
@@ -155,6 +155,7 @@ describe("preload API", () => {
         mode: "explore",
         productionPlan: [],
         outputAssignments: [],
+        liveEvents: [],
       },
     };
     const transport = transportFor({

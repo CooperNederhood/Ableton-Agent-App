@@ -31,13 +31,14 @@ function stateWithAgents(): DesktopState {
     },
     boundTracks: [],
     outputSubscriptions: [],
+    eventListeners: [],
     modified: false,
   });
   return {
     ...initialState,
     sessions: [
       {
-        version: 2 as const,
+        version: 3 as const,
         id: "session",
         title: "Session",
         updatedAt: new Date(0).toISOString(),
@@ -50,6 +51,7 @@ function stateWithAgents(): DesktopState {
         mode: "explore" as const,
         productionPlan: [],
         outputAssignments: [],
+        liveEvents: [],
       },
     ],
   };

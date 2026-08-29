@@ -1909,7 +1909,7 @@ export class HeadlessDesktopService implements DesktopService {
     const productionSessionId = randomUUID();
     this.#sdkSessionIds.set(productionSessionId, sdkSessionId);
     const session: DesktopSession = {
-      version: 2,
+      version: 3,
       id: productionSessionId,
       title,
       updatedAt: new Date().toISOString(),
@@ -1920,6 +1920,7 @@ export class HeadlessDesktopService implements DesktopService {
       mode: "explore",
       productionPlan: [],
       outputAssignments: [],
+      liveEvents: [],
       ...(activeAgent === undefined
         ? { activeAgents: [] }
         : {
@@ -1950,7 +1951,7 @@ export class HeadlessDesktopService implements DesktopService {
     );
     const connected = { ...activeAgent, sdkSessionId };
     const session: DesktopSession = {
-      version: 2,
+      version: 3,
       id: productionSessionId,
       title,
       updatedAt: new Date().toISOString(),
@@ -1963,6 +1964,7 @@ export class HeadlessDesktopService implements DesktopService {
       mode: "explore",
       productionPlan: [],
       outputAssignments: [],
+      liveEvents: [],
     };
     session.activeAgents = await this.#switchManagedProductionSession(
       this.#activeSession(),
@@ -2156,6 +2158,7 @@ export class HeadlessDesktopService implements DesktopService {
       lifecycle: "ready",
       boundTracks: [],
       modified: false,
+      eventListeners: [],
       outputSubscriptions: [...new Set(definition.inputChannels)].map(
         (producerId) => ({
           assignmentId: createAgentInstanceAssignmentId(instanceId, producerId),

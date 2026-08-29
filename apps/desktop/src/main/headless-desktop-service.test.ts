@@ -349,7 +349,8 @@ describe("desktop persistence stores", () => {
       await service.start();
       const [session] = await new JsonSessionStore(sessionsPath).load();
       expect(session).toMatchObject({
-        version: 2,
+        version: 3,
+        liveEvents: [],
         selectedAgentInstanceId: session?.activeAgents[0]?.id,
         activeAgents: [
           {
@@ -586,11 +587,12 @@ describe("desktop persistence stores", () => {
       lifecycle: "ready" as const,
       boundTracks: [],
       outputSubscriptions: [],
+      eventListeners: [],
       modified: false,
     };
     const sessions = [
       {
-        version: 2 as const,
+        version: 3 as const,
         id: "00000000-0000-4000-8000-000000000010",
         title: "Production session",
         updatedAt: new Date().toISOString(),
@@ -638,6 +640,7 @@ describe("desktop persistence stores", () => {
         mode: "explore" as const,
         productionPlan: [],
         outputAssignments: [],
+        liveEvents: [],
       },
     ];
 
@@ -645,6 +648,73 @@ describe("desktop persistence stores", () => {
 
     await expect(store.load()).resolves.toEqual(sessions);
     expect(await readdir(directory)).toEqual(["sessions.json"]);
+  });
+
+  it("migrates version-two sessions without changing inputs or Output subscriptions", async () => {
+    const directory = await temporaryDirectory();
+    const path = join(directory, "sessions.json");
+    const agentId = "00000000-0000-4000-8000-000000000001";
+    const subscription = {
+      assignmentId: "assignment-legacy",
+      producerId: "producer-legacy",
+      enabled: true,
+      deliveryMode: "next-prompt",
+      usageInstruction: "Use the legacy output.",
+      processingPolicyIds: ["latest-window"],
+    };
+    await writeFile(
+      path,
+      JSON.stringify([
+        {
+          version: 2,
+          id: "production-session",
+          title: "Version two",
+          updatedAt: new Date().toISOString(),
+          projectName: "Set",
+          activeAgents: [
+            {
+              id: agentId,
+              definitionName: "default",
+              definitionFingerprint: "a".repeat(64),
+              label: "Default",
+              lifecycle: "ready",
+              config: {
+                description: "General agent.",
+                systemPrompt: "Help.",
+                tools: ["*"],
+                resolvedTools: [],
+                editScope: ["session"],
+                skills: [],
+                inputChannels: ["producer-legacy"],
+              },
+              boundTracks: [],
+              outputSubscriptions: [subscription],
+              modified: false,
+            },
+          ],
+          selectedAgentInstanceId: agentId,
+          mode: "explore",
+          productionPlan: [],
+          outputAssignments: [subscription],
+        },
+      ]),
+      "utf8",
+    );
+
+    const [migrated] = await new JsonSessionStore(path).load();
+
+    expect(migrated).toMatchObject({
+      version: 3,
+      liveEvents: [],
+      outputAssignments: [subscription],
+      activeAgents: [
+        {
+          config: { inputChannels: ["producer-legacy"] },
+          outputSubscriptions: [subscription],
+          eventListeners: [],
+        },
+      ],
+    });
   });
 
   it("rejects invalid and corrupt session data without overwriting it", async () => {

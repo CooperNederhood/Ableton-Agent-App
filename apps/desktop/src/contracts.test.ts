@@ -73,7 +73,7 @@ describe("desktop IPC contracts", () => {
   it("requires the selected active agent to belong to the session", () => {
     expect(
       sessionSchema.safeParse({
-        version: 2,
+        version: 3,
         id: "production-session",
         title: "Production session",
         updatedAt: new Date().toISOString(),
@@ -86,7 +86,7 @@ describe("desktop IPC contracts", () => {
 
   it("defaults old production-session auto approval off", () => {
     const session = sessionSchema.parse({
-      version: 2,
+      version: 3,
       id: "production-session",
       title: "Production session",
       updatedAt: new Date().toISOString(),
@@ -116,6 +116,76 @@ describe("desktop IPC contracts", () => {
     });
 
     expect(session.activeAgents[0]?.autoApprove).toBe(false);
+  });
+
+  it("persists session live events and per-agent listeners", () => {
+    const agentId = "00000000-0000-4000-8000-000000000001";
+    const eventId = "live-event.00000000-0000-4000-8000-000000000002";
+    const listenerId = "event-listener.00000000-0000-4000-8000-000000000003";
+    const session = sessionSchema.parse({
+      version: 3,
+      id: "production-session",
+      title: "Production session",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      projectName: "Set",
+      liveEvents: [
+        {
+          id: eventId,
+          name: "Drums playing clip",
+          projectId: "project-1",
+          enabled: true,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          kind: "track.playing_clip_changed",
+          classification: "discrete",
+          target: { track: { name: "Drums", occurrence: 0 } },
+        },
+      ],
+      activeAgents: [
+        {
+          id: agentId,
+          definitionName: "default",
+          definitionFingerprint: "a".repeat(64),
+          label: "Default",
+          lifecycle: "ready",
+          config: {
+            description: "General agent.",
+            systemPrompt: "Help.",
+            tools: ["*"],
+            resolvedTools: [],
+            editScope: ["session"],
+            skills: [],
+            inputChannels: [],
+          },
+          boundTracks: [],
+          outputSubscriptions: [],
+          eventListeners: [
+            {
+              id: listenerId,
+              eventId,
+              enabled: true,
+              responseMode: "next-prompt",
+              messagePrefix: "React to this:",
+            },
+          ],
+          modified: false,
+        },
+      ],
+      selectedAgentInstanceId: agentId,
+    });
+
+    expect(session.liveEvents[0]?.id).toBe(eventId);
+    expect(session.activeAgents[0]?.eventListeners[0]).toMatchObject({
+      id: listenerId,
+      eventId,
+      responseMode: "next-prompt",
+    });
+    expect(
+      sessionSchema.safeParse({
+        ...session,
+        liveEvents: [],
+      }).success,
+    ).toBe(false);
   });
 
   it("validates managed-agent IPC input", () => {

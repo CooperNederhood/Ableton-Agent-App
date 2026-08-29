@@ -29,6 +29,7 @@ import {
   legacySessionSchema,
   preferencesSchema,
   sessionSchema,
+  versionTwoSessionSchema,
 } from "../contracts.js";
 
 const legacySdkSessionIds = new WeakMap<DesktopSession, string>();
@@ -177,14 +178,27 @@ export class JsonSessionStore {
       }
       return stored.map((value) => {
         if (typeof value === "object" && value !== null && "version" in value) {
+          if (value.version === 2) {
+            const versionTwo = versionTwoSessionSchema.parse(value);
+            return sessionSchema.parse({
+              ...versionTwo,
+              version: 3,
+              liveEvents: [],
+              activeAgents: versionTwo.activeAgents.map((agent) => ({
+                ...agent,
+                eventListeners: [],
+              })),
+            });
+          }
           return sessionSchema.parse(value);
         }
         const legacy = legacySessionSchema.parse(value);
         this.#legacySessionIds.add(legacy.id);
         const migrated = sessionSchema.parse({
           ...legacy,
-          version: 2,
+          version: 3,
           activeAgents: [],
+          liveEvents: [],
         });
         legacySdkSessionIds.set(migrated, legacy.id);
         return migrated;

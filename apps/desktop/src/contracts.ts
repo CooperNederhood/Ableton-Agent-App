@@ -1,5 +1,7 @@
 import {
+  MAX_LIVE_EVENTS_PER_SESSION,
   activeAgentInstanceSchema,
+  liveEventDefinitionSchema,
   outputSubscriptionSchema,
 } from "@ableton-agent/agent-config/schemas";
 import { z } from "zod";
@@ -266,7 +268,7 @@ export type DesktopAgentHistoryMessage = z.infer<
 
 export const sessionSchema = z
   .object({
-    version: z.literal(2),
+    version: z.literal(3),
     id: z.string().min(1),
     title: z.string().min(1),
     updatedAt: z.string().min(1),
@@ -278,6 +280,10 @@ export const sessionSchema = z
     mode: z.enum(modes).default("explore"),
     productionPlan: z.array(planSectionSchema).default([]),
     outputAssignments: z.array(desktopOutputAssignmentSchema).default([]),
+    liveEvents: z
+      .array(liveEventDefinitionSchema)
+      .max(MAX_LIVE_EVENTS_PER_SESSION)
+      .default([]),
   })
   .superRefine((session, context) => {
     const instanceIds = session.activeAgents.map(({ id }) => id);
@@ -308,8 +314,63 @@ export const sessionSchema = z
         message: "A session with active agents must select one",
       });
     }
+    const eventIds = session.liveEvents.map(({ id }) => id);
+    if (new Set(eventIds).size !== eventIds.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["liveEvents"],
+        message: "Live event IDs must be unique",
+      });
+    }
+    const eventIdSet = new Set(eventIds);
+    const listenerIds = new Set<string>();
+    for (const [agentIndex, agent] of session.activeAgents.entries()) {
+      for (const [listenerIndex, listener] of agent.eventListeners.entries()) {
+        if (listenerIds.has(listener.id)) {
+          context.addIssue({
+            code: "custom",
+            path: [
+              "activeAgents",
+              agentIndex,
+              "eventListeners",
+              listenerIndex,
+              "id",
+            ],
+            message: "Agent event listener IDs must be unique",
+          });
+        }
+        listenerIds.add(listener.id);
+        if (!eventIdSet.has(listener.eventId)) {
+          context.addIssue({
+            code: "custom",
+            path: [
+              "activeAgents",
+              agentIndex,
+              "eventListeners",
+              listenerIndex,
+              "eventId",
+            ],
+            message: "Agent event listeners must reference a session event",
+          });
+        }
+      }
+    }
   });
 export type DesktopSession = z.infer<typeof sessionSchema>;
+
+export const versionTwoSessionSchema = z.object({
+  version: z.literal(2),
+  id: z.string().min(1),
+  title: z.string().min(1),
+  updatedAt: z.string().min(1),
+  projectName: z.string().min(1),
+  projectId: z.string().optional(),
+  activeAgents: z.array(desktopActiveAgentSchema).default([]),
+  selectedAgentInstanceId: z.string().uuid().optional(),
+  mode: z.enum(modes).default("explore"),
+  productionPlan: z.array(planSectionSchema).default([]),
+  outputAssignments: z.array(desktopOutputAssignmentSchema).default([]),
+});
 
 export const desktopAutoApprovalUpdateSchema = z.object({
   instances: z.array(desktopActiveAgentSchema),

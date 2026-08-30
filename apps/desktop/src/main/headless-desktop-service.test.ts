@@ -3886,6 +3886,80 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
+  it("stops optional enrichment after a device inspection times out", async () => {
+    const { service, application, ableton } = await harness();
+    await service.start();
+
+    const firstTrack = ableton.state.snapshot.tracks[0]!;
+    ableton.state.snapshot = {
+      ...ableton.state.snapshot,
+      trackCount: 2,
+      tracks: [
+        firstTrack,
+        {
+          ...firstTrack,
+          index: 1,
+          reference: "55555555-5555-4555-8555-555555555555",
+          name: "Drums",
+        },
+      ],
+    };
+    const inspectDevices = vi
+      .spyOn(application, "inspectDevices")
+      .mockRejectedValueOnce(
+        Object.assign(new Error("device inspection timed out"), {
+          code: "operation_timeout",
+        }),
+      );
+
+    const snapshot = await service.getSnapshot();
+
+    expect(snapshot.tracks.every((track) => track.devices.length === 0)).toBe(
+      true,
+    );
+    expect(inspectDevices).toHaveBeenCalledOnce();
+    await service.stop();
+  });
+
+  it("stops optional enrichment after a parameter inspection times out", async () => {
+    const { service, application, ableton } = await harness();
+    await service.start();
+
+    const track = ableton.state.snapshot.tracks[0]!;
+    const firstDevice =
+      ableton.state.devicesByTrackReference[track.reference]![0]!;
+    ableton.state.devicesByTrackReference = {
+      ...ableton.state.devicesByTrackReference,
+      [track.reference]: [
+        firstDevice,
+        {
+          ...firstDevice,
+          summary: {
+            ...firstDevice.summary,
+            reference: "88888888-8888-4888-8888-888888888888",
+            index: 1,
+            name: "Compressor",
+          },
+        },
+      ],
+    };
+    const inspectParameters = vi
+      .spyOn(application, "inspectDeviceParameters")
+      .mockRejectedValueOnce(
+        Object.assign(new Error("parameter inspection timed out"), {
+          code: "operation_timeout",
+        }),
+      );
+
+    const snapshot = await service.getSnapshot();
+
+    expect(snapshot.tracks[0]?.devices).toEqual([
+      expect.objectContaining({ name: "Wavetable", parameters: [] }),
+    ]);
+    expect(inspectParameters).toHaveBeenCalledOnce();
+    await service.stop();
+  });
+
   it("still rejects snapshot refreshes when core inspection fails", async () => {
     const { service, application, events } = await harness();
     await service.start();
@@ -3941,6 +4015,117 @@ describe("desktop adapter over the shared application", () => {
     expect(inspectSession).toHaveBeenCalledTimes(2);
     expect(inspectDevices).toHaveBeenCalledTimes(2);
     expect(inspectParameters).toHaveBeenCalledTimes(2);
+    await service.stop();
+  });
+
+  it("defers identity polling while snapshot enrichment is in progress", async () => {
+    const { service, application } = await harness(
+      {},
+      { projectIdentityPollIntervalMs: 5 },
+    );
+    await service.start();
+
+    const deviceRead = deferred<void>();
+    const deviceReadEntered = deferred<void>();
+    const originalInspectDevices = application.inspectDevices.bind(application);
+    vi.spyOn(application, "inspectDevices").mockImplementation(
+      async (params) => {
+        deviceReadEntered.resolve();
+        await deviceRead.promise;
+        return originalInspectDevices(params);
+      },
+    );
+    const getProjectIdentity = vi.spyOn(application, "getProjectIdentity");
+
+    const refresh = service.getSnapshot();
+    await deviceReadEntered.promise;
+    expect(getProjectIdentity).toHaveBeenCalledOnce();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(getProjectIdentity).toHaveBeenCalledOnce();
+
+    deviceRead.resolve(undefined);
+    await refresh;
+    await vi.waitFor(() =>
+      expect(getProjectIdentity.mock.calls.length).toBeGreaterThan(1),
+    );
+    await service.stop();
+  });
+
+  it("waits for an in-flight identity poll before starting a snapshot", async () => {
+    const { service, application } = await harness(
+      {},
+      { projectIdentityPollIntervalMs: 5 },
+    );
+    await service.start();
+
+    const identityReadEntered = deferred<void>();
+    const releaseIdentityRead = deferred<void>();
+    const originalGetProjectIdentity =
+      application.getProjectIdentity.bind(application);
+    vi.spyOn(application, "getProjectIdentity").mockImplementationOnce(
+      async () => {
+        identityReadEntered.resolve();
+        await releaseIdentityRead.promise;
+        return originalGetProjectIdentity();
+      },
+    );
+    const inspectSession = vi.spyOn(application, "inspectSession");
+
+    await identityReadEntered.promise;
+    const refresh = service.getSnapshot();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(inspectSession).not.toHaveBeenCalled();
+
+    releaseIdentityRead.resolve();
+    await refresh;
+    expect(inspectSession).toHaveBeenCalledOnce();
+    await service.stop();
+  });
+
+  it("backs off identity polling after a failed read", async () => {
+    const { service, application } = await harness(
+      {},
+      { projectIdentityPollIntervalMs: 20 },
+    );
+    await service.start();
+
+    const getProjectIdentity = vi
+      .spyOn(application, "getProjectIdentity")
+      .mockRejectedValueOnce(new Error("identity timeout"));
+    while (getProjectIdentity.mock.calls.length === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(getProjectIdentity).toHaveBeenCalledOnce();
+    await vi.waitFor(() =>
+      expect(getProjectIdentity.mock.calls.length).toBeGreaterThan(1),
+    );
+    await service.stop();
+  });
+
+  it("resumes identity polling after a snapshot fails", async () => {
+    const { service, application } = await harness(
+      {},
+      { projectIdentityPollIntervalMs: 5 },
+    );
+    await service.start();
+
+    const inspectionEntered = deferred<void>();
+    const rejectInspection = deferred<never>();
+    vi.spyOn(application, "inspectSession").mockImplementationOnce(() => {
+      inspectionEntered.resolve();
+      return rejectInspection.promise;
+    });
+    const getProjectIdentity = vi.spyOn(application, "getProjectIdentity");
+
+    const refresh = service.getSnapshot();
+    await inspectionEntered.promise;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(getProjectIdentity).not.toHaveBeenCalled();
+
+    rejectInspection.reject(new Error("snapshot failed"));
+    await expect(refresh).rejects.toThrow("snapshot failed");
+    await vi.waitFor(() => expect(getProjectIdentity).toHaveBeenCalled());
     await service.stop();
   });
 

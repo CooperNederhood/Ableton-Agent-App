@@ -114,6 +114,8 @@ const forkedHistoryMessageLimit = 100;
 const forkedHistoryCharacterLimit = 40_000;
 /** The sessions view shows the most recent entries; older ones are dropped. */
 const storedSessionLimit = 100;
+const defaultProjectIdentityPollIntervalMs = 10_000;
+const maximumProjectIdentityPollBackoffMs = 60_000;
 
 export interface HeadlessDesktopServiceOptions {
   application: HeadlessApplication;
@@ -226,6 +228,8 @@ export class HeadlessDesktopService implements DesktopService {
   #pendingProjectTransition: PendingProjectTransition | undefined;
   #projectIdentityTimer: NodeJS.Timeout | undefined;
   #projectIdentityRefresh: Promise<void> | undefined;
+  #projectIdentityRead: Promise<DesktopProjectIdentity | undefined> | undefined;
+  #projectIdentityPollFailures = 0;
   #transitionCommitting = false;
   #eventJournal: DesktopEventJournal | undefined;
   #eventJournalTransitionFailure: string | undefined;
@@ -1221,6 +1225,27 @@ export class HeadlessDesktopService implements DesktopService {
   }
 
   async #readProjectIdentity(): Promise<DesktopProjectIdentity | undefined> {
+    if (this.#projectIdentityRead !== undefined) {
+      return this.#projectIdentityRead;
+    }
+    const read = this.#readProjectIdentityNow();
+    this.#projectIdentityRead = read;
+    void read.then(
+      () => {
+        if (this.#projectIdentityRead === read) {
+          this.#projectIdentityRead = undefined;
+        }
+      },
+      () => {
+        if (this.#projectIdentityRead === read) {
+          this.#projectIdentityRead = undefined;
+        }
+      },
+    );
+    return read;
+  }
+
+  async #readProjectIdentityNow(): Promise<DesktopProjectIdentity | undefined> {
     const status = await this.#application.getStatus();
     if (status.state !== "connected") return undefined;
     return this.#application.getProjectIdentity();
@@ -1230,10 +1255,16 @@ export class HeadlessDesktopService implements DesktopService {
     if (!this.#acceptingActions || this.#projectIdentityTimer !== undefined) {
       return;
     }
-    const interval = this.options.projectIdentityPollIntervalMs ?? 1_500;
+    const baseInterval =
+      this.options.projectIdentityPollIntervalMs ??
+      defaultProjectIdentityPollIntervalMs;
+    const interval = Math.min(
+      baseInterval * 2 ** Math.min(this.#projectIdentityPollFailures, 6),
+      maximumProjectIdentityPollBackoffMs,
+    );
     this.#projectIdentityTimer = setTimeout(() => {
       this.#projectIdentityTimer = undefined;
-      const refresh = this.#refreshProjectIdentity();
+      const refresh = this.#refreshProjectIdentityWhenIdle();
       this.#projectIdentityRefresh = refresh;
       void refresh.finally(() => {
         if (this.#projectIdentityRefresh === refresh) {
@@ -1245,13 +1276,34 @@ export class HeadlessDesktopService implements DesktopService {
     this.#projectIdentityTimer.unref?.();
   }
 
+  async #refreshProjectIdentityWhenIdle(): Promise<void> {
+    const snapshotRefresh = this.#snapshotRefresh;
+    if (snapshotRefresh !== undefined) {
+      try {
+        await snapshotRefresh;
+      } catch {
+        // Snapshot failures have their own user-visible error surface.
+      }
+      return;
+    }
+    await this.#refreshProjectIdentity();
+  }
+
   async #refreshProjectIdentity(): Promise<void> {
     let identity: DesktopProjectIdentity | undefined;
     try {
       identity = await this.#readProjectIdentity();
+      this.#projectIdentityPollFailures = 0;
     } catch (error) {
+      this.#projectIdentityPollFailures += 1;
       this.#logger.warn("Live Set identity refresh failed", {
         error: error instanceof Error ? error.message : String(error),
+        retryDelayMs: Math.min(
+          (this.options.projectIdentityPollIntervalMs ??
+            defaultProjectIdentityPollIntervalMs) *
+            2 ** Math.min(this.#projectIdentityPollFailures, 6),
+          maximumProjectIdentityPollBackoffMs,
+        ),
       });
       return;
     }
@@ -1449,6 +1501,7 @@ export class HeadlessDesktopService implements DesktopService {
     const refreshId = randomUUID();
     const startedAt = Date.now();
     this.#logger.debug("Project refresh started", { refreshId });
+    await this.#projectIdentityRefresh;
     const status = await this.#application.getStatus();
     if (status.state !== "connected") {
       this.#logger.warn("Project refresh rejected", {
@@ -1463,6 +1516,7 @@ export class HeadlessDesktopService implements DesktopService {
     }
     const snapshot = await this.#application.inspectSession();
     const identity = await this.#readProjectIdentity();
+    this.#projectIdentityPollFailures = 0;
     if (identity !== undefined) await this.#observeProjectIdentity(identity);
     const baseSnapshot = toDesktopSnapshot(snapshot, status);
     const coreSnapshot =
@@ -1529,6 +1583,7 @@ export class HeadlessDesktopService implements DesktopService {
           `Could not inspect devices on track ${track.name}`,
           error,
         );
+        if (this.#isOperationTimeout(error)) return result;
         result.push({ trackReference: track.reference, devices: [] });
         continue;
       }
@@ -1561,6 +1616,10 @@ export class HeadlessDesktopService implements DesktopService {
             error,
           );
           devices.push({ device, parameters: [] });
+          if (this.#isOperationTimeout(error)) {
+            result.push({ trackReference: track.reference, devices });
+            return result;
+          }
           continue;
         }
         if (parameters.total > parameters.parameters.length) {
@@ -1575,6 +1634,15 @@ export class HeadlessDesktopService implements DesktopService {
       result.push({ trackReference: track.reference, devices });
     }
     return result;
+  }
+
+  #isOperationTimeout(error: unknown): boolean {
+    return (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "operation_timeout"
+    );
   }
 
   #warnOptionalEnrichment(message: string, error: unknown): void {

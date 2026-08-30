@@ -110,8 +110,18 @@ names, device names, and musical content are excluded.
 
 ## Telemetry
 
-Telemetry is optional and privacy-first. If implemented, default collection
-should be limited to:
+Two different facilities must not be conflated:
+
+- **Local detailed telemetry/event journal** is captured by default, stored only
+  in the current user's application-data directory, and powers Desktop history
+  and debugging. It contains a complete unsampled but sanitized record of agent
+  configuration snapshots, SDK/tool/workflow activity, Live Event trace stages,
+  and Output delivery lifecycle.
+- **Anonymous product telemetry** is optional, disabled by default, and would
+  require an explicit uploader and consent. No such transport is configured in
+  the initial release.
+
+If anonymous product telemetry is implemented, collection should be limited to:
 
 - App and Remote Script versions.
 - Platform and Live major version.
@@ -124,9 +134,13 @@ Prompts, MIDI notes, track names, device names, file paths, and project content
 require separate explicit consent and are not needed for initial product
 telemetry.
 
-Telemetry remains disabled by default through the validated desktop preference.
-No telemetry transport is configured in the initial release; enabling the
-preference alone does not upload data.
+The local journal is not governed by anonymous telemetry consent and never
+uploads. It can be paused or cleared independently. Its default retention is 30
+days with a 250 MiB profile cap and oldest-first deletion. Sanitization preserves
+bounded prompts, assistant text, paths, structured musical/MIDI and event
+payloads, and tool definitions/arguments/results. It redacts credentials in
+every string and replaces binary/audio bodies with visible omission markers. See
+[Live Events](../events/live-events.md#local-detailed-event-journal).
 
 ## Diagnostics
 
@@ -137,6 +151,7 @@ Provide an in-app diagnostics page containing:
 - Capability report.
 - Remote Script installation path.
 - Redacted recent operation logs.
+- Queryable local event history and trace timing.
 - Exportable support bundle.
 
 ## Supported platform matrix
@@ -199,10 +214,13 @@ bundles.
 ## Privacy
 
 All Ableton control traffic stays on authenticated loopback TCP. The renderer
-cannot access Node, Electron, sockets, or credentials. Telemetry is disabled by
-default and no telemetry transport is configured. Logs and support bundles
-redact tokens, credentials, prompts, paths, labels, notes, and project content.
-Users should still inspect any artifact before sharing it.
+cannot access Node, Electron, sockets, or credentials. Anonymous telemetry is
+disabled by default and no telemetry transport is configured. The default-on
+local event journal has no upload path, and its query API returns redacted view
+models rather than raw database access. Logs, journal records, and support
+bundles redact tokens, credentials, prompts, paths, labels, notes, raw
+audio/MIDI, and project content. Users should still inspect any exported
+artifact before sharing it.
 
 ## Release notes
 

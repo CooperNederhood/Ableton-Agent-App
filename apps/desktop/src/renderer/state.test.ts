@@ -131,6 +131,126 @@ describe("desktop reducer", () => {
     ).toEqual(report);
   });
 
+  it("paginates history and replaces selected trace detail", () => {
+    const traceId = "00000000-0000-4000-8000-000000000010";
+    const event = {
+      version: 1 as const,
+      id: "00000000-0000-4000-8000-000000000001",
+      sequence: 1,
+      occurredAt: "2026-01-01T00:00:00.000Z",
+      recordedAt: "2026-01-01T00:00:00.001Z",
+      name: "agent.turn",
+      source: "runtime",
+      level: "info" as const,
+      attributes: {},
+    };
+    const root = {
+      rootTraceId: traceId,
+      eventCount: 2,
+      firstSequence: 1,
+      lastSequence: 2,
+      firstOccurredAt: event.occurredAt,
+      lastOccurredAt: "2026-01-01T00:00:01.000Z",
+      firstEventName: event.name,
+      lastEventName: "agent.completed",
+      hasErrors: false,
+    };
+    const loaded = desktopReducer(initialState, {
+      type: "event-history-loaded",
+      append: false,
+      page: {
+        version: 1,
+        items: [root],
+        nextCursor: "next",
+        page: {
+          limit: 1,
+          returnedItems: 1,
+          totalItems: 2,
+          hasMore: true,
+          order: "desc",
+        },
+      },
+    });
+    const appended = desktopReducer(loaded, {
+      type: "event-history-loaded",
+      append: true,
+      page: {
+        version: 1,
+        items: [
+          {
+            ...root,
+            rootTraceId: secondAgentId,
+            firstSequence: 3,
+            lastSequence: 4,
+          },
+        ],
+        page: {
+          limit: 1,
+          returnedItems: 1,
+          totalItems: 2,
+          hasMore: false,
+          order: "desc",
+        },
+      },
+    });
+    const selected = desktopReducer(appended, {
+      type: "event-history-select-trace",
+      traceId,
+    });
+    const firstDetail = desktopReducer(selected, {
+      type: "event-history-trace-loaded",
+      traceId,
+      append: false,
+      page: {
+        version: 1,
+        items: [event],
+        nextCursor: "trace-next",
+        page: {
+          limit: 1,
+          returnedItems: 1,
+          totalItems: 2,
+          hasMore: true,
+          order: "asc",
+        },
+        trace: {
+          rootTraceId: traceId,
+          totalEvents: 2,
+          firstSequence: 1,
+          lastSequence: 2,
+        },
+      },
+    });
+    const detailed = desktopReducer(firstDetail, {
+      type: "event-history-trace-loaded",
+      traceId,
+      append: true,
+      page: {
+        version: 1,
+        items: [{ ...event, id: secondAgentId, sequence: 2 }],
+        page: {
+          limit: 1,
+          returnedItems: 1,
+          totalItems: 2,
+          hasMore: false,
+          order: "asc",
+        },
+        trace: {
+          rootTraceId: traceId,
+          totalEvents: 2,
+          firstSequence: 1,
+          lastSequence: 2,
+        },
+      },
+    });
+
+    expect(appended.eventHistory.items).toHaveLength(2);
+    expect(appended.eventHistory.nextCursor).toBeUndefined();
+    expect(firstDetail.eventHistory.traceNextCursor).toBe("trace-next");
+    expect(detailed.eventHistory.trace).toHaveLength(2);
+    expect(detailed.eventHistory.traceTotalEvents).toBe(2);
+    expect(detailed.eventHistory.traceNextCursor).toBeUndefined();
+  });
+
   it("throttles state growth with bounded histories", () => {
     let state = initialState;
     for (let index = 0; index < 5_000; index += 1) {

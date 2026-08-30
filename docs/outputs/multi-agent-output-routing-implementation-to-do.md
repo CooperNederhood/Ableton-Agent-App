@@ -15,6 +15,11 @@ Companion specification:
 - [ ] Fan out producer frames to every enabled subscription.
 - [ ] Isolate inboxes, latest windows, acknowledgements, and deduplication.
 - [ ] Route automatic turns to the matching managed agent session.
+- [ ] Emit sanitized, correlated Output ingress and per-agent delivery lifecycle
+  records through the shared local journal, retaining bounded structured
+  MIDI/event payloads while omitting binary/audio bodies with visible markers.
+- [ ] Reuse journal writer, retention, and query infrastructure while keeping
+  Output and Live Event schemas, inventories, routing, and UI separate.
 - [x] Preserve subscriptions while producers are missing and reconnect by ID.
 - [x] Exclude disconnected history from the current producer inventory.
 
@@ -35,3 +40,5 @@ Companion specification:
 - [x] Test disconnected producer recovery and current-inventory cleanup.
 - [ ] Test legacy assignment migration.
 - [ ] Add renderer, preload, main-process, and real-MIDI integration coverage.
+- [ ] Test journal redaction, trace continuity, fan-out attribution, and the
+  separation of Output and Live Event query categories.

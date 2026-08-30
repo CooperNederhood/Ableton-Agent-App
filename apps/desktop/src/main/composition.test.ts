@@ -1,12 +1,17 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  LocalObservabilityJournal,
+  type ConfigurationSnapshot,
+  type TelemetryEventEnvelope,
+} from "@ableton-agent/observability";
 
 import { preferencesSchema } from "../contracts.js";
 import { ApprovalCoordinator, ApprovalPolicyController } from "./approvals.js";
-import { createDesktopComposition } from "./composition.js";
+import { createDesktopComposition, DesktopJournalHost } from "./composition.js";
 
 const directories: string[] = [];
 
@@ -32,6 +37,198 @@ afterEach(async () => {
 });
 
 describe("desktop composition", () => {
+  it("degrades safely and preserves a corrupt journal file", async () => {
+    const location = await paths();
+    const journalPath = join(location.directory, "event-history.sqlite");
+    const corruptBytes = "not a sqlite database";
+    await writeFile(journalPath, corruptBytes, "utf8");
+
+    const { preferences, service } = await createDesktopComposition({
+      ...location,
+      environment: {},
+    });
+
+    expect(preferences.eventHistoryEnabled).toBe(false);
+    await expect(readFile(journalPath, "utf8")).resolves.toBe(corruptBytes);
+    const journalDiagnostic = (await service.getDiagnostics()).find(
+      ({ label, status }) => label === "Event journal" && status === "fail",
+    );
+    expect(journalDiagnostic?.detail).toContain("disabled");
+    await expect(service.getEventJournalHealth()).rejects.toThrow(
+      "unavailable",
+    );
+  });
+
+  it("degrades safely when another process holds the journal lock", async () => {
+    const location = await paths();
+    const journalPath = join(location.directory, "event-history.sqlite");
+    const blocker = await LocalObservabilityJournal.open({ path: journalPath });
+    try {
+      const { preferences, service } = await createDesktopComposition({
+        ...location,
+        environment: {},
+      });
+
+      expect(preferences.eventHistoryEnabled).toBe(false);
+      await expect(service.getDiagnostics()).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ label: "Event journal", status: "fail" }),
+        ]),
+      );
+    } finally {
+      await blocker.shutdown();
+    }
+  });
+
+  it("buffers writes during retention swaps and drains them to the new journal", async () => {
+    const first = fakeJournal();
+    const second = fakeJournal();
+    const releaseShutdown = deferred<void>();
+    first.shutdown.mockImplementation(async () => {
+      await releaseShutdown.promise;
+      first.closed = true;
+    });
+    const open = vi
+      .fn()
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(second);
+    const host = await DesktopJournalHost.create({
+      path: "journal.sqlite",
+      retention: { maxAgeDays: 30, maxBytes: 1_000 },
+      enabled: true,
+      open: open as never,
+    });
+    const event = telemetryEvent("00000000-0000-4000-8000-000000000001");
+
+    const swap = host.reconfigure({ maxAgeDays: 7, maxBytes: 2_000 });
+    await Promise.resolve();
+    void host.enqueue(event);
+    expect(first.enqueue).not.toHaveBeenCalled();
+    releaseShutdown.resolve(undefined);
+
+    await expect(swap).resolves.toBeUndefined();
+    expect(second.enqueue).toHaveBeenCalledWith(event);
+    expect(first.enqueue).not.toHaveBeenCalled();
+    await host.shutdown();
+    expect(first.shutdown).toHaveBeenCalledOnce();
+    expect(second.shutdown).toHaveBeenCalledOnce();
+  });
+
+  it("rolls retention swaps back and drains buffered writes without loss", async () => {
+    const first = fakeJournal();
+    const rollback = fakeJournal();
+    const failedOpen = deferred<LocalObservabilityJournal>();
+    const open = vi
+      .fn()
+      .mockResolvedValueOnce(first)
+      .mockImplementationOnce(() => failedOpen.promise)
+      .mockResolvedValueOnce(rollback);
+    const host = await DesktopJournalHost.create({
+      path: "journal.sqlite",
+      retention: { maxAgeDays: 30, maxBytes: 1_000 },
+      enabled: true,
+      open: open as never,
+    });
+    const snapshot = configurationSnapshot(
+      "00000000-0000-4000-8000-000000000002",
+    );
+
+    const swap = host.reconfigure({ maxAgeDays: 1, maxBytes: 500 });
+    await Promise.resolve();
+    void host.enqueueConfigurationSnapshot(snapshot);
+    failedOpen.reject(new Error("replacement denied"));
+
+    await expect(swap).rejects.toThrow("replacement denied");
+    expect(host.journal).toBe(rollback);
+    expect(rollback.enqueueConfigurationSnapshot).toHaveBeenCalledWith(
+      snapshot,
+    );
+    expect(first.enqueueConfigurationSnapshot).not.toHaveBeenCalled();
+    const roots = {
+      version: 1 as const,
+      items: [],
+      page: {
+        limit: 10,
+        returnedItems: 0,
+        totalItems: 0,
+        hasMore: false,
+        order: "desc" as const,
+      },
+    };
+    rollback.readRootTraces.mockResolvedValue(roots);
+    await expect(
+      host.readRootTraces({ limit: 10, order: "desc" }),
+    ).resolves.toEqual(roots);
+    expect(rollback.readRootTraces).toHaveBeenCalledWith({
+      limit: 10,
+      order: "desc",
+    });
+
+    await host.shutdown();
+    expect(first.shutdown).toHaveBeenCalledOnce();
+    expect(rollback.shutdown).toHaveBeenCalledOnce();
+  });
+
+  it("recovers a usable host when the previous journal shutdown fails", async () => {
+    const first = fakeJournal();
+    const recovered = fakeJournal();
+    const failedShutdown = deferred<void>();
+    first.shutdown.mockImplementationOnce(async () => {
+      try {
+        await failedShutdown.promise;
+      } finally {
+        first.closed = true;
+      }
+    });
+    const open = vi
+      .fn()
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(recovered);
+    const host = await DesktopJournalHost.create({
+      path: "journal.sqlite",
+      retention: { maxAgeDays: 30, maxBytes: 1_000 },
+      enabled: true,
+      open: open as never,
+    });
+    const buffered = telemetryEvent("00000000-0000-4000-8000-000000000003");
+
+    const transition = host.reconfigure({ maxAgeDays: 7, maxBytes: 500 });
+    await Promise.resolve();
+    await expect(host.enqueue(buffered)).resolves.toBeUndefined();
+    expect(first.enqueue).not.toHaveBeenCalled();
+    failedShutdown.reject(new Error("shutdown interrupted"));
+    await expect(transition).rejects.toThrow("shutdown interrupted");
+    expect(host.journal).toBe(recovered);
+    expect(recovered.enqueue).toHaveBeenCalledWith(buffered);
+    expect(first.enqueue).not.toHaveBeenCalled();
+    expect(open).toHaveBeenCalledTimes(2);
+
+    await expect(host.shutdown()).resolves.toBeUndefined();
+    expect(first.shutdown).toHaveBeenCalledOnce();
+    expect(recovered.shutdown).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the local journal in the main-process composition", async () => {
+    const location = await paths();
+    const { service } = await createDesktopComposition({
+      ...location,
+      environment: {},
+    });
+
+    await expect(service.getEventJournalHealth()).resolves.toMatchObject({
+      status: "healthy",
+      retention: {
+        maxAgeDays: 30,
+        maxBytes: 250 * 1024 * 1024,
+      },
+    });
+    await expect(service.getDiagnostics()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "Event journal", status: "pass" }),
+      ]),
+    );
+  });
+
   it("configures the bridge from preferences and the stored token", async () => {
     const location = await paths();
     await writeFile(
@@ -52,6 +249,66 @@ describe("desktop composition", () => {
       state: "disconnected",
     });
   });
+
+  function deferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    });
+    return { promise, resolve, reject };
+  }
+
+  function fakeJournal() {
+    return {
+      closed: false,
+      get isOpen() {
+        return !this.closed;
+      },
+      enqueue: vi.fn(async function (this: { closed: boolean }) {
+        if (this.closed) throw new Error("closed journal");
+      }),
+      enqueueConfigurationSnapshot: vi.fn(async function (this: {
+        closed: boolean;
+      }) {
+        if (this.closed) throw new Error("closed journal");
+      }),
+      shutdown: vi.fn(async function (this: { closed: boolean }) {
+        this.closed = true;
+      }),
+      readRootTraces: vi.fn(),
+      readTrace: vi.fn(),
+      readConfigurationSnapshots: vi.fn(),
+      getHealth: vi.fn(),
+      runRetention: vi.fn(),
+      deleteTrace: vi.fn(),
+      clear: vi.fn(),
+    };
+  }
+
+  function telemetryEvent(id: string): TelemetryEventEnvelope {
+    return {
+      version: 1,
+      id,
+      occurredAt: "2026-01-01T00:00:00.000Z",
+      name: "agent.turn",
+      source: "desktop",
+      level: "info",
+      attributes: {},
+    };
+  }
+
+  function configurationSnapshot(id: string): ConfigurationSnapshot {
+    return {
+      version: 1,
+      id,
+      capturedAt: "2026-01-01T00:00:00.000Z",
+      component: "desktop",
+      configurationVersion: "1",
+      values: {},
+    };
+  }
 
   it("falls back to the environment token", async () => {
     const location = await paths();

@@ -103,6 +103,12 @@ The Remote Script emits typed `live_event.occurred` and
 transport; discrete transitions preserve sequence order. See
 [Live Events](../events/live-events.md).
 
+Requests and unsolicited events carry application-provided trace/correlation
+context when available. The bridge preserves it across request/response and
+Live Event ingestion so the local journal can connect Remote Script work to SDK
+turns, tools, workflows, and per-agent delivery. IDs are opaque, bounded
+metadata; they never carry user or musical content.
+
 ## Handshake
 
 The client begins with `system.hello` containing:

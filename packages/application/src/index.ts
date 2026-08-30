@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 
 import type { AbletonService } from "@ableton-agent/ableton-contracts";
 import {
@@ -379,6 +380,40 @@ export interface CopilotAgentServiceOptions {
   turnTimeoutMs?: number;
   signalContext?: SignalContextOptions;
   liveEventContext?: LiveEventContextOptions;
+  /**
+   * Non-blocking ingress for exact, application-level runtime records. The
+   * receiver owns buffering and persistence; agent execution never awaits it.
+   */
+  runtimeObserver?: AgentRuntimeObserver;
+}
+
+export type AgentPromptOrigin =
+  | "user"
+  | "skill"
+  | "live-event.automatic"
+  | "live-event.next-prompt"
+  | "output.automatic"
+  | "output.next-prompt";
+
+export interface AgentRuntimeTraceContext {
+  readonly traceId: string;
+  readonly turnId: string;
+  readonly occurrenceIds: readonly string[];
+  readonly deliveryIds: readonly string[];
+}
+
+export interface AgentRuntimeEvent {
+  readonly type: string;
+  readonly occurredAt: string;
+  readonly sessionId?: string;
+  readonly agentInstanceId?: string;
+  readonly trace?: AgentRuntimeTraceContext;
+  /** Exact application/SDK data for the event; redaction is a sink concern. */
+  readonly data: Readonly<Record<string, unknown>>;
+}
+
+export interface AgentRuntimeObserver {
+  enqueue(event: AgentRuntimeEvent): void;
 }
 
 export const DEFAULT_AGENT_TURN_TIMEOUT_MS = 180_000;
@@ -424,6 +459,7 @@ type CopilotTurnKind = "user" | "automatic-analysis" | "automatic-action";
 interface PendingAutomaticTurn {
   request: SignalTurnRequest;
   deliveryIds: string[];
+  turn: InstrumentedTurn;
   waiters: Array<{
     resolve: (response: string) => void;
     reject: (reason: unknown) => void;
@@ -434,6 +470,25 @@ interface ObservedOperation {
   label: string;
   toolName: string;
   arguments: Readonly<Record<string, unknown>>;
+  startedAt: number;
+}
+
+interface MutableRuntimeTrace {
+  traceId: string;
+  turnId: string;
+  occurrenceIds: string[];
+  deliveryIds: string[];
+}
+
+interface InstrumentedTurn {
+  id: string;
+  queuedAt: number;
+  origin: AgentPromptOrigin;
+  prompt: string;
+  trace: MutableRuntimeTrace;
+  finalObserved: boolean;
+  startedAt: number | undefined;
+  terminalRecorded: boolean;
 }
 
 interface ManagedSessionState {
@@ -447,6 +502,7 @@ interface ManagedSessionState {
   queuedTurns: number;
   turnQueue: Promise<void>;
   turnKind: CopilotTurnKind | undefined;
+  activeTurn: InstrumentedTurn | undefined;
   automaticDrainScheduled: boolean;
   readonly pendingAutomatic: Map<string, PendingAutomaticTurn>;
   readonly operations: Map<string, ObservedOperation>;
@@ -559,6 +615,18 @@ function displayUserPrompt(content: string): string {
 
 function qualifyAvailableTools(toolNames: readonly string[]): string[] {
   return bareToolNames(toolNames).map((toolName) => `custom:${toolName}`);
+}
+
+function toolParameterSchema(tool: Tool): Readonly<Record<string, unknown>> {
+  const parameters = tool.parameters;
+  if (parameters === undefined) return {};
+  const candidate = parameters as {
+    toJSONSchema?: () => Record<string, unknown>;
+  };
+  if (typeof candidate.toJSONSchema === "function") {
+    return candidate.toJSONSchema();
+  }
+  return parameters as Record<string, unknown>;
 }
 
 function normalizeSessionConfiguration(
@@ -948,6 +1016,7 @@ export class CopilotAgentService implements AgentService {
       queuedTurns: 0,
       turnQueue: Promise.resolve(),
       turnKind: undefined,
+      activeTurn: undefined,
       automaticDrainScheduled: false,
       pendingAutomatic: new Map(),
       operations: new Map(),
@@ -999,6 +1068,108 @@ export class CopilotAgentService implements AgentService {
     };
   }
 
+  #runtimeTrace(
+    trace: MutableRuntimeTrace | undefined,
+  ): AgentRuntimeTraceContext | undefined {
+    if (trace === undefined) return undefined;
+    return {
+      traceId: trace.traceId,
+      turnId: trace.turnId,
+      occurrenceIds: [...trace.occurrenceIds],
+      deliveryIds: [...trace.deliveryIds],
+    };
+  }
+
+  #recordRuntime(
+    state: ManagedSessionState,
+    type: string,
+    data: Readonly<Record<string, unknown>>,
+    options: {
+      occurredAt?: string;
+      trace?: MutableRuntimeTrace | undefined;
+      sessionId?: string;
+    } = {},
+  ): void {
+    const observer = this.options.runtimeObserver;
+    if (observer === undefined) return;
+    try {
+      const sessionId = options.sessionId ?? state.session?.sessionId;
+      const trace = this.#runtimeTrace(
+        options.trace ?? state.activeTurn?.trace,
+      );
+      observer.enqueue({
+        type,
+        occurredAt: options.occurredAt ?? new Date().toISOString(),
+        ...(sessionId === undefined ? {} : { sessionId }),
+        ...(state.exposeInstanceId
+          ? { agentInstanceId: state.configuration.instanceId }
+          : {}),
+        ...(trace === undefined ? {} : { trace }),
+        data,
+      });
+    } catch (error) {
+      this.#logger.warn("Runtime observer rejected an event", {
+        type,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  #newTurn(
+    origin: AgentPromptOrigin,
+    prompt: string,
+    identifiers: {
+      traceId?: string;
+      occurrenceIds?: readonly string[];
+      deliveryIds?: readonly string[];
+    } = {},
+  ): InstrumentedTurn {
+    const id = randomUUID();
+    return {
+      id,
+      queuedAt: Date.now(),
+      origin,
+      prompt,
+      finalObserved: false,
+      startedAt: undefined,
+      terminalRecorded: false,
+      trace: {
+        traceId: identifiers.traceId ?? id,
+        turnId: id,
+        occurrenceIds: [...(identifiers.occurrenceIds ?? [])],
+        deliveryIds: [...(identifiers.deliveryIds ?? [])],
+      },
+    };
+  }
+
+  #recordPromptContext(
+    state: ManagedSessionState,
+    origin: "live-event.next-prompt" | "output.next-prompt",
+    prompt: string,
+    occurrenceIds: readonly string[],
+    deliveryIds: readonly string[],
+  ): void {
+    const turn = state.activeTurn;
+    if (turn !== undefined) {
+      turn.trace.occurrenceIds.push(
+        ...occurrenceIds.filter(
+          (identifier) => !turn.trace.occurrenceIds.includes(identifier),
+        ),
+      );
+      turn.trace.deliveryIds.push(
+        ...deliveryIds.filter(
+          (identifier) => !turn.trace.deliveryIds.includes(identifier),
+        ),
+      );
+    }
+    this.#recordRuntime(
+      state,
+      "agent.prompt.context",
+      { origin, prompt, occurrenceIds, deliveryIds },
+      { trace: turn?.trace },
+    );
+  }
+
   #scopedSignalContext(
     state: ManagedSessionState,
   ): SignalContextOptions | undefined {
@@ -1007,8 +1178,21 @@ export class CopilotAgentService implements AgentService {
     return {
       ...signalContext,
       provider: {
-        getPendingContexts: async () =>
-          signalContext.provider!.getPendingContexts(state.signalTargetId),
+        getPendingContexts: async () => {
+          const contexts = await signalContext.provider!.getPendingContexts(
+            state.signalTargetId,
+          );
+          for (const context of contexts) {
+            this.#recordPromptContext(
+              state,
+              "output.next-prompt",
+              context.context.content,
+              [context.context.assignmentId],
+              [context.deliveryId],
+            );
+          }
+          return contexts;
+        },
         markDelivered: async (...[, deliveryIds]) =>
           signalContext.provider!.markDelivered(
             state.signalTargetId,
@@ -1026,10 +1210,22 @@ export class CopilotAgentService implements AgentService {
     return {
       ...liveEventContext,
       provider: {
-        getPendingLiveEventContexts: async () =>
-          liveEventContext.provider!.getPendingLiveEventContexts(
-            state.signalTargetId,
-          ),
+        getPendingLiveEventContexts: async () => {
+          const contexts =
+            await liveEventContext.provider!.getPendingLiveEventContexts(
+              state.signalTargetId,
+            );
+          for (const context of contexts) {
+            this.#recordPromptContext(
+              state,
+              "live-event.next-prompt",
+              context.occurrence.summary,
+              [context.occurrence.occurrenceId],
+              [context.deliveryId],
+            );
+          }
+          return contexts;
+        },
         markLiveEventContextsDelivered: async (...[, deliveryIds]) =>
           liveEventContext.provider!.markLiveEventContextsDelivered(
             state.signalTargetId,
@@ -1140,7 +1336,7 @@ export class CopilotAgentService implements AgentService {
       requestToolApproval,
       this.options.askForReadApproval,
     );
-    return {
+    const config: SessionConfig = {
       clientName: "ableton-agent-app",
       ...(this.options.model === undefined
         ? {}
@@ -1162,13 +1358,32 @@ export class CopilotAgentService implements AgentService {
       ],
       agent: state.configuration.definitionName,
       onPermissionRequest: async (request, invocation) => {
+        const permissionId =
+          ("toolCallId" in request ? request.toolCallId : undefined) ??
+          randomUUID();
+        this.#recordRuntime(state, "agent.permission.requested", {
+          permissionId,
+          request,
+          invocation,
+        });
+        let result;
         if (
           request.kind === "custom-tool" &&
           request.toolName === SKILL_TOOL_NAME
         ) {
-          return { kind: "approve-once" };
+          result = { kind: "approve-once" } as const;
+        } else {
+          try {
+            result = await permissionHandler(request, invocation);
+          } catch (error) {
+            this.#recordRuntime(state, "agent.permission.failed", {
+              permissionId,
+              request,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            throw error;
+          }
         }
-        const result = await permissionHandler(request, invocation);
         if (result.kind === "reject" && request.kind === "custom-tool") {
           agentPolicy.blockAttempt(
             request.toolName,
@@ -1176,6 +1391,11 @@ export class CopilotAgentService implements AgentService {
             "Do not retry or rephrase this denied operation. Wait for a new user request.",
           );
         }
+        this.#recordRuntime(state, "agent.permission.completed", {
+          permissionId,
+          request,
+          result,
+        });
         return result;
       },
       hooks: agentPolicy.hooks,
@@ -1187,12 +1407,127 @@ export class CopilotAgentService implements AgentService {
             : `${BASE_SYSTEM_MESSAGE}\n\n${skillInstructions}`,
       },
     };
+    return config;
+  }
+
+  #recordSessionConfiguration(
+    state: ManagedSessionState,
+    config: SessionConfig,
+    sessionId: string,
+  ): void {
+    const configuredToolNames = new Set([
+      ...bareToolNames(state.configuration.resolvedTools),
+      ...(state.configuration.skills.length === 0 ? [] : [SKILL_TOOL_NAME]),
+    ]);
+    const tools = config.tools as readonly Tool[];
+    this.#recordRuntime(
+      state,
+      "agent.session.configuration",
+      {
+        sdkSystemMessage: config.systemMessage,
+        customAgentPrompt: state.configuration.systemPrompt,
+        customAgent: config.customAgents?.[0],
+        skills: enabledSkillDescriptors(state.configuration).map((skill) => ({
+          name: skill.name,
+          description: skill.description,
+          sourcePath: skill.sourcePath,
+          fingerprint: skill.fingerprint,
+        })),
+        model: config.model,
+        reasoningEffort: config.reasoningEffort,
+        tools: tools.map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          parameterSchema: toolParameterSchema(tool),
+          available: configuredToolNames.has(tool.name),
+        })),
+        availableTools: config.availableTools,
+      },
+      { sessionId },
+    );
   }
 
   #observe(state: ManagedSessionState, session: CopilotSessionAdapter): void {
     state.unsubscribe?.();
     state.unsubscribe = session.on((event) => {
       if (this.#states.get(state.key) !== state) return;
+      const sdkData = {
+        ...event.data,
+        sdkEventId: event.id,
+        parentSdkEventId: event.parentId,
+      };
+      if (
+        event.type === "assistant.message_start" ||
+        event.type === "assistant.turn_start"
+      ) {
+        this.#recordRuntime(state, "agent.assistant.started", sdkData, {
+          occurredAt: event.timestamp,
+          sessionId: session.sessionId,
+        });
+      } else if (event.type === "assistant.message_delta") {
+        this.#recordRuntime(state, "agent.assistant.delta", sdkData, {
+          occurredAt: event.timestamp,
+          sessionId: session.sessionId,
+        });
+      } else if (event.type === "assistant.message") {
+        if (state.activeTurn !== undefined) {
+          state.activeTurn.finalObserved = true;
+        }
+        this.#recordRuntime(state, "agent.assistant.final", sdkData, {
+          occurredAt: event.timestamp,
+          sessionId: session.sessionId,
+        });
+      } else if (event.type === "tool.execution_start") {
+        this.#recordRuntime(state, "agent.tool.started", sdkData, {
+          occurredAt: event.timestamp,
+          sessionId: session.sessionId,
+        });
+      } else if (event.type === "tool.execution_progress") {
+        this.#recordRuntime(state, "agent.tool.progress", sdkData, {
+          occurredAt: event.timestamp,
+          sessionId: session.sessionId,
+        });
+      } else if (event.type === "tool.execution_partial_result") {
+        this.#recordRuntime(state, "agent.tool.partial", sdkData, {
+          occurredAt: event.timestamp,
+          sessionId: session.sessionId,
+        });
+      } else if (event.type === "tool.execution_complete") {
+        const operation = state.operations.get(event.data.toolCallId);
+        this.#recordRuntime(
+          state,
+          event.data.success ? "agent.tool.completed" : "agent.tool.failed",
+          {
+            ...sdkData,
+            arguments: operation?.arguments,
+            durationMs:
+              operation === undefined
+                ? undefined
+                : Date.parse(event.timestamp) - operation.startedAt,
+          },
+          { occurredAt: event.timestamp, sessionId: session.sessionId },
+        );
+      } else if (event.type === "permission.requested") {
+        this.#recordRuntime(state, "agent.permission.requested", sdkData, {
+          occurredAt: event.timestamp,
+          sessionId: session.sessionId,
+        });
+      } else if (event.type === "permission.completed") {
+        this.#recordRuntime(state, "agent.permission.completed", sdkData, {
+          occurredAt: event.timestamp,
+          sessionId: session.sessionId,
+        });
+      } else if (event.type === "model.call_failure") {
+        this.#recordRuntime(state, "agent.model.failed", sdkData, {
+          occurredAt: event.timestamp,
+          sessionId: session.sessionId,
+        });
+      } else if (event.type === "abort") {
+        this.#recordRuntime(state, "agent.turn.aborted", sdkData, {
+          occurredAt: event.timestamp,
+          sessionId: session.sessionId,
+        });
+      }
       if (event.type === "assistant.message_delta") {
         this.options.events.publish({
           type: "agent.message_delta",
@@ -1208,6 +1543,7 @@ export class CopilotAgentService implements AgentService {
           label,
           toolName: event.data.toolName,
           arguments: event.data.arguments ?? {},
+          startedAt: Date.parse(event.timestamp),
         });
         this.#logger.debug("Agent tool started", {
           sessionId: session.sessionId,
@@ -1293,6 +1629,7 @@ export class CopilotAgentService implements AgentService {
     state.unsubscribe?.();
     state.unsubscribe = undefined;
     state.turnKind = undefined;
+    state.activeTurn = undefined;
     state.inFlightTurns = 0;
     state.queuedTurns = 0;
     state.operations.clear();
@@ -1316,10 +1653,10 @@ export class CopilotAgentService implements AgentService {
   async #connectCreatedState(
     state: ManagedSessionState,
   ): Promise<CopilotSessionAdapter> {
-    const session = await this.#requireClient().createSession(
-      this.#sessionConfig(state),
-    );
+    const config = this.#sessionConfig(state);
+    const session = await this.#requireClient().createSession(config);
     state.session = session;
+    this.#recordSessionConfiguration(state, config, session.sessionId);
     if (!state.exposeInstanceId) state.signalTargetId = session.sessionId;
     try {
       this.#observe(state, session);
@@ -1342,11 +1679,13 @@ export class CopilotAgentService implements AgentService {
     state: ManagedSessionState,
     sdkSessionId: string,
   ): Promise<CopilotSessionAdapter> {
+    const config = this.#sessionConfig(state);
     const session = await this.#requireClient().resumeSession(
       sdkSessionId,
-      this.#sessionConfig(state),
+      config,
     );
     state.session = session;
+    this.#recordSessionConfiguration(state, config, session.sessionId);
     if (!state.exposeInstanceId) state.signalTargetId = session.sessionId;
     try {
       this.#observe(state, session);
@@ -1429,9 +1768,30 @@ export class CopilotAgentService implements AgentService {
     session: CopilotSessionAdapter,
     timeoutMs: number,
   ): Promise<never> {
+    const turn = state.activeTurn;
+    if (turn !== undefined) turn.terminalRecorded = true;
+    this.#recordRuntime(
+      state,
+      "agent.turn.timeout",
+      { timeoutMs },
+      { trace: turn?.trace, sessionId: session.sessionId },
+    );
     state.unsubscribe?.();
     state.unsubscribe = undefined;
     for (const [operationId, operation] of state.operations) {
+      this.#recordRuntime(
+        state,
+        "agent.tool.failed",
+        {
+          toolCallId: operationId,
+          toolName: operation.toolName,
+          arguments: operation.arguments,
+          code: "operation_timeout",
+          message: `${operation.label} cancelled because the Copilot turn timed out`,
+          durationMs: Date.now() - operation.startedAt,
+        },
+        { trace: turn?.trace, sessionId: session.sessionId },
+      );
       this.options.events.publish({
         type: "operation.failed",
         operationId,
@@ -1444,10 +1804,31 @@ export class CopilotAgentService implements AgentService {
     state.operations.clear();
 
     let abortError: unknown;
+    this.#recordRuntime(
+      state,
+      "agent.abort.requested",
+      { reason: "timeout" },
+      { trace: turn?.trace, sessionId: session.sessionId },
+    );
     try {
       await session.abort();
+      this.#recordRuntime(
+        state,
+        "agent.abort.completed",
+        { reason: "timeout" },
+        { trace: turn?.trace, sessionId: session.sessionId },
+      );
     } catch (error) {
       abortError = error;
+      this.#recordRuntime(
+        state,
+        "agent.abort.failed",
+        {
+          reason: "timeout",
+          error: error instanceof Error ? error.message : String(error),
+        },
+        { trace: turn?.trace, sessionId: session.sessionId },
+      );
     }
     if (abortError === undefined && state.session === session) {
       this.#observe(state, session);
@@ -1661,7 +2042,26 @@ export class CopilotAgentService implements AgentService {
     if (!session || !state || state.inFlightTurns === 0) {
       return false;
     }
-    await session.abort();
+    this.#recordRuntime(state, "agent.abort.requested", {
+      reason: "user",
+    });
+    try {
+      await session.abort();
+      this.#recordRuntime(state, "agent.abort.completed", { reason: "user" });
+      this.#recordRuntime(state, "agent.turn.cancelled", {
+        reason: "user",
+        durationMs:
+          state.activeTurn?.startedAt === undefined
+            ? undefined
+            : Date.now() - state.activeTurn.startedAt,
+      });
+    } catch (error) {
+      this.#recordRuntime(state, "agent.abort.failed", {
+        reason: "user",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
     return true;
   }
 
@@ -1671,7 +2071,26 @@ export class CopilotAgentService implements AgentService {
     if (!state || !session || state.inFlightTurns === 0) {
       return false;
     }
-    await session.abort();
+    this.#recordRuntime(state, "agent.abort.requested", {
+      reason: "user",
+    });
+    try {
+      await session.abort();
+      this.#recordRuntime(state, "agent.abort.completed", { reason: "user" });
+      this.#recordRuntime(state, "agent.turn.cancelled", {
+        reason: "user",
+        durationMs:
+          state.activeTurn?.startedAt === undefined
+            ? undefined
+            : Date.now() - state.activeTurn.startedAt,
+      });
+    } catch (error) {
+      this.#recordRuntime(state, "agent.abort.failed", {
+        reason: "user",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
     return true;
   }
 
@@ -1711,6 +2130,7 @@ export class CopilotAgentService implements AgentService {
     state: ManagedSessionState,
     prompt: string,
     kind: CopilotTurnKind,
+    turn: InstrumentedTurn,
   ): Promise<string> {
     const session = state.session;
     if (!session) {
@@ -1723,6 +2143,21 @@ export class CopilotAgentService implements AgentService {
     const timeoutMs =
       this.options.turnTimeoutMs ?? DEFAULT_AGENT_TURN_TIMEOUT_MS;
     const startedAt = Date.now();
+    turn.startedAt = startedAt;
+    state.activeTurn = turn;
+    this.#recordRuntime(
+      state,
+      "agent.turn.started",
+      {
+        origin: turn.origin,
+        prompt,
+        kind,
+        timeoutMs,
+        queuedAt: new Date(turn.queuedAt).toISOString(),
+        queueDurationMs: startedAt - turn.queuedAt,
+      },
+      { trace: turn.trace, sessionId: session.sessionId },
+    );
     this.#logger.debug("Agent turn started", {
       sessionId: session.sessionId,
       ...(state.exposeInstanceId
@@ -1751,12 +2186,39 @@ export class CopilotAgentService implements AgentService {
       if (isSessionIdleTimeout(error)) {
         return await this.#abortTimedOutTurn(state, session, timeoutMs);
       }
+      this.#recordRuntime(
+        state,
+        "agent.turn.failed",
+        {
+          origin: turn.origin,
+          prompt,
+          kind,
+          durationMs: Date.now() - startedAt,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        { trace: turn.trace, sessionId: session.sessionId },
+      );
+      turn.terminalRecorded = true;
       throw error;
     } finally {
       state.inFlightTurns -= 1;
       state.turnKind = undefined;
+      state.activeTurn = undefined;
     }
     if (!response) {
+      this.#recordRuntime(
+        state,
+        "agent.turn.failed",
+        {
+          origin: turn.origin,
+          prompt,
+          kind,
+          durationMs: Date.now() - startedAt,
+          error: "Copilot session completed without an assistant response",
+        },
+        { trace: turn.trace, sessionId: session.sessionId },
+      );
+      turn.terminalRecorded = true;
       throw new Error(
         "Copilot session completed without an assistant response",
       );
@@ -1766,6 +2228,28 @@ export class CopilotAgentService implements AgentService {
       content: response.data.content,
       ...this.#eventAttribution(state),
     });
+    if (!turn.finalObserved) {
+      this.#recordRuntime(
+        state,
+        "agent.assistant.final",
+        { content: response.data.content, source: "sendAndWait" },
+        { trace: turn.trace, sessionId: session.sessionId },
+      );
+      turn.terminalRecorded = true;
+    }
+    this.#recordRuntime(
+      state,
+      "agent.turn.completed",
+      {
+        origin: turn.origin,
+        prompt,
+        kind,
+        response: response.data.content,
+        durationMs: Date.now() - startedAt,
+      },
+      { trace: turn.trace, sessionId: session.sessionId },
+    );
+    turn.terminalRecorded = true;
     this.#logger.debug("Agent turn completed", {
       sessionId: session.sessionId,
       ...(state.exposeInstanceId
@@ -1779,11 +2263,46 @@ export class CopilotAgentService implements AgentService {
     return response.data.content;
   }
 
-  #serialize<T>(state: ManagedSessionState, run: () => Promise<T>): Promise<T> {
+  #serialize<T>(
+    state: ManagedSessionState,
+    run: () => Promise<T>,
+    turn?: InstrumentedTurn,
+  ): Promise<T> {
     state.queuedTurns += 1;
+    if (turn !== undefined) {
+      this.#recordRuntime(
+        state,
+        "agent.turn.queued",
+        {
+          origin: turn.origin,
+          prompt: turn.prompt,
+          queueDepth: state.queuedTurns,
+        },
+        { trace: turn.trace },
+      );
+    }
     const wrapped = async (): Promise<T> => {
       try {
         return await run();
+      } catch (error) {
+        if (turn !== undefined && !turn.terminalRecorded) {
+          turn.terminalRecorded = true;
+          this.#recordRuntime(
+            state,
+            "agent.turn.failed",
+            {
+              origin: turn.origin,
+              prompt: turn.prompt,
+              queueDurationMs: Date.now() - turn.queuedAt,
+              ...(turn.startedAt === undefined
+                ? {}
+                : { durationMs: Date.now() - turn.startedAt }),
+              error: error instanceof Error ? error.message : String(error),
+            },
+            { trace: turn.trace },
+          );
+        }
+        throw error;
       } finally {
         state.queuedTurns -= 1;
       }
@@ -1798,7 +2317,12 @@ export class CopilotAgentService implements AgentService {
 
   public send(prompt: string): Promise<string> {
     const state = this.#requireDefaultState();
-    return this.#serialize(state, () => this.#sendNow(state, prompt, "user"));
+    const turn = this.#newTurn("user", prompt);
+    return this.#serialize(
+      state,
+      () => this.#sendNow(state, prompt, "user", turn),
+      turn,
+    );
   }
 
   public sendToManagedAgent(
@@ -1814,13 +2338,21 @@ export class CopilotAgentService implements AgentService {
         error instanceof Error ? error : new Error(String(error)),
       );
     }
-    return this.#serialize(state, async () => {
-      const turnPrompt =
-        invocation === undefined
-          ? prompt
-          : await this.#prepareSkillInvocation(state, invocation);
-      return this.#sendNow(state, turnPrompt, "user");
-    });
+    const turn = this.#newTurn(
+      invocation === undefined ? "user" : "skill",
+      prompt,
+    );
+    return this.#serialize(
+      state,
+      async () => {
+        const turnPrompt =
+          invocation === undefined
+            ? prompt
+            : await this.#prepareSkillInvocation(state, invocation);
+        return this.#sendNow(state, turnPrompt, "user", turn);
+      },
+      turn,
+    );
   }
 
   public invokeManagedAgentSkill(
@@ -1828,12 +2360,21 @@ export class CopilotAgentService implements AgentService {
     invocation: string | SkillInvocation,
   ): Promise<string> {
     const state = this.#requireManagedState(instanceId);
-    return this.#serialize(state, async () =>
-      this.#sendNow(
-        state,
-        await this.#prepareSkillInvocation(state, invocation),
-        "user",
-      ),
+    const displayPrompt =
+      typeof invocation === "string"
+        ? invocation
+        : formatSkillInvocation(invocation);
+    const turn = this.#newTurn("skill", displayPrompt);
+    return this.#serialize(
+      state,
+      async () =>
+        this.#sendNow(
+          state,
+          await this.#prepareSkillInvocation(state, invocation),
+          "user",
+          turn,
+        ),
+      turn,
     );
   }
 
@@ -1864,16 +2405,46 @@ export class CopilotAgentService implements AgentService {
     return new Promise<string>((resolve, reject) => {
       const pending = state.pendingAutomatic.get(key);
       if (pending === undefined) {
+        const prompt = formatAutomaticSignalPrompt(
+          request,
+          this.options.signalContext,
+        );
+        const upstreamTraceId =
+          "traceId" in request.context &&
+          typeof request.context.traceId === "string"
+            ? request.context.traceId
+            : request.context.assignmentId;
+        const turn = this.#newTurn("output.automatic", prompt, {
+          traceId: upstreamTraceId,
+          occurrenceIds: [request.context.assignmentId],
+          deliveryIds: [request.deliveryId],
+        });
         state.pendingAutomatic.set(key, {
           request,
           deliveryIds: [request.deliveryId],
+          turn,
           waiters: [{ resolve, reject }],
         });
+        this.#recordRuntime(
+          state,
+          "agent.turn.queued",
+          {
+            origin: turn.origin,
+            prompt,
+            queueDepth: state.queuedTurns + 1,
+          },
+          { trace: turn.trace },
+        );
       } else {
         if (request.context.sequence >= pending.request.context.sequence) {
           pending.request = request;
+          pending.turn.prompt = formatAutomaticSignalPrompt(
+            request,
+            this.options.signalContext,
+          );
         }
         pending.deliveryIds.push(request.deliveryId);
+        pending.turn.trace.deliveryIds.push(request.deliveryId);
         pending.waiters.push({ resolve, reject });
       }
       if (!state.automaticDrainScheduled) {
@@ -1893,11 +2464,12 @@ export class CopilotAgentService implements AgentService {
                 }
                 const response = await this.#sendNow(
                   state,
-                  formatAutomaticSignalPrompt(
+                  (item.turn.prompt = formatAutomaticSignalPrompt(
                     item.request,
                     this.options.signalContext,
-                  ),
+                  )),
                   item.request.context.deliveryMode,
+                  item.turn,
                 );
                 await this.options.signalContext?.provider?.markDelivered(
                   state.signalTargetId,
@@ -1925,12 +2497,19 @@ export class CopilotAgentService implements AgentService {
         ),
       );
     }
-    return this.#serialize(state, () =>
-      this.#sendNow(
-        state,
-        formatAutomaticLiveEventPrompt(request, this.options.liveEventContext),
-        "automatic-action",
-      ),
+    const prompt = formatAutomaticLiveEventPrompt(
+      request,
+      this.options.liveEventContext,
+    );
+    const turn = this.#newTurn("live-event.automatic", prompt, {
+      traceId: request.occurrence.occurrenceId,
+      occurrenceIds: [request.occurrence.occurrenceId],
+      deliveryIds: [request.deliveryId],
+    });
+    return this.#serialize(
+      state,
+      () => this.#sendNow(state, prompt, "automatic-action", turn),
+      turn,
     );
   }
 }

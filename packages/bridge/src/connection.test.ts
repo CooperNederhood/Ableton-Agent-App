@@ -286,11 +286,13 @@ describe("Ableton bridge connection manager", () => {
   it("replays desired subscriptions after reconnect without emitting initial occurrences", async () => {
     const eventId = "live-event.00000000-0000-4000-8000-000000000123";
     const trackReference = "00000000-0000-4000-8000-000000000124";
+    let subscribeRequestCount = 0;
     const testServer = await startServer((request, socket) => {
       let result: unknown;
       if (request.command === "events.list_subscriptions") {
         result = { subscriptions: [] };
       } else if (request.command === "events.subscribe") {
+        subscribeRequestCount += 1;
         result = {
           eventId,
           kind: "track.playing_clip_changed",
@@ -313,16 +315,22 @@ describe("Ableton bridge connection manager", () => {
       } else {
         return;
       }
-      socket.write(
-        encodeFrame({
-          protocolVersion: PROTOCOL_VERSION,
-          kind: "response",
-          requestId: request.requestId,
-          ok: true,
-          result,
-          warnings: [],
-        }),
-      );
+      const response = encodeFrame({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "response",
+        requestId: request.requestId,
+        ok: true,
+        result,
+        warnings: [],
+      });
+      if (
+        request.command === "events.subscribe" &&
+        subscribeRequestCount === 2
+      ) {
+        setTimeout(() => socket.write(response), 25);
+      } else {
+        socket.write(response);
+      }
     });
     servers.push(testServer.server);
     const service = new AbletonBridgeService({
@@ -354,13 +362,9 @@ describe("Ableton bridge connection manager", () => {
       expectedName: "Drums",
     });
     testServer.sockets[0]?.destroy();
-    await waitFor(
-      () =>
-        testServer.requests.filter(
-          (request) => request.command === "events.subscribe",
-        ).length === 2,
-    );
+    await waitFor(() => reconciliations.length === 1);
 
+    expect(subscribeRequestCount).toBe(2);
     expect(liveEvents).toEqual([]);
     expect(reconciliations).toMatchObject([
       { reason: "reconnect", subscriptions: [{ eventId, status: "resolved" }] },

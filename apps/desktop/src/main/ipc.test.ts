@@ -220,4 +220,59 @@ describe("desktop IPC", () => {
     });
     expect(revealLog).toHaveBeenCalledTimes(1);
   });
+
+  it("routes bounded history queries and destructive controls", async () => {
+    const searchEventHistory = vi
+      .fn()
+      .mockResolvedValue({ version: 1, items: [] });
+    const getEventTrace = vi.fn().mockResolvedValue({
+      version: 1,
+      items: [],
+      nextCursor: "trace-next",
+    });
+    const deleteEventTrace = vi.fn().mockResolvedValue(3);
+    const clearEventHistory = vi.fn().mockResolvedValue({
+      deletedEvents: 4,
+      deletedConfigurationSnapshots: 2,
+    });
+    const handlers = createIpcHandlers(
+      {
+        searchEventHistory,
+        getEventTrace,
+        deleteEventTrace,
+        clearEventHistory,
+      } as unknown as DesktopService,
+      {} as DiagnosticsActions,
+    );
+    const traceId = "00000000-0000-4000-8000-000000000010";
+
+    await handlers["event-history:search"]({
+      sources: ["runtime"],
+      limit: 25,
+      order: "desc",
+    });
+    await expect(
+      handlers["event-history:delete-trace"]({ traceId }),
+    ).resolves.toEqual({ deletedEvents: 3 });
+    await handlers["event-history:trace"]({
+      traceId,
+      cursor: "cursor",
+      limit: 25,
+      order: "asc",
+    });
+    await handlers["event-history:clear"]({});
+
+    expect(searchEventHistory).toHaveBeenCalledWith({
+      sources: ["runtime"],
+      limit: 25,
+      order: "desc",
+    });
+    expect(deleteEventTrace).toHaveBeenCalledWith(traceId);
+    expect(getEventTrace).toHaveBeenCalledWith(traceId, {
+      cursor: "cursor",
+      limit: 25,
+      order: "asc",
+    });
+    expect(clearEventHistory).toHaveBeenCalledOnce();
+  });
 });

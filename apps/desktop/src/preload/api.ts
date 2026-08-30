@@ -189,5 +189,32 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
         return () => transport.removeListener(eventChannel, listener);
       },
     },
+    eventHistory: {
+      search: (query = {}) =>
+        invoke(
+          "event-history:search",
+          ipcSchemas["event-history:search"].request.parse(query),
+        ),
+      trace: (traceId, options = {}) =>
+        invoke(
+          "event-history:trace",
+          ipcSchemas["event-history:trace"].request.parse({
+            traceId,
+            ...options,
+          }),
+        ),
+      configurations: (query = {}) =>
+        invoke(
+          "event-history:configurations",
+          ipcSchemas["event-history:configurations"].request.parse(query),
+        ),
+      health: () => invoke("event-history:health", {}),
+      getRetention: () => invoke("event-history:get-retention", {}),
+      setRetention: (policy) => invoke("event-history:set-retention", policy),
+      prune: () => invoke("event-history:prune", {}),
+      deleteTrace: async (traceId) =>
+        (await invoke("event-history:delete-trace", { traceId })).deletedEvents,
+      clear: () => invoke("event-history:clear", {}),
+    },
   };
 }

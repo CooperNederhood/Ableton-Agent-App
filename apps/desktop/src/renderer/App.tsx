@@ -30,6 +30,10 @@ import type {
   DesktopLiveEventState,
   LatestAcceptedOutput,
   DesktopTrack,
+  ConfigurationSnapshotPage,
+  RootTracePage,
+  RootTraceQuery,
+  TelemetryEventPage,
   LiveEventDefinitionDraft,
   LiveEventSelection,
   PlanSection,
@@ -442,6 +446,29 @@ export async function loadLiveEvents(
   }
 }
 
+export async function loadEventHistory(
+  dispatch: DesktopDispatch,
+  request: DesktopApi["eventHistory"]["search"],
+  query: RootTraceQuery,
+  append = false,
+): Promise<boolean> {
+  dispatch({ type: "event-history-load-started", append });
+  try {
+    const page = await request(query);
+    dispatch({ type: "event-history-loaded", page, append });
+    return true;
+  } catch (error) {
+    dispatch({
+      type: "event-history-load-failed",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Detailed event history could not be loaded",
+    });
+    return false;
+  }
+}
+
 type DesktopDispatch = React.Dispatch<Parameters<typeof desktopReducer>[1]>;
 
 export async function sendComposerMessage(
@@ -804,6 +831,37 @@ export function EventsView({
 }): React.JSX.Element {
   const [adding, setAdding] = useState(false);
   const groups = groupEventsByTrack(state.events.events, state.snapshot);
+  const historyMode = state.preferences.eventsViewMode === "history";
+
+  const setMode = (eventsViewMode: "live" | "history"): void => {
+    if (eventsViewMode === state.preferences.eventsViewMode) return;
+    const next = { ...state.preferences, eventsViewMode };
+    dispatch({
+      type: "event",
+      event: { type: "preferences.changed", preferences: next },
+    });
+    void window.desktop.preferences
+      .set(next)
+      .then((preferences) =>
+        dispatch({
+          type: "event",
+          event: { type: "preferences.changed", preferences },
+        }),
+      )
+      .catch((error: unknown) =>
+        eventError(dispatch, error, "View mode not saved"),
+      );
+  };
+
+  if (historyMode) {
+    return (
+      <section className="events-view" aria-labelledby="events-heading">
+        <EventsModeHeading mode="history" onChange={setMode} />
+        <EventHistoryView state={state} dispatch={dispatch} />
+      </section>
+    );
+  }
+
   return (
     <section className="events-view" aria-labelledby="events-heading">
       <div className="panel-heading">
@@ -813,6 +871,7 @@ export function EventsView({
             Watch bounded Ableton state changes without adding a Max for Live
             device.
           </p>
+          <EventsModeTabs mode="live" onChange={setMode} />
         </div>
         <button
           type="button"
@@ -896,6 +955,572 @@ export function EventsView({
       )}
     </section>
   );
+}
+
+function EventsModeHeading({
+  mode,
+  onChange,
+}: {
+  mode: "live" | "history";
+  onChange: (mode: "live" | "history") => void;
+}): React.JSX.Element {
+  return (
+    <div className="panel-heading">
+      <div>
+        <h2 id="events-heading">Events</h2>
+        <p>Inspect live definitions or detailed local execution history.</p>
+        <EventsModeTabs mode={mode} onChange={onChange} />
+      </div>
+    </div>
+  );
+}
+
+function EventsModeTabs({
+  mode,
+  onChange,
+}: {
+  mode: "live" | "history";
+  onChange: (mode: "live" | "history") => void;
+}): React.JSX.Element {
+  return (
+    <div className="events-mode-tabs" role="tablist" aria-label="Events mode">
+      {(["live", "history"] as const).map((value) => (
+        <button
+          key={value}
+          type="button"
+          role="tab"
+          aria-selected={mode === value}
+          className={mode === value ? "selected" : ""}
+          onClick={() => onChange(value)}
+        >
+          {value === "live" ? "Live Events" : "History"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+type JournalEvent = TelemetryEventPage["items"][number];
+type ConfigurationSnapshot = ConfigurationSnapshotPage["items"][number];
+type RootTrace = RootTracePage["items"][number];
+
+function attributeText(
+  event: JournalEvent,
+  ...keys: string[]
+): string | undefined {
+  for (const key of keys) {
+    const value = event.attributes[key];
+    if (typeof value === "string") return value;
+  }
+  return undefined;
+}
+
+function eventHistoryQuery(
+  filters: {
+    names: string;
+    sources: string;
+    level: string;
+    outcome: string;
+    from: string;
+    to: string;
+  },
+  cursor?: string,
+): RootTraceQuery {
+  const split = (value: string): string[] | undefined => {
+    const values = value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    return values.length === 0 ? undefined : [...new Set(values)];
+  };
+  return {
+    limit: 100,
+    order: "desc",
+    ...(split(filters.names) === undefined
+      ? {}
+      : { names: split(filters.names) }),
+    ...(split(filters.sources) === undefined
+      ? {}
+      : { sources: split(filters.sources) }),
+    ...(filters.level === ""
+      ? {}
+      : { levels: [filters.level as "debug" | "info" | "warn" | "error"] }),
+    ...(filters.outcome === ""
+      ? {}
+      : {
+          outcomes: [
+            filters.outcome as "success" | "failure" | "cancelled" | "unknown",
+          ],
+        }),
+    ...(filters.from === ""
+      ? {}
+      : { from: new Date(filters.from).toISOString() }),
+    ...(filters.to === "" ? {} : { to: new Date(filters.to).toISOString() }),
+    ...(cursor === undefined ? {} : { cursor }),
+  };
+}
+
+export function EventHistoryView({
+  state,
+  dispatch,
+}: {
+  state: DesktopState;
+  dispatch: DesktopDispatch;
+}): React.JSX.Element {
+  const [filters, setFilters] = useState({
+    names: "",
+    sources: "",
+    level: "",
+    outcome: "",
+    from: "",
+    to: "",
+  });
+  const refresh = (): void => {
+    let query: RootTraceQuery;
+    try {
+      query = eventHistoryQuery(filters);
+    } catch {
+      dispatch({
+        type: "event-history-load-failed",
+        message: "History dates must be valid.",
+      });
+      return;
+    }
+    void loadEventHistory(
+      dispatch,
+      (value) => window.desktop.eventHistory.search(value),
+      query,
+    );
+    void Promise.all([
+      window.desktop.eventHistory.configurations({ limit: 100, order: "desc" }),
+      window.desktop.eventHistory.health(),
+    ])
+      .then(([page, health]) => {
+        dispatch({ type: "event-history-configurations-loaded", page });
+        dispatch({ type: "event-history-health-loaded", health });
+      })
+      .catch((error: unknown) =>
+        eventError(dispatch, error, "History metadata could not be loaded"),
+      );
+  };
+
+  useEffect(() => {
+    if (state.preferences.eventsViewMode === "history") refresh();
+  }, [state.preferences.eventsViewMode]);
+
+  const selectTrace = (trace: RootTrace): void => {
+    const traceId = trace.rootTraceId;
+    dispatch({
+      type: "event-history-select-trace",
+      traceId,
+    });
+    void window.desktop.eventHistory
+      .trace(traceId, { limit: 100, order: "asc" })
+      .then((page) =>
+        dispatch({
+          type: "event-history-trace-loaded",
+          traceId,
+          page,
+          append: false,
+        }),
+      )
+      .catch((error: unknown) =>
+        eventError(dispatch, error, "Trace detail could not be loaded"),
+      );
+  };
+
+  return (
+    <div className="event-history-layout">
+      <form
+        className="history-filters"
+        onSubmit={(event) => {
+          event.preventDefault();
+          refresh();
+        }}
+      >
+        <label>
+          Event names
+          <input
+            value={filters.names}
+            placeholder="agent.turn, tool.completed"
+            onChange={(event) =>
+              setFilters({ ...filters, names: event.target.value })
+            }
+          />
+        </label>
+        <label>
+          Sources
+          <input
+            value={filters.sources}
+            placeholder="runtime, desktop"
+            onChange={(event) =>
+              setFilters({ ...filters, sources: event.target.value })
+            }
+          />
+        </label>
+        <label>
+          Level
+          <select
+            value={filters.level}
+            onChange={(event) =>
+              setFilters({ ...filters, level: event.target.value })
+            }
+          >
+            <option value="">All</option>
+            <option value="debug">Debug</option>
+            <option value="info">Info</option>
+            <option value="warn">Warning</option>
+            <option value="error">Error</option>
+          </select>
+        </label>
+        <label>
+          Outcome
+          <select
+            value={filters.outcome}
+            onChange={(event) =>
+              setFilters({ ...filters, outcome: event.target.value })
+            }
+          >
+            <option value="">All</option>
+            <option value="success">Success</option>
+            <option value="failure">Failure</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="unknown">Unknown</option>
+          </select>
+        </label>
+        <label>
+          From
+          <input
+            type="datetime-local"
+            value={filters.from}
+            onChange={(event) =>
+              setFilters({ ...filters, from: event.target.value })
+            }
+          />
+        </label>
+        <label>
+          To
+          <input
+            type="datetime-local"
+            value={filters.to}
+            onChange={(event) =>
+              setFilters({ ...filters, to: event.target.value })
+            }
+          />
+        </label>
+        <button type="submit">Apply filters</button>
+      </form>
+      {state.eventHistory.health && (
+        <p className="history-health">
+          Journal {state.eventHistory.health.status} ·{" "}
+          {state.eventHistory.health.persistedEvents} events ·{" "}
+          {formatBytes(state.eventHistory.health.databaseBytes)}
+        </p>
+      )}
+      {state.eventHistory.status === "failed" ? (
+        <div role="alert" className="event-load-error">
+          {state.eventHistory.message}
+        </div>
+      ) : state.eventHistory.status === "loading" &&
+        state.eventHistory.items.length === 0 ? (
+        <PresentationState
+          title="Loading event history…"
+          detail="Querying the local journal."
+        />
+      ) : state.eventHistory.items.length === 0 ? (
+        <EmptyState
+          title="No detailed history"
+          detail="Local detailed history is enabled by default. New instrumented events will appear here."
+        />
+      ) : (
+        <div className="history-workspace">
+          <div className="history-root-list" aria-label="Root occurrences">
+            {state.eventHistory.items.map((trace) => (
+              <button
+                type="button"
+                className={
+                  state.eventHistory.selectedTraceId === trace.rootTraceId
+                    ? "history-root selected"
+                    : "history-root"
+                }
+                key={trace.rootTraceId}
+                onClick={() => selectTrace(trace)}
+              >
+                <strong>{trace.firstEventName}</strong>
+                <span>
+                  {trace.eventCount}{" "}
+                  {trace.eventCount === 1 ? "event" : "events"}
+                  {trace.hasErrors ? " · errors" : ""}
+                </span>
+                <time>{new Date(trace.firstOccurredAt).toLocaleString()}</time>
+              </button>
+            ))}
+            {state.eventHistory.nextCursor && (
+              <button
+                type="button"
+                onClick={() =>
+                  void loadEventHistory(
+                    dispatch,
+                    (value) => window.desktop.eventHistory.search(value),
+                    eventHistoryQuery(filters, state.eventHistory.nextCursor),
+                    true,
+                  )
+                }
+              >
+                Load more
+              </button>
+            )}
+          </div>
+          <EventTraceInspector
+            state={state}
+            events={state.eventHistory.trace}
+            configurations={state.eventHistory.configurations}
+            traceId={state.eventHistory.selectedTraceId}
+            traceNextCursor={state.eventHistory.traceNextCursor}
+            traceTotalEvents={state.eventHistory.traceTotalEvents}
+            onLoadMore={(traceId, cursor) => {
+              void window.desktop.eventHistory
+                .trace(traceId, {
+                  cursor,
+                  limit: 100,
+                  order: "asc",
+                })
+                .then((page) =>
+                  dispatch({
+                    type: "event-history-trace-loaded",
+                    traceId,
+                    page,
+                    append: true,
+                  }),
+                )
+                .catch((error: unknown) =>
+                  eventError(
+                    dispatch,
+                    error,
+                    "More trace detail could not be loaded",
+                  ),
+                );
+            }}
+            onDelete={(traceId) => {
+              if (!window.confirm("Delete this trace from local history?"))
+                return;
+              void window.desktop.eventHistory
+                .deleteTrace(traceId)
+                .then(() => {
+                  dispatch({ type: "event-history-select-trace" });
+                  refresh();
+                })
+                .catch((error: unknown) =>
+                  eventError(dispatch, error, "Trace could not be deleted"),
+                );
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EventTraceInspector({
+  state,
+  events,
+  configurations,
+  traceId,
+  traceNextCursor,
+  traceTotalEvents,
+  onLoadMore,
+  onDelete,
+}: {
+  state: DesktopState;
+  events: JournalEvent[];
+  configurations: ConfigurationSnapshot[];
+  traceId?: string | undefined;
+  traceNextCursor?: string | undefined;
+  traceTotalEvents?: number | undefined;
+  onLoadMore: (traceId: string, cursor: string) => void;
+  onDelete: (traceId: string) => void;
+}): React.JSX.Element {
+  if (events.length === 0) {
+    return (
+      <aside className="trace-inspector">
+        <EmptyState
+          title="Select an occurrence"
+          detail="Trace stages, agent delivery lanes, and sanitized payloads appear here."
+        />
+      </aside>
+    );
+  }
+  const startedAt = Date.parse(events[0]?.occurredAt ?? "");
+  const lanes = new Map<string, JournalEvent[]>();
+  for (const event of events) {
+    const lane =
+      event.activeAgentId ??
+      attributeText(
+        event,
+        "agent_instance_id",
+        "agent_id",
+        "agent",
+        "agent_label",
+      ) ??
+      "System";
+    lanes.set(lane, [...(lanes.get(lane) ?? []), event]);
+  }
+  const agentEvents = events.filter(
+    (event) =>
+      event.name.includes("agent") ||
+      event.name.includes("message") ||
+      event.name.includes("tool"),
+  );
+  const activeAgentIds = new Set(
+    events
+      .map(
+        (event) =>
+          event.activeAgentId ??
+          attributeText(event, "agent_instance_id", "agent_id"),
+      )
+      .filter((value): value is string => value !== undefined),
+  );
+  const relevantConfigurations =
+    activeAgentIds.size === 0
+      ? configurations
+      : configurations.filter(
+          (snapshot) =>
+            snapshot.activeAgentId !== undefined &&
+            activeAgentIds.has(snapshot.activeAgentId),
+        );
+  const currentAgent = state.sessions
+    .flatMap((session) => session.activeAgents)
+    .find((agent) => activeAgentIds.has(agent.id));
+  const currentWorkspace =
+    currentAgent === undefined
+      ? undefined
+      : state.agentWorkspaces[currentAgent.id];
+  return (
+    <aside className="trace-inspector">
+      <div className="trace-inspector-heading">
+        <h3>Trace detail</h3>
+        {traceId && (
+          <button
+            type="button"
+            className="danger"
+            onClick={() => onDelete(traceId)}
+          >
+            Delete trace
+          </button>
+        )}
+      </div>
+      {traceTotalEvents !== undefined && (
+        <p className="muted">
+          Showing {events.length} of {traceTotalEvents} events
+        </p>
+      )}
+      <div className="latency-stages" aria-label="Latency stages">
+        {events.map((event) => (
+          <div className="latency-stage" key={event.id}>
+            <span>{event.name}</span>
+            <span>
+              +{Math.max(0, Date.parse(event.occurredAt) - startedAt)} ms
+              {event.durationMs === undefined
+                ? ""
+                : ` · ${event.durationMs} ms`}
+            </span>
+          </div>
+        ))}
+      </div>
+      {traceId && traceNextCursor && (
+        <button
+          type="button"
+          onClick={() => onLoadMore(traceId, traceNextCursor)}
+        >
+          Load more trace events
+        </button>
+      )}
+      <h3>Agent delivery lanes</h3>
+      {[...lanes].map(([lane, laneEvents]) => (
+        <section className="agent-lane" key={lane}>
+          <h4>{lane}</h4>
+          {laneEvents.map((event) => (
+            <details key={event.id}>
+              <summary>
+                {event.name} · {event.outcome ?? event.level}
+              </summary>
+              <pre>{JSON.stringify(event.attributes, undefined, 2)}</pre>
+            </details>
+          ))}
+        </section>
+      ))}
+      <h3>Agent inspector</h3>
+      {currentAgent && (
+        <section className="agent-current-config">
+          <h4>{currentAgent.label} · current effective configuration</h4>
+          <dl className="event-metadata">
+            <dt>Instructions</dt>
+            <dd>
+              <pre>{currentAgent.config.systemPrompt}</pre>
+            </dd>
+            <dt>Tools</dt>
+            <dd>{currentAgent.config.resolvedTools.join(", ") || "None"}</dd>
+            <dt>Messages</dt>
+            <dd>
+              <pre>
+                {JSON.stringify(currentWorkspace?.messages ?? [], undefined, 2)}
+              </pre>
+            </dd>
+            <dt>Tool activity</dt>
+            <dd>
+              <pre>
+                {JSON.stringify(
+                  currentWorkspace?.operations ?? [],
+                  undefined,
+                  2,
+                )}
+              </pre>
+            </dd>
+          </dl>
+        </section>
+      )}
+      {relevantConfigurations.length === 0 && agentEvents.length === 0 ? (
+        <p className="muted">
+          No agent configuration or activity was captured.
+        </p>
+      ) : (
+        <>
+          {relevantConfigurations.map((snapshot) => (
+            <details className="agent-config-snapshot" key={snapshot.id}>
+              <summary>
+                {snapshot.component} · configuration{" "}
+                {snapshot.configurationVersion}
+              </summary>
+              <h4>Effective instructions and tools</h4>
+              <pre>{JSON.stringify(snapshot.values, undefined, 2)}</pre>
+            </details>
+          ))}
+          {agentEvents.length > 0 && (
+            <details open>
+              <summary>Messages and tool activity</summary>
+              <pre>
+                {JSON.stringify(
+                  agentEvents.map(({ occurredAt, name, attributes }) => ({
+                    occurredAt,
+                    name,
+                    attributes,
+                  })),
+                  undefined,
+                  2,
+                )}
+              </pre>
+            </details>
+          )}
+        </>
+      )}
+    </aside>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 export function AddEventPanel({
@@ -3804,6 +4429,7 @@ export function SettingsView({
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
 }): React.JSX.Element {
   const [draft, setDraft] = useState(state.preferences);
+  const [historyAction, setHistoryAction] = useState("");
   const autoApprovalOverrideCount =
     activeSession(state)?.activeAgents.filter(({ autoApprove }) => autoApprove)
       .length ?? 0;
@@ -3938,16 +4564,99 @@ export function SettingsView({
             <option>debug</option>
           </select>
         </label>
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={draft.telemetryEnabled}
-            onChange={(event) =>
-              setDraft({ ...draft, telemetryEnabled: event.target.checked })
-            }
-          />{" "}
-          Anonymous operational telemetry
-        </label>
+        <fieldset className="history-settings">
+          <legend>Local detailed history</legend>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={draft.eventHistoryEnabled}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  eventHistoryEnabled: event.target.checked,
+                })
+              }
+            />{" "}
+            Store detailed event history on this device
+          </label>
+          <label>
+            Retention (days)
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={draft.eventHistoryRetentionDays}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  eventHistoryRetentionDays: Number(event.target.value),
+                })
+              }
+            />
+          </label>
+          <label>
+            Maximum database size (MiB)
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={Math.round(draft.eventHistoryMaxBytes / (1024 * 1024))}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  eventHistoryMaxBytes:
+                    Number(event.target.value) * 1024 * 1024,
+                })
+              }
+            />
+          </label>
+          <div className="history-data-actions">
+            <button
+              type="button"
+              onClick={() => {
+                setHistoryAction("Pruning…");
+                void window.desktop.eventHistory
+                  .prune()
+                  .then((result) =>
+                    setHistoryAction(
+                      `Removed ${result.deletedEvents} events and ${result.deletedConfigurationSnapshots} snapshots.`,
+                    ),
+                  )
+                  .catch((error: unknown) =>
+                    setHistoryAction(
+                      error instanceof Error ? error.message : "Prune failed",
+                    ),
+                  );
+              }}
+            >
+              Prune now
+            </button>
+            <button
+              type="button"
+              className="danger"
+              onClick={() => {
+                if (!window.confirm("Clear all local detailed history?"))
+                  return;
+                setHistoryAction("Clearing…");
+                void window.desktop.eventHistory
+                  .clear()
+                  .then((result) =>
+                    setHistoryAction(
+                      `Cleared ${result.deletedEvents} events and ${result.deletedConfigurationSnapshots} snapshots.`,
+                    ),
+                  )
+                  .catch((error: unknown) =>
+                    setHistoryAction(
+                      error instanceof Error ? error.message : "Clear failed",
+                    ),
+                  );
+              }}
+            >
+              Clear all history
+            </button>
+          </div>
+          {historyAction && <small role="status">{historyAction}</small>}
+        </fieldset>
         <button className="primary" type="submit">
           Save settings
         </button>

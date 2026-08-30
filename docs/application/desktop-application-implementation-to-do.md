@@ -74,6 +74,12 @@ presentation state and say so; they are not applied to Live.
   name-derived identity.
 - [x] Store secrets in OS-backed secure storage.
 - [x] Implement development and production logging locations.
+- [ ] Open the local event journal before agent sessions, capture default-on
+  sanitized records, and flush bounded batches during graceful shutdown.
+- [ ] Add typed journal query/detail, pause, clear, and per-session deletion IPC
+  and preload APIs without exposing SQL or filesystem access.
+- [ ] Surface journal health, retention truncation, capture-paused, and write
+  failure states without blocking core agent or Ableton behavior.
 
 ## Scoped automatic approval
 
@@ -92,6 +98,8 @@ presentation state and say so; they are not applied to Live.
 - [x] Unit-test preload request/response schemas.
 - [x] Unit-test Electron lifecycle adapters with mocked services.
 - [x] Integration-test main/preload/renderer event delivery.
+- [ ] Test journal startup/shutdown, typed query validation, redacted view
+  models, deletion controls, and non-blocking degraded behavior.
 - [x] Test that unapproved IPC channels and Node primitives are unavailable.
 - [x] Test the desktop adapter against the shared application with fake
   services (start, streaming, cancellation, approvals, sessions, snapshot

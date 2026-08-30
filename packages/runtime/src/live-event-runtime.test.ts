@@ -16,6 +16,10 @@ import type {
   SubscribeEventParams,
   SubscribeEventResult,
 } from "@ableton-agent/protocol";
+import {
+  telemetryEventEnvelopeSchema,
+  type TelemetryEventEnvelope,
+} from "@ableton-agent/observability";
 
 import {
   DefaultLiveEventRuntime,
@@ -320,6 +324,7 @@ class FakeBridge implements LiveEventBridge {
       event: "live_event.occurred",
       sequence: value.sequence,
       payload: value,
+      receivedAt: value.observedAt,
     });
   }
 }
@@ -351,6 +356,7 @@ describe("DefaultLiveEventRuntime", () => {
       bridge,
       historyLimit: 2,
     });
+
     runtime.setConfiguration(
       [definition()],
       [
@@ -398,6 +404,73 @@ describe("DefaultLiveEventRuntime", () => {
     expect(await runtime.getPendingLiveEventContexts("agent-two")).toHaveLength(
       3,
     );
+  });
+
+  it("traces an occurrence through history, fan-out, dispatch, and ack", async () => {
+    const bridge = new FakeBridge();
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const runtime = new DefaultLiveEventRuntime({
+      bridge,
+      telemetry: {
+        enqueue: (event) => {
+          telemetry.push(telemetryEventEnvelopeSchema.parse(event));
+        },
+      },
+    });
+    runtime.setConfiguration(
+      [definition()],
+      [binding("agent", listener(listenerOne, eventOne, "next-prompt"))],
+    );
+    runtime.setActiveAgentInstances(["agent"]);
+    await runtime.start();
+    const item = occurrence(
+      "00000000-0000-4000-8000-000000000121",
+      eventOne,
+      1,
+    );
+    bridge.emit(item);
+
+    const [pending] = await runtime.getPendingLiveEventContexts("agent");
+    expect(pending).toBeDefined();
+    await runtime.markLiveEventContextsDelivered("agent", [
+      pending!.deliveryId,
+    ]);
+
+    const history = telemetry.find(
+      ({ name }) => name === "live-event.history.recorded",
+    );
+    const dispatch = telemetry.find(
+      ({ name }) => name === "live-event.dispatch.requested",
+    );
+    const acknowledged = telemetry.find(
+      ({ name }) => name === "live-event.delivery.acknowledged",
+    );
+    expect(history).toMatchObject({
+      occurredAt: item.observedAt,
+      correlationId: item.occurrenceId,
+      projectId: "project",
+      liveEventId: item.eventId,
+      trace: { traceId: item.occurrenceId, spanId: item.occurrenceId },
+      attributes: { occurrenceId: item.occurrenceId, historySize: 1 },
+    });
+    expect(history?.durationMs).toBeGreaterThanOrEqual(0);
+    expect(dispatch?.trace).toMatchObject({
+      traceId: item.occurrenceId,
+      parentSpanId: item.occurrenceId,
+    });
+    expect(dispatch).toMatchObject({
+      correlationId: item.occurrenceId,
+      causationId: item.occurrenceId,
+      projectId: "project",
+      activeAgentId: "agent",
+      liveEventId: item.eventId,
+    });
+    expect(acknowledged?.trace?.spanId).toBe(dispatch?.trace?.spanId);
+    expect(
+      telemetry.some(
+        ({ name }) => name === "live-event.listener-fanout.completed",
+      ),
+    ).toBe(true);
   });
 
   it("keeps only latest continuous next-prompt context", async () => {
@@ -550,7 +623,15 @@ describe("DefaultLiveEventRuntime", () => {
 
   it("continues automatic delivery after one listener fails", async () => {
     const bridge = new FakeBridge();
-    const runtime = new DefaultLiveEventRuntime({ bridge });
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const runtime = new DefaultLiveEventRuntime({
+      bridge,
+      telemetry: {
+        enqueue: (event) => {
+          telemetry.push(telemetryEventEnvelopeSchema.parse(event));
+        },
+      },
+    });
     runtime.setConfiguration(
       [definition()],
       [binding("agent", listener(listenerOne, eventOne, "automatic"))],
@@ -572,6 +653,17 @@ describe("DefaultLiveEventRuntime", () => {
       occurrence("00000000-0000-4000-8000-000000000102", eventOne, 2),
     );
     await vi.waitFor(() => expect(delivered).toEqual([1, 2]));
+    expect(
+      telemetry.find(({ name }) => name === "live-event.delivery.failed"),
+    ).toMatchObject({ outcome: "failure", level: "error" });
+    const completed = telemetry.find(
+      ({ name }) => name === "live-event.delivery.completed",
+    );
+    const acknowledged = telemetry.find(
+      ({ name }) => name === "live-event.delivery.acknowledged",
+    );
+    expect(completed).toMatchObject({ outcome: "success" });
+    expect(acknowledged?.trace?.spanId).toBe(completed?.trace?.spanId);
   });
 
   it("deactivates the old subscription when an edited target is unresolved", async () => {

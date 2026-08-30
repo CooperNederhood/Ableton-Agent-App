@@ -110,6 +110,8 @@ presentation-only and report themselves as unsupported.
   Agent Skills.
 - [ ] Route Outputs independently to multiple active agents.
 - [ ] Implement Remote Script-owned Live Events and per-agent event listeners.
+- [ ] Implement the default-on local detailed event journal, 30-day/250 MiB
+  retention, correlated capture, and queryable Desktop History.
 - [ ] Implement deterministic compose, arrange, sound, and mix workflows.
 - [ ] Complete installation, Remote Script updates, diagnostics, logging, and
   privacy controls.
@@ -130,4 +132,7 @@ For every feature:
 - [ ] Postconditions are verified after mutation.
 - [ ] CLI output represents progress, success, and failure.
 - [ ] React can represent the same essential interaction.
+- [ ] New capabilities and asynchronous stages emit sanitized lifecycle events,
+  propagate trace/correlation IDs, remain visible in Desktop History, and have
+  observability tests.
 - [ ] User and developer documentation is updated.

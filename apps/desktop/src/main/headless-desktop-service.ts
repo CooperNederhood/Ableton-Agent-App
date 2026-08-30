@@ -35,7 +35,20 @@ import {
   type ConnectionStatus,
   type Logger,
 } from "@ableton-agent/shared";
-import { createAgentInstanceAssignmentId } from "@ableton-agent/signal-routing";
+import {
+  createAgentInstanceAssignmentId,
+  stableTelemetryId,
+} from "@ableton-agent/signal-routing";
+import {
+  type ConfigurationSnapshotPage,
+  type ConfigurationSnapshotQuery,
+  type JournalHealth,
+  type RetentionPolicy,
+  type RetentionResult,
+  type RootTracePage,
+  type RootTraceQuery,
+  type LocalObservabilityJournal,
+} from "@ableton-agent/observability";
 
 import {
   desktopActiveAgentSchema,
@@ -50,6 +63,7 @@ import {
   type DesktopLifecycleState,
   type DesktopAgentEventListener,
   type DesktopEventsState,
+  type EventTracePage,
   type DesktopOutputAssignment,
   type DesktopOutputConnection,
   type DesktopOutputsState,
@@ -131,7 +145,26 @@ export interface HeadlessDesktopServiceOptions {
   ) => void;
   logger?: Logger;
   projectIdentityPollIntervalMs?: number;
+  /** Main-process-owned journal. It is never exposed to the renderer. */
+  eventJournal?: DesktopEventJournal;
+  reconfigureEventJournal?: (policy: RetentionPolicy) => Promise<void>;
+  onEventHistoryEnabledChange?: (enabled: boolean) => void;
+  eventHistoryUnavailable?: boolean;
 }
+
+export type DesktopEventJournal = Pick<
+  LocalObservabilityJournal,
+  | "enqueue"
+  | "enqueueConfigurationSnapshot"
+  | "readRootTraces"
+  | "readTrace"
+  | "readConfigurationSnapshots"
+  | "getHealth"
+  | "runRetention"
+  | "deleteTrace"
+  | "clear"
+  | "shutdown"
+>;
 
 interface ActiveTurn {
   messageId: string;
@@ -178,7 +211,7 @@ export class HeadlessDesktopService implements DesktopService {
   #pinnedContext: ContextChip[] = [];
   #turn: ActiveTurn | undefined;
   readonly #managedTurns = new Map<string, ActiveTurn>();
-  readonly #streamMessageIds = new Map<string, string>();
+  readonly #automaticStreamMessageIds = new Map<string, string>();
   readonly #managedTurnCleanup = new Set<string>();
   #acceptingActions = false;
   #pendingActionableLifecycle:
@@ -194,6 +227,8 @@ export class HeadlessDesktopService implements DesktopService {
   #projectIdentityTimer: NodeJS.Timeout | undefined;
   #projectIdentityRefresh: Promise<void> | undefined;
   #transitionCommitting = false;
+  #eventJournal: DesktopEventJournal | undefined;
+  #eventJournalTransitionFailure: string | undefined;
 
   public constructor(private readonly options: HeadlessDesktopServiceOptions) {
     this.#application = options.application;
@@ -201,6 +236,7 @@ export class HeadlessDesktopService implements DesktopService {
     this.#signals = options.signals ?? new DefaultSignalRuntime({});
     this.#liveEvents = options.liveEvents;
     this.#logger = options.logger ?? noopLogger;
+    this.#eventJournal = options.eventJournal;
   }
 
   public async start(): Promise<void> {
@@ -230,6 +266,15 @@ export class HeadlessDesktopService implements DesktopService {
       (await this.options.agentCatalog?.refresh()) ??
       desktopAgentCatalogSchema.parse({});
     this.#preferences = await this.#loadPreferences();
+    if (this.options.eventHistoryUnavailable === true) {
+      this.#preferences = {
+        ...this.#preferences,
+        eventHistoryEnabled: false,
+      };
+    }
+    this.options.onEventHistoryEnabledChange?.(
+      this.#preferences.eventHistoryEnabled,
+    );
     this.#sessions = await this.#loadSessions();
     this.#sdkSessionIds.clear();
     for (const session of this.#sessions) {
@@ -266,6 +311,12 @@ export class HeadlessDesktopService implements DesktopService {
       });
     }
     await this.#restoreOrRegisterSession(await this.#readProjectIdentity());
+    const activeSession = this.#activeSession();
+    if (activeSession !== undefined) {
+      for (const instance of activeSession.activeAgents) {
+        await this.#recordAgentConfiguration(activeSession, instance);
+      }
+    }
     this.#bindActiveOutputAssignments();
     this.#acceptingActions = true;
     this.#publishPendingActionableLifecycle();
@@ -316,6 +367,8 @@ export class HeadlessDesktopService implements DesktopService {
     } catch (error) {
       this.#report("Shutdown reported failures", error);
     }
+    await this.#eventJournal?.shutdown();
+    this.#eventJournal = undefined;
     this.#unsubscribeApprovals?.();
     this.#unsubscribeApprovals = undefined;
     this.#unsubscribeShared?.();
@@ -325,6 +378,7 @@ export class HeadlessDesktopService implements DesktopService {
     this.#unsubscribeLiveEvents?.();
     this.#unsubscribeLiveEvents = undefined;
     this.#turn = undefined;
+    this.#automaticStreamMessageIds.clear();
     this.#activeProductionSessionId = undefined;
     this.#publishAutoApprovedAgentIds();
     this.#logger.info("Desktop service stopped", {
@@ -600,6 +654,10 @@ export class HeadlessDesktopService implements DesktopService {
             activeAgents: [...session.activeAgents, connected],
             selectedAgentInstanceId: connected.id,
           });
+          await this.#recordAgentConfiguration(
+            this.#requireExpectedActiveSession(productionSessionId),
+            connected,
+          );
           this.#bindActiveOutputAssignments();
           this.#publishAutoApprovedAgentIds();
           this.emit({
@@ -670,6 +728,7 @@ export class HeadlessDesktopService implements DesktopService {
       },
       async ({ session }, configured) => {
         await this.#replaceAgent(session, configured);
+        await this.#recordAgentConfiguration(session, configured);
         this.emit({
           type: "agent.instance_changed",
           instance: configured,
@@ -706,6 +765,7 @@ export class HeadlessDesktopService implements DesktopService {
       },
       async ({ session }, reset) => {
         await this.#replaceAgent(session, reset);
+        await this.#recordAgentConfiguration(session, reset);
         this.#bindActiveOutputAssignments();
         this.emit({
           type: "agent.instance_changed",
@@ -1544,6 +1604,16 @@ export class HeadlessDesktopService implements DesktopService {
         : compatibility?.compatible === true
           ? `Live ${status.liveVersion} and Remote Script ${status.remoteScriptVersion} are supported`
           : compatibility?.message;
+    let journalHealth: JournalHealth | undefined;
+    let journalHealthFailure: string | undefined;
+    try {
+      journalHealth = await this.#eventJournal?.getHealth();
+    } catch (error) {
+      journalHealthFailure =
+        error instanceof Error ? error.message : String(error);
+    }
+    const journalFailure =
+      journalHealthFailure ?? this.#eventJournalTransitionFailure;
     return [
       {
         label: "Desktop security",
@@ -1602,6 +1672,27 @@ export class HeadlessDesktopService implements DesktopService {
               ? signalStatus.detail
               : "Signal ingress is stopped",
       },
+      {
+        label: "Event journal",
+        status:
+          journalFailure !== undefined && journalHealth === undefined
+            ? "fail"
+            : journalFailure !== undefined
+              ? "warn"
+              : journalHealth === undefined
+                ? "warn"
+                : journalHealth.status === "healthy"
+                  ? "pass"
+                  : journalHealth.status === "degraded"
+                    ? "warn"
+                    : "fail",
+        detail:
+          journalFailure !== undefined
+            ? `Detailed event history is degraded: ${journalFailure}`
+            : journalHealth === undefined
+              ? "Detailed event history is unavailable in this host"
+              : `${journalHealth.persistedEvents} events, ${journalHealth.persistedConfigurationSnapshots} agent snapshots, ${journalHealth.databaseBytes} bytes (${journalHealth.status})`,
+      },
       ...(this.options.startupNotices ?? []),
     ];
   }
@@ -1646,7 +1737,80 @@ export class HeadlessDesktopService implements DesktopService {
     const preferences = preferencesSchema.parse(value);
     const update = this.#preferenceSaveTail.then(async () => {
       const previous = this.#preferences;
+      const retentionChanged =
+        previous.eventHistoryRetentionDays !==
+          preferences.eventHistoryRetentionDays ||
+        previous.eventHistoryMaxBytes !== preferences.eventHistoryMaxBytes;
       await this.options.preferencesStore.save(preferences);
+      let transitionFailure: Error | undefined;
+      if (
+        retentionChanged &&
+        this.options.reconfigureEventJournal !== undefined
+      ) {
+        const requestedRetention = {
+          maxAgeDays: preferences.eventHistoryRetentionDays,
+          maxBytes: preferences.eventHistoryMaxBytes,
+        };
+        try {
+          await this.options.reconfigureEventJournal(requestedRetention);
+          this.#eventJournalTransitionFailure = undefined;
+        } catch (error) {
+          transitionFailure =
+            error instanceof Error ? error : new Error(String(error));
+          this.#eventJournalTransitionFailure =
+            error instanceof Error ? error.message : String(error);
+          this.#report(
+            "Event history retention could not be fully applied",
+            error,
+          );
+          let activeRetention: RetentionPolicy | undefined;
+          try {
+            activeRetention = (await this.#eventJournal?.getHealth())
+              ?.retention;
+          } catch {
+            // The stable host is terminally degraded; persist that history is off.
+          }
+          const requestedPolicyIsActive =
+            activeRetention?.maxAgeDays === requestedRetention.maxAgeDays &&
+            activeRetention.maxBytes === requestedRetention.maxBytes;
+          if (!requestedPolicyIsActive) {
+            const recoverablePreferences =
+              activeRetention === undefined
+                ? { ...previous, eventHistoryEnabled: false }
+                : {
+                    ...previous,
+                    eventHistoryRetentionDays: activeRetention.maxAgeDays,
+                    eventHistoryMaxBytes: activeRetention.maxBytes,
+                  };
+            try {
+              await this.options.preferencesStore.save(recoverablePreferences);
+            } catch (persistenceError) {
+              this.#preferences = recoverablePreferences;
+              this.options.onEventHistoryEnabledChange?.(
+                recoverablePreferences.eventHistoryEnabled,
+              );
+              throw new AggregateError(
+                [error, persistenceError],
+                "Event history policy failed and recoverable preferences could not be persisted",
+              );
+            }
+            this.#preferences = recoverablePreferences;
+            if (
+              previous.eventHistoryEnabled !==
+              recoverablePreferences.eventHistoryEnabled
+            ) {
+              this.options.onEventHistoryEnabledChange?.(
+                recoverablePreferences.eventHistoryEnabled,
+              );
+              this.emit({
+                type: "preferences.changed",
+                preferences: recoverablePreferences,
+              });
+            }
+            throw error;
+          }
+        }
+      }
       this.#preferences = preferences;
       this.emit({
         type: "preferences.changed",
@@ -1658,6 +1822,11 @@ export class HeadlessDesktopService implements DesktopService {
       if (previous.approvalPolicy !== preferences.approvalPolicy) {
         this.options.onApprovalPolicyChange?.(preferences.approvalPolicy);
       }
+      if (previous.eventHistoryEnabled !== preferences.eventHistoryEnabled) {
+        this.options.onEventHistoryEnabledChange?.(
+          preferences.eventHistoryEnabled,
+        );
+      }
       const restartRequired = (
         ["abletonPort", "signalPort", "model", "reasoning"] as const
       ).filter((key) => previous[key] !== preferences[key]);
@@ -1668,10 +1837,115 @@ export class HeadlessDesktopService implements DesktopService {
           message: `Saved. ${restartRequired.join(", ")} applies the next time the app starts, because the bridge and agent are composed at startup.`,
         });
       }
+      if (transitionFailure !== undefined) throw transitionFailure;
     });
     this.#preferenceSaveTail = update.catch(() => undefined);
     await update;
     return preferences;
+  }
+
+  public async searchEventHistory(
+    query: RootTraceQuery = {},
+  ): Promise<RootTracePage> {
+    return this.#requireEventJournal().readRootTraces(query);
+  }
+
+  public async getEventTrace(
+    traceId: string,
+    options: { cursor?: string; limit?: number; order?: "asc" | "desc" } = {},
+  ): Promise<EventTracePage> {
+    const page = await this.#requireEventJournal().readTrace(traceId, options);
+    if (page.trace === undefined) {
+      throw new Error("Event journal trace response is missing trace metadata");
+    }
+    return { ...page, trace: page.trace };
+  }
+
+  public async getAgentConfigurationSnapshots(
+    query: ConfigurationSnapshotQuery = {},
+  ): Promise<ConfigurationSnapshotPage> {
+    return this.#requireEventJournal().readConfigurationSnapshots(query);
+  }
+
+  public async getEventJournalHealth(): Promise<JournalHealth> {
+    return this.#requireEventJournal().getHealth();
+  }
+
+  public async getEventRetention(): Promise<RetentionPolicy> {
+    return (await this.#requireEventJournal().getHealth()).retention;
+  }
+
+  public async setEventRetention(
+    policy: RetentionPolicy,
+  ): Promise<RetentionPolicy> {
+    const parsed = preferencesSchema.parse({
+      ...this.#preferences,
+      eventHistoryRetentionDays: policy.maxAgeDays,
+      eventHistoryMaxBytes: policy.maxBytes,
+    });
+    await this.setPreferences(parsed);
+    return this.getEventRetention();
+  }
+
+  public pruneEventHistory(): Promise<RetentionResult> {
+    return this.#requireEventJournal().runRetention();
+  }
+
+  public deleteEventTrace(traceId: string): Promise<number> {
+    return this.#requireEventJournal().deleteTrace(traceId);
+  }
+
+  public clearEventHistory(): Promise<{
+    deletedEvents: number;
+    deletedConfigurationSnapshots: number;
+  }> {
+    return this.#requireEventJournal().clear();
+  }
+
+  #requireEventJournal(): DesktopEventJournal {
+    if (this.#eventJournal === undefined) {
+      throw new Error("Detailed event history is unavailable");
+    }
+    return this.#eventJournal;
+  }
+
+  async #recordAgentConfiguration(
+    session: DesktopSession,
+    instance: DesktopActiveAgent,
+  ): Promise<void> {
+    if (
+      !this.#preferences.eventHistoryEnabled ||
+      this.#eventJournal === undefined
+    ) {
+      return;
+    }
+    try {
+      await this.#eventJournal.enqueueConfigurationSnapshot({
+        version: 1,
+        id: randomUUID(),
+        capturedAt: new Date().toISOString(),
+        component: "active-agent",
+        configurationVersion: instance.definitionFingerprint,
+        sessionId: session.id,
+        activeAgentId: instance.id,
+        ...(session.projectId === undefined
+          ? {}
+          : { projectId: session.projectId }),
+        values: {
+          label: instance.label,
+          definition: instance.definitionName,
+          description: instance.config.description,
+          instructions: instance.config.systemPrompt,
+          tools: instance.config.tools,
+          resolved_tools: instance.config.resolvedTools,
+          edit_scope: instance.config.editScope,
+          skills: instance.config.skills,
+          input_channels: instance.config.inputChannels,
+        },
+      });
+    } catch (error) {
+      this.#report("Agent configuration snapshot could not be recorded", error);
+    }
   }
 
   public async setContext(context: ContextChip[]): Promise<void> {
@@ -1743,39 +2017,137 @@ export class HeadlessDesktopService implements DesktopService {
       this.#pendingActionableLifecycle = undefined;
       this.#lifecycle = event.state;
     }
-    const messageId =
-      event.type === "agent.message_delta" ||
-      event.type === "agent.message_complete"
-        ? this.#resolveStreamMessageId(event)
-        : undefined;
-    this.emit(normalizeSharedEvent(event, () => messageId ?? randomUUID()));
+    const normalized = normalizeSharedEvent(event, () =>
+      this.#messageIdForSharedEvent(event),
+    );
+    this.#recordApplicationEvent(event, normalized);
+    this.emit(normalized);
+    if (
+      event.type === "agent.message_complete" ||
+      event.type === "operation.failed"
+    ) {
+      this.#clearAutomaticStreamMessageId(event);
+    }
   }
 
-  #resolveStreamMessageId(
+  #messageIdForSharedEvent(event: AppEvent): string {
+    if (
+      event.type !== "agent.message_delta" &&
+      event.type !== "agent.message_complete"
+    ) {
+      return randomUUID();
+    }
+    const managedMessageId =
+      event.agentInstanceId === undefined
+        ? undefined
+        : this.#managedTurns.get(event.agentInstanceId)?.messageId;
+    if (managedMessageId !== undefined) return managedMessageId;
+    if (this.#turn !== undefined) return this.#turn.messageId;
+    const key = this.#automaticStreamKey(event);
+    const existing = this.#automaticStreamMessageIds.get(key);
+    if (existing !== undefined) return existing;
+    const messageId = randomUUID();
+    this.#automaticStreamMessageIds.set(key, messageId);
+    return messageId;
+  }
+
+  #clearAutomaticStreamMessageId(
     event: Extract<
       AppEvent,
-      { type: "agent.message_delta" | "agent.message_complete" }
+      { type: "agent.message_complete" | "operation.failed" }
     >,
-  ): string {
-    const streamKey =
-      event.agentInstanceId === undefined
-        ? event.sdkSessionId === undefined
-          ? "legacy"
-          : `session:${event.sdkSessionId}`
-        : `agent:${event.agentInstanceId}`;
-    const activeMessageId =
-      event.agentInstanceId === undefined
-        ? this.#turn?.messageId
-        : this.#managedTurns.get(event.agentInstanceId)?.messageId;
-    const messageId =
-      activeMessageId ?? this.#streamMessageIds.get(streamKey) ?? randomUUID();
-
-    if (event.type === "agent.message_complete") {
-      this.#streamMessageIds.delete(streamKey);
-    } else {
-      this.#streamMessageIds.set(streamKey, messageId);
+  ): void {
+    if (
+      event.agentInstanceId !== undefined &&
+      this.#managedTurns.has(event.agentInstanceId)
+    ) {
+      return;
     }
-    return messageId;
+    this.#automaticStreamMessageIds.delete(this.#automaticStreamKey(event));
+  }
+
+  #automaticStreamKey(event: {
+    agentInstanceId?: string | undefined;
+    sdkSessionId?: string | undefined;
+  }): string {
+    return JSON.stringify([
+      event.agentInstanceId ?? null,
+      event.sdkSessionId ?? null,
+    ]);
+  }
+
+  #recordApplicationEvent(event: AppEvent, normalized: DesktopAppEvent): void {
+    if (
+      !this.#preferences.eventHistoryEnabled ||
+      this.#eventJournal === undefined ||
+      (event.type !== "agent.message_delta" &&
+        event.type !== "agent.message_complete" &&
+        event.type !== "operation.started" &&
+        event.type !== "operation.completed" &&
+        event.type !== "operation.failed")
+    ) {
+      return;
+    }
+    const correlationId =
+      "operationId" in event
+        ? event.operationId
+        : "messageId" in normalized
+          ? normalized.messageId
+          : randomUUID();
+    const toolName = "toolName" in event ? event.toolName : undefined;
+    const attributes =
+      event.type === "agent.message_delta" ||
+      event.type === "agent.message_complete"
+        ? { content: event.content.slice(0, 2_048) }
+        : event.type === "operation.started"
+          ? {
+              operation_id: event.operationId,
+              label: event.label.slice(0, 2_048),
+              status: "running",
+            }
+          : event.type === "operation.completed"
+            ? {
+                operation_id: event.operationId,
+                summary: event.summary.slice(0, 2_048),
+                status: "completed",
+              }
+            : {
+                operation_id: event.operationId,
+                error_code: event.code.slice(0, 2_048),
+                error_message: event.message.slice(0, 2_048),
+                status: "failed",
+              };
+    void this.#eventJournal
+      .enqueue({
+        version: 1,
+        id: randomUUID(),
+        occurredAt: new Date().toISOString(),
+        name: event.type,
+        category: event.type.startsWith("agent.") ? "agent" : "tool",
+        source: "desktop",
+        level: event.type === "operation.failed" ? "error" : "info",
+        ...(event.type === "operation.completed"
+          ? { outcome: "success" as const }
+          : event.type === "operation.failed"
+            ? { outcome: "failure" as const }
+            : {}),
+        correlationId,
+        ...(this.#activeProductionSessionId === undefined
+          ? {}
+          : { sessionId: this.#activeProductionSessionId }),
+        ...(event.agentInstanceId === undefined
+          ? {}
+          : { activeAgentId: event.agentInstanceId }),
+        ...(toolName === undefined ? {} : { toolName }),
+        trace: {
+          traceId: stableTelemetryId(correlationId),
+          spanId: randomUUID(),
+        },
+        attributes,
+      })
+      .catch((error: unknown) =>
+        this.#report("Application event could not be journaled", error),
+      );
   }
 
   #publishPendingActionableLifecycle(): void {

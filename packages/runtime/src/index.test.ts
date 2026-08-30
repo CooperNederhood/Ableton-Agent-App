@@ -1,6 +1,28 @@
+import { randomUUID } from "node:crypto";
+import { mkdir, rm } from "node:fs/promises";
+import { join } from "node:path";
+
 import { InMemoryEventPublisher } from "@ableton-agent/shared";
 import { describe, expect, it, vi } from "vitest";
-import type { AgentSessionConfiguration } from "@ableton-agent/application";
+import {
+  BASE_SYSTEM_MESSAGE,
+  type AgentSessionConfiguration,
+  type CopilotAgentServiceOptions,
+} from "@ableton-agent/application";
+import {
+  configurationSnapshotSchema,
+  LocalObservabilityJournal,
+  REDACTED_VALUE,
+  telemetryEventEnvelopeSchema,
+  type ConfigurationSnapshot,
+  type TelemetryEventEnvelope,
+} from "@ableton-agent/observability";
+import {
+  currentCorrelationContext,
+  withCorrelation,
+  type CorrelationTraceContext,
+} from "@ableton-agent/correlation";
+import { stableTelemetryId } from "@ableton-agent/signal-routing";
 
 import {
   createAbletonService,
@@ -13,6 +35,11 @@ import {
 } from "./index.js";
 
 const validToken = "a".repeat(32);
+type TestClient = ReturnType<
+  NonNullable<CopilotAgentServiceOptions["clientFactory"]>
+>;
+type TestSession = Awaited<ReturnType<TestClient["createSession"]>>;
+type TestSessionEvent = Parameters<Parameters<TestSession["on"]>[0]>[0];
 
 describe("runtime configuration", () => {
   it("defaults the bridge port and rejects invalid values", () => {
@@ -106,6 +133,375 @@ describe("agent runtime composition", () => {
       message: "no bridge in tests",
     });
     expect(runtime.events).toBe(events);
+  });
+
+  it("wires the non-blocking telemetry recorder into output routing", () => {
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const runtime = createAgentRuntime({
+      ableton: { port: 8765 },
+      telemetry: {
+        enqueue: (event) => {
+          telemetry.push(telemetryEventEnvelopeSchema.parse(event));
+        },
+        enqueueConfigurationSnapshot: () => undefined,
+      },
+    });
+
+    runtime.signals.upsertAssignment({
+      assignmentId: "composition-test",
+      producerId: "producer",
+      consumer: { kind: "agent-instance", id: "agent" },
+      deliveryMode: "next-prompt",
+      enabled: true,
+      usageInstruction: "Use this output.",
+      processingPolicyIds: [],
+    });
+
+    expect(telemetry).toContainEqual(
+      expect.objectContaining({
+        name: "output.assignment.configured",
+        source: "output-routing",
+      }),
+    );
+  });
+
+  it("maps exact agent runtime events to sanitized observability records", async () => {
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const snapshots: ConfigurationSnapshot[] = [];
+    const runtime = createAgentRuntime({
+      ableton: { port: 8765 },
+      agent: {
+        clientFactory: () => ({
+          createSession: () => Promise.resolve(fakeSession("sdk-session")),
+          resumeSession: () => Promise.reject(new Error("not expected")),
+          stop: () => Promise.resolve([]),
+        }),
+      },
+      telemetry: {
+        enqueue: (event) => {
+          telemetry.push(event);
+        },
+        enqueueConfigurationSnapshot: (snapshot) => {
+          snapshots.push(snapshot);
+        },
+      },
+    });
+
+    await runtime.application.start();
+    const credential = ["top", "secret", "token"].join("-");
+    await runtime.application.send(
+      `Preserve this exact user request. ${["Bearer", credential].join(" ")}`,
+    );
+
+    expect(
+      telemetry.some(
+        ({ name, source }) =>
+          name === "agent.turn.completed" && source === "agent-runtime",
+      ),
+    ).toBe(true);
+    telemetry.forEach((event) => telemetryEventEnvelopeSchema.parse(event));
+    snapshots.forEach((snapshot) =>
+      configurationSnapshotSchema.parse(snapshot),
+    );
+    const serializedTelemetry = JSON.stringify(telemetry);
+    expect(serializedTelemetry).toContain("Preserve this exact user request.");
+    expect(serializedTelemetry).toContain('"response":"done"');
+    expect(serializedTelemetry).toContain(REDACTED_VALUE);
+    expect(serializedTelemetry).not.toContain(credential);
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]?.component).toBe("agent-runtime");
+    expect(snapshots[0]?.configurationVersion).toBe("runtime-observer-v1");
+    expect(snapshots[0]?.sessionId).toBe("sdk-session");
+    expect(snapshots[0]?.projectId).toBeUndefined();
+    const configurationData = snapshots[0]?.values.data as
+      Readonly<Record<string, unknown>> | undefined;
+    const sdkSystemMessage = configurationData?.sdkSystemMessage as
+      Readonly<Record<string, unknown>> | undefined;
+    expect(sdkSystemMessage?.content).toBe(BASE_SYSTEM_MESSAGE);
+    expect(configurationData?.customAgentPrompt).toBe(
+      "Follow the session system message exactly and use the available Ableton tools to help the user.",
+    );
+    expect(configurationData?.skills).toEqual([]);
+    const configuredTools = configurationData?.tools as
+      ReadonlyArray<Readonly<Record<string, unknown>>> | undefined;
+    expect(configuredTools?.length).toBeGreaterThan(0);
+    expect(typeof configuredTools?.[0]?.name).toBe("string");
+    expect(typeof configuredTools?.[0]?.description).toBe("string");
+    expect(typeof configuredTools?.[0]?.parameterSchema).toBe("object");
+    expect(typeof configuredTools?.[0]?.available).toBe("boolean");
+    expect(JSON.stringify(snapshots)).not.toContain(credential);
+    await runtime.application.stop();
+  });
+
+  it("links a Live delivery through distinct turn and tool lifecycle spans", async () => {
+    const telemetry: TelemetryEventEnvelope[] = [];
+    let listener: ((event: TestSessionEvent) => void) | undefined;
+    let invocationContext: CorrelationTraceContext | undefined;
+    const session = {
+      sessionId: "sdk-session",
+      sendAndWait: async () => {
+        listener?.({
+          type: "tool.execution_start",
+          id: "tool-start",
+          parentId: null,
+          timestamp: "2026-08-29T18:00:02.000Z",
+          data: {
+            toolCallId: "tool-call-1",
+            toolName: "ableton_connection_status",
+          },
+        });
+        invocationContext = withCorrelation("tool-call-1", () =>
+          currentCorrelationContext(),
+        );
+        listener?.({
+          type: "tool.execution_complete",
+          id: "tool-complete",
+          parentId: null,
+          timestamp: "2026-08-29T18:00:03.000Z",
+          data: { toolCallId: "tool-call-1", success: true },
+        });
+        return { data: { content: "done" } };
+      },
+      abort: () => Promise.resolve(),
+      disconnect: () => Promise.resolve(),
+      on: (next: (event: TestSessionEvent) => void) => {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+    } satisfies TestSession;
+    const runtime = createAgentRuntime({
+      ableton: { port: 8765 },
+      agent: {
+        clientFactory: () => ({
+          createSession: () => Promise.resolve(session),
+          resumeSession: () => Promise.reject(new Error("not expected")),
+          stop: () => Promise.resolve([]),
+        }),
+      },
+      telemetry: {
+        enqueue: (event) => telemetry.push(event),
+        enqueueConfigurationSnapshot: () => undefined,
+      },
+    });
+    const occurrenceId = "00000000-0000-4000-8000-000000000003";
+    const eventId = "live-event.00000000-0000-4000-8000-000000000001";
+    const deliveryId = "live-delivery-1";
+
+    await runtime.application.start();
+    const enqueueLiveEventTurn = runtime.agent.enqueueLiveEventTurn;
+    if (enqueueLiveEventTurn === undefined) {
+      throw new Error("Live Event turn delivery is unavailable");
+    }
+    await enqueueLiveEventTurn.call(runtime.agent, {
+      deliveryId,
+      agentInstanceId: "sdk-session",
+      listener: {
+        id: "event-listener.00000000-0000-4000-8000-000000000001",
+        eventId,
+        enabled: true,
+        responseMode: "automatic",
+        messagePrefix: "Inspect this event.",
+      },
+      occurrence: {
+        occurrenceId,
+        eventId,
+        kind: "track.playing_clip_changed",
+        sequence: 3,
+        observedAt: "2026-08-29T18:00:01.000Z",
+        target: {
+          trackReference: "00000000-0000-4000-8000-000000000002",
+          track: { name: "Keys" },
+        },
+        summary: "Keys started clip 1.",
+        current: { state: "session-clip", slotIndex: 0 },
+      },
+    });
+
+    const turnStarted = telemetry.find(
+      ({ name }) => name === "agent.turn.started",
+    );
+    const turnCompleted = telemetry.find(
+      ({ name }) => name === "agent.turn.completed",
+    );
+    const toolStarted = telemetry.find(
+      ({ name }) => name === "agent.tool.started",
+    );
+    const toolCompleted = telemetry.find(
+      ({ name }) => name === "agent.tool.completed",
+    );
+    expect(turnStarted).toMatchObject({
+      correlationId: occurrenceId,
+      causationId: deliveryId,
+      trace: {
+        traceId: occurrenceId,
+        parentSpanId: stableTelemetryId(deliveryId),
+      },
+    });
+    expect(turnCompleted?.trace?.spanId).toBe(turnStarted?.trace?.spanId);
+    expect(toolStarted).toMatchObject({
+      correlationId: "tool-call-1",
+      toolName: "ableton_connection_status",
+      trace: {
+        traceId: occurrenceId,
+        parentSpanId: turnStarted?.trace?.spanId,
+      },
+    });
+    expect(typeof toolStarted?.causationId).toBe("string");
+    expect(toolCompleted?.trace?.spanId).toBe(toolStarted?.trace?.spanId);
+    expect(toolCompleted?.toolName).toBe("ableton_connection_status");
+    expect(invocationContext).toMatchObject({
+      correlationId: "tool-call-1",
+      traceId: occurrenceId,
+      parentSpanId: toolStarted?.trace?.spanId,
+      toolName: "ableton_connection_status",
+    });
+    telemetry.forEach((event) => telemetryEventEnvelopeSchema.parse(event));
+    await runtime.application.stop();
+  });
+
+  it("preserves an Output ingress trace on the dispatched agent turn", async () => {
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const runtime = createAgentRuntime({
+      ableton: { port: 8765 },
+      agent: {
+        clientFactory: () => ({
+          createSession: () => Promise.resolve(fakeSession("sdk-session")),
+          resumeSession: () => Promise.reject(new Error("not expected")),
+          stop: () => Promise.resolve([]),
+        }),
+      },
+      telemetry: {
+        enqueue: (event) => telemetry.push(event),
+        enqueueConfigurationSnapshot: () => undefined,
+      },
+    });
+    const traceId = "00000000-0000-4000-8000-000000000010";
+
+    await runtime.application.start();
+    const enqueueSignalTurn = runtime.agent.enqueueSignalTurn;
+    if (enqueueSignalTurn === undefined) {
+      throw new Error("Output turn delivery is unavailable");
+    }
+    await enqueueSignalTurn.call(runtime.agent, {
+      deliveryId: "output-delivery-1",
+      context: {
+        assignmentId: "assignment-1",
+        producerId: "producer-1",
+        consumer: { kind: "agent-instance", id: "sdk-session" },
+        deliveryMode: "automatic-action",
+        sequence: 1,
+        capturedAt: 1_750_000_000_000,
+        sourceIdentity: "Producer",
+        content: "Kick on beat one",
+        traceId,
+      },
+      usageInstruction: "Apply the observation.",
+    });
+
+    const turnStarted = telemetry.find(
+      ({ name }) => name === "agent.turn.started",
+    );
+    const turnCompleted = telemetry.find(
+      ({ name }) => name === "agent.turn.completed",
+    );
+    expect(turnStarted).toMatchObject({
+      correlationId: "assignment-1",
+      causationId: "output-delivery-1",
+      outputId: "assignment-1",
+      trace: {
+        traceId,
+        parentSpanId: stableTelemetryId("output-delivery-1"),
+      },
+    });
+    expect(turnCompleted?.trace?.spanId).toBe(turnStarted?.trace?.spanId);
+    telemetry.forEach((event) => telemetryEventEnvelopeSchema.parse(event));
+    await runtime.application.stop();
+  });
+
+  it("indexes managed configuration snapshots for ownership lookup", async () => {
+    const snapshots: ConfigurationSnapshot[] = [];
+    const sessions = [fakeSession("session-1"), fakeSession("managed-sdk")];
+    const runtime = createAgentRuntime({
+      ableton: { port: 8765 },
+      abletonService: Object.assign(
+        new UnconfiguredAbletonService("no bridge in tests"),
+        { getCurrentProjectId: () => "project-a" },
+      ),
+      agent: {
+        clientFactory: () => ({
+          createSession: () =>
+            Promise.resolve(
+              sessions.shift() ?? fakeSession("unexpected-session"),
+            ),
+          resumeSession: () => Promise.reject(new Error("not expected")),
+          stop: () => Promise.resolve([]),
+        }),
+      },
+      telemetry: {
+        enqueue: () => undefined,
+        enqueueConfigurationSnapshot: (snapshot) => snapshots.push(snapshot),
+      },
+    });
+    const configuration: AgentSessionConfiguration = {
+      instanceId: "agent-a",
+      definitionName: "compose",
+      label: "Compose",
+      description: "Compose MIDI phrases.",
+      systemPrompt: "Compose MIDI phrases safely.",
+      resolvedTools: ["ableton_session_inspect"],
+      editScope: ["session"],
+      boundTracks: [],
+      skills: [],
+      availableSkills: [],
+    };
+
+    await runtime.application.start();
+    await runtime.application.createManagedAgent(configuration);
+    await runtime.application.stop();
+    const managedSnapshot = snapshots.find(
+      ({ sessionId, activeAgentId }) =>
+        sessionId === "managed-sdk" && activeAgentId === "agent-a",
+    );
+    expect(managedSnapshot).toMatchObject({
+      component: "agent-runtime",
+      projectId: "project-a",
+      sessionId: "managed-sdk",
+      activeAgentId: "agent-a",
+    });
+    expect(managedSnapshot?.values.data).toMatchObject({
+      customAgentPrompt: "Compose MIDI phrases safely.",
+    });
+
+    const directory = join(
+      process.cwd(),
+      "packages/runtime/.test-artifacts",
+      `snapshot-ownership-${randomUUID()}`,
+    );
+    await mkdir(directory, { recursive: true });
+    const journal = await LocalObservabilityJournal.open({
+      path: join(directory, "observability.sqlite"),
+    });
+    try {
+      for (const snapshot of snapshots) {
+        await journal.enqueueConfigurationSnapshot(snapshot);
+      }
+      const page = await journal.readConfigurationSnapshots({
+        projectId: "project-a",
+        sessionId: "managed-sdk",
+        activeAgentId: "agent-a",
+      });
+      expect(page.items).toHaveLength(1);
+      expect(page.items[0]).toMatchObject({
+        projectId: "project-a",
+        sessionId: "managed-sdk",
+        activeAgentId: "agent-a",
+      });
+    } finally {
+      await journal.close();
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });
 

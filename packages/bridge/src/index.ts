@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
 
 import type { AbletonService } from "@ableton-agent/ableton-contracts";
@@ -181,8 +181,41 @@ import {
   type ClearEventSubscriptionsResult,
   type EventSubscriptionDescriptor,
 } from "@ableton-agent/protocol";
-import { currentCorrelationId } from "@ableton-agent/correlation";
+import {
+  currentCorrelationContext,
+  currentCorrelationId,
+} from "@ableton-agent/correlation";
+import type {
+  NonBlockingObservabilityRecorder,
+  SanitizedAttributes,
+  TelemetryEventEnvelope,
+  TraceContext,
+} from "@ableton-agent/observability";
 import type { ConnectionStatus, EventPublisher } from "@ableton-agent/shared";
+
+function stableTelemetryId(value: string): string {
+  const hex = createHash("sha256").update(value).digest("hex").slice(0, 32);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20)}`;
+}
+
+interface BridgeTelemetryInput {
+  readonly name: string;
+  readonly source: string;
+  readonly level?: TelemetryEventEnvelope["level"];
+  readonly outcome?: TelemetryEventEnvelope["outcome"];
+  readonly durationMs?: number;
+  readonly correlationId?: string;
+  readonly causationId?: string;
+  readonly projectId?: string;
+  readonly sessionId?: string;
+  readonly activeAgentId?: string;
+  readonly liveEventId?: string;
+  readonly outputId?: string;
+  readonly toolName?: string;
+  readonly trace?: TraceContext;
+  readonly attributes?: SanitizedAttributes;
+  readonly occurredAt?: string;
+}
 
 export interface AbletonBridgeOptions {
   authenticationToken: string;
@@ -194,17 +227,21 @@ export interface AbletonBridgeOptions {
   eventSubscriptions?: readonly string[];
   reconnect?: Partial<ReconnectPolicy>;
   random?: () => number;
+  now?: () => Date;
+  telemetry?: Pick<NonBlockingObservabilityRecorder, "enqueue">;
   onRequest?: (request: {
     requestId: string;
     correlationId?: string;
     command: string;
     params: Readonly<Record<string, unknown>>;
+    requestedAt: string;
   }) => void;
   onResponse?: (response: {
     requestId: string;
     correlationId?: string;
     command: string;
     durationMs: number;
+    receivedAt: string;
     ok: boolean;
     result?: unknown;
     error?: {
@@ -227,6 +264,7 @@ export interface AbletonBridgeEvent {
   readonly event: string;
   readonly sequence: number;
   readonly payload: unknown;
+  readonly receivedAt: string;
   readonly projectRevision?: number;
 }
 
@@ -235,12 +273,14 @@ export type AbletonLiveEvent =
       readonly event: "live_event.occurred";
       readonly sequence: number;
       readonly payload: LiveEventOccurrencePayload;
+      readonly receivedAt: string;
       readonly projectRevision?: number;
     }
   | {
       readonly event: "live_event.invalidated";
       readonly sequence: number;
       readonly payload: LiveEventInvalidationPayload;
+      readonly receivedAt: string;
       readonly projectRevision?: number;
     };
 
@@ -493,6 +533,11 @@ export class AbletonBridgeService implements AbletonService {
     return this.#status;
   }
 
+  /** Returns only the identity already learned during the current handshake. */
+  public getCurrentProjectId(): string | undefined {
+    return this.#capabilities?.projectId;
+  }
+
   public async getCapabilities(): Promise<CapabilityDocument> {
     if (!this.#capabilities) {
       throw new AbletonBridgeError(
@@ -570,6 +615,14 @@ export class AbletonBridgeService implements AbletonService {
   public async reconcileLiveEventSubscriptions(): Promise<
     readonly LiveEventSubscriptionStatus[]
   > {
+    const startedAt = this.#now().getTime();
+    this.#record({
+      name: "live-event.reconciliation.requested",
+      source: "live-event-bridge",
+      attributes: {
+        subscriptionCount: this.#desiredLiveEventSubscriptions.size,
+      },
+    });
     this.#requireCapability("events.list_subscriptions");
     const current = await this.listLiveEventSubscriptions();
     const remote = new Map(
@@ -592,7 +645,20 @@ export class AbletonBridgeService implements AbletonService {
       }
       await this.#requestLiveEventSubscription(params).catch(() => undefined);
     }
-    return this.getLiveEventSubscriptionStatuses();
+    const statuses = this.getLiveEventSubscriptionStatuses();
+    this.#record({
+      name: "live-event.reconciliation.completed",
+      source: "live-event-bridge",
+      outcome: "success",
+      durationMs: this.#now().getTime() - startedAt,
+      attributes: {
+        subscriptionCount: statuses.length,
+        unresolvedCount: statuses.filter(
+          ({ status }) => status === "unresolved",
+        ).length,
+      },
+    });
+    return statuses;
   }
 
   public async inspectSession(): Promise<SessionSnapshot> {
@@ -970,6 +1036,19 @@ export class AbletonBridgeService implements AbletonService {
   async #requestLiveEventSubscription(
     params: SubscribeEventParams,
   ): Promise<SubscribeEventResult> {
+    const startedAt = this.#now().getTime();
+    const traceId = stableTelemetryId(
+      `live-event-subscription:${params.eventId}`,
+    );
+    this.#record({
+      name: "live-event.subscription.requested",
+      source: "live-event-bridge",
+      correlationId: params.eventId,
+      projectId: params.projectId,
+      liveEventId: params.eventId,
+      trace: { traceId, spanId: traceId },
+      attributes: { eventId: params.eventId, eventKind: params.kind },
+    });
     try {
       const result = subscribeEventResultSchema.parse(
         await this.#request("events.subscribe", params),
@@ -980,6 +1059,21 @@ export class AbletonBridgeService implements AbletonService {
         status: "resolved",
         subscription,
         initialState,
+      });
+      this.#record({
+        name: "live-event.subscription.resolved",
+        source: "live-event-bridge",
+        correlationId: params.eventId,
+        projectId: params.projectId,
+        liveEventId: params.eventId,
+        outcome: "success",
+        durationMs: this.#now().getTime() - startedAt,
+        trace: {
+          traceId,
+          spanId: stableTelemetryId(`${traceId}:resolved`),
+          parentSpanId: traceId,
+        },
+        attributes: { eventId: params.eventId, eventKind: params.kind },
       });
       return result;
     } catch (error) {
@@ -1000,6 +1094,27 @@ export class AbletonBridgeService implements AbletonService {
           retryable: bridgeError.retryable,
         },
       });
+      this.#record({
+        name: "live-event.subscription.unresolved",
+        source: "live-event-bridge",
+        correlationId: params.eventId,
+        projectId: params.projectId,
+        liveEventId: params.eventId,
+        level: "warn",
+        outcome: "failure",
+        durationMs: this.#now().getTime() - startedAt,
+        trace: {
+          traceId,
+          spanId: stableTelemetryId(`${traceId}:unresolved`),
+          parentSpanId: traceId,
+        },
+        attributes: {
+          eventId: params.eventId,
+          eventKind: params.kind,
+          errorCode: bridgeError.code,
+          retryable: bridgeError.retryable,
+        },
+      });
       throw error;
     }
   }
@@ -1010,8 +1125,29 @@ export class AbletonBridgeService implements AbletonService {
     if (this.#desiredLiveEventSubscriptions.size === 0) {
       return this.getLiveEventSubscriptionStatuses();
     }
+    const startedAt = this.#now().getTime();
+    this.#record({
+      name: "live-event.subscription-replay.requested",
+      source: "live-event-bridge",
+      attributes: {
+        subscriptionCount: this.#desiredLiveEventSubscriptions.size,
+      },
+    });
     try {
-      return await this.reconcileLiveEventSubscriptions();
+      const statuses = await this.reconcileLiveEventSubscriptions();
+      this.#record({
+        name: "live-event.subscription-replay.completed",
+        source: "live-event-bridge",
+        outcome: "success",
+        durationMs: this.#now().getTime() - startedAt,
+        attributes: {
+          subscriptionCount: statuses.length,
+          unresolvedCount: statuses.filter(
+            ({ status }) => status === "unresolved",
+          ).length,
+        },
+      });
+      return statuses;
     } catch (error) {
       const bridgeError =
         error instanceof AbletonBridgeError
@@ -1032,7 +1168,20 @@ export class AbletonBridgeService implements AbletonService {
           },
         });
       }
-      return this.getLiveEventSubscriptionStatuses();
+      const statuses = this.getLiveEventSubscriptionStatuses();
+      this.#record({
+        name: "live-event.subscription-replay.failed",
+        source: "live-event-bridge",
+        level: "warn",
+        outcome: "failure",
+        durationMs: this.#now().getTime() - startedAt,
+        attributes: {
+          subscriptionCount: statuses.length,
+          errorCode: bridgeError.code,
+          retryable: bridgeError.retryable,
+        },
+      });
+      return statuses;
     }
   }
 
@@ -1115,13 +1264,66 @@ export class AbletonBridgeService implements AbletonService {
         ? {}
         : { projectRevision: this.#projectRevision }),
     };
-    const correlationId = currentCorrelationId();
-    const startedAt = Date.now();
+    const correlationContext = currentCorrelationContext();
+    const correlationId =
+      correlationContext?.correlationId ?? currentCorrelationId();
+    const projectId =
+      correlationContext?.projectId ?? this.#capabilities?.projectId;
+    const requestedAt = this.#now();
+    const startedAt = requestedAt.getTime();
+    const traceId = correlationContext?.traceId ?? requestId;
+    const requestSpanId = stableTelemetryId(
+      `${traceId}:bridge-request:${requestId}`,
+    );
+    const trace: TraceContext = {
+      traceId,
+      spanId: requestSpanId,
+      ...(correlationContext?.parentSpanId === undefined
+        ? traceId === requestSpanId
+          ? {}
+          : { parentSpanId: traceId }
+        : { parentSpanId: correlationContext.parentSpanId }),
+    };
+    const linkage = {
+      ...(correlationId === undefined ? {} : { correlationId }),
+      ...(correlationContext?.causationId === undefined
+        ? {}
+        : { causationId: correlationContext.causationId }),
+      ...(projectId === undefined ? {} : { projectId }),
+      ...(correlationContext?.sessionId === undefined
+        ? {}
+        : { sessionId: correlationContext.sessionId }),
+      ...(correlationContext?.activeAgentId === undefined
+        ? {}
+        : { activeAgentId: correlationContext.activeAgentId }),
+      ...(correlationContext?.liveEventId === undefined
+        ? {}
+        : { liveEventId: correlationContext.liveEventId }),
+      ...(correlationContext?.outputId === undefined
+        ? {}
+        : { outputId: correlationContext.outputId }),
+      ...(correlationContext?.toolName === undefined
+        ? {}
+        : { toolName: correlationContext.toolName }),
+    };
     this.options.onRequest?.({
       requestId,
       command,
       params,
+      requestedAt: requestedAt.toISOString(),
       ...(correlationId === undefined ? {} : { correlationId }),
+    });
+    this.#record({
+      name: "bridge.request.sent",
+      source: "ableton-bridge",
+      ...linkage,
+      trace,
+      occurredAt: requestedAt.toISOString(),
+      attributes: {
+        requestId,
+        command,
+        ...(correlationId === undefined ? {} : { correlationId }),
+      },
     });
 
     const response = new Promise<ResponseEnvelope>((resolve, reject) => {
@@ -1143,10 +1345,13 @@ export class AbletonBridgeService implements AbletonService {
     try {
       envelope = await response;
     } catch (error) {
+      const receivedAt = this.#now();
+      const durationMs = receivedAt.getTime() - startedAt;
       this.options.onResponse?.({
         requestId,
         command,
-        durationMs: Date.now() - startedAt,
+        durationMs,
+        receivedAt: receivedAt.toISOString(),
         ok: false,
         ...(correlationId === undefined ? {} : { correlationId }),
         error: {
@@ -1157,16 +1362,52 @@ export class AbletonBridgeService implements AbletonService {
             error instanceof AbletonBridgeError ? error.retryable : false,
         },
       });
+      this.#record({
+        name: "bridge.response.received",
+        source: "ableton-bridge",
+        ...linkage,
+        level: "warn",
+        outcome: "failure",
+        durationMs,
+        trace,
+        occurredAt: receivedAt.toISOString(),
+        attributes: {
+          requestId,
+          command,
+          errorCode:
+            error instanceof AbletonBridgeError ? error.code : "request-failed",
+          ...(correlationId === undefined ? {} : { correlationId }),
+        },
+      });
       throw error;
     }
     if (!envelope.ok) {
+      const receivedAt = this.#now();
+      const durationMs = receivedAt.getTime() - startedAt;
       this.options.onResponse?.({
         requestId,
         command,
-        durationMs: Date.now() - startedAt,
+        durationMs,
+        receivedAt: receivedAt.toISOString(),
         ok: false,
         ...(correlationId === undefined ? {} : { correlationId }),
         error: envelope.error,
+      });
+      this.#record({
+        name: "bridge.response.received",
+        source: "ableton-bridge",
+        ...linkage,
+        level: "warn",
+        outcome: "failure",
+        durationMs,
+        trace,
+        occurredAt: receivedAt.toISOString(),
+        attributes: {
+          requestId,
+          command,
+          errorCode: envelope.error.code,
+          ...(correlationId === undefined ? {} : { correlationId }),
+        },
       });
       throw new AbletonBridgeError(
         envelope.error.code,
@@ -1178,13 +1419,30 @@ export class AbletonBridgeService implements AbletonService {
     if (envelope.projectRevision !== undefined) {
       this.#projectRevision = envelope.projectRevision;
     }
+    const receivedAt = this.#now();
+    const durationMs = receivedAt.getTime() - startedAt;
     this.options.onResponse?.({
       requestId,
       command,
-      durationMs: Date.now() - startedAt,
+      durationMs,
+      receivedAt: receivedAt.toISOString(),
       ok: true,
       result: envelope.result,
       ...(correlationId === undefined ? {} : { correlationId }),
+    });
+    this.#record({
+      name: "bridge.response.received",
+      source: "ableton-bridge",
+      ...linkage,
+      outcome: "success",
+      durationMs,
+      trace,
+      occurredAt: receivedAt.toISOString(),
+      attributes: {
+        requestId,
+        command,
+        ...(correlationId === undefined ? {} : { correlationId }),
+      },
     });
     return envelope.result;
   }
@@ -1251,6 +1509,18 @@ export class AbletonBridgeService implements AbletonService {
     }
     const pending = this.#pending.get(message.requestId);
     if (!pending) {
+      const traceId = message.requestId;
+      this.#record({
+        name: "bridge.response.skipped",
+        source: "ableton-bridge",
+        level: "warn",
+        outcome: "unknown",
+        trace: { traceId, spanId: traceId },
+        attributes: {
+          requestId: message.requestId,
+          reason: "no-pending-request",
+        },
+      });
       return;
     }
     clearTimeout(pending.timeout);
@@ -1259,6 +1529,7 @@ export class AbletonBridgeService implements AbletonService {
   }
 
   #handleEvent(message: EventEnvelope): void {
+    const receivedAt = this.#now();
     const expected =
       this.#lastEventSequence === undefined
         ? message.sequence
@@ -1273,6 +1544,21 @@ export class AbletonBridgeService implements AbletonService {
         reason: "sequence-gap",
         expectedSequence: expected,
         receivedSequence: message.sequence,
+      });
+      const gapTraceId = stableTelemetryId(
+        `bridge-event-gap:${expected}:${message.sequence}`,
+      );
+      this.#record({
+        name: "bridge.event.gap",
+        source: "ableton-bridge",
+        level: "warn",
+        outcome: "failure",
+        trace: { traceId: gapTraceId, spanId: gapTraceId },
+        occurredAt: receivedAt.toISOString(),
+        attributes: {
+          expectedSequence: expected,
+          receivedSequence: message.sequence,
+        },
       });
     }
     this.#lastEventSequence = message.sequence;
@@ -1289,6 +1575,7 @@ export class AbletonBridgeService implements AbletonService {
         event: envelope.event,
         sequence: envelope.sequence,
         payload: envelope.payload,
+        receivedAt: receivedAt.toISOString(),
         ...(envelope.projectRevision === undefined
           ? {}
           : { projectRevision: envelope.projectRevision }),
@@ -1305,6 +1592,7 @@ export class AbletonBridgeService implements AbletonService {
       event: message.event,
       sequence: message.sequence,
       payload: liveEvent?.payload ?? message.payload,
+      receivedAt: receivedAt.toISOString(),
       ...(message.projectRevision === undefined
         ? {}
         : { projectRevision: message.projectRevision }),
@@ -1313,13 +1601,110 @@ export class AbletonBridgeService implements AbletonService {
       type: "ableton.event_received",
       ...event,
     });
+    const traceId =
+      liveEvent?.event === "live_event.occurred"
+        ? liveEvent.payload.occurrenceId
+        : stableTelemetryId(
+            `bridge-event:${message.event}:${message.sequence}`,
+          );
+    this.#record({
+      name: "bridge.event.received",
+      source: "ableton-bridge",
+      ...(this.#capabilities?.projectId === undefined
+        ? {}
+        : { projectId: this.#capabilities.projectId }),
+      ...(liveEvent?.event === "live_event.occurred"
+        ? { correlationId: liveEvent.payload.occurrenceId }
+        : {}),
+      ...(liveEvent === undefined
+        ? {}
+        : { liveEventId: liveEvent.payload.eventId }),
+      outcome: "success",
+      trace: { traceId, spanId: traceId },
+      occurredAt: receivedAt.toISOString(),
+      attributes: {
+        eventName: message.event,
+        sequence: message.sequence,
+        ...(message.projectRevision === undefined
+          ? {}
+          : { projectRevision: message.projectRevision }),
+      },
+    });
     for (const listener of this.#eventListeners) listener(event);
     if (liveEvent !== undefined) {
+      this.#record({
+        name:
+          liveEvent.event === "live_event.invalidated"
+            ? "live-event.invalidated"
+            : "live-event.received",
+        source: "live-event-bridge",
+        ...(this.#capabilities?.projectId === undefined
+          ? {}
+          : { projectId: this.#capabilities.projectId }),
+        ...(liveEvent.event === "live_event.occurred"
+          ? { correlationId: liveEvent.payload.occurrenceId }
+          : {}),
+        liveEventId: liveEvent.payload.eventId,
+        level: liveEvent.event === "live_event.invalidated" ? "warn" : "info",
+        outcome:
+          liveEvent.event === "live_event.invalidated"
+            ? "cancelled"
+            : "success",
+        trace: { traceId, spanId: traceId },
+        occurredAt: receivedAt.toISOString(),
+        attributes: {
+          eventId: liveEvent.payload.eventId,
+          eventName: liveEvent.event,
+          sequence: liveEvent.sequence,
+        },
+      });
       for (const listener of this.#liveEventListeners) listener(liveEvent);
+      this.#record({
+        name: "live-event.listener-fanout.completed",
+        source: "live-event-bridge",
+        ...(this.#capabilities?.projectId === undefined
+          ? {}
+          : { projectId: this.#capabilities.projectId }),
+        ...(liveEvent.event === "live_event.occurred"
+          ? { correlationId: liveEvent.payload.occurrenceId }
+          : {}),
+        liveEventId: liveEvent.payload.eventId,
+        outcome: "success",
+        trace: {
+          traceId,
+          spanId: stableTelemetryId(`${traceId}:bridge-listener-fanout`),
+          parentSpanId: traceId,
+        },
+        attributes: {
+          eventId: liveEvent.payload.eventId,
+          listenerCount: this.#liveEventListeners.size,
+        },
+      });
     }
   }
 
   #publishReconciliation(signal: LiveEventReconciliationSignal): void {
+    const traceId = stableTelemetryId(
+      signal.reason === "sequence-gap"
+        ? `live-event-reconciliation:${signal.expectedSequence}:${signal.receivedSequence}`
+        : `live-event-reconciliation:reconnect:${this.#connectionGeneration}`,
+    );
+    this.#record({
+      name: "live-event.reconciliation.published",
+      source: "live-event-bridge",
+      level: signal.reason === "sequence-gap" ? "warn" : "info",
+      trace: { traceId, spanId: traceId },
+      attributes: {
+        reason: signal.reason,
+        listenerCount: this.#reconciliationListeners.size,
+        ...(signal.reason === "sequence-gap"
+          ? {
+              expectedSequence: signal.expectedSequence,
+              receivedSequence: signal.receivedSequence,
+            }
+          : { subscriptionCount: signal.subscriptions.length }),
+      },
+    });
     for (const listener of this.#reconciliationListeners) listener(signal);
   }
 
@@ -1372,6 +1757,50 @@ export class AbletonBridgeService implements AbletonService {
       type: "ableton.connection_changed",
       status,
     });
+  }
+
+  #now(): Date {
+    return this.options.now?.() ?? new Date();
+  }
+
+  #record(input: BridgeTelemetryInput): void {
+    const recorder = this.options.telemetry;
+    if (recorder === undefined) return;
+    const event: TelemetryEventEnvelope = {
+      version: 1,
+      id: randomUUID(),
+      occurredAt: input.occurredAt ?? this.#now().toISOString(),
+      name: input.name,
+      source: input.source,
+      level: input.level ?? "info",
+      ...(input.outcome === undefined ? {} : { outcome: input.outcome }),
+      ...(input.durationMs === undefined
+        ? {}
+        : { durationMs: Math.max(0, input.durationMs) }),
+      ...(input.correlationId === undefined
+        ? {}
+        : { correlationId: input.correlationId }),
+      ...(input.causationId === undefined
+        ? {}
+        : { causationId: input.causationId }),
+      ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
+      ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+      ...(input.activeAgentId === undefined
+        ? {}
+        : { activeAgentId: input.activeAgentId }),
+      ...(input.liveEventId === undefined
+        ? {}
+        : { liveEventId: input.liveEventId }),
+      ...(input.outputId === undefined ? {} : { outputId: input.outputId }),
+      ...(input.toolName === undefined ? {} : { toolName: input.toolName }),
+      ...(input.trace === undefined ? {} : { trace: input.trace }),
+      attributes: input.attributes ?? {},
+    };
+    try {
+      recorder.enqueue(event);
+    } catch {
+      // Observability cannot delay or fail bridge socket processing.
+    }
   }
 
   #scheduleReconnect(): void {

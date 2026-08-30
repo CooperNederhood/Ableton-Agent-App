@@ -20,6 +20,8 @@ Companion specification: [Remote Script](remote-script.md)
 - [x] Route reads and mutations through the executor.
 - [x] Implement per-command validation and stable error mapping.
 - [~] Implement capability discovery by Live version and attribute checks.
+- [ ] Preserve bounded opaque trace/correlation context through queue,
+  main-thread execution, response, and outbound Live Event lifecycle metadata.
 
 ## LOM modules
 
@@ -74,6 +76,8 @@ Companion specification: [Remote Script](remote-script.md)
 - [~] Unit-test main-thread scheduling and timeout behavior.
 - [x] Unit-test listener registration and removal.
 - [x] Run Python protocol contract fixtures.
+- [ ] Test trace propagation, lifecycle timing/redaction, and zero journal I/O
+  or unbounded observability work on Live's main thread.
 - [ ] Add real-Live tests for each uncertain API and supported version.
   - [ ] Validate cue-point object identity, create/delete return behavior,
     naming, loop setter ordering, and rollback against supported Live versions.

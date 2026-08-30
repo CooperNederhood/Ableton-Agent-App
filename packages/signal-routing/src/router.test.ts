@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import {
+  telemetryEventEnvelopeSchema,
+  type TelemetryEventEnvelope,
+} from "@ableton-agent/observability";
 
 import type {
   OutputAssignment,
@@ -242,10 +246,60 @@ describe("SignalRouter", () => {
       accepted: false,
       code: "queue-bound",
     });
+
     expect(router.inbox("bounded").map(({ sequence }) => sequence)).toEqual([
       0, 1,
     ]);
     expect(router.inbox("latest").map(({ sequence }) => sequence)).toEqual([2]);
+  });
+
+  it("records validation, filtering, translation, assignment, and coalescing stages", () => {
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const registry = new InMemoryConnectionRegistry({ staleAfterMs: 1000 });
+    registry.register("connection", producer("producer"));
+    const router = new SignalRouter({
+      registry,
+      telemetry: {
+        enqueue: (event) => {
+          telemetry.push(telemetryEventEnvelopeSchema.parse(event));
+        },
+      },
+      now: () => new Date("2026-08-29T20:00:00.000Z"),
+    });
+    router.upsertAssignment(
+      assignment("latest", "producer", {
+        processingPolicyIds: ["latest-window"],
+      }),
+    );
+
+    router.route({ ...envelope("connection", 1), receivedAt: 1_000 });
+    router.route({ ...envelope("connection", 2), receivedAt: 2_000 });
+
+    expect(telemetry.map(({ name }) => name)).toEqual(
+      expect.arrayContaining([
+        "output.validation.completed",
+        "output.filter.decision",
+        "output.assignment.matched",
+        "output.translation.completed",
+        "output.queue.coalesced",
+        "output.queue.coalescing-completed",
+        "output.routing.completed",
+      ]),
+    );
+    expect(
+      telemetry
+        .filter(({ name }) => name.startsWith("output."))
+        .every(({ source }) => source === "output-routing"),
+    ).toBe(true);
+    expect(router.inbox("latest")[0]).toMatchObject({
+      receivedAt: 2_000,
+    });
+    expect(typeof router.inbox("latest")[0]?.traceId).toBe("string");
+    expect(
+      telemetry
+        .filter(({ name }) => name !== "output.assignment.configured")
+        .every(({ durationMs }) => durationMs === undefined || durationMs >= 0),
+    ).toBe(true);
   });
 
   it("formats deterministic beat-relative MIDI without harmonic guesses", () => {

@@ -12,10 +12,14 @@ import type {
   DesktopOutputsState,
   DesktopProjectSnapshot,
   DesktopSession,
+  ConfigurationSnapshotPage,
+  JournalHealth,
   PendingProjectTransition,
   OperationView,
   PlanSection,
   ProductMode,
+  RootTracePage,
+  TelemetryEventPage,
 } from "../contracts";
 import { preferencesSchema } from "../contracts";
 
@@ -82,6 +86,18 @@ export interface DesktopState {
   outputs: DesktopOutputsState;
   events: DesktopEventsState;
   eventsLoad: EventsLoadState;
+  eventHistory: {
+    status: "idle" | "loading" | "loaded" | "failed";
+    items: RootTracePage["items"];
+    nextCursor?: string | undefined;
+    message?: string | undefined;
+    selectedTraceId?: string | undefined;
+    trace: TelemetryEventPage["items"];
+    traceNextCursor?: string | undefined;
+    traceTotalEvents?: number | undefined;
+    configurations: ConfigurationSnapshotPage["items"];
+    health?: JournalHealth | undefined;
+  };
   collapsedOutputProducerIds: string[];
   expandedEventActivityIds: string[];
   projectRefresh: ProjectRefreshState;
@@ -140,6 +156,12 @@ export const initialState: DesktopState = {
   },
   events: { events: [] },
   eventsLoad: { status: "loading" },
+  eventHistory: {
+    status: "idle",
+    items: [],
+    trace: [],
+    configurations: [],
+  },
   collapsedOutputProducerIds: [],
   expandedEventActivityIds: [],
   projectRefresh: { status: "idle" },
@@ -168,6 +190,25 @@ export type DesktopAction =
   | { type: "toggle-event-activity"; eventId: string }
   | { type: "events-load-started" }
   | { type: "events-load-failed"; message: string }
+  | { type: "event-history-load-started"; append: boolean }
+  | {
+      type: "event-history-loaded";
+      page: RootTracePage;
+      append: boolean;
+    }
+  | { type: "event-history-load-failed"; message: string }
+  | { type: "event-history-select-trace"; traceId?: string }
+  | {
+      type: "event-history-trace-loaded";
+      traceId: string;
+      page: TelemetryEventPage;
+      append: boolean;
+    }
+  | {
+      type: "event-history-configurations-loaded";
+      page: ConfigurationSnapshotPage;
+    }
+  | { type: "event-history-health-loaded"; health: JournalHealth }
   | { type: "project-refresh-started" }
   | { type: "project-refresh-succeeded" }
   | { type: "project-refresh-failed"; message: string }
@@ -178,6 +219,7 @@ const maxOperations = 500;
 const maxDismissedContextIds = 500;
 const maxCollapsedOutputProducerIds = 500;
 const maxExpandedEventActivityIds = 500;
+const maxHistoryEvents = 2_000;
 const maxRefreshMessageLength = 200;
 
 export function desktopReducer(
@@ -327,6 +369,79 @@ export function desktopReducer(
           status: "failed",
           message: boundRefreshMessage(action.message),
         },
+      };
+    case "event-history-load-started":
+      return {
+        ...state,
+        eventHistory: {
+          ...state.eventHistory,
+          status: "loading",
+          message: undefined,
+          ...(action.append ? {} : { items: [], nextCursor: undefined }),
+        },
+      };
+    case "event-history-loaded":
+      return {
+        ...state,
+        eventHistory: {
+          ...state.eventHistory,
+          status: "loaded",
+          items: action.append
+            ? bounded(
+                [...state.eventHistory.items, ...action.page.items],
+                maxHistoryEvents,
+              )
+            : action.page.items,
+          nextCursor: action.page.nextCursor,
+          message: undefined,
+        },
+      };
+    case "event-history-load-failed":
+      return {
+        ...state,
+        eventHistory: {
+          ...state.eventHistory,
+          status: "failed",
+          message: boundRefreshMessage(action.message),
+        },
+      };
+    case "event-history-select-trace":
+      return {
+        ...state,
+        eventHistory: {
+          ...state.eventHistory,
+          selectedTraceId: action.traceId,
+          trace: [],
+          traceNextCursor: undefined,
+          traceTotalEvents: undefined,
+        },
+      };
+    case "event-history-trace-loaded":
+      if (state.eventHistory.selectedTraceId !== action.traceId) return state;
+      return {
+        ...state,
+        eventHistory: {
+          ...state.eventHistory,
+          trace: action.append
+            ? [...state.eventHistory.trace, ...action.page.items]
+            : action.page.items,
+          traceNextCursor: action.page.nextCursor,
+          traceTotalEvents:
+            action.page.trace?.totalEvents ?? action.page.page.totalItems,
+        },
+      };
+    case "event-history-configurations-loaded":
+      return {
+        ...state,
+        eventHistory: {
+          ...state.eventHistory,
+          configurations: action.page.items,
+        },
+      };
+    case "event-history-health-loaded":
+      return {
+        ...state,
+        eventHistory: { ...state.eventHistory, health: action.health },
       };
     case "project-refresh-started":
       return { ...state, projectRefresh: { status: "refreshing" } };

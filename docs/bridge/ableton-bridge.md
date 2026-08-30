@@ -49,6 +49,13 @@ Responsibilities:
 - Mutation serialization.
 - Event subscription.
 - Clean rejection of pending requests after disconnect.
+- Trace/correlation propagation and sanitized timing/lifecycle publication for
+  queue, send, response, timeout, cancellation, reconnect, and event ingestion.
+
+Bridge events feed the application-owned local journal through typed
+observability events. The bridge does not persist history itself, and
+observability publication must not delay socket reads, pending-request
+resolution, or reconnect handling.
 
 ## Stable references
 
@@ -92,4 +99,3 @@ The bridge exposes explicit capabilities such as:
 
 Tools and UI controls are hidden, disabled, or adapted based on capabilities
 rather than failing late.
-

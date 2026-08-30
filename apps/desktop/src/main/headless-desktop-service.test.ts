@@ -22,6 +22,7 @@ import type {
 } from "@ableton-agent/signal-routing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { abletonToolMetadata } from "@ableton-agent/tools";
+import type { RetentionPolicy } from "@ableton-agent/observability";
 
 import {
   desktopAgentCatalogSchema,
@@ -32,8 +33,12 @@ import {
   type DesktopSession,
 } from "../contracts.js";
 import { ApprovalCoordinator, ApprovalPolicyController } from "./approvals.js";
+import { DesktopJournalHost } from "./composition.js";
 import { JsonPreferencesStore, JsonSessionStore } from "./desktop-service.js";
-import { HeadlessDesktopService } from "./headless-desktop-service.js";
+import {
+  HeadlessDesktopService,
+  type DesktopEventJournal,
+} from "./headless-desktop-service.js";
 import {
   JsonProjectSessionStore,
   type ProjectSessionStore,
@@ -225,6 +230,8 @@ async function harness(
     ) => void;
     projectSessionStore?: ProjectSessionStore;
     projectIdentityPollIntervalMs?: number;
+    eventJournal?: DesktopEventJournal;
+    reconfigureEventJournal?: (policy: RetentionPolicy) => Promise<void>;
   } = {},
 ) {
   const directory = await temporaryDirectory();
@@ -253,10 +260,10 @@ async function harness(
   service.subscribe((event) => events.push(event));
   return {
     ...fake,
-    sharedEvents: fake.events,
     approvals,
     service,
     events,
+    sharedEvents: fake.events,
     directory,
     preferencesStore,
     sessionStore,
@@ -836,6 +843,201 @@ describe("desktop persistence stores", () => {
 });
 
 describe("desktop adapter over the shared application", () => {
+  it("uses root pagination for history and preserves trace page metadata", async () => {
+    const traceId = "00000000-0000-4000-8000-000000000100";
+    const roots = {
+      version: 1 as const,
+      items: [
+        {
+          rootTraceId: traceId,
+          eventCount: 2,
+          firstSequence: 1,
+          lastSequence: 2,
+          firstOccurredAt: "2026-01-01T00:00:00.000Z",
+          lastOccurredAt: "2026-01-01T00:00:01.000Z",
+          firstEventName: "agent.turn",
+          lastEventName: "agent.completed",
+          hasErrors: false,
+        },
+      ],
+      page: {
+        limit: 10,
+        returnedItems: 1,
+        totalItems: 1,
+        hasMore: false,
+        order: "desc" as const,
+      },
+    };
+    const trace = {
+      version: 1 as const,
+      items: [],
+      page: {
+        limit: 10,
+        returnedItems: 0,
+        totalItems: 2,
+        hasMore: true,
+        order: "asc" as const,
+      },
+      nextCursor: "next",
+      trace: {
+        rootTraceId: traceId,
+        totalEvents: 2,
+        firstSequence: 1,
+        lastSequence: 2,
+      },
+    };
+    const readRootTraces = vi.fn().mockResolvedValue(roots);
+    const readTrace = vi.fn().mockResolvedValue(trace);
+    const { service } = await harness(
+      {},
+      {
+        eventJournal: {
+          readRootTraces,
+          readTrace,
+        } as unknown as DesktopEventJournal,
+      },
+    );
+
+    await expect(
+      service.searchEventHistory({ limit: 10, order: "desc" }),
+    ).resolves.toEqual(roots);
+    await expect(
+      service.getEventTrace(traceId, { limit: 10, order: "asc" }),
+    ).resolves.toEqual(trace);
+    expect(readRootTraces).toHaveBeenCalledWith({
+      limit: 10,
+      order: "desc",
+    });
+    expect(readTrace).toHaveBeenCalledWith(traceId, {
+      limit: 10,
+      order: "asc",
+    });
+  });
+
+  it("keeps queries and shutdown bound to a recovered journal after retention fails", async () => {
+    const roots = {
+      version: 1 as const,
+      items: [],
+      page: {
+        limit: 10,
+        returnedItems: 0,
+        totalItems: 0,
+        hasMore: false,
+        order: "desc" as const,
+      },
+    };
+    const journal = (readRoots = vi.fn().mockResolvedValue(roots)) => ({
+      enqueue: vi.fn().mockResolvedValue(undefined),
+      enqueueConfigurationSnapshot: vi.fn().mockResolvedValue(undefined),
+      readRootTraces: readRoots,
+      readTrace: vi.fn(),
+      readConfigurationSnapshots: vi.fn(),
+      getHealth: vi.fn().mockResolvedValue({
+        retention: {
+          maxAgeDays: 30,
+          maxBytes: 250 * 1024 * 1024,
+        },
+      }),
+      runRetention: vi.fn(),
+      deleteTrace: vi.fn(),
+      clear: vi.fn(),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    });
+    const first = journal();
+    const recovered = journal();
+    const open = vi
+      .fn()
+      .mockResolvedValueOnce(first)
+      .mockRejectedValueOnce(new Error("replacement denied"))
+      .mockResolvedValueOnce(recovered);
+    const host = await DesktopJournalHost.create({
+      path: "journal.sqlite",
+      retention: { maxAgeDays: 30, maxBytes: 250 * 1024 * 1024 },
+      enabled: true,
+      open: open as never,
+    });
+    const { service } = await harness(
+      {},
+      {
+        eventJournal: host,
+        reconfigureEventJournal: (policy) => host.reconfigure(policy),
+      },
+    );
+    await service.start();
+    const preferences = await service.getPreferences();
+
+    await expect(
+      service.setPreferences({
+        ...preferences,
+        eventHistoryRetentionDays: 7,
+      }),
+    ).rejects.toThrow("replacement denied");
+    await expect(service.getPreferences()).resolves.toEqual(preferences);
+    await expect(service.getDiagnostics()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "Event journal", status: "warn" }),
+      ]),
+    );
+    await expect(
+      service.searchEventHistory({ limit: 10, order: "desc" }),
+    ).resolves.toEqual(roots);
+    expect(recovered.readRootTraces).toHaveBeenCalledOnce();
+
+    await service.stop();
+    expect(first.shutdown).toHaveBeenCalledOnce();
+    expect(recovered.shutdown).toHaveBeenCalledOnce();
+  });
+
+  it("does not reconfigure or prune history when preference persistence fails", async () => {
+    const roots = {
+      version: 1 as const,
+      items: [],
+      page: {
+        limit: 10,
+        returnedItems: 0,
+        totalItems: 0,
+        hasMore: false,
+        order: "desc" as const,
+      },
+    };
+    const readRootTraces = vi.fn().mockResolvedValue(roots);
+    const eventJournal = {
+      enqueue: vi.fn(),
+      enqueueConfigurationSnapshot: vi.fn(),
+      readRootTraces,
+      readTrace: vi.fn(),
+      readConfigurationSnapshots: vi.fn(),
+      getHealth: vi.fn(),
+      runRetention: vi.fn(),
+      deleteTrace: vi.fn(),
+      clear: vi.fn(),
+      shutdown: vi.fn(),
+    } as unknown as DesktopEventJournal;
+    const reconfigureEventJournal = vi.fn().mockResolvedValue(undefined);
+    const { service, preferencesStore } = await harness(
+      {},
+      { eventJournal, reconfigureEventJournal },
+    );
+    await service.start();
+    const preferences = await service.getPreferences();
+    vi.spyOn(preferencesStore, "save").mockRejectedValueOnce(
+      new Error("disk full"),
+    );
+
+    await expect(
+      service.setPreferences({
+        ...preferences,
+        eventHistoryRetentionDays: 7,
+      }),
+    ).rejects.toThrow("disk full");
+    expect(reconfigureEventJournal).not.toHaveBeenCalled();
+    await expect(
+      service.searchEventHistory({ limit: 10, order: "desc" }),
+    ).resolves.toEqual(roots);
+    expect(readRootTraces).toHaveBeenCalledOnce();
+    await service.stop();
+  });
+
   it("resolves track edit selectors into authoritative bindings before activation and reconfiguration", async () => {
     const catalog = defaultCatalog();
     catalog.definitions.push({
@@ -2145,94 +2347,97 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
-  it("keeps unmanaged response chunks under one message id until completion", async () => {
+  it("keeps automatic response stream IDs stable and isolated by agent session", async () => {
     const { service, events, sharedEvents } = await harness();
     await service.start();
-    const agentInstanceId = "00000000-0000-4000-8000-000000000001";
+    const first = {
+      agentInstanceId: "00000000-0000-4000-8000-000000000001",
+      sdkSessionId: "sdk:shared",
+    };
+    const second = {
+      agentInstanceId: "00000000-0000-4000-8000-000000000002",
+      sdkSessionId: "sdk:shared",
+    };
 
     sharedEvents.publish({
       type: "agent.message_delta",
-      content: "This",
-      agentInstanceId,
-      sdkSessionId: "sdk-session",
+      content: "first-a",
+      ...first,
     });
     sharedEvents.publish({
       type: "agent.message_delta",
-      content: " is one response",
-      agentInstanceId,
-      sdkSessionId: "sdk-session",
+      content: "second-a",
+      ...second,
+    });
+    sharedEvents.publish({
+      type: "agent.message_delta",
+      content: "first-b",
+      ...first,
     });
     sharedEvents.publish({
       type: "agent.message_complete",
-      content: "This is one response",
-      agentInstanceId,
-      sdkSessionId: "sdk-session",
+      content: "first complete",
+      ...first,
     });
 
-    const firstResponse = events.flatMap((event) =>
-      (event.type === "agent.message_delta" ||
-        event.type === "agent.message_complete") &&
-      event.agentInstanceId === agentInstanceId
-        ? [event]
-        : [],
+    const messages = events.filter(
+      (event) =>
+        event.type === "agent.message_delta" ||
+        event.type === "agent.message_complete",
     );
-    expect(firstResponse).toHaveLength(3);
-    const firstMessageId = firstResponse[0]!.messageId;
-    expect(
-      firstResponse.every(({ messageId }) => messageId === firstMessageId),
-    ).toBe(true);
+    const firstMessages = messages.filter(
+      (event) => event.agentInstanceId === first.agentInstanceId,
+    );
+    const secondMessage = messages.find(
+      (event) => event.agentInstanceId === second.agentInstanceId,
+    );
+    expect(new Set(firstMessages.map(({ messageId }) => messageId)).size).toBe(
+      1,
+    );
+    expect(secondMessage?.messageId).not.toBe(firstMessages[0]?.messageId);
 
     sharedEvents.publish({
       type: "agent.message_delta",
-      content: "A later response",
-      agentInstanceId,
-      sdkSessionId: "sdk-session",
+      content: "next first",
+      ...first,
     });
-    const laterDelta = events.at(-1);
-    expect(laterDelta?.type).toBe("agent.message_delta");
-    if (laterDelta?.type === "agent.message_delta") {
-      expect(laterDelta.messageId).not.toBe(firstMessageId);
-    }
-    await service.stop();
-  });
+    const nextFirst = events
+      .filter(
+        (event) =>
+          event.type === "agent.message_delta" &&
+          event.agentInstanceId === first.agentInstanceId,
+      )
+      .at(-1);
+    expect(
+      nextFirst !== undefined && "messageId" in nextFirst
+        ? nextFirst.messageId
+        : undefined,
+    ).not.toBe(firstMessages[0]?.messageId);
 
-  it("tracks unmanaged streams independently for concurrent agents", async () => {
-    const { service, events, sharedEvents } = await harness();
-    await service.start();
-    const firstAgentId = "00000000-0000-4000-8000-000000000001";
-    const secondAgentId = "00000000-0000-4000-8000-000000000002";
-
-    for (const [agentInstanceId, content] of [
-      [firstAgentId, "First"],
-      [secondAgentId, "Second"],
-      [firstAgentId, " response"],
-      [secondAgentId, " response"],
-    ] as const) {
-      sharedEvents.publish({
-        type: "agent.message_delta",
-        content,
-        agentInstanceId,
-      });
-    }
-
-    const messageIdsByAgent = new Map<string, Set<string>>();
-    for (const event of events) {
-      if (
-        event.type !== "agent.message_delta" ||
-        event.agentInstanceId === undefined
-      ) {
-        continue;
-      }
-      const messageIds =
-        messageIdsByAgent.get(event.agentInstanceId) ?? new Set<string>();
-      messageIds.add(event.messageId);
-      messageIdsByAgent.set(event.agentInstanceId, messageIds);
-    }
-    expect(messageIdsByAgent.get(firstAgentId)?.size).toBe(1);
-    expect(messageIdsByAgent.get(secondAgentId)?.size).toBe(1);
-    expect([...messageIdsByAgent.get(firstAgentId)!]).not.toEqual([
-      ...messageIdsByAgent.get(secondAgentId)!,
-    ]);
+    sharedEvents.publish({
+      type: "operation.failed",
+      operationId: "automatic-response",
+      code: "agent_failed",
+      message: "Automatic response failed",
+      ...second,
+    });
+    sharedEvents.publish({
+      type: "agent.message_delta",
+      content: "next second",
+      ...second,
+    });
+    const nextSecond = events
+      .filter(
+        (event) =>
+          event.type === "agent.message_delta" &&
+          event.agentInstanceId === second.agentInstanceId,
+      )
+      .at(-1);
+    expect(
+      nextSecond !== undefined && "messageId" in nextSecond
+        ? nextSecond.messageId
+        : undefined,
+    ).not.toBe(secondMessage?.messageId);
     await service.stop();
   });
 

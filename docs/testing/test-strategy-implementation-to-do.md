@@ -35,6 +35,16 @@ Companion specification: [Test Strategy](test-strategy.md)
   plug-in loading, approved CLI loading, and simulator bridge parity.
 - [x] Implement CLI transcript tests.
 - [x] Implement Playwright Electron harness.
+- [ ] Add deterministic local-journal fixtures for clocks, IDs, sensitive
+  payloads, concurrent appends, size accounting, and persistence failures.
+- [ ] Cover agent configuration snapshots and complete SDK, tool/workflow,
+  approval, bridge, Live Event, and Output lifecycle producers.
+- [ ] Cover producer/writer redaction, trace/correlation/causation propagation,
+  per-agent fan-out isolation, and Desktop history visibility.
+- [ ] Cover default-on and local-only behavior, pause/clear/per-session deletion,
+  30-day pruning, 250 MiB eviction, restart, and interrupted writes.
+- [ ] Cover indexed cursor/filter queries, stable concurrent pagination,
+  cancellable stale requests, bounded ingestion, saturation, and degraded mode.
 - [~] Create real-Live test project and manual runner.
   - [x] Add a runner that records versioned, commit-linked smoke evidence
     without storing project content.
@@ -69,6 +79,8 @@ Companion specification: [Test Strategy](test-strategy.md)
 - [x] Track flaky tests and prevent silent retries from hiding failures.
 - [x] Add deterministic timeouts to all process/network tests.
 - [x] Add security-oriented malformed-input/fuzz coverage.
+- [ ] Add journal payload/schema fuzzing and tests proving sensitive fixture
+  values never reach disk, query view models, diagnostics, or exports.
 
 ## Tests
 
@@ -77,6 +89,8 @@ Companion specification: [Test Strategy](test-strategy.md)
   fixtures.
 - [x] Verify CI reports failures, timeouts, and artifacts correctly.
 - [x] Run a clean-checkout rehearsal of every documented test command.
+- [ ] Add sustained-ingestion and cap-sized query benchmarks enforcing 200 ms
+  p95 first-page queries without visible SDK streaming or event-delivery stalls.
 
 ## Exit criteria
 

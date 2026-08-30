@@ -18,6 +18,7 @@ describe("preload API", () => {
       "operations",
       "outputs",
       "events",
+      "eventHistory",
     ]);
     expect("invoke" in api).toBe(false);
     expect("require" in api).toBe(false);
@@ -257,6 +258,66 @@ describe("preload API", () => {
     await expect(
       api.agents.setAutoApproval("not-an-instance", true),
     ).rejects.toThrow();
+  });
+
+  it("validates and exposes main-process-only event journal operations", async () => {
+    const traceId = "00000000-0000-4000-8000-000000000010";
+    const transport = transportFor({
+      "event-history:search": {
+        version: 1,
+        items: [],
+        page: {
+          limit: 20,
+          returnedItems: 0,
+          totalItems: 0,
+          hasMore: false,
+          order: "desc",
+        },
+      },
+      "event-history:trace": {
+        version: 1,
+        items: [],
+        page: {
+          limit: 20,
+          returnedItems: 0,
+          totalItems: 0,
+          hasMore: false,
+          order: "asc",
+        },
+        trace: {
+          rootTraceId: traceId,
+          totalEvents: 0,
+          firstSequence: null,
+          lastSequence: null,
+        },
+      },
+      "event-history:delete-trace": { deletedEvents: 2 },
+      "event-history:clear": {
+        deletedEvents: 2,
+        deletedConfigurationSnapshots: 1,
+      },
+    });
+    const api = createDesktopApi(transport);
+
+    await expect(
+      api.eventHistory.search({ sources: ["desktop"], limit: 20 }),
+    ).resolves.toMatchObject({ version: 1, items: [] });
+    await expect(
+      api.eventHistory.trace(traceId, { limit: 20 }),
+    ).resolves.toMatchObject({
+      trace: { rootTraceId: traceId, totalEvents: 0 },
+    });
+    await expect(api.eventHistory.deleteTrace(traceId)).resolves.toBe(2);
+    await expect(api.eventHistory.clear()).resolves.toEqual({
+      deletedEvents: 2,
+      deletedConfigurationSnapshots: 1,
+    });
+    await expect(api.eventHistory.deleteTrace("invalid")).rejects.toThrow();
+
+    expect(vi.mocked(transport).invoke.mock.calls).toContainEqual([
+      "event-history:search",
+      { sources: ["desktop"], limit: 20, order: "desc" },
+    ]);
   });
 });
 

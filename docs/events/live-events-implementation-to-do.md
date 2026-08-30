@@ -2,15 +2,16 @@
 
 Companion specification: [Live Events](live-events.md)
 
-This document is the source of truth for `feature/event-listen`. Update the
-checkboxes and notes here as implementation progresses. Related component
-to-do files remain broader roadmaps and must not duplicate this checklist.
+This document is the source of truth for Live Events and their local detailed
+event-journal integration. Update the checkboxes and notes here as
+implementation progresses. Related component to-do files remain broader
+roadmaps and must not duplicate this checklist.
 
 ## Status
 
-- Branch: `feature/event-listen`
 - Overall: `[~] In progress`
-- Scope: Remote Script-owned subscriptions; no Max for Live dependency
+- Scope: Remote Script-owned subscriptions plus local Desktop history; no Max
+  for Live or cloud-journal dependency
 
 Status markers:
 
@@ -26,7 +27,8 @@ Status markers:
   in the application.
 - [x] Use only `Automatic` and `Next prompt` response modes in the Events
   UX.
-- [x] Keep occurrence history bounded and in memory for the first release.
+- [x] Supersede the in-memory-only history decision with a default-on, local,
+  redacted event journal; keep in-memory queues bounded for delivery only.
 - [x] Do not require a Max for Live device.
 - [x] Limit the first event catalog to parameter values and the three primary
   track transition types.
@@ -128,7 +130,8 @@ Likely files:
 
 - [x] Add an application-owned Live Event runtime that keeps one active Remote
   Script subscription per enabled event definition.
-- [x] Maintain resolution status, latest state, and bounded per-event history.
+- [x] Maintain resolution status and latest state; use bounded in-memory queues
+  for delivery rather than as durable occurrence history.
 - [x] Fan one occurrence out to every enabled `AgentEventListener`.
 - [x] Reuse or extract Output delivery primitives for per-agent inboxes,
   cursors, automatic-turn scheduling, and deduplication without adding Live
@@ -194,6 +197,8 @@ Likely files:
 - [x] Add edit, disable, and delete actions with appropriate confirmation.
 - [x] Add collapsed-by-default **Recent activity** with bounded newest-first
   occurrences.
+- [ ] Back **Recent activity** with cursor-paginated local journal queries
+  instead of process-memory history.
 - [x] Ensure event state is not represented by color alone and all controls are
   keyboard accessible.
 - [x] Throttle renderer updates independently from socket ingestion.
@@ -252,12 +257,44 @@ Script and restarting Live; automated tests cover the same normalization,
 ordering, reconnect, invalidation, and cleanup contracts without controlling
 the Ableton application lifecycle.
 
+## Phase 9: local detailed event journal
+
+- [ ] Add a versioned, append-only journal record envelope with event/source
+  type, lifecycle stage, timestamps, trace/correlation/causation IDs, scoped
+  entity IDs, outcome, timings, and bounded sanitized payloads.
+- [ ] Capture sanitized agent-configuration snapshots on create, resume, and
+  change.
+- [ ] Capture the complete unsampled SDK, tool, workflow, approval, bridge, Live
+  Event, and Output activity lifecycle without persisting raw sensitive
+  content.
+- [ ] Record the Live Event stages observed, transported, normalized, persisted,
+  routed, and delivered, including child delivery events for fan-out.
+- [ ] Propagate trace and correlation IDs through automatic turns, SDK events,
+  tool/workflow execution, bridge requests, and Remote Script activity.
+- [ ] Reuse the journal writer, trace envelope, retention, and query
+  infrastructure for Outputs while preserving separate Output and Live Event
+  domains, source inventories, delivery rules, and UI filters.
+- [ ] Store the journal only under the current user's local application data,
+  with capture defaulting on and no upload path.
+- [ ] Add pause, clear, and per-session deletion controls, 30-day age pruning,
+  and a 250 MiB hard cap with oldest-first eviction.
+- [ ] Add typed History query/detail APIs and a paginated, virtualized Desktop
+  UI with time, category, stage, outcome, agent, source, tool, session, trace,
+  and correlation filters.
+- [ ] Make ingestion asynchronous and bounded, preserve per-trace order in
+  batches, incrementally prune, index cursor queries, cancel stale UI queries,
+  and surface saturation or persistence failure.
+- [ ] Add schema/migration, producer coverage, sanitization, local-only/default
+  settings, trace continuity, stage ordering, fan-out isolation, retention/cap,
+  query/pagination, failure, and sustained-load tests.
+- [ ] Demonstrate 200 ms p95 first-page filtered queries at the 250 MiB cap and
+  no visible regression to SDK streaming or Live Event delivery.
+
 ## Out of scope
 
 - Max for Live companion devices.
 - Arbitrary user-entered LOM paths or property names.
-- Persisted occurrence history.
-- Cloud event transport.
+- Cloud journal transport or upload.
 - Audio-rate observation.
 - User-defined scripting or transformations.
 - A complete catalog of every observable LOM property.

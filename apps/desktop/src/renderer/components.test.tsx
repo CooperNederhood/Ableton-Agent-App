@@ -1974,6 +1974,96 @@ describe("desktop components", () => {
     expect(failed).toContain("Bridge offline");
   });
 
+  it("renders history roots, agent lanes, latency, and exact snapshots", () => {
+    const traceId = "00000000-0000-4000-8000-000000000100";
+    const root = {
+      version: 1 as const,
+      id: "00000000-0000-4000-8000-000000000101",
+      sequence: 1,
+      occurredAt: "2026-01-01T00:00:00.000Z",
+      recordedAt: "2026-01-01T00:00:00.001Z",
+      name: "agent.turn",
+      source: "runtime",
+      level: "info" as const,
+      outcome: "success" as const,
+      durationMs: 12,
+      trace: {
+        traceId,
+        spanId: "00000000-0000-4000-8000-000000000102",
+      },
+      attributes: { agent_label: "Mix agent", message: "Balance the drums" },
+    };
+    const child = {
+      ...root,
+      id: "00000000-0000-4000-8000-000000000103",
+      sequence: 2,
+      occurredAt: "2026-01-01T00:00:00.010Z",
+      name: "tool.completed",
+      trace: {
+        ...root.trace,
+        spanId: "00000000-0000-4000-8000-000000000104",
+        parentSpanId: root.trace.spanId,
+      },
+      attributes: { agent_label: "Mix agent", tool: "set_parameter" },
+    };
+    const rootSummary = {
+      rootTraceId: traceId,
+      eventCount: 2,
+      firstSequence: 1,
+      lastSequence: 2,
+      firstOccurredAt: root.occurredAt,
+      lastOccurredAt: child.occurredAt,
+      firstEventName: root.name,
+      lastEventName: child.name,
+      hasErrors: false,
+    };
+
+    const html = renderToStaticMarkup(
+      <EventsView
+        state={{
+          ...initialState,
+          preferences: {
+            ...initialState.preferences,
+            eventsViewMode: "history",
+          },
+          eventHistory: {
+            status: "loaded",
+            items: [rootSummary],
+            trace: [root, child],
+            selectedTraceId: traceId,
+            traceNextCursor: "next-page",
+            traceTotalEvents: 3,
+            configurations: [
+              {
+                version: 1,
+                id: "00000000-0000-4000-8000-000000000105",
+                sequence: 1,
+                capturedAt: "2026-01-01T00:00:00.000Z",
+                recordedAt: "2026-01-01T00:00:00.001Z",
+                component: "mix-agent",
+                configurationVersion: "v1",
+                values: {
+                  instructions: "Balance without clipping.",
+                  tools: ["set_parameter"],
+                },
+              },
+            ],
+          },
+        }}
+        dispatch={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("Root occurrences");
+    expect(html).toContain("Agent delivery lanes");
+    expect(html).toContain("Mix agent");
+    expect(html).toContain("Latency stages");
+    expect(html).toContain("Balance without clipping.");
+    expect(html).toContain("Delete trace");
+    expect(html).toContain("Showing 2 of 3 events");
+    expect(html).toContain("Load more trace events");
+  });
+
   it("refreshes outputs through the output API and reports failures", async () => {
     const dispatch = vi.fn<Parameters<typeof refreshOutputs>[0]>();
     const outputs = {

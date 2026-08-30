@@ -11,7 +11,290 @@ import {
   type LiveEventDefinition,
 } from "@ableton-agent/agent-config/schemas";
 import { inspectEventSelectionResultSchema } from "@ableton-agent/protocol";
+import type {
+  ConfigurationSnapshotPage,
+  ConfigurationSnapshotQuery,
+  JournalHealth,
+  RetentionPolicy,
+  RetentionResult,
+  RootTracePage,
+  RootTraceQuery,
+  TelemetryEventPage,
+} from "@ableton-agent/observability";
 import { z } from "zod";
+
+const telemetryNameSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/u);
+const telemetryEntityIdSchema = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(/^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/u);
+const telemetryIdSchema = z.string().uuid();
+const telemetryTimestampSchema = z
+  .string()
+  .datetime({ offset: true })
+  .transform((value) => new Date(value).toISOString());
+const sanitizedAttributesSchema = z.record(
+  z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[a-zA-Z][a-zA-Z0-9]*(?:[._-][a-zA-Z0-9]+)*$/u),
+  z.unknown(),
+);
+const traceContextSchema = z
+  .object({
+    traceId: telemetryIdSchema,
+    spanId: telemetryIdSchema,
+    parentSpanId: telemetryIdSchema.optional(),
+  })
+  .strict();
+const journaledTelemetryEventSchema = z
+  .object({
+    version: z.literal(1),
+    id: telemetryIdSchema,
+    occurredAt: telemetryTimestampSchema,
+    name: telemetryNameSchema,
+    category: telemetryNameSchema.optional(),
+    source: telemetryNameSchema,
+    stage: telemetryNameSchema.optional(),
+    level: z.enum(["debug", "info", "warn", "error"]),
+    outcome: z.enum(["success", "failure", "cancelled", "unknown"]).optional(),
+    durationMs: z.number().finite().nonnegative().optional(),
+    correlationId: telemetryEntityIdSchema.optional(),
+    causationId: telemetryEntityIdSchema.optional(),
+    projectId: telemetryEntityIdSchema.optional(),
+    sessionId: telemetryEntityIdSchema.optional(),
+    activeAgentId: telemetryEntityIdSchema.optional(),
+    liveEventId: telemetryEntityIdSchema.optional(),
+    outputId: telemetryEntityIdSchema.optional(),
+    toolName: telemetryNameSchema.optional(),
+    trace: traceContextSchema.optional(),
+    attributes: sanitizedAttributesSchema,
+    sequence: z.number().int().positive(),
+    recordedAt: telemetryTimestampSchema,
+  })
+  .strict();
+const telemetryStringListSchema = z
+  .array(telemetryNameSchema)
+  .min(1)
+  .max(32)
+  .refine((values) => new Set(values).size === values.length, {
+    message: "Filter values must be unique",
+  });
+const telemetryFilterShape = {
+  names: telemetryStringListSchema.optional(),
+  categories: telemetryStringListSchema.optional(),
+  sources: telemetryStringListSchema.optional(),
+  stages: telemetryStringListSchema.optional(),
+  levels: z
+    .array(z.enum(["debug", "info", "warn", "error"]))
+    .min(1)
+    .max(4)
+    .optional(),
+  outcomes: z
+    .array(z.enum(["success", "failure", "cancelled", "unknown"]))
+    .min(1)
+    .max(4)
+    .optional(),
+  traceId: telemetryIdSchema.optional(),
+  correlationId: telemetryEntityIdSchema.optional(),
+  projectId: telemetryEntityIdSchema.optional(),
+  sessionId: telemetryEntityIdSchema.optional(),
+  activeAgentId: telemetryEntityIdSchema.optional(),
+  liveEventId: telemetryEntityIdSchema.optional(),
+  outputId: telemetryEntityIdSchema.optional(),
+  toolName: telemetryNameSchema.optional(),
+  from: telemetryTimestampSchema.optional(),
+  to: telemetryTimestampSchema.optional(),
+};
+const validHistoryRange = (query: {
+  from?: string | undefined;
+  to?: string | undefined;
+}): boolean =>
+  query.from === undefined || query.to === undefined || query.from <= query.to;
+const telemetryQuerySchema = z
+  .object({
+    ...telemetryFilterShape,
+    cursor: z.string().min(1).max(256).optional(),
+    limit: z.number().int().min(1).max(500).default(100),
+    order: z.enum(["asc", "desc"]).default("desc"),
+  })
+  .strict()
+  .refine(validHistoryRange, {
+    message: "'from' must not be later than 'to'",
+    path: ["from"],
+  });
+const telemetryEventPageSchema = z
+  .object({
+    version: z.literal(1),
+    items: z.array(journaledTelemetryEventSchema),
+    nextCursor: z.string().min(1).optional(),
+    page: z
+      .object({
+        limit: z.number().int().positive(),
+        returnedItems: z.number().int().nonnegative(),
+        totalItems: z.number().int().nonnegative(),
+        hasMore: z.boolean(),
+        order: z.enum(["asc", "desc"]),
+      })
+      .strict(),
+    trace: z
+      .object({
+        rootTraceId: telemetryIdSchema,
+        totalEvents: z.number().int().nonnegative(),
+        firstSequence: z.number().int().positive().nullable(),
+        lastSequence: z.number().int().positive().nullable(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+const traceEventPageSchema = telemetryEventPageSchema.extend({
+  trace: z
+    .object({
+      rootTraceId: telemetryIdSchema,
+      totalEvents: z.number().int().nonnegative(),
+      firstSequence: z.number().int().positive().nullable(),
+      lastSequence: z.number().int().positive().nullable(),
+    })
+    .strict(),
+});
+const rootTraceSummarySchema = z
+  .object({
+    rootTraceId: telemetryIdSchema,
+    eventCount: z.number().int().positive(),
+    firstSequence: z.number().int().positive(),
+    lastSequence: z.number().int().positive(),
+    firstOccurredAt: telemetryTimestampSchema,
+    lastOccurredAt: telemetryTimestampSchema,
+    firstEventName: telemetryNameSchema,
+    lastEventName: telemetryNameSchema,
+    hasErrors: z.boolean(),
+  })
+  .strict();
+const rootTracePageSchema = z
+  .object({
+    version: z.literal(1),
+    items: z.array(rootTraceSummarySchema),
+    nextCursor: z.string().min(1).optional(),
+    page: z
+      .object({
+        limit: z.number().int().positive(),
+        returnedItems: z.number().int().nonnegative(),
+        totalItems: z.number().int().nonnegative(),
+        hasMore: z.boolean(),
+        order: z.enum(["asc", "desc"]),
+      })
+      .strict(),
+  })
+  .strict();
+const journaledConfigurationSnapshotSchema = z
+  .object({
+    version: z.literal(1),
+    id: telemetryIdSchema,
+    capturedAt: telemetryTimestampSchema,
+    component: telemetryNameSchema,
+    configurationVersion: z.string().min(1).max(64),
+    projectId: telemetryEntityIdSchema.optional(),
+    sessionId: telemetryEntityIdSchema.optional(),
+    activeAgentId: telemetryEntityIdSchema.optional(),
+    values: sanitizedAttributesSchema,
+    sequence: z.number().int().positive(),
+    recordedAt: telemetryTimestampSchema,
+  })
+  .strict();
+const configurationSnapshotQuerySchema = z
+  .object({
+    components: telemetryStringListSchema.optional(),
+    projectId: telemetryEntityIdSchema.optional(),
+    sessionId: telemetryEntityIdSchema.optional(),
+    activeAgentId: telemetryEntityIdSchema.optional(),
+    from: telemetryTimestampSchema.optional(),
+    to: telemetryTimestampSchema.optional(),
+    cursor: z.string().min(1).max(256).optional(),
+    limit: z.number().int().min(1).max(500).default(100),
+    order: z.enum(["asc", "desc"]).default("desc"),
+  })
+  .strict()
+  .refine(validHistoryRange, {
+    message: "'from' must not be later than 'to'",
+    path: ["from"],
+  });
+const configurationSnapshotPageSchema = z
+  .object({
+    version: z.literal(1),
+    items: z.array(journaledConfigurationSnapshotSchema),
+    nextCursor: z.string().min(1).optional(),
+    page: z
+      .object({
+        limit: z.number().int().positive(),
+        returnedItems: z.number().int().nonnegative(),
+        totalItems: z.number().int().nonnegative(),
+        hasMore: z.boolean(),
+        order: z.enum(["asc", "desc"]),
+      })
+      .strict(),
+  })
+  .strict();
+const retentionPolicySchema = z
+  .object({
+    maxAgeDays: z.number().finite().positive().default(30),
+    maxBytes: z
+      .number()
+      .int()
+      .positive()
+      .default(250 * 1024 * 1024),
+  })
+  .strict();
+const retentionResultSchema = z
+  .object({
+    version: z.literal(1),
+    deletedEvents: z.number().int().nonnegative(),
+    deletedTraces: z.number().int().nonnegative(),
+    deletedConfigurationSnapshots: z.number().int().nonnegative(),
+    databaseBytes: z.number().int().nonnegative(),
+    withinMaxBytes: z.boolean(),
+  })
+  .strict();
+const journalHealthSchema = z
+  .object({
+    version: z.literal(1),
+    status: z.enum(["healthy", "degraded", "closed"]),
+    schemaVersion: z.number().int().nonnegative(),
+    pendingWrites: z.number().int().nonnegative(),
+    persistedEvents: z.number().int().nonnegative(),
+    persistedConfigurationSnapshots: z.number().int().nonnegative(),
+    rejectedWrites: z.number().int().nonnegative(),
+    maxPendingWrites: z.number().int().positive(),
+    databaseBytes: z.number().int().nonnegative(),
+    oldestEventAt: telemetryTimestampSchema.nullable(),
+    newestEventAt: telemetryTimestampSchema.nullable(),
+    lastFlushAt: telemetryTimestampSchema.nullable(),
+    lastError: z
+      .object({
+        code: z.enum([
+          "closed",
+          "conflict",
+          "corrupt_database",
+          "duplicate",
+          "invalid_cursor",
+          "io",
+          "queue_full",
+          "schema_version",
+        ]),
+        message: z.string().min(1).max(1_024),
+        at: telemetryTimestampSchema,
+      })
+      .strict()
+      .nullable(),
+    retention: retentionPolicySchema,
+  })
+  .strict();
 
 export const modes = ["explore", "compose", "arrange", "sound", "mix"] as const;
 export type ProductMode = (typeof modes)[number];
@@ -496,7 +779,14 @@ export const preferencesSchema = z.object({
   signalPort: z.number().int().min(1).max(65535).default(45832),
   remoteScriptLocation: z.string().default("Auto-detect"),
   loggingLevel: z.enum(["error", "warn", "info", "debug"]).default("info"),
-  telemetryEnabled: z.boolean().default(false),
+  eventHistoryEnabled: z.boolean().default(true),
+  eventHistoryRetentionDays: z.number().finite().positive().default(30),
+  eventHistoryMaxBytes: z
+    .number()
+    .int()
+    .positive()
+    .default(250 * 1024 * 1024),
+  eventsViewMode: z.enum(["live", "history"]).default("live"),
   workflowDensity: z.enum(["compact", "comfortable"]).default("comfortable"),
 });
 export type DesktopPreferences = z.infer<typeof preferencesSchema>;
@@ -982,6 +1272,56 @@ export const ipcSchemas = {
       ),
     response: desktopAgentEventListenerSchema,
   },
+  "event-history:search": {
+    request: telemetryQuerySchema,
+    response: rootTracePageSchema,
+  },
+  "event-history:trace": {
+    request: z
+      .object({
+        traceId: telemetryIdSchema,
+        cursor: z.string().min(1).max(256).optional(),
+        limit: z.number().int().min(1).max(500).default(500),
+        order: z.enum(["asc", "desc"]).default("asc"),
+      })
+      .strict(),
+    response: traceEventPageSchema,
+  },
+  "event-history:configurations": {
+    request: configurationSnapshotQuerySchema,
+    response: configurationSnapshotPageSchema,
+  },
+  "event-history:health": {
+    request: z.object({}).strict(),
+    response: journalHealthSchema,
+  },
+  "event-history:get-retention": {
+    request: z.object({}).strict(),
+    response: retentionPolicySchema,
+  },
+  "event-history:set-retention": {
+    request: retentionPolicySchema,
+    response: retentionPolicySchema,
+  },
+  "event-history:prune": {
+    request: z.object({}).strict(),
+    response: retentionResultSchema,
+  },
+  "event-history:delete-trace": {
+    request: z.object({ traceId: telemetryIdSchema }).strict(),
+    response: z
+      .object({ deletedEvents: z.number().int().nonnegative() })
+      .strict(),
+  },
+  "event-history:clear": {
+    request: z.object({}).strict(),
+    response: z
+      .object({
+        deletedEvents: z.number().int().nonnegative(),
+        deletedConfigurationSnapshots: z.number().int().nonnegative(),
+      })
+      .strict(),
+  },
 } as const;
 
 export type IpcChannel = keyof typeof ipcSchemas;
@@ -1131,4 +1471,38 @@ export interface DesktopApi {
     ): Promise<DesktopAgentEventListener>;
     subscribe(handler: (event: DesktopAppEvent) => void): () => void;
   };
+  eventHistory: {
+    search(query?: RootTraceQuery): Promise<RootTracePage>;
+    trace(
+      traceId: string,
+      options?: { cursor?: string; limit?: number; order?: "asc" | "desc" },
+    ): Promise<EventTracePage>;
+    configurations(
+      query?: ConfigurationSnapshotQuery,
+    ): Promise<ConfigurationSnapshotPage>;
+    health(): Promise<JournalHealth>;
+    getRetention(): Promise<RetentionPolicy>;
+    setRetention(policy: RetentionPolicy): Promise<RetentionPolicy>;
+    prune(): Promise<RetentionResult>;
+    deleteTrace(traceId: string): Promise<number>;
+    clear(): Promise<{
+      deletedEvents: number;
+      deletedConfigurationSnapshots: number;
+    }>;
+  };
 }
+
+export type EventTracePage = TelemetryEventPage & {
+  trace: NonNullable<TelemetryEventPage["trace"]>;
+};
+
+export type {
+  ConfigurationSnapshotPage,
+  ConfigurationSnapshotQuery,
+  JournalHealth,
+  RetentionPolicy,
+  RetentionResult,
+  RootTracePage,
+  RootTraceQuery,
+  TelemetryEventPage,
+};

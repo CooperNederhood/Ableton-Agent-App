@@ -11,6 +11,10 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [x] Configure a restricted tool environment with explicit allowlists.
 - [x] Define model and reasoning configuration with validated defaults.
 - [x] Normalize SDK events into application-owned `AppEvent` values.
+- [ ] Journal sanitized configuration snapshots on session create/resume and
+  effective configuration changes.
+- [ ] Journal the complete unsampled SDK/session/turn/stream/hook/tool lifecycle
+  with trace/correlation continuity and bounded payloads.
 
 - [x] Register the first read-only Ableton session inspection tool.
 - [x] Register bounded Arrangement transport inspection and risk-classified
@@ -43,6 +47,8 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 ## Tests
 
 - [~] Unit-test event normalization and context generation.
+- [ ] Test configuration snapshot revisions, SDK event coverage, redaction,
+  lifecycle ordering, cancellation/failure timing, and trace propagation.
 - [x] Unit-test hook decisions for every risk and error class.
 - [x] Test system-message/tool compatibility with deterministic fixtures.
 - [x] Integration-test custom tool invocation through the Copilot SDK.

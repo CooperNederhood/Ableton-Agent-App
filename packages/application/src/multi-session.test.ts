@@ -14,6 +14,7 @@ import { InMemoryEventPublisher, type AppEvent } from "@ableton-agent/shared";
 
 import {
   CopilotAgentService,
+  type AgentRuntimeEvent,
   type AgentSkillDescriptor,
   type AgentSessionConfiguration,
   type CopilotAgentServiceOptions,
@@ -1385,8 +1386,12 @@ describe("CopilotAgentService managed sessions", () => {
         return reconfiguredSession;
       },
     );
+    const runtimeEvents: AgentRuntimeEvent[] = [];
     const service = new CopilotAgentService(
       baseOptions({
+        runtimeObserver: {
+          enqueue: (event) => runtimeEvents.push(event),
+        },
         signalContext: {
           provider: {
             getPendingContexts: async () => [],
@@ -1472,6 +1477,26 @@ describe("CopilotAgentService managed sessions", () => {
     expect(managedSession.prompts.at(-1)).toContain(
       "Check the launch.\nKeys started clip 1.",
     );
+    const outputTurn = runtimeEvents.find(
+      (event) =>
+        event.type === "agent.turn.started" &&
+        event.data.origin === "output.automatic",
+    );
+    expect(outputTurn?.trace).toMatchObject({
+      traceId: "assignment-1",
+      occurrenceIds: ["assignment-1"],
+      deliveryIds: ["delivery-1"],
+    });
+    const liveEventRuntimeTurn = runtimeEvents.find(
+      (event) =>
+        event.type === "agent.turn.started" &&
+        event.data.origin === "live-event.automatic",
+    );
+    expect(liveEventRuntimeTurn?.trace).toMatchObject({
+      traceId: "00000000-0000-4000-8000-000000000003",
+      occurrenceIds: ["00000000-0000-4000-8000-000000000003"],
+      deliveryIds: ["live-delivery-1"],
+    });
     expect(defaultSession.prompts).toEqual(["legacy"]);
 
     const updated = configuration("managed", {
@@ -1484,6 +1509,18 @@ describe("CopilotAgentService managed sessions", () => {
       availableSkills: [skillDescriptor("mix-balance")],
     });
     await service.reconfigureManagedAgent(updated);
+    const updatedSnapshot = runtimeEvents
+      .filter((event) => event.type === "agent.session.configuration")
+      .at(-1)?.data;
+    expect(updatedSnapshot).toMatchObject({
+      customAgentPrompt: "Updated managed prompt",
+    });
+    expect(JSON.stringify(updatedSnapshot?.skills)).toContain(
+      `"fingerprint":"${"a".repeat(64)}"`,
+    );
+    expect(JSON.stringify(updatedSnapshot?.tools)).toContain(
+      '"name":"ableton_tracks_create"',
+    );
 
     expect(managedSession.disconnect).toHaveBeenCalledOnce();
     expect(service.getManagedAgentSessionId("managed")).toBe("managed-session");

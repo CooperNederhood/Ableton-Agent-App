@@ -28,6 +28,8 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 - [x] Reject zero, oversized, truncated, and invalid UTF-8 payloads.
 - [x] Implement protocol-version selection and incompatibility errors.
 - [x] Define request ID, event sequence, and project revision semantics.
+- [ ] Propagate bounded opaque trace/correlation context through command,
+  response, and unsolicited-event envelopes and contract fixtures.
 - [x] Document additive compatibility and version-bump rules.
 
 ## Contract automation

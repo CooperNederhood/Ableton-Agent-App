@@ -68,6 +68,24 @@ Active-agent editing provides a Skills-style **Listening Events** selector.
 Each selected event has an `Automatic` or `Next prompt` response mode and
 an optional message prefix.
 
+## History
+
+The top-level **History** surface queries the local detailed event journal. It
+shows sanitized agent configuration changes, SDK and tool/workflow lifecycle,
+Live Event traces, and Output deliveries. Live Events and Outputs use the same
+trace and query infrastructure but remain distinct categories and link back to
+their own product surfaces.
+
+Users can filter by time, category, lifecycle stage, outcome, active agent,
+Live Event, Output, tool, session, trace ID, or correlation ID. Selecting a
+record opens a redacted trace view with parent/child stages and timing. The UI
+must clearly distinguish no matches, history removed by retention, capture
+paused, incomplete/dropped traces, and journal unavailable.
+
+History uses bounded cursor pages, virtualized results, cancellable stale
+queries, and on-demand details. The renderer never receives raw SQL, a database
+path, or unsanitized payloads.
+
 ## Superset interaction model
 
 Every essential CLI action has a React equivalent:
@@ -146,6 +164,8 @@ Every mutation operation should expose:
 - Virtualized long activity and browser lists.
 - Throttled rendering of streaming events.
 - UI remains responsive during model and Ableton operations.
+- History's first filtered page meets 200 ms p95 at the 250 MiB journal cap on
+  the supported baseline and does not regress SDK streaming or event delivery.
 
 ## Terminal experience
 

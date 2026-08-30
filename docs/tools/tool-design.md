@@ -75,6 +75,14 @@ interface AbletonToolMetadata {
 
 Hooks use this metadata for permissions and UI presentation.
 
+The tool factory must also define sanitized observability events for request,
+policy/approval, queued, started, progress, child workflow/bridge operations,
+verification, completed, failed, and cancelled stages. Each stage propagates
+the originating trace/correlation context and records relevant queue/execution
+timing. Bounded tool definitions, arguments, and results are required in the
+local journal for useful history; the shared sanitizer redacts embedded
+credentials and replaces binary/audio bodies with visible omission markers.
+
 ## Tool results
 
 Return two representations:
@@ -119,3 +127,6 @@ A workflow operation should:
 6. Verify postconditions.
 7. Persist the operation record.
 8. Return a concise musical summary.
+
+The operation record and its stages remain queryable in Desktop History after
+the live activity UI has moved on.

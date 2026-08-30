@@ -12,6 +12,7 @@ import {
   CopilotAgentService,
   HeadlessApplication,
   type AbletonService,
+  type AgentRuntimeEvent,
   type AgentSessionConfiguration,
   type AgentService,
 } from "./index.js";
@@ -780,8 +781,14 @@ describe("CopilotAgentService", () => {
       Promise.resolve({ data: { content: "Ableton is connected." } }),
     );
     const requestToolApproval = vi.fn(() => Promise.resolve(true));
+    const runtimeEvents: AgentRuntimeEvent[] = [];
     const service = new CopilotAgentService({
       events: new InMemoryEventPublisher(),
+      runtimeObserver: {
+        enqueue: (event) => runtimeEvents.push(event),
+      },
+      model: "claude-sonnet-4.6",
+      reasoningEffort: "high",
       getAbletonStatus: () =>
         Promise.resolve({
           state: "connected",
@@ -1165,15 +1172,68 @@ describe("CopilotAgentService", () => {
     expect(abort).toHaveBeenCalledOnce();
     expect(disconnect).toHaveBeenCalledOnce();
     expect(stop).toHaveBeenCalledOnce();
+    const snapshot = runtimeEvents.find(
+      (event) => event.type === "agent.session.configuration",
+    );
+    expect(snapshot?.data).toMatchObject({
+      customAgentPrompt:
+        "Follow the session system message exactly and use the available Ableton tools to help the user.",
+      model: "claude-sonnet-4.6",
+      reasoningEffort: "high",
+      skills: [],
+    });
+    expect(JSON.stringify(snapshot?.data.sdkSystemMessage)).toContain(
+      "Ableton Live production assistant",
+    );
+    expect(JSON.stringify(snapshot?.data.tools)).toContain(
+      '"name":"ableton_transport_set_tempo"',
+    );
+    expect(JSON.stringify(snapshot?.data.tools)).toContain(
+      '"parameterSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema',
+    );
+    expect(JSON.stringify(snapshot?.data.tools)).toContain('"available":true');
+    expect(
+      runtimeEvents.filter((event) => event.type === "agent.turn.queued"),
+    ).toHaveLength(2);
+    expect(
+      runtimeEvents.find((event) => event.type === "agent.turn.started")?.data,
+    ).toMatchObject({
+      origin: "user",
+      prompt: "Check the connection",
+      timeoutMs: 180_000,
+    });
+    expect(
+      runtimeEvents.find((event) => event.type === "agent.turn.completed")
+        ?.data,
+    ).toMatchObject({ response: "Ableton is connected." });
+    expect(runtimeEvents.map((event) => event.type)).toEqual(
+      expect.arrayContaining([
+        "agent.assistant.final",
+        "agent.permission.requested",
+        "agent.permission.completed",
+        "agent.turn.timeout",
+        "agent.abort.requested",
+        "agent.abort.completed",
+      ]),
+    );
+    expect(
+      runtimeEvents
+        .filter((event) => event.type.startsWith("agent.turn."))
+        .every((event) => event.trace?.turnId !== undefined),
+    ).toBe(true);
   });
 
   it("normalizes assistant and tool execution events", async () => {
     const events = new InMemoryEventPublisher();
     const received: AppEvent[] = [];
+    const runtimeEvents: AgentRuntimeEvent[] = [];
     events.subscribe((event) => received.push(event));
     let listener: ((event: SessionEvent) => void) | undefined;
     const service = new CopilotAgentService({
       events,
+      runtimeObserver: {
+        enqueue: (event) => runtimeEvents.push(event),
+      },
       getAbletonStatus: () => Promise.resolve({ state: "disconnected" }),
       inspectSession: () =>
         Promise.resolve({
@@ -1402,6 +1462,14 @@ describe("CopilotAgentService", () => {
     await service.start();
 
     listener?.({
+      type: "assistant.message_start",
+      id: "assistant-start",
+      parentId: null,
+      timestamp: "2026-08-08T00:00:00.000Z",
+      ephemeral: true,
+      data: { messageId: "message-1" },
+    });
+    listener?.({
       type: "assistant.message_delta",
       id: "event-1",
       parentId: null,
@@ -1428,6 +1496,48 @@ describe("CopilotAgentService", () => {
         toolCallId: "tool-1",
         success: true,
       },
+    });
+    listener?.({
+      type: "tool.execution_progress",
+      id: "tool-progress",
+      parentId: "event-2",
+      timestamp: "2026-08-08T00:00:01.250Z",
+      ephemeral: true,
+      data: { toolCallId: "tool-1", progressMessage: "Reading tracks" },
+    });
+    listener?.({
+      type: "tool.execution_partial_result",
+      id: "tool-partial",
+      parentId: "tool-progress",
+      timestamp: "2026-08-08T00:00:01.500Z",
+      ephemeral: true,
+      data: { toolCallId: "tool-1", partialOutput: "Track 1" },
+    });
+    listener?.({
+      type: "assistant.message",
+      id: "assistant-final",
+      parentId: "event-5",
+      timestamp: "2026-08-08T00:00:05.000Z",
+      data: { messageId: "message-1", content: "done" },
+    });
+    listener?.({
+      type: "model.call_failure",
+      id: "model-failure",
+      parentId: "assistant-final",
+      timestamp: "2026-08-08T00:00:06.000Z",
+      ephemeral: true,
+      data: {
+        source: "top_level",
+        model: "test-model",
+        errorMessage: "provider unavailable",
+      },
+    });
+    listener?.({
+      type: "abort",
+      id: "abort",
+      parentId: "model-failure",
+      timestamp: "2026-08-08T00:00:07.000Z",
+      data: { reason: "user_initiated" },
     });
     listener?.({
       type: "tool.execution_start",
@@ -1489,6 +1599,28 @@ describe("CopilotAgentService", () => {
         sdkSessionId: "session-1",
       },
     ]);
+    expect(runtimeEvents.map((event) => event.type)).toEqual(
+      expect.arrayContaining([
+        "agent.assistant.started",
+        "agent.assistant.delta",
+        "agent.assistant.final",
+        "agent.tool.started",
+        "agent.tool.progress",
+        "agent.tool.partial",
+        "agent.tool.completed",
+        "agent.tool.failed",
+        "agent.model.failed",
+        "agent.turn.aborted",
+      ]),
+    );
+    expect(
+      runtimeEvents.find((event) => event.type === "agent.tool.completed")
+        ?.data,
+    ).toMatchObject({
+      toolCallId: "tool-1",
+      arguments: {},
+      durationMs: 1_000,
+    });
     await service.stop();
   });
 });

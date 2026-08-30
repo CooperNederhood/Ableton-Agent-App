@@ -25,6 +25,10 @@ Companion specification: [System Architecture](system-architecture.md)
 - [x] Define stable error categories across agent, bridge, protocol, and LOM.
 - [x] Add correlation IDs spanning agent calls, workflows, bridge requests, and
   Remote Script logs.
+- [ ] Add the application-owned, versioned local event-journal writer and typed
+  append/trace/cursor-query repositories.
+- [ ] Require every capability and asynchronous stage to define sanitized
+  lifecycle events and propagate trace/correlation/causation context.
 
 ## Tests
 
@@ -34,6 +38,8 @@ Companion specification: [System Architecture](system-architecture.md)
 - [x] Add a smoke test booting the headless core with fake dependencies.
 - [x] Add an integration test running CLI and desktop adapters against the same
   fake service implementation.
+- [ ] Test journal dependency composition, bounded/non-blocking failure,
+  lifecycle coverage, trace propagation, pruning, and indexed query behavior.
 
 The fakes live in `packages/test-support`; `createFakeApplication` boots the
 real `HeadlessApplication` on them. `apps/cli/src/cli.test.ts` and

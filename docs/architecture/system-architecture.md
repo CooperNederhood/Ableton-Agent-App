@@ -52,11 +52,24 @@ Owns all privileged application services:
 - Project-state store.
 - Permission and approval policy.
 - Application logging.
+- Local detailed event-journal writer, retention, and query service.
 - Update and installation services.
 
 Long-running or CPU-heavy work may later move into Node worker threads or a
 dedicated local service, but the first implementation should avoid unnecessary
 processes.
+
+The event journal is an application-owned infrastructure service, not a
+presentation concern. Producers sanitize versioned records before enqueueing;
+the writer performs defense-in-depth sanitization, bounded asynchronous
+batching, indexing, and retention. Typed repositories expose append, trace, and
+cursor-query operations. They never expose generic SQL to the renderer.
+
+Every capability and asynchronous boundary defines observable lifecycle events.
+Trace/correlation context flows from SDK turns through tools, workflows, bridge
+requests, Remote Script work, Live Event routing, and Output delivery. The
+journal failure path is explicit and non-blocking so observability cannot stall
+Live's main thread, socket reads, SDK streaming, or tool execution.
 
 ### CLI/TUI process
 

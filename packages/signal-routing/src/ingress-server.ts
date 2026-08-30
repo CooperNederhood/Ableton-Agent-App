@@ -19,6 +19,8 @@ import {
   type SignalIngressDiscoveryDescriptor,
 } from "./ingress-contracts.js";
 import type { RouteResult } from "./router.js";
+import { recordSignalTelemetry, stableTelemetryId } from "./telemetry.js";
+import type { NonBlockingObservabilityRecorder } from "@ableton-agent/observability";
 
 export interface SignalIngressRegistry {
   register(connectionId: string, producer: OutputProducer): OutputConnection;
@@ -64,6 +66,7 @@ export interface SignalIngressServerOptions {
   readonly onStatus?: (status: SignalIngressStatus) => void;
   readonly onDiagnostic?: (diagnostic: SignalIngressDiagnostic) => void;
   readonly now?: () => number;
+  readonly telemetry?: Pick<NonBlockingObservabilityRecorder, "enqueue">;
 }
 
 export interface SignalIngressEndpoint {
@@ -74,7 +77,7 @@ export interface SignalIngressEndpoint {
 interface ClientState {
   readonly socket: Socket;
   buffer: Buffer;
-  readonly queue: string[];
+  readonly queue: Array<{ readonly line: string; readonly receivedAt: number }>;
   pumping: boolean;
   closing: boolean;
   connectionId: string | undefined;
@@ -276,7 +279,7 @@ export class SignalIngressServer {
         );
         return;
       }
-      state.queue.push(line);
+      state.queue.push({ line, receivedAt: this.#now() });
     }
     this.#pump(state);
   }
@@ -290,11 +293,11 @@ export class SignalIngressServer {
     void (async () => {
       try {
         while (!state.closing) {
-          const line = state.queue.shift();
-          if (line === undefined) {
+          const entry = state.queue.shift();
+          if (entry === undefined) {
             break;
           }
-          await this.#handleLine(state, line);
+          await this.#handleLine(state, entry.line, entry.receivedAt);
         }
       } catch (error) {
         const message =
@@ -312,12 +315,23 @@ export class SignalIngressServer {
     })();
   }
 
-  async #handleLine(state: ClientState, line: string): Promise<void> {
+  async #handleLine(
+    state: ClientState,
+    line: string,
+    receivedAt: number,
+  ): Promise<void> {
     let input: unknown;
     try {
       input = JSON.parse(line);
     } catch {
-      await this.#fail(state, "malformed-json", "Malformed JSON", true);
+      await this.#fail(
+        state,
+        "malformed-json",
+        "Malformed JSON",
+        true,
+        undefined,
+        receivedAt,
+      );
       return;
     }
     const requestId = extractRequestId(input);
@@ -329,6 +343,7 @@ export class SignalIngressServer {
         `Unsupported producer protocol version ${describeValue(version)}`,
         true,
         requestId,
+        receivedAt,
       );
       return;
     }
@@ -340,10 +355,35 @@ export class SignalIngressServer {
         parsed.error.issues[0]?.message ?? "Invalid producer message",
         true,
         requestId,
+        receivedAt,
       );
       return;
     }
     const message = parsed.data;
+    const traceId =
+      message.type === "signal.frame" && state.connectionId !== undefined
+        ? stableTelemetryId(
+            `output-signal:${state.connectionId}:${message.sequence}`,
+          )
+        : stableTelemetryId(`output-ingress-request:${message.requestId}`);
+    recordSignalTelemetry(this.#options.telemetry, {
+      name: "output.ingress.received",
+      source: "output-ingress",
+      correlationId: message.requestId,
+      occurredAt: new Date(receivedAt).toISOString(),
+      durationMs: this.#now() - receivedAt,
+      trace: { traceId, spanId: traceId },
+      attributes: {
+        requestId: message.requestId,
+        messageType: message.type,
+        ...(state.connectionId === undefined
+          ? {}
+          : { connectionId: state.connectionId }),
+        ...(message.type === "signal.frame"
+          ? { sequence: message.sequence, capturedAt: message.capturedAt }
+          : {}),
+      },
+    });
     if (message.type === "producer.hello") {
       await this.#hello(state, message);
       return;
@@ -375,7 +415,7 @@ export class SignalIngressServer {
           );
           return;
         }
-        await this.#route(state, message);
+        await this.#route(state, message, receivedAt);
         break;
       case "producer.disconnect":
         await this.#ack(state, message.requestId, "disconnect");
@@ -451,15 +491,40 @@ export class SignalIngressServer {
       ReturnType<typeof producerMessageSchema.parse>,
       { type: "signal.frame" }
     >,
+    receivedAt: number,
   ): Promise<void> {
     const envelope: SignalEnvelope = {
       protocolVersion: 1,
       connectionId: state.connectionId as string,
       sequence: message.sequence,
       capturedAt: message.capturedAt,
+      receivedAt,
       payload: message.payload,
     };
+    const traceId = stableTelemetryId(
+      `output-signal:${envelope.connectionId}:${envelope.sequence}`,
+    );
+    const routeStartedAt = this.#now();
     const result = this.#options.router.route(envelope);
+    recordSignalTelemetry(this.#options.telemetry, {
+      name: "output.ingress.routed",
+      source: "output-ingress",
+      correlationId: message.requestId,
+      level: result.accepted ? "info" : "warn",
+      outcome: result.accepted ? "success" : "failure",
+      durationMs: this.#now() - routeStartedAt,
+      trace: {
+        traceId,
+        spanId: stableTelemetryId(`${traceId}:ingress-route`),
+        parentSpanId: traceId,
+      },
+      attributes: {
+        requestId: message.requestId,
+        connectionId: envelope.connectionId,
+        sequence: envelope.sequence,
+        assignmentCount: result.deliveries.length,
+      },
+    });
     if (!result.accepted) {
       const decision =
         result.decisions.find((candidate) => !candidate.accepted) ??
@@ -493,6 +558,32 @@ export class SignalIngressServer {
       ...(connectionId === undefined ? {} : { connectionId }),
     };
     await this.#write(state, response);
+    const traceId =
+      action === "signal" &&
+      state.connectionId !== undefined &&
+      state.lastSequence >= 0
+        ? stableTelemetryId(
+            `output-signal:${state.connectionId}:${state.lastSequence}`,
+          )
+        : stableTelemetryId(`output-ingress-request:${requestId}`);
+    recordSignalTelemetry(this.#options.telemetry, {
+      name: "output.ingress.acknowledged",
+      source: "output-ingress",
+      correlationId: requestId,
+      outcome: "success",
+      trace: {
+        traceId,
+        spanId: stableTelemetryId(`${traceId}:ack:${requestId}`),
+        parentSpanId: traceId,
+      },
+      attributes: {
+        requestId,
+        action,
+        ...(state.connectionId === undefined
+          ? {}
+          : { connectionId: state.connectionId }),
+      },
+    });
   }
 
   async #fail(
@@ -501,8 +592,10 @@ export class SignalIngressServer {
     message: string,
     fatal: boolean,
     requestId?: string,
+    startedAt = this.#now(),
   ): Promise<void> {
     this.#diagnostic(code, message, state.connectionId);
+    this.#recordFailure(code, requestId, state.connectionId, fatal, startedAt);
     const response: ProducerErrorResponse = {
       type: "producer.error",
       protocolVersion: PRODUCER_PROTOCOL_VERSION,
@@ -530,6 +623,33 @@ export class SignalIngressServer {
         }
       }
     }
+  }
+
+  #recordFailure(
+    code: IngressErrorCode,
+    requestId: string | undefined,
+    connectionId: string | undefined,
+    fatal: boolean,
+    startedAt: number,
+  ): void {
+    const traceId = stableTelemetryId(
+      `output-ingress-request:${requestId ?? `${connectionId ?? "unknown"}:${startedAt}`}`,
+    );
+    recordSignalTelemetry(this.#options.telemetry, {
+      name: "output.ingress.failed",
+      source: "output-ingress",
+      ...(requestId === undefined ? {} : { correlationId: requestId }),
+      level: "warn",
+      outcome: "failure",
+      durationMs: this.#now() - startedAt,
+      trace: { traceId, spanId: traceId },
+      attributes: {
+        code,
+        fatal,
+        ...(requestId === undefined ? {} : { requestId }),
+        ...(connectionId === undefined ? {} : { connectionId }),
+      },
+    });
   }
 
   async #write(state: ClientState, value: object): Promise<void> {

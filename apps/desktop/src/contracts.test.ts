@@ -62,6 +62,68 @@ describe("desktop IPC contracts", () => {
 
     expect(preferences.abletonPort).toBe(8765);
     expect(preferences.approvalPolicy).toBe("risky");
+    expect(preferences.eventHistoryEnabled).toBe(true);
+    expect(preferences.eventHistoryRetentionDays).toBe(30);
+    expect(preferences.eventHistoryMaxBytes).toBe(250 * 1024 * 1024);
+  });
+
+  it("strictly validates event history queries and destructive requests", () => {
+    const traceId = "00000000-0000-4000-8000-000000000010";
+    expect(
+      ipcSchemas["event-history:search"].request.parse({
+        sources: ["runtime"],
+        limit: 50,
+      }),
+    ).toMatchObject({ sources: ["runtime"], limit: 50, order: "desc" });
+    expect(() =>
+      ipcSchemas["event-history:search"].request.parse({
+        limit: 501,
+        secret: "no",
+      }),
+    ).toThrow();
+    expect(
+      ipcSchemas["event-history:search"].response.safeParse({
+        version: 1,
+        items: [
+          {
+            rootTraceId: traceId,
+            eventCount: 2,
+            firstSequence: 1,
+            lastSequence: 2,
+            firstOccurredAt: "2026-01-01T00:00:00.000Z",
+            lastOccurredAt: "2026-01-01T00:00:01.000Z",
+            firstEventName: "agent.turn",
+            lastEventName: "agent.completed",
+            hasErrors: false,
+          },
+        ],
+        page: {
+          limit: 50,
+          returnedItems: 1,
+          totalItems: 1,
+          hasMore: false,
+          order: "desc",
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      ipcSchemas["event-history:trace"].response.safeParse({
+        version: 1,
+        items: [],
+        page: {
+          limit: 50,
+          returnedItems: 0,
+          totalItems: 0,
+          hasMore: false,
+          order: "asc",
+        },
+      }).success,
+    ).toBe(false);
+    expect(() =>
+      ipcSchemas["event-history:delete-trace"].request.parse({
+        traceId: "not-a-uuid",
+      }),
+    ).toThrow();
   });
 
   it("accepts approve-all as an approval policy", () => {

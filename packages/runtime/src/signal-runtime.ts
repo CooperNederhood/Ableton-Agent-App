@@ -9,12 +9,15 @@ import {
   SignalIngressServer,
   SignalRouter,
   SignalRoutingSummaryPublisher,
+  recordSignalTelemetry,
+  stableTelemetryId,
   isAgentInstanceConsumer,
   type OutputAssignment,
   type OutputConnection,
   type SignalIngressEndpoint,
   type TranslatedSignalContext,
 } from "@ableton-agent/signal-routing";
+import type { NonBlockingObservabilityRecorder } from "@ableton-agent/observability";
 import { noopLogger, type Logger } from "@ableton-agent/shared";
 
 export type SignalRuntimeStatus =
@@ -54,6 +57,8 @@ export interface SignalRuntimeOptions {
   readonly port?: number;
   readonly staleAfterMs?: number;
   readonly logger?: Logger;
+  readonly telemetry?: Pick<NonBlockingObservabilityRecorder, "enqueue">;
+  readonly now?: () => Date;
 }
 
 export interface SignalRuntime {
@@ -78,6 +83,7 @@ interface DeliveryRecord {
   readonly assignmentId: string;
   readonly agentInstanceId: string;
   readonly sequence: number;
+  readonly traceId: string;
 }
 
 export class DefaultSignalRuntime
@@ -92,11 +98,16 @@ export class DefaultSignalRuntime
   readonly #deliveryRecords = new Map<string, DeliveryRecord>();
   readonly #activeAgentInstanceIds = new Set<string>();
   readonly #logger: Logger;
+  readonly #telemetry:
+    Pick<NonBlockingObservabilityRecorder, "enqueue"> | undefined;
+  readonly #now: () => Date;
   #deliveryService: SignalDeliveryService | undefined;
   #status: SignalRuntimeStatus;
 
   constructor(options: SignalRuntimeOptions) {
     this.#logger = options.logger ?? noopLogger;
+    this.#telemetry = options.telemetry;
+    this.#now = options.now ?? (() => new Date());
     this.#registry = new InMemoryConnectionRegistry({
       staleAfterMs: options.staleAfterMs ?? 15_000,
       publisher: this.#publisher,
@@ -104,6 +115,8 @@ export class DefaultSignalRuntime
     this.#router = new SignalRouter({
       registry: this.#registry,
       publisher: this.#publisher,
+      ...(this.#telemetry === undefined ? {} : { telemetry: this.#telemetry }),
+      now: this.#now,
     });
     this.#status =
       options.secret === undefined
@@ -125,6 +138,10 @@ export class DefaultSignalRuntime
             ...(options.descriptorPath === undefined
               ? {}
               : { descriptorPath: options.descriptorPath }),
+            ...(this.#telemetry === undefined
+              ? {}
+              : { telemetry: this.#telemetry }),
+            now: () => this.#now().getTime(),
             onDiagnostic: ({ message }) =>
               this.#emit({
                 type: "diagnostic",
@@ -173,6 +190,12 @@ export class DefaultSignalRuntime
       const endpoint: SignalIngressEndpoint = await this.#ingress.start();
       this.#logger.info("Signal ingress started", { ...endpoint });
       this.#setStatus({ state: "listening", ...endpoint });
+      recordSignalTelemetry(this.#telemetry, {
+        name: "output.ingress.started",
+        source: "output-runtime",
+        outcome: "success",
+        attributes: { host: endpoint.host, port: endpoint.port },
+      });
     } catch (error) {
       this.#logger.error("Signal ingress startup failed", {
         error: error instanceof Error ? error.message : String(error),
@@ -180,6 +203,15 @@ export class DefaultSignalRuntime
       this.#setStatus({
         state: "error",
         detail: error instanceof Error ? error.message : String(error),
+      });
+      recordSignalTelemetry(this.#telemetry, {
+        name: "output.ingress.start-failed",
+        source: "output-runtime",
+        level: "error",
+        outcome: "failure",
+        attributes: {
+          errorType: error instanceof Error ? error.name : typeof error,
+        },
       });
       throw error;
     }
@@ -238,6 +270,13 @@ export class DefaultSignalRuntime
     if (removed) {
       for (const [id, record] of this.#deliveryRecords) {
         if (record.assignmentId !== assignmentId) continue;
+        this.#recordDelivery(
+          "output.delivery.cancelled",
+          record,
+          undefined,
+          "cancelled",
+          { reason: "assignment-removed" },
+        );
         this.#deliveryRecords.delete(id);
         this.#scheduledAutomatic.delete(id);
       }
@@ -257,8 +296,17 @@ export class DefaultSignalRuntime
   async getPendingContexts(
     agentInstanceId: string,
   ): Promise<readonly PendingSignalContext[]> {
-    if (!this.#activeAgentInstanceIds.has(agentInstanceId)) return [];
-    return this.#router
+    if (!this.#activeAgentInstanceIds.has(agentInstanceId)) {
+      recordSignalTelemetry(this.#telemetry, {
+        name: "output.dispatch.skipped",
+        source: "output-runtime",
+        activeAgentId: agentInstanceId,
+        outcome: "cancelled",
+        attributes: { agentInstanceId, reason: "inactive-agent" },
+      });
+      return [];
+    }
+    const pending = this.#router
       .listAssignments()
       .filter(
         (assignment) =>
@@ -269,20 +317,32 @@ export class DefaultSignalRuntime
       .flatMap((assignment) =>
         this.#router.inbox(assignment.assignmentId).map((context) => {
           const record = this.#deliveryRecord(assignment, context);
-          return {
+          const request = {
             deliveryId: record.deliveryId,
             context,
             usageInstruction: assignment.usageInstruction,
           };
+          this.#recordDelivery("output.dispatch.requested", record, context);
+          return request;
         }),
       );
+    return pending;
   }
 
   async markDelivered(
     agentInstanceId: string,
     deliveryIds: readonly string[],
   ): Promise<void> {
-    if (!this.#activeAgentInstanceIds.has(agentInstanceId)) return;
+    if (!this.#activeAgentInstanceIds.has(agentInstanceId)) {
+      recordSignalTelemetry(this.#telemetry, {
+        name: "output.delivery.ack-skipped",
+        source: "output-runtime",
+        activeAgentId: agentInstanceId,
+        outcome: "cancelled",
+        attributes: { agentInstanceId, reason: "inactive-agent" },
+      });
+      return;
+    }
     const grouped = new Map<string, number[]>();
     for (const id of deliveryIds) {
       const record = this.#deliveryRecords.get(id);
@@ -301,6 +361,15 @@ export class DefaultSignalRuntime
       grouped.set(record.assignmentId, sequences);
       this.#deliveryRecords.delete(id);
       this.#scheduledAutomatic.delete(id);
+      const context = this.#router
+        .inbox(record.assignmentId)
+        .find(({ sequence }) => sequence === record.sequence);
+      this.#recordDelivery(
+        "output.delivery.acknowledged",
+        record,
+        context,
+        "success",
+      );
     }
     for (const [assignmentId, sequences] of grouped) {
       this.#router.acknowledge(assignmentId, sequences);
@@ -308,22 +377,55 @@ export class DefaultSignalRuntime
   }
 
   #scheduleAutomatic(context: TranslatedSignalContext): void {
-    if (context.deliveryMode === "next-prompt") return;
+    if (context.deliveryMode === "next-prompt") {
+      this.#recordContext("output.scheduling.skipped", context, {
+        outcome: "cancelled",
+        attributes: { reason: "next-prompt" },
+      });
+      return;
+    }
     if (
       !isAgentInstanceConsumer(context.consumer) ||
       !this.#activeAgentInstanceIds.has(context.consumer.id)
     ) {
+      this.#recordContext("output.scheduling.skipped", context, {
+        outcome: "cancelled",
+        attributes: { reason: "inactive-or-unsupported-consumer" },
+      });
       return;
     }
     const assignment = this.#router
       .listAssignments()
       .find(({ assignmentId }) => assignmentId === context.assignmentId);
     const service = this.#deliveryService;
-    if (assignment === undefined || service === undefined) return;
+    if (assignment === undefined || service === undefined) {
+      this.#recordContext("output.scheduling.skipped", context, {
+        outcome: "cancelled",
+        attributes: {
+          reason:
+            assignment === undefined
+              ? "assignment-unavailable"
+              : "delivery-service-unavailable",
+        },
+      });
+      return;
+    }
     const record = this.#deliveryRecord(assignment, context);
     const id = record.deliveryId;
-    if (this.#scheduledAutomatic.has(id)) return;
+    if (this.#scheduledAutomatic.has(id)) {
+      this.#recordDelivery(
+        "output.scheduling.skipped",
+        record,
+        context,
+        "cancelled",
+        { reason: "already-scheduled" },
+      );
+      return;
+    }
     this.#scheduledAutomatic.add(id);
+    this.#recordDelivery("output.scheduling.completed", record, context);
+    const startedAt = this.#now().getTime();
+    this.#recordDelivery("output.dispatch.requested", record, context);
     this.#logger.debug("Automatic signal turn scheduled", {
       deliveryId: id,
       context,
@@ -337,6 +439,17 @@ export class DefaultSignalRuntime
         },
         usageInstruction: assignment.usageInstruction,
       })
+      .then(() => {
+        const durationMs = this.#now().getTime() - startedAt;
+        this.#recordDelivery(
+          "output.delivery.completed",
+          record,
+          context,
+          "success",
+          {},
+          durationMs,
+        );
+      })
       .catch((error: unknown) => {
         this.#logger.error("Automatic signal delivery failed", {
           deliveryId: id,
@@ -344,6 +457,17 @@ export class DefaultSignalRuntime
           error: error instanceof Error ? error.message : String(error),
         });
         this.#scheduledAutomatic.delete(id);
+        this.#recordDelivery(
+          "output.delivery.failed",
+          record,
+          context,
+          "failure",
+          {
+            errorType: error instanceof Error ? error.name : typeof error,
+          },
+          this.#now().getTime() - startedAt,
+          "error",
+        );
         this.#emit({
           type: "diagnostic",
           level: "error",
@@ -384,9 +508,90 @@ export class DefaultSignalRuntime
       assignmentId: assignment.assignmentId,
       agentInstanceId: assignment.consumer.id,
       sequence: context.sequence,
+      traceId:
+        context.traceId ??
+        stableTelemetryId(
+          `output-context:${context.producerId}:${context.sequence}`,
+        ),
     };
     this.#deliveryRecords.set(deliveryId, record);
     return record;
+  }
+
+  #recordContext(
+    name: string,
+    context: TranslatedSignalContext,
+    options: {
+      readonly outcome?: "success" | "failure" | "cancelled" | "unknown";
+      readonly attributes?: Record<string, string | number | boolean>;
+    } = {},
+  ): void {
+    const traceId =
+      context.traceId ??
+      stableTelemetryId(
+        `output-context:${context.producerId}:${context.sequence}`,
+      );
+    recordSignalTelemetry(this.#telemetry, {
+      name,
+      source: "output-runtime",
+      correlationId: context.assignmentId,
+      activeAgentId: context.consumer.id,
+      outputId: context.assignmentId,
+      ...(options.outcome === undefined ? {} : { outcome: options.outcome }),
+      trace: {
+        traceId,
+        spanId: stableTelemetryId(`${traceId}:${context.assignmentId}:${name}`),
+        parentSpanId: traceId,
+      },
+      attributes: {
+        assignmentId: context.assignmentId,
+        producerId: context.producerId,
+        consumerId: context.consumer.id,
+        sequence: context.sequence,
+        deliveryMode: context.deliveryMode,
+        ...(options.attributes ?? {}),
+      },
+    });
+  }
+
+  #recordDelivery(
+    name: string,
+    record: DeliveryRecord,
+    context: TranslatedSignalContext | undefined,
+    outcome?: "success" | "failure" | "cancelled" | "unknown",
+    attributes: Record<string, string | number | boolean> = {},
+    durationMs?: number,
+    level: "debug" | "info" | "warn" | "error" = "info",
+  ): void {
+    recordSignalTelemetry(this.#telemetry, {
+      name,
+      source: "output-runtime",
+      correlationId: record.assignmentId,
+      causationId: record.deliveryId,
+      activeAgentId: record.agentInstanceId,
+      outputId: record.assignmentId,
+      level,
+      ...(outcome === undefined ? {} : { outcome }),
+      ...(durationMs === undefined ? {} : { durationMs }),
+      trace: {
+        traceId: record.traceId,
+        spanId: stableTelemetryId(record.deliveryId),
+        parentSpanId: record.traceId,
+      },
+      attributes: {
+        deliveryId: record.deliveryId,
+        assignmentId: record.assignmentId,
+        agentInstanceId: record.agentInstanceId,
+        sequence: record.sequence,
+        ...(context === undefined
+          ? {}
+          : {
+              producerId: context.producerId,
+              deliveryMode: context.deliveryMode,
+            }),
+        ...attributes,
+      },
+    });
   }
 
   #setStatus(status: SignalRuntimeStatus): void {

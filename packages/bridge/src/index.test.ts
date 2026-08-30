@@ -4,7 +4,15 @@ import { createInterface } from "node:readline";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { InMemoryEventPublisher } from "@ableton-agent/shared";
-import { withCorrelation } from "@ableton-agent/correlation";
+import {
+  registerCorrelationContext,
+  unregisterCorrelationContext,
+  withCorrelation,
+} from "@ableton-agent/correlation";
+import {
+  telemetryEventEnvelopeSchema,
+  type TelemetryEventEnvelope,
+} from "@ableton-agent/observability";
 
 import { AbletonBridgeService, type AbletonLiveEvent } from "./index.js";
 
@@ -62,15 +70,23 @@ describe("AbletonBridgeService", () => {
       ok: boolean;
       result?: unknown;
     }> = [];
+    const telemetry: TelemetryEventEnvelope[] = [];
     const service = new AbletonBridgeService({
       authenticationToken: token,
       events: new InMemoryEventPublisher(),
       port,
       onRequest: (request) => requests.push(request),
       onResponse: (response) => responses.push(response),
+      telemetry: {
+        enqueue: (event) => {
+          telemetry.push(telemetryEventEnvelopeSchema.parse(event));
+        },
+      },
     });
 
+    expect(service.getCurrentProjectId()).toBeUndefined();
     await service.start();
+    expect(service.getCurrentProjectId()).toBe("simulated-project");
 
     expect(await service.getStatus()).toEqual({
       state: "connected",
@@ -116,9 +132,22 @@ describe("AbletonBridgeService", () => {
         "arrangement.set_clip_properties": true,
       },
     });
+    const upstreamTraceId = "00000000-0000-4000-8000-000000000001";
+    const toolSpanId = "00000000-0000-4000-8000-000000000002";
+    registerCorrelationContext({
+      correlationId: "tool-call-123",
+      traceId: upstreamTraceId,
+      parentSpanId: toolSpanId,
+      causationId: "turn-123",
+      sessionId: "session-123",
+      activeAgentId: "agent-123",
+      liveEventId: "event-123",
+      toolName: "ableton_connection_status",
+    });
     await expect(
       withCorrelation("tool-call-123", () => service.ping()),
     ).resolves.toEqual({ pong: true });
+    unregisterCorrelationContext("tool-call-123");
     const pingRequest = requests.find(
       (request) => request.correlationId === "tool-call-123",
     );
@@ -136,6 +165,36 @@ describe("AbletonBridgeService", () => {
       ok: true,
       result: { pong: true },
     });
+    const tracedRequest = telemetry.find(
+      ({ name, correlationId }) =>
+        name === "bridge.request.sent" && correlationId === "tool-call-123",
+    );
+    const tracedResponse = telemetry.find(
+      ({ name, correlationId }) =>
+        name === "bridge.response.received" &&
+        correlationId === "tool-call-123",
+    );
+    expect(tracedRequest?.attributes).toMatchObject({
+      requestId: pingRequest?.requestId,
+      command: "system.ping",
+      correlationId: "tool-call-123",
+    });
+    expect(tracedResponse).toMatchObject({
+      outcome: "success",
+      correlationId: "tool-call-123",
+      causationId: "turn-123",
+      sessionId: "session-123",
+      activeAgentId: "agent-123",
+      liveEventId: "event-123",
+      toolName: "ableton_connection_status",
+      trace: {
+        traceId: upstreamTraceId,
+        spanId: tracedRequest?.trace?.spanId,
+        parentSpanId: toolSpanId,
+      },
+    });
+    expect(tracedResponse?.trace?.spanId).toBe(tracedRequest?.trace?.spanId);
+    expect(tracedResponse?.durationMs).toBeGreaterThanOrEqual(0);
     await expect(service.inspectSession()).resolves.toMatchObject({
       tempo: 120,
       trackCount: 2,
@@ -847,11 +906,17 @@ describe("AbletonBridgeService", () => {
 
   it("manages simulator subscriptions and decodes typed Live events", async () => {
     const port = await startSimulator();
+    const telemetry: TelemetryEventEnvelope[] = [];
     const service = new AbletonBridgeService({
       authenticationToken: token,
       events: new InMemoryEventPublisher(),
       port,
       eventSubscriptions: ["live_event.occurred", "live_event.invalidated"],
+      telemetry: {
+        enqueue: (event) => {
+          telemetry.push(telemetryEventEnvelopeSchema.parse(event));
+        },
+      },
     });
     const liveEvents: AbletonLiveEvent[] = [];
     service.subscribeLiveEvents((event) => liveEvents.push(event));
@@ -893,6 +958,24 @@ describe("AbletonBridgeService", () => {
         kind: "parameter.value_changed",
         sequence: 0,
       },
+    });
+    expect(typeof liveEvents[0]?.receivedAt).toBe("string");
+    const occurrenceTrace = telemetry.find(
+      ({ name, attributes }) =>
+        name === "live-event.received" && attributes.eventId === eventId,
+    );
+    const emittedOccurrence = liveEvents[0];
+    if (emittedOccurrence?.event !== "live_event.occurred") {
+      throw new Error("Expected a Live event occurrence");
+    }
+    expect(occurrenceTrace?.trace).toMatchObject({
+      traceId: emittedOccurrence.payload.occurrenceId,
+      spanId: emittedOccurrence.payload.occurrenceId,
+    });
+    expect(occurrenceTrace).toMatchObject({
+      correlationId: emittedOccurrence.payload.occurrenceId,
+      projectId: "simulated-project",
+      liveEventId: eventId,
     });
     await expect(service.listLiveEventSubscriptions()).resolves.toMatchObject({
       subscriptions: [{ eventId }],

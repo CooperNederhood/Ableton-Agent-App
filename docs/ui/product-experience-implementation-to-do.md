@@ -30,6 +30,9 @@ typed service calls, and sessions use explicit create/resume operations.
 - [x] Build inspector for tracks, clips, devices, and parameters.
 - [x] Build approval and change-preview panel.
 - [x] Build diagnostics, sessions, and settings views.
+- [ ] Build the queryable History surface with filters, cursor pagination,
+  virtualized results, redacted trace details, and explicit paused, retained,
+  incomplete, and unavailable states.
 
 ## Production workflows
 
@@ -65,6 +68,8 @@ typed service calls, and sessions use explicit create/resume operations.
   - [x] Cover launch and navigation in the real Electron shell.
   - [ ] Cover all shared runtime workflows with deterministic injected fakes.
 - [x] Performance-test long event histories and browser lists.
+- [ ] Performance-test History queries/details at the 250 MiB cap, stale-query
+  cancellation, sustained ingestion, and concurrent SDK streaming.
 
 Semantic markup, labels, focus shortcuts, Enter-to-send, and reduced-motion
 support are implemented, but automated accessibility tooling and full keyboard

@@ -80,6 +80,12 @@ All LOM access should flow through one executor:
 Large traversals such as browser discovery should be bounded and paginated.
 Avoid blocking Live's thread for recursive full-tree scans.
 
+Opaque bounded trace/correlation IDs from the request are carried through
+queueing, main-thread execution, response, and outbound Live Events. Remote
+Script logs and protocol metadata may record lifecycle and timing, but never
+raw authentication, paths, or musical payloads. Journal persistence remains in
+the application and must not add work to Live's main thread.
+
 ## LOM compatibility
 
 The script should:

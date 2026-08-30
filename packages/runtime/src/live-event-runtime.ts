@@ -27,6 +27,14 @@ import type {
   SubscribeEventParams,
   SubscribeEventResult,
 } from "@ableton-agent/protocol";
+import type {
+  NonBlockingObservabilityRecorder,
+  SanitizedAttributes,
+} from "@ableton-agent/observability";
+import {
+  recordSignalTelemetry,
+  stableTelemetryId,
+} from "@ableton-agent/signal-routing";
 import { noopLogger, type Logger } from "@ableton-agent/shared";
 
 export interface LiveEventBridge {
@@ -76,6 +84,8 @@ export interface LiveEventRuntimeOptions {
   readonly nextPromptDiscreteLimit?: number;
   readonly automaticDiscreteLimit?: number;
   readonly continuousSettleMs?: number;
+  readonly telemetry?: Pick<NonBlockingObservabilityRecorder, "enqueue">;
+  readonly now?: () => Date;
 }
 
 export interface LiveEventRuntime extends LiveEventContextProvider {
@@ -179,6 +189,9 @@ export class DefaultLiveEventRuntime
   readonly #nextPromptDiscreteLimit: number;
   readonly #automaticDiscreteLimit: number;
   readonly #continuousSettleMs: number;
+  readonly #telemetry:
+    Pick<NonBlockingObservabilityRecorder, "enqueue"> | undefined;
+  readonly #now: () => Date;
   readonly #states = new Map<string, MutableState>();
   readonly #listenersByEvent = new Map<string, AgentLiveEventListener[]>();
   readonly #activeAgentInstanceIds = new Set<string>();
@@ -210,6 +223,8 @@ export class DefaultLiveEventRuntime
       options.automaticDiscreteLimit ?? 128,
     );
     this.#continuousSettleMs = Math.max(0, options.continuousSettleMs ?? 120);
+    this.#telemetry = options.telemetry;
+    this.#now = options.now ?? (() => new Date());
   }
 
   public get provider(): LiveEventContextProvider {
@@ -326,31 +341,61 @@ export class DefaultLiveEventRuntime
   public async getPendingLiveEventContexts(
     agentInstanceId: string,
   ): Promise<readonly PendingLiveEventContext[]> {
-    if (!this.#activeAgentInstanceIds.has(agentInstanceId)) return [];
-    return [...(this.#nextPrompt.get(agentInstanceId) ?? [])];
+    if (!this.#activeAgentInstanceIds.has(agentInstanceId)) {
+      this.#recordSkip("inactive-agent", { agentInstanceId });
+      return [];
+    }
+    const pending = [...(this.#nextPrompt.get(agentInstanceId) ?? [])];
+    for (const context of pending) {
+      this.#recordDelivery("live-event.dispatch.requested", context);
+    }
+    return pending;
   }
 
   public async markLiveEventContextsDelivered(
     agentInstanceId: string,
     deliveryIds: readonly string[],
   ): Promise<void> {
-    if (!this.#activeAgentInstanceIds.has(agentInstanceId)) return;
+    if (!this.#activeAgentInstanceIds.has(agentInstanceId)) {
+      this.#recordSkip("ack-inactive-agent", { agentInstanceId });
+      return;
+    }
     const delivered = new Set(deliveryIds);
+    const current = this.#nextPrompt.get(agentInstanceId) ?? [];
+    for (const context of current) {
+      if (delivered.has(context.deliveryId)) {
+        this.#recordDelivery("live-event.delivery.acknowledged", context, {
+          outcome: "success",
+        });
+      }
+    }
     this.#nextPrompt.set(
       agentInstanceId,
-      (this.#nextPrompt.get(agentInstanceId) ?? []).filter(
-        ({ deliveryId: id }) => !delivered.has(id),
-      ),
+      current.filter(({ deliveryId: id }) => !delivered.has(id)),
     );
   }
 
   #scheduleSync(): void {
     if (!this.#started) return;
+    recordSignalTelemetry(this.#telemetry, {
+      name: "live-event.subscription-sync.queued",
+      source: "live-event-runtime",
+      attributes: { definitionCount: this.#states.size },
+    });
     this.#syncTail = this.#syncTail
       .then(() => this.#syncSubscriptions())
-      .catch((error: unknown) =>
-        this.#diagnostic("error", "Live event subscription sync failed", error),
-      );
+      .catch((error: unknown) => {
+        recordSignalTelemetry(this.#telemetry, {
+          name: "live-event.subscription-sync.failed",
+          source: "live-event-runtime",
+          level: "error",
+          outcome: "failure",
+          attributes: {
+            errorType: error instanceof Error ? error.name : typeof error,
+          },
+        });
+        this.#diagnostic("error", "Live event subscription sync failed", error);
+      });
   }
 
   async #syncSubscriptions(): Promise<void> {
@@ -372,14 +417,31 @@ export class DefaultLiveEventRuntime
       this.#subscriptionFingerprints.delete(eventId);
     }
     for (const state of desired) {
+      const startedAt = this.#now().getTime();
+      const traceId = stableTelemetryId(
+        `live-event-subscription:${state.definition.id}`,
+      );
       try {
         const params = await this.#resolveParams(state.definition);
         const fingerprint = JSON.stringify(params);
         if (
           this.#subscriptionFingerprints.get(state.definition.id) ===
           fingerprint
-        )
+        ) {
+          recordSignalTelemetry(this.#telemetry, {
+            name: "live-event.subscription-replay.skipped",
+            source: "live-event-runtime",
+            correlationId: state.definition.id,
+            projectId: state.definition.projectId,
+            liveEventId: state.definition.id,
+            trace: { traceId, spanId: traceId },
+            attributes: {
+              eventId: state.definition.id,
+              reason: "unchanged-fingerprint",
+            },
+          });
           continue;
+        }
         if (this.#subscriptionFingerprints.has(state.definition.id)) {
           await this.#bridge.unsubscribeLiveEvent(state.definition.id);
         }
@@ -388,6 +450,20 @@ export class DefaultLiveEventRuntime
         state.resolution = result.resolution;
         state.latestState = result.initialState;
         this.#emitState(state);
+        recordSignalTelemetry(this.#telemetry, {
+          name: "live-event.subscription.resolved",
+          source: "live-event-runtime",
+          correlationId: state.definition.id,
+          projectId: state.definition.projectId,
+          liveEventId: state.definition.id,
+          outcome: "success",
+          durationMs: this.#now().getTime() - startedAt,
+          trace: { traceId, spanId: traceId },
+          attributes: {
+            eventId: state.definition.id,
+            eventKind: state.definition.kind,
+          },
+        });
       } catch (error) {
         if (this.#subscriptionFingerprints.has(state.definition.id)) {
           const deactivated = await this.#bridge
@@ -409,6 +485,22 @@ export class DefaultLiveEventRuntime
           error instanceof Error ? error.message : String(error),
         );
         this.#emitState(state);
+        recordSignalTelemetry(this.#telemetry, {
+          name: "live-event.subscription.unresolved",
+          source: "live-event-runtime",
+          correlationId: state.definition.id,
+          projectId: state.definition.projectId,
+          liveEventId: state.definition.id,
+          level: "warn",
+          outcome: "failure",
+          durationMs: this.#now().getTime() - startedAt,
+          trace: { traceId, spanId: traceId },
+          attributes: {
+            eventId: state.definition.id,
+            eventKind: state.definition.kind,
+            errorType: error instanceof Error ? error.name : typeof error,
+          },
+        });
         this.#diagnostic(
           "warning",
           `Live event '${state.definition.name}' is unresolved`,
@@ -484,8 +576,29 @@ export class DefaultLiveEventRuntime
   }
 
   #onBridgeEvent(event: AbletonLiveEvent): void {
+    const traceId =
+      event.event === "live_event.occurred"
+        ? event.payload.occurrenceId
+        : stableTelemetryId(
+            `live-event-invalidation:${event.payload.eventId}:${event.sequence}`,
+          );
     const state = this.#states.get(event.payload.eventId);
-    if (state === undefined) return;
+    if (state === undefined) {
+      recordSignalTelemetry(this.#telemetry, {
+        name: "live-event.runtime.skipped",
+        source: "live-event-runtime",
+        liveEventId: event.payload.eventId,
+        level: "warn",
+        outcome: "cancelled",
+        trace: { traceId, spanId: traceId },
+        attributes: {
+          eventId: event.payload.eventId,
+          reason: "unknown-event",
+          sequence: event.sequence,
+        },
+      });
+      return;
+    }
     if (event.event === "live_event.invalidated") {
       state.resolution = {
         status: "invalidated",
@@ -495,9 +608,41 @@ export class DefaultLiveEventRuntime
           : { detail: event.payload.detail }),
       };
       this.#emitState(state);
+      recordSignalTelemetry(this.#telemetry, {
+        name: "live-event.runtime.invalidated",
+        source: "live-event-runtime",
+        liveEventId: event.payload.eventId,
+        level: "warn",
+        outcome: "cancelled",
+        durationMs: this.#durationSince(event.receivedAt),
+        trace: { traceId, spanId: traceId },
+        occurredAt: event.receivedAt,
+        attributes: {
+          eventId: event.payload.eventId,
+          reason: event.payload.reason,
+          sequence: event.sequence,
+        },
+      });
       return;
     }
-    if (this.#reconciling) return;
+    if (this.#reconciling) {
+      recordSignalTelemetry(this.#telemetry, {
+        name: "live-event.runtime.skipped",
+        source: "live-event-runtime",
+        correlationId: event.payload.occurrenceId,
+        liveEventId: event.payload.eventId,
+        level: "warn",
+        outcome: "cancelled",
+        durationMs: this.#durationSince(event.receivedAt),
+        trace: { traceId, spanId: traceId },
+        attributes: {
+          eventId: event.payload.eventId,
+          reason: "gap-reconciliation",
+          sequence: event.sequence,
+        },
+      });
+      return;
+    }
     const occurrence = liveEventOccurrenceSchema.parse(event.payload);
     state.latestState = occurrenceState(occurrence);
     state.history.push(occurrence);
@@ -505,9 +650,39 @@ export class DefaultLiveEventRuntime
       state.history.splice(0, state.history.length - this.#historyLimit);
     }
     this.#emitState(state);
-    for (const binding of this.#listenersByEvent.get(occurrence.eventId) ??
-      []) {
-      if (!this.#activeAgentInstanceIds.has(binding.agentInstanceId)) continue;
+    recordSignalTelemetry(this.#telemetry, {
+      name: "live-event.history.recorded",
+      source: "live-event-runtime",
+      correlationId: occurrence.occurrenceId,
+      projectId: state.definition.projectId,
+      liveEventId: occurrence.eventId,
+      outcome: "success",
+      durationMs: this.#durationSince(event.receivedAt),
+      trace: { traceId, spanId: traceId },
+      occurredAt: event.receivedAt,
+      attributes: {
+        occurrenceId: occurrence.occurrenceId,
+        eventId: occurrence.eventId,
+        sequence: occurrence.sequence,
+        historySize: state.history.length,
+      },
+    });
+    const bindings = this.#listenersByEvent.get(occurrence.eventId) ?? [];
+    let activeListeners = 0;
+    for (const binding of bindings) {
+      if (!this.#activeAgentInstanceIds.has(binding.agentInstanceId)) {
+        this.#recordSkip(
+          "inactive-listener-agent",
+          {
+            agentInstanceId: binding.agentInstanceId,
+            eventId: occurrence.eventId,
+            listenerId: binding.listener.id,
+          },
+          traceId,
+        );
+        continue;
+      }
+      activeListeners += 1;
       const pending = {
         deliveryId: deliveryId(binding.listener, occurrence),
         agentInstanceId: binding.agentInstanceId,
@@ -520,6 +695,27 @@ export class DefaultLiveEventRuntime
         this.#enqueueAutomatic(pending, state.definition.classification);
       }
     }
+    recordSignalTelemetry(this.#telemetry, {
+      name: "live-event.listener-fanout.completed",
+      source: "live-event-runtime",
+      correlationId: occurrence.occurrenceId,
+      projectId: state.definition.projectId,
+      liveEventId: occurrence.eventId,
+      outcome: "success",
+      durationMs: this.#durationSince(event.receivedAt),
+      trace: {
+        traceId,
+        spanId: stableTelemetryId(`${traceId}:runtime-listener-fanout`),
+        parentSpanId: traceId,
+      },
+      attributes: {
+        occurrenceId: occurrence.occurrenceId,
+        eventId: occurrence.eventId,
+        listenerCount: bindings.length,
+        activeListenerCount: activeListeners,
+        subscriberCount: this.#subscribers.size,
+      },
+    });
   }
 
   #enqueueNextPrompt(
@@ -527,6 +723,17 @@ export class DefaultLiveEventRuntime
     classification: LiveEventDefinition["classification"],
   ): void {
     const entries = this.#nextPrompt.get(pending.agentInstanceId) ?? [];
+    if (classification === "continuous") {
+      const displaced = entries.find(
+        ({ listener }) => listener.id === pending.listener.id,
+      );
+      if (displaced !== undefined) {
+        this.#recordDelivery("live-event.queue.coalesced", displaced, {
+          outcome: "cancelled",
+          attributes: { replacementDeliveryId: pending.deliveryId },
+        });
+      }
+    }
     const next =
       classification === "continuous"
         ? [
@@ -541,7 +748,23 @@ export class DefaultLiveEventRuntime
         this.#states.get(occurrence.eventId)?.definition.classification ===
         "continuous",
     );
-    const discrete = next
+    const allDiscrete = next.filter(
+      ({ occurrence }) =>
+        this.#states.get(occurrence.eventId)?.definition.classification ===
+        "discrete",
+    );
+    const dropped = allDiscrete.slice(
+      0,
+      Math.max(0, allDiscrete.length - this.#nextPromptDiscreteLimit),
+    );
+    for (const context of dropped) {
+      this.#recordDelivery("live-event.queue.dropped", context, {
+        level: "warn",
+        outcome: "cancelled",
+        attributes: { reason: "next-prompt-queue-bound" },
+      });
+    }
+    const discrete = allDiscrete
       .filter(
         ({ occurrence }) =>
           this.#states.get(occurrence.eventId)?.definition.classification ===
@@ -549,6 +772,13 @@ export class DefaultLiveEventRuntime
       )
       .slice(-this.#nextPromptDiscreteLimit);
     this.#nextPrompt.set(pending.agentInstanceId, [...discrete, ...continuous]);
+    this.#recordDelivery("live-event.queue.enqueued", pending, {
+      attributes: {
+        queue: "next-prompt",
+        classification,
+        queueSize: discrete.length + continuous.length,
+      },
+    });
   }
 
   #enqueueAutomatic(
@@ -565,11 +795,25 @@ export class DefaultLiveEventRuntime
     this.#automatic.set(pending.agentInstanceId, queue);
     if (classification === "discrete") {
       queue.discrete.push(pending);
+      this.#recordDelivery("live-event.queue.enqueued", pending, {
+        attributes: {
+          queue: "automatic",
+          classification,
+          queueSize: queue.discrete.length,
+        },
+      });
       if (queue.discrete.length > this.#automaticDiscreteLimit) {
-        queue.discrete.splice(
+        const dropped = queue.discrete.splice(
           0,
           queue.discrete.length - this.#automaticDiscreteLimit,
         );
+        for (const context of dropped) {
+          this.#recordDelivery("live-event.queue.dropped", context, {
+            level: "warn",
+            outcome: "cancelled",
+            attributes: { reason: "automatic-queue-bound" },
+          });
+        }
         this.#diagnostic(
           "warning",
           `Automatic Live event queue overflowed for agent '${pending.agentInstanceId}'`,
@@ -581,14 +825,30 @@ export class DefaultLiveEventRuntime
       this.#drainAutomatic(pending.agentInstanceId);
       return;
     }
+    const displaced = queue.continuous.get(pending.listener.id);
+    if (displaced !== undefined) {
+      this.#recordDelivery("live-event.queue.coalesced", displaced, {
+        outcome: "cancelled",
+        attributes: { replacementDeliveryId: pending.deliveryId },
+      });
+    }
     queue.continuous.set(pending.listener.id, pending);
     const timerKey = `${pending.agentInstanceId}:${pending.listener.id}`;
     const previous = this.#settleTimers.get(timerKey);
     if (previous !== undefined) clearTimeout(previous);
+    this.#recordDelivery("live-event.settle.scheduled", pending, {
+      attributes: { settleMs: this.#continuousSettleMs },
+    });
     this.#settleTimers.set(
       timerKey,
       setTimeout(() => {
         this.#settleTimers.delete(timerKey);
+        const settled = queue.continuous.get(pending.listener.id);
+        if (settled !== undefined) {
+          this.#recordDelivery("live-event.settle.completed", settled, {
+            durationMs: this.#continuousSettleMs,
+          });
+        }
         this.#drainAutomatic(pending.agentInstanceId);
       }, this.#continuousSettleMs),
     );
@@ -603,6 +863,21 @@ export class DefaultLiveEventRuntime
       service === undefined ||
       !this.#activeAgentInstanceIds.has(agentInstanceId)
     ) {
+      const pending =
+        queue?.discrete[0] ?? queue?.continuous.values().next().value;
+      if (pending !== undefined) {
+        this.#recordDelivery("live-event.dispatch.skipped", pending, {
+          outcome: "cancelled",
+          attributes: {
+            reason:
+              service === undefined
+                ? "delivery-service-unavailable"
+                : !this.#activeAgentInstanceIds.has(agentInstanceId)
+                  ? "inactive-agent"
+                  : "already-draining",
+          },
+        });
+      }
       return;
     }
     queue.draining = true;
@@ -618,9 +893,28 @@ export class DefaultLiveEventRuntime
               return entry[1];
             })();
           if (next === undefined) break;
+          const startedAt = this.#now().getTime();
+          this.#recordDelivery("live-event.dispatch.requested", next);
           try {
             await service.enqueueLiveEventTurn(next);
+            const durationMs = this.#now().getTime() - startedAt;
+            this.#recordDelivery("live-event.delivery.completed", next, {
+              outcome: "success",
+              durationMs,
+            });
+            this.#recordDelivery("live-event.delivery.acknowledged", next, {
+              outcome: "success",
+              durationMs,
+            });
           } catch (error) {
+            this.#recordDelivery("live-event.delivery.failed", next, {
+              level: "error",
+              outcome: "failure",
+              durationMs: this.#now().getTime() - startedAt,
+              attributes: {
+                errorType: error instanceof Error ? error.name : typeof error,
+              },
+            });
             this.#diagnostic(
               "error",
               `Automatic Live event delivery failed for agent '${agentInstanceId}'`,
@@ -639,24 +933,72 @@ export class DefaultLiveEventRuntime
 
   #onReconciliation(signal: LiveEventReconciliationSignal): void {
     if (signal.reason === "reconnect") {
+      recordSignalTelemetry(this.#telemetry, {
+        name: "live-event.reconciliation.replay",
+        source: "live-event-runtime",
+        attributes: { subscriptionCount: signal.subscriptions.length },
+      });
       this.#applyStatuses(signal.subscriptions);
       return;
     }
+    const startedAt = this.#now().getTime();
+    const traceId = stableTelemetryId(
+      `live-event-reconciliation:${signal.expectedSequence}:${signal.receivedSequence}`,
+    );
+    recordSignalTelemetry(this.#telemetry, {
+      name: "live-event.reconciliation.requested",
+      source: "live-event-runtime",
+      level: "warn",
+      trace: { traceId, spanId: traceId },
+      attributes: {
+        reason: signal.reason,
+        expectedSequence: signal.expectedSequence,
+        receivedSequence: signal.receivedSequence,
+      },
+    });
     this.#reconciling = true;
     for (const queue of this.#automatic.values()) {
+      for (const pending of [...queue.discrete, ...queue.continuous.values()]) {
+        this.#recordDelivery("live-event.queue.dropped", pending, {
+          level: "warn",
+          outcome: "cancelled",
+          attributes: { reason: "sequence-gap" },
+        });
+      }
       queue.discrete.length = 0;
       queue.continuous.clear();
     }
     void this.#bridge
       .reconcileLiveEventSubscriptions()
-      .then((statuses) => this.#applyStatuses(statuses))
-      .catch((error: unknown) =>
+      .then((statuses) => {
+        this.#applyStatuses(statuses);
+        recordSignalTelemetry(this.#telemetry, {
+          name: "live-event.reconciliation.completed",
+          source: "live-event-runtime",
+          outcome: "success",
+          durationMs: this.#now().getTime() - startedAt,
+          trace: { traceId, spanId: traceId },
+          attributes: { subscriptionCount: statuses.length },
+        });
+      })
+      .catch((error: unknown) => {
+        recordSignalTelemetry(this.#telemetry, {
+          name: "live-event.reconciliation.failed",
+          source: "live-event-runtime",
+          level: "error",
+          outcome: "failure",
+          durationMs: this.#now().getTime() - startedAt,
+          trace: { traceId, spanId: traceId },
+          attributes: {
+            errorType: error instanceof Error ? error.name : typeof error,
+          },
+        });
         this.#diagnostic(
           "error",
           "Live event gap reconciliation failed",
           error,
-        ),
-      )
+        );
+      })
       .finally(() => {
         this.#reconciling = false;
       });
@@ -670,6 +1012,20 @@ export class DefaultLiveEventRuntime
       const latestState = statusState(status);
       if (latestState !== undefined) state.latestState = latestState;
       this.#emitState(state);
+      const traceId = stableTelemetryId(
+        `live-event-subscription:${status.eventId}`,
+      );
+      recordSignalTelemetry(this.#telemetry, {
+        name: `live-event.reconciliation.${status.status}`,
+        source: "live-event-runtime",
+        correlationId: status.eventId,
+        projectId: state.definition.projectId,
+        liveEventId: status.eventId,
+        level: status.status === "resolved" ? "info" : "warn",
+        outcome: status.status === "resolved" ? "success" : "failure",
+        trace: { traceId, spanId: traceId },
+        attributes: { eventId: status.eventId, status: status.status },
+      });
     }
   }
 
@@ -698,9 +1054,27 @@ export class DefaultLiveEventRuntime
       enabledListeners.get(listener.id) ===
       listenerSignature(agentInstanceId, listener);
     for (const [agentId, entries] of this.#nextPrompt) {
-      this.#nextPrompt.set(agentId, entries.filter(isCurrent));
+      const retained = entries.filter(isCurrent);
+      for (const pending of entries) {
+        if (!retained.includes(pending)) {
+          this.#recordDelivery("live-event.delivery.skipped", pending, {
+            outcome: "cancelled",
+            attributes: { reason: "configuration-changed" },
+          });
+        }
+      }
+      this.#nextPrompt.set(agentId, retained);
     }
     for (const queue of this.#automatic.values()) {
+      const removedDiscrete = queue.discrete.filter(
+        (pending) => !isCurrent(pending),
+      );
+      for (const pending of removedDiscrete) {
+        this.#recordDelivery("live-event.delivery.skipped", pending, {
+          outcome: "cancelled",
+          attributes: { reason: "configuration-changed" },
+        });
+      }
       queue.discrete.splice(
         0,
         queue.discrete.length,
@@ -708,6 +1082,10 @@ export class DefaultLiveEventRuntime
       );
       for (const [listenerId, pending] of queue.continuous) {
         if (!isCurrent(pending)) {
+          this.#recordDelivery("live-event.delivery.skipped", pending, {
+            outcome: "cancelled",
+            attributes: { reason: "configuration-changed" },
+          });
           queue.continuous.delete(listenerId);
         }
       }
@@ -738,6 +1116,85 @@ export class DefaultLiveEventRuntime
       state: { ...state, history: [...state.history] },
     };
     for (const subscriber of this.#subscribers) subscriber(event);
+  }
+
+  #durationSince(timestamp: string): number {
+    return Math.max(0, this.#now().getTime() - Date.parse(timestamp));
+  }
+
+  #recordDelivery(
+    name: string,
+    context: PendingLiveEventContext,
+    options: {
+      readonly level?: "debug" | "info" | "warn" | "error";
+      readonly outcome?: "success" | "failure" | "cancelled" | "unknown";
+      readonly durationMs?: number;
+      readonly attributes?: SanitizedAttributes;
+    } = {},
+  ): void {
+    const traceId = context.occurrence.occurrenceId;
+    const projectId = this.#states.get(context.occurrence.eventId)?.definition
+      .projectId;
+    recordSignalTelemetry(this.#telemetry, {
+      name,
+      source: "live-event-runtime",
+      correlationId: context.occurrence.occurrenceId,
+      causationId: context.occurrence.occurrenceId,
+      ...(projectId === undefined ? {} : { projectId }),
+      activeAgentId: context.agentInstanceId,
+      liveEventId: context.occurrence.eventId,
+      ...(options.level === undefined ? {} : { level: options.level }),
+      ...(options.outcome === undefined ? {} : { outcome: options.outcome }),
+      ...(options.durationMs === undefined
+        ? {}
+        : { durationMs: options.durationMs }),
+      trace: {
+        traceId,
+        spanId: stableTelemetryId(context.deliveryId),
+        parentSpanId: traceId,
+      },
+      attributes: {
+        occurrenceId: context.occurrence.occurrenceId,
+        eventId: context.occurrence.eventId,
+        deliveryId: context.deliveryId,
+        listenerId: context.listener.id,
+        agentInstanceId: context.agentInstanceId,
+        responseMode: context.listener.responseMode,
+        sequence: context.occurrence.sequence,
+        ...(options.attributes ?? {}),
+      },
+    });
+  }
+
+  #recordSkip(
+    reason: string,
+    attributes: SanitizedAttributes,
+    traceId = stableTelemetryId(
+      `live-event-skip:${reason}:${JSON.stringify(attributes)}`,
+    ),
+  ): void {
+    const activeAgentId =
+      typeof attributes.agentInstanceId === "string"
+        ? attributes.agentInstanceId
+        : undefined;
+    const liveEventId =
+      typeof attributes.eventId === "string" ? attributes.eventId : undefined;
+    const projectId =
+      liveEventId === undefined
+        ? undefined
+        : this.#states.get(liveEventId)?.definition.projectId;
+    recordSignalTelemetry(this.#telemetry, {
+      name: "live-event.runtime.skipped",
+      source: "live-event-runtime",
+      ...(activeAgentId === undefined ? {} : { activeAgentId }),
+      correlationId: traceId,
+      ...(projectId === undefined ? {} : { projectId }),
+      ...(liveEventId === undefined ? {} : { liveEventId }),
+      level: "debug",
+      outcome: "cancelled",
+      trace: { traceId, spanId: traceId },
+      attributes: { reason, ...attributes },
+    });
   }
 
   #diagnostic(

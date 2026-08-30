@@ -8,6 +8,7 @@ export interface TranslatedSignalContext {
   readonly capturedAt: number;
   readonly sourceIdentity: string;
   readonly content: string;
+  readonly traceId?: string | undefined;
 }
 
 export type SignalDeliveryMode = TranslatedSignalContext["deliveryMode"];

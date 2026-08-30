@@ -1,12 +1,32 @@
+import { randomUUID } from "node:crypto";
+
 import type { AbletonService } from "@ableton-agent/ableton-contracts";
 import {
   CopilotAgentService,
   HeadlessApplication,
+  type AgentRuntimeEvent,
+  type AgentRuntimeObserver,
   type AgentSessionConfiguration,
   type AgentService,
   type CopilotAgentServiceOptions,
 } from "@ableton-agent/application";
 import { AbletonBridgeService } from "@ableton-agent/bridge";
+import {
+  registerCorrelationContext,
+  unregisterCorrelationContext,
+} from "@ableton-agent/correlation";
+import {
+  telemetryIdSchema,
+  telemetryEntityIdSchema,
+  sanitizeTelemetryAttributes,
+  type ConfigurationSnapshot,
+  type NonBlockingObservabilityRecorder,
+  type SanitizedAttributes,
+} from "@ableton-agent/observability";
+import {
+  recordSignalTelemetry,
+  stableTelemetryId,
+} from "@ableton-agent/signal-routing";
 import {
   InMemoryEventPublisher,
   noopLogger,
@@ -35,6 +55,222 @@ export const DEFAULT_ABLETON_PORT = 8765;
 export const TOKEN_ENVIRONMENT_VARIABLE = "ABLETON_AGENT_TOKEN";
 export const PORT_ENVIRONMENT_VARIABLE = "ABLETON_AGENT_PORT";
 export const MODEL_ENVIRONMENT_VARIABLE = "ABLETON_AGENT_MODEL";
+
+function runtimeEventAttributes(event: AgentRuntimeEvent): SanitizedAttributes {
+  return sanitizeTelemetryAttributes({
+    runtimeEventType: event.type,
+    ...(event.agentInstanceId === undefined
+      ? {}
+      : { agentInstanceId: event.agentInstanceId }),
+    ...(event.trace === undefined
+      ? {}
+      : {
+          turnId: event.trace.turnId,
+          occurrenceCount: event.trace.occurrenceIds.length,
+          deliveryCount: event.trace.deliveryIds.length,
+        }),
+    ...(event.sessionId === undefined ? {} : { sdkSessionId: event.sessionId }),
+    data: event.data,
+  });
+}
+
+function runtimeEventOutcome(
+  type: string,
+): "success" | "failure" | "cancelled" | undefined {
+  if (type.endsWith(".failed") || type.endsWith(".timeout")) return "failure";
+  if (type.endsWith(".cancelled") || type.endsWith(".aborted"))
+    return "cancelled";
+  if (type.endsWith(".completed") || type.endsWith(".final")) return "success";
+  return undefined;
+}
+
+function normalizedEntityId(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  return telemetryEntityIdSchema.safeParse(value).success
+    ? value
+    : stableTelemetryId(`telemetry-entity:${value}`);
+}
+
+function createRuntimeObserver(
+  recorder: NonBlockingObservabilityRecorder | undefined,
+  currentProjectId?: () => string | undefined,
+): AgentRuntimeObserver | undefined {
+  if (recorder === undefined) return undefined;
+  const toolNames = new Map<string, string>();
+  const turnOrigins = new Map<string, string>();
+  return {
+    enqueue: (event) => {
+      const upstreamTraceId = event.trace?.traceId;
+      const traceId =
+        upstreamTraceId !== undefined &&
+        telemetryIdSchema.safeParse(upstreamTraceId).success
+          ? upstreamTraceId
+          : stableTelemetryId(
+              `agent-runtime:${upstreamTraceId ?? event.trace?.turnId ?? event.type}`,
+            );
+      const turnId = event.trace?.turnId;
+      const turnSpanId = stableTelemetryId(
+        `${traceId}:agent-turn:${turnId ?? event.type}`,
+      );
+      const deliveryId = event.trace?.deliveryIds[0];
+      const deliverySpanId =
+        deliveryId === undefined ? undefined : stableTelemetryId(deliveryId);
+      const toolCallId =
+        typeof event.data.toolCallId === "string"
+          ? event.data.toolCallId
+          : undefined;
+      const observedToolName =
+        typeof event.data.toolName === "string"
+          ? event.data.toolName
+          : undefined;
+      if (toolCallId !== undefined && observedToolName !== undefined) {
+        toolNames.set(toolCallId, observedToolName);
+      }
+      const toolName =
+        observedToolName ??
+        (toolCallId === undefined ? undefined : toolNames.get(toolCallId));
+      const isToolEvent = event.type.startsWith("agent.tool.");
+      const isTurnEvent = event.type.startsWith("agent.turn.");
+      const isAssistantEvent = event.type.startsWith("agent.assistant.");
+      const spanId = isToolEvent
+        ? stableTelemetryId(`${traceId}:agent-tool:${toolCallId ?? event.type}`)
+        : isTurnEvent
+          ? turnSpanId
+          : isAssistantEvent
+            ? stableTelemetryId(
+                `${traceId}:agent-assistant:${turnId ?? "none"}`,
+              )
+            : stableTelemetryId(
+                `${traceId}:agent-event:${turnId ?? "none"}:${event.type}`,
+              );
+      const parentSpanId = isToolEvent
+        ? turnSpanId
+        : isTurnEvent
+          ? (deliverySpanId ?? traceId)
+          : isAssistantEvent
+            ? turnSpanId
+            : traceId;
+      const outcome = runtimeEventOutcome(event.type);
+      const duration =
+        typeof event.data.durationMs === "number" &&
+        Number.isFinite(event.data.durationMs)
+          ? Math.max(0, event.data.durationMs)
+          : undefined;
+      const sessionId = normalizedEntityId(event.sessionId);
+      const occurrenceId = event.trace?.occurrenceIds[0];
+      const origin =
+        typeof event.data.origin === "string" ? event.data.origin : undefined;
+      if (turnId !== undefined && origin !== undefined) {
+        turnOrigins.set(turnId, origin);
+      }
+      const tracedOrigin =
+        origin ?? (turnId === undefined ? undefined : turnOrigins.get(turnId));
+      const correlationId = isToolEvent ? toolCallId : (occurrenceId ?? turnId);
+      const causationId = isToolEvent
+        ? turnId
+        : isTurnEvent
+          ? deliveryId
+          : undefined;
+      const activeAgentId = normalizedEntityId(event.agentInstanceId);
+      const liveEventId =
+        typeof event.data.eventId === "string" ? event.data.eventId : undefined;
+      const outputId =
+        tracedOrigin?.startsWith("output.") === true ? occurrenceId : undefined;
+      let providedProjectId: string | undefined;
+      try {
+        providedProjectId = currentProjectId?.();
+      } catch {
+        // Project ownership enrichment must never disrupt agent event capture.
+      }
+      const projectId = normalizedEntityId(
+        typeof event.data.projectId === "string"
+          ? event.data.projectId
+          : providedProjectId,
+      );
+      if (event.type === "agent.tool.started" && toolCallId !== undefined) {
+        registerCorrelationContext({
+          correlationId: toolCallId,
+          traceId,
+          parentSpanId: spanId,
+          ...(turnId === undefined ? {} : { causationId: turnId }),
+          ...(projectId === undefined ? {} : { projectId }),
+          ...(sessionId === undefined ? {} : { sessionId }),
+          ...(activeAgentId === undefined ? {} : { activeAgentId }),
+          ...(liveEventId === undefined ? {} : { liveEventId }),
+          ...(outputId === undefined ? {} : { outputId }),
+          ...(toolName === undefined ? {} : { toolName }),
+        });
+      }
+      recordSignalTelemetry(recorder, {
+        name: event.type,
+        source: "agent-runtime",
+        level:
+          outcome === "failure"
+            ? "error"
+            : event.type.endsWith(".delta") ||
+                event.type.endsWith(".progress") ||
+                event.type.endsWith(".partial")
+              ? "debug"
+              : "info",
+        ...(outcome === undefined ? {} : { outcome }),
+        ...(duration === undefined ? {} : { durationMs: duration }),
+        ...(correlationId === undefined ? {} : { correlationId }),
+        ...(causationId === undefined ? {} : { causationId }),
+        ...(projectId === undefined ? {} : { projectId }),
+        ...(sessionId === undefined ? {} : { sessionId }),
+        ...(activeAgentId === undefined ? {} : { activeAgentId }),
+        ...(liveEventId === undefined ? {} : { liveEventId }),
+        ...(outputId === undefined ? {} : { outputId }),
+        ...(toolName === undefined ? {} : { toolName }),
+        occurredAt: event.occurredAt,
+        trace: {
+          traceId,
+          spanId,
+          ...(parentSpanId === spanId ? {} : { parentSpanId }),
+        },
+        attributes: runtimeEventAttributes(event),
+      });
+      if (
+        (event.type === "agent.tool.completed" ||
+          event.type === "agent.tool.failed") &&
+        toolCallId !== undefined
+      ) {
+        unregisterCorrelationContext(toolCallId);
+        toolNames.delete(toolCallId);
+      }
+      if (
+        (event.type === "agent.turn.completed" ||
+          event.type === "agent.turn.failed" ||
+          event.type === "agent.turn.cancelled" ||
+          event.type === "agent.turn.aborted") &&
+        turnId !== undefined
+      ) {
+        turnOrigins.delete(turnId);
+      }
+      if (
+        event.type === "agent.session.configuration" &&
+        recorder.enqueueConfigurationSnapshot !== undefined
+      ) {
+        const snapshot: ConfigurationSnapshot = {
+          version: 1,
+          id: randomUUID(),
+          capturedAt: event.occurredAt,
+          component: "agent-runtime",
+          configurationVersion: "runtime-observer-v1",
+          ...(projectId === undefined ? {} : { projectId }),
+          ...(sessionId === undefined ? {} : { sessionId }),
+          ...(activeAgentId === undefined ? {} : { activeAgentId }),
+          values: runtimeEventAttributes(event),
+        };
+        try {
+          recorder.enqueueConfigurationSnapshot(snapshot);
+        } catch {
+          // Configuration capture must not disrupt agent session startup.
+        }
+      }
+    },
+  };
+}
 
 /** Raised when supplied configuration cannot produce a usable runtime. */
 export class RuntimeConfigurationError extends Error {
@@ -69,6 +305,10 @@ export interface AgentRuntimeOptions {
   abletonService?: AbletonService;
   signal?: SignalRuntimeOptions;
   liveEvents?: Omit<LiveEventRuntimeOptions, "bridge" | "logger">;
+  /** Non-blocking observability sink shared by bridge and event runtimes. */
+  telemetry?: NonBlockingObservabilityRecorder;
+  /** Synchronous cached project identity; must not inspect Live on invocation. */
+  currentProjectId?: () => string | undefined;
 }
 
 export interface AgentRuntime {
@@ -180,6 +420,15 @@ function isLiveEventBridge(
   );
 }
 
+function isCurrentProjectProvider(
+  value: AbletonService,
+): value is AbletonService & { getCurrentProjectId(): string | undefined } {
+  return (
+    typeof (value as Partial<{ getCurrentProjectId(): string | undefined }>)
+      .getCurrentProjectId === "function"
+  );
+}
+
 class UnavailableLiveEventBridge implements LiveEventBridge {
   public constructor(private readonly ableton: AbletonService) {}
   public inspectSession() {
@@ -261,6 +510,7 @@ export function createAbletonService(
   settings: AbletonBridgeSettings,
   events: EventPublisher,
   logger: Logger = noopLogger,
+  telemetry?: Pick<NonBlockingObservabilityRecorder, "enqueue">,
 ): { ableton: AbletonService; configured: boolean } {
   if (settings.token === undefined) {
     return {
@@ -292,6 +542,7 @@ export function createAbletonService(
           response.ok
             ? logger.debug("Ableton bridge response", response)
             : logger.warn("Ableton bridge request failed", response),
+        ...(telemetry === undefined ? {} : { telemetry }),
       }),
       configured: true,
     };
@@ -312,13 +563,23 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
   const logger = options.logger ?? noopLogger;
   const { ableton, configured } = options.abletonService
     ? { ableton: options.abletonService, configured: true }
-    : createAbletonService(options.ableton, events, logger);
+    : createAbletonService(options.ableton, events, logger, options.telemetry);
   const agentSettings = options.agent ?? {};
+  const runtimeObserver = createRuntimeObserver(
+    options.telemetry,
+    options.currentProjectId ??
+      (isCurrentProjectProvider(ableton)
+        ? () => ableton.getCurrentProjectId()
+        : undefined),
+  );
   const signalSecret = options.signal?.secret ?? options.ableton.token;
   const signals = new DefaultSignalRuntime({
     ...(options.signal ?? {}),
     ...(signalSecret === undefined ? {} : { secret: signalSecret }),
     logger,
+    ...(options.telemetry === undefined
+      ? {}
+      : { telemetry: options.telemetry }),
   });
   const liveEvents = new DefaultLiveEventRuntime({
     ...(options.liveEvents ?? {}),
@@ -326,6 +587,9 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       ? ableton
       : new UnavailableLiveEventBridge(ableton),
     logger,
+    ...(options.telemetry === undefined
+      ? {}
+      : { telemetry: options.telemetry }),
   });
   const agent = new CopilotAgentService({
     events,
@@ -396,6 +660,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       ableton.setArrangementClipProperties(params),
     signalContext: { provider: signals.provider },
     liveEventContext: { provider: liveEvents.provider },
+    ...(runtimeObserver === undefined ? {} : { runtimeObserver }),
     logger,
   });
   const application = new RuntimeAwareHeadlessApplication(

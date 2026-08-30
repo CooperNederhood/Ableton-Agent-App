@@ -12,6 +12,8 @@ Companion specification: [Tool Design](tool-design.md)
   - The initial bounded catalog remains eagerly registered; expansion beyond
     the current catalog requires grouped/deferred registration.
 - [x] Ensure tools depend on application services, not raw sockets.
+- [ ] Require every tool/workflow to declare sanitized lifecycle events, safe
+  payload summaries, trace propagation, and queue/execution timing.
 
 ## Inspection tools
 
@@ -75,6 +77,8 @@ Companion specification: [Tool Design](tool-design.md)
 - [x] Unit-test workflow ordering, partial failure, and compensation.
 - [x] Integration-test tools against fake and simulated bridges.
 - [~] Add Copilot SDK invocation tests for representative tools.
+- [ ] Test journal lifecycle completeness, redaction, trace continuity, timing,
+  cancellation/failure, and Desktop History visibility for every tool family.
 - [ ] Validate every mutation against real Live before marking supported.
   - [ ] Validate Arrangement loop and cue-point LOM behavior in real Live.
 

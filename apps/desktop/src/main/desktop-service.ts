@@ -17,6 +17,14 @@ import type {
   DesktopLifecycleState,
   DesktopAgentEventListener,
   DesktopEventsState,
+  EventTracePage,
+  ConfigurationSnapshotPage,
+  ConfigurationSnapshotQuery,
+  JournalHealth,
+  RetentionPolicy,
+  RetentionResult,
+  RootTracePage,
+  RootTraceQuery,
   DesktopPreferences,
   DesktopProjectSnapshot,
   ProjectTransitionDecision,
@@ -169,6 +177,23 @@ export interface DesktopService {
       }
     >,
   ): Promise<DesktopAgentEventListener>;
+  searchEventHistory(query?: RootTraceQuery): Promise<RootTracePage>;
+  getEventTrace(
+    traceId: string,
+    options?: { cursor?: string; limit?: number; order?: "asc" | "desc" },
+  ): Promise<EventTracePage>;
+  getAgentConfigurationSnapshots(
+    query?: ConfigurationSnapshotQuery,
+  ): Promise<ConfigurationSnapshotPage>;
+  getEventJournalHealth(): Promise<JournalHealth>;
+  getEventRetention(): Promise<RetentionPolicy>;
+  setEventRetention(policy: RetentionPolicy): Promise<RetentionPolicy>;
+  pruneEventHistory(): Promise<RetentionResult>;
+  deleteEventTrace(traceId: string): Promise<number>;
+  clearEventHistory(): Promise<{
+    deletedEvents: number;
+    deletedConfigurationSnapshots: number;
+  }>;
   subscribe(listener: (event: DesktopAppEvent) => void): () => void;
   getLifecycleState(): Promise<DesktopLifecycleState>;
 }

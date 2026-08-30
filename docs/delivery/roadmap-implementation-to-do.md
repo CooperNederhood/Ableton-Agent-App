@@ -43,6 +43,8 @@ Remaining release work is grouped into:
 - [ ] Complete real-Live compatibility matrix.
 - [x] Resolve or document all known critical/high issues.
 - [x] Publish installation, troubleshooting, privacy, and release notes.
+- [ ] Validate local journal redaction, retention/cap/deletion behavior, query
+  performance, and the absence of an upload transport.
 
 ## Tests
 

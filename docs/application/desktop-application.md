@@ -34,6 +34,7 @@ The main process creates and owns:
 - `ApprovalService`
 - `ChangeSetService`
 - `LoggingService`
+- `EventJournalService`
 - `RemoteScriptInstaller`
 
 These services are constructed through an application bootstrap module shared
@@ -63,6 +64,12 @@ interface DesktopApi {
   };
   events: {
     subscribe(handler: (event: AppEvent) => void): Unsubscribe;
+  };
+  history: {
+    query(input: HistoryQuery): Promise<HistoryPage>;
+    trace(traceId: string): Promise<HistoryTrace>;
+    setCaptureEnabled(enabled: boolean): Promise<void>;
+    clear(input?: HistoryDeleteScope): Promise<void>;
   };
 }
 ```
@@ -111,6 +118,13 @@ type AppEvent =
 This prevents the UI from becoming tightly coupled to a specific Copilot SDK
 event version.
 
+The application also writes the normalized lifecycle to the local detailed
+event journal. Journal records use the same application-owned vocabulary but
+are durable, versioned, sanitized, and correlated; transient renderer events
+remain optimized for live presentation. Every asynchronous stage propagates a
+trace/correlation context and records queued, started, completed, failed, or
+cancelled state with relevant timing.
+
 ## Lifecycle
 
 Startup order:
@@ -129,6 +143,12 @@ under `copilot/`, all below Electron's application-data directory. On macOS,
 the packaged app uses `~/Library/Application Support/Ableton Agent/`; the
 `pnpm desktop:dev` package currently uses
 `~/Library/Application Support/@ableton-agent/desktop/`.
+
+The same application-data root contains the local event journal. Desktop opens
+it before agent sessions start, prunes records older than 30 days, enforces the
+250 MiB cap incrementally, and flushes bounded pending batches during graceful
+shutdown. A journal failure degrades History and raises a visible diagnostic;
+it must not crash or stall the agent/Live control path.
 
 Unsaved Live Sets are ephemeral because a name such as `Untitled` is not a
 durable identity. If the open Live Set changes after startup, Desktop blocks
@@ -158,6 +178,8 @@ Store non-secret preferences separately from credentials. Important settings:
 - Remote Script location.
 - Diagnostic logging level.
 - Whether anonymous operational telemetry is enabled.
+- Local detailed-history capture (default on), retention status, clear, and
+  per-session deletion controls.
 - Project-specific workflow preferences.
 
 Credentials must use OS-backed secure storage where application-managed secrets

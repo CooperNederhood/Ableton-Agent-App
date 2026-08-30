@@ -5,7 +5,14 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SignalTurnRequest } from "@ableton-agent/application";
-import { createAgentInstanceAssignmentId } from "@ableton-agent/signal-routing";
+import {
+  createAgentInstanceAssignmentId,
+  stableTelemetryId,
+} from "@ableton-agent/signal-routing";
+import {
+  telemetryEventEnvelopeSchema,
+  type TelemetryEventEnvelope,
+} from "@ableton-agent/observability";
 
 import { DefaultSignalRuntime } from "./signal-runtime.js";
 
@@ -178,14 +185,22 @@ describe("default signal runtime", () => {
   it("automatically delivers one producer frame to both active agents", async () => {
     await mkdir(artifacts, { recursive: true });
     const descriptorPath = join(artifacts, `${randomUUID()}.json`);
+    const telemetry: TelemetryEventEnvelope[] = [];
     const runtime = new DefaultSignalRuntime({
       secret: "s".repeat(32),
       descriptorPath,
       port: 0,
+      telemetry: {
+        enqueue: (event) => {
+          telemetry.push(telemetryEventEnvelopeSchema.parse(event));
+        },
+      },
     });
     runtimes.push(runtime);
     const enqueueSignalTurn = vi.fn((request: SignalTurnRequest) => {
-      void request;
+      if (request.context.consumer.id === "agent-2") {
+        return Promise.reject(new Error("agent delivery failed"));
+      }
       return Promise.resolve("done");
     });
     runtime.setDeliveryService({ enqueueSignalTurn });
@@ -219,6 +234,54 @@ describe("default signal runtime", () => {
         ([request]) => request.context.deliveryMode === "automatic-analysis",
       ),
     ).toBe(true);
+    const firstRequest = enqueueSignalTurn.mock.calls[0]?.[0];
+    expect(firstRequest).toBeDefined();
+    await runtime.provider.markDelivered("agent-1", [firstRequest!.deliveryId]);
+    const ingress = telemetry.find(
+      ({ name, attributes }) =>
+        name === "output.ingress.routed" && attributes.sequence === 1,
+    );
+    const delivered = telemetry.find(
+      ({ name, attributes }) =>
+        name === "output.delivery.completed" &&
+        attributes.deliveryId === firstRequest!.deliveryId,
+    );
+    const acknowledged = telemetry.find(
+      ({ name, attributes }) =>
+        name === "output.delivery.acknowledged" &&
+        attributes.deliveryId === firstRequest!.deliveryId,
+    );
+    expect(ingress?.source).toBe("output-ingress");
+    expect(delivered).toMatchObject({
+      source: "output-runtime",
+      outcome: "success",
+      correlationId: firstRequest!.context.assignmentId,
+      causationId: stableTelemetryId(
+        `telemetry-entity:${firstRequest!.deliveryId}`,
+      ),
+      activeAgentId: "agent-1",
+      outputId: firstRequest!.context.assignmentId,
+      trace: { traceId: ingress?.trace?.traceId },
+    });
+    expect(firstRequest?.context.traceId).toBe(ingress?.trace?.traceId);
+    expect(delivered?.durationMs).toBeGreaterThanOrEqual(0);
+    expect(acknowledged?.trace?.spanId).toBe(delivered?.trace?.spanId);
+    expect(
+      telemetry.some(
+        ({ name, source }) =>
+          name === "output.translation.completed" &&
+          source === "output-routing",
+      ),
+    ).toBe(true);
+    await vi.waitFor(() =>
+      expect(
+        telemetry.some(
+          ({ name, attributes }) =>
+            name === "output.delivery.failed" &&
+            attributes.agentInstanceId === "agent-2",
+        ),
+      ).toBe(true),
+    );
   });
 
   it("keeps setActiveSession and agent-session assignments compatible", async () => {

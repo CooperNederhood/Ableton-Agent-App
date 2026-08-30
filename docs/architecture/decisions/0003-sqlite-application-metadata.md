@@ -11,6 +11,14 @@ preferences, approvals, and operational diagnostics in a local SQLite
 database. Ableton remains the source of truth for musical state; detailed
 notes, audio, and project content are not duplicated by default.
 
+The local detailed event journal uses the same storage abstractions and
+migration ownership. It stores versioned, sanitized, append-oriented records
+for agent configuration, SDK/tool activity, Live Event traces, and Output
+delivery. Bounded prompts, responses, tool definitions/arguments/results, paths,
+structured musical/MIDI data, and event payloads are required local history
+content. Credentials embedded in strings are redacted, and binary/audio bodies
+are replaced with visible omission markers.
+
 The storage package exposes repository interfaces so runtime code does not
 depend on a particular SQLite driver. `sql.js`, SQLite compiled to
 WebAssembly, is the selected driver: it is a plain JavaScript dependency that
@@ -29,4 +37,12 @@ packaging matrix without weakening reproducibility.
 - File-backed stores use an exclusive PID lock. Stale locks are reclaimed
   under a separate recovery lock so simultaneous openers cannot both assume
   ownership of the same database image.
-- Support bundles and telemetry can exclude musical content by construction.
+- Support bundles can exclude project content independently of the required
+  bounded, sanitized local journal.
+- Journal repositories provide bounded asynchronous batches, indexed
+  cursor/trace queries, 30-day pruning, and a 250 MiB profile cap. Storage
+  implementations must demonstrate these semantics and must not make the
+  in-memory image or atomic publication strategy block SDK, bridge, Live Event,
+  or renderer critical paths at the cap.
+- The journal remains local-only and default-on. Anonymous product telemetry
+  consent and transport are separate concerns.

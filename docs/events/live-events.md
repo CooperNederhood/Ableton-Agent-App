@@ -15,6 +15,11 @@ Live Events are distinct from Outputs:
 Both features may reuse agent-delivery concepts, but they keep separate source
 models, inventories, and user interfaces.
 
+Live Event occurrences also participate in the application-wide local event
+journal. The journal is detailed operational history for people using and
+debugging Desktop; it is not the Live Event definition model, an Output
+inventory, or remote product analytics.
+
 ## Domain model
 
 Use explicit names internally because `event` is already used for application,
@@ -55,6 +60,7 @@ Script:
 
 - event ID and event kind;
 - monotonically increasing bridge sequence;
+- trace and correlation IDs that survive bridge ingestion and agent delivery;
 - project revision when applicable;
 - observed timestamp;
 - target identity and display metadata;
@@ -215,6 +221,29 @@ as primary UI controls. Advanced controls can be added later.
 After a bridge sequence gap, mark affected state uncertain, refresh the event
 targets, and resume from current truth.
 
+## Live Event trace
+
+Every occurrence has one trace across the shared application infrastructure.
+The journal records each applicable stage rather than only the final UI
+occurrence:
+
+1. **Observed** — the Remote Script callback captures source time and target.
+2. **Transported** — the bridge validates sequence, receives the occurrence,
+   and notes gaps or reconnect reconciliation.
+3. **Normalized** — the application creates the semantic occurrence.
+4. **Persisted** — the redacted occurrence is durably appended to the local
+   journal before it is considered available to history queries.
+5. **Routed** — fan-out records the eligible listeners and each delivery
+   decision, including coalescing or deduplication.
+6. **Delivered** — each target agent records queued, started, completed,
+   failed, or cancelled lifecycle and relevant queue and execution timing.
+
+One trace ID identifies the occurrence across these stages. Correlation IDs
+connect resulting automatic turns, SDK activity, tool calls, workflows, bridge
+requests, and Remote Script work. Fan-out deliveries receive child span/event
+IDs so one agent's result cannot be confused with another's. Missing stages and
+failed persistence are visible diagnostics, not silently successful traces.
+
 ## Agent delivery
 
 Reuse the proven Output concepts of per-agent assignments, next-message
@@ -264,9 +293,10 @@ Each event card shows:
 - edit, disable, and delete actions;
 - collapsed **Recent activity** disclosure.
 
-Recent activity is hidden by default. Keep a bounded in-memory history per
-event, newest first. Do not persist occurrence payloads in the initial
-implementation.
+Recent activity is hidden by default and queries the local event journal,
+newest first. It uses cursor pagination rather than loading an event's complete
+history into renderer memory. In-memory queues remain bounded delivery
+mechanisms only; they are not the history source of truth.
 
 ## Agent editing experience
 
@@ -296,17 +326,84 @@ Increment the desktop production-session schema. Persist:
 - Live event definitions on the production session;
 - agent event listeners on each active-agent instance;
 - semantic locators required for reconnect;
-- no occurrence history.
+- redacted occurrence traces in the local event journal.
 
 Migration defaults are empty arrays. Existing `inputChannels` and Output
 subscriptions continue to load unchanged.
+
+## Local detailed event journal
+
+Desktop captures a complete, unsampled operational journal by default. Records
+use a versioned envelope containing record/event type, source and lifecycle
+stage, event and recorded timestamps, trace/correlation/causation IDs, relevant
+project/session/active-agent IDs, outcome, duration fields, and a bounded
+sanitized payload.
+
+The journal includes:
+
+- sanitized agent-configuration snapshots when an active agent is created,
+  resumed, or changed, including definition revision, model/reasoning settings,
+  tool and skill allowlists, edit scopes, approval policy, and Live Event/Output
+  delivery settings;
+- the complete SDK lifecycle and activity stream, including session and turn
+  lifecycle, message metadata, streaming lifecycle, errors, cancellation, and
+  usage/timing metadata;
+- every tool and workflow request, policy/approval decision, start, progress,
+  bridge operation, result, failure, cancellation, verification, and relevant
+  queue/execution timing;
+- every Live Event trace stage above; and
+- Output ingress and per-agent delivery lifecycle through the shared journal
+  writer and trace infrastructure.
+
+“Complete” means activity types and useful local history content are not sampled
+or silently discarded. Bounded prompts, assistant text, file paths, structured
+musical/MIDI and event payloads, and tool definitions/arguments/results are
+preserved. Credentials and tokens embedded in any string are redacted, while
+binary/audio bodies are replaced with visible omission markers. Sanitization
+occurs at the producer boundary and again in the journal writer.
+
+The journal is stored only in the current user's application-data directory. It
+has no uploader or network transport and is excluded from anonymous telemetry.
+Capture defaults on, remains on across upgrades, and has explicit pause, clear,
+and per-session deletion controls. The default rolling retention is 30 days
+with a 250 MiB hard cap per application profile; age pruning runs first and
+oldest records are removed when the cap is reached. The existing diagnostic log
+files and support-bundle limits remain separate.
+
+### Query experience
+
+Desktop provides a **History** query surface with:
+
+- time range, event/category, lifecycle stage, outcome, active agent, Live
+  Event, Output, tool, session, trace ID, and correlation ID filters;
+- newest-first cursor pagination and bounded detail expansion;
+- trace view that reconstructs parent/child stages and timing without joining
+  records in the renderer; and
+- clear empty, truncated-by-retention, capture-paused, and storage-error states.
+
+The renderer receives already-redacted view models through typed preload APIs.
+There is no generic SQL, filesystem access, or raw journal IPC.
+
+### Performance requirements
+
+- Journal writes are asynchronous and bounded; they never block the Live
+  callback, bridge reader, SDK stream, tool execution, or renderer.
+- Batching preserves per-trace order. Queue saturation and write failure are
+  counted and surfaced, with lifecycle/error records retained where possible.
+- Payload and batch sizes are bounded, pruning is incremental, and indexed
+  cursor queries never require a full-table scan.
+- At the 250 MiB cap, a first page of a normal filtered query should complete in
+  200 ms p95 on the supported desktop baseline and journal work must not cause
+  visible streaming or Live Event delivery stalls.
+- Query results are paginated/virtualized and stale queries are cancellable.
 
 ## Safety and privacy
 
 - Creating a listener is read-only and requires no mutation approval.
 - Automatic agent responses retain normal mutation approval rules.
-- Event payloads are bounded and treated as local project data.
-- Detailed note lists, audio, and high-volume parameter history are not
-  persisted.
+- Event payloads are bounded, sanitized before storage, and treated as local
+  project data.
+- Detailed note/event payloads are retained within the documented bounds;
+  binary/audio bodies and unsanitized high-volume payloads are not persisted.
 - Listener installation never accepts arbitrary Python, arbitrary property
   names, or unrestricted LOM paths.

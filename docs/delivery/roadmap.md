@@ -102,6 +102,8 @@ Deliverables:
 - Remote Script installer/updater.
 - Diagnostics and support bundle.
 - Privacy settings and optional telemetry.
+- Default-on local detailed event history with redaction, 30-day/250 MiB
+  retention, trace queries, and deletion controls.
 - Real-Live compatibility suite results.
 - Security review and performance profiling.
 

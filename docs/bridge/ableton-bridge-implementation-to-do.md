@@ -23,6 +23,8 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
 - [x] Implement bounded reconnect with jitter and explicit connection states.
 - [x] Reject all pending requests predictably after disconnect.
 - [x] Implement event ordering, subscription, and revision propagation.
+- [ ] Propagate trace/correlation context and publish sanitized queue, send,
+  response, timeout, cancellation, reconnect, and event-ingestion lifecycle.
 
 ## Domain modules
 
@@ -57,6 +59,8 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
   - [x] Test bounded reconnect and event sequence-gap reporting.
   - [ ] Test queue saturation and cancellation.
 - [x] Run contract tests for every bridge method.
+- [ ] Test lifecycle coverage, timing, trace continuity, and non-blocking
+  observability during saturation, gaps, cancellation, and reconnect.
 
 ## Exit criteria
 

@@ -9,10 +9,12 @@
       "@ableton-agent/application": ["packages/application/src/index.ts"],
       "@ableton-agent/bridge": ["packages/bridge/src/index.ts"],
       "@ableton-agent/correlation": ["packages/correlation/src/index.ts"],
+      "@ableton-agent/observability": ["packages/observability/src/index.ts"],
       "@ableton-agent/project-state": ["packages/project-state/src/index.ts"],
       "@ableton-agent/protocol": ["packages/protocol/src/index.ts"],
       "@ableton-agent/runtime": ["packages/runtime/src/index.ts"],
       "@ableton-agent/shared": ["packages/shared/src/index.ts"],
+      "@ableton-agent/signal-routing": ["packages/signal-routing/src/index.ts"],
       "@ableton-agent/test-support": ["packages/test-support/src/index.ts"],
       "@ableton-agent/tools": ["packages/tools/src/index.ts"],
       "@ableton-agent/workflows": ["packages/workflows/src/index.ts"]

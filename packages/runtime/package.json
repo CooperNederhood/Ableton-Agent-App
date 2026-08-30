@@ -19,6 +19,8 @@
     "@ableton-agent/agent-config": "workspace:*",
     "@ableton-agent/application": "workspace:*",
     "@ableton-agent/bridge": "workspace:*",
+    "@ableton-agent/correlation": "workspace:*",
+    "@ableton-agent/observability": "workspace:*",
     "@ableton-agent/protocol": "workspace:*",
     "@ableton-agent/shared": "workspace:*",
     "@ableton-agent/signal-routing": "workspace:*",

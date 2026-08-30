@@ -29,6 +29,14 @@ An **active agent instance** has:
 Multiple active instances may use the same definition. Definition refreshes do
 not mutate existing instances until the user resets them.
 
+Creating, resuming, resetting, or changing an active instance emits a sanitized
+configuration snapshot to the local detailed event journal. The snapshot
+captures the effective definition revision, model/reasoning settings, resolved
+tools and skills, edit scope/bindings, approval policy, and Live Event/Output
+delivery settings. It excludes secrets and raw prompt/configuration content;
+safe revisions and hashes allow later History queries to explain which
+configuration produced an SDK or tool trace.
+
 ## Native Copilot SDK integration
 
 Each active instance uses one SDK session configured with:

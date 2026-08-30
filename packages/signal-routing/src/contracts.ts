@@ -174,6 +174,7 @@ export const signalEnvelopeSchema = z
     connectionId: identifierSchema,
     sequence: z.number().int().nonnegative(),
     capturedAt: z.number().int().nonnegative(),
+    receivedAt: z.number().int().nonnegative().optional(),
     payload: signalPayloadSchema,
   })
   .superRefine((envelope, context) => {
@@ -240,6 +241,8 @@ export const translatedSignalContextSchema = z.object({
   deliveryMode: deliveryModeSchema,
   sequence: z.number().int().nonnegative(),
   capturedAt: z.number().int().nonnegative(),
+  receivedAt: z.number().int().nonnegative().optional(),
+  traceId: z.string().uuid().optional(),
   sourceIdentity: z.string().min(1).max(1024),
   content: z.string().min(1).max(MAX_SIGNAL_PAYLOAD_BYTES),
 });

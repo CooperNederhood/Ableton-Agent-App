@@ -33,6 +33,8 @@ Tests must catch:
 - Cross-agent transcript, approval, cancellation, and Output-routing leakage.
 - Live Event listener leaks, cross-agent delivery leakage, event gaps, and
   continuous-source floods.
+- Missing journal lifecycle stages, broken trace/correlation propagation,
+  unsanitized payloads, retention/cap failures, and cross-agent query leakage.
 - Edit-scope bypasses and overlapping multi-agent mutation races.
 
 ## Test layers
@@ -51,6 +53,8 @@ TypeScript:
 - Risk classification.
 - Workflow planning and compensation.
 - Project-state reducers.
+- Journal envelope/schema migrations, producer sanitization, configuration
+  snapshots, lifecycle normalization, batching, retention, and cursor queries.
 
 Python:
 
@@ -87,6 +91,8 @@ Test:
 - Event sequencing.
 - Dynamic Live Event replay and reconciliation after reconnect or sequence
   gaps.
+- Trace/correlation continuity across bridge requests and Live Event observed,
+  transported, normalized, persisted, routed, and delivery stages.
 - Oversized and malformed frames.
 - Mutation serialization.
 
@@ -124,6 +130,8 @@ Critical workflows:
 - Output subscription fan-out across active agents.
 - Live Event creation, per-agent response modes, message prefixes, and hidden
   occurrence history.
+- History filters, cursor pagination, trace expansion, default-on/pause/clear
+  controls, retention notices, and journal-unavailable states.
 - Slash-skill discovery and invocation.
 - First launch and Remote Script setup.
 - Connection loss and recovery.
@@ -151,6 +159,35 @@ simulated Remote Script. Test:
 Prefer deterministic transcript and event assertions over brittle terminal
 screen coordinates.
 
+### Local event journal tests
+
+Use fake clocks, deterministic IDs, and bounded stores to verify:
+
+- capture defaults on and remains local-only with no network transport;
+- configuration snapshots are emitted on create, resume, and effective change;
+- every supported SDK, tool/workflow, approval, bridge, Live Event, and Output
+  lifecycle path records the required stages, outcomes, and timings;
+- trace/correlation/causation IDs survive fan-out, reconnect, automatic turns,
+  failures, cancellation, and retries without cross-agent attribution;
+- bounded prompts, assistant text, paths, structured musical/MIDI and event
+  payloads, and tool definitions/arguments/results survive persistence, while
+  credentials embedded in strings and binary/audio bodies cannot reach storage
+  or query view models;
+- age pruning removes records older than 30 days and oldest-first eviction keeps
+  storage at or below 250 MiB, including restart and interrupted-write cases;
+- cursor pagination remains stable under concurrent appends and every filter is
+  bounded, indexed, cancellable, and access-scoped;
+- saturation and persistence failure are visible, ordered records are retained
+  where possible, and critical SDK/bridge/tool work remains non-blocking; and
+- Outputs reuse journal infrastructure while remaining distinct from Live Event
+  schemas, inventory, routing, and filters.
+
+Run sustained-ingestion and cap-sized query benchmarks on the supported desktop
+baseline. The first page of a normal filtered query must meet 200 ms p95 at the
+250 MiB cap, without visible regression to SDK streaming, tool execution, or
+Live Event delivery. Treat thresholds as testable named constants and publish
+enough diagnostics to explain regressions.
+
 ## CI
 
 Every pull request should run:
@@ -165,6 +202,8 @@ Every pull request should run:
 - Electron smoke tests on macOS and Windows where practical.
 - Package/build validation.
 - Packaged agents and skills resource validation.
+- Journal schema/migration, redaction, trace continuity, retention/cap, query,
+  and bounded-ingestion tests.
 
 ## Quality gates
 
@@ -175,6 +214,8 @@ A feature is not complete until:
 - Failure and unsupported paths are tested.
 - User-facing tool behavior is verified.
 - Real Live validation is recorded when the feature touches uncertain LOM APIs.
+- New capabilities and asynchronous stages define observable lifecycle events,
+  appear in Desktop history, and include redaction and trace-propagation tests.
 ## Agent workflow smoke tests
 
 Natural-language workflow tests use the existing one-shot CLI `run` command

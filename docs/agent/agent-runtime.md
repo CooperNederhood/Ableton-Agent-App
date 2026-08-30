@@ -22,6 +22,22 @@ The default session should:
 The app should prefer an empty or tightly restricted tool environment rather
 than inheriting the general Copilot CLI tool set.
 
+At SDK session creation, resume, and each effective configuration change, the
+runtime writes a sanitized configuration snapshot to the local event journal.
+It includes the agent-definition revision, model/reasoning settings, tool and
+skill allowlists, edit scopes, approval policy, and Live Event/Output delivery
+settings. Secrets and raw prompt/configuration content are excluded; revisions
+and safe hashes preserve attribution. Bounded non-secret definitions and
+configuration details remain available for local history.
+
+The complete SDK lifecycle is journaled without sampling: session and turn
+start/end, streaming lifecycle, message metadata, usage, idle, cancellation,
+errors, hooks, tool requests, and tool results. “Complete” refers to lifecycle
+coverage and bounded local content: prompts, assistant text, arguments and
+results, paths, structured musical/MIDI data, and event payloads are preserved.
+Sanitization redacts credentials embedded in every string and replaces
+binary/audio bodies with visible omission markers before persistence.
+
 ## System behavior
 
 The base system message should teach the agent:
@@ -72,7 +88,9 @@ tools for detail.
 - Classify risk.
 - Validate connection and project identity.
 - Require approval for destructive or broad changes.
-- Attach an operation correlation ID.
+- Attach and propagate trace/correlation/causation IDs.
+- Record request, policy, approval, queue, and start lifecycle with relevant
+  timing.
 
 ### Post-tool use
 
@@ -80,12 +98,15 @@ tools for detail.
 - Redact internal protocol details.
 - Update project state.
 - Produce UI operation events.
+- Record sanitized progress, bridge/workflow children, result, verification,
+  duration, and completed lifecycle.
 
 ### Tool failure
 
 - Preserve structured failure codes.
 - Tell the agent whether retrying is useful.
 - Prevent retry loops for unsupported capabilities or permission denials.
+- Record failed or cancelled lifecycle and timing under the original trace.
 
 ## Custom agents
 

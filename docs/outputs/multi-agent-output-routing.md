@@ -12,6 +12,13 @@ streams from producers; Live Events observe LOM properties and semantic
 transitions. They may share delivery primitives but retain separate source
 inventories and user interfaces.
 
+Outputs also share the local event journal's writer, sanitized trace envelope,
+correlation, retention, and query infrastructure. This does not merge the
+domains: bounded structured MIDI/event payloads are retained while binary/audio
+bodies are omitted with visible markers. Output records use Output-specific
+categories and source IDs, and Outputs remain separate from Live Event
+definitions, listeners, routing rules, inventory, and UI.
+
 A subscription is keyed by active-agent instance and producer. It stores:
 
 - stable producer ID;
@@ -63,3 +70,9 @@ determines which producers are currently connected.
 
 The same subscriptions appear in active-agent editing and persist with the
 production session.
+
+Output history records sanitized ingress metadata and each per-agent queued,
+started, completed, failed, cancelled, coalesced, or deduplicated delivery
+stage. Child delivery records retain the ingress trace and get distinct child
+IDs, so fan-out can be queried without exposing signal content or conflating
+agents.

@@ -31,6 +31,10 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 - [x] Implement diagnostics and support-bundle export.
 - [x] Define privacy settings and telemetry consent.
 - [x] Limit default telemetry to operational metadata.
+- [ ] Implement the separate default-on, local-only detailed event journal with
+  producer-boundary sanitization and no upload transport.
+- [ ] Enforce 30-day retention and a 250 MiB profile cap; add pause, clear, and
+  per-session deletion controls.
 - [~] Add retention and deletion controls for logs/session metadata.
   - [x] Bound logs by age and size.
   - [ ] Add in-app session-metadata deletion controls.
@@ -43,6 +47,8 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 - [x] Test Remote Script detection and all install-path variants.
 - [x] Test incompatible/outdated script flows.
 - [x] Test log and support-bundle redaction.
+- [ ] Test journal redaction, local-only behavior, default-on migration,
+  retention, size-cap eviction, and persistence-failure diagnostics.
 - [ ] Test offline startup and update-service failure.
 
 ## Exit criteria

@@ -7,4 +7,5 @@ export * from "./ingress-server.js";
 export * from "./registry.js";
 export * from "./router.js";
 export * from "./summaries.js";
+export * from "./telemetry.js";
 export * from "./translation.js";

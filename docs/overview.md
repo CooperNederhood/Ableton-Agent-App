@@ -109,6 +109,9 @@ Use the Node.js GitHub Copilot SDK with:
 - Session persistence for ongoing projects.
 - Hooks for safety policy, audit logging, result normalization, and project
   context injection.
+- Default-on, local-only detailed event history with sanitized agent
+  configuration snapshots, complete SDK/tool lifecycle, and correlated Live
+  Event and Output traces.
 - An explicit tool allowlist so the music agent is not accidentally given
   unrelated shell or coding capabilities.
 

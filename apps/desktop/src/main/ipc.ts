@@ -186,6 +186,24 @@ export function createIpcHandlers(
         ...(responseMode === undefined ? {} : { responseMode }),
         ...(messagePrefix === undefined ? {} : { messagePrefix }),
       }),
+    "event-history:search": (request) => service.searchEventHistory(request),
+    "event-history:trace": ({ traceId, cursor, limit, order }) =>
+      service.getEventTrace(traceId, {
+        limit,
+        order,
+        ...(cursor === undefined ? {} : { cursor }),
+      }),
+    "event-history:configurations": (request) =>
+      service.getAgentConfigurationSnapshots(request),
+    "event-history:health": () => service.getEventJournalHealth(),
+    "event-history:get-retention": () => service.getEventRetention(),
+    "event-history:set-retention": (request) =>
+      service.setEventRetention(request),
+    "event-history:prune": () => service.pruneEventHistory(),
+    "event-history:delete-trace": async ({ traceId }) => ({
+      deletedEvents: await service.deleteEventTrace(traceId),
+    }),
+    "event-history:clear": () => service.clearEventHistory(),
   };
 }
 

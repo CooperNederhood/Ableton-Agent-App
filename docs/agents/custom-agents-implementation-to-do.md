@@ -19,6 +19,8 @@ Companion specification: [Custom Agents](custom-agents.md)
 - [ ] Restore transcript history with SDK `getEvents()`.
 - [ ] Support cold-resume reconfiguration and per-agent cancellation.
 - [ ] Keep a one-Default-agent compatibility facade for the CLI.
+- [ ] Emit sanitized effective-configuration snapshots on active-instance
+  create, resume, reset, and change, linked to subsequent SDK/tool traces.
 
 ## Safety
 
@@ -58,5 +60,6 @@ Companion specification: [Custom Agents](custom-agents.md)
 - [ ] Test parallel reads, disjoint edits, and overlapping edit serialization.
 - [ ] Test development and packaged resource discovery.
 - [ ] Add Electron and real-Live scoped-agent coverage.
+- [ ] Test snapshot revision/hash attribution, redaction, and History visibility.
 - [x] Test per-agent selected/all updates, switching, deactivation, restart,
   shutdown, races, policy precedence, and structural scope denials.

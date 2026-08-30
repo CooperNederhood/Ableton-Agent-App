@@ -16,6 +16,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@ableton-agent/observability": "workspace:*",
     "zod": "^4.0.17"
   }
 }

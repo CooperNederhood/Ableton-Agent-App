@@ -10,6 +10,7 @@ import {
   type PreparedContextConfiguration,
 } from "@ableton-agent/agent-config/schemas";
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -24,6 +25,7 @@ import {
 import type {
   DesktopApi,
   DesktopActiveAgent,
+  DesktopAgentModel,
   DesktopAppEvent,
   DesktopConnectionStatus,
   DesktopOutputAssignment,
@@ -2663,7 +2665,7 @@ export function ConnectionHeader({
           <span className="agent-badge yolo-badge">YOLO</span>
         )}
         <span className="model">
-          {state.preferences.model} · {state.preferences.reasoning}
+          {activeAgent?.model ?? "SDK default"} · {state.preferences.reasoning}
         </span>
         {state.connection.state !== "connected" && (
           <button
@@ -2742,22 +2744,55 @@ export function AgentsView({
   const [busyAgentId, setBusyAgentId] = useState<string>();
   const [creatingDefinition, setCreatingDefinition] = useState<string>();
   const [confirmResetId, setConfirmResetId] = useState<string>();
+  const [modelsState, setModelsState] = useState<
+    | { status: "loading"; models: DesktopAgentModel[] }
+    | { status: "loaded"; models: DesktopAgentModel[] }
+    | { status: "failed"; models: DesktopAgentModel[]; message: string }
+  >({ status: "loading", models: [] });
+
+  const reportError = useCallback(
+    (error: unknown, fallback: string): void => {
+      dispatch({
+        type: "event",
+        event: {
+          type: "diagnostic",
+          level: "error",
+          message: error instanceof Error ? error.message : fallback,
+        },
+      });
+    },
+    [dispatch],
+  );
+  const loadModels = useCallback(async (): Promise<void> => {
+    setModelsState((current) => ({
+      status: "loading",
+      models: current.models,
+    }));
+    try {
+      setModelsState({
+        status: "loaded",
+        models: await window.desktop.agents.listModels(),
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Models could not be loaded";
+      setModelsState((current) => ({
+        status: "failed",
+        models: current.models,
+        message,
+      }));
+      reportError(error, "Models could not be loaded");
+    }
+  }, [reportError]);
 
   useEffect(() => {
     setActiveAgents(session?.activeAgents ?? []);
     setSelectedAgentId(session?.selectedAgentInstanceId);
   }, [session]);
 
-  const reportError = (error: unknown, fallback: string): void => {
-    dispatch({
-      type: "event",
-      event: {
-        type: "diagnostic",
-        level: "error",
-        message: error instanceof Error ? error.message : fallback,
-      },
-    });
-  };
+  useEffect(() => {
+    void loadModels();
+  }, [loadModels]);
   const replaceAgent = (updated: DesktopActiveAgent): void => {
     setActiveAgents((agents) =>
       agents.map((agent) => (agent.id === updated.id ? updated : agent)),
@@ -2856,6 +2891,21 @@ export function AgentsView({
           ))}
         </div>
       )}
+      {modelsState.status === "loading" && (
+        <p role="status">Loading Copilot models…</p>
+      )}
+      {modelsState.status === "failed" && (
+        <div className="notice" role="alert">
+          <span>Copilot models could not be loaded: {modelsState.message}</span>
+          <button onClick={() => void loadModels()}>Retry models</button>
+        </div>
+      )}
+      {modelsState.status === "loaded" && modelsState.models.length === 0 && (
+        <div className="notice" role="status">
+          No explicit Copilot models are available. Agents can still use SDK
+          default.
+        </div>
+      )}
       <section
         className="active-agents"
         aria-labelledby="active-agents-heading"
@@ -2882,6 +2932,9 @@ export function AgentsView({
                 agent={agent}
                 availableSkills={state.agentCatalog.skills}
                 liveEvents={state.events.events}
+                models={modelsState.models}
+                modelsStatus={modelsState.status}
+                reasoning={state.preferences.reasoning}
                 definitionSource={
                   state.agentCatalog.definitions.find(
                     (definition) => definition.name === agent.definitionName,
@@ -2893,7 +2946,7 @@ export function AgentsView({
                     definition.fingerprint !== agent.definitionFingerprint,
                 )}
                 selected={selectedAgentId === agent.id}
-                busy={busyAgentId === agent.id}
+                busy={busyAgentId === agent.id || agent.lifecycle === "busy"}
                 confirmingReset={confirmResetId === agent.id}
                 onRename={(label) =>
                   runAgentAction(
@@ -2907,6 +2960,13 @@ export function AgentsView({
                     agent.id,
                     () => window.desktop.agents.configure(agent.id, overrides),
                     "Could not update agent configuration",
+                  )
+                }
+                onSetModel={(model) =>
+                  runAgentAction(
+                    agent.id,
+                    () => window.desktop.agents.setModel(agent.id, model),
+                    "Could not change agent model",
                   )
                 }
                 onReset={() => {
@@ -3022,6 +3082,41 @@ function scopeLabel(scope: DesktopActiveAgent["config"]["editScope"]): string {
         : `${entry.track.name} #${entry.track.occurrence + 1}`,
     )
     .join(", ");
+}
+
+function modelSupportsReasoning(
+  model: DesktopAgentModel,
+  reasoning: DesktopState["preferences"]["reasoning"],
+): boolean {
+  return (
+    reasoning === "auto" ||
+    (model.capabilities.reasoningEffort &&
+      model.supportedReasoningEfforts.includes(reasoning))
+  );
+}
+
+function agentModelLabel(
+  modelId: string | undefined,
+  models: readonly DesktopAgentModel[],
+): string {
+  if (modelId === undefined) return "SDK default";
+  const model = models.find(({ id }) => id === modelId);
+  if (model === undefined) return `${modelId} · unavailable`;
+  return `${model.displayName} · ${model.id}${
+    model.policyState === "enabled" ? "" : ` · ${model.policyState}`
+  }`;
+}
+
+function modelReasoningLabel(model: DesktopAgentModel): string {
+  if (!model.capabilities.reasoningEffort) {
+    return "Reasoning effort is fixed by this model.";
+  }
+  const efforts = model.supportedReasoningEfforts.join(", ") || "not reported";
+  return `Reasoning efforts: ${efforts}${
+    model.defaultReasoningEffort === undefined
+      ? ""
+      : ` · default ${model.defaultReasoningEffort}`
+  }`;
 }
 
 export function ResolvedToolsDisclosure({
@@ -3427,10 +3522,121 @@ export function ListeningEventsEditor({
   );
 }
 
+export function AgentModelEditor({
+  agentLabel,
+  currentModelId,
+  model,
+  models,
+  modelsStatus,
+  reasoning,
+  busy,
+  confirming,
+  onModelChange,
+  onRequestConfirmation,
+  onConfirm,
+  onCancel,
+}: {
+  agentLabel: string;
+  currentModelId?: string | undefined;
+  model: string;
+  models: readonly DesktopAgentModel[];
+  modelsStatus: "loading" | "loaded" | "failed";
+  reasoning: DesktopState["preferences"]["reasoning"];
+  busy: boolean;
+  confirming: boolean;
+  onModelChange: (model: string) => void;
+  onRequestConfirmation: () => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}): React.JSX.Element {
+  const selectedModel = models.find(({ id }) => id === model);
+  const currentModel = models.find(({ id }) => id === currentModelId);
+  const currentModelUnavailable =
+    currentModelId !== undefined &&
+    (currentModel === undefined || currentModel.policyState !== "enabled");
+  const modelChanged = model !== (currentModelId ?? "");
+  const modelSelectable =
+    model === "" ||
+    (selectedModel?.policyState === "enabled" &&
+      modelSupportsReasoning(selectedModel, reasoning));
+  return (
+    <fieldset>
+      <legend>Conversation model</legend>
+      <label>
+        Model
+        <select
+          aria-label={`Model for ${agentLabel}`}
+          disabled={busy || modelsStatus === "loading"}
+          value={model}
+          onChange={(event) => onModelChange(event.target.value)}
+        >
+          <option value="">SDK default</option>
+          {currentModelUnavailable && (
+            <option disabled value={currentModelId}>
+              {currentModelId} (unavailable)
+            </option>
+          )}
+          {models
+            .filter(({ policyState }) => policyState === "enabled")
+            .map((availableModel) => {
+              const compatible = modelSupportsReasoning(
+                availableModel,
+                reasoning,
+              );
+              return (
+                <option
+                  disabled={!compatible}
+                  key={availableModel.id}
+                  value={availableModel.id}
+                >
+                  {availableModel.displayName} ({availableModel.id})
+                  {compatible ? "" : " — reasoning incompatible"}
+                </option>
+              );
+            })}
+        </select>
+      </label>
+      {selectedModel !== undefined && (
+        <small>{modelReasoningLabel(selectedModel)}</small>
+      )}
+      {modelsStatus === "loading" && <small>Loading models…</small>}
+      {modelsStatus === "failed" && (
+        <small>
+          Model catalog unavailable. SDK default remains selectable.
+        </small>
+      )}
+      {confirming ? (
+        <div className="notice" role="alert">
+          <p>
+            Changing the model starts a fresh Conversation. Live track bindings,
+            listening events, outputs, and this Agent instance will remain.
+          </p>
+          <button disabled={busy} onClick={onConfirm}>
+            {busy ? "Changing model…" : "Start fresh Conversation"}
+          </button>
+          <button disabled={busy} onClick={onCancel}>
+            Cancel model change
+          </button>
+        </div>
+      ) : (
+        <button
+          disabled={busy || !modelChanged || !modelSelectable}
+          onClick={onRequestConfirmation}
+        >
+          Apply model
+        </button>
+      )}
+    </fieldset>
+  );
+}
+
 function ActiveAgentCard({
   agent,
   availableSkills,
   liveEvents,
+  models,
+  modelsStatus,
+  reasoning,
   definitionSource,
   definitionUpdated,
   selected,
@@ -3438,6 +3644,7 @@ function ActiveAgentCard({
   confirmingReset,
   onRename,
   onConfigure,
+  onSetModel,
   onReset,
   onCancelReset,
   onEventError,
@@ -3448,6 +3655,9 @@ function ActiveAgentCard({
   agent: DesktopActiveAgent;
   availableSkills: DesktopState["agentCatalog"]["skills"];
   liveEvents: readonly DesktopLiveEventState[];
+  models: readonly DesktopAgentModel[];
+  modelsStatus: "loading" | "loaded" | "failed";
+  reasoning: DesktopState["preferences"]["reasoning"];
   definitionSource?: string | undefined;
   definitionUpdated: boolean;
   selected: boolean;
@@ -3457,6 +3667,7 @@ function ActiveAgentCard({
   onConfigure: (
     overrides: AgentOverrides,
   ) => Promise<DesktopActiveAgent | undefined>;
+  onSetModel: (model?: string) => Promise<DesktopActiveAgent | undefined>;
   onReset: () => Promise<void>;
   onCancelReset: () => void;
   onEventError: (error: unknown) => void;
@@ -3465,6 +3676,8 @@ function ActiveAgentCard({
   onDeactivate: () => Promise<void>;
 }): React.JSX.Element {
   const [editing, setEditing] = useState(false);
+  const [model, setModel] = useState(agent.model ?? "");
+  const [confirmingModel, setConfirmingModel] = useState(false);
   const [label, setLabel] = useState(agent.label);
   const [systemPrompt, setSystemPrompt] = useState(agent.config.systemPrompt);
   const [tools, setTools] = useState(listValue(agent.config.tools));
@@ -3495,6 +3708,16 @@ function ActiveAgentCard({
     const validNames = new Set(availableSkills.map(({ name }) => name));
     setSkills(agent.config.skills.filter((name) => validNames.has(name)));
   }, [agent.config.skills, availableSkillNames]);
+
+  useEffect(() => {
+    setModel(agent.model ?? "");
+    setConfirmingModel(false);
+  }, [agent.model]);
+
+  const applyModel = async (): Promise<void> => {
+    const updated = await onSetModel(model === "" ? undefined : model);
+    if (updated !== undefined) setConfirmingModel(false);
+  };
 
   const save = async (): Promise<void> => {
     const normalizedLabel = label.trim();
@@ -3549,6 +3772,8 @@ function ActiveAgentCard({
             </small>
           )}
         </dd>
+        <dt>Model</dt>
+        <dd>{agentModelLabel(agent.model, models)}</dd>
         <dt>Tools</dt>
         <dd>
           {agent.config.tools.join(", ")}
@@ -3596,6 +3821,23 @@ function ActiveAgentCard({
       </dl>
       {editing && (
         <div className="agent-editor">
+          <AgentModelEditor
+            agentLabel={agent.label}
+            currentModelId={agent.model}
+            model={model}
+            models={models}
+            modelsStatus={modelsStatus}
+            reasoning={reasoning}
+            busy={busy}
+            confirming={confirmingModel}
+            onModelChange={(value) => {
+              setModel(value);
+              setConfirmingModel(false);
+            }}
+            onRequestConfirmation={() => setConfirmingModel(true)}
+            onConfirm={() => void applyModel()}
+            onCancel={() => setConfirmingModel(false)}
+          />
           <label>
             Instance name
             <input
@@ -4651,15 +4893,6 @@ export function SettingsView({
         <span>Non-secret preferences</span>
       </div>
       <form className="settings-form" onSubmit={(event) => void save(event)}>
-        <label>
-          Model
-          <input
-            value={draft.model}
-            onChange={(event) =>
-              setDraft({ ...draft, model: event.target.value })
-            }
-          />
-        </label>
         <label>
           Reasoning
           <select

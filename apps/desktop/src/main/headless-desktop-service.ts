@@ -54,6 +54,7 @@ import {
 import {
   desktopActiveAgentSchema,
   desktopAgentCatalogSchema,
+  desktopAgentModelsSchema,
   MAX_AGENT_TRIGGER_HISTORY,
   preferencesSchema,
   type ApprovalDecision,
@@ -75,6 +76,7 @@ import {
   type DesktopAgentConfigOverrides,
   type DesktopAgentHistoryMessage,
   type DesktopActiveAgent,
+  type DesktopAgentModel,
   type DesktopPreferences,
   type DesktopProjectSnapshot,
   type DesktopProjectIdentity,
@@ -208,6 +210,7 @@ export class HeadlessDesktopService implements DesktopService {
   #unsubscribeLiveEvents: (() => void) | undefined;
   #sessions: DesktopSession[] = [];
   #preferences: DesktopPreferences = preferencesSchema.parse({});
+  #runtimeReasoning: DesktopPreferences["reasoning"] | undefined;
   #preferenceSaveTail: Promise<void> = Promise.resolve();
   #sessionActionTail: Promise<void> = Promise.resolve();
   readonly #agentActionTails = new Map<string, Promise<void>>();
@@ -273,6 +276,7 @@ export class HeadlessDesktopService implements DesktopService {
       (await this.options.agentCatalog?.refresh()) ??
       desktopAgentCatalogSchema.parse({});
     this.#preferences = await this.#loadPreferences();
+    this.#runtimeReasoning ??= this.#preferences.reasoning;
     if (this.options.eventHistoryUnavailable === true) {
       this.#preferences = {
         ...this.#preferences,
@@ -630,6 +634,11 @@ export class HeadlessDesktopService implements DesktopService {
     return [...this.#requireActiveSession().activeAgents];
   }
 
+  public async listAgentModels(): Promise<DesktopAgentModel[]> {
+    this.#assertAccepting();
+    return desktopAgentModelsSchema.parse(await this.#application.listModels());
+  }
+
   public async createActiveAgent(
     definitionName: string,
   ): Promise<DesktopActiveAgent> {
@@ -763,6 +772,7 @@ export class HeadlessDesktopService implements DesktopService {
           ),
           label: current.label,
           autoApprove: current.autoApprove,
+          ...(current.model === undefined ? {} : { model: current.model }),
           forkedHistory: current.forkedHistory ?? [],
         });
         await this.#application.reconfigureManagedAgent(
@@ -806,6 +816,100 @@ export class HeadlessDesktopService implements DesktopService {
         return instance;
       },
     );
+  }
+
+  public async setActiveAgentModel(
+    instanceId: string,
+    model?: string,
+  ): Promise<DesktopActiveAgent> {
+    const target = this.#captureActiveAgentTarget(instanceId);
+    return this.#queueAgentAction(instanceId, async () => {
+      const original = await this.#queueSessionAction(async () =>
+        this.#resolveActiveAgentTarget(target),
+      );
+      if (original.instance.model === model) return original.instance;
+      if (
+        this.#managedTurns.has(instanceId) ||
+        original.instance.lifecycle === "busy"
+      ) {
+        throw new Error(
+          `Agent instance '${instanceId}' has a turn in progress`,
+        );
+      }
+      if (model !== undefined) {
+        const available = await this.listAgentModels();
+        const selected = available.find(({ id }) => id === model);
+        if (selected === undefined) {
+          throw new Error(`Copilot model '${model}' is unavailable`);
+        }
+        if (selected.policyState !== "enabled") {
+          throw new Error(
+            `Copilot model '${model}' is ${selected.policyState} by policy`,
+          );
+        }
+        const reasoning = this.#runtimeReasoning ?? this.#preferences.reasoning;
+        if (
+          reasoning !== "auto" &&
+          (!selected.capabilities.reasoningEffort ||
+            !selected.supportedReasoningEfforts.includes(reasoning))
+        ) {
+          throw new Error(
+            `Copilot model '${model}' does not support the configured '${reasoning}' reasoning effort`,
+          );
+        }
+      }
+      const oldSdkSessionId = original.instance.sdkSessionId;
+      if (oldSdkSessionId === undefined) {
+        throw new Error(`Agent instance '${instanceId}' has no SDK session`);
+      }
+      const configured: DesktopActiveAgent = { ...original.instance };
+      delete configured.model;
+      if (model !== undefined) configured.model = model;
+      const sdkSessionId = await this.#application.createManagedAgent(
+        this.#managedConfiguration(configured),
+      );
+      const replacement = desktopActiveAgentSchema.parse({
+        ...configured,
+        sdkSessionId,
+        forkedHistory: [],
+        triggerHistory: [],
+      });
+      try {
+        return await this.#queueSessionAction(async () => {
+          const { session } = this.#resolveActiveAgentTarget(
+            target,
+            original.instance,
+          );
+          await this.#replaceActiveProductionSessionStrict({
+            ...session,
+            activeAgents: session.activeAgents.map((candidate) =>
+              candidate.id === instanceId ? replacement : candidate,
+            ),
+          });
+          await this.#recordAgentConfiguration(session, replacement);
+          this.#approvals.denyForAgentInstanceIds(new Set([instanceId]));
+          this.emit({
+            type: "agent.instance_changed",
+            instance: replacement,
+            change: "model-changed",
+          });
+          return replacement;
+        });
+      } catch (error) {
+        try {
+          await this.#application.resumeManagedAgent(
+            this.#managedConfiguration(original.instance),
+            oldSdkSessionId,
+          );
+        } catch (rollbackError) {
+          throw new AggregateError(
+            [error, rollbackError],
+            `Agent instance '${instanceId}' model change failed and rollback was incomplete`,
+          );
+        }
+        throw error;
+      }
+    });
   }
 
   public async setAutoApproval(
@@ -1899,7 +2003,7 @@ export class HeadlessDesktopService implements DesktopService {
         );
       }
       const restartRequired = (
-        ["abletonPort", "signalPort", "model", "reasoning"] as const
+        ["abletonPort", "signalPort", "reasoning"] as const
       ).filter((key) => previous[key] !== preferences[key]);
       if (restartRequired.length > 0) {
         this.emit({
@@ -2005,6 +2109,7 @@ export class HeadlessDesktopService implements DesktopService {
         values: {
           label: instance.label,
           definition: instance.definitionName,
+          model: instance.model,
           description: instance.config.description,
           instructions: instance.config.systemPrompt,
           tools: instance.config.tools,
@@ -2732,6 +2837,7 @@ export class HeadlessDesktopService implements DesktopService {
       instanceId: instance.id,
       definitionName: instance.definitionName,
       label: instance.label,
+      ...(instance.model === undefined ? {} : { model: instance.model }),
       description: instance.config.description,
       systemPrompt:
         inheritedContext === ""

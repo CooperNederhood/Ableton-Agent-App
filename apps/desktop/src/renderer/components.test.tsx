@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   AddEventPanel,
+  AgentModelEditor,
   ApprovalPanel,
   AgentsView,
   Arrangement,
@@ -43,7 +44,7 @@ import {
   TriggerCard,
   Workspace,
 } from "./App";
-import type { DesktopApi } from "../contracts";
+import type { DesktopAgentModel, DesktopApi } from "../contracts";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { desktopReducer, initialState, type DesktopState } from "./state";
 
@@ -869,6 +870,7 @@ describe("desktop components", () => {
                   definitionName: "default",
                   definitionFingerprint: "a".repeat(64),
                   label: "Default",
+                  model: "retired-model",
                   autoApprove: false,
                   lifecycle: "ready",
                   config: {
@@ -928,6 +930,8 @@ describe("desktop components", () => {
     expect(html).toContain("ableton_transport_get");
     expect(html).toContain("mix-review");
     expect(html).toContain("midi:drums");
+    expect(html).toContain("retired-model · unavailable");
+    expect(html).toContain("Loading Copilot models");
     expect(html).toContain("Full session");
     expect(html).toContain("default.yaml");
     expect(html).toContain("newer definition available");
@@ -938,6 +942,79 @@ describe("desktop components", () => {
     expect(html).toContain("Deactivate");
     expect(html).toContain("Open");
     expect(html).toContain("Create agent");
+  });
+
+  it("renders model loading, unavailable, compatibility, confirmation, and busy states", () => {
+    const models: DesktopAgentModel[] = [
+      {
+        id: "model-a",
+        displayName: "Model A",
+        policyState: "enabled",
+        capabilities: {
+          vision: true,
+          reasoningEffort: true,
+          maxContextWindowTokens: 64_000,
+        },
+        supportedReasoningEfforts: ["low"],
+        defaultReasoningEffort: "low",
+      },
+    ];
+    const unavailable = renderToStaticMarkup(
+      <AgentModelEditor
+        agentLabel="Default"
+        currentModelId="retired-model"
+        model="retired-model"
+        models={[]}
+        modelsStatus="failed"
+        reasoning="auto"
+        busy={false}
+        confirming={false}
+        onModelChange={vi.fn()}
+        onRequestConfirmation={vi.fn()}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    const incompatible = renderToStaticMarkup(
+      <AgentModelEditor
+        agentLabel="Default"
+        model="model-a"
+        models={models}
+        modelsStatus="loaded"
+        reasoning="high"
+        busy={false}
+        confirming={false}
+        onModelChange={vi.fn()}
+        onRequestConfirmation={vi.fn()}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    const confirming = renderToStaticMarkup(
+      <AgentModelEditor
+        agentLabel="Default"
+        model="model-a"
+        models={models}
+        modelsStatus="loaded"
+        reasoning="low"
+        busy
+        confirming
+        onModelChange={vi.fn()}
+        onRequestConfirmation={vi.fn()}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(unavailable).toContain("retired-model (unavailable)");
+    expect(unavailable).toContain("Model catalog unavailable");
+    expect(unavailable).toContain("SDK default");
+    expect(incompatible).toContain("reasoning incompatible");
+    expect(incompatible).toContain("Reasoning efforts: low · default low");
+    expect(confirming).toContain("starts a fresh Conversation");
+    expect(confirming).toContain("Changing model");
+    expect(confirming).toContain("Cancel model change");
+    expect(confirming).toContain("disabled");
   });
 
   it("renders per-agent Listening Events summaries and editor states", () => {
@@ -1219,6 +1296,7 @@ describe("desktop components", () => {
     expect(settings).toContain("Current session: 1 YOLO override");
     expect(settings).toContain("Deny all overrides YOLO");
     expect(settings).toContain("Approve all globally approves every request");
+    expect(settings).not.toContain(">Model<");
   });
 
   it("renders plan and empty inspector states", () => {

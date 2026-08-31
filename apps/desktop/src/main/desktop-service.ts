@@ -11,6 +11,7 @@ import type {
   DesktopAgentConfigOverrides,
   DesktopAgentHistoryMessage,
   DesktopAgentCatalog,
+  DesktopAgentModel,
   DesktopAutoApprovalUpdate,
   DesktopConnectionStatus,
   DiagnosticCheck,
@@ -71,6 +72,7 @@ export interface DesktopService {
   getAgentCatalog(): Promise<DesktopAgentCatalog>;
   refreshAgentCatalog(): Promise<DesktopAgentCatalog>;
   listActiveAgents(): Promise<DesktopActiveAgent[]>;
+  listAgentModels(): Promise<DesktopAgentModel[]>;
   createActiveAgent(definitionName: string): Promise<DesktopActiveAgent>;
   renameActiveAgent(
     instanceId: string,
@@ -82,6 +84,10 @@ export interface DesktopService {
   ): Promise<DesktopActiveAgent>;
   resetActiveAgent(instanceId: string): Promise<DesktopActiveAgent>;
   selectActiveAgent(instanceId: string): Promise<DesktopActiveAgent>;
+  setActiveAgentModel(
+    instanceId: string,
+    model?: string,
+  ): Promise<DesktopActiveAgent>;
   setAutoApproval(
     target: AutoApprovalTarget,
     enabled: boolean,

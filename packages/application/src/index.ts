@@ -112,6 +112,7 @@ import {
 import {
   CopilotClient,
   defineTool,
+  type ModelInfo,
   type ResumeSessionConfig,
   type SessionConfig,
   type SessionEvent,
@@ -168,6 +169,7 @@ export interface AgentSessionConfiguration {
   readonly instanceId: string;
   readonly definitionName: string;
   readonly label: string;
+  readonly model?: string;
   readonly description: string;
   readonly systemPrompt: string;
   readonly resolvedTools: readonly string[];
@@ -175,6 +177,23 @@ export interface AgentSessionConfiguration {
   readonly boundTracks: readonly BoundTrackScope[];
   readonly skills: readonly string[];
   readonly availableSkills?: readonly AgentSkillDescriptor[];
+}
+
+export interface AgentModelDescriptor {
+  readonly id: string;
+  readonly displayName: string;
+  readonly policyState: "enabled" | "disabled" | "unconfigured";
+  readonly capabilities: {
+    readonly vision: boolean;
+    readonly reasoningEffort: boolean;
+    readonly maxPromptTokens?: number | undefined;
+    readonly maxContextWindowTokens: number;
+  };
+  readonly supportedReasoningEfforts: readonly (
+    "low" | "medium" | "high" | "xhigh" | "max"
+  )[];
+  readonly defaultReasoningEffort?:
+    "low" | "medium" | "high" | "xhigh" | "max" | undefined;
 }
 
 export interface AgentSkillDescriptor {
@@ -211,6 +230,8 @@ export interface AgentService
   createSession(): Promise<string>;
   /** Reopens a previously created conversation by ID. */
   resumeSession(sessionId: string): Promise<void>;
+  /** Lists models reported by the connected Copilot runtime. */
+  listModels?(): Promise<readonly AgentModelDescriptor[]>;
   /** Creates or replaces a managed agent session for one application instance. */
   createManagedAgent?(
     configuration: AgentSessionConfiguration,
@@ -306,6 +327,7 @@ interface CopilotClientAdapter {
     sessionId: string,
     config: ResumeSessionConfig,
   ): Promise<CopilotSessionAdapter>;
+  listModels?(): Promise<ModelInfo[]>;
   stop(): Promise<unknown>;
 }
 
@@ -682,6 +704,27 @@ function toolParameterSchema(tool: Tool): Readonly<Record<string, unknown>> {
   return parameters as Record<string, unknown>;
 }
 
+function toAgentModelDescriptor(model: ModelInfo): AgentModelDescriptor {
+  return {
+    id: model.id,
+    displayName: model.name,
+    policyState: model.policy?.state ?? "unconfigured",
+    capabilities: {
+      vision: model.capabilities.supports.vision,
+      reasoningEffort: model.capabilities.supports.reasoningEffort,
+      ...(model.capabilities.limits.max_prompt_tokens === undefined
+        ? {}
+        : { maxPromptTokens: model.capabilities.limits.max_prompt_tokens }),
+      maxContextWindowTokens:
+        model.capabilities.limits.max_context_window_tokens,
+    },
+    supportedReasoningEfforts: [...(model.supportedReasoningEfforts ?? [])],
+    ...(model.defaultReasoningEffort === undefined
+      ? {}
+      : { defaultReasoningEffort: model.defaultReasoningEffort }),
+  };
+}
+
 function normalizeSessionConfiguration(
   configuration: AgentSessionConfiguration,
 ): AgentSessionConfiguration {
@@ -705,6 +748,7 @@ function normalizeSessionConfiguration(
                   `Skill '${normalized.name}' requires a description`,
                 );
               }
+
               if (normalized.sourcePath.length === 0) {
                 throw new Error(
                   `Skill '${normalized.name}' requires a source path`,
@@ -787,6 +831,9 @@ function normalizeSessionConfiguration(
     instanceId: configuration.instanceId,
     definitionName: configuration.definitionName,
     label: configuration.label,
+    ...(configuration.model === undefined
+      ? {}
+      : { model: configuration.model }),
     description: configuration.description,
     systemPrompt: configuration.systemPrompt,
     resolvedTools: bareToolNames(configuration.resolvedTools),
@@ -1409,11 +1456,12 @@ export class CopilotAgentService implements AgentService {
       requestToolApproval,
       this.options.askForReadApproval,
     );
+    const model = state.exposeInstanceId
+      ? state.configuration.model
+      : this.options.model;
     const config: SessionConfig = {
       clientName: "ableton-agent-app",
-      ...(this.options.model === undefined
-        ? {}
-        : { model: this.options.model }),
+      ...(model === undefined ? {} : { model }),
       ...(this.options.reasoningEffort === undefined
         ? {}
         : { reasoningEffort: this.options.reasoningEffort }),
@@ -1992,6 +2040,7 @@ export class CopilotAgentService implements AgentService {
     if (previous !== undefined) {
       this.#assertIdle(previous, "create a new default Copilot session");
     }
+
     const state = this.#createState(
       DEFAULT_AGENT_INSTANCE_KEY,
       this.#defaultSessionConfiguration(),
@@ -2009,6 +2058,17 @@ export class CopilotAgentService implements AgentService {
       sessionId: session.sessionId,
     });
     return session.sessionId;
+  }
+
+  public async listModels(): Promise<readonly AgentModelDescriptor[]> {
+    const client = this.#requireClient();
+    const listModels = client.listModels?.bind(client);
+    if (listModels === undefined) {
+      throw new Error(
+        "Configured Copilot client does not support model discovery",
+      );
+    }
+    return (await listModels()).map(toAgentModelDescriptor);
   }
 
   public async resumeSession(sessionId: string): Promise<void> {
@@ -2755,7 +2815,8 @@ export class HeadlessApplication {
       | "invokeManagedAgentSkill"
       | "cancelManagedAgent"
       | "getManagedAgentSessionId"
-      | "getManagedAgentHistory",
+      | "getManagedAgentHistory"
+      | "listModels",
   >(name: K): NonNullable<AgentService[K]> {
     const method = this.services.agent[name];
     if (method === undefined) {
@@ -2870,6 +2931,10 @@ export class HeadlessApplication {
 
   public resumeAgentSession(sessionId: string): Promise<void> {
     return this.services.agent.resumeSession(sessionId);
+  }
+
+  public listModels(): Promise<readonly AgentModelDescriptor[]> {
+    return this.#requireManagedAgentMethod("listModels")();
   }
 
   public getManagedAgentSessionId(instanceId: string): string | undefined {

@@ -808,7 +808,8 @@ function reduceAgentInstanceChanged(
     | "selected"
     | "deactivated"
     | "lifecycle"
-    | "session-rotated",
+    | "session-rotated"
+    | "model-changed",
 ): DesktopState {
   const session = activeSession(state);
   if (session === undefined) return state;
@@ -829,6 +830,14 @@ function reduceAgentInstanceChanged(
         : session.selectedAgentInstanceId;
   return {
     ...state,
+    ...(change === "model-changed"
+      ? {
+          agentWorkspaces: {
+            ...state.agentWorkspaces,
+            [instance.id]: emptyAgentWorkspace(),
+          },
+        }
+      : {}),
     sessions: state.sessions.map((candidate) =>
       candidate.id === session.id
         ? {

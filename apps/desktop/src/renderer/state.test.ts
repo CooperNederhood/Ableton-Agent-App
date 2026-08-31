@@ -343,6 +343,62 @@ describe("desktop reducer", () => {
     ).toEqual(["Second request", "Two"]);
   });
 
+  it("clears only the changed agent workspace after a model replacement", () => {
+    let state = desktopReducer(stateWithAgents(), {
+      type: "user-message",
+      id: "first-user",
+      content: "First request",
+      agentInstanceId: firstAgentId,
+    });
+    state = desktopReducer(state, {
+      type: "user-message",
+      id: "second-user",
+      content: "Second request",
+      agentInstanceId: secondAgentId,
+    });
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "approval.requested",
+        agentInstanceId: firstAgentId,
+        approval: {
+          id: "approval",
+          title: "Approval",
+          risk: "medium",
+          summary: "Change",
+          changes: [],
+          destructive: false,
+        },
+      },
+    });
+
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.instance_changed",
+        instance: {
+          ...state.sessions[0]!.activeAgents[0]!,
+          model: "model-a",
+          sdkSessionId: "fresh-session",
+        },
+        change: "model-changed",
+      },
+    });
+
+    expect(state.agentWorkspaces[firstAgentId]).toEqual({
+      messages: [],
+      operations: [],
+      triggers: [],
+    });
+    expect(state.agentWorkspaces[secondAgentId]?.messages).toEqual([
+      expect.objectContaining({ content: "Second request" }),
+    ]);
+    expect(state.sessions[0]?.activeAgents[0]).toMatchObject({
+      model: "model-a",
+      sdkSessionId: "fresh-session",
+    });
+  });
+
   it("isolates operations and approvals while switching selected agents", () => {
     let state = desktopReducer(stateWithAgents(), {
       type: "event",

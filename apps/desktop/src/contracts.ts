@@ -654,6 +654,32 @@ export const desktopActiveAgentSchema = activeAgentInstanceSchema.extend({
 });
 export type DesktopActiveAgent = z.infer<typeof desktopActiveAgentSchema>;
 
+export const desktopAgentModelSchema = z
+  .object({
+    id: z.string().min(1).max(256),
+    displayName: z.string().min(1).max(256),
+    policyState: z.enum(["enabled", "disabled", "unconfigured"]),
+    capabilities: z
+      .object({
+        vision: z.boolean(),
+        reasoningEffort: z.boolean(),
+        maxPromptTokens: z.number().int().positive().optional(),
+        maxContextWindowTokens: z.number().int().positive(),
+      })
+      .strict(),
+    supportedReasoningEfforts: z
+      .array(z.enum(["low", "medium", "high", "xhigh", "max"]))
+      .max(5),
+    defaultReasoningEffort: z
+      .enum(["low", "medium", "high", "xhigh", "max"])
+      .optional(),
+  })
+  .strict();
+export type DesktopAgentModel = z.infer<typeof desktopAgentModelSchema>;
+export const desktopAgentModelsSchema = z
+  .array(desktopAgentModelSchema)
+  .max(256);
+
 export const autoApprovalTargetSchema = z.union([
   z.literal("all"),
   z.string().uuid(),
@@ -806,8 +832,6 @@ export const legacySessionSchema = z.object({
 
 export const preferencesSchema = z.object({
   version: z.literal(1).default(1),
-  /** "auto" keeps whatever model the Copilot runtime selects by default. */
-  model: z.string().min(1).default("auto"),
   reasoning: z.enum(["auto", "low", "medium", "high"]).default("auto"),
   approvalPolicy: z
     .enum(["always", "risky", "never", "approve-all"])
@@ -938,6 +962,7 @@ export const appEventSchema = z.discriminatedUnion("type", [
       "deactivated",
       "lifecycle",
       "session-rotated",
+      "model-changed",
     ]),
   }),
   z.object({
@@ -1044,6 +1069,10 @@ export const ipcSchemas = {
     request: z.object({}),
     response: z.array(desktopActiveAgentSchema),
   },
+  "agents:models": {
+    request: z.object({}).strict(),
+    response: desktopAgentModelsSchema,
+  },
   "agents:create": {
     request: z.object({ definitionName: z.string().min(1) }).strict(),
     response: desktopActiveAgentSchema,
@@ -1072,6 +1101,15 @@ export const ipcSchemas = {
   },
   "agents:select": {
     request: z.object({ instanceId: z.string().uuid() }).strict(),
+    response: desktopActiveAgentSchema,
+  },
+  "agents:set-model": {
+    request: z
+      .object({
+        instanceId: z.string().uuid(),
+        model: z.string().trim().min(1).optional(),
+      })
+      .strict(),
     response: desktopActiveAgentSchema,
   },
   "agents:set-auto-approval": {
@@ -1397,6 +1435,7 @@ export interface DesktopApi {
     getCatalog(): Promise<DesktopAgentCatalog>;
     refreshCatalog(): Promise<DesktopAgentCatalog>;
     listActive(): Promise<DesktopActiveAgent[]>;
+    listModels(): Promise<DesktopAgentModel[]>;
     create(definitionName: string): Promise<DesktopActiveAgent>;
     rename(instanceId: string, label: string): Promise<DesktopActiveAgent>;
     configure(
@@ -1405,6 +1444,7 @@ export interface DesktopApi {
     ): Promise<DesktopActiveAgent>;
     reset(instanceId: string): Promise<DesktopActiveAgent>;
     select(instanceId: string): Promise<DesktopActiveAgent>;
+    setModel(instanceId: string, model?: string): Promise<DesktopActiveAgent>;
     setAutoApproval(
       target: AutoApprovalTarget,
       enabled: boolean,

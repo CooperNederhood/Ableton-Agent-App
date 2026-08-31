@@ -355,6 +355,7 @@ export const activeAgentInstanceSchema = z.object({
   definitionFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
   label: z.string().trim().min(1).max(128),
   autoApprove: z.boolean().default(false),
+  model: z.string().trim().min(1).optional(),
   sdkSessionId: z.string().min(1).optional(),
   lifecycle: z.enum(["starting", "ready", "busy", "blocked", "failed"]),
   config: activeAgentConfigSchema,

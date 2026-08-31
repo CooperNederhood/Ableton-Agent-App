@@ -33,6 +33,7 @@ import {
   type DesktopAppEvent,
   type DesktopActiveAgent,
   type DesktopAgentCatalog,
+  type DesktopAgentModel,
   type DesktopSession,
 } from "../contracts.js";
 import { ApprovalCoordinator, ApprovalPolicyController } from "./approvals.js";
@@ -66,6 +67,26 @@ function defaultCatalog(): DesktopAgentCatalog {
       },
     ],
   });
+}
+
+function agentModel(
+  id: string,
+  overrides: Partial<DesktopAgentModel> = {},
+): DesktopAgentModel {
+  return {
+    id,
+    displayName: `Model ${id}`,
+    policyState: "enabled",
+    capabilities: {
+      vision: true,
+      reasoningEffort: true,
+      maxPromptTokens: 32_000,
+      maxContextWindowTokens: 64_000,
+    },
+    supportedReasoningEfforts: ["low", "medium", "high"],
+    defaultReasoningEffort: "medium",
+    ...overrides,
+  };
 }
 
 class FakeSignalRuntime implements SignalRuntime {
@@ -845,12 +866,32 @@ describe("desktop persistence stores", () => {
     const directory = await temporaryDirectory();
     const path = join(directory, "preferences.json");
     const store = new JsonPreferencesStore(path);
-    const preferences = preferencesSchema.parse({ model: "gpt-5.6" });
+    const preferences = preferencesSchema.parse({ reasoning: "high" });
 
     await store.save(preferences);
 
     expect(JSON.parse(await readFile(path, "utf8"))).toEqual(preferences);
     expect(await readdir(directory)).toEqual(["preferences.json"]);
+  });
+
+  it("loads obsolete model preferences and removes them on save", async () => {
+    const directory = await temporaryDirectory();
+    const path = join(directory, "preferences.json");
+    const store = new JsonPreferencesStore(path);
+    await writeFile(
+      path,
+      JSON.stringify({ version: 1, model: "gpt-5.6", reasoning: "high" }),
+      "utf8",
+    );
+
+    const preferences = await store.load();
+
+    expect(preferences).toEqual(preferencesSchema.parse({ reasoning: "high" }));
+    expect(preferences).not.toHaveProperty("model");
+    await store.save(preferences);
+    expect(JSON.parse(await readFile(path, "utf8"))).not.toHaveProperty(
+      "model",
+    );
   });
 });
 
@@ -1204,6 +1245,243 @@ describe("desktop adapter over the shared application", () => {
     await expect(
       service.selectActiveAgent("00000000-0000-4000-8000-000000000099"),
     ).rejects.toThrow("not found");
+    await service.stop();
+  });
+
+  it("changes one agent model with a fresh session while preserving instance state", async () => {
+    const liveEvents = new FakeLiveEventRuntime();
+    const { service, agent, sharedEvents, sessionStore, events } =
+      await harness({}, { liveEvents });
+    agent.models = [agentModel("model-a"), agentModel("model-b")];
+    await service.start();
+    const original = (await service.listActiveAgents())[0]!;
+    await service.assignOutput(original.id, "producer-1");
+    const event = await service.createLiveEvent({
+      kind: "track.playing_clip_changed",
+      classification: "discrete",
+      name: "Keys clip",
+      enabled: true,
+      target: { track: { name: "Keys", occurrence: 0 } },
+    });
+    await service.assignLiveEventListener(original.id, event.id, {
+      enabled: true,
+      responseMode: "automatic",
+      messagePrefix: "Check it.",
+    });
+    await service.setAutoApproval(original.id, true);
+    sharedEvents.publish({
+      type: "agent.live_event_trigger_changed",
+      trigger: {
+        deliveryId: "model-trigger",
+        occurrenceId: "00000000-0000-4000-8000-000000000101",
+        eventId: "live-event.00000000-0000-4000-8000-000000000001",
+        listenerId: "event-listener.00000000-0000-4000-8000-000000000001",
+        agentInstanceId: original.id,
+        sdkSessionId: original.sdkSessionId!,
+        kind: "track.triggered_clip_changed",
+        sourceTrack: "Lead drum",
+        state: {
+          kind: "track.triggered_clip_changed",
+          state: { state: "session-clip", slotIndex: 1 },
+        },
+        observedAt: "2026-08-30T20:00:00.000Z",
+        occurrence: "{}",
+        summary: "Queued pattern2 in scene 2",
+        status: "completed",
+        updatedAt: "2026-08-30T20:00:01.000Z",
+      },
+    });
+    await settle();
+    await settle();
+    const before = (await service.listActiveAgents())[0]!;
+    const eventStart = events.length;
+
+    const changed = await service.setActiveAgentModel(original.id, "model-a");
+
+    expect(changed).toMatchObject({
+      id: original.id,
+      label: original.label,
+      model: "model-a",
+      config: original.config,
+      boundTracks: original.boundTracks,
+      eventListeners: before.eventListeners,
+      outputSubscriptions: before.outputSubscriptions,
+      autoApprove: true,
+      triggerHistory: [],
+      forkedHistory: [],
+    });
+    expect(changed.eventListeners).toEqual(before.eventListeners);
+    expect(changed.sdkSessionId).not.toBe(original.sdkSessionId);
+    expect(agent.managedConfigurations.get(original.id)?.model).toBe("model-a");
+    expect((await service.getSessions())[0]?.selectedAgentInstanceId).toBe(
+      original.id,
+    );
+    expect(events.slice(eventStart)).toContainEqual({
+      type: "agent.instance_changed",
+      instance: changed,
+      change: "model-changed",
+    });
+    expect((await sessionStore.load())[0]?.activeAgents[0]).toMatchObject({
+      id: original.id,
+      model: "model-a",
+      triggerHistory: [],
+    });
+
+    const reset = await service.resetActiveAgent(original.id);
+    expect(reset.model).toBe("model-a");
+    expect(agent.managedConfigurations.get(original.id)?.model).toBe("model-a");
+    await service.stop();
+  });
+
+  it("restores persisted per-agent models after a desktop restart", async () => {
+    const directory = await temporaryDirectory();
+    const preferencesStore = new JsonPreferencesStore(
+      join(directory, "preferences.json"),
+    );
+    const sessionStore = new JsonSessionStore(join(directory, "sessions.json"));
+    const projectSessionStore = new JsonProjectSessionStore(
+      join(directory, "project-sessions.json"),
+    );
+    const catalog = defaultCatalog();
+    const first = createFakeApplication();
+    first.agent.models = [agentModel("model-a")];
+    const firstService = new HeadlessDesktopService({
+      application: first.application,
+      approvals: new ApprovalCoordinator(),
+      preferencesStore,
+      sessionStore,
+      projectSessionStore,
+      agentCatalog: {
+        current: catalog,
+        refresh: () => Promise.resolve(catalog),
+      },
+    });
+    await firstService.start();
+    const original = (await firstService.listActiveAgents())[0]!;
+    const changed = await firstService.setActiveAgentModel(
+      original.id,
+      "model-a",
+    );
+    await firstService.stop();
+
+    const second = createFakeApplication();
+    const secondService = new HeadlessDesktopService({
+      application: second.application,
+      approvals: new ApprovalCoordinator(),
+      preferencesStore,
+      sessionStore,
+      projectSessionStore,
+      agentCatalog: {
+        current: catalog,
+        refresh: () => Promise.resolve(catalog),
+      },
+    });
+    await secondService.start();
+
+    expect(await secondService.listActiveAgents()).toEqual([
+      expect.objectContaining({
+        id: original.id,
+        model: "model-a",
+        sdkSessionId: changed.sdkSessionId,
+      }),
+    ]);
+    expect(second.agent.managedConfigurations.get(original.id)?.model).toBe(
+      "model-a",
+    );
+    await secondService.stop();
+  });
+
+  it("rejects invalid or busy model changes and rolls back failed replacements", async () => {
+    const { service, agent, sessionStore, preferencesStore, events } =
+      await harness();
+    agent.models = [
+      agentModel("disabled", { policyState: "disabled" }),
+      agentModel("low-only", {
+        supportedReasoningEfforts: ["low"],
+        defaultReasoningEffort: "low",
+      }),
+      agentModel("valid"),
+    ];
+    await preferencesStore.save(preferencesSchema.parse({ reasoning: "high" }));
+    await service.start();
+    const original = (await service.listActiveAgents())[0]!;
+    const create = vi.spyOn(agent, "createManagedAgent");
+
+    await expect(
+      service.setActiveAgentModel(original.id, undefined),
+    ).resolves.toBe(original);
+    expect(create).not.toHaveBeenCalled();
+    await expect(
+      service.setActiveAgentModel(original.id, "missing"),
+    ).rejects.toThrow("unavailable");
+    await expect(
+      service.setActiveAgentModel(original.id, "disabled"),
+    ).rejects.toThrow("disabled by policy");
+    await service.setPreferences(preferencesSchema.parse({ reasoning: "low" }));
+    await expect(
+      service.setActiveAgentModel(original.id, "low-only"),
+    ).rejects.toThrow("does not support");
+
+    agent.setBehavior({ block: true });
+    await service.sendToActiveAgent(original.id, "hold");
+    await settle();
+    await expect(
+      service.setActiveAgentModel(original.id, "valid"),
+    ).rejects.toThrow("turn in progress");
+    agent.release();
+    await settle();
+    agent.setBehavior({});
+
+    create.mockRejectedValueOnce(new Error("creation failed"));
+    await expect(
+      service.setActiveAgentModel(original.id, "valid"),
+    ).rejects.toThrow("creation failed");
+    expect(agent.getManagedAgentSessionId(original.id)).toBe(
+      original.sdkSessionId,
+    );
+
+    const eventStart = events.length;
+    const save = vi
+      .spyOn(sessionStore, "save")
+      .mockRejectedValueOnce(new Error("persistence failed"));
+    const resume = vi.spyOn(agent, "resumeManagedAgent");
+    await expect(
+      service.setActiveAgentModel(original.id, "valid"),
+    ).rejects.toThrow("persistence failed");
+    expect(resume).toHaveBeenCalledWith(
+      expect.objectContaining({ instanceId: original.id }),
+      original.sdkSessionId,
+    );
+    expect(resume.mock.calls[0]?.[0]).not.toHaveProperty("model");
+    expect(agent.getManagedAgentSessionId(original.id)).toBe(
+      original.sdkSessionId,
+    );
+    expect((await service.listActiveAgents())[0]).not.toHaveProperty("model");
+    expect(
+      events
+        .slice(eventStart)
+        .some(
+          (event) =>
+            event.type === "agent.instance_changed" &&
+            event.change === "model-changed",
+        ),
+    ).toBe(false);
+
+    const cleanupEventStart = events.length;
+    save.mockRejectedValueOnce(new Error("persistence failed again"));
+    resume.mockRejectedValueOnce(new Error("cleanup failed"));
+    await expect(
+      service.setActiveAgentModel(original.id, "valid"),
+    ).rejects.toThrow("rollback was incomplete");
+    expect(
+      events
+        .slice(cleanupEventStart)
+        .some(
+          (event) =>
+            event.type === "agent.instance_changed" &&
+            event.change === "model-changed",
+        ),
+    ).toBe(false);
     await service.stop();
   });
 
@@ -4567,11 +4845,11 @@ describe("desktop adapter over the shared application", () => {
       .mockImplementation((value) => originalSave(value));
 
     const first = service.setPreferences(
-      preferencesSchema.parse({ model: "first" }),
+      preferencesSchema.parse({ reasoning: "low" }),
     );
     const second = service.setPreferences(
       preferencesSchema.parse({
-        model: "second",
+        reasoning: "high",
         abletonPort: 9000,
         approvalPolicy: "never",
       }),
@@ -4579,12 +4857,12 @@ describe("desktop adapter over the shared application", () => {
     releaseFirst();
     await Promise.all([first, second]);
 
-    expect(save.mock.calls.map(([value]) => value.model)).toEqual([
-      "first",
-      "second",
+    expect(save.mock.calls.map(([value]) => value.reasoning)).toEqual([
+      "low",
+      "high",
     ]);
-    expect((await preferencesStore.load()).model).toBe("second");
-    expect((await service.getPreferences()).model).toBe("second");
+    expect((await preferencesStore.load()).reasoning).toBe("high");
+    expect((await service.getPreferences()).reasoning).toBe("high");
     expect(
       events.some(
         (event) =>
@@ -4691,12 +4969,12 @@ describe("desktop adapter over the shared application", () => {
     });
 
     const update = service.setPreferences(
-      preferencesSchema.parse({ model: "latest" }),
+      preferencesSchema.parse({ reasoning: "high" }),
     );
     const stop = service.stop();
     releaseSave();
     await Promise.all([update, stop]);
 
-    expect((await preferencesStore.load()).model).toBe("latest");
+    expect((await preferencesStore.load()).reasoning).toBe("high");
   });
 });

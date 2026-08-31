@@ -8,6 +8,7 @@ import {
 } from "@ableton-agent/agent-config";
 import { describe, expect, it, vi } from "vitest";
 import type {
+  ModelInfo,
   ResumeSessionConfig,
   SessionConfig,
   SessionEvent,
@@ -205,6 +206,7 @@ function createFakeSession(
     if (options.onSend !== undefined) {
       return await options.onSend(prompt, (event) => listener?.(event));
     }
+
     return { data: { content: `reply:${sessionId}:${prompt}` } };
   });
   return {
@@ -227,6 +229,24 @@ function createFakeSession(
             options.getEvents ?? (async () => options.history ?? []),
           ),
         }),
+  };
+}
+
+function modelInfo(id: string, overrides: Partial<ModelInfo> = {}): ModelInfo {
+  return {
+    id,
+    name: `Model ${id}`,
+    capabilities: {
+      supports: { vision: true, reasoningEffort: true },
+      limits: {
+        max_prompt_tokens: 32_000,
+        max_context_window_tokens: 64_000,
+      },
+    },
+    policy: { state: "enabled", terms: "" },
+    supportedReasoningEfforts: ["low", "medium", "high"],
+    defaultReasoningEffort: "medium",
+    ...overrides,
   };
 }
 
@@ -1676,6 +1696,76 @@ function automaticLiveEvent(
     },
   };
 }
+
+describe("CopilotAgentService model selection", () => {
+  it("maps the live SDK model catalog and propagates discovery errors", async () => {
+    const listModels = vi
+      .fn()
+      .mockResolvedValueOnce([modelInfo("model-a")])
+      .mockRejectedValueOnce(new Error("catalog unavailable"));
+    const service = new CopilotAgentService(
+      baseOptions({
+        clientFactory: () => ({
+          createSession: vi.fn(async () => createFakeSession("default")),
+          resumeSession: vi.fn(async () => {
+            throw new Error("unused");
+          }),
+          listModels,
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+
+    await expect(service.listModels()).resolves.toEqual([
+      {
+        id: "model-a",
+        displayName: "Model model-a",
+        policyState: "enabled",
+        capabilities: {
+          vision: true,
+          reasoningEffort: true,
+          maxPromptTokens: 32_000,
+          maxContextWindowTokens: 64_000,
+        },
+        supportedReasoningEfforts: ["low", "medium", "high"],
+        defaultReasoningEffort: "medium",
+      },
+    ]);
+    await expect(service.listModels()).rejects.toThrow("catalog unavailable");
+    await service.stop();
+  });
+
+  it("omits SDK default for managed agents and keeps explicit models independent", async () => {
+    const configs: SessionConfig[] = [];
+    const createSession = vi.fn(async (config: SessionConfig) => {
+      configs.push(config);
+      return createFakeSession(`session-${configs.length}`);
+    });
+    const service = new CopilotAgentService(
+      baseOptions({
+        model: "runtime-default",
+        clientFactory: () => ({
+          createSession,
+          resumeSession: vi.fn(async () => {
+            throw new Error("unused");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+    await service.createManagedAgent(configuration("sdk-default"));
+    await service.createManagedAgent(
+      configuration("explicit", { model: "model-b" }),
+    );
+
+    expect(configs[0]?.model).toBe("runtime-default");
+    expect(configs[1]).not.toHaveProperty("model");
+    expect(configs[2]?.model).toBe("model-b");
+    await service.stop();
+  });
+});
 
 describe("CopilotAgentService missing-session automatic recovery", () => {
   it("rotates once and retries an automatic event before any tool starts", async () => {

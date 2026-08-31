@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   appEventSchema,
   desktopActiveAgentSchema,
+  desktopAgentModelSchema,
   ipcSchemas,
   MAX_AGENT_TRIGGER_HISTORY,
   preferencesSchema,
@@ -106,8 +107,12 @@ describe("desktop IPC contracts", () => {
       modified: false,
     };
     expect(
-      desktopActiveAgentSchema.parse(agent).triggerHistory,
+      desktopActiveAgentSchema.parse({ ...agent, model: "model-a" })
+        .triggerHistory,
     ).toBeUndefined();
+    expect(
+      desktopActiveAgentSchema.parse({ ...agent, model: "model-a" }).model,
+    ).toBe("model-a");
     expect(
       desktopActiveAgentSchema.safeParse({
         ...agent,
@@ -138,13 +143,49 @@ describe("desktop IPC contracts", () => {
   });
 
   it("migrates missing version-one preferences through defaults", () => {
-    const preferences = preferencesSchema.parse({});
+    const preferences = preferencesSchema.parse({ model: "obsolete" });
 
     expect(preferences.abletonPort).toBe(8765);
     expect(preferences.approvalPolicy).toBe("risky");
     expect(preferences.eventHistoryEnabled).toBe(true);
     expect(preferences.eventHistoryRetentionDays).toBe(30);
     expect(preferences.eventHistoryMaxBytes).toBe(250 * 1024 * 1024);
+    expect(preferences).not.toHaveProperty("model");
+  });
+
+  it("strictly validates bounded model descriptors and model changes", () => {
+    const model = desktopAgentModelSchema.parse({
+      id: "model-a",
+      displayName: "Model A",
+      policyState: "enabled",
+      capabilities: {
+        vision: true,
+        reasoningEffort: true,
+        maxContextWindowTokens: 64_000,
+      },
+      supportedReasoningEfforts: ["low", "high"],
+      defaultReasoningEffort: "high",
+    });
+    expect(ipcSchemas["agents:models"].response.parse([model])).toEqual([
+      model,
+    ]);
+    expect(
+      ipcSchemas["agents:set-model"].request.parse({
+        instanceId: "00000000-0000-4000-8000-000000000001",
+      }),
+    ).toEqual({
+      instanceId: "00000000-0000-4000-8000-000000000001",
+    });
+    expect(() =>
+      ipcSchemas["agents:set-model"].request.parse({
+        instanceId: "00000000-0000-4000-8000-000000000001",
+        model: "model-a",
+        unknown: true,
+      }),
+    ).toThrow();
+    expect(() =>
+      desktopAgentModelSchema.parse({ ...model, unknown: true }),
+    ).toThrow();
   });
 
   it("strictly validates event history queries and destructive requests", () => {

@@ -207,6 +207,7 @@ describe("preload API", () => {
       "agents:invoke-skill": { accepted: true, messageId: "message-2" },
       "agents:cancel": { cancelled: true },
     });
+
     const api = createDesktopApi(transport);
 
     await api.agents.send(instanceId, "hello");
@@ -223,6 +224,62 @@ describe("preload API", () => {
         { instanceId, skillName: "analyze", request: "the drums" },
       ],
       ["agents:cancel", { instanceId }],
+    ]);
+  });
+
+  it("exposes model discovery and optional per-agent model changes", async () => {
+    const instanceId = "00000000-0000-4000-8000-000000000001";
+    const activeAgent = {
+      id: instanceId,
+      definitionName: "default",
+      definitionFingerprint: "a".repeat(64),
+      label: "Default",
+      model: "model-a",
+      autoApprove: false,
+      sdkSessionId: "sdk-2",
+      lifecycle: "ready",
+      config: {
+        description: "General agent",
+        systemPrompt: "Help.",
+        tools: ["*"],
+        resolvedTools: [],
+        editScope: ["session"],
+        skills: [],
+        inputChannels: [],
+      },
+      boundTracks: [],
+      outputSubscriptions: [],
+      eventListeners: [],
+      modified: false,
+    };
+    const models = [
+      {
+        id: "model-a",
+        displayName: "Model A",
+        policyState: "enabled",
+        capabilities: {
+          vision: true,
+          reasoningEffort: true,
+          maxContextWindowTokens: 64_000,
+        },
+        supportedReasoningEfforts: ["low", "medium", "high"],
+        defaultReasoningEffort: "medium",
+      },
+    ];
+    const transport = transportFor({
+      "agents:models": models,
+      "agents:set-model": activeAgent,
+    });
+    const api = createDesktopApi(transport);
+
+    await expect(api.agents.listModels()).resolves.toEqual(models);
+    await api.agents.setModel(instanceId, "model-a");
+    await api.agents.setModel(instanceId);
+
+    expect(vi.mocked(transport).invoke.mock.calls).toEqual([
+      ["agents:models", {}],
+      ["agents:set-model", { instanceId, model: "model-a" }],
+      ["agents:set-model", { instanceId }],
     ]);
   });
 

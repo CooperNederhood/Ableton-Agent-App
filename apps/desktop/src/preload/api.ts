@@ -50,6 +50,7 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
       getCatalog: () => invoke("agents:catalog", {}),
       refreshCatalog: () => invoke("agents:refresh", {}),
       listActive: () => invoke("agents:active", {}),
+      listModels: () => invoke("agents:models", {}),
       create: (definitionName) => invoke("agents:create", { definitionName }),
       rename: (instanceId, label) =>
         invoke("agents:rename", { instanceId, label }),
@@ -57,6 +58,11 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
         invoke("agents:configure", { instanceId, overrides }),
       reset: (instanceId) => invoke("agents:reset", { instanceId }),
       select: (instanceId) => invoke("agents:select", { instanceId }),
+      setModel: (instanceId, model) =>
+        invoke("agents:set-model", {
+          instanceId,
+          ...(model === undefined ? {} : { model }),
+        }),
       setAutoApproval: (target, enabled) =>
         invoke("agents:set-auto-approval", { target, enabled }),
       deactivate: async (instanceId) => {

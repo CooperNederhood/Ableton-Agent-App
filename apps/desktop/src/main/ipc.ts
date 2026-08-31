@@ -51,6 +51,7 @@ export function createIpcHandlers(
     "agents:catalog": () => service.getAgentCatalog(),
     "agents:refresh": () => service.refreshAgentCatalog(),
     "agents:active": () => service.listActiveAgents(),
+    "agents:models": () => service.listAgentModels(),
     "agents:create": ({ definitionName }) =>
       service.createActiveAgent(definitionName),
     "agents:rename": ({ instanceId, label }) =>
@@ -59,6 +60,8 @@ export function createIpcHandlers(
       service.configureActiveAgent(instanceId, overrides),
     "agents:reset": ({ instanceId }) => service.resetActiveAgent(instanceId),
     "agents:select": ({ instanceId }) => service.selectActiveAgent(instanceId),
+    "agents:set-model": ({ instanceId, model }) =>
+      service.setActiveAgentModel(instanceId, model),
     "agents:set-auto-approval": ({ target, enabled }) =>
       service.setAutoApproval(target, enabled),
     "agents:deactivate": async ({ instanceId }) => {

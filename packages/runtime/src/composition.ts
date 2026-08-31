@@ -50,6 +50,7 @@ import {
   type LiveEventRuntime,
   type LiveEventRuntimeOptions,
 } from "./live-event-runtime.js";
+import { PreparedProjectContextStore } from "./prepared-context.js";
 
 export const DEFAULT_ABLETON_PORT = 8765;
 export const TOKEN_ENVIRONMENT_VARIABLE = "ABLETON_AGENT_TOKEN";
@@ -321,6 +322,7 @@ export interface AgentRuntime {
   abletonConfigured: boolean;
   signals: SignalRuntime;
   liveEvents: LiveEventRuntime;
+  preparedContext: PreparedProjectContextStore;
 }
 
 class RuntimeAwareHeadlessApplication extends HeadlessApplication {
@@ -330,6 +332,7 @@ class RuntimeAwareHeadlessApplication extends HeadlessApplication {
     services: ConstructorParameters<typeof HeadlessApplication>[0],
     private readonly signals: SignalRuntime,
     private readonly liveEvents: LiveEventRuntime,
+    private readonly preparedContext: PreparedProjectContextStore,
   ) {
     super(services);
   }
@@ -346,9 +349,16 @@ class RuntimeAwareHeadlessApplication extends HeadlessApplication {
   public override async start(
     options?: Parameters<HeadlessApplication["start"]>[0],
   ): Promise<void> {
-    await super.start(options);
-    await this.liveEvents.start();
-    await this.#syncSignals();
+    this.preparedContext.start();
+    try {
+      await super.start(options);
+      await this.preparedContext.warm();
+      await this.liveEvents.start();
+      await this.#syncSignals();
+    } catch (error) {
+      this.preparedContext.stop();
+      throw error;
+    }
   }
 
   public override async stop(): Promise<void> {
@@ -356,6 +366,7 @@ class RuntimeAwareHeadlessApplication extends HeadlessApplication {
       await this.liveEvents.stop();
       await super.stop();
     } finally {
+      this.preparedContext.stop();
       this.#managedAgentInstanceIds.clear();
       await this.#syncSignals();
     }
@@ -426,6 +437,17 @@ function isCurrentProjectProvider(
   return (
     typeof (value as Partial<{ getCurrentProjectId(): string | undefined }>)
       .getCurrentProjectId === "function"
+  );
+}
+
+function isProjectRevisionProvider(
+  value: AbletonService,
+): value is AbletonService & {
+  getProjectRevision(): number | undefined;
+} {
+  return (
+    typeof (value as Partial<{ getProjectRevision(): number | undefined }>)
+      .getProjectRevision === "function"
   );
 }
 
@@ -581,12 +603,25 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       ? {}
       : { telemetry: options.telemetry }),
   });
+  const preparedContext = new PreparedProjectContextStore({
+    events,
+    getAbletonStatus: () => ableton.getStatus(),
+    inspectSession: () => ableton.inspectSession(),
+    ...(isProjectRevisionProvider(ableton)
+      ? { getProjectRevision: () => ableton.getProjectRevision() }
+      : {}),
+    logger,
+    ...(options.telemetry === undefined
+      ? {}
+      : { telemetry: options.telemetry }),
+  });
   const liveEvents = new DefaultLiveEventRuntime({
     ...(options.liveEvents ?? {}),
     bridge: isLiveEventBridge(ableton)
       ? ableton
       : new UnavailableLiveEventBridge(ableton),
     logger,
+    preparedContextProvider: preparedContext,
     ...(options.telemetry === undefined
       ? {}
       : { telemetry: options.telemetry }),
@@ -614,6 +649,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     askForReadApproval: options.askForReadApproval ?? false,
     getAbletonStatus: () => ableton.getStatus(),
     inspectSession: () => ableton.inspectSession(),
+    preparedContextProvider: preparedContext,
     setTempo: (tempo) => ableton.setTempo(tempo),
     setPlaying: (isPlaying) => ableton.setPlaying(isPlaying),
     inspectArrangementTransport: (params) =>
@@ -672,6 +708,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     },
     signals,
     liveEvents,
+    preparedContext,
   );
   signals.setDeliveryService(application);
   liveEvents.setDeliveryService(application);
@@ -684,5 +721,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     abletonConfigured: configured,
     signals,
     liveEvents,
+    preparedContext,
   };
 }

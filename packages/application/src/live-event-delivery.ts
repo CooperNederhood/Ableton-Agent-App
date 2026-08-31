@@ -3,11 +3,19 @@ import type {
   LiveEventOccurrence,
 } from "@ableton-agent/agent-config";
 
+export interface PreparedContextProvider {
+  getPreparedContext(
+    agentInstanceId: string,
+    listener?: AgentEventListener,
+  ): string;
+}
+
 export interface PendingLiveEventContext {
   readonly deliveryId: string;
   readonly agentInstanceId: string;
   readonly listener: AgentEventListener;
   readonly occurrence: LiveEventOccurrence;
+  readonly preparedContext?: string;
 }
 
 export interface LiveEventContextProvider {
@@ -41,21 +49,20 @@ function bounded(value: string, maximum: number): string {
   return `${value.slice(0, Math.max(0, maximum - 14))}\n[truncated]`;
 }
 
-function eventSummary(entry: PendingLiveEventContext): string {
+function formatOccurrence(entry: PendingLiveEventContext): string {
   return [
     ...(entry.listener.messagePrefix === undefined
       ? []
       : [entry.listener.messagePrefix]),
-    entry.occurrence.summary,
+    JSON.stringify(entry.occurrence, undefined, 2),
   ].join("\n");
 }
 
 function formatEntry(entry: PendingLiveEventContext): string {
   return [
-    `Event: ${entry.occurrence.eventId}`,
-    `Observed: ${entry.occurrence.observedAt} (sequence ${entry.occurrence.sequence})`,
-    eventSummary(entry),
-  ].join("\n");
+    formatOccurrence(entry),
+    ...(entry.preparedContext === undefined ? [] : [entry.preparedContext]),
+  ].join("\n\n");
 }
 
 export function constructNextPromptLiveEventContext(
@@ -115,13 +122,16 @@ export function formatAutomaticLiveEventPrompt(
   request: LiveEventTurnRequest,
   options: LiveEventContextOptions = {},
 ): string {
-  return bounded(
-    [
-      "[Internal Live event — automatic]",
-      "This is a deterministic Ableton Live event assigned to this agent, not a user-authored request.",
-      "Handle it with the agent's normal tools, edit scope, mutation locks, and approval behavior. Inspect current Live state before mutation.",
-      formatEntry(request),
-    ].join("\n\n"),
-    options.maximumContextCharacters ?? DEFAULT_MAXIMUM_CONTEXT_CHARACTERS,
-  );
+  const prefix = `<live-event-trigger delivery-id="${request.deliveryId}" occurrence-id="${request.occurrence.occurrenceId}">`;
+  const suffix = "</live-event-trigger>";
+  const maximum =
+    options.maximumContextCharacters ?? DEFAULT_MAXIMUM_CONTEXT_CHARACTERS;
+  return [
+    prefix,
+    bounded(
+      formatOccurrence(request),
+      Math.max(0, maximum - prefix.length - suffix.length - 2),
+    ),
+    suffix,
+  ].join("\n");
 }

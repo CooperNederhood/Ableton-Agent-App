@@ -5,7 +5,9 @@ import {
 } from "@ableton-agent/agent-config/skill-invocation";
 import {
   MAX_LIVE_EVENT_MESSAGE_PREFIX_LENGTH,
+  resolvePreparedContextConfiguration,
   type AgentEventListener,
+  type PreparedContextConfiguration,
 } from "@ableton-agent/agent-config/schemas";
 import {
   useEffect,
@@ -794,6 +796,36 @@ function latestStateLabel(event: DesktopLiveEventState): string {
     case "track.recording_state_changed":
       return `${latest.state.recording ? "Recording" : "Not recording"} (${latest.state.source})`;
   }
+}
+
+function eventActivityLabel(
+  occurrence: DesktopLiveEventState["history"][number],
+): string {
+  if (
+    occurrence.kind === "track.triggered_clip_changed" &&
+    occurrence.current.state === "session-clip"
+  ) {
+    const clip =
+      occurrence.current.clipName ??
+      `Session clip ${occurrence.current.slotIndex + 1}`;
+    return `Queued ${clip} in scene ${occurrence.current.slotIndex + 1}`;
+  }
+  if (
+    occurrence.kind === "track.triggered_clip_changed" &&
+    occurrence.current.state === "stop"
+  ) {
+    return "Queued track stop";
+  }
+  return occurrence.summary;
+}
+
+function isActionableEventActivity(
+  occurrence: DesktopLiveEventState["history"][number],
+): boolean {
+  return !(
+    occurrence.kind === "track.triggered_clip_changed" &&
+    occurrence.current.state === "none"
+  );
 }
 
 function editableDraft(
@@ -1784,7 +1816,8 @@ export function EventCard({
       : `${event.resolution.status}: ${event.resolution.reason}${
           event.resolution.detail ? ` — ${event.resolution.detail}` : ""
         }`;
-  const history = [...event.history]
+  const history = event.history
+    .filter(isActionableEventActivity)
     .sort(
       (left, right) =>
         Date.parse(right.observedAt) - Date.parse(left.observedAt) ||
@@ -1929,7 +1962,7 @@ export function EventCard({
                   <time dateTime={occurrence.observedAt}>
                     {new Date(occurrence.observedAt).toLocaleTimeString()}
                   </time>
-                  <span>{occurrence.summary}</span>
+                  <span>{eventActivityLabel(occurrence)}</span>
                 </li>
               ))}
             </ol>
@@ -3041,7 +3074,45 @@ export type EventListenerDraft = Pick<
 > & {
   selected: boolean;
   messagePrefix: string;
+  preparedContextScope: PreparedContextConfiguration["scope"];
+  preparedContextTracks: string;
+  includeSessionClips: boolean;
 };
+
+function preparedContextTrackValue(
+  configuration: PreparedContextConfiguration,
+): string {
+  if (configuration.scope === "whole-session") return "";
+  return configuration.tracks
+    .map(
+      ({ track }) =>
+        `${track.name}${track.occurrence === 0 ? "" : ` #${track.occurrence + 1}`}`,
+    )
+    .join("\n");
+}
+
+function preparedContextFromDraft(
+  draft: EventListenerDraft,
+): PreparedContextConfiguration {
+  if (draft.preparedContextScope === "whole-session") {
+    return {
+      scope: "whole-session",
+      includeSessionClips: draft.includeSessionClips,
+    };
+  }
+  const parsed = parseTrackScope(draft.preparedContextTracks);
+  const tracks = parsed.filter((entry) => entry !== "session");
+  if (tracks.length === 0) {
+    throw new Error(
+      "Prepared context requires at least one selected track locator.",
+    );
+  }
+  return {
+    scope: "selected-tracks",
+    includeSessionClips: draft.includeSessionClips,
+    tracks,
+  };
+}
 
 function listenerForAgent(
   event: DesktopLiveEventState,
@@ -3052,16 +3123,34 @@ function listenerForAgent(
   )?.listener;
 }
 
+function preparedContextStatusForAgent(
+  event: DesktopLiveEventState,
+  agentInstanceId: string,
+): NonNullable<
+  DesktopLiveEventState["listeners"][number]["preparedContextStatus"]
+> {
+  return (
+    event.listeners.find((entry) => entry.agentInstanceId === agentInstanceId)
+      ?.preparedContextStatus ?? { state: "unavailable" }
+  );
+}
+
 function eventListenerDraft(
   event: DesktopLiveEventState,
   agentInstanceId: string,
 ): EventListenerDraft {
   const listener = listenerForAgent(event, agentInstanceId);
+  const preparedContext = resolvePreparedContextConfiguration(
+    listener?.preparedContext,
+  );
   return {
     selected: listener !== undefined,
     enabled: listener?.enabled ?? true,
     responseMode: listener?.responseMode ?? "next-prompt",
     messagePrefix: listener?.messagePrefix ?? "",
+    preparedContextScope: preparedContext.scope,
+    preparedContextTracks: preparedContextTrackValue(preparedContext),
+    includeSessionClips: preparedContext.includeSessionClips,
   };
 }
 
@@ -3082,24 +3171,34 @@ export async function saveAgentEventListeners(
       continue;
     }
     const messagePrefix = draft.messagePrefix.trim();
+    const preparedContext = preparedContextFromDraft(draft);
     if (listener === undefined) {
       await api.assignListener(agentInstanceId, event.definition.id, {
         enabled: draft.enabled,
         responseMode: draft.responseMode,
         ...(messagePrefix === "" ? {} : { messagePrefix }),
+        preparedContext,
       });
       continue;
     }
     const normalizedCurrentPrefix = listener.messagePrefix ?? "";
+    const currentPreparedContext = resolvePreparedContextConfiguration(
+      listener.preparedContext,
+    );
+    const preparedContextChanged =
+      JSON.stringify(currentPreparedContext) !==
+      JSON.stringify(preparedContext);
     if (
       listener.enabled !== draft.enabled ||
       listener.responseMode !== draft.responseMode ||
-      normalizedCurrentPrefix !== messagePrefix
+      normalizedCurrentPrefix !== messagePrefix ||
+      preparedContextChanged
     ) {
       await api.updateListener(agentInstanceId, event.definition.id, {
         enabled: draft.enabled,
         responseMode: draft.responseMode,
         messagePrefix: messagePrefix === "" ? null : messagePrefix,
+        ...(preparedContextChanged ? { preparedContext } : {}),
       });
     }
   }
@@ -3151,6 +3250,9 @@ export function ListeningEventsEditor({
           enabled: true,
           responseMode: "next-prompt",
           messagePrefix: "",
+          preparedContextScope: "whole-session",
+          preparedContextTracks: "",
+          includeSessionClips: true,
         }),
         ...update,
       },
@@ -3184,6 +3286,10 @@ export function ListeningEventsEditor({
             eventListenerDraft(event, agentInstanceId);
           const unavailable = !event.definition.enabled;
           const unresolved = event.resolution.status !== "resolved";
+          const preparedContextStatus = preparedContextStatusForAgent(
+            event,
+            agentInstanceId,
+          );
           return (
             <div className="listening-event-row" key={event.definition.id}>
               <label>
@@ -3247,6 +3353,67 @@ export function ListeningEventsEditor({
                       }
                     />
                   </label>
+                  <label>
+                    Prepared context
+                    <select
+                      value={draft.preparedContextScope}
+                      onChange={(change) =>
+                        updateDraft(event.definition.id, {
+                          preparedContextScope: change.target
+                            .value as PreparedContextConfiguration["scope"],
+                        })
+                      }
+                    >
+                      <option value="whole-session">
+                        Whole session (bounded)
+                      </option>
+                      <option value="selected-tracks">Selected tracks</option>
+                    </select>
+                  </label>
+                  {draft.preparedContextScope === "selected-tracks" && (
+                    <label>
+                      Tracks{" "}
+                      <small>
+                        One locator per line: track name, optionally #2 for a
+                        duplicate name.
+                      </small>
+                      <textarea
+                        rows={3}
+                        required
+                        value={draft.preparedContextTracks}
+                        onChange={(change) =>
+                          updateDraft(event.definition.id, {
+                            preparedContextTracks: change.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                  )}
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={draft.includeSessionClips}
+                      onChange={(change) =>
+                        updateDraft(event.definition.id, {
+                          includeSessionClips: change.target.checked,
+                        })
+                      }
+                    />
+                    Include Session clips
+                  </label>
+                  <small>
+                    Cache: {preparedContextStatus.state}
+                    {preparedContextStatus.state === "unavailable"
+                      ? ""
+                      : ` · captured ${new Date(
+                          preparedContextStatus.capturedAt,
+                        ).toLocaleTimeString()}${
+                          preparedContextStatus.unresolvedTrackLocators ===
+                          undefined
+                            ? ""
+                            : ` · ${preparedContextStatus.unresolvedTrackLocators} unresolved track locator(s)`
+                        }`}
+                  </small>
                 </div>
               )}
             </div>
@@ -3805,10 +3972,15 @@ export function Timeline({
           ...item,
           itemType: "operation" as const,
         })),
+        ...workspace.triggers.map((item) => ({
+          ...item,
+          timestamp: Date.parse(item.observedAt) || 0,
+          itemType: "trigger" as const,
+        })),
       ]
         .sort((left, right) => left.timestamp - right.timestamp)
         .slice(-200),
-    [workspace.messages, workspace.operations],
+    [workspace.messages, workspace.operations, workspace.triggers],
   );
   return (
     <div
@@ -3842,11 +4014,42 @@ export function Timeline({
               <p className="message-plain-text">{item.content}</p>
             )}
           </article>
-        ) : (
+        ) : item.itemType === "operation" ? (
           <OperationCard key={`operation-${item.id}`} operation={item} />
+        ) : (
+          <TriggerCard key={`trigger-${item.deliveryId}`} trigger={item} />
         ),
       )}
     </div>
+  );
+}
+
+export function TriggerCard({
+  trigger,
+}: {
+  trigger: DesktopState["agentWorkspaces"][string]["triggers"][number];
+}): React.JSX.Element {
+  const icon = {
+    queued: "◌",
+    completed: "✓",
+    failed: "×",
+  }[trigger.status];
+  return (
+    <details className={`trigger trigger-${trigger.status}`}>
+      <summary>
+        <span aria-hidden="true">{icon}</span> Listening Event ·{" "}
+        {trigger.sourceTrack}
+        <small>{trigger.status}</small>
+      </summary>
+      <p>{trigger.summary}</p>
+      {trigger.messagePrefix && (
+        <p>
+          <strong>Message prefix:</strong> {trigger.messagePrefix}
+        </p>
+      )}
+      <pre>{trigger.occurrence}</pre>
+      {trigger.error && <p className="warning">Warning: {trigger.error}</p>}
+    </details>
   );
 }
 

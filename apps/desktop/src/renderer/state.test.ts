@@ -703,4 +703,55 @@ describe("desktop reducer", () => {
       expect(state.projectRefresh.message.endsWith("…")).toBe(true);
     }
   });
+
+  it("deduplicates trigger updates immutably within the receiving workspace", () => {
+    const restored = desktopReducer(stateWithAgents(), {
+      type: "event",
+      event: {
+        type: "session.context_restored",
+        session: stateWithAgents().sessions[0]!,
+      },
+    });
+    const trigger = {
+      deliveryId: "delivery-1",
+      occurrenceId: "00000000-0000-4000-8000-000000000101",
+      eventId: "live-event.00000000-0000-4000-8000-000000000001",
+      listenerId: "event-listener.00000000-0000-4000-8000-000000000001",
+      agentInstanceId: firstAgentId,
+      sdkSessionId: "sdk-1",
+      kind: "track.triggered_clip_changed",
+      sourceTrack: "Lead drum",
+      state: {
+        kind: "track.triggered_clip_changed" as const,
+        state: { state: "session-clip" as const, slotIndex: 1 },
+      },
+      observedAt: "2026-08-30T20:00:00.000Z",
+      occurrence: "{}",
+      summary: "Queued pattern2 in scene 2",
+      status: "queued" as const,
+      updatedAt: "2026-08-30T20:00:00.010Z",
+    };
+    const queued = desktopReducer(restored, {
+      type: "event",
+      event: { type: "agent.live_event_trigger_changed", trigger },
+    });
+    const completed = desktopReducer(queued, {
+      type: "event",
+      event: {
+        type: "agent.live_event_trigger_changed",
+        trigger: { ...trigger, status: "completed" },
+      },
+    });
+    const stale = desktopReducer(completed, {
+      type: "event",
+      event: { type: "agent.live_event_trigger_changed", trigger },
+    });
+
+    expect(restored.agentWorkspaces[firstAgentId]?.triggers).toEqual([]);
+    expect(completed.agentWorkspaces[firstAgentId]?.triggers).toEqual([
+      { ...trigger, status: "completed" },
+    ]);
+    expect(stale).toBe(completed);
+    expect(stale.agentWorkspaces[secondAgentId]?.triggers).toEqual([]);
+  });
 });

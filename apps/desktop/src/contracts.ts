@@ -545,6 +545,18 @@ export const desktopAgentEventListenerSchema = z.object({
   agentInstanceId: z.string().uuid(),
   agentLabel: z.string().min(1).max(128),
   listener: agentEventListenerSchema,
+  preparedContextStatus: z
+    .discriminatedUnion("state", [
+      z.object({ state: z.literal("unavailable") }),
+      z.object({
+        state: z.enum(["fresh", "stale"]),
+        capturedAt: z.string().datetime(),
+        projectId: z.string().min(1),
+        projectRevision: z.number().int().nonnegative().optional(),
+        unresolvedTrackLocators: z.number().int().positive().optional(),
+      }),
+    ])
+    .optional(),
 });
 export type DesktopAgentEventListener = z.infer<
   typeof desktopAgentEventListenerSchema
@@ -602,6 +614,27 @@ export const operationSchema = z.object({
 });
 export type OperationView = z.infer<typeof operationSchema>;
 
+export const liveEventTriggerSchema = z.object({
+  deliveryId: z.string().min(1).max(4_121),
+  occurrenceId: z.string().uuid(),
+  eventId: z.string().min(1).max(256),
+  listenerId: z.string().min(1).max(4_121),
+  agentInstanceId: z.string().uuid(),
+  sdkSessionId: z.string().min(1),
+  kind: z.string().min(1).max(128),
+  sourceTrack: z.string().min(1).max(512),
+  state: liveEventInitialStateSchema,
+  observedAt: z.string().datetime(),
+  messagePrefix: z.string().max(4_096).optional(),
+  occurrence: z.string().max(12_000),
+  summary: z.string().min(1).max(2_048),
+  status: z.enum(["queued", "completed", "failed"]),
+  updatedAt: z.string().datetime(),
+  error: z.string().max(2_048).optional(),
+});
+export type LiveEventTrigger = z.infer<typeof liveEventTriggerSchema>;
+export const MAX_AGENT_TRIGGER_HISTORY = 200;
+
 const forkedAgentHistoryMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
   content: z.string(),
@@ -614,6 +647,10 @@ export const desktopActiveAgentSchema = activeAgentInstanceSchema.extend({
   boundTracks: activeAgentInstanceSchema.shape.boundTracks.default([]),
   outputSubscriptions: z.array(desktopOutputAssignmentSchema).default([]),
   forkedHistory: z.array(forkedAgentHistoryMessageSchema).optional(),
+  triggerHistory: z
+    .array(liveEventTriggerSchema)
+    .max(MAX_AGENT_TRIGGER_HISTORY)
+    .optional(),
 });
 export type DesktopActiveAgent = z.infer<typeof desktopActiveAgentSchema>;
 
@@ -900,7 +937,12 @@ export const appEventSchema = z.discriminatedUnion("type", [
       "selected",
       "deactivated",
       "lifecycle",
+      "session-rotated",
     ]),
+  }),
+  z.object({
+    type: z.literal("agent.live_event_trigger_changed"),
+    trigger: liveEventTriggerSchema,
   }),
   z.object({
     type: z.literal("agent.history_hydrated"),
@@ -1238,6 +1280,7 @@ export const ipcSchemas = {
         enabled: z.boolean(),
         responseMode: agentEventListenerSchema.shape.responseMode,
         messagePrefix: agentEventListenerSchema.shape.messagePrefix,
+        preparedContext: agentEventListenerSchema.shape.preparedContext,
       })
       .strict(),
     response: desktopAgentEventListenerSchema,
@@ -1261,13 +1304,16 @@ export const ipcSchemas = {
         messagePrefix: z
           .union([agentEventListenerSchema.shape.messagePrefix, z.null()])
           .optional(),
+        preparedContext:
+          agentEventListenerSchema.shape.preparedContext.optional(),
       })
       .strict()
       .refine(
-        ({ enabled, responseMode, messagePrefix }) =>
+        ({ enabled, responseMode, messagePrefix, preparedContext }) =>
           enabled !== undefined ||
           responseMode !== undefined ||
-          messagePrefix !== undefined,
+          messagePrefix !== undefined ||
+          preparedContext !== undefined,
         "At least one listener setting must be provided",
       ),
     response: desktopAgentEventListenerSchema,
@@ -1453,7 +1499,7 @@ export interface DesktopApi {
       eventId: string,
       settings: Pick<
         AgentEventListener,
-        "enabled" | "responseMode" | "messagePrefix"
+        "enabled" | "responseMode" | "messagePrefix" | "preparedContext"
       >,
     ): Promise<DesktopAgentEventListener>;
     unassignListener(
@@ -1466,6 +1512,7 @@ export interface DesktopApi {
       settings: Partial<
         Pick<AgentEventListener, "enabled" | "responseMode"> & {
           messagePrefix: string | null;
+          preparedContext: AgentEventListener["preparedContext"];
         }
       >,
     ): Promise<DesktopAgentEventListener>;

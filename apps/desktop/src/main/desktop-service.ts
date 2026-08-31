@@ -161,7 +161,7 @@ export interface DesktopService {
     eventId: string,
     settings: Pick<
       AgentEventListener,
-      "enabled" | "responseMode" | "messagePrefix"
+      "enabled" | "responseMode" | "messagePrefix" | "preparedContext"
     >,
   ): Promise<DesktopAgentEventListener>;
   unassignLiveEventListener(
@@ -174,6 +174,7 @@ export interface DesktopService {
     settings: Partial<
       Pick<AgentEventListener, "enabled" | "responseMode"> & {
         messagePrefix: string | null;
+        preparedContext: AgentEventListener["preparedContext"];
       }
     >,
   ): Promise<DesktopAgentEventListener>;
@@ -256,10 +257,18 @@ export class JsonSessionStore {
               activeAgents: versionTwo.activeAgents.map((agent) => ({
                 ...agent,
                 eventListeners: [],
+                triggerHistory: [],
               })),
             });
           }
-          return sessionSchema.parse(value);
+          const session = sessionSchema.parse(value);
+          return {
+            ...session,
+            activeAgents: session.activeAgents.map((agent) => ({
+              ...agent,
+              triggerHistory: agent.triggerHistory ?? [],
+            })),
+          };
         }
         const legacy = legacySessionSchema.parse(value);
         this.#legacySessionIds.add(legacy.id);

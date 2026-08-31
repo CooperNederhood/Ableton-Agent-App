@@ -162,11 +162,13 @@ export function createIpcHandlers(
       enabled,
       responseMode,
       messagePrefix,
+      preparedContext,
     }) =>
       service.assignLiveEventListener(agentInstanceId, eventId, {
         enabled,
         responseMode,
         ...(messagePrefix === undefined ? {} : { messagePrefix }),
+        ...(preparedContext === undefined ? {} : { preparedContext }),
       }),
     "events:unassign-listener": async ({ agentInstanceId, eventId }) => ({
       removed: await service.unassignLiveEventListener(
@@ -180,11 +182,13 @@ export function createIpcHandlers(
       enabled,
       responseMode,
       messagePrefix,
+      preparedContext,
     }) =>
       service.updateLiveEventListener(agentInstanceId, eventId, {
         ...(enabled === undefined ? {} : { enabled }),
         ...(responseMode === undefined ? {} : { responseMode }),
         ...(messagePrefix === undefined ? {} : { messagePrefix }),
+        ...(preparedContext === undefined ? {} : { preparedContext }),
       }),
     "event-history:search": (request) => service.searchEventHistory(request),
     "event-history:trace": ({ traceId, cursor, limit, order }) =>

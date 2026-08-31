@@ -10,6 +10,7 @@ import {
   skillNameSchema,
   type BoundTrackScope,
   type EditScopeEntry,
+  type AgentEventListener,
   type SkillInvocation,
 } from "@ableton-agent/agent-config";
 import type {
@@ -92,6 +93,8 @@ import type {
   ConnectionStatus,
   EventPublisher,
   LifecycleState,
+  LiveEventTriggerView,
+  LiveEventTypedState,
   Logger,
 } from "@ableton-agent/shared";
 import { noopLogger } from "@ableton-agent/shared";
@@ -129,6 +132,7 @@ import {
   type LiveEventContextOptions,
   type LiveEventDeliveryService,
   type LiveEventTurnRequest,
+  type PreparedContextProvider,
 } from "./live-event-delivery.js";
 
 export {
@@ -157,6 +161,7 @@ export {
   type LiveEventDeliveryService,
   type LiveEventTurnRequest,
   type PendingLiveEventContext,
+  type PreparedContextProvider,
 } from "./live-event-delivery.js";
 
 export interface AgentSessionConfiguration {
@@ -238,6 +243,33 @@ export interface AgentService
   ): Promise<readonly AgentHistoryMessage[]>;
 }
 
+const missingCopilotSessionPattern =
+  /^Request session\.(?:send|getMessages) failed with message: Session not found for sessionId: [^\s]+$/u;
+
+export class MissingCopilotSessionError extends Error {
+  public readonly cleanupError: unknown;
+
+  public constructor(
+    public readonly sdkSessionId: string,
+    options: { cause?: unknown; cleanupError?: unknown } = {},
+  ) {
+    super(`Copilot SDK session '${sdkSessionId}' no longer exists`, {
+      cause: options.cause,
+    });
+    this.name = "MissingCopilotSessionError";
+    this.cleanupError = options.cleanupError;
+  }
+}
+
+export function isMissingCopilotSessionError(
+  error: unknown,
+): error is MissingCopilotSessionError {
+  return (
+    error instanceof MissingCopilotSessionError ||
+    (error instanceof Error && missingCopilotSessionPattern.test(error.message))
+  );
+}
+
 export type { AbletonService } from "@ableton-agent/ableton-contracts";
 
 export interface ApplicationServices {
@@ -282,6 +314,7 @@ export interface CopilotAgentServiceOptions {
   logger?: Logger;
   getAbletonStatus: () => Promise<ConnectionStatus>;
   inspectSession: () => Promise<SessionSnapshot>;
+  preparedContextProvider?: PreparedContextProvider;
   setTempo: (tempo: number) => Promise<SetTempoResult>;
   setPlaying: (isPlaying: boolean) => Promise<SetPlayingResult>;
   inspectArrangementTransport: (
@@ -489,6 +522,8 @@ interface InstrumentedTurn {
   finalObserved: boolean;
   startedAt: number | undefined;
   terminalRecorded: boolean;
+  toolStarted: boolean;
+  retryAttempted: boolean;
 }
 
 interface ManagedSessionState {
@@ -502,6 +537,7 @@ interface ManagedSessionState {
   queuedTurns: number;
   turnQueue: Promise<void>;
   turnKind: CopilotTurnKind | undefined;
+  preparedContextListener: AgentEventListener | undefined;
   activeTurn: InstrumentedTurn | undefined;
   automaticDrainScheduled: boolean;
   readonly pendingAutomatic: Map<string, PendingAutomaticTurn>;
@@ -585,6 +621,7 @@ function formatDirectSkillPrompt(
 }
 
 function displayUserPrompt(content: string): string {
+  if (content.startsWith("<live-event-trigger ")) return "";
   const firstLineEnd = content.indexOf("\n");
   const firstLine =
     firstLineEnd === -1 ? content : content.slice(0, firstLineEnd);
@@ -594,6 +631,7 @@ function displayUserPrompt(content: string): string {
   ) {
     return content;
   }
+
   const encoded = firstLine.slice(
     directSkillHistoryPrefix.length,
     -" -->".length,
@@ -611,6 +649,21 @@ function displayUserPrompt(content: string): string {
     skillName: parsedSkillName.data,
     request: Buffer.from(encodedRequest, "base64url").toString("utf8"),
   });
+}
+
+function liveEventTypedState(
+  occurrence: LiveEventTurnRequest["occurrence"],
+): LiveEventTypedState {
+  switch (occurrence.kind) {
+    case "parameter.value_changed":
+      return { kind: occurrence.kind, state: occurrence.current };
+    case "track.playing_clip_changed":
+      return { kind: occurrence.kind, state: occurrence.current };
+    case "track.triggered_clip_changed":
+      return { kind: occurrence.kind, state: occurrence.current };
+    case "track.recording_state_changed":
+      return { kind: occurrence.kind, state: occurrence.current };
+  }
 }
 
 function qualifyAvailableTools(toolNames: readonly string[]): string[] {
@@ -772,9 +825,14 @@ function normalizeHistoryEvent(
   },
 ): AgentHistoryMessage | undefined {
   if (event.type === "user.message") {
+    if (event.data.content.startsWith("<live-event-trigger ")) {
+      return undefined;
+    }
+    const content = displayUserPrompt(event.data.content);
+    if (content === "") return undefined;
     return {
       role: "user",
-      content: displayUserPrompt(event.data.content),
+      content,
       timestamp: event.timestamp,
       eventId: event.id,
       ...attribution,
@@ -1016,6 +1074,7 @@ export class CopilotAgentService implements AgentService {
       queuedTurns: 0,
       turnQueue: Promise.resolve(),
       turnKind: undefined,
+      preparedContextListener: undefined,
       activeTurn: undefined,
       automaticDrainScheduled: false,
       pendingAutomatic: new Map(),
@@ -1133,6 +1192,8 @@ export class CopilotAgentService implements AgentService {
       finalObserved: false,
       startedAt: undefined,
       terminalRecorded: false,
+      toolStarted: false,
+      retryAttempted: false,
       trace: {
         traceId: identifiers.traceId ?? id,
         turnId: id,
@@ -1310,6 +1371,18 @@ export class CopilotAgentService implements AgentService {
     const agentPolicy = createAgentPolicy({
       getAbletonStatus: this.options.getAbletonStatus,
       inspectSession: this.options.inspectSession,
+      ...(this.options.preparedContextProvider === undefined
+        ? {}
+        : {
+            preparedContext: {
+              getPreparedContext: (listener?: AgentEventListener) =>
+                this.options.preparedContextProvider!.getPreparedContext(
+                  state.signalTargetId,
+                  listener,
+                ),
+              activeListener: () => state.preparedContextListener,
+            },
+          }),
       ...(scopedSignalContext === undefined
         ? {}
         : { signalContext: scopedSignalContext }),
@@ -1478,6 +1551,7 @@ export class CopilotAgentService implements AgentService {
           sessionId: session.sessionId,
         });
       } else if (event.type === "tool.execution_start") {
+        if (state.activeTurn !== undefined) state.activeTurn.toolStarted = true;
         this.#recordRuntime(state, "agent.tool.started", sdkData, {
           occurredAt: event.timestamp,
           sessionId: session.sessionId,
@@ -1629,6 +1703,7 @@ export class CopilotAgentService implements AgentService {
     state.unsubscribe?.();
     state.unsubscribe = undefined;
     state.turnKind = undefined;
+    state.preparedContextListener = undefined;
     state.activeTurn = undefined;
     state.inFlightTurns = 0;
     state.queuedTurns = 0;
@@ -1684,6 +1759,29 @@ export class CopilotAgentService implements AgentService {
       sdkSessionId,
       config,
     );
+    try {
+      await session.getEvents?.();
+    } catch (error) {
+      let cleanupError: unknown;
+      try {
+        await session.disconnect();
+      } catch (disconnectError) {
+        cleanupError = disconnectError;
+      }
+      if (isMissingCopilotSessionError(error)) {
+        throw new MissingCopilotSessionError(sdkSessionId, {
+          cause: error,
+          cleanupError,
+        });
+      }
+      if (cleanupError !== undefined) {
+        throw new AggregateError(
+          [error, cleanupError],
+          "Copilot resumed-session validation failed and cleanup was incomplete",
+        );
+      }
+      throw error;
+    }
     state.session = session;
     this.#recordSessionConfiguration(state, config, session.sessionId);
     if (!state.exposeInstanceId) state.signalTargetId = session.sessionId;
@@ -2263,6 +2361,80 @@ export class CopilotAgentService implements AgentService {
     return response.data.content;
   }
 
+  async #rotateMissingManagedSession(
+    state: ManagedSessionState,
+    missingSession: CopilotSessionAdapter,
+  ): Promise<void> {
+    const oldSdkSessionId = missingSession.sessionId;
+    const config = this.#sessionConfig(state);
+    const replacement = await this.#requireClient().createSession(config);
+    try {
+      state.unsubscribe?.();
+      state.unsubscribe = undefined;
+      await missingSession.disconnect();
+      state.session = replacement;
+      this.#recordSessionConfiguration(state, config, replacement.sessionId);
+      this.#observe(state, replacement);
+    } catch (error) {
+      state.unsubscribe?.();
+      state.unsubscribe = undefined;
+      state.session = undefined;
+      try {
+        await replacement.disconnect();
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          "Missing Copilot session replacement failed and cleanup was incomplete",
+        );
+      }
+      throw error;
+    }
+    this.options.events.publish({
+      type: "agent.sdk_session_rotated",
+      agentInstanceId: state.configuration.instanceId,
+      oldSdkSessionId,
+      newSdkSessionId: replacement.sessionId,
+      reason: "missing-session",
+    });
+  }
+
+  #liveEventTrigger(
+    state: ManagedSessionState,
+    request: LiveEventTurnRequest,
+    status: LiveEventTriggerView["status"],
+    error?: unknown,
+  ): LiveEventTriggerView {
+    return {
+      deliveryId: request.deliveryId,
+      occurrenceId: request.occurrence.occurrenceId,
+      eventId: request.occurrence.eventId,
+      listenerId: request.listener.id,
+      agentInstanceId: request.agentInstanceId,
+      sdkSessionId: state.session?.sessionId ?? "",
+      kind: request.occurrence.kind,
+      sourceTrack: request.occurrence.target.track.name,
+      state: liveEventTypedState(request.occurrence),
+      observedAt: request.occurrence.observedAt,
+      ...(request.listener.messagePrefix === undefined
+        ? {}
+        : { messagePrefix: request.listener.messagePrefix }),
+      occurrence: JSON.stringify(request.occurrence, undefined, 2),
+      summary: request.occurrence.summary,
+      status,
+      updatedAt: new Date().toISOString(),
+      ...(error === undefined
+        ? {}
+        : {
+            error:
+              error instanceof Error
+                ? error.message
+                : typeof error === "string"
+                  ? error
+                  : "Unknown automatic Listening Event failure",
+          }),
+    };
+  }
+
   #serialize<T>(
     state: ManagedSessionState,
     run: () => Promise<T>,
@@ -2506,9 +2678,63 @@ export class CopilotAgentService implements AgentService {
       occurrenceIds: [request.occurrence.occurrenceId],
       deliveryIds: [request.deliveryId],
     });
+    this.options.events.publish({
+      type: "agent.live_event_trigger_changed",
+      trigger: this.#liveEventTrigger(state, request, "queued"),
+    });
     return this.#serialize(
       state,
-      () => this.#sendNow(state, prompt, "automatic-action", turn),
+      async () => {
+        state.preparedContextListener = request.listener;
+        try {
+          let response: string;
+          try {
+            response = await this.#sendNow(
+              state,
+              prompt,
+              "automatic-action",
+              turn,
+            );
+          } catch (error) {
+            const missingSession = state.session;
+            if (
+              !isMissingCopilotSessionError(error) ||
+              missingSession === undefined ||
+              turn.toolStarted ||
+              turn.retryAttempted
+            ) {
+              throw error;
+            }
+            turn.retryAttempted = true;
+            await this.#rotateMissingManagedSession(state, missingSession);
+            const retryTurn = this.#newTurn("live-event.automatic", prompt, {
+              traceId: request.occurrence.occurrenceId,
+              occurrenceIds: [request.occurrence.occurrenceId],
+              deliveryIds: [request.deliveryId],
+            });
+            retryTurn.retryAttempted = true;
+            response = await this.#sendNow(
+              state,
+              prompt,
+              "automatic-action",
+              retryTurn,
+            );
+          }
+          this.options.events.publish({
+            type: "agent.live_event_trigger_changed",
+            trigger: this.#liveEventTrigger(state, request, "completed"),
+          });
+          return response;
+        } catch (error) {
+          this.options.events.publish({
+            type: "agent.live_event_trigger_changed",
+            trigger: this.#liveEventTrigger(state, request, "failed", error),
+          });
+          throw error;
+        } finally {
+          state.preparedContextListener = undefined;
+        }
+      },
       turn,
     );
   }

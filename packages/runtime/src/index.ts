@@ -35,3 +35,8 @@ export {
   type LiveEventRuntimeOptions,
   type LiveEventRuntimeState,
 } from "./live-event-runtime.js";
+export {
+  PreparedProjectContextStore,
+  type PreparedContextCacheStatus,
+  type PreparedProjectContextStoreOptions,
+} from "./prepared-context.js";

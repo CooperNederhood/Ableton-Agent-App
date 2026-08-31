@@ -6,7 +6,10 @@ import {
   createFakeApplication,
   defaultFakeState,
 } from "@ableton-agent/test-support";
-import type { AgentSkillDescriptor } from "@ableton-agent/application";
+import {
+  MissingCopilotSessionError,
+  type AgentSkillDescriptor,
+} from "@ableton-agent/application";
 import type {
   AgentLiveEventListener,
   LiveEventRuntime,
@@ -735,7 +738,15 @@ describe("desktop persistence stores", () => {
 
     await store.save(sessions);
 
-    await expect(store.load()).resolves.toEqual(sessions);
+    await expect(store.load()).resolves.toEqual(
+      sessions.map((session) => ({
+        ...session,
+        activeAgents: session.activeAgents.map((agent) => ({
+          ...agent,
+          triggerHistory: [],
+        })),
+      })),
+    );
     expect(await readdir(directory)).toEqual(["sessions.json"]);
   });
 
@@ -801,6 +812,7 @@ describe("desktop persistence stores", () => {
           config: { inputChannels: ["producer-legacy"] },
           outputSubscriptions: [subscription],
           eventListeners: [],
+          triggerHistory: [],
         },
       ],
     });
@@ -2987,6 +2999,10 @@ describe("desktop adapter over the shared application", () => {
       enabled: true,
       responseMode: "next-prompt",
       messagePrefix: "First",
+      preparedContext: {
+        scope: "whole-session",
+        includeSessionClips: true,
+      },
     });
     await service.assignLiveEventListener(second.id, definition.id, {
       enabled: true,
@@ -3011,6 +3027,11 @@ describe("desktop adapter over the shared application", () => {
         enabled: false,
         responseMode: "automatic",
         messagePrefix: null,
+        preparedContext: {
+          scope: "selected-tracks",
+          tracks: [{ track: { name: "Keys", occurrence: 0 } }],
+          includeSessionClips: false,
+        },
       },
     );
     expect(updated).toMatchObject({
@@ -3019,6 +3040,11 @@ describe("desktop adapter over the shared application", () => {
       listener: {
         enabled: false,
         responseMode: "automatic",
+        preparedContext: {
+          scope: "selected-tracks",
+          tracks: [{ track: { name: "Keys", occurrence: 0 } }],
+          includeSessionClips: false,
+        },
       },
     });
     expect(updated.listener).not.toHaveProperty("messagePrefix");
@@ -3407,7 +3433,7 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
-  it("records a new session when a stored one cannot be resumed", async () => {
+  it("fails closed without replacing a production session on generic resume failure", async () => {
     const directory = await temporaryDirectory();
     const sessionsPath = join(directory, "sessions.json");
     const preferencesPath = join(directory, "preferences.json");
@@ -3445,7 +3471,6 @@ describe("desktop adapter over the shared application", () => {
 
     await service.start();
 
-    expect(second.agent.sessionId).not.toBe(staleId);
     expect(
       events.some(
         (event) =>
@@ -3454,14 +3479,221 @@ describe("desktop adapter over the shared application", () => {
       ),
     ).toBe(true);
     const sessions = await service.getSessions();
-    expect(
-      sessions.some(({ activeAgents }) =>
-        activeAgents.some(
-          ({ sdkSessionId }) => sdkSessionId === second.agent.sessionId,
-        ),
-      ),
-    ).toBe(true);
     expect(sessions.some(({ id }) => id === staleId)).toBe(true);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "session.context_restored" &&
+          event.session.id === staleId,
+      ),
+    ).toBe(false);
+    await service.stop();
+  });
+
+  it("rotates and persists only the missing SDK session during startup restoration", async () => {
+    const directory = await temporaryDirectory();
+    const sessionsPath = join(directory, "sessions.json");
+    const preferencesPath = join(directory, "preferences.json");
+    const catalog = defaultCatalog();
+    const first = createFakeApplication();
+    const firstService = new HeadlessDesktopService({
+      application: first.application,
+      approvals: new ApprovalCoordinator(),
+      preferencesStore: new JsonPreferencesStore(preferencesPath),
+      sessionStore: new JsonSessionStore(sessionsPath),
+      agentCatalog: {
+        current: catalog,
+        refresh: () => Promise.resolve(catalog),
+      },
+    });
+    await firstService.start();
+    const initial = (await firstService.getSessions())[0]!;
+    const original = initial.activeAgents[0]!;
+    first.events.publish({
+      type: "agent.live_event_trigger_changed",
+      trigger: {
+        deliveryId: "startup-trigger",
+        occurrenceId: "00000000-0000-4000-8000-000000000101",
+        eventId: "live-event.00000000-0000-4000-8000-000000000001",
+        listenerId: "event-listener.00000000-0000-4000-8000-000000000001",
+        agentInstanceId: original.id,
+        sdkSessionId: original.sdkSessionId!,
+        kind: "track.triggered_clip_changed",
+        sourceTrack: "Lead drum",
+        state: {
+          kind: "track.triggered_clip_changed" as const,
+          state: { state: "session-clip" as const, slotIndex: 1 },
+        },
+        observedAt: "2026-08-30T20:00:00.000Z",
+        occurrence: "{}",
+        summary: "Queued pattern2 in scene 2",
+        status: "completed",
+        updatedAt: "2026-08-30T20:00:01.000Z",
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const [before] = await firstService.getSessions();
+    await firstService.stop();
+
+    const second = createFakeApplication();
+    second.agent.resumeManagedAgent = vi.fn(async () => {
+      throw new MissingCopilotSessionError(original.sdkSessionId!);
+    });
+    const originalCreateManagedAgent = second.agent.createManagedAgent.bind(
+      second.agent,
+    );
+    const createManagedAgent = vi
+      .spyOn(second.agent, "createManagedAgent")
+      .mockImplementation(async (configuration) => {
+        await originalCreateManagedAgent(configuration);
+        return "replacement-sdk";
+      });
+    const service = new HeadlessDesktopService({
+      application: second.application,
+      approvals: new ApprovalCoordinator(),
+      preferencesStore: new JsonPreferencesStore(preferencesPath),
+      sessionStore: new JsonSessionStore(sessionsPath),
+      agentCatalog: {
+        current: catalog,
+        refresh: () => Promise.resolve(catalog),
+      },
+    });
+    const events: DesktopAppEvent[] = [];
+    service.subscribe((event) => events.push(event));
+    await service.start();
+
+    const [restored] = await service.getSessions();
+    const rotated = restored!.activeAgents[0]!;
+    expect(restored!.id).toBe(before!.id);
+    expect(rotated.id).toBe(original.id);
+    expect(rotated.sdkSessionId).not.toBe(original.sdkSessionId);
+    expect(rotated.config).toEqual(original.config);
+    expect(rotated.forkedHistory).toEqual(original.forkedHistory);
+    expect(rotated.boundTracks).toEqual(original.boundTracks);
+    expect(rotated.outputSubscriptions).toEqual(original.outputSubscriptions);
+    expect(rotated.eventListeners).toEqual(original.eventListeners);
+    expect(rotated.triggerHistory).toEqual(
+      before!.activeAgents[0]!.triggerHistory,
+    );
+    expect(createManagedAgent).toHaveBeenCalledOnce();
+    expect(
+      (await new JsonSessionStore(sessionsPath).load())[0]!.activeAgents[0]!
+        .sdkSessionId,
+    ).toBe(rotated.sdkSessionId);
+    expect(events).toContainEqual({
+      type: "agent.instance_changed",
+      instance: rotated,
+      change: "session-rotated",
+    });
+    await service.stop();
+  });
+
+  it("persists bounded workspace trigger updates and runtime SDK rotation idempotently", async () => {
+    const { service, sharedEvents, sessionStore, events } = await harness();
+    await service.start();
+    const [session] = await service.getSessions();
+    const instance = session!.activeAgents[0]!;
+    const trigger = {
+      deliveryId: "delivery-1",
+      occurrenceId: "00000000-0000-4000-8000-000000000101",
+      eventId: "live-event.00000000-0000-4000-8000-000000000001",
+      listenerId: "event-listener.00000000-0000-4000-8000-000000000001",
+      agentInstanceId: instance.id,
+      sdkSessionId: instance.sdkSessionId!,
+      kind: "track.triggered_clip_changed",
+      sourceTrack: "Lead drum",
+      state: {
+        kind: "track.triggered_clip_changed" as const,
+        state: { state: "session-clip" as const, slotIndex: 1 },
+      },
+      observedAt: "2026-08-30T20:00:00.000Z",
+      messagePrefix: "Check the launch.",
+      occurrence: '{"summary":"Queued pattern2 in scene 2"}',
+      summary: "Queued pattern2 in scene 2",
+      status: "queued" as const,
+      updatedAt: "2026-08-30T20:00:00.010Z",
+    };
+    sharedEvents.publish({
+      type: "agent.live_event_trigger_changed",
+      trigger,
+    });
+    sharedEvents.publish({
+      type: "agent.live_event_trigger_changed",
+      trigger: {
+        ...trigger,
+        status: "completed",
+        updatedAt: "2026-08-30T20:00:01.000Z",
+      },
+    });
+    await settle();
+    await settle();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(
+      (await sessionStore.load())[0]!.activeAgents[0]!.triggerHistory,
+    ).toEqual([
+      {
+        ...trigger,
+        status: "completed",
+        updatedAt: "2026-08-30T20:00:01.000Z",
+      },
+    ]);
+
+    sharedEvents.publish({
+      type: "agent.sdk_session_rotated",
+      agentInstanceId: instance.id,
+      oldSdkSessionId: instance.sdkSessionId!,
+      newSdkSessionId: "replacement-sdk",
+      reason: "missing-session",
+    });
+    await settle();
+    await settle();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    sharedEvents.publish({
+      type: "agent.sdk_session_rotated",
+      agentInstanceId: instance.id,
+      oldSdkSessionId: instance.sdkSessionId!,
+      newSdkSessionId: "replacement-sdk",
+      reason: "missing-session",
+    });
+    await settle();
+
+    expect((await sessionStore.load())[0]!.activeAgents[0]!.sdkSessionId).toBe(
+      "replacement-sdk",
+    );
+    expect(
+      events.filter(
+        (event) =>
+          event.type === "agent.instance_changed" &&
+          event.change === "session-rotated",
+      ),
+    ).toHaveLength(1);
+    await service.stop();
+  });
+
+  it("does not emit rotation success when persistence fails", async () => {
+    const { service, sharedEvents, sessionStore, events } = await harness();
+    await service.start();
+    const instance = (await service.getSessions())[0]!.activeAgents[0]!;
+    vi.spyOn(sessionStore, "save").mockRejectedValueOnce(
+      new Error("disk unavailable"),
+    );
+    sharedEvents.publish({
+      type: "agent.sdk_session_rotated",
+      agentInstanceId: instance.id,
+      oldSdkSessionId: instance.sdkSessionId!,
+      newSdkSessionId: "replacement-sdk",
+      reason: "missing-session",
+    });
+    await settle();
+    await settle();
+    expect(
+      events.some(
+        (event) =>
+          event.type === "agent.instance_changed" &&
+          event.change === "session-rotated",
+      ),
+    ).toBe(false);
     await service.stop();
   });
 

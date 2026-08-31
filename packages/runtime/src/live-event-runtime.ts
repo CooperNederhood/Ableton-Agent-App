@@ -2,6 +2,7 @@ import type {
   LiveEventContextProvider,
   LiveEventDeliveryService,
   PendingLiveEventContext,
+  PreparedContextProvider,
 } from "@ableton-agent/application";
 import {
   MAX_LIVE_EVENT_HISTORY_LENGTH,
@@ -36,6 +37,7 @@ import {
   stableTelemetryId,
 } from "@ableton-agent/signal-routing";
 import { noopLogger, type Logger } from "@ableton-agent/shared";
+import type { PreparedContextCacheStatus } from "./prepared-context.js";
 
 export interface LiveEventBridge {
   inspectSession(): Promise<SessionSnapshot>;
@@ -86,6 +88,7 @@ export interface LiveEventRuntimeOptions {
   readonly continuousSettleMs?: number;
   readonly telemetry?: Pick<NonBlockingObservabilityRecorder, "enqueue">;
   readonly now?: () => Date;
+  readonly preparedContextProvider?: PreparedContextProvider;
 }
 
 export interface LiveEventRuntime extends LiveEventContextProvider {
@@ -101,6 +104,10 @@ export interface LiveEventRuntime extends LiveEventContextProvider {
   inspectSelection(): Promise<InspectEventSelectionResult>;
   listStates(): readonly LiveEventRuntimeState[];
   getState(eventId: string): LiveEventRuntimeState | undefined;
+  getPreparedContextStatus?(
+    agentInstanceId?: string,
+    listener?: AgentEventListener,
+  ): PreparedContextCacheStatus;
   subscribe(listener: (event: LiveEventRuntimeEvent) => void): () => void;
 }
 
@@ -177,6 +184,7 @@ function listenerSignature(
     listener.enabled,
     listener.responseMode,
     listener.messagePrefix ?? null,
+    listener.preparedContext ?? null,
   ]);
 }
 
@@ -192,6 +200,7 @@ export class DefaultLiveEventRuntime
   readonly #telemetry:
     Pick<NonBlockingObservabilityRecorder, "enqueue"> | undefined;
   readonly #now: () => Date;
+  readonly #preparedContextProvider: PreparedContextProvider | undefined;
   readonly #states = new Map<string, MutableState>();
   readonly #listenersByEvent = new Map<string, AgentLiveEventListener[]>();
   readonly #activeAgentInstanceIds = new Set<string>();
@@ -225,10 +234,23 @@ export class DefaultLiveEventRuntime
     this.#continuousSettleMs = Math.max(0, options.continuousSettleMs ?? 120);
     this.#telemetry = options.telemetry;
     this.#now = options.now ?? (() => new Date());
+    this.#preparedContextProvider = options.preparedContextProvider;
   }
 
   public get provider(): LiveEventContextProvider {
     return this;
+  }
+
+  public getPreparedContextStatus(
+    _agentInstanceId?: string,
+    listener?: AgentEventListener,
+  ): PreparedContextCacheStatus {
+    const provider = this.#preparedContextProvider as
+      | (PreparedContextProvider & {
+          getStatus(listener?: AgentEventListener): PreparedContextCacheStatus;
+        })
+      | undefined;
+    return provider?.getStatus(listener) ?? { state: "unavailable" };
   }
 
   public async start(): Promise<void> {
@@ -667,6 +689,21 @@ export class DefaultLiveEventRuntime
         historySize: state.history.length,
       },
     });
+    if (
+      occurrence.kind === "track.triggered_clip_changed" &&
+      occurrence.current.state === "none"
+    ) {
+      this.#recordSkip(
+        "non-actionable-trigger-reset",
+        {
+          occurrenceId: occurrence.occurrenceId,
+          eventId: occurrence.eventId,
+          sequence: occurrence.sequence,
+        },
+        traceId,
+      );
+      return;
+    }
     const bindings = this.#listenersByEvent.get(occurrence.eventId) ?? [];
     let activeListeners = 0;
     for (const binding of bindings) {
@@ -688,6 +725,14 @@ export class DefaultLiveEventRuntime
         agentInstanceId: binding.agentInstanceId,
         listener: binding.listener,
         occurrence,
+        ...(this.#preparedContextProvider === undefined
+          ? {}
+          : {
+              preparedContext: this.#preparedContextProvider.getPreparedContext(
+                binding.agentInstanceId,
+                binding.listener,
+              ),
+            }),
       };
       if (binding.listener.responseMode === "next-prompt") {
         this.#enqueueNextPrompt(pending, state.definition.classification);

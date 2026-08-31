@@ -40,6 +40,7 @@ import {
   slashCompletionText,
   SlashCompletionSuggestions,
   Timeline,
+  TriggerCard,
   Workspace,
 } from "./App";
 import type { DesktopApi } from "../contracts";
@@ -523,6 +524,7 @@ describe("desktop components", () => {
             },
           ],
           operations: [],
+          triggers: [],
         },
         [secondAgentId]: {
           messages: [
@@ -535,6 +537,7 @@ describe("desktop components", () => {
             },
           ],
           operations: [],
+          triggers: [],
         },
       },
     };
@@ -985,12 +988,18 @@ describe("desktop components", () => {
         enabled: false,
         responseMode: "next-prompt",
         messagePrefix: "",
+        preparedContextScope: "whole-session",
+        preparedContextTracks: "",
+        includeSessionClips: true,
       },
       [secondEventId]: {
         selected: true,
         enabled: true,
         responseMode: "automatic",
         messagePrefix: "Track this:",
+        preparedContextScope: "selected-tracks",
+        preparedContextTracks: "Keys",
+        includeSessionClips: false,
       },
     });
     await saveAgentEventListeners(api, secondAgentId, events, {
@@ -999,6 +1008,9 @@ describe("desktop components", () => {
         enabled: false,
         responseMode: "next-prompt",
         messagePrefix: "",
+        preparedContextScope: "whole-session",
+        preparedContextTracks: "",
+        includeSessionClips: true,
       },
     });
 
@@ -1011,6 +1023,11 @@ describe("desktop components", () => {
       enabled: true,
       responseMode: "automatic",
       messagePrefix: "Track this:",
+      preparedContext: {
+        scope: "selected-tracks",
+        tracks: [{ track: { name: "Keys", occurrence: 0 } }],
+        includeSessionClips: false,
+      },
     });
     expect(unassignListener).toHaveBeenCalledWith(secondAgentId, firstEventId);
   });
@@ -1089,6 +1106,38 @@ describe("desktop components", () => {
     expect(html).toContain("partial");
     expect(html).toContain("Retry safely");
     expect(html).toContain("Not changed:");
+  });
+
+  it("renders an expandable Listening Event trigger card", () => {
+    const html = renderToStaticMarkup(
+      <TriggerCard
+        trigger={{
+          deliveryId: "delivery-1",
+          occurrenceId: "00000000-0000-4000-8000-000000000101",
+          eventId: "live-event.00000000-0000-4000-8000-000000000001",
+          listenerId: "event-listener.00000000-0000-4000-8000-000000000001",
+          agentInstanceId: firstAgentId,
+          sdkSessionId: "sdk-1",
+          kind: "track.triggered_clip_changed",
+          sourceTrack: "Lead drum",
+          state: {
+            kind: "track.triggered_clip_changed",
+            state: { state: "session-clip", slotIndex: 1 },
+          },
+          observedAt: "2026-08-30T20:00:00.000Z",
+          messagePrefix: "Check the launch.",
+          occurrence: '{"current":{"slotIndex":1}}',
+          summary: "Queued pattern2 in scene 2",
+          status: "queued",
+          updatedAt: "2026-08-30T20:00:00.010Z",
+        }}
+      />,
+    );
+    expect(html).toContain("Listening Event ·");
+    expect(html).toContain("Lead drum");
+    expect(html).toContain("Queued pattern2 in scene 2");
+    expect(html).toContain("Check the launch.");
+    expect(html).toContain("queued");
   });
 
   it("renders approval preview and semantic actions", () => {
@@ -1972,6 +2021,80 @@ describe("desktop components", () => {
     );
     expect(failed).toContain('role="alert"');
     expect(failed).toContain("Bridge offline");
+  });
+
+  it("shows actionable triggered clips without transient none activity", () => {
+    const eventId = "live-event.00000000-0000-4000-8000-000000000011";
+    const event = {
+      definition: {
+        id: eventId,
+        projectId: "project",
+        name: "Lead Drum trigger",
+        enabled: true,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        kind: "track.triggered_clip_changed" as const,
+        classification: "discrete" as const,
+        target: { track: { name: "Lead Drum", occurrence: 0 } },
+      },
+      resolution: {
+        status: "resolved" as const,
+        projectId: "project",
+        trackReference: "00000000-0000-4000-8000-000000000010",
+        track: { name: "Lead Drum" },
+      },
+      latestState: {
+        kind: "track.triggered_clip_changed" as const,
+        state: { state: "none" as const },
+      },
+      history: [
+        {
+          occurrenceId: "00000000-0000-4000-8000-000000000111",
+          eventId,
+          sequence: 1,
+          observedAt: "2026-01-01T00:00:01.000Z",
+          kind: "track.triggered_clip_changed" as const,
+          target: {
+            trackReference: "00000000-0000-4000-8000-000000000010",
+            track: { name: "Lead Drum" },
+          },
+          summary: "Track trigger changed to session-clip",
+          current: {
+            state: "session-clip" as const,
+            slotIndex: 1,
+            clipName: "pattern2",
+          },
+        },
+        {
+          occurrenceId: "00000000-0000-4000-8000-000000000112",
+          eventId,
+          sequence: 2,
+          observedAt: "2026-01-01T00:00:02.000Z",
+          kind: "track.triggered_clip_changed" as const,
+          target: {
+            trackReference: "00000000-0000-4000-8000-000000000010",
+            track: { name: "Lead Drum" },
+          },
+          summary: "Track trigger changed to none",
+          current: { state: "none" as const },
+        },
+      ],
+      listeners: [],
+    };
+
+    const html = renderToStaticMarkup(
+      <EventCard
+        event={event}
+        activityExpanded
+        onToggleActivity={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("Recent activity (1)");
+    expect(html).toContain("Queued pattern2 in scene 2");
+    expect(html).not.toContain("Track trigger changed to none");
+    expect(html).not.toContain("Track trigger changed to session-clip");
   });
 
   it("renders history roots, agent lanes, latency, and exact snapshots", () => {

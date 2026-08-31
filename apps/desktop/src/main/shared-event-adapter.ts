@@ -11,48 +11,33 @@ export function normalizeSharedEvent(
       ? { ...event, messageId: messageId() }
       : event.type === "agent.message_complete"
         ? { ...event, messageId: messageId() }
-        : event.type === "ableton.event_received"
+        : event.type === "agent.sdk_session_rotated"
           ? {
               type: "diagnostic",
-              level: "info",
-              message: `Ableton event ${event.event} (#${event.sequence})`,
+              level: "warning",
+              message: `Agent ${event.agentInstanceId} rotated its Copilot session.`,
             }
-          : event.type === "ableton.event_gap"
+          : event.type === "ableton.event_received"
             ? {
                 type: "diagnostic",
-                level: "warning",
-                message: `Ableton event gap: expected #${event.expectedSequence}, received #${event.receivedSequence}`,
+                level: "info",
+                message: `Ableton event ${event.event} (#${event.sequence})`,
               }
-            : event.type === "operation.started"
+            : event.type === "ableton.event_gap"
               ? {
-                  type: "operation.changed",
-                  operation: {
-                    id: event.operationId,
-                    label: event.label,
-                    status: "running",
-                    warnings: [],
-                    changed: [],
-                    unchanged: [],
-                    retryable: false,
-                    undoable: false,
-                    timestamp: Date.now(),
-                  },
-                  ...(event.agentInstanceId === undefined
-                    ? {}
-                    : { agentInstanceId: event.agentInstanceId }),
-                  ...(event.sdkSessionId === undefined
-                    ? {}
-                    : { sdkSessionId: event.sdkSessionId }),
+                  type: "diagnostic",
+                  level: "warning",
+                  message: `Ableton event gap: expected #${event.expectedSequence}, received #${event.receivedSequence}`,
                 }
-              : event.type === "operation.completed"
+              : event.type === "operation.started"
                 ? {
                     type: "operation.changed",
                     operation: {
                       id: event.operationId,
-                      label: event.summary,
-                      status: "completed",
+                      label: event.label,
+                      status: "running",
                       warnings: [],
-                      changed: [event.summary],
+                      changed: [],
                       unchanged: [],
                       retryable: false,
                       undoable: false,
@@ -65,18 +50,17 @@ export function normalizeSharedEvent(
                       ? {}
                       : { sdkSessionId: event.sdkSessionId }),
                   }
-                : event.type === "operation.failed"
+                : event.type === "operation.completed"
                   ? {
                       type: "operation.changed",
                       operation: {
                         id: event.operationId,
-                        label: event.message,
-                        status: "failed",
-                        detail: event.code,
-                        warnings: [event.message],
-                        changed: [],
+                        label: event.summary,
+                        status: "completed",
+                        warnings: [],
+                        changed: [event.summary],
                         unchanged: [],
-                        retryable: true,
+                        retryable: false,
                         undoable: false,
                         timestamp: Date.now(),
                       },
@@ -87,6 +71,28 @@ export function normalizeSharedEvent(
                         ? {}
                         : { sdkSessionId: event.sdkSessionId }),
                     }
-                  : event;
+                  : event.type === "operation.failed"
+                    ? {
+                        type: "operation.changed",
+                        operation: {
+                          id: event.operationId,
+                          label: event.message,
+                          status: "failed",
+                          detail: event.code,
+                          warnings: [event.message],
+                          changed: [],
+                          unchanged: [],
+                          retryable: true,
+                          undoable: false,
+                          timestamp: Date.now(),
+                        },
+                        ...(event.agentInstanceId === undefined
+                          ? {}
+                          : { agentInstanceId: event.agentInstanceId }),
+                        ...(event.sdkSessionId === undefined
+                          ? {}
+                          : { sdkSessionId: event.sdkSessionId }),
+                      }
+                    : event;
   return appEventSchema.parse(normalized);
 }

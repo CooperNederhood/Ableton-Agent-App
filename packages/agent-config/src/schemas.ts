@@ -41,6 +41,7 @@ export const MAX_LIVE_EVENTS_PER_SESSION = 256;
 export const MAX_EVENT_LISTENERS_PER_AGENT = 256;
 export const MAX_LIVE_EVENT_MESSAGE_PREFIX_LENGTH = 2_048;
 export const MAX_LIVE_EVENT_HISTORY_LENGTH = 100;
+export const MAX_PREPARED_CONTEXT_TRACKS = 128;
 
 const producerIdSchema = z
   .string()
@@ -60,6 +61,53 @@ const namedLocatorSchema = z.object({
   name: z.string().trim().min(1).max(128),
   occurrence: z.number().int().nonnegative().default(0),
 });
+
+const preparedContextBase = {
+  includeSessionClips: z.boolean().default(true),
+};
+
+export const preparedContextConfigurationSchema = z.discriminatedUnion(
+  "scope",
+  [
+    z.object({
+      ...preparedContextBase,
+      scope: z.literal("whole-session"),
+    }),
+    z.object({
+      ...preparedContextBase,
+      scope: z.literal("selected-tracks"),
+      tracks: z
+        .array(z.object({ track: namedLocatorSchema }))
+        .min(1)
+        .max(MAX_PREPARED_CONTEXT_TRACKS)
+        .superRefine((tracks, context) => {
+          const keys = tracks.map(
+            ({ track }) => `${track.name}\u0000${track.occurrence}`,
+          );
+          if (new Set(keys).size !== keys.length) {
+            context.addIssue({
+              code: "custom",
+              message: "Prepared context track selectors must be unique",
+            });
+          }
+        }),
+    }),
+  ],
+);
+export type PreparedContextConfiguration = z.infer<
+  typeof preparedContextConfigurationSchema
+>;
+
+export const DEFAULT_PREPARED_CONTEXT: PreparedContextConfiguration = {
+  scope: "whole-session",
+  includeSessionClips: true,
+};
+
+export function resolvePreparedContextConfiguration(
+  configuration: PreparedContextConfiguration | undefined,
+): PreparedContextConfiguration {
+  return configuration ?? DEFAULT_PREPARED_CONTEXT;
+}
 
 const liveEventDefinitionBase = {
   id: liveEventIdSchema,
@@ -170,6 +218,7 @@ export const agentEventListenerSchema = z.object({
     .min(1)
     .max(MAX_LIVE_EVENT_MESSAGE_PREFIX_LENGTH)
     .optional(),
+  preparedContext: preparedContextConfigurationSchema.optional(),
 });
 export type AgentEventListener = z.infer<typeof agentEventListenerSchema>;
 

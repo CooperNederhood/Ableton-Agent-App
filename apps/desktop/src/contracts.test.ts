@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   appEventSchema,
+  desktopActiveAgentSchema,
   ipcSchemas,
+  MAX_AGENT_TRIGGER_HISTORY,
   preferencesSchema,
   sessionSchema,
 } from "./contracts";
@@ -55,6 +57,84 @@ describe("desktop IPC contracts", () => {
         },
       }).success,
     ).toBe(true);
+    expect(
+      appEventSchema.safeParse({
+        type: "agent.live_event_trigger_changed",
+        trigger: {
+          deliveryId: "delivery-1",
+          occurrenceId: "00000000-0000-4000-8000-000000000101",
+          eventId: "live-event.00000000-0000-4000-8000-000000000001",
+          listenerId: "event-listener.00000000-0000-4000-8000-000000000001",
+          agentInstanceId: "00000000-0000-4000-8000-000000000001",
+          sdkSessionId: "sdk-1",
+          kind: "track.triggered_clip_changed",
+          sourceTrack: "Lead drum",
+          state: {
+            kind: "track.triggered_clip_changed",
+            state: { state: "session-clip", slotIndex: 1 },
+          },
+          observedAt: "2026-08-30T20:00:00.000Z",
+          occurrence: "{}",
+          summary: "Queued pattern2 in scene 2",
+          status: "queued",
+          updatedAt: "2026-08-30T20:00:00.010Z",
+        },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts missing trigger history and rejects malformed persisted bounds", () => {
+    const agent = {
+      id: "00000000-0000-4000-8000-000000000001",
+      definitionName: "default",
+      definitionFingerprint: "a".repeat(64),
+      label: "Default",
+      autoApprove: false,
+      lifecycle: "ready",
+      config: {
+        description: "General agent",
+        systemPrompt: "Help.",
+        tools: ["*"],
+        resolvedTools: [],
+        editScope: ["session"],
+        skills: [],
+        inputChannels: [],
+      },
+      boundTracks: [],
+      outputSubscriptions: [],
+      eventListeners: [],
+      modified: false,
+    };
+    expect(
+      desktopActiveAgentSchema.parse(agent).triggerHistory,
+    ).toBeUndefined();
+    expect(
+      desktopActiveAgentSchema.safeParse({
+        ...agent,
+        triggerHistory: Array.from(
+          { length: MAX_AGENT_TRIGGER_HISTORY + 1 },
+          (_, index) => ({
+            deliveryId: `delivery-${index}`,
+            occurrenceId: "00000000-0000-4000-8000-000000000101",
+            eventId: "live-event.00000000-0000-4000-8000-000000000001",
+            listenerId: "event-listener.00000000-0000-4000-8000-000000000001",
+            agentInstanceId: agent.id,
+            sdkSessionId: "sdk-1",
+            kind: "track.triggered_clip_changed",
+            sourceTrack: "Lead drum",
+            state: {
+              kind: "track.triggered_clip_changed",
+              state: { state: "session-clip", slotIndex: 1 },
+            },
+            observedAt: "2026-08-30T20:00:00.000Z",
+            occurrence: "{}",
+            summary: "Queued pattern2 in scene 2",
+            status: "completed",
+            updatedAt: "2026-08-30T20:00:01.000Z",
+          }),
+        ),
+      }).success,
+    ).toBe(false);
   });
 
   it("migrates missing version-one preferences through defaults", () => {

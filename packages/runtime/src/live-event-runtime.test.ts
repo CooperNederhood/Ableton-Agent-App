@@ -39,6 +39,7 @@ function definition(
   id = eventOne,
   kind:
     | "track.playing_clip_changed"
+    | "track.triggered_clip_changed"
     | "parameter.value_changed" = "track.playing_clip_changed",
 ): LiveEventDefinition {
   const base = {
@@ -120,6 +121,31 @@ function occurrence(
         kind,
         current: { state: "session-clip", slotIndex: sequence },
       };
+}
+
+function triggeredOccurrence(
+  id: string,
+  sequence: number,
+  current:
+    | { state: "none" }
+    | { state: "stop" }
+    | { state: "session-clip"; slotIndex: number; clipName?: string },
+): LiveEventOccurrence {
+  return {
+    occurrenceId: id,
+    eventId: eventOne,
+    kind: "track.triggered_clip_changed",
+    sequence,
+    observedAt: new Date(
+      Date.parse("2026-08-29T18:00:00.000Z") + sequence * 1_000,
+    ).toISOString(),
+    target: {
+      trackReference,
+      track: { name: "Keys" },
+    },
+    summary: `trigger summary ${sequence}`,
+    current,
+  };
 }
 
 class FakeBridge implements LiveEventBridge {
@@ -471,6 +497,107 @@ describe("DefaultLiveEventRuntime", () => {
         ({ name }) => name === "live-event.listener-fanout.completed",
       ),
     ).toBe(true);
+  });
+
+  it("records triggered-clip none state without delivering it to listeners", async () => {
+    const bridge = new FakeBridge();
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const getPreparedContext = vi.fn(
+      (agentInstanceId: string) => `prepared:${agentInstanceId}`,
+    );
+    const runtime = new DefaultLiveEventRuntime({
+      bridge,
+      preparedContextProvider: { getPreparedContext },
+      telemetry: {
+        enqueue: (event) => {
+          telemetry.push(telemetryEventEnvelopeSchema.parse(event));
+        },
+      },
+    });
+    runtime.setConfiguration(
+      [definition(eventOne, "track.triggered_clip_changed")],
+      [
+        binding("agent-auto", listener(listenerOne, eventOne, "automatic")),
+        binding("agent-next", listener(listenerTwo, eventOne, "next-prompt")),
+      ],
+    );
+    runtime.setActiveAgentInstances(["agent-auto", "agent-next"]);
+    const delivered: Array<{ sequence: number; preparedContext?: string }> = [];
+    runtime.setDeliveryService({
+      enqueueLiveEventTurn: async ({ occurrence: item, preparedContext }) => {
+        delivered.push({
+          sequence: item.sequence,
+          ...(preparedContext === undefined ? {} : { preparedContext }),
+        });
+        return "ok";
+      },
+    });
+    await runtime.start();
+
+    bridge.emit(
+      triggeredOccurrence("00000000-0000-4000-8000-000000000121", 1, {
+        state: "session-clip",
+        slotIndex: 1,
+        clipName: "Verse",
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(delivered).toEqual([
+        { sequence: 1, preparedContext: "prepared:agent-auto" },
+      ]),
+    );
+    expect(getPreparedContext).toHaveBeenCalledWith(
+      "agent-auto",
+      expect.objectContaining({ id: listenerOne }),
+    );
+    expect(
+      await runtime.getPendingLiveEventContexts("agent-next"),
+    ).toHaveLength(1);
+
+    bridge.emit(
+      triggeredOccurrence("00000000-0000-4000-8000-000000000122", 2, {
+        state: "none",
+      }),
+    );
+    expect(runtime.getState(eventOne)?.latestState).toEqual({
+      kind: "track.triggered_clip_changed",
+      state: { state: "none" },
+    });
+    expect(
+      runtime.getState(eventOne)?.history.map(({ sequence }) => sequence),
+    ).toEqual([1, 2]);
+    expect(delivered).toEqual([
+      { sequence: 1, preparedContext: "prepared:agent-auto" },
+    ]);
+    expect(
+      await runtime.getPendingLiveEventContexts("agent-next"),
+    ).toHaveLength(1);
+    expect(
+      telemetry.find(
+        ({ name, attributes }) =>
+          name === "live-event.runtime.skipped" &&
+          attributes.reason === "non-actionable-trigger-reset",
+      ),
+    ).toMatchObject({
+      outcome: "cancelled",
+      liveEventId: eventOne,
+      attributes: { sequence: 2 },
+    });
+
+    bridge.emit(
+      triggeredOccurrence("00000000-0000-4000-8000-000000000123", 3, {
+        state: "stop",
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(delivered).toEqual([
+        { sequence: 1, preparedContext: "prepared:agent-auto" },
+        { sequence: 3, preparedContext: "prepared:agent-auto" },
+      ]),
+    );
+    expect(
+      await runtime.getPendingLiveEventContexts("agent-next"),
+    ).toHaveLength(2);
   });
 
   it("keeps only latest continuous next-prompt context", async () => {

@@ -142,8 +142,11 @@ describe("desktop IPC contracts", () => {
     ).toBe(false);
   });
 
-  it("migrates missing version-one preferences through defaults", () => {
-    const preferences = preferencesSchema.parse({ model: "obsolete" });
+  it("migrates obsolete version-one preferences through defaults", () => {
+    const preferences = preferencesSchema.parse({
+      model: "obsolete",
+      reasoning: "high",
+    });
 
     expect(preferences.abletonPort).toBe(8765);
     expect(preferences.approvalPolicy).toBe("risky");
@@ -151,9 +154,10 @@ describe("desktop IPC contracts", () => {
     expect(preferences.eventHistoryRetentionDays).toBe(30);
     expect(preferences.eventHistoryMaxBytes).toBe(250 * 1024 * 1024);
     expect(preferences).not.toHaveProperty("model");
+    expect(preferences).not.toHaveProperty("reasoning");
   });
 
-  it("strictly validates bounded model descriptors and model changes", () => {
+  it("strictly validates bounded model descriptors and conversation settings", () => {
     const model = desktopAgentModelSchema.parse({
       id: "model-a",
       displayName: "Model A",
@@ -170,16 +174,30 @@ describe("desktop IPC contracts", () => {
       model,
     ]);
     expect(
-      ipcSchemas["agents:set-model"].request.parse({
+      ipcSchemas["agents:set-conversation-settings"].request.parse({
         instanceId: "00000000-0000-4000-8000-000000000001",
+        settings: {
+          model: "model-a",
+          reasoningEffort: "xhigh",
+        },
       }),
     ).toEqual({
       instanceId: "00000000-0000-4000-8000-000000000001",
+      settings: {
+        model: "model-a",
+        reasoningEffort: "xhigh",
+      },
     });
     expect(() =>
-      ipcSchemas["agents:set-model"].request.parse({
+      ipcSchemas["agents:set-conversation-settings"].request.parse({
         instanceId: "00000000-0000-4000-8000-000000000001",
-        model: "model-a",
+        settings: { model: "model-a", reasoningEffort: "minimal" },
+      }),
+    ).toThrow();
+    expect(() =>
+      ipcSchemas["agents:set-conversation-settings"].request.parse({
+        instanceId: "00000000-0000-4000-8000-000000000001",
+        settings: { model: "model-a" },
         unknown: true,
       }),
     ).toThrow();

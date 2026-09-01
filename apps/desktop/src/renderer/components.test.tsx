@@ -30,6 +30,8 @@ import {
   ResolvedToolsDisclosure,
   refreshOutputs,
   refreshProjectSnapshot,
+  reasoningEffortForDraftModel,
+  reasoningOptionsForModel,
   saveAgentEventListeners,
   selectWorkspaceAgent,
   sendComposerMessage,
@@ -495,6 +497,8 @@ describe("desktop components", () => {
 
   it("replaces product modes with labeled active-agent instances", () => {
     const state = workspaceState();
+    state.sessions[0]!.activeAgents[0]!.model = "model-a";
+    state.sessions[0]!.activeAgents[0]!.reasoningEffort = "high";
     const header = renderToStaticMarkup(
       <ConnectionHeader state={state} dispatch={vi.fn()} />,
     );
@@ -507,6 +511,7 @@ describe("desktop components", () => {
     expect(header).toContain("Default 2");
     expect(header).not.toContain("Compose");
     expect(header).not.toContain("Explore");
+    expect(header).toContain("model-a · high");
     expect(workspace).toContain("Default · ready");
   });
 
@@ -871,6 +876,7 @@ describe("desktop components", () => {
                   definitionFingerprint: "a".repeat(64),
                   label: "Default",
                   model: "retired-model",
+                  reasoningEffort: "max",
                   autoApprove: false,
                   lifecycle: "ready",
                   config: {
@@ -931,6 +937,7 @@ describe("desktop components", () => {
     expect(html).toContain("mix-review");
     expect(html).toContain("midi:drums");
     expect(html).toContain("retired-model · unavailable");
+    expect(html).toContain(">max<");
     expect(html).toContain("Loading Copilot models");
     expect(html).toContain("Full session");
     expect(html).toContain("default.yaml");
@@ -944,7 +951,7 @@ describe("desktop components", () => {
     expect(html).toContain("Create agent");
   });
 
-  it("renders model loading, unavailable, compatibility, confirmation, and busy states", () => {
+  it("renders atomic model and reasoning settings with bounded live options", () => {
     const models: DesktopAgentModel[] = [
       {
         id: "model-a",
@@ -955,36 +962,49 @@ describe("desktop components", () => {
           reasoningEffort: true,
           maxContextWindowTokens: 64_000,
         },
-        supportedReasoningEfforts: ["low"],
+        supportedReasoningEfforts: ["none", "minimal", "low", "xhigh"],
         defaultReasoningEffort: "low",
+      },
+      {
+        id: "fixed",
+        displayName: "Fixed",
+        policyState: "enabled",
+        capabilities: {
+          vision: false,
+          reasoningEffort: false,
+        },
+        supportedReasoningEfforts: ["high"],
       },
     ];
     const unavailable = renderToStaticMarkup(
       <AgentModelEditor
         agentLabel="Default"
         currentModelId="retired-model"
+        currentReasoningEffort="max"
         model="retired-model"
+        reasoningEffort="max"
         models={[]}
         modelsStatus="failed"
-        reasoning="auto"
         busy={false}
         confirming={false}
         onModelChange={vi.fn()}
+        onReasoningEffortChange={vi.fn()}
         onRequestConfirmation={vi.fn()}
         onConfirm={vi.fn()}
         onCancel={vi.fn()}
       />,
     );
-    const incompatible = renderToStaticMarkup(
+    const available = renderToStaticMarkup(
       <AgentModelEditor
         agentLabel="Default"
         model="model-a"
+        reasoningEffort="xhigh"
         models={models}
         modelsStatus="loaded"
-        reasoning="high"
         busy={false}
         confirming={false}
         onModelChange={vi.fn()}
+        onReasoningEffortChange={vi.fn()}
         onRequestConfirmation={vi.fn()}
         onConfirm={vi.fn()}
         onCancel={vi.fn()}
@@ -994,12 +1014,13 @@ describe("desktop components", () => {
       <AgentModelEditor
         agentLabel="Default"
         model="model-a"
+        reasoningEffort="low"
         models={models}
         modelsStatus="loaded"
-        reasoning="low"
         busy
         confirming
         onModelChange={vi.fn()}
+        onReasoningEffortChange={vi.fn()}
         onRequestConfirmation={vi.fn()}
         onConfirm={vi.fn()}
         onCancel={vi.fn()}
@@ -1007,14 +1028,30 @@ describe("desktop components", () => {
     );
 
     expect(unavailable).toContain("retired-model (unavailable)");
+    expect(unavailable).toContain("max (unavailable)");
     expect(unavailable).toContain("Model catalog unavailable");
     expect(unavailable).toContain("SDK default");
-    expect(incompatible).toContain("reasoning incompatible");
-    expect(incompatible).toContain("Reasoning efforts: low · default low");
+    expect(available).toContain(
+      "Reasoning efforts: none, minimal, low, xhigh · default low",
+    );
+    expect(available).toContain('value="low"');
+    expect(available).toContain('value="xhigh"');
+    expect(available).not.toContain('value="none"');
+    expect(available).not.toContain('value="minimal"');
     expect(confirming).toContain("starts a fresh Conversation");
-    expect(confirming).toContain("Changing model");
-    expect(confirming).toContain("Cancel model change");
+    expect(confirming).toContain("model or reasoning");
+    expect(confirming).toContain("Cancel settings change");
     expect(confirming).toContain("disabled");
+    expect(reasoningOptionsForModel("", models)).toEqual([]);
+    expect(reasoningOptionsForModel("fixed", models)).toEqual([]);
+    expect(reasoningOptionsForModel("model-a", models)).toEqual([
+      "low",
+      "xhigh",
+    ]);
+    expect(reasoningEffortForDraftModel("model-a", "xhigh", models)).toBe(
+      "xhigh",
+    );
+    expect(reasoningEffortForDraftModel("fixed", "xhigh", models)).toBe("");
   });
 
   it("renders per-agent Listening Events summaries and editor states", () => {
@@ -1260,6 +1297,7 @@ describe("desktop components", () => {
     expect(html).toContain(
       "You will not be prompted before Ableton changes are applied.",
     );
+    expect(html).not.toContain("Reasoning");
   });
 
   it("shows YOLO status without occupying composer space", () => {

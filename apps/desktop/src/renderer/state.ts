@@ -809,7 +809,7 @@ function reduceAgentInstanceChanged(
     | "deactivated"
     | "lifecycle"
     | "session-rotated"
-    | "model-changed",
+    | "conversation-settings-changed",
 ): DesktopState {
   const session = activeSession(state);
   if (session === undefined) return state;
@@ -830,7 +830,7 @@ function reduceAgentInstanceChanged(
         : session.selectedAgentInstanceId;
   return {
     ...state,
-    ...(change === "model-changed"
+    ...(change === "conversation-settings-changed"
       ? {
           agentWorkspaces: {
             ...state.agentWorkspaces,

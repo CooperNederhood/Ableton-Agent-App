@@ -65,26 +65,33 @@ describe("desktop IPC", () => {
     ]);
   });
 
-  it("routes model discovery and per-agent replacement", async () => {
+  it("routes model discovery and per-agent conversation replacement", async () => {
     const listAgentModels = vi.fn().mockResolvedValue([]);
-    const setActiveAgentModel = vi.fn().mockResolvedValue({});
+    const setActiveAgentConversationSettings = vi.fn().mockResolvedValue({});
     const handlers = createIpcHandlers(
       {
         listAgentModels,
-        setActiveAgentModel,
+        setActiveAgentConversationSettings,
       } as unknown as DesktopService,
       {} as DiagnosticsActions,
     );
     const instanceId = "00000000-0000-4000-8000-000000000001";
+    const settings = { model: "model-a", reasoningEffort: "high" } as const;
 
     await handlers["agents:models"]({});
-    await handlers["agents:set-model"]({ instanceId, model: "model-a" });
-    await handlers["agents:set-model"]({ instanceId });
+    await handlers["agents:set-conversation-settings"]({
+      instanceId,
+      settings,
+    });
+    await handlers["agents:set-conversation-settings"]({
+      instanceId,
+      settings: {},
+    });
 
     expect(listAgentModels).toHaveBeenCalledOnce();
-    expect(setActiveAgentModel.mock.calls).toEqual([
-      [instanceId, "model-a"],
-      [instanceId, undefined],
+    expect(setActiveAgentConversationSettings.mock.calls).toEqual([
+      [instanceId, settings],
+      [instanceId, {}],
     ]);
   });
 

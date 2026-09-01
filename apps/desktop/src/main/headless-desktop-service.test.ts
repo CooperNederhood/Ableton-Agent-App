@@ -866,7 +866,7 @@ describe("desktop persistence stores", () => {
     const directory = await temporaryDirectory();
     const path = join(directory, "preferences.json");
     const store = new JsonPreferencesStore(path);
-    const preferences = preferencesSchema.parse({ reasoning: "high" });
+    const preferences = preferencesSchema.parse({ loggingLevel: "debug" });
 
     await store.save(preferences);
 
@@ -874,7 +874,7 @@ describe("desktop persistence stores", () => {
     expect(await readdir(directory)).toEqual(["preferences.json"]);
   });
 
-  it("loads obsolete model preferences and removes them on save", async () => {
+  it("loads obsolete model and reasoning preferences and removes them on save", async () => {
     const directory = await temporaryDirectory();
     const path = join(directory, "preferences.json");
     const store = new JsonPreferencesStore(path);
@@ -886,12 +886,13 @@ describe("desktop persistence stores", () => {
 
     const preferences = await store.load();
 
-    expect(preferences).toEqual(preferencesSchema.parse({ reasoning: "high" }));
+    expect(preferences).toEqual(preferencesSchema.parse({}));
     expect(preferences).not.toHaveProperty("model");
+    expect(preferences).not.toHaveProperty("reasoning");
     await store.save(preferences);
-    expect(JSON.parse(await readFile(path, "utf8"))).not.toHaveProperty(
-      "model",
-    );
+    const saved: unknown = JSON.parse(await readFile(path, "utf8"));
+    expect(saved).not.toHaveProperty("model");
+    expect(saved).not.toHaveProperty("reasoning");
   });
 });
 
@@ -1248,13 +1249,14 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
-  it("changes one agent model with a fresh session while preserving instance state", async () => {
+  it("changes one agent model and reasoning with a fresh session while preserving instance state", async () => {
     const liveEvents = new FakeLiveEventRuntime();
-    const { service, agent, sharedEvents, sessionStore, events } =
+    const { service, agent, approvals, sharedEvents, sessionStore, events } =
       await harness({}, { liveEvents });
     agent.models = [agentModel("model-a"), agentModel("model-b")];
     await service.start();
     const original = (await service.listActiveAgents())[0]!;
+    const createManagedAgent = vi.spyOn(agent, "createManagedAgent");
     await service.assignOutput(original.id, "producer-1");
     const event = await service.createLiveEvent({
       kind: "track.playing_clip_changed",
@@ -1293,15 +1295,31 @@ describe("desktop adapter over the shared application", () => {
     });
     await settle();
     await settle();
+    const pendingApproval = approvals.request({
+      metadata: {
+        name: "ableton_tracks_create",
+        title: "Create track",
+        risk: "reversible",
+        duration: "short",
+        mutationTarget: "session",
+      },
+      arguments: {},
+      agentInstanceId: original.id,
+      sdkSessionId: original.sdkSessionId!,
+    });
     const before = (await service.listActiveAgents())[0]!;
     const eventStart = events.length;
 
-    const changed = await service.setActiveAgentModel(original.id, "model-a");
+    const changed = await service.setActiveAgentConversationSettings(
+      original.id,
+      { model: "model-a", reasoningEffort: "high" },
+    );
 
     expect(changed).toMatchObject({
       id: original.id,
       label: original.label,
       model: "model-a",
+      reasoningEffort: "high",
       config: original.config,
       boundTracks: original.boundTracks,
       eventListeners: before.eventListeners,
@@ -1312,28 +1330,85 @@ describe("desktop adapter over the shared application", () => {
     });
     expect(changed.eventListeners).toEqual(before.eventListeners);
     expect(changed.sdkSessionId).not.toBe(original.sdkSessionId);
+    expect(createManagedAgent).toHaveBeenCalledOnce();
     expect(agent.managedConfigurations.get(original.id)?.model).toBe("model-a");
+    expect(agent.managedConfigurations.get(original.id)?.reasoningEffort).toBe(
+      "high",
+    );
     expect((await service.getSessions())[0]?.selectedAgentInstanceId).toBe(
       original.id,
     );
+    await expect(pendingApproval).resolves.toBe(false);
+    expect(approvals.pendingCount).toBe(0);
     expect(events.slice(eventStart)).toContainEqual({
       type: "agent.instance_changed",
       instance: changed,
-      change: "model-changed",
+      change: "conversation-settings-changed",
     });
     expect((await sessionStore.load())[0]?.activeAgents[0]).toMatchObject({
       id: original.id,
       model: "model-a",
+      reasoningEffort: "high",
       triggerHistory: [],
     });
 
     const reset = await service.resetActiveAgent(original.id);
     expect(reset.model).toBe("model-a");
+    expect(reset.reasoningEffort).toBe("high");
     expect(agent.managedConfigurations.get(original.id)?.model).toBe("model-a");
+    expect(agent.managedConfigurations.get(original.id)?.reasoningEffort).toBe(
+      "high",
+    );
     await service.stop();
   });
 
-  it("restores persisted per-agent models after a desktop restart", async () => {
+  it("replaces the conversation once when only reasoning changes", async () => {
+    const { service, agent } = await harness();
+    agent.models = [agentModel("model-a")];
+    await service.start();
+    const original = (await service.listActiveAgents())[0]!;
+    const configured = await service.setActiveAgentConversationSettings(
+      original.id,
+      { model: "model-a", reasoningEffort: "low" },
+    );
+    const createManagedAgent = vi.spyOn(agent, "createManagedAgent");
+
+    const changed = await service.setActiveAgentConversationSettings(
+      original.id,
+      { model: "model-a", reasoningEffort: "high" },
+    );
+
+    expect(createManagedAgent).toHaveBeenCalledOnce();
+    expect(changed.model).toBe("model-a");
+    expect(changed.reasoningEffort).toBe("high");
+    expect(changed.sdkSessionId).not.toBe(configured.sdkSessionId);
+    await service.stop();
+  });
+
+  it("rejects session switching while conversation settings are changing", async () => {
+    const { service, agent } = await harness();
+    agent.models = [agentModel("model-a")];
+    await service.start();
+    const session = (await service.getSessions())[0]!;
+    const original = session.activeAgents[0]!;
+    const models = deferred<readonly DesktopAgentModel[]>();
+    vi.spyOn(agent, "listModels").mockReturnValueOnce(models.promise);
+
+    const changing = service.setActiveAgentConversationSettings(original.id, {
+      model: "model-a",
+    });
+    await settle();
+
+    await expect(service.resumeSession(session.id)).rejects.toThrow(
+      "conversation settings are changing",
+    );
+
+    models.resolve([agentModel("model-a")]);
+    await expect(changing).resolves.toMatchObject({ model: "model-a" });
+    await service.stop();
+  });
+
+  it("restores persisted per-agent conversation settings after a desktop restart", async () => {
     const directory = await temporaryDirectory();
     const preferencesStore = new JsonPreferencesStore(
       join(directory, "preferences.json"),
@@ -1358,9 +1433,9 @@ describe("desktop adapter over the shared application", () => {
     });
     await firstService.start();
     const original = (await firstService.listActiveAgents())[0]!;
-    const changed = await firstService.setActiveAgentModel(
+    const changed = await firstService.setActiveAgentConversationSettings(
       original.id,
-      "model-a",
+      { model: "model-a", reasoningEffort: "high" },
     );
     await firstService.stop();
 
@@ -1382,51 +1457,86 @@ describe("desktop adapter over the shared application", () => {
       expect.objectContaining({
         id: original.id,
         model: "model-a",
+        reasoningEffort: "high",
         sdkSessionId: changed.sdkSessionId,
       }),
     ]);
     expect(second.agent.managedConfigurations.get(original.id)?.model).toBe(
       "model-a",
     );
+    expect(
+      second.agent.managedConfigurations.get(original.id)?.reasoningEffort,
+    ).toBe("high");
     await secondService.stop();
   });
 
-  it("rejects invalid or busy model changes and rolls back failed replacements", async () => {
-    const { service, agent, sessionStore, preferencesStore, events } =
-      await harness();
+  it("rejects invalid or busy conversation settings and rolls back failed replacements", async () => {
+    const { service, agent, sessionStore, events } = await harness();
     agent.models = [
       agentModel("disabled", { policyState: "disabled" }),
       agentModel("low-only", {
         supportedReasoningEfforts: ["low"],
         defaultReasoningEffort: "low",
       }),
+      agentModel("fixed", {
+        capabilities: {
+          vision: false,
+          reasoningEffort: false,
+        },
+        supportedReasoningEfforts: [],
+        defaultReasoningEffort: undefined,
+      }),
       agentModel("valid"),
     ];
-    await preferencesStore.save(preferencesSchema.parse({ reasoning: "high" }));
     await service.start();
     const original = (await service.listActiveAgents())[0]!;
     const create = vi.spyOn(agent, "createManagedAgent");
 
     await expect(
-      service.setActiveAgentModel(original.id, undefined),
+      service.setActiveAgentConversationSettings(original.id, {}),
     ).resolves.toBe(original);
     expect(create).not.toHaveBeenCalled();
     await expect(
-      service.setActiveAgentModel(original.id, "missing"),
+      service.setActiveAgentConversationSettings(original.id, {
+        model: "missing",
+      }),
     ).rejects.toThrow("unavailable");
     await expect(
-      service.setActiveAgentModel(original.id, "disabled"),
+      service.setActiveAgentConversationSettings(original.id, {
+        model: "disabled",
+      }),
     ).rejects.toThrow("disabled by policy");
-    await service.setPreferences(preferencesSchema.parse({ reasoning: "low" }));
     await expect(
-      service.setActiveAgentModel(original.id, "low-only"),
+      service.setActiveAgentConversationSettings(original.id, {
+        model: "low-only",
+        reasoningEffort: "high",
+      }),
+    ).rejects.toThrow("does not support");
+    await expect(
+      service.setActiveAgentConversationSettings(original.id, {
+        reasoningEffort: "low",
+      }),
+    ).rejects.toThrow("SDK default");
+    await expect(
+      service.setActiveAgentConversationSettings(original.id, {
+        model: "fixed",
+        reasoningEffort: "high",
+      }),
+    ).rejects.toThrow("does not support");
+    await expect(
+      service.setActiveAgentConversationSettings(original.id, {
+        model: "valid",
+        reasoningEffort: "max",
+      }),
     ).rejects.toThrow("does not support");
 
     agent.setBehavior({ block: true });
     await service.sendToActiveAgent(original.id, "hold");
     await settle();
     await expect(
-      service.setActiveAgentModel(original.id, "valid"),
+      service.setActiveAgentConversationSettings(original.id, {
+        model: "valid",
+      }),
     ).rejects.toThrow("turn in progress");
     agent.release();
     await settle();
@@ -1434,7 +1544,9 @@ describe("desktop adapter over the shared application", () => {
 
     create.mockRejectedValueOnce(new Error("creation failed"));
     await expect(
-      service.setActiveAgentModel(original.id, "valid"),
+      service.setActiveAgentConversationSettings(original.id, {
+        model: "valid",
+      }),
     ).rejects.toThrow("creation failed");
     expect(agent.getManagedAgentSessionId(original.id)).toBe(
       original.sdkSessionId,
@@ -1446,13 +1558,17 @@ describe("desktop adapter over the shared application", () => {
       .mockRejectedValueOnce(new Error("persistence failed"));
     const resume = vi.spyOn(agent, "resumeManagedAgent");
     await expect(
-      service.setActiveAgentModel(original.id, "valid"),
+      service.setActiveAgentConversationSettings(original.id, {
+        model: "valid",
+        reasoningEffort: "high",
+      }),
     ).rejects.toThrow("persistence failed");
     expect(resume).toHaveBeenCalledWith(
       expect.objectContaining({ instanceId: original.id }),
       original.sdkSessionId,
     );
     expect(resume.mock.calls[0]?.[0]).not.toHaveProperty("model");
+    expect(resume.mock.calls[0]?.[0]).not.toHaveProperty("reasoningEffort");
     expect(agent.getManagedAgentSessionId(original.id)).toBe(
       original.sdkSessionId,
     );
@@ -1463,7 +1579,7 @@ describe("desktop adapter over the shared application", () => {
         .some(
           (event) =>
             event.type === "agent.instance_changed" &&
-            event.change === "model-changed",
+            event.change === "conversation-settings-changed",
         ),
     ).toBe(false);
 
@@ -1471,7 +1587,9 @@ describe("desktop adapter over the shared application", () => {
     save.mockRejectedValueOnce(new Error("persistence failed again"));
     resume.mockRejectedValueOnce(new Error("cleanup failed"));
     await expect(
-      service.setActiveAgentModel(original.id, "valid"),
+      service.setActiveAgentConversationSettings(original.id, {
+        model: "valid",
+      }),
     ).rejects.toThrow("rollback was incomplete");
     expect(
       events
@@ -1479,7 +1597,7 @@ describe("desktop adapter over the shared application", () => {
         .some(
           (event) =>
             event.type === "agent.instance_changed" &&
-            event.change === "model-changed",
+            event.change === "conversation-settings-changed",
         ),
     ).toBe(false);
     await service.stop();
@@ -3774,6 +3892,7 @@ describe("desktop adapter over the shared application", () => {
     const preferencesPath = join(directory, "preferences.json");
     const catalog = defaultCatalog();
     const first = createFakeApplication();
+    first.agent.models = [agentModel("model-a")];
     const firstService = new HeadlessDesktopService({
       application: first.application,
       approvals: new ApprovalCoordinator(),
@@ -3786,7 +3905,10 @@ describe("desktop adapter over the shared application", () => {
     });
     await firstService.start();
     const initial = (await firstService.getSessions())[0]!;
-    const original = initial.activeAgents[0]!;
+    const original = await firstService.setActiveAgentConversationSettings(
+      initial.activeAgents[0]!.id,
+      { model: "model-a", reasoningEffort: "high" },
+    );
     first.events.publish({
       type: "agent.live_event_trigger_changed",
       trigger: {
@@ -3845,6 +3967,8 @@ describe("desktop adapter over the shared application", () => {
     expect(restored!.id).toBe(before!.id);
     expect(rotated.id).toBe(original.id);
     expect(rotated.sdkSessionId).not.toBe(original.sdkSessionId);
+    expect(rotated.model).toBe("model-a");
+    expect(rotated.reasoningEffort).toBe("high");
     expect(rotated.config).toEqual(original.config);
     expect(rotated.forkedHistory).toEqual(original.forkedHistory);
     expect(rotated.boundTracks).toEqual(original.boundTracks);
@@ -3854,6 +3978,12 @@ describe("desktop adapter over the shared application", () => {
       before!.activeAgents[0]!.triggerHistory,
     );
     expect(createManagedAgent).toHaveBeenCalledOnce();
+    expect(createManagedAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "model-a",
+        reasoningEffort: "high",
+      }),
+    );
     expect(
       (await new JsonSessionStore(sessionsPath).load())[0]!.activeAgents[0]!
         .sdkSessionId,
@@ -4845,11 +4975,11 @@ describe("desktop adapter over the shared application", () => {
       .mockImplementation((value) => originalSave(value));
 
     const first = service.setPreferences(
-      preferencesSchema.parse({ reasoning: "low" }),
+      preferencesSchema.parse({ loggingLevel: "debug" }),
     );
     const second = service.setPreferences(
       preferencesSchema.parse({
-        reasoning: "high",
+        loggingLevel: "error",
         abletonPort: 9000,
         approvalPolicy: "never",
       }),
@@ -4857,12 +4987,12 @@ describe("desktop adapter over the shared application", () => {
     releaseFirst();
     await Promise.all([first, second]);
 
-    expect(save.mock.calls.map(([value]) => value.reasoning)).toEqual([
-      "low",
-      "high",
+    expect(save.mock.calls.map(([value]) => value.loggingLevel)).toEqual([
+      "debug",
+      "error",
     ]);
-    expect((await preferencesStore.load()).reasoning).toBe("high");
-    expect((await service.getPreferences()).reasoning).toBe("high");
+    expect((await preferencesStore.load()).loggingLevel).toBe("error");
+    expect((await service.getPreferences()).loggingLevel).toBe("error");
     expect(
       events.some(
         (event) =>
@@ -4969,12 +5099,12 @@ describe("desktop adapter over the shared application", () => {
     });
 
     const update = service.setPreferences(
-      preferencesSchema.parse({ reasoning: "high" }),
+      preferencesSchema.parse({ loggingLevel: "debug" }),
     );
     const stop = service.stop();
     releaseSave();
     await Promise.all([update, stop]);
 
-    expect((await preferencesStore.load()).reasoning).toBe("high");
+    expect((await preferencesStore.load()).loggingLevel).toBe("debug");
   });
 });

@@ -1778,20 +1778,26 @@ describe("CopilotAgentService model selection", () => {
     await service.stop();
   });
 
-  it("omits SDK default for managed agents and keeps explicit models independent", async () => {
+  it("keeps runtime defaults isolated from managed model and reasoning settings", async () => {
     const configs: SessionConfig[] = [];
+    const resumeConfigs: ResumeSessionConfig[] = [];
     const createSession = vi.fn(async (config: SessionConfig) => {
       configs.push(config);
       return createFakeSession(`session-${configs.length}`);
     });
+    const resumeSession = vi.fn(
+      async (_sessionId: string, config: ResumeSessionConfig) => {
+        resumeConfigs.push(config);
+        return createFakeSession("resumed-session");
+      },
+    );
     const service = new CopilotAgentService(
       baseOptions({
         model: "runtime-default",
+        reasoningEffort: "high",
         clientFactory: () => ({
           createSession,
-          resumeSession: vi.fn(async () => {
-            throw new Error("unused");
-          }),
+          resumeSession,
           stop: vi.fn(async () => undefined),
         }),
       }),
@@ -1799,12 +1805,27 @@ describe("CopilotAgentService model selection", () => {
     await service.start();
     await service.createManagedAgent(configuration("sdk-default"));
     await service.createManagedAgent(
-      configuration("explicit", { model: "model-b" }),
+      configuration("explicit", {
+        model: "model-b",
+        reasoningEffort: "xhigh",
+      }),
+    );
+    await service.resumeManagedAgent(
+      configuration("resumed", {
+        model: "model-c",
+        reasoningEffort: "max",
+      }),
+      "resumed-session",
     );
 
     expect(configs[0]?.model).toBe("runtime-default");
+    expect(configs[0]?.reasoningEffort).toBe("high");
     expect(configs[1]).not.toHaveProperty("model");
+    expect(configs[1]).not.toHaveProperty("reasoningEffort");
     expect(configs[2]?.model).toBe("model-b");
+    expect(configs[2]?.reasoningEffort).toBe("xhigh");
+    expect(resumeConfigs[0]?.model).toBe("model-c");
+    expect(resumeConfigs[0]?.reasoningEffort).toBe("max");
     await service.stop();
   });
 });

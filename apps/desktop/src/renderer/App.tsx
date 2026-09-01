@@ -25,6 +25,7 @@ import {
 import type {
   DesktopApi,
   DesktopActiveAgent,
+  DesktopAgentConversationSettings,
   DesktopAgentModel,
   DesktopAppEvent,
   DesktopConnectionStatus,
@@ -77,6 +78,15 @@ const builtInSlashCompletions: readonly SlashCompletionEntry[] = [
 const reservedSlashCompletionNames = new Set(
   builtInSlashCompletions.map(({ name }) => name),
 );
+
+type AgentReasoningEffort = NonNullable<DesktopActiveAgent["reasoningEffort"]>;
+const writableReasoningEfforts = [
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const satisfies readonly AgentReasoningEffort[];
 
 export function matchingSlashCompletions(
   input: string,
@@ -2665,7 +2675,8 @@ export function ConnectionHeader({
           <span className="agent-badge yolo-badge">YOLO</span>
         )}
         <span className="model">
-          {activeAgent?.model ?? "SDK default"} · {state.preferences.reasoning}
+          {activeAgent?.model ?? "SDK default"} ·{" "}
+          {activeAgent?.reasoningEffort ?? "Model default"}
         </span>
         {state.connection.state !== "connected" && (
           <button
@@ -2934,7 +2945,6 @@ export function AgentsView({
                 liveEvents={state.events.events}
                 models={modelsState.models}
                 modelsStatus={modelsState.status}
-                reasoning={state.preferences.reasoning}
                 definitionSource={
                   state.agentCatalog.definitions.find(
                     (definition) => definition.name === agent.definitionName,
@@ -2962,11 +2972,15 @@ export function AgentsView({
                     "Could not update agent configuration",
                   )
                 }
-                onSetModel={(model) =>
+                onSetConversationSettings={(settings) =>
                   runAgentAction(
                     agent.id,
-                    () => window.desktop.agents.setModel(agent.id, model),
-                    "Could not change agent model",
+                    () =>
+                      window.desktop.agents.setConversationSettings(
+                        agent.id,
+                        settings,
+                      ),
+                    "Could not change agent conversation settings",
                   )
                 }
                 onReset={() => {
@@ -3084,15 +3098,35 @@ function scopeLabel(scope: DesktopActiveAgent["config"]["editScope"]): string {
     .join(", ");
 }
 
-function modelSupportsReasoning(
-  model: DesktopAgentModel,
-  reasoning: DesktopState["preferences"]["reasoning"],
-): boolean {
-  return (
-    reasoning === "auto" ||
-    (model.capabilities.reasoningEffort &&
-      model.supportedReasoningEfforts.includes(reasoning))
+export function reasoningOptionsForModel(
+  modelId: string,
+  models: readonly DesktopAgentModel[],
+): AgentReasoningEffort[] {
+  if (modelId === "") return [];
+  const model = models.find(({ id }) => id === modelId);
+  if (
+    model === undefined ||
+    model.policyState !== "enabled" ||
+    !model.capabilities.reasoningEffort
+  ) {
+    return [];
+  }
+  return writableReasoningEfforts.filter((effort) =>
+    model.supportedReasoningEfforts.includes(effort),
   );
+}
+
+export function reasoningEffortForDraftModel(
+  modelId: string,
+  reasoningEffort: string,
+  models: readonly DesktopAgentModel[],
+): string {
+  return reasoningEffort === "" ||
+    reasoningOptionsForModel(modelId, models).includes(
+      reasoningEffort as AgentReasoningEffort,
+    )
+    ? reasoningEffort
+    : "";
 }
 
 function agentModelLabel(
@@ -3117,6 +3151,12 @@ function modelReasoningLabel(model: DesktopAgentModel): string {
       ? ""
       : ` · default ${model.defaultReasoningEffort}`
   }`;
+}
+
+function agentReasoningLabel(
+  reasoningEffort: DesktopActiveAgent["reasoningEffort"],
+): string {
+  return reasoningEffort ?? "Model default";
 }
 
 export function ResolvedToolsDisclosure({
@@ -3525,43 +3565,54 @@ export function ListeningEventsEditor({
 export function AgentModelEditor({
   agentLabel,
   currentModelId,
+  currentReasoningEffort,
   model,
+  reasoningEffort,
   models,
   modelsStatus,
-  reasoning,
   busy,
   confirming,
   onModelChange,
+  onReasoningEffortChange,
   onRequestConfirmation,
   onConfirm,
   onCancel,
 }: {
   agentLabel: string;
   currentModelId?: string | undefined;
+  currentReasoningEffort?: AgentReasoningEffort | undefined;
   model: string;
+  reasoningEffort: string;
   models: readonly DesktopAgentModel[];
   modelsStatus: "loading" | "loaded" | "failed";
-  reasoning: DesktopState["preferences"]["reasoning"];
   busy: boolean;
   confirming: boolean;
   onModelChange: (model: string) => void;
+  onReasoningEffortChange: (reasoningEffort: string) => void;
   onRequestConfirmation: () => void;
   onConfirm: () => void;
   onCancel: () => void;
 }): React.JSX.Element {
   const selectedModel = models.find(({ id }) => id === model);
   const currentModel = models.find(({ id }) => id === currentModelId);
+  const reasoningOptions = reasoningOptionsForModel(model, models);
   const currentModelUnavailable =
     currentModelId !== undefined &&
     (currentModel === undefined || currentModel.policyState !== "enabled");
+  const currentReasoningUnavailable =
+    currentReasoningEffort !== undefined &&
+    reasoningEffort === currentReasoningEffort &&
+    !reasoningOptions.includes(currentReasoningEffort);
   const modelChanged = model !== (currentModelId ?? "");
+  const reasoningChanged = reasoningEffort !== (currentReasoningEffort ?? "");
   const modelSelectable =
-    model === "" ||
-    (selectedModel?.policyState === "enabled" &&
-      modelSupportsReasoning(selectedModel, reasoning));
+    model === "" || selectedModel?.policyState === "enabled";
+  const reasoningSelectable =
+    reasoningEffort === "" ||
+    reasoningOptions.includes(reasoningEffort as AgentReasoningEffort);
   return (
     <fieldset>
-      <legend>Conversation model</legend>
+      <legend>Conversation settings</legend>
       <label>
         Model
         <select
@@ -3579,18 +3630,9 @@ export function AgentModelEditor({
           {models
             .filter(({ policyState }) => policyState === "enabled")
             .map((availableModel) => {
-              const compatible = modelSupportsReasoning(
-                availableModel,
-                reasoning,
-              );
               return (
-                <option
-                  disabled={!compatible}
-                  key={availableModel.id}
-                  value={availableModel.id}
-                >
+                <option key={availableModel.id} value={availableModel.id}>
                   {availableModel.displayName} ({availableModel.id})
-                  {compatible ? "" : " — reasoning incompatible"}
                 </option>
               );
             })}
@@ -3599,6 +3641,31 @@ export function AgentModelEditor({
       {selectedModel !== undefined && (
         <small>{modelReasoningLabel(selectedModel)}</small>
       )}
+      <label>
+        Reasoning
+        <select
+          aria-label={`Reasoning for ${agentLabel}`}
+          disabled={
+            busy ||
+            modelsStatus === "loading" ||
+            (reasoningOptions.length === 0 && !currentReasoningUnavailable)
+          }
+          value={reasoningEffort}
+          onChange={(event) => onReasoningEffortChange(event.target.value)}
+        >
+          <option value="">Model default</option>
+          {currentReasoningUnavailable && (
+            <option disabled value={currentReasoningEffort}>
+              {currentReasoningEffort} (unavailable)
+            </option>
+          )}
+          {reasoningOptions.map((effort) => (
+            <option key={effort} value={effort}>
+              {effort}
+            </option>
+          ))}
+        </select>
+      </label>
       {modelsStatus === "loading" && <small>Loading models…</small>}
       {modelsStatus === "failed" && (
         <small>
@@ -3608,22 +3675,28 @@ export function AgentModelEditor({
       {confirming ? (
         <div className="notice" role="alert">
           <p>
-            Changing the model starts a fresh Conversation. Live track bindings,
-            listening events, outputs, and this Agent instance will remain.
+            Changing the model or reasoning starts a fresh Conversation. Live
+            track bindings, listening events, outputs, and this Agent instance
+            will remain.
           </p>
           <button disabled={busy} onClick={onConfirm}>
-            {busy ? "Changing model…" : "Start fresh Conversation"}
+            {busy ? "Changing settings…" : "Start fresh Conversation"}
           </button>
           <button disabled={busy} onClick={onCancel}>
-            Cancel model change
+            Cancel settings change
           </button>
         </div>
       ) : (
         <button
-          disabled={busy || !modelChanged || !modelSelectable}
+          disabled={
+            busy ||
+            (!modelChanged && !reasoningChanged) ||
+            !modelSelectable ||
+            !reasoningSelectable
+          }
           onClick={onRequestConfirmation}
         >
-          Apply model
+          Apply conversation settings
         </button>
       )}
     </fieldset>
@@ -3636,7 +3709,6 @@ function ActiveAgentCard({
   liveEvents,
   models,
   modelsStatus,
-  reasoning,
   definitionSource,
   definitionUpdated,
   selected,
@@ -3644,7 +3716,7 @@ function ActiveAgentCard({
   confirmingReset,
   onRename,
   onConfigure,
-  onSetModel,
+  onSetConversationSettings,
   onReset,
   onCancelReset,
   onEventError,
@@ -3657,7 +3729,6 @@ function ActiveAgentCard({
   liveEvents: readonly DesktopLiveEventState[];
   models: readonly DesktopAgentModel[];
   modelsStatus: "loading" | "loaded" | "failed";
-  reasoning: DesktopState["preferences"]["reasoning"];
   definitionSource?: string | undefined;
   definitionUpdated: boolean;
   selected: boolean;
@@ -3667,7 +3738,9 @@ function ActiveAgentCard({
   onConfigure: (
     overrides: AgentOverrides,
   ) => Promise<DesktopActiveAgent | undefined>;
-  onSetModel: (model?: string) => Promise<DesktopActiveAgent | undefined>;
+  onSetConversationSettings: (
+    settings: DesktopAgentConversationSettings,
+  ) => Promise<DesktopActiveAgent | undefined>;
   onReset: () => Promise<void>;
   onCancelReset: () => void;
   onEventError: (error: unknown) => void;
@@ -3677,7 +3750,11 @@ function ActiveAgentCard({
 }): React.JSX.Element {
   const [editing, setEditing] = useState(false);
   const [model, setModel] = useState(agent.model ?? "");
-  const [confirmingModel, setConfirmingModel] = useState(false);
+  const [reasoningEffort, setReasoningEffort] = useState(
+    agent.reasoningEffort ?? "",
+  );
+  const [confirmingConversationSettings, setConfirmingConversationSettings] =
+    useState(false);
   const [label, setLabel] = useState(agent.label);
   const [systemPrompt, setSystemPrompt] = useState(agent.config.systemPrompt);
   const [tools, setTools] = useState(listValue(agent.config.tools));
@@ -3711,12 +3788,18 @@ function ActiveAgentCard({
 
   useEffect(() => {
     setModel(agent.model ?? "");
-    setConfirmingModel(false);
-  }, [agent.model]);
+    setReasoningEffort(agent.reasoningEffort ?? "");
+    setConfirmingConversationSettings(false);
+  }, [agent.model, agent.reasoningEffort]);
 
-  const applyModel = async (): Promise<void> => {
-    const updated = await onSetModel(model === "" ? undefined : model);
-    if (updated !== undefined) setConfirmingModel(false);
+  const applyConversationSettings = async (): Promise<void> => {
+    const updated = await onSetConversationSettings({
+      ...(model === "" ? {} : { model }),
+      ...(reasoningEffort === ""
+        ? {}
+        : { reasoningEffort: reasoningEffort as AgentReasoningEffort }),
+    });
+    if (updated !== undefined) setConfirmingConversationSettings(false);
   };
 
   const save = async (): Promise<void> => {
@@ -3774,6 +3857,8 @@ function ActiveAgentCard({
         </dd>
         <dt>Model</dt>
         <dd>{agentModelLabel(agent.model, models)}</dd>
+        <dt>Reasoning</dt>
+        <dd>{agentReasoningLabel(agent.reasoningEffort)}</dd>
         <dt>Tools</dt>
         <dd>
           {agent.config.tools.join(", ")}
@@ -3824,19 +3909,29 @@ function ActiveAgentCard({
           <AgentModelEditor
             agentLabel={agent.label}
             currentModelId={agent.model}
+            currentReasoningEffort={agent.reasoningEffort}
             model={model}
+            reasoningEffort={reasoningEffort}
             models={models}
             modelsStatus={modelsStatus}
-            reasoning={reasoning}
             busy={busy}
-            confirming={confirmingModel}
+            confirming={confirmingConversationSettings}
             onModelChange={(value) => {
               setModel(value);
-              setConfirmingModel(false);
+              setReasoningEffort(
+                reasoningEffortForDraftModel(value, reasoningEffort, models),
+              );
+              setConfirmingConversationSettings(false);
             }}
-            onRequestConfirmation={() => setConfirmingModel(true)}
-            onConfirm={() => void applyModel()}
-            onCancel={() => setConfirmingModel(false)}
+            onReasoningEffortChange={(value) => {
+              setReasoningEffort(value);
+              setConfirmingConversationSettings(false);
+            }}
+            onRequestConfirmation={() =>
+              setConfirmingConversationSettings(true)
+            }
+            onConfirm={() => void applyConversationSettings()}
+            onCancel={() => setConfirmingConversationSettings(false)}
           />
           <label>
             Instance name
@@ -4893,23 +4988,6 @@ export function SettingsView({
         <span>Non-secret preferences</span>
       </div>
       <form className="settings-form" onSubmit={(event) => void save(event)}>
-        <label>
-          Reasoning
-          <select
-            value={draft.reasoning}
-            onChange={(event) =>
-              setDraft({
-                ...draft,
-                reasoning: event.target.value as typeof draft.reasoning,
-              })
-            }
-          >
-            <option>auto</option>
-            <option>low</option>
-            <option>medium</option>
-            <option>high</option>
-          </select>
-        </label>
         <label>
           Approval policy
           <select

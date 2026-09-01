@@ -58,10 +58,10 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
         invoke("agents:configure", { instanceId, overrides }),
       reset: (instanceId) => invoke("agents:reset", { instanceId }),
       select: (instanceId) => invoke("agents:select", { instanceId }),
-      setModel: (instanceId, model) =>
-        invoke("agents:set-model", {
+      setConversationSettings: (instanceId, settings) =>
+        invoke("agents:set-conversation-settings", {
           instanceId,
-          ...(model === undefined ? {} : { model }),
+          settings,
         }),
       setAutoApproval: (target, enabled) =>
         invoke("agents:set-auto-approval", { target, enabled }),

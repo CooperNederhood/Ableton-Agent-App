@@ -1,6 +1,7 @@
 import {
   MAX_LIVE_EVENTS_PER_SESSION,
   activeAgentInstanceSchema,
+  agentReasoningEffortSchema,
   agentEventListenerSchema,
   liveEventDefinitionSchema,
   liveEventInitialStateSchema,
@@ -676,6 +677,16 @@ export const desktopAgentModelsSchema = z
   .array(desktopAgentModelSchema)
   .max(256);
 
+export const desktopAgentConversationSettingsSchema = z
+  .object({
+    model: z.string().trim().min(1).optional(),
+    reasoningEffort: agentReasoningEffortSchema.optional(),
+  })
+  .strict();
+export type DesktopAgentConversationSettings = z.infer<
+  typeof desktopAgentConversationSettingsSchema
+>;
+
 export const autoApprovalTargetSchema = z.union([
   z.literal("all"),
   z.string().uuid(),
@@ -828,7 +839,6 @@ export const legacySessionSchema = z.object({
 
 export const preferencesSchema = z.object({
   version: z.literal(1).default(1),
-  reasoning: z.enum(["auto", "low", "medium", "high"]).default("auto"),
   approvalPolicy: z
     .enum(["always", "risky", "never", "approve-all"])
     .default("risky"),
@@ -958,7 +968,7 @@ export const appEventSchema = z.discriminatedUnion("type", [
       "deactivated",
       "lifecycle",
       "session-rotated",
-      "model-changed",
+      "conversation-settings-changed",
     ]),
   }),
   z.object({
@@ -1099,11 +1109,11 @@ export const ipcSchemas = {
     request: z.object({ instanceId: z.string().uuid() }).strict(),
     response: desktopActiveAgentSchema,
   },
-  "agents:set-model": {
+  "agents:set-conversation-settings": {
     request: z
       .object({
         instanceId: z.string().uuid(),
-        model: z.string().trim().min(1).optional(),
+        settings: desktopAgentConversationSettingsSchema,
       })
       .strict(),
     response: desktopActiveAgentSchema,
@@ -1440,7 +1450,10 @@ export interface DesktopApi {
     ): Promise<DesktopActiveAgent>;
     reset(instanceId: string): Promise<DesktopActiveAgent>;
     select(instanceId: string): Promise<DesktopActiveAgent>;
-    setModel(instanceId: string, model?: string): Promise<DesktopActiveAgent>;
+    setConversationSettings(
+      instanceId: string,
+      settings: DesktopAgentConversationSettings,
+    ): Promise<DesktopActiveAgent>;
     setAutoApproval(
       target: AutoApprovalTarget,
       enabled: boolean,

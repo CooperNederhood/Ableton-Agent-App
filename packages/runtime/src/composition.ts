@@ -10,6 +10,7 @@ import {
   type AgentService,
   type CopilotAgentServiceOptions,
 } from "@ableton-agent/application";
+import type { AgentReasoningEffort } from "@ableton-agent/agent-config";
 import { AbletonBridgeService } from "@ableton-agent/bridge";
 import {
   registerCorrelationContext,
@@ -288,7 +289,7 @@ export interface AbletonBridgeSettings {
 
 export interface AgentSettings {
   model?: string | undefined;
-  reasoningEffort?: "low" | "medium" | "high" | undefined;
+  reasoningEffort?: AgentReasoningEffort | undefined;
   baseDirectory?: string | undefined;
   turnTimeoutMs?: number | undefined;
   /** Replaces the Copilot client; used by tests and fakes. */

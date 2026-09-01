@@ -60,8 +60,8 @@ export function createIpcHandlers(
       service.configureActiveAgent(instanceId, overrides),
     "agents:reset": ({ instanceId }) => service.resetActiveAgent(instanceId),
     "agents:select": ({ instanceId }) => service.selectActiveAgent(instanceId),
-    "agents:set-model": ({ instanceId, model }) =>
-      service.setActiveAgentModel(instanceId, model),
+    "agents:set-conversation-settings": ({ instanceId, settings }) =>
+      service.setActiveAgentConversationSettings(instanceId, settings),
     "agents:set-auto-approval": ({ target, enabled }) =>
       service.setAutoApproval(target, enabled),
     "agents:deactivate": async ({ instanceId }) => {

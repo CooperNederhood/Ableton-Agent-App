@@ -7,7 +7,9 @@ import {
   formatSkillInvocation,
   parseSkillInvocation,
   readSkillDocument,
+  agentReasoningEffortSchema,
   skillNameSchema,
+  type AgentReasoningEffort,
   type BoundTrackScope,
   type EditScopeEntry,
   type AgentEventListener,
@@ -170,6 +172,7 @@ export interface AgentSessionConfiguration {
   readonly definitionName: string;
   readonly label: string;
   readonly model?: string;
+  readonly reasoningEffort?: AgentReasoningEffort;
   readonly description: string;
   readonly systemPrompt: string;
   readonly resolvedTools: readonly string[];
@@ -428,7 +431,7 @@ export interface CopilotAgentServiceOptions {
   clientFactory?: () => CopilotClientAdapter;
   baseDirectory?: string;
   model?: string;
-  reasoningEffort?: "low" | "medium" | "high";
+  reasoningEffort?: AgentReasoningEffort;
   turnTimeoutMs?: number;
   signalContext?: SignalContextOptions;
   liveEventContext?: LiveEventContextOptions;
@@ -839,6 +842,13 @@ function normalizeSessionConfiguration(
     ...(configuration.model === undefined
       ? {}
       : { model: configuration.model }),
+    ...(configuration.reasoningEffort === undefined
+      ? {}
+      : {
+          reasoningEffort: agentReasoningEffortSchema.parse(
+            configuration.reasoningEffort,
+          ),
+        }),
     description: configuration.description,
     systemPrompt: configuration.systemPrompt,
     resolvedTools: bareToolNames(configuration.resolvedTools),
@@ -1464,12 +1474,13 @@ export class CopilotAgentService implements AgentService {
     const model = state.exposeInstanceId
       ? state.configuration.model
       : this.options.model;
+    const reasoningEffort = state.exposeInstanceId
+      ? state.configuration.reasoningEffort
+      : this.options.reasoningEffort;
     const config: SessionConfig = {
       clientName: "ableton-agent-app",
       ...(model === undefined ? {} : { model }),
-      ...(this.options.reasoningEffort === undefined
-        ? {}
-        : { reasoningEffort: this.options.reasoningEffort }),
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
       tools,
       availableTools: qualifyAvailableTools(configuredToolNames),
       customAgents: [

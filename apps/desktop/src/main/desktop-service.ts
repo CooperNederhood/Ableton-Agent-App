@@ -9,6 +9,7 @@ import type {
   DesktopAppEvent,
   DesktopActiveAgent,
   DesktopAgentConfigOverrides,
+  DesktopAgentConversationSettings,
   DesktopAgentHistoryMessage,
   DesktopAgentCatalog,
   DesktopAgentModel,
@@ -84,9 +85,9 @@ export interface DesktopService {
   ): Promise<DesktopActiveAgent>;
   resetActiveAgent(instanceId: string): Promise<DesktopActiveAgent>;
   selectActiveAgent(instanceId: string): Promise<DesktopActiveAgent>;
-  setActiveAgentModel(
+  setActiveAgentConversationSettings(
     instanceId: string,
-    model?: string,
+    settings: DesktopAgentConversationSettings,
   ): Promise<DesktopActiveAgent>;
   setAutoApproval(
     target: AutoApprovalTarget,

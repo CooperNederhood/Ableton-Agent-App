@@ -108,6 +108,7 @@ describe("agent configuration schemas", () => {
       definitionFingerprint: "a".repeat(64),
       label: "Default",
       model: "model-a",
+      reasoningEffort: "max",
       lifecycle: "ready",
       config: {
         description: "General-purpose agent.",
@@ -125,6 +126,13 @@ describe("agent configuration schemas", () => {
 
     expect(instance.autoApprove).toBe(false);
     expect(instance.model).toBe("model-a");
+    expect(instance.reasoningEffort).toBe("max");
+    expect(
+      activeAgentInstanceSchema.safeParse({
+        ...instance,
+        reasoningEffort: "minimal",
+      }).success,
+    ).toBe(false);
   });
 
   it("validates every live event definition kind as a discriminated union", () => {

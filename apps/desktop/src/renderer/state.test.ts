@@ -379,9 +379,10 @@ describe("desktop reducer", () => {
         instance: {
           ...state.sessions[0]!.activeAgents[0]!,
           model: "model-a",
+          reasoningEffort: "high",
           sdkSessionId: "fresh-session",
         },
-        change: "model-changed",
+        change: "conversation-settings-changed",
       },
     });
 
@@ -395,6 +396,7 @@ describe("desktop reducer", () => {
     ]);
     expect(state.sessions[0]?.activeAgents[0]).toMatchObject({
       model: "model-a",
+      reasoningEffort: "high",
       sdkSessionId: "fresh-session",
     });
   });

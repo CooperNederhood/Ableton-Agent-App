@@ -54,6 +54,7 @@ import {
 import {
   desktopActiveAgentSchema,
   desktopAgentCatalogSchema,
+  desktopAgentConversationSettingsSchema,
   desktopAgentModelsSchema,
   MAX_AGENT_TRIGGER_HISTORY,
   preferencesSchema,
@@ -74,6 +75,7 @@ import {
   type DesktopAutoApprovalUpdate,
   type DesktopAgentDefinition,
   type DesktopAgentConfigOverrides,
+  type DesktopAgentConversationSettings,
   type DesktopAgentHistoryMessage,
   type DesktopActiveAgent,
   type DesktopAgentModel,
@@ -210,7 +212,6 @@ export class HeadlessDesktopService implements DesktopService {
   #unsubscribeLiveEvents: (() => void) | undefined;
   #sessions: DesktopSession[] = [];
   #preferences: DesktopPreferences = preferencesSchema.parse({});
-  #runtimeReasoning: DesktopPreferences["reasoning"] | undefined;
   #preferenceSaveTail: Promise<void> = Promise.resolve();
   #sessionActionTail: Promise<void> = Promise.resolve();
   readonly #agentActionTails = new Map<string, Promise<void>>();
@@ -219,6 +220,7 @@ export class HeadlessDesktopService implements DesktopService {
   #pinnedContext: ContextChip[] = [];
   #turn: ActiveTurn | undefined;
   readonly #managedTurns = new Map<string, ActiveTurn>();
+  readonly #managedAgentReplacements = new Set<string>();
   readonly #automaticStreamMessageIds = new Map<string, string>();
   readonly #managedTurnCleanup = new Set<string>();
   #acceptingActions = false;
@@ -276,7 +278,6 @@ export class HeadlessDesktopService implements DesktopService {
       (await this.options.agentCatalog?.refresh()) ??
       desktopAgentCatalogSchema.parse({});
     this.#preferences = await this.#loadPreferences();
-    this.#runtimeReasoning ??= this.#preferences.reasoning;
     if (this.options.eventHistoryUnavailable === true) {
       this.#preferences = {
         ...this.#preferences,
@@ -773,6 +774,9 @@ export class HeadlessDesktopService implements DesktopService {
           label: current.label,
           autoApprove: current.autoApprove,
           ...(current.model === undefined ? {} : { model: current.model }),
+          ...(current.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: current.reasoningEffort }),
           forkedHistory: current.forkedHistory ?? [],
         });
         await this.#application.reconfigureManagedAgent(
@@ -818,96 +822,120 @@ export class HeadlessDesktopService implements DesktopService {
     );
   }
 
-  public async setActiveAgentModel(
+  public async setActiveAgentConversationSettings(
     instanceId: string,
-    model?: string,
+    settings: DesktopAgentConversationSettings,
   ): Promise<DesktopActiveAgent> {
+    const requested = desktopAgentConversationSettingsSchema.parse(settings);
     const target = this.#captureActiveAgentTarget(instanceId);
     return this.#queueAgentAction(instanceId, async () => {
-      const original = await this.#queueSessionAction(async () =>
-        this.#resolveActiveAgentTarget(target),
-      );
-      if (original.instance.model === model) return original.instance;
-      if (
-        this.#managedTurns.has(instanceId) ||
-        original.instance.lifecycle === "busy"
-      ) {
-        throw new Error(
-          `Agent instance '${instanceId}' has a turn in progress`,
+      this.#managedAgentReplacements.add(instanceId);
+      try {
+        const original = await this.#queueSessionAction(async () =>
+          this.#resolveActiveAgentTarget(target),
         );
-      }
-      if (model !== undefined) {
-        const available = await this.listAgentModels();
-        const selected = available.find(({ id }) => id === model);
-        if (selected === undefined) {
-          throw new Error(`Copilot model '${model}' is unavailable`);
-        }
-        if (selected.policyState !== "enabled") {
-          throw new Error(
-            `Copilot model '${model}' is ${selected.policyState} by policy`,
-          );
-        }
-        const reasoning = this.#runtimeReasoning ?? this.#preferences.reasoning;
         if (
-          reasoning !== "auto" &&
-          (!selected.capabilities.reasoningEffort ||
-            !selected.supportedReasoningEfforts.includes(reasoning))
+          original.instance.model === requested.model &&
+          original.instance.reasoningEffort === requested.reasoningEffort
+        ) {
+          return original.instance;
+        }
+        if (
+          this.#managedTurns.has(instanceId) ||
+          original.instance.lifecycle === "busy"
         ) {
           throw new Error(
-            `Copilot model '${model}' does not support the configured '${reasoning}' reasoning effort`,
+            `Agent instance '${instanceId}' has a turn in progress`,
           );
         }
-      }
-      const oldSdkSessionId = original.instance.sdkSessionId;
-      if (oldSdkSessionId === undefined) {
-        throw new Error(`Agent instance '${instanceId}' has no SDK session`);
-      }
-      const configured: DesktopActiveAgent = { ...original.instance };
-      delete configured.model;
-      if (model !== undefined) configured.model = model;
-      const sdkSessionId = await this.#application.createManagedAgent(
-        this.#managedConfiguration(configured),
-      );
-      const replacement = desktopActiveAgentSchema.parse({
-        ...configured,
-        sdkSessionId,
-        forkedHistory: [],
-        triggerHistory: [],
-      });
-      try {
-        return await this.#queueSessionAction(async () => {
-          const { session } = this.#resolveActiveAgentTarget(
-            target,
-            original.instance,
-          );
-          await this.#replaceActiveProductionSessionStrict({
-            ...session,
-            activeAgents: session.activeAgents.map((candidate) =>
-              candidate.id === instanceId ? replacement : candidate,
-            ),
-          });
-          await this.#recordAgentConfiguration(session, replacement);
-          this.#approvals.denyForAgentInstanceIds(new Set([instanceId]));
-          this.emit({
-            type: "agent.instance_changed",
-            instance: replacement,
-            change: "model-changed",
-          });
-          return replacement;
+        if (requested.model === undefined) {
+          if (requested.reasoningEffort !== undefined) {
+            throw new Error(
+              "SDK default model does not support an explicit reasoning effort",
+            );
+          }
+        } else {
+          const available = await this.listAgentModels();
+          const selected = available.find(({ id }) => id === requested.model);
+          if (selected === undefined) {
+            throw new Error(
+              `Copilot model '${requested.model}' is unavailable`,
+            );
+          }
+          if (selected.policyState !== "enabled") {
+            throw new Error(
+              `Copilot model '${requested.model}' is ${selected.policyState} by policy`,
+            );
+          }
+          if (
+            requested.reasoningEffort !== undefined &&
+            (!selected.capabilities.reasoningEffort ||
+              !selected.supportedReasoningEfforts.includes(
+                requested.reasoningEffort,
+              ))
+          ) {
+            throw new Error(
+              `Copilot model '${requested.model}' does not support the '${requested.reasoningEffort}' reasoning effort`,
+            );
+          }
+        }
+        const oldSdkSessionId = original.instance.sdkSessionId;
+        if (oldSdkSessionId === undefined) {
+          throw new Error(`Agent instance '${instanceId}' has no SDK session`);
+        }
+        const configured: DesktopActiveAgent = { ...original.instance };
+        delete configured.model;
+        delete configured.reasoningEffort;
+        if (requested.model !== undefined) configured.model = requested.model;
+        if (requested.reasoningEffort !== undefined) {
+          configured.reasoningEffort = requested.reasoningEffort;
+        }
+        const sdkSessionId = await this.#application.createManagedAgent(
+          this.#managedConfiguration(configured),
+        );
+        const replacement = desktopActiveAgentSchema.parse({
+          ...configured,
+          sdkSessionId,
+          forkedHistory: [],
+          triggerHistory: [],
         });
-      } catch (error) {
         try {
-          await this.#application.resumeManagedAgent(
-            this.#managedConfiguration(original.instance),
-            oldSdkSessionId,
-          );
-        } catch (rollbackError) {
-          throw new AggregateError(
-            [error, rollbackError],
-            `Agent instance '${instanceId}' model change failed and rollback was incomplete`,
-          );
+          return await this.#queueSessionAction(async () => {
+            const { session } = this.#resolveActiveAgentTarget(
+              target,
+              original.instance,
+            );
+            await this.#replaceActiveProductionSessionStrict({
+              ...session,
+              activeAgents: session.activeAgents.map((candidate) =>
+                candidate.id === instanceId ? replacement : candidate,
+              ),
+            });
+            await this.#recordAgentConfiguration(session, replacement);
+            this.#approvals.denyForAgentInstanceIds(new Set([instanceId]));
+            this.emit({
+              type: "agent.instance_changed",
+              instance: replacement,
+              change: "conversation-settings-changed",
+            });
+            return replacement;
+          });
+        } catch (error) {
+          try {
+            await this.#application.resumeManagedAgent(
+              this.#managedConfiguration(original.instance),
+              oldSdkSessionId,
+            );
+          } catch (rollbackError) {
+            throw new AggregateError(
+              [error, rollbackError],
+              `Agent instance '${instanceId}' conversation settings change failed and rollback was incomplete`,
+            );
+          }
+          throw error;
         }
-        throw error;
+      } finally {
+        this.#managedAgentReplacements.delete(instanceId);
       }
     });
   }
@@ -1150,6 +1178,11 @@ export class HeadlessDesktopService implements DesktopService {
     if (this.#managedTurns.size > 0 || this.#managedTurnCleanup.size > 0) {
       throw new Error(
         "Cannot resume a session while a managed agent turn is running",
+      );
+    }
+    if (this.#managedAgentReplacements.size > 0) {
+      throw new Error(
+        "Cannot resume a session while managed Agent conversation settings are changing",
       );
     }
     await this.#withSuspendedSignals(async () => {
@@ -2002,9 +2035,9 @@ export class HeadlessDesktopService implements DesktopService {
           preferences.eventHistoryEnabled,
         );
       }
-      const restartRequired = (
-        ["abletonPort", "signalPort", "reasoning"] as const
-      ).filter((key) => previous[key] !== preferences[key]);
+      const restartRequired = (["abletonPort", "signalPort"] as const).filter(
+        (key) => previous[key] !== preferences[key],
+      );
       if (restartRequired.length > 0) {
         this.emit({
           type: "diagnostic",
@@ -2110,6 +2143,7 @@ export class HeadlessDesktopService implements DesktopService {
           label: instance.label,
           definition: instance.definitionName,
           model: instance.model,
+          reasoning_effort: instance.reasoningEffort,
           description: instance.config.description,
           instructions: instance.config.systemPrompt,
           tools: instance.config.tools,
@@ -2838,6 +2872,9 @@ export class HeadlessDesktopService implements DesktopService {
       definitionName: instance.definitionName,
       label: instance.label,
       ...(instance.model === undefined ? {} : { model: instance.model }),
+      ...(instance.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: instance.reasoningEffort }),
       description: instance.config.description,
       systemPrompt:
         inheritedContext === ""

@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  activeSession,
   contextForSelection,
   desktopReducer,
   initialState,
+  selectedAgentInstance,
   selectedAgentSkills,
   selectedAgentWorkspace,
   type DesktopState,
@@ -36,6 +38,7 @@ function stateWithAgents(): DesktopState {
   });
   return {
     ...initialState,
+    activeSessionId: "session",
     sessions: [
       {
         version: 3 as const,
@@ -58,6 +61,48 @@ function stateWithAgents(): DesktopState {
 }
 
 describe("desktop reducer", () => {
+  it("does not infer an active session from stored session order", () => {
+    const state = stateWithAgents();
+    state.activeSessionId = undefined;
+
+    expect(activeSession(state)).toBeUndefined();
+    expect(selectedAgentInstance(state)).toBeUndefined();
+    expect(
+      desktopReducer(state, {
+        type: "event",
+        event: {
+          type: "agent.instance_changed",
+          instance: state.sessions[0]!.activeAgents[0]!,
+          change: "configured",
+        },
+      }),
+    ).toBe(state);
+  });
+
+  it("keeps startup session lists inactive until context is restored", () => {
+    const stored = stateWithAgents().sessions;
+    const listed = desktopReducer(initialState, {
+      type: "event",
+      event: { type: "sessions.changed", sessions: stored },
+    });
+
+    expect(listed.activeSessionId).toBeUndefined();
+    expect(activeSession(listed)).toBeUndefined();
+    expect(
+      desktopReducer(stateWithAgents(), {
+        type: "event",
+        event: { type: "sessions.changed", sessions: stored },
+      }).activeSessionId,
+    ).toBeUndefined();
+
+    const restored = desktopReducer(listed, {
+      type: "event",
+      event: { type: "session.context_restored", session: stored[0]! },
+    });
+    expect(restored.activeSessionId).toBe("session");
+    expect(activeSession(restored)?.id).toBe("session");
+  });
+
   it("applies a returned session with updated YOLO state immediately", () => {
     const state = stateWithAgents();
     const session = {
@@ -497,11 +542,17 @@ describe("desktop reducer", () => {
   });
 
   it("hydrates only the requested agent history", () => {
-    const state = desktopReducer(stateWithAgents(), {
+    const initial = stateWithAgents();
+    initial.sessions[0]!.activeAgents[1] = {
+      ...initial.sessions[0]!.activeAgents[1]!,
+      sdkSessionId: "current-sdk-session",
+    };
+    const state = desktopReducer(initial, {
       type: "event",
       event: {
         type: "agent.history_hydrated",
         agentInstanceId: secondAgentId,
+        sdkSessionId: "current-sdk-session",
         history: [
           {
             role: "assistant",
@@ -518,6 +569,26 @@ describe("desktop reducer", () => {
     expect(state.agentWorkspaces[secondAgentId]?.messages[0]?.content).toBe(
       "Restored second history",
     );
+
+    expect(
+      desktopReducer(state, {
+        type: "event",
+        event: {
+          type: "agent.history_hydrated",
+          agentInstanceId: secondAgentId,
+          sdkSessionId: "previous-sdk-session",
+          history: [
+            {
+              role: "assistant",
+              content: "Stale history",
+              timestamp: new Date(11).toISOString(),
+              eventId: "history-2",
+              agentInstanceId: secondAgentId,
+            },
+          ],
+        },
+      }),
+    ).toBe(state);
   });
 
   it("turns selected project objects into explicit context", () => {
@@ -674,12 +745,23 @@ describe("desktop reducer", () => {
 
   it("reduces renderer-safe Live event snapshots", () => {
     const events = { activeSessionId: "session-1", events: [] };
-    const state = desktopReducer(initialState, {
+    const activeState = { ...initialState, activeSessionId: "session-1" };
+    const state = desktopReducer(activeState, {
       type: "event",
       event: { type: "events.changed", events },
     });
     expect(state.events).toEqual(events);
     expect(state.eventsLoad).toEqual({ status: "loaded" });
+
+    expect(
+      desktopReducer(activeState, {
+        type: "event",
+        event: {
+          type: "events.changed",
+          events: { activeSessionId: "session-2", events: [] },
+        },
+      }),
+    ).toBe(activeState);
   });
 
   it("tracks Live event loading errors and disclosure state", () => {

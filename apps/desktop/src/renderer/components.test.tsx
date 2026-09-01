@@ -121,6 +121,7 @@ describe("desktop components", () => {
   ): DesktopState => ({
     ...initialState,
     lifecycle: "ready" as const,
+    activeSessionId: "session",
     sessions: [
       {
         version: 3 as const,
@@ -288,6 +289,7 @@ describe("desktop components", () => {
         state={{
           ...initialState,
           lifecycle: "ready",
+          activeSessionId: "production-session",
           sessions: [
             {
               version: 3,
@@ -857,6 +859,7 @@ describe("desktop components", () => {
         state={{
           ...initialState,
           lifecycle: "ready",
+          activeSessionId: "production-session",
           sessions: [
             {
               version: 3,
@@ -1820,6 +1823,7 @@ describe("desktop components", () => {
 
   it("loads initial renderer state without StrictMode snapshot requests", async () => {
     const requestSnapshot = vi.fn();
+    const storedSessions = workspaceState().sessions;
     const desktop = {
       lifecycle: { get: vi.fn().mockResolvedValue("ready") },
       ableton: {
@@ -1829,7 +1833,7 @@ describe("desktop components", () => {
       preferences: {
         get: vi.fn().mockResolvedValue(initialState.preferences),
       },
-      agent: { getSessions: vi.fn().mockResolvedValue([]) },
+      agent: { getSessions: vi.fn().mockResolvedValue(storedSessions) },
       outputs: { list: vi.fn().mockResolvedValue(initialState.outputs) },
       events: { list: vi.fn().mockResolvedValue(initialState.events) },
       agents: {
@@ -1850,6 +1854,10 @@ describe("desktop components", () => {
       "agents.catalog_changed",
       "outputs.changed",
     ]);
+    expect(events.find((event) => event.type === "sessions.changed")).toEqual({
+      type: "sessions.changed",
+      sessions: storedSessions,
+    });
     expect(requestSnapshot).not.toHaveBeenCalled();
   });
 
@@ -1953,6 +1961,7 @@ describe("desktop components", () => {
           selectedTrackId: snapshot.tracks[0]!.id,
         }}
         dispatch={vi.fn()}
+        sessionActive
         onCreated={vi.fn()}
       />,
     );

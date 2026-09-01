@@ -489,13 +489,20 @@ function reduceEvent(
       return {
         ...state,
         sessions: event.sessions,
-        activeSessionId: event.activeSessionId ?? state.activeSessionId,
+        activeSessionId: event.activeSessionId,
       };
     case "agents.catalog_changed":
       return { ...state, agentCatalog: event.catalog };
     case "agent.instance_changed":
       return reduceAgentInstanceChanged(state, event.instance, event.change);
     case "agent.history_hydrated":
+      if (
+        activeSession(state)?.activeAgents.find(
+          ({ id }) => id === event.agentInstanceId,
+        )?.sdkSessionId !== event.sdkSessionId
+      ) {
+        return state;
+      }
       return updateAgentWorkspace(
         state,
         event.agentInstanceId,
@@ -558,6 +565,7 @@ function reduceEvent(
     case "outputs.changed":
       return { ...state, outputs: event.outputs };
     case "events.changed":
+      if (event.events.activeSessionId !== state.activeSessionId) return state;
       return {
         ...state,
         events: event.events,
@@ -853,10 +861,8 @@ function reduceAgentInstanceChanged(
 }
 
 export function activeSession(state: DesktopState): DesktopSession | undefined {
-  return (
-    state.sessions.find(({ id }) => id === state.activeSessionId) ??
-    state.sessions[0]
-  );
+  if (state.activeSessionId === undefined) return undefined;
+  return state.sessions.find(({ id }) => id === state.activeSessionId);
 }
 
 export function selectedAgentInstance(

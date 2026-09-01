@@ -408,6 +408,7 @@ export async function loadInitialDesktopState(
   desktop: DesktopApi,
 ): Promise<DesktopAppEvent[]> {
   const sessions = await desktop.agent.getSessions();
+  const outputs = await desktop.outputs.list();
   return [
     {
       type: "lifecycle.changed",
@@ -424,7 +425,9 @@ export async function loadInitialDesktopState(
     {
       type: "sessions.changed",
       sessions,
-      ...(sessions[0] === undefined ? {} : { activeSessionId: sessions[0].id }),
+      ...(outputs.activeSessionId === undefined
+        ? {}
+        : { activeSessionId: outputs.activeSessionId }),
     },
     {
       type: "agents.catalog_changed",
@@ -432,7 +435,7 @@ export async function loadInitialDesktopState(
     },
     {
       type: "outputs.changed",
-      outputs: await desktop.outputs.list(),
+      outputs,
     },
   ];
 }
@@ -639,15 +642,20 @@ export function App(): React.JSX.Element {
         dispatch({ type: "event", event });
     };
     void load();
-    void loadLiveEvents(dispatch, () => window.desktop.events.list());
   }, []);
-  const selectedInstanceId = selectedAgentInstance(state)?.id;
+  const selectedInstance = selectedAgentInstance(state);
+  const selectedInstanceId = selectedInstance?.id;
+  const selectedSdkSessionId = selectedInstance?.sdkSessionId;
   const activeSessionId = activeSession(state)?.id;
+  useEffect(() => {
+    if (activeSessionId === undefined) return;
+    void loadLiveEvents(dispatch, () => window.desktop.events.list());
+  }, [activeSessionId]);
   useEffect(() => {
     if (state.lifecycle !== "ready" && state.lifecycle !== "degraded") return;
     if (selectedInstanceId === undefined || activeSessionId === undefined)
       return;
-    const key = `${activeSessionId}:${selectedInstanceId}`;
+    const key = `${activeSessionId}:${selectedInstanceId}:${selectedSdkSessionId ?? "none"}`;
     if (hydratedAgents.current.has(key)) return;
     hydratedAgents.current.add(key);
     void window.desktop.agents
@@ -658,6 +666,9 @@ export function App(): React.JSX.Element {
           event: {
             type: "agent.history_hydrated",
             agentInstanceId: selectedInstanceId,
+            ...(selectedSdkSessionId === undefined
+              ? {}
+              : { sdkSessionId: selectedSdkSessionId }),
             history,
           },
         }),
@@ -676,7 +687,12 @@ export function App(): React.JSX.Element {
           },
         });
       });
-  }, [activeSessionId, selectedInstanceId, state.lifecycle]);
+  }, [
+    activeSessionId,
+    selectedInstanceId,
+    selectedSdkSessionId,
+    state.lifecycle,
+  ]);
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent): void => {
       if ((event.metaKey || event.ctrlKey) && event.key === "k") {
@@ -876,6 +892,11 @@ export function EventsView({
   const [adding, setAdding] = useState(false);
   const groups = groupEventsByTrack(state.events.events, state.snapshot);
   const historyMode = state.preferences.eventsViewMode === "history";
+  const sessionActive = activeSession(state) !== undefined;
+
+  useEffect(() => {
+    if (!sessionActive) setAdding(false);
+  }, [sessionActive]);
 
   const setMode = (eventsViewMode: "live" | "history"): void => {
     if (eventsViewMode === state.preferences.eventsViewMode) return;
@@ -921,15 +942,23 @@ export function EventsView({
           type="button"
           aria-expanded={adding}
           aria-controls="add-event-panel"
+          disabled={!sessionActive}
           onClick={() => setAdding((value) => !value)}
         >
           {adding ? "Close" : "Add event"}
         </button>
       </div>
+      {!sessionActive && (
+        <div className="notice" role="status">
+          Event controls will be available after the production session is
+          restored.
+        </div>
+      )}
       {adding && (
         <AddEventPanel
           state={state}
           dispatch={dispatch}
+          sessionActive={sessionActive}
           onCreated={() => setAdding(false)}
         />
       )}
@@ -989,6 +1018,7 @@ export function EventsView({
                         eventId: event.definition.id,
                       })
                     }
+                    mutationsEnabled={sessionActive}
                     onError={(error) => eventError(dispatch, error)}
                   />
                 ))}
@@ -1570,10 +1600,12 @@ function formatBytes(bytes: number): string {
 export function AddEventPanel({
   state,
   dispatch,
+  sessionActive,
   onCreated,
 }: {
   state: DesktopState;
   dispatch: DesktopDispatch;
+  sessionActive: boolean;
   onCreated: () => void;
 }): React.JSX.Element {
   const snapshot = state.snapshot;
@@ -1602,6 +1634,7 @@ export function AddEventPanel({
       : parameterDraftFromSelection(selection, snapshot);
 
   useEffect(() => {
+    if (!sessionActive) return;
     void window.desktop.events
       .inspectSelection()
       .then(setSelection)
@@ -1612,10 +1645,10 @@ export function AddEventPanel({
             : "Live selection could not be inspected",
         ),
       );
-  }, []);
+  }, [sessionActive]);
 
   const create = async (draft: LiveEventDefinitionDraft | undefined) => {
-    if (draft === undefined) return;
+    if (!sessionActive || draft === undefined) return;
     setCreating(true);
     try {
       await window.desktop.events.create(draft);
@@ -1646,7 +1679,9 @@ export function AddEventPanel({
       <div className="event-quick-actions">
         <button
           type="button"
-          disabled={creating || selectedParameterDraft === undefined}
+          disabled={
+            !sessionActive || creating || selectedParameterDraft === undefined
+          }
           onClick={() => void create(selectedParameterDraft)}
         >
           Watch selected parameter
@@ -1672,7 +1707,9 @@ export function AddEventPanel({
             <button
               type="button"
               key={kind}
-              disabled={creating || !selectedTrack || !snapshot}
+              disabled={
+                !sessionActive || creating || !selectedTrack || !snapshot
+              }
               onClick={() =>
                 void create(trackDraft(selectedTrack!, snapshot!, kind))
               }
@@ -1747,7 +1784,13 @@ export function AddEventPanel({
                 </label>
                 <button
                   type="button"
-                  disabled={creating || !pickerTrack || !device || !parameterId}
+                  disabled={
+                    !sessionActive ||
+                    creating ||
+                    !pickerTrack ||
+                    !device ||
+                    !parameterId
+                  }
                   onClick={() =>
                     void create(
                       parameterDraftFromSnapshot(
@@ -1768,7 +1811,7 @@ export function AddEventPanel({
                   <button
                     type="button"
                     key={kind}
-                    disabled={creating || !pickerTrack}
+                    disabled={!sessionActive || creating || !pickerTrack}
                     onClick={() =>
                       void create(trackDraft(pickerTrack!, snapshot, kind))
                     }
@@ -1789,11 +1832,13 @@ export function EventCard({
   event,
   activityExpanded,
   onToggleActivity,
+  mutationsEnabled = true,
   onError,
 }: {
   event: DesktopLiveEventState;
   activityExpanded: boolean;
   onToggleActivity: () => void;
+  mutationsEnabled?: boolean;
   onError: (error: unknown) => void;
 }): React.JSX.Element {
   const definition = event.definition;
@@ -1813,6 +1858,7 @@ export function EventCard({
   const detailsId = `event-activity-${definition.id}`;
   const listeners = event.listeners.filter(({ listener }) => listener.enabled);
   const update = async (operation: () => Promise<unknown>): Promise<void> => {
+    if (!mutationsEnabled) return;
     setUpdating(true);
     try {
       await operation();
@@ -1861,7 +1907,7 @@ export function EventCard({
       <div className="event-actions">
         <button
           type="button"
-          disabled={updating}
+          disabled={!mutationsEnabled || updating}
           onClick={() =>
             void update(() =>
               definition.enabled
@@ -1875,6 +1921,7 @@ export function EventCard({
         <button
           type="button"
           aria-expanded={editing}
+          disabled={!mutationsEnabled}
           onClick={() => setEditing((value) => !value)}
         >
           Edit
@@ -1882,7 +1929,7 @@ export function EventCard({
         <button
           type="button"
           className="danger-button"
-          disabled={updating}
+          disabled={!mutationsEnabled || updating}
           onClick={() => {
             if (
               window.confirm(
@@ -1948,7 +1995,10 @@ export function EventCard({
               </label>
             </>
           )}
-          <button type="submit" disabled={updating || name.trim().length === 0}>
+          <button
+            type="submit"
+            disabled={!mutationsEnabled || updating || name.trim().length === 0}
+          >
             Save event
           </button>
         </form>
@@ -2748,10 +2798,8 @@ export function AgentsView({
 }): React.JSX.Element {
   const [refreshing, setRefreshing] = useState(false);
   const session = activeSession(state);
-  const [activeAgents, setActiveAgents] = useState(session?.activeAgents ?? []);
-  const [selectedAgentId, setSelectedAgentId] = useState(
-    session?.selectedAgentInstanceId,
-  );
+  const activeAgents = session?.activeAgents ?? [];
+  const selectedAgentId = session?.selectedAgentInstanceId;
   const [busyAgentId, setBusyAgentId] = useState<string>();
   const [creatingDefinition, setCreatingDefinition] = useState<string>();
   const [confirmResetId, setConfirmResetId] = useState<string>();
@@ -2797,27 +2845,34 @@ export function AgentsView({
   }, [reportError]);
 
   useEffect(() => {
-    setActiveAgents(session?.activeAgents ?? []);
-    setSelectedAgentId(session?.selectedAgentInstanceId);
-  }, [session]);
-
-  useEffect(() => {
     void loadModels();
   }, [loadModels]);
-  const replaceAgent = (updated: DesktopActiveAgent): void => {
-    setActiveAgents((agents) =>
-      agents.map((agent) => (agent.id === updated.id ? updated : agent)),
-    );
+  const reconcileAgent = (
+    instance: DesktopActiveAgent,
+    change: Extract<
+      DesktopAppEvent,
+      { type: "agent.instance_changed" }
+    >["change"],
+  ): void => {
+    dispatch({
+      type: "event",
+      event: { type: "agent.instance_changed", instance, change },
+    });
   };
   const runAgentAction = async (
     instanceId: string,
     action: () => Promise<DesktopActiveAgent>,
     fallback: string,
+    change: Extract<
+      DesktopAppEvent,
+      { type: "agent.instance_changed" }
+    >["change"],
   ): Promise<DesktopActiveAgent | undefined> => {
+    if (session === undefined) return undefined;
     setBusyAgentId(instanceId);
     try {
       const updated = await action();
-      replaceAgent(updated);
+      reconcileAgent(updated, change);
       return updated;
     } catch (error) {
       reportError(error, fallback);
@@ -2841,11 +2896,11 @@ export function AgentsView({
     }
   };
   const createAgent = async (definitionName: string): Promise<void> => {
+    if (session === undefined) return;
     setCreatingDefinition(definitionName);
     try {
       const created = await window.desktop.agents.create(definitionName);
-      setActiveAgents((agents) => [...agents, created]);
-      setSelectedAgentId(created.id);
+      reconcileAgent(created, "created");
     } catch (error) {
       reportError(error, `Could not create ${definitionName}`);
     } finally {
@@ -2860,21 +2915,19 @@ export function AgentsView({
       instanceId,
       () => window.desktop.agents.select(instanceId),
       "Could not select agent",
+      "selected",
     );
     if (selected !== undefined) {
-      setSelectedAgentId(instanceId);
       if (open) dispatch({ type: "view", view: "workspace" });
     }
   };
   const deactivateAgent = async (instanceId: string): Promise<void> => {
+    const deactivated = activeAgents.find(({ id }) => id === instanceId);
+    if (session === undefined || deactivated === undefined) return;
     setBusyAgentId(instanceId);
     try {
       await window.desktop.agents.deactivate(instanceId);
-      const remaining = activeAgents.filter((agent) => agent.id !== instanceId);
-      setActiveAgents(remaining);
-      if (selectedAgentId === instanceId) {
-        setSelectedAgentId(remaining[0]?.id);
-      }
+      reconcileAgent(deactivated, "deactivated");
     } catch (error) {
       reportError(error, "Could not deactivate agent");
     } finally {
@@ -2915,6 +2968,12 @@ export function AgentsView({
         <div className="notice" role="status">
           No explicit Copilot models are available. Agents can still use SDK
           default.
+        </div>
+      )}
+      {session === undefined && (
+        <div className="notice" role="status">
+          Agent controls will be available after the production session is
+          restored.
         </div>
       )}
       <section
@@ -2963,6 +3022,7 @@ export function AgentsView({
                     agent.id,
                     () => window.desktop.agents.rename(agent.id, label),
                     "Could not rename agent",
+                    "renamed",
                   )
                 }
                 onConfigure={(overrides) =>
@@ -2970,6 +3030,7 @@ export function AgentsView({
                     agent.id,
                     () => window.desktop.agents.configure(agent.id, overrides),
                     "Could not update agent configuration",
+                    "configured",
                   )
                 }
                 onSetConversationSettings={(settings) =>
@@ -2981,6 +3042,7 @@ export function AgentsView({
                         settings,
                       ),
                     "Could not change agent conversation settings",
+                    "conversation-settings-changed",
                   )
                 }
                 onReset={() => {
@@ -2993,6 +3055,7 @@ export function AgentsView({
                     agent.id,
                     () => window.desktop.agents.reset(agent.id),
                     "Could not reset agent",
+                    "reset",
                   ).then(() => undefined);
                 }}
                 onCancelReset={() => setConfirmResetId(undefined)}
@@ -3071,7 +3134,10 @@ export function AgentsView({
                 </dd>
               </dl>
               <button
-                disabled={creatingDefinition === definition.name}
+                disabled={
+                  session === undefined ||
+                  creatingDefinition === definition.name
+                }
                 onClick={() => void createAgent(definition.name)}
               >
                 {creatingDefinition === definition.name
@@ -3799,7 +3865,16 @@ function ActiveAgentCard({
         ? {}
         : { reasoningEffort: reasoningEffort as AgentReasoningEffort }),
     });
-    if (updated !== undefined) setConfirmingConversationSettings(false);
+    if (updated !== undefined) {
+      setConfirmingConversationSettings(false);
+      setEditing(false);
+    }
+  };
+  const closeEditor = (): void => {
+    setModel(agent.model ?? "");
+    setReasoningEffort(agent.reasoningEffort ?? "");
+    setConfirmingConversationSettings(false);
+    setEditing(false);
   };
 
   const save = async (): Promise<void> => {
@@ -4040,7 +4115,7 @@ function ActiveAgentCard({
             >
               {busy ? "Saving…" : "Save overrides"}
             </button>
-            <button disabled={busy} onClick={() => setEditing(false)}>
+            <button disabled={busy} onClick={closeEditor}>
               Cancel
             </button>
           </div>
@@ -4055,7 +4130,10 @@ function ActiveAgentCard({
         <button disabled={busy} onClick={() => void onOpen()}>
           Open
         </button>
-        <button disabled={busy} onClick={() => setEditing((value) => !value)}>
+        <button
+          disabled={busy}
+          onClick={() => (editing ? closeEditor() : setEditing(true))}
+        >
           {editing ? "Close editor" : "Edit overrides"}
         </button>
         {confirmingReset ? (

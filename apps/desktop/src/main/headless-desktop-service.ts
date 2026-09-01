@@ -2551,10 +2551,11 @@ export class HeadlessDesktopService implements DesktopService {
           return;
         }
         try {
-          startupSession.activeAgents =
-            await this.#resumeManagedAgents(startupSession);
+          startupSession.activeAgents = await this.#resumeManagedAgents(
+            startupSession,
+            true,
+          );
           this.#activeProductionSessionId = startupSession.id;
-          await this.#touchSession(startupSession.id);
           this.#publishAutoApprovedAgentIds();
           const restored = this.#sessions.find(
             ({ id }) => id === startupSession.id,
@@ -2714,12 +2715,16 @@ export class HeadlessDesktopService implements DesktopService {
 
   async #resumeManagedAgents(
     session: DesktopSession,
+    persistBeforeActivation = false,
   ): Promise<DesktopActiveAgent[]> {
     if (session.activeAgents.length === 0) {
       throw new Error("Production session has no active agent instances");
     }
-    const originalAgents = [...session.activeAgents];
     const resumed: DesktopActiveAgent[] = [];
+    const rotations: Array<{
+      oldSdkSessionId: string;
+      instance: DesktopActiveAgent;
+    }> = [];
     try {
       for (const instance of session.activeAgents) {
         if (instance.sdkSessionId === undefined) {
@@ -2739,46 +2744,18 @@ export class HeadlessDesktopService implements DesktopService {
             this.#managedConfiguration(resolved),
           );
           const rotated = { ...resolved, sdkSessionId };
-          const previousAgents = session.activeAgents;
-          session.activeAgents = session.activeAgents.map((candidate) =>
-            candidate.id === rotated.id ? rotated : candidate,
-          );
-          try {
-            await this.#replaceActiveProductionSessionStrict(session);
-          } catch (persistError) {
-            session.activeAgents = previousAgents;
-            await this.#application.deactivateManagedAgent(rotated.id);
-            throw persistError;
-          }
           resumed.push(rotated);
-          this.emit({
-            type: "diagnostic",
-            level: "warning",
-            message: `Agent '${rotated.label}' received a replacement Copilot session because '${oldSdkSessionId}' no longer exists.`,
-          });
-          this.emit({
-            type: "agent.instance_changed",
-            instance: rotated,
-            change: "session-rotated",
-          });
+          rotations.push({ oldSdkSessionId, instance: rotated });
         }
       }
-      return resumed;
+      if (persistBeforeActivation) {
+        await this.#replaceStoredProductionSessionStrict(session, {
+          ...session,
+          activeAgents: resumed,
+        });
+      }
     } catch (error) {
       const rollbackErrors = await this.#deactivateAgents(resumed);
-      if (
-        session.activeAgents.some(
-          (instance, index) =>
-            instance.sdkSessionId !== originalAgents[index]?.sdkSessionId,
-        )
-      ) {
-        session.activeAgents = originalAgents;
-        try {
-          await this.#replaceActiveProductionSessionStrict(session);
-        } catch (persistError) {
-          rollbackErrors.push(persistError);
-        }
-      }
       throw this.#sessionSwitchError(
         session.id,
         "resume target agents",
@@ -2786,6 +2763,19 @@ export class HeadlessDesktopService implements DesktopService {
         rollbackErrors,
       );
     }
+    for (const { oldSdkSessionId, instance } of rotations) {
+      this.emit({
+        type: "diagnostic",
+        level: "warning",
+        message: `Agent '${instance.label}' received a replacement Copilot session because '${oldSdkSessionId}' no longer exists.`,
+      });
+      this.emit({
+        type: "agent.instance_changed",
+        instance,
+        change: "session-rotated",
+      });
+    }
+    return resumed;
   }
 
   async #switchManagedProductionSession(
@@ -3973,9 +3963,35 @@ export class HeadlessDesktopService implements DesktopService {
   async #replaceActiveProductionSessionStrict(
     session: DesktopSession,
   ): Promise<void> {
+    const expected = this.#requireExpectedActiveSession(session.id);
+    await this.#replaceStoredProductionSessionStrict(expected, session);
+  }
+
+  async #replaceStoredProductionSessionStrict(
+    expected: DesktopSession,
+    replacement: DesktopSession,
+  ): Promise<void> {
+    if (replacement.id !== expected.id) {
+      throw new Error(
+        `Cannot replace production session '${expected.id}' with '${replacement.id}'`,
+      );
+    }
+    const index = this.#sessions.findIndex(({ id }) => id === expected.id);
+    if (index === -1) {
+      throw new Error(`Production session '${expected.id}' not found`);
+    }
+    if (this.#sessions[index] !== expected) {
+      throw new Error(
+        `Production session '${expected.id}' changed while the operation was preparing`,
+      );
+    }
+    const committed = {
+      ...replacement,
+      updatedAt: new Date().toISOString(),
+    };
     const sessions = [
-      { ...session, updatedAt: new Date().toISOString() },
-      ...this.#sessions.filter(({ id }) => id !== session.id),
+      committed,
+      ...this.#sessions.filter((_, candidateIndex) => candidateIndex !== index),
     ];
     await this.options.sessionStore.save(
       sessions.filter(({ id }) => !this.#ephemeralSessionIds.has(id)),

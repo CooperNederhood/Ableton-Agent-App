@@ -3993,6 +3993,76 @@ describe("desktop adapter over the shared application", () => {
       instance: rotated,
       change: "session-rotated",
     });
+    expect(events).toContainEqual({
+      type: "session.context_restored",
+      session: restored,
+    });
+    expect((await service.listActiveAgents()).map(({ id }) => id)).toEqual([
+      original.id,
+    ]);
+    expect((await service.listOutputs()).activeSessionId).toBe(restored!.id);
+    expect((await service.listLiveEvents()).activeSessionId).toBe(restored!.id);
+    await service.stop();
+  });
+
+  it("cleans up a provisional startup rotation when target persistence fails", async () => {
+    const directory = await temporaryDirectory();
+    const sessionsPath = join(directory, "sessions.json");
+    const preferencesPath = join(directory, "preferences.json");
+    const catalog = defaultCatalog();
+    const first = createFakeApplication();
+    const firstService = new HeadlessDesktopService({
+      application: first.application,
+      approvals: new ApprovalCoordinator(),
+      preferencesStore: new JsonPreferencesStore(preferencesPath),
+      sessionStore: new JsonSessionStore(sessionsPath),
+      agentCatalog: {
+        current: catalog,
+        refresh: () => Promise.resolve(catalog),
+      },
+    });
+    await firstService.start();
+    const original = (await firstService.getSessions())[0]!.activeAgents[0]!;
+    await firstService.stop();
+
+    const second = createFakeApplication();
+    second.agent.resumeManagedAgent = vi.fn(async () => {
+      throw new MissingCopilotSessionError(original.sdkSessionId!);
+    });
+    const sessionStore = new JsonSessionStore(sessionsPath);
+    vi.spyOn(sessionStore, "save").mockRejectedValueOnce(
+      new Error("persistence failed"),
+    );
+    const service = new HeadlessDesktopService({
+      application: second.application,
+      approvals: new ApprovalCoordinator(),
+      preferencesStore: new JsonPreferencesStore(preferencesPath),
+      sessionStore,
+      agentCatalog: {
+        current: catalog,
+        refresh: () => Promise.resolve(catalog),
+      },
+    });
+    const events: DesktopAppEvent[] = [];
+    service.subscribe((event) => events.push(event));
+    await service.start();
+
+    expect(second.agent.managedConfigurations.size).toBe(0);
+    expect(
+      (await new JsonSessionStore(sessionsPath).load())[0]!.activeAgents[0]!
+        .sdkSessionId,
+    ).toBe(original.sdkSessionId);
+    expect((await service.listOutputs()).activeSessionId).toBeUndefined();
+    expect(
+      events.some((event) => event.type === "session.context_restored"),
+    ).toBe(false);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "diagnostic" &&
+          event.message.includes("persistence failed"),
+      ),
+    ).toBe(true);
     await service.stop();
   });
 

@@ -664,15 +664,11 @@ export const desktopAgentModelSchema = z
         vision: z.boolean(),
         reasoningEffort: z.boolean(),
         maxPromptTokens: z.number().int().positive().optional(),
-        maxContextWindowTokens: z.number().int().positive(),
+        maxContextWindowTokens: z.number().int().positive().optional(),
       })
       .strict(),
-    supportedReasoningEfforts: z
-      .array(z.enum(["low", "medium", "high", "xhigh", "max"]))
-      .max(5),
-    defaultReasoningEffort: z
-      .enum(["low", "medium", "high", "xhigh", "max"])
-      .optional(),
+    supportedReasoningEfforts: z.array(z.string().min(1).max(64)).max(16),
+    defaultReasoningEffort: z.string().min(1).max(64).optional(),
   })
   .strict();
 export type DesktopAgentModel = z.infer<typeof desktopAgentModelSchema>;

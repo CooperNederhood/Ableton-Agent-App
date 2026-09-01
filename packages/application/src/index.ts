@@ -187,13 +187,10 @@ export interface AgentModelDescriptor {
     readonly vision: boolean;
     readonly reasoningEffort: boolean;
     readonly maxPromptTokens?: number | undefined;
-    readonly maxContextWindowTokens: number;
+    readonly maxContextWindowTokens?: number | undefined;
   };
-  readonly supportedReasoningEfforts: readonly (
-    "low" | "medium" | "high" | "xhigh" | "max"
-  )[];
-  readonly defaultReasoningEffort?:
-    "low" | "medium" | "high" | "xhigh" | "max" | undefined;
+  readonly supportedReasoningEfforts: readonly string[];
+  readonly defaultReasoningEffort?: string | undefined;
 }
 
 export interface AgentSkillDescriptor {
@@ -705,21 +702,29 @@ function toolParameterSchema(tool: Tool): Readonly<Record<string, unknown>> {
 }
 
 function toAgentModelDescriptor(model: ModelInfo): AgentModelDescriptor {
+  const maxPromptTokens = model.capabilities?.limits?.max_prompt_tokens;
+  const maxContextWindowTokens =
+    model.capabilities?.limits?.max_context_window_tokens;
   return {
     id: model.id,
     displayName: model.name,
     policyState: model.policy?.state ?? "unconfigured",
     capabilities: {
-      vision: model.capabilities.supports.vision,
-      reasoningEffort: model.capabilities.supports.reasoningEffort,
-      ...(model.capabilities.limits.max_prompt_tokens === undefined
+      vision: model.capabilities?.supports?.vision === true,
+      reasoningEffort: model.capabilities?.supports?.reasoningEffort === true,
+      ...(typeof maxPromptTokens !== "number" || maxPromptTokens <= 0
         ? {}
-        : { maxPromptTokens: model.capabilities.limits.max_prompt_tokens }),
-      maxContextWindowTokens:
-        model.capabilities.limits.max_context_window_tokens,
+        : { maxPromptTokens }),
+      ...(typeof maxContextWindowTokens !== "number" ||
+      maxContextWindowTokens <= 0
+        ? {}
+        : { maxContextWindowTokens }),
     },
-    supportedReasoningEfforts: [...(model.supportedReasoningEfforts ?? [])],
-    ...(model.defaultReasoningEffort === undefined
+    supportedReasoningEfforts: (model.supportedReasoningEfforts ?? []).filter(
+      (effort) => typeof effort === "string" && effort.length > 0,
+    ),
+    ...(typeof model.defaultReasoningEffort !== "string" ||
+    model.defaultReasoningEffort.length === 0
       ? {}
       : { defaultReasoningEffort: model.defaultReasoningEffort }),
   };
@@ -2068,7 +2073,9 @@ export class CopilotAgentService implements AgentService {
         "Configured Copilot client does not support model discovery",
       );
     }
-    return (await listModels()).map(toAgentModelDescriptor);
+    return (await listModels())
+      .filter(({ id }) => id !== "auto")
+      .map(toAgentModelDescriptor);
   }
 
   public async resumeSession(sessionId: string): Promise<void> {

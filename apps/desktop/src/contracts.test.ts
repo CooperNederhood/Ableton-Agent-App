@@ -163,7 +163,7 @@ describe("desktop IPC contracts", () => {
         reasoningEffort: true,
         maxContextWindowTokens: 64_000,
       },
-      supportedReasoningEfforts: ["low", "high"],
+      supportedReasoningEfforts: ["none", "minimal", "low", "high"],
       defaultReasoningEffort: "high",
     });
     expect(ipcSchemas["agents:models"].response.parse([model])).toEqual([

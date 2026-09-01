@@ -1701,7 +1701,30 @@ describe("CopilotAgentService model selection", () => {
   it("maps the live SDK model catalog and propagates discovery errors", async () => {
     const listModels = vi
       .fn()
-      .mockResolvedValueOnce([modelInfo("model-a")])
+      .mockResolvedValueOnce([
+        modelInfo("auto", {
+          capabilities: {
+            supports: {},
+            limits: { max_context_window_tokens: 0 },
+          } as ModelInfo["capabilities"],
+        }),
+        modelInfo("model-a"),
+        modelInfo("partial", {
+          capabilities: {
+            supports: {},
+            limits: { max_context_window_tokens: 0 },
+          },
+          supportedReasoningEfforts: [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+          ],
+        } as unknown as Partial<ModelInfo>),
+      ])
       .mockRejectedValueOnce(new Error("catalog unavailable"));
     const service = new CopilotAgentService(
       baseOptions({
@@ -1729,6 +1752,25 @@ describe("CopilotAgentService model selection", () => {
           maxContextWindowTokens: 64_000,
         },
         supportedReasoningEfforts: ["low", "medium", "high"],
+        defaultReasoningEffort: "medium",
+      },
+      {
+        id: "partial",
+        displayName: "Model partial",
+        policyState: "enabled",
+        capabilities: {
+          vision: false,
+          reasoningEffort: false,
+        },
+        supportedReasoningEfforts: [
+          "none",
+          "minimal",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+        ],
         defaultReasoningEffort: "medium",
       },
     ]);

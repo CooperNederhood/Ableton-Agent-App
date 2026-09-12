@@ -31,6 +31,8 @@ import {
   writeSignalSecret,
 } from "./signal-credentials.js";
 import {
+  applyAlwaysOnTop,
+  applyWindowPreferenceEvent,
   createWindowOptions,
   resolveDesktopIconPath,
   shouldOpenDevelopmentTools,
@@ -118,16 +120,20 @@ async function resumeDeepLink(argv: readonly string[]): Promise<void> {
 async function createWindow(): Promise<void> {
   const development =
     !app.isPackaged && process.env.VITE_DEV_SERVER_URL !== undefined;
+  const preferences = await requireService().getPreferences();
   const window = new BrowserWindow(
     createWindowOptions(
       join(currentDirectory, "../preload/index.cjs"),
       development,
       desktopIconPath,
+      preferences.alwaysOnTop,
     ),
   );
   mainWindow = window;
+  applyAlwaysOnTop(window, preferences.alwaysOnTop);
   secureWebContents(window.webContents);
   const unsubscribeEvents = requireService().subscribe((event) => {
+    applyWindowPreferenceEvent(window, event);
     forwardEvent(window.webContents, event);
   });
   window.once("ready-to-show", () => window.show());

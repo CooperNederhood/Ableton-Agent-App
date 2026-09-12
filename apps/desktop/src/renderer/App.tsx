@@ -5317,6 +5317,23 @@ export function SettingsView({
         <span>Non-secret preferences</span>
       </div>
       <form className="settings-form" onSubmit={(event) => void save(event)}>
+        <fieldset className="window-settings">
+          <legend>Window</legend>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={draft.alwaysOnTop}
+              onChange={(event) =>
+                setDraft({ ...draft, alwaysOnTop: event.target.checked })
+              }
+            />{" "}
+            Always on top
+          </label>
+          <small>
+            Keep Ableton Agent visible above other apps, including across macOS
+            Spaces and over full-screen windows.
+          </small>
+        </fieldset>
         <label>
           Approval policy
           <select

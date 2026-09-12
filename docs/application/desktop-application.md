@@ -107,6 +107,11 @@ and the connection header plus application navigation can be hidden together.
 All regions return on each application launch. The prompt composer is part of
 the Conversation column and follows its width as sidebars collapse.
 
+Settings includes an `Always on top` preference for keeping the desktop window
+visible while working in Ableton. The setting applies immediately, persists
+across launches, and on macOS keeps the window available across Spaces and over
+full-screen windows. It defaults off.
+
 Conversation presentation keeps assistant Markdown unboxed and left aligned,
 places literal user text in a right-aligned card, and reduces typed operations
 to muted icon-classified rows. Operation disclosures retain status, warnings,
@@ -193,6 +198,7 @@ Store non-secret preferences separately from credentials. Important settings:
 - Supported Ableton port override for diagnostics.
 - Remote Script location.
 - Diagnostic logging level.
+- Whether the application window stays above other applications.
 - Whether anonymous operational telemetry is enabled.
 - Local detailed-history capture (default on), retention status, clear, and
   per-session deletion controls.

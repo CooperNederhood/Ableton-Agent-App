@@ -1770,7 +1770,8 @@ kbd {
   align-items: center;
 }
 
-.history-settings {
+.history-settings,
+.window-settings {
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
@@ -1781,7 +1782,8 @@ kbd {
   padding: 14px;
 }
 
-.history-settings legend {
+.history-settings legend,
+.window-settings legend {
   padding: 0 6px;
   font-weight: 700;
 }
@@ -1792,7 +1794,8 @@ kbd {
   gap: 8px;
 }
 
-.history-settings small {
+.history-settings small,
+.window-settings small {
   grid-column: 1 / -1;
 }
 .settings-form button {

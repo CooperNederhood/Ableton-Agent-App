@@ -21,6 +21,7 @@ import {
   loadInitialDesktopState,
   loadLiveEvents,
   OperationCard,
+  operationPresentation,
   OutputConnectionCard,
   OutputsView,
   parameterDraftFromSelection,
@@ -237,6 +238,8 @@ describe("desktop components", () => {
 
     expect(html).toContain("**do not format this**");
     expect(html).not.toContain("<strong>do not format this</strong>");
+    expect(html).toContain('class="message user"');
+    expect(html).toContain('<span class="sr-only">You:</span>');
   });
 
   it("renders partial streaming assistant Markdown incrementally", () => {
@@ -260,6 +263,8 @@ describe("desktop components", () => {
     expect(html).toContain("Streaming…");
     expect(html).toContain("<h2>Current Set</h2>");
     expect(html).toContain("<strong>Tempo:</strong>");
+    expect(html).toContain('class="message assistant"');
+    expect(html).toContain('<span class="sr-only">Assistant:</span>');
   });
 
   it("renders context chips as explicit removal controls", () => {
@@ -515,6 +520,52 @@ describe("desktop components", () => {
     expect(header).not.toContain("Explore");
     expect(header).toContain("model-a · high");
     expect(workspace).toContain("Default · ready");
+  });
+
+  it("renders independent accessible workspace sidebar controls", () => {
+    const visible = renderToStaticMarkup(
+      <Workspace
+        state={workspaceState()}
+        dispatch={vi.fn()}
+        onToggleLeftSidebar={vi.fn()}
+        onToggleRightSidebar={vi.fn()}
+      />,
+    );
+    const hidden = renderToStaticMarkup(
+      <Workspace
+        state={workspaceState()}
+        dispatch={vi.fn()}
+        leftSidebarVisible={false}
+        rightSidebarVisible={false}
+        onToggleLeftSidebar={vi.fn()}
+        onToggleRightSidebar={vi.fn()}
+      />,
+    );
+
+    expect(visible).toContain('aria-label="Hide project sidebar"');
+    expect(visible).toContain('aria-label="Hide inspector sidebar"');
+    expect(hidden).toContain("left-sidebar-hidden");
+    expect(hidden).toContain("right-sidebar-hidden");
+    expect(hidden).toContain('aria-label="Show project sidebar"');
+    expect(hidden).toContain('aria-label="Show inspector sidebar"');
+    expect(hidden).not.toContain('aria-label="Project outline"');
+    expect(hidden).not.toContain('aria-label="Selection inspector"');
+  });
+
+  it("renders a compact top-chrome control when requested", () => {
+    const html = renderToStaticMarkup(
+      <ConnectionHeader
+        state={workspaceState()}
+        dispatch={vi.fn()}
+        onHideChrome={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain('aria-label="Application toolbar"');
+    expect(html).toContain('aria-label="Hide application toolbar"');
+    expect(html).toContain(
+      'aria-controls="application-toolbar application-views"',
+    );
   });
 
   it("renders only the selected agent conversation", () => {
@@ -1252,6 +1303,7 @@ describe("desktop components", () => {
         operation={{
           id: "1",
           label: "Place clips",
+          toolName: "ableton_clip_fire",
           status: "partial",
           detail: "2 of 3",
           warnings: ["Track locked"],
@@ -1264,8 +1316,27 @@ describe("desktop components", () => {
       />,
     );
     expect(html).toContain("partial");
+    expect(html).toContain("activity-icon-ableton");
+    expect(html).toContain("ableton_clip_fire");
     expect(html).toContain("Retry safely");
     expect(html).toContain("Not changed:");
+  });
+
+  it("classifies compact operation icons from tool names and labels", () => {
+    expect(operationPresentation("ableton_session_inspect", "Inspect")).toEqual(
+      {
+        type: "ableton",
+      },
+    );
+    expect(operationPresentation("shell_exec", "Run tests")).toEqual({
+      type: "terminal",
+    });
+    expect(operationPresentation(undefined, "Search project files")).toEqual({
+      type: "search",
+    });
+    expect(operationPresentation(undefined, "Process request")).toEqual({
+      type: "activity",
+    });
   });
 
   it("renders an expandable Listening Event trigger card", () => {

@@ -45,6 +45,29 @@ describe("desktop IPC contracts", () => {
     ).toBe(false);
     expect(
       appEventSchema.safeParse({
+        type: "operation.changed",
+        operation: {
+          id: "operation-1",
+          label: "Inspect session",
+          toolName: "ableton_session_inspect",
+          status: "running",
+          timestamp: 1,
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      appEventSchema.safeParse({
+        type: "operation.changed",
+        operation: {
+          id: "legacy-operation",
+          label: "Legacy operation",
+          status: "completed",
+          timestamp: 1,
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      appEventSchema.safeParse({
         type: "approval.requested",
         agentInstanceId: "00000000-0000-4000-8000-000000000001",
         sdkSessionId: "sdk-session",

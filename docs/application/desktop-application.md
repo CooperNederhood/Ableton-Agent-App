@@ -96,6 +96,17 @@ the CLI:
 It then enhances those capabilities with visual selection, arrangement plans,
 inspectors, change previews, and direct controls.
 
+The primary workspace is a collapsible three-column shell: Project,
+Conversation, and Inspector. Project and Inspector can be hidden independently,
+and the connection header plus application navigation can be hidden together.
+All regions return on each application launch. The prompt composer is part of
+the Conversation column and follows its width as sidebars collapse.
+
+Conversation presentation keeps assistant Markdown unboxed and left aligned,
+places literal user text in a right-aligned card, and reduces typed operations
+to muted icon-classified rows. Operation disclosures retain status, warnings,
+affected objects, and supported retry or undo actions.
+
 ## Application event model
 
 Normalize Copilot, bridge, approval, and project-state events into an

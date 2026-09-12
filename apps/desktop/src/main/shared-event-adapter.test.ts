@@ -11,12 +11,35 @@ describe("shared application event adapter", () => {
           operationId: "op-1",
           code: "bridge_timeout",
           message: "Timed out",
+          toolName: "ableton_session_inspect",
         },
         () => "message-1",
       ),
     ).toMatchObject({
       type: "operation.changed",
-      operation: { id: "op-1", status: "failed", retryable: true },
+      operation: {
+        id: "op-1",
+        status: "failed",
+        retryable: true,
+        toolName: "ableton_session_inspect",
+      },
+    });
+  });
+
+  it("bounds shared tool names without rejecting shared punctuation", () => {
+    const event = normalizeSharedEvent(
+      {
+        type: "operation.started",
+        operationId: "op-2",
+        label: "Custom tool",
+        toolName: `custom:${"x".repeat(150)}`,
+      },
+      () => "message-2",
+    );
+
+    expect(event).toMatchObject({
+      type: "operation.changed",
+      operation: { toolName: `custom:${"x".repeat(121)}` },
     });
   });
 });

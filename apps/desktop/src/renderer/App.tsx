@@ -592,6 +592,11 @@ export async function cancelWorkspaceAgent(
 
 export function App(): React.JSX.Element {
   const [state, dispatch] = useReducer(desktopReducer, initialState);
+  const [leftSidebarVisible, setLeftSidebarVisible] = useState(true);
+  const [rightSidebarVisible, setRightSidebarVisible] = useState(true);
+  const [topChromeVisible, setTopChromeVisible] = useState(true);
+  const [composerValue, setComposerValue] = useState("");
+  const [composerError, setComposerError] = useState("");
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const hydratedAgents = useRef(new Set<string>());
   const timelineScrollPositions = useRef(new Map<string, number>());
@@ -718,32 +723,58 @@ export function App(): React.JSX.Element {
   }, [state]);
 
   return (
-    <div className="app-shell">
-      <ConnectionHeader state={state} dispatch={dispatch} />
+    <div
+      className={`app-shell ${state.activeView === "workspace" ? "workspace-active" : ""} ${topChromeVisible ? "" : "top-chrome-hidden"}`}
+    >
+      {topChromeVisible && (
+        <ConnectionHeader
+          state={state}
+          dispatch={dispatch}
+          onHideChrome={() => setTopChromeVisible(false)}
+        />
+      )}
       <ProjectTransitionModal state={state} dispatch={dispatch} />
-      <nav className="view-tabs" aria-label="Application views">
-        {(
-          [
-            "workspace",
-            "agents",
-            "outputs",
-            "events",
-            "browser",
-            "diagnostics",
-            "sessions",
-            "settings",
-          ] as WorkspaceView[]
-        ).map((view) => (
-          <button
-            key={view}
-            className={state.activeView === view ? "selected" : ""}
-            onClick={() => dispatch({ type: "view", view })}
-          >
-            {view[0]?.toUpperCase()}
-            {view.slice(1)}
-          </button>
-        ))}
-      </nav>
+      {topChromeVisible && (
+        <nav
+          id="application-views"
+          className="view-tabs"
+          aria-label="Application views"
+        >
+          {(
+            [
+              "workspace",
+              "agents",
+              "outputs",
+              "events",
+              "browser",
+              "diagnostics",
+              "sessions",
+              "settings",
+            ] as WorkspaceView[]
+          ).map((view) => (
+            <button
+              key={view}
+              className={state.activeView === view ? "selected" : ""}
+              onClick={() => dispatch({ type: "view", view })}
+            >
+              {view[0]?.toUpperCase()}
+              {view.slice(1)}
+            </button>
+          ))}
+        </nav>
+      )}
+      {!topChromeVisible && (
+        <button
+          type="button"
+          className="restore-top-chrome"
+          aria-label="Show application toolbar"
+          aria-expanded="false"
+          aria-controls="application-toolbar application-views"
+          onClick={() => setTopChromeVisible(true)}
+        >
+          <ChromeIcon expanded={false} />
+        </button>
+      )}
       <main id="main-content">
         {state.lifecycle === "starting" ? (
           <PresentationState
@@ -760,6 +791,25 @@ export function App(): React.JSX.Element {
             state={state}
             dispatch={dispatch}
             timelineScrollPositions={timelineScrollPositions.current}
+            composer={
+              <DesktopComposer
+                state={state}
+                composerRef={composerRef}
+                dispatch={dispatch}
+                value={composerValue}
+                error={composerError}
+                onValueChange={setComposerValue}
+                onErrorChange={setComposerError}
+              />
+            }
+            leftSidebarVisible={leftSidebarVisible}
+            rightSidebarVisible={rightSidebarVisible}
+            onToggleLeftSidebar={() =>
+              setLeftSidebarVisible((visible) => !visible)
+            }
+            onToggleRightSidebar={() =>
+              setRightSidebarVisible((visible) => !visible)
+            }
           />
         ) : state.activeView === "agents" ? (
           <AgentsView state={state} dispatch={dispatch} />
@@ -777,11 +827,17 @@ export function App(): React.JSX.Element {
           <SettingsView state={state} dispatch={dispatch} />
         )}
       </main>
-      <DesktopComposer
-        state={state}
-        composerRef={composerRef}
-        dispatch={dispatch}
-      />
+      {state.activeView !== "workspace" && (
+        <DesktopComposer
+          state={state}
+          composerRef={composerRef}
+          dispatch={dispatch}
+          value={composerValue}
+          error={composerError}
+          onValueChange={setComposerValue}
+          onErrorChange={setComposerError}
+        />
+      )}
     </div>
   );
 }
@@ -2658,9 +2714,11 @@ export function ProjectTransitionModal({
 export function ConnectionHeader({
   state,
   dispatch,
+  onHideChrome,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+  onHideChrome?: (() => void) | undefined;
 }): React.JSX.Element {
   const session = activeSession(state);
   const activeAgent = selectedAgentInstance(state);
@@ -2689,7 +2747,11 @@ export function ConnectionHeader({
         : state.connection.state[0]?.toUpperCase() +
           state.connection.state.slice(1);
   return (
-    <header className="connection-header">
+    <header
+      id="application-toolbar"
+      className="connection-header"
+      aria-label="Application toolbar"
+    >
       <div>
         <strong>Ableton Agent</strong>
         <span
@@ -2755,6 +2817,18 @@ export function ConnectionHeader({
             Connect
           </button>
         )}
+        {onHideChrome !== undefined && (
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Hide application toolbar"
+            aria-expanded="true"
+            aria-controls="application-toolbar application-views"
+            onClick={onHideChrome}
+          >
+            <ChromeIcon expanded />
+          </button>
+        )}
       </div>
     </header>
   );
@@ -2764,21 +2838,53 @@ export function Workspace({
   state,
   dispatch,
   timelineScrollPositions,
+  composer,
+  leftSidebarVisible = true,
+  rightSidebarVisible = true,
+  onToggleLeftSidebar,
+  onToggleRightSidebar,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
   timelineScrollPositions?: Map<string, number> | undefined;
+  composer?: React.ReactNode;
+  leftSidebarVisible?: boolean;
+  rightSidebarVisible?: boolean;
+  onToggleLeftSidebar?: (() => void) | undefined;
+  onToggleRightSidebar?: (() => void) | undefined;
 }): React.JSX.Element {
   const activeAgent = selectedAgentInstance(state);
   return (
-    <div className="workspace">
-      <ProjectOutline state={state} dispatch={dispatch} />
+    <div
+      className={`workspace ${leftSidebarVisible ? "" : "left-sidebar-hidden"} ${rightSidebarVisible ? "" : "right-sidebar-hidden"}`}
+    >
+      {leftSidebarVisible && (
+        <ProjectOutline state={state} dispatch={dispatch} />
+      )}
       <section
         className="conversation"
         aria-label="Conversation and operation timeline"
       >
         <div className="panel-heading">
-          <h2>Conversation</h2>
+          <div className="conversation-heading-start">
+            {onToggleLeftSidebar !== undefined && (
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={
+                  leftSidebarVisible
+                    ? "Hide project sidebar"
+                    : "Show project sidebar"
+                }
+                aria-expanded={leftSidebarVisible}
+                aria-controls="project-sidebar"
+                onClick={onToggleLeftSidebar}
+              >
+                <SidebarIcon side="left" expanded={leftSidebarVisible} />
+              </button>
+            )}
+            <h2>Conversation</h2>
+          </div>
           <span>
             {activeAgent === undefined
               ? "No active agent"
@@ -2787,11 +2893,62 @@ export function Workspace({
               <span className="agent-badge yolo-badge">YOLO</span>
             )}
           </span>
+          {onToggleRightSidebar !== undefined && (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={
+                rightSidebarVisible
+                  ? "Hide inspector sidebar"
+                  : "Show inspector sidebar"
+              }
+              aria-expanded={rightSidebarVisible}
+              aria-controls="inspector-sidebar"
+              onClick={onToggleRightSidebar}
+            >
+              <SidebarIcon side="right" expanded={rightSidebarVisible} />
+            </button>
+          )}
         </div>
         <Timeline state={state} scrollPositions={timelineScrollPositions} />
+        {composer}
       </section>
-      <Inspector state={state} dispatch={dispatch} />
+      {rightSidebarVisible && <Inspector state={state} dispatch={dispatch} />}
     </div>
+  );
+}
+
+function SidebarIcon({
+  side,
+  expanded,
+}: {
+  side: "left" | "right";
+  expanded: boolean;
+}): React.JSX.Element {
+  const panelX = side === "left" ? 3 : 13;
+  const arrow = expanded
+    ? side === "left"
+      ? "M10 6 7 9l3 3"
+      : "M8 6l3 3-3 3"
+    : side === "left"
+      ? "M7 6l3 3-3 3"
+      : "M11 6l-3 3 3 3";
+  return (
+    <svg viewBox="0 0 18 18" aria-hidden="true">
+      <rect x="2.5" y="2.5" width="13" height="13" rx="2" />
+      <path d={`M${panelX} 3v12`} />
+      <path d={arrow} />
+    </svg>
+  );
+}
+
+function ChromeIcon({ expanded }: { expanded: boolean }): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 18 18" aria-hidden="true">
+      <rect x="2.5" y="2.5" width="13" height="13" rx="2" />
+      <path d="M3 6h12" />
+      <path d={expanded ? "M7 10l2 2 2-2" : "M7 12l2-2 2 2"} />
+    </svg>
   );
 }
 
@@ -4241,7 +4398,11 @@ export function ProjectOutline({
           : undefined;
 
   return (
-    <aside className="project-outline" aria-label="Project outline">
+    <aside
+      id="project-sidebar"
+      className="project-outline"
+      aria-label="Project outline"
+    >
       <div className="panel-heading">
         <h2>Project</h2>
         <div className="project-refresh">
@@ -4425,10 +4586,14 @@ export function Timeline({
             key={`message-${item.id}`}
             className={`message ${item.role}`}
           >
-            <header>
-              {item.role === "user" ? "You" : "Assistant"}{" "}
-              {item.streaming && <span>Streaming…</span>}
-            </header>
+            <span className="sr-only">
+              {item.role === "user" ? "You" : "Assistant"}:
+            </span>
+            {item.streaming && (
+              <span className="streaming-status" role="status">
+                Streaming…
+              </span>
+            )}
             {item.role === "assistant" ? (
               <AssistantMarkdown content={item.content} />
             ) : (
@@ -4479,55 +4644,131 @@ export function OperationCard({
 }: {
   operation: DesktopState["operations"][number];
 }): React.JSX.Element {
-  const icon = {
-    running: "◌",
-    completed: "✓",
-    partial: "!",
-    failed: "×",
-    cancelled: "■",
-  }[operation.status];
+  const presentation = operationPresentation(
+    operation.toolName,
+    operation.label,
+  );
   return (
-    <details
-      className={`operation operation-${operation.status}`}
-      open={operation.status !== "completed"}
-    >
-      <summary>
-        <span aria-hidden="true">{icon}</span> {operation.label}
+    <details className={`operation operation-${operation.status}`}>
+      <summary
+        className={operation.toolName === undefined ? "" : "has-tool-name"}
+      >
+        <ActivityIcon type={presentation.type} />
+        <span className="operation-label">{operation.label}</span>
+        {operation.toolName !== undefined && (
+          <code className="operation-tool-name">{operation.toolName}</code>
+        )}
         <small>{operation.status}</small>
       </summary>
-      {operation.detail && <p>{operation.detail}</p>}
-      {operation.changed.length > 0 && (
-        <p>
-          <strong>Changed:</strong> {operation.changed.join(", ")}
-        </p>
-      )}
-      {operation.unchanged.length > 0 && (
-        <p>
-          <strong>Not changed:</strong> {operation.unchanged.join(", ")}
-        </p>
-      )}
-      {operation.warnings.map((warning) => (
-        <p className="warning" key={warning}>
-          Warning: {warning}
-        </p>
-      ))}
-      <div className="inline-actions">
-        {operation.retryable && (
-          <button
-            onClick={() => void window.desktop.operations.retry(operation.id)}
-          >
-            Retry safely
-          </button>
+      <div className="operation-details">
+        {operation.detail && <p>{operation.detail}</p>}
+        {operation.changed.length > 0 && (
+          <p>
+            <strong>Changed:</strong> {operation.changed.join(", ")}
+          </p>
         )}
-        {operation.undoable && (
-          <button
-            onClick={() => void window.desktop.operations.undo(operation.id)}
-          >
-            Undo change
-          </button>
+        {operation.unchanged.length > 0 && (
+          <p>
+            <strong>Not changed:</strong> {operation.unchanged.join(", ")}
+          </p>
         )}
+        {operation.warnings.map((warning) => (
+          <p className="warning" key={warning}>
+            Warning: {warning}
+          </p>
+        ))}
+        <div className="inline-actions">
+          {operation.retryable && (
+            <button
+              onClick={() => void window.desktop.operations.retry(operation.id)}
+            >
+              Retry safely
+            </button>
+          )}
+          {operation.undoable && (
+            <button
+              onClick={() => void window.desktop.operations.undo(operation.id)}
+            >
+              Undo change
+            </button>
+          )}
+        </div>
       </div>
     </details>
+  );
+}
+
+export type OperationPresentationType =
+  "search" | "terminal" | "edit" | "agent" | "ableton" | "activity";
+
+export function operationPresentation(
+  toolName: string | undefined,
+  label: string,
+): { type: OperationPresentationType } {
+  const value = `${toolName ?? ""} ${label}`
+    .toLowerCase()
+    .replace(/[._-]+/gu, " ");
+  if (/\b(ableton|live|max4live|max[_-])/u.test(value))
+    return { type: "ableton" };
+  if (/\b(agent|delegate|review)/u.test(value)) return { type: "agent" };
+  if (
+    /\b(shell|terminal|bash|command|exec|test|build|typecheck|lint)\b/u.test(
+      value,
+    )
+  )
+    return { type: "terminal" };
+  if (/\b(search|find|grep|inspect|read|view|list)\b/u.test(value))
+    return { type: "search" };
+  if (/\b(edit|write|create|delete|remove|set|add|connect|fire)\b/u.test(value))
+    return { type: "edit" };
+  return { type: "activity" };
+}
+
+function ActivityIcon({
+  type,
+}: {
+  type: OperationPresentationType;
+}): React.JSX.Element {
+  const paths: Record<OperationPresentationType, React.ReactNode> = {
+    search: (
+      <>
+        <circle cx="7.5" cy="7.5" r="4.5" />
+        <path d="m11 11 4 4" />
+      </>
+    ),
+    terminal: (
+      <>
+        <rect x="2.5" y="3.5" width="13" height="11" rx="2" />
+        <path d="m5 7 2 2-2 2M9 11h3" />
+      </>
+    ),
+    edit: (
+      <>
+        <path d="m3 15 1-4L12 3l3 3-8 8-4 1Z" />
+        <path d="m10.5 4.5 3 3" />
+      </>
+    ),
+    agent: (
+      <>
+        <circle cx="9" cy="9" r="2.5" />
+        <path d="M9 2.5v2M9 13.5v2M2.5 9h2M13.5 9h2M4.4 4.4l1.4 1.4M12.2 12.2l1.4 1.4" />
+      </>
+    ),
+    ableton: (
+      <>
+        <path d="M3 4v10M6 6v8M9 3v11M12 7v7M15 5v9" />
+      </>
+    ),
+    activity: <path d="M2.5 9h3l2-4 3 8 2-4h3" />,
+  };
+  return (
+    <svg
+      className={`activity-icon activity-icon-${type}`}
+      viewBox="0 0 18 18"
+      aria-hidden="true"
+    >
+      {paths[type]}
+    </svg>
   );
 }
 
@@ -4548,7 +4789,11 @@ export function Inspector({
     (candidate) => candidate.id === state.selectedDeviceId,
   );
   return (
-    <aside className="inspector" aria-label="Selection inspector">
+    <aside
+      id="inspector-sidebar"
+      className="inspector"
+      aria-label="Selection inspector"
+    >
       <div className="panel-heading">
         <h2>Inspector</h2>
         <span>
@@ -5271,25 +5516,31 @@ export function DesktopComposer({
   state,
   composerRef,
   dispatch,
+  value,
+  error,
+  onValueChange,
+  onErrorChange,
 }: {
   state: DesktopState;
   composerRef: React.RefObject<HTMLTextAreaElement | null>;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+  value: string;
+  error: string;
+  onValueChange: (value: string) => void;
+  onErrorChange: (error: string) => void;
 }): React.JSX.Element {
-  const [value, setValue] = useState("");
-  const [error, setError] = useState("");
   const selectedInstanceId = selectedAgentInstance(state)?.id;
 
   useEffect(() => {
-    setError("");
-  }, [selectedInstanceId]);
+    onErrorChange("");
+  }, [onErrorChange, selectedInstanceId]);
 
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
     const message = value.trim();
     if (!message) return;
-    setError("");
-    setValue("");
+    onErrorChange("");
+    onValueChange("");
     try {
       await sendComposerMessage(window.desktop, state, message, dispatch);
     } catch (submitError) {
@@ -5297,8 +5548,8 @@ export function DesktopComposer({
         submitError instanceof Error
           ? submitError.message
           : "Agent message failed";
-      if (message.startsWith("/")) setValue(message);
-      setError(messageText);
+      if (message.startsWith("/")) onValueChange(message);
+      onErrorChange(messageText);
       dispatch({
         type: "event",
         event: {
@@ -5320,8 +5571,8 @@ export function DesktopComposer({
       composerRef={composerRef}
       error={error}
       onChange={(nextValue) => {
-        setValue(nextValue);
-        setError("");
+        onValueChange(nextValue);
+        onErrorChange("");
       }}
       onSubmit={submit}
       dispatch={dispatch}

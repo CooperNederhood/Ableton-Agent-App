@@ -24,9 +24,45 @@ test("launches the packaged desktop contract securely", async () => {
     await expect(
       window.getByRole("button", { name: "Workspace" }),
     ).toBeVisible();
+    await window.getByRole("button", { name: "Hide project sidebar" }).click();
+    await expect(
+      window.getByRole("complementary", { name: "Project outline" }),
+    ).toHaveCount(0);
+    await window.getByRole("button", { name: "Show project sidebar" }).click();
+    await expect(
+      window.getByRole("complementary", { name: "Project outline" }),
+    ).toBeVisible();
+    await window
+      .getByRole("button", { name: "Hide inspector sidebar" })
+      .click();
+    await expect(
+      window.getByRole("complementary", { name: "Selection inspector" }),
+    ).toHaveCount(0);
+    await window
+      .getByRole("button", { name: "Show inspector sidebar" })
+      .click();
+    await expect(
+      window.getByRole("complementary", { name: "Selection inspector" }),
+    ).toBeVisible();
+    await window
+      .getByRole("button", { name: "Hide application toolbar" })
+      .click();
+    await expect(
+      window.getByRole("navigation", { name: "Application views" }),
+    ).toHaveCount(0);
+    await window
+      .getByRole("button", { name: "Show application toolbar" })
+      .click();
+    await expect(
+      window.getByRole("navigation", { name: "Application views" }),
+    ).toBeVisible();
     await expect(
       window.getByRole("button", { name: "Settings" }),
     ).toBeVisible();
+    const composer = window.getByRole("textbox", {
+      name: "Message the Ableton agent",
+    });
+    await composer.fill("Keep this draft");
     await window.getByRole("button", { name: "Events" }).click();
     await expect(window.getByRole("heading", { name: "Events" })).toBeVisible();
     await expect(window.getByText("No Live Events")).toBeVisible();
@@ -66,11 +102,9 @@ test("launches the packaged desktop contract securely", async () => {
       window.getByRole("heading", { name: "Settings" }),
     ).toBeVisible();
     await window.keyboard.press(`${shortcutModifier}+k`);
-    const composer = window.getByRole("textbox", {
-      name: "Message the Ableton agent",
-    });
     await expect(composer).toBeEnabled();
     await expect(composer).toBeFocused();
+    await expect(composer).toHaveValue("Keep this draft");
   } finally {
     await application.close();
   }

@@ -130,7 +130,11 @@ Selections in the app become explicit prompt context:
 - Selected section in the production plan.
 
 The UI should clearly show context chips before submission so users know what
-the agent will act on.
+the agent will act on. The composer sends those chips atomically with each
+managed-agent message or explicit skill invocation. Turning project selection
+context off excludes generated track, clip, and device chips from that turn,
+while explicitly pinned chips remain. A later selection replaces the generated
+selection from the prior turn.
 
 ## Plan and preview
 

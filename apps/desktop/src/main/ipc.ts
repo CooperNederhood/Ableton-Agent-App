@@ -67,10 +67,22 @@ export function createIpcHandlers(
     },
     "agents:history": ({ instanceId }) =>
       service.hydrateActiveAgentHistory(instanceId),
-    "agents:send": ({ instanceId, message }) =>
-      service.sendToActiveAgent(instanceId, message),
-    "agents:invoke-skill": ({ instanceId, skillName, request }) =>
-      service.invokeActiveAgentSkill(instanceId, skillName, request),
+    "agents:send": ({ instanceId, message, context, mode }) =>
+      service.sendToActiveAgent(instanceId, message, context, mode),
+    "agents:invoke-skill": ({
+      instanceId,
+      skillName,
+      request,
+      context,
+      mode,
+    }) =>
+      service.invokeActiveAgentSkill(
+        instanceId,
+        skillName,
+        request,
+        context,
+        mode,
+      ),
     "agents:cancel": ({ instanceId }) => service.cancelActiveAgent(instanceId),
     "ableton:connect": () => service.connect(),
     "ableton:status": () => service.getStatus(),

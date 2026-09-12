@@ -545,6 +545,7 @@ describe("desktop components", () => {
 
   it("targets composer send and cancel to the selected instance", async () => {
     const state = workspaceState(secondAgentId);
+    state.context = [{ id: "track:1", kind: "track", label: "Drums" }];
     const send = vi.fn().mockResolvedValue({
       accepted: true,
       messageId: "message",
@@ -561,7 +562,13 @@ describe("desktop components", () => {
     await sendComposerMessage(desktop, state, "Inspect the drums", dispatch);
     await expect(cancelWorkspaceAgent(desktop, state)).resolves.toBe(true);
 
-    expect(send).toHaveBeenCalledWith(secondAgentId, "Inspect the drums");
+    expect(send).toHaveBeenCalledWith(
+      secondAgentId,
+      "Inspect the drums",
+      state.context,
+      "explore",
+    );
+    expect(setContext).not.toHaveBeenCalled();
     expect(cancel).toHaveBeenCalledWith(secondAgentId);
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -571,8 +578,42 @@ describe("desktop components", () => {
     );
   });
 
+  it("uses the current context for each managed-agent turn", async () => {
+    const state = workspaceState(secondAgentId);
+    const send = vi.fn().mockResolvedValue({
+      accepted: true,
+      messageId: "message",
+    });
+    const desktop = {
+      agents: { send },
+      project: { setContext: vi.fn() },
+    } as unknown as DesktopApi;
+    const dispatch = vi.fn();
+
+    state.context = [{ id: "track:1", kind: "track", label: "Drums" }];
+    await sendComposerMessage(desktop, state, "First", dispatch);
+    state.context = [{ id: "track:2", kind: "track", label: "Bass" }];
+    await sendComposerMessage(desktop, state, "Second", dispatch);
+
+    expect(send.mock.calls).toEqual([
+      [
+        secondAgentId,
+        "First",
+        [{ id: "track:1", kind: "track", label: "Drums" }],
+        "explore",
+      ],
+      [
+        secondAgentId,
+        "Second",
+        [{ id: "track:2", kind: "track", label: "Bass" }],
+        "explore",
+      ],
+    ]);
+  });
+
   it("invokes any catalog skill and preserves its request", async () => {
     const state = workspaceState(secondAgentId);
+    state.context = [{ id: "track:1", kind: "track", label: "Drums" }];
     state.sessions[0]!.activeAgents[1]!.config.skills = [];
     state.agentCatalog = {
       definitions: [],
@@ -608,6 +649,8 @@ describe("desktop components", () => {
       secondAgentId,
       "mix-review",
       "preserve the vocal dynamics",
+      state.context,
+      "explore",
     );
     expect(send).not.toHaveBeenCalled();
     expect(dispatch).toHaveBeenCalledWith(

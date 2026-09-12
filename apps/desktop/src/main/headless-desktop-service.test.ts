@@ -1132,6 +1132,11 @@ describe("desktop adapter over the shared application", () => {
 
     const first = await service.createActiveAgent("default");
     const second = await service.createActiveAgent("default");
+    const selection = [
+      { id: "track:1", kind: "track" as const, label: "Drums" },
+      { id: "clip:2", kind: "clip" as const, label: "Main Beat" },
+      { id: "device:3", kind: "device" as const, label: "Drum Rack" },
+    ];
     expect(first.id).not.toBe(second.id);
     expect(
       (await service.listActiveAgents()).filter(
@@ -1139,27 +1144,53 @@ describe("desktop adapter over the shared application", () => {
       ),
     ).toHaveLength(3);
 
-    await service.sendToActiveAgent(first.id, "first history");
+    await service.sendToActiveAgent(first.id, "first history", [], "explore");
     await settle();
-    await service.sendToActiveAgent(second.id, "second history");
+    await service.setContext([
+      { id: "track:1", kind: "track", label: "Stale drums" },
+    ]);
+    await service.sendToActiveAgent(
+      second.id,
+      "second history",
+      selection,
+      "compose",
+    );
     await settle();
-    await service.invokeActiveAgentSkill(second.id, "analyze", "the drums");
+    await service.invokeActiveAgentSkill(
+      second.id,
+      "analyze",
+      "the drums",
+      selection,
+      "mix",
+    );
     await settle();
-    expect(agent.managedPrompts.get(second.id)).toContain("/analyze the drums");
+    const managedPrompts = agent.managedPrompts.get(second.id) ?? [];
+    expect(managedPrompts[0]).toContain("Mode: compose.");
+    expect(managedPrompts[0]).toContain("- track: Drums (track:1)");
+    expect(managedPrompts[0]).not.toContain("Stale drums");
+    expect(managedPrompts[0]?.match(/- track:/g)).toHaveLength(1);
+    expect(managedPrompts[0]).toContain("- clip: Main Beat (clip:2)");
+    expect(managedPrompts[0]).toContain("- device: Drum Rack (device:3)");
+    expect(managedPrompts[0]?.endsWith("second history")).toBe(true);
+    expect(managedPrompts[1]).toContain("/analyze Mode: mix.");
+    expect(managedPrompts[1]).toContain("- track: Drums (track:1)");
+    expect(managedPrompts[1]?.match(/- track:/g)).toHaveLength(1);
+    expect(managedPrompts[1]?.endsWith("the drums")).toBe(true);
     await expect(
-      service.invokeActiveAgentSkill(second.id, "missing", ""),
+      service.invokeActiveAgentSkill(second.id, "missing", "", [], "explore"),
     ).rejects.toThrow("Unknown skill");
-    expect(await service.hydrateActiveAgentHistory(first.id)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ role: "user", content: "first history" }),
-      ]),
-    );
-    expect(await service.hydrateActiveAgentHistory(second.id)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ role: "user", content: "second history" }),
-      ]),
-    );
-
+    expect(
+      (await service.hydrateActiveAgentHistory(first.id)).some(
+        ({ role, content }) =>
+          role === "user" && content.includes("first history"),
+      ),
+    ).toBe(true);
+    expect(
+      (await service.hydrateActiveAgentHistory(second.id)).some(
+        ({ role, content }) =>
+          role === "user" && content.includes("second history"),
+      ),
+    ).toBe(true);
     await service.renameActiveAgent(second.id, "Drum specialist");
     const configured = await service.configureActiveAgent(second.id, {
       systemPrompt: "Focus only on drums.",
@@ -2259,8 +2290,8 @@ describe("desktop adapter over the shared application", () => {
     const [first] = await service.listActiveAgents();
     const second = await service.createActiveAgent("default");
 
-    await service.sendToActiveAgent(first!.id, "first");
-    await service.sendToActiveAgent(second.id, "second");
+    await service.sendToActiveAgent(first!.id, "first", [], "explore");
+    await service.sendToActiveAgent(second.id, "second", [], "explore");
     await expect(service.cancelActiveAgent(first!.id)).resolves.toEqual({
       cancelled: true,
     });
@@ -2441,7 +2472,7 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
-  it("sends active-agent prompts without legacy mode or context prefixes", async () => {
+  it("sends active-agent prompts with mode and selected context", async () => {
     const { service, agent } = await harness();
     await service.start();
 
@@ -2452,7 +2483,13 @@ describe("desktop adapter over the shared application", () => {
     );
     await settle();
 
-    expect(agent.prompts[0]).toBe("Make it darker");
+    expect(agent.prompts[0]).toBe(
+      [
+        "Mode: sound. Work on instruments, devices, and sound design.",
+        "Selected context (verify with Ableton tools before acting):\n- track: Bass (track:1)",
+        "Make it darker",
+      ].join("\n\n"),
+    );
     await service.stop();
   });
 
@@ -2634,6 +2671,8 @@ describe("desktop adapter over the shared application", () => {
     await first.service.sendToActiveAgent(
       firstSession.activeAgents[0]!.id,
       "Remember project A",
+      [],
+      "explore",
     );
     await settle();
     await first.service.stop();
@@ -2681,6 +2720,8 @@ describe("desktop adapter over the shared application", () => {
     await service.sendToActiveAgent(
       active.activeAgents[0]!.id,
       "Temporary idea",
+      [],
+      "explore",
     );
     await settle();
     await service.stop();
@@ -2723,7 +2764,7 @@ describe("desktop adapter over the shared application", () => {
     });
     const activeAgentId = (await service.listActiveAgents())[0]!.id;
     expect(() =>
-      service.sendToActiveAgent(activeAgentId, "Do not run"),
+      service.sendToActiveAgent(activeAgentId, "Do not run", [], "explore"),
     ).toThrow("transition decision");
     if (requested?.type !== "project.transition_requested") {
       throw new Error("Expected a pending project transition");
@@ -2782,7 +2823,12 @@ describe("desktop adapter over the shared application", () => {
     await service.start();
     const source = (await service.getSessions())[0]!;
     const sourceAgent = source.activeAgents[0]!;
-    await service.sendToActiveAgent(sourceAgent.id, "Remember this direction");
+    await service.sendToActiveAgent(
+      sourceAgent.id,
+      "Remember this direction",
+      [],
+      "explore",
+    );
     await settle();
     ableton.state.projectIdentity = {
       projectId: "project-fork",
@@ -2814,16 +2860,12 @@ describe("desktop adapter over the shared application", () => {
     expect(fork.activeAgents[0]?.sdkSessionId).not.toBe(
       sourceAgent.sdkSessionId,
     );
-    await expect(
-      service.hydrateActiveAgentHistory(fork.activeAgents[0]!.id),
-    ).resolves.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          role: "user",
-          content: "Remember this direction",
-        }),
-      ]),
-    );
+    expect(
+      (await service.hydrateActiveAgentHistory(fork.activeAgents[0]!.id)).some(
+        ({ role, content }) =>
+          role === "user" && content.includes("Remember this direction"),
+      ),
+    ).toBe(true);
     expect(
       (await service.getSessions()).some(({ id }) => id === source.id),
     ).toBe(true);
@@ -4313,7 +4355,9 @@ describe("desktop adapter over the shared application", () => {
 
     await service.send("Warm it up", [], "sound");
     await settle();
-    expect(agent.prompts[0]).toBe("Warm it up");
+    expect(agent.prompts[0]).toContain("Mode: sound.");
+    expect(agent.prompts[0]).toContain("- track: Bass (track-1)");
+    expect(agent.prompts[0]?.endsWith("Warm it up")).toBe(true);
     await service.stop();
   });
 

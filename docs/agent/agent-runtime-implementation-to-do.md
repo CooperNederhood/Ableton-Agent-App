@@ -28,6 +28,8 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 
 - [x] Write and version the base Ableton system message.
 - [x] Define compact project-context injection.
+- [x] Attach bounded UI selection context atomically to managed-agent messages
+  and explicit skill turns without duplicating the general project snapshot.
 - [x] Implement session-start, prompt, pre-tool, post-tool, and failure hooks.
 - [x] Add retry guidance based on structured error codes.
 - [x] Prevent retry loops for denial, unsupported capability, and stale targets.
@@ -47,6 +49,8 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 ## Tests
 
 - [~] Unit-test event normalization and context generation.
+- [x] Regression-test managed message and skill prompt composition, selection
+  disabling, deduplication, and replacement between turns.
 - [ ] Test configuration snapshot revisions, SDK event coverage, redaction,
   lifecycle ordering, cancellation/failure timing, and trace propagation.
 - [x] Unit-test hook decisions for every risk and error class.

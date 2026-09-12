@@ -599,6 +599,41 @@ describe("desktop reducer", () => {
     ]);
   });
 
+  it("deduplicates explicit and generated selections by stable id", () => {
+    const explicit = {
+      id: "track:t",
+      kind: "track" as const,
+      label: "Pinned Bass",
+    };
+    const state = {
+      ...initialState,
+      context: [explicit],
+      snapshot: {
+        id: "p",
+        name: "Project",
+        tempo: 120,
+        timeSignature: "4/4",
+        tracks: [
+          {
+            id: "t",
+            name: "Bass",
+            kind: "midi" as const,
+            color: "#fff",
+            volume: 1,
+            pan: 0,
+            muted: false,
+            clips: [],
+            devices: [],
+          },
+        ],
+      },
+      selectedTrackId: "t",
+      projectSelectionContextEnabled: true,
+    };
+
+    expect(contextForSelection(state)).toEqual([explicit]);
+  });
+
   it("reduces bounded renderer-safe output snapshots", () => {
     const outputs = {
       status: { state: "listening" as const, host: "127.0.0.1", port: 45832 },

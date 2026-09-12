@@ -1417,6 +1417,25 @@ describe("desktop components", () => {
     expect(html).not.toContain("Reasoning");
   });
 
+  it("renders the saved always-on-top preference", () => {
+    const html = renderToStaticMarkup(
+      <SettingsView
+        state={{
+          ...initialState,
+          preferences: {
+            ...initialState.preferences,
+            alwaysOnTop: true,
+          },
+        }}
+        dispatch={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("Always on top");
+    expect(html).toContain('type="checkbox" checked=""');
+    expect(html).toContain("including across macOS Spaces");
+  });
+
   it("shows YOLO status without occupying composer space", () => {
     const state = workspaceState();
     state.sessions[0]!.activeAgents[0]!.autoApprove = true;

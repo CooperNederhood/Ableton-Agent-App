@@ -5,7 +5,12 @@ import { createWindowOptions } from "./window-options.js";
 
 describe("Electron security", () => {
   it("uses an isolated sandbox with no renderer Node integration", () => {
-    const options = createWindowOptions("/preload.js", false, "/icon.png");
+    const options = createWindowOptions(
+      "/preload.js",
+      false,
+      "/icon.png",
+      false,
+    );
     expect(options.webPreferences).toMatchObject({
       contextIsolation: true,
       nodeIntegration: false,

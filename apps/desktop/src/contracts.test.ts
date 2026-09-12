@@ -176,6 +176,7 @@ describe("desktop IPC contracts", () => {
     expect(preferences.eventHistoryEnabled).toBe(true);
     expect(preferences.eventHistoryRetentionDays).toBe(30);
     expect(preferences.eventHistoryMaxBytes).toBe(250 * 1024 * 1024);
+    expect(preferences.alwaysOnTop).toBe(false);
     expect(preferences).not.toHaveProperty("model");
     expect(preferences).not.toHaveProperty("reasoning");
   });

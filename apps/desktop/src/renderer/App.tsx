@@ -5,9 +5,12 @@ import {
 } from "@ableton-agent/agent-config/skill-invocation";
 import {
   MAX_LIVE_EVENT_MESSAGE_PREFIX_LENGTH,
+  resolvePreparedContextConfiguration,
   type AgentEventListener,
+  type PreparedContextConfiguration,
 } from "@ableton-agent/agent-config/schemas";
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -22,6 +25,8 @@ import {
 import type {
   DesktopApi,
   DesktopActiveAgent,
+  DesktopAgentConversationSettings,
+  DesktopAgentModel,
   DesktopAppEvent,
   DesktopConnectionStatus,
   DesktopOutputAssignment,
@@ -73,6 +78,15 @@ const builtInSlashCompletions: readonly SlashCompletionEntry[] = [
 const reservedSlashCompletionNames = new Set(
   builtInSlashCompletions.map(({ name }) => name),
 );
+
+type AgentReasoningEffort = NonNullable<DesktopActiveAgent["reasoningEffort"]>;
+const writableReasoningEfforts = [
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const satisfies readonly AgentReasoningEffort[];
 
 export function matchingSlashCompletions(
   input: string,
@@ -394,6 +408,7 @@ export async function loadInitialDesktopState(
   desktop: DesktopApi,
 ): Promise<DesktopAppEvent[]> {
   const sessions = await desktop.agent.getSessions();
+  const outputs = await desktop.outputs.list();
   return [
     {
       type: "lifecycle.changed",
@@ -410,7 +425,9 @@ export async function loadInitialDesktopState(
     {
       type: "sessions.changed",
       sessions,
-      ...(sessions[0] === undefined ? {} : { activeSessionId: sessions[0].id }),
+      ...(outputs.activeSessionId === undefined
+        ? {}
+        : { activeSessionId: outputs.activeSessionId }),
     },
     {
       type: "agents.catalog_changed",
@@ -418,7 +435,7 @@ export async function loadInitialDesktopState(
     },
     {
       type: "outputs.changed",
-      outputs: await desktop.outputs.list(),
+      outputs,
     },
   ];
 }
@@ -636,15 +653,20 @@ export function App(): React.JSX.Element {
         dispatch({ type: "event", event });
     };
     void load();
-    void loadLiveEvents(dispatch, () => window.desktop.events.list());
   }, []);
-  const selectedInstanceId = selectedAgentInstance(state)?.id;
+  const selectedInstance = selectedAgentInstance(state);
+  const selectedInstanceId = selectedInstance?.id;
+  const selectedSdkSessionId = selectedInstance?.sdkSessionId;
   const activeSessionId = activeSession(state)?.id;
+  useEffect(() => {
+    if (activeSessionId === undefined) return;
+    void loadLiveEvents(dispatch, () => window.desktop.events.list());
+  }, [activeSessionId]);
   useEffect(() => {
     if (state.lifecycle !== "ready" && state.lifecycle !== "degraded") return;
     if (selectedInstanceId === undefined || activeSessionId === undefined)
       return;
-    const key = `${activeSessionId}:${selectedInstanceId}`;
+    const key = `${activeSessionId}:${selectedInstanceId}:${selectedSdkSessionId ?? "none"}`;
     if (hydratedAgents.current.has(key)) return;
     hydratedAgents.current.add(key);
     void window.desktop.agents
@@ -655,6 +677,9 @@ export function App(): React.JSX.Element {
           event: {
             type: "agent.history_hydrated",
             agentInstanceId: selectedInstanceId,
+            ...(selectedSdkSessionId === undefined
+              ? {}
+              : { sdkSessionId: selectedSdkSessionId }),
             history,
           },
         }),
@@ -673,7 +698,12 @@ export function App(): React.JSX.Element {
           },
         });
       });
-  }, [activeSessionId, selectedInstanceId, state.lifecycle]);
+  }, [
+    activeSessionId,
+    selectedInstanceId,
+    selectedSdkSessionId,
+    state.lifecycle,
+  ]);
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent): void => {
       if ((event.metaKey || event.ctrlKey) && event.key === "k") {
@@ -858,6 +888,36 @@ function latestStateLabel(event: DesktopLiveEventState): string {
   }
 }
 
+function eventActivityLabel(
+  occurrence: DesktopLiveEventState["history"][number],
+): string {
+  if (
+    occurrence.kind === "track.triggered_clip_changed" &&
+    occurrence.current.state === "session-clip"
+  ) {
+    const clip =
+      occurrence.current.clipName ??
+      `Session clip ${occurrence.current.slotIndex + 1}`;
+    return `Queued ${clip} in scene ${occurrence.current.slotIndex + 1}`;
+  }
+  if (
+    occurrence.kind === "track.triggered_clip_changed" &&
+    occurrence.current.state === "stop"
+  ) {
+    return "Queued track stop";
+  }
+  return occurrence.summary;
+}
+
+function isActionableEventActivity(
+  occurrence: DesktopLiveEventState["history"][number],
+): boolean {
+  return !(
+    occurrence.kind === "track.triggered_clip_changed" &&
+    occurrence.current.state === "none"
+  );
+}
+
 function editableDraft(
   event: DesktopLiveEventState,
   name: string,
@@ -894,6 +954,11 @@ export function EventsView({
   const [adding, setAdding] = useState(false);
   const groups = groupEventsByTrack(state.events.events, state.snapshot);
   const historyMode = state.preferences.eventsViewMode === "history";
+  const sessionActive = activeSession(state) !== undefined;
+
+  useEffect(() => {
+    if (!sessionActive) setAdding(false);
+  }, [sessionActive]);
 
   const setMode = (eventsViewMode: "live" | "history"): void => {
     if (eventsViewMode === state.preferences.eventsViewMode) return;
@@ -939,15 +1004,23 @@ export function EventsView({
           type="button"
           aria-expanded={adding}
           aria-controls="add-event-panel"
+          disabled={!sessionActive}
           onClick={() => setAdding((value) => !value)}
         >
           {adding ? "Close" : "Add event"}
         </button>
       </div>
+      {!sessionActive && (
+        <div className="notice" role="status">
+          Event controls will be available after the production session is
+          restored.
+        </div>
+      )}
       {adding && (
         <AddEventPanel
           state={state}
           dispatch={dispatch}
+          sessionActive={sessionActive}
           onCreated={() => setAdding(false)}
         />
       )}
@@ -1007,6 +1080,7 @@ export function EventsView({
                         eventId: event.definition.id,
                       })
                     }
+                    mutationsEnabled={sessionActive}
                     onError={(error) => eventError(dispatch, error)}
                   />
                 ))}
@@ -1588,10 +1662,12 @@ function formatBytes(bytes: number): string {
 export function AddEventPanel({
   state,
   dispatch,
+  sessionActive,
   onCreated,
 }: {
   state: DesktopState;
   dispatch: DesktopDispatch;
+  sessionActive: boolean;
   onCreated: () => void;
 }): React.JSX.Element {
   const snapshot = state.snapshot;
@@ -1620,6 +1696,7 @@ export function AddEventPanel({
       : parameterDraftFromSelection(selection, snapshot);
 
   useEffect(() => {
+    if (!sessionActive) return;
     void window.desktop.events
       .inspectSelection()
       .then(setSelection)
@@ -1630,10 +1707,10 @@ export function AddEventPanel({
             : "Live selection could not be inspected",
         ),
       );
-  }, []);
+  }, [sessionActive]);
 
   const create = async (draft: LiveEventDefinitionDraft | undefined) => {
-    if (draft === undefined) return;
+    if (!sessionActive || draft === undefined) return;
     setCreating(true);
     try {
       await window.desktop.events.create(draft);
@@ -1664,7 +1741,9 @@ export function AddEventPanel({
       <div className="event-quick-actions">
         <button
           type="button"
-          disabled={creating || selectedParameterDraft === undefined}
+          disabled={
+            !sessionActive || creating || selectedParameterDraft === undefined
+          }
           onClick={() => void create(selectedParameterDraft)}
         >
           Watch selected parameter
@@ -1690,7 +1769,9 @@ export function AddEventPanel({
             <button
               type="button"
               key={kind}
-              disabled={creating || !selectedTrack || !snapshot}
+              disabled={
+                !sessionActive || creating || !selectedTrack || !snapshot
+              }
               onClick={() =>
                 void create(trackDraft(selectedTrack!, snapshot!, kind))
               }
@@ -1765,7 +1846,13 @@ export function AddEventPanel({
                 </label>
                 <button
                   type="button"
-                  disabled={creating || !pickerTrack || !device || !parameterId}
+                  disabled={
+                    !sessionActive ||
+                    creating ||
+                    !pickerTrack ||
+                    !device ||
+                    !parameterId
+                  }
                   onClick={() =>
                     void create(
                       parameterDraftFromSnapshot(
@@ -1786,7 +1873,7 @@ export function AddEventPanel({
                   <button
                     type="button"
                     key={kind}
-                    disabled={creating || !pickerTrack}
+                    disabled={!sessionActive || creating || !pickerTrack}
                     onClick={() =>
                       void create(trackDraft(pickerTrack!, snapshot, kind))
                     }
@@ -1807,11 +1894,13 @@ export function EventCard({
   event,
   activityExpanded,
   onToggleActivity,
+  mutationsEnabled = true,
   onError,
 }: {
   event: DesktopLiveEventState;
   activityExpanded: boolean;
   onToggleActivity: () => void;
+  mutationsEnabled?: boolean;
   onError: (error: unknown) => void;
 }): React.JSX.Element {
   const definition = event.definition;
@@ -1831,6 +1920,7 @@ export function EventCard({
   const detailsId = `event-activity-${definition.id}`;
   const listeners = event.listeners.filter(({ listener }) => listener.enabled);
   const update = async (operation: () => Promise<unknown>): Promise<void> => {
+    if (!mutationsEnabled) return;
     setUpdating(true);
     try {
       await operation();
@@ -1846,7 +1936,8 @@ export function EventCard({
       : `${event.resolution.status}: ${event.resolution.reason}${
           event.resolution.detail ? ` — ${event.resolution.detail}` : ""
         }`;
-  const history = [...event.history]
+  const history = event.history
+    .filter(isActionableEventActivity)
     .sort(
       (left, right) =>
         Date.parse(right.observedAt) - Date.parse(left.observedAt) ||
@@ -1878,7 +1969,7 @@ export function EventCard({
       <div className="event-actions">
         <button
           type="button"
-          disabled={updating}
+          disabled={!mutationsEnabled || updating}
           onClick={() =>
             void update(() =>
               definition.enabled
@@ -1892,6 +1983,7 @@ export function EventCard({
         <button
           type="button"
           aria-expanded={editing}
+          disabled={!mutationsEnabled}
           onClick={() => setEditing((value) => !value)}
         >
           Edit
@@ -1899,7 +1991,7 @@ export function EventCard({
         <button
           type="button"
           className="danger-button"
-          disabled={updating}
+          disabled={!mutationsEnabled || updating}
           onClick={() => {
             if (
               window.confirm(
@@ -1965,7 +2057,10 @@ export function EventCard({
               </label>
             </>
           )}
-          <button type="submit" disabled={updating || name.trim().length === 0}>
+          <button
+            type="submit"
+            disabled={!mutationsEnabled || updating || name.trim().length === 0}
+          >
             Save event
           </button>
         </form>
@@ -1991,7 +2086,7 @@ export function EventCard({
                   <time dateTime={occurrence.observedAt}>
                     {new Date(occurrence.observedAt).toLocaleTimeString()}
                   </time>
-                  <span>{occurrence.summary}</span>
+                  <span>{eventActivityLabel(occurrence)}</span>
                 </li>
               ))}
             </ol>
@@ -2698,7 +2793,8 @@ export function ConnectionHeader({
           <span className="agent-badge yolo-badge">YOLO</span>
         )}
         <span className="model">
-          {state.preferences.model} · {state.preferences.reasoning}
+          {activeAgent?.model ?? "SDK default"} ·{" "}
+          {activeAgent?.reasoningEffort ?? "Model default"}
         </span>
         {state.connection.state !== "connected" && (
           <button
@@ -2865,43 +2961,81 @@ export function AgentsView({
 }): React.JSX.Element {
   const [refreshing, setRefreshing] = useState(false);
   const session = activeSession(state);
-  const [activeAgents, setActiveAgents] = useState(session?.activeAgents ?? []);
-  const [selectedAgentId, setSelectedAgentId] = useState(
-    session?.selectedAgentInstanceId,
-  );
+  const activeAgents = session?.activeAgents ?? [];
+  const selectedAgentId = session?.selectedAgentInstanceId;
   const [busyAgentId, setBusyAgentId] = useState<string>();
   const [creatingDefinition, setCreatingDefinition] = useState<string>();
   const [confirmResetId, setConfirmResetId] = useState<string>();
+  const [modelsState, setModelsState] = useState<
+    | { status: "loading"; models: DesktopAgentModel[] }
+    | { status: "loaded"; models: DesktopAgentModel[] }
+    | { status: "failed"; models: DesktopAgentModel[]; message: string }
+  >({ status: "loading", models: [] });
+
+  const reportError = useCallback(
+    (error: unknown, fallback: string): void => {
+      dispatch({
+        type: "event",
+        event: {
+          type: "diagnostic",
+          level: "error",
+          message: error instanceof Error ? error.message : fallback,
+        },
+      });
+    },
+    [dispatch],
+  );
+  const loadModels = useCallback(async (): Promise<void> => {
+    setModelsState((current) => ({
+      status: "loading",
+      models: current.models,
+    }));
+    try {
+      setModelsState({
+        status: "loaded",
+        models: await window.desktop.agents.listModels(),
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Models could not be loaded";
+      setModelsState((current) => ({
+        status: "failed",
+        models: current.models,
+        message,
+      }));
+      reportError(error, "Models could not be loaded");
+    }
+  }, [reportError]);
 
   useEffect(() => {
-    setActiveAgents(session?.activeAgents ?? []);
-    setSelectedAgentId(session?.selectedAgentInstanceId);
-  }, [session]);
-
-  const reportError = (error: unknown, fallback: string): void => {
+    void loadModels();
+  }, [loadModels]);
+  const reconcileAgent = (
+    instance: DesktopActiveAgent,
+    change: Extract<
+      DesktopAppEvent,
+      { type: "agent.instance_changed" }
+    >["change"],
+  ): void => {
     dispatch({
       type: "event",
-      event: {
-        type: "diagnostic",
-        level: "error",
-        message: error instanceof Error ? error.message : fallback,
-      },
+      event: { type: "agent.instance_changed", instance, change },
     });
-  };
-  const replaceAgent = (updated: DesktopActiveAgent): void => {
-    setActiveAgents((agents) =>
-      agents.map((agent) => (agent.id === updated.id ? updated : agent)),
-    );
   };
   const runAgentAction = async (
     instanceId: string,
     action: () => Promise<DesktopActiveAgent>,
     fallback: string,
+    change: Extract<
+      DesktopAppEvent,
+      { type: "agent.instance_changed" }
+    >["change"],
   ): Promise<DesktopActiveAgent | undefined> => {
+    if (session === undefined) return undefined;
     setBusyAgentId(instanceId);
     try {
       const updated = await action();
-      replaceAgent(updated);
+      reconcileAgent(updated, change);
       return updated;
     } catch (error) {
       reportError(error, fallback);
@@ -2925,11 +3059,11 @@ export function AgentsView({
     }
   };
   const createAgent = async (definitionName: string): Promise<void> => {
+    if (session === undefined) return;
     setCreatingDefinition(definitionName);
     try {
       const created = await window.desktop.agents.create(definitionName);
-      setActiveAgents((agents) => [...agents, created]);
-      setSelectedAgentId(created.id);
+      reconcileAgent(created, "created");
     } catch (error) {
       reportError(error, `Could not create ${definitionName}`);
     } finally {
@@ -2944,21 +3078,19 @@ export function AgentsView({
       instanceId,
       () => window.desktop.agents.select(instanceId),
       "Could not select agent",
+      "selected",
     );
     if (selected !== undefined) {
-      setSelectedAgentId(instanceId);
       if (open) dispatch({ type: "view", view: "workspace" });
     }
   };
   const deactivateAgent = async (instanceId: string): Promise<void> => {
+    const deactivated = activeAgents.find(({ id }) => id === instanceId);
+    if (session === undefined || deactivated === undefined) return;
     setBusyAgentId(instanceId);
     try {
       await window.desktop.agents.deactivate(instanceId);
-      const remaining = activeAgents.filter((agent) => agent.id !== instanceId);
-      setActiveAgents(remaining);
-      if (selectedAgentId === instanceId) {
-        setSelectedAgentId(remaining[0]?.id);
-      }
+      reconcileAgent(deactivated, "deactivated");
     } catch (error) {
       reportError(error, "Could not deactivate agent");
     } finally {
@@ -2984,6 +3116,27 @@ export function AgentsView({
               {diagnostic.sourceFile}: {diagnostic.message}
             </p>
           ))}
+        </div>
+      )}
+      {modelsState.status === "loading" && (
+        <p role="status">Loading Copilot models…</p>
+      )}
+      {modelsState.status === "failed" && (
+        <div className="notice" role="alert">
+          <span>Copilot models could not be loaded: {modelsState.message}</span>
+          <button onClick={() => void loadModels()}>Retry models</button>
+        </div>
+      )}
+      {modelsState.status === "loaded" && modelsState.models.length === 0 && (
+        <div className="notice" role="status">
+          No explicit Copilot models are available. Agents can still use SDK
+          default.
+        </div>
+      )}
+      {session === undefined && (
+        <div className="notice" role="status">
+          Agent controls will be available after the production session is
+          restored.
         </div>
       )}
       <section
@@ -3012,6 +3165,8 @@ export function AgentsView({
                 agent={agent}
                 availableSkills={state.agentCatalog.skills}
                 liveEvents={state.events.events}
+                models={modelsState.models}
+                modelsStatus={modelsState.status}
                 definitionSource={
                   state.agentCatalog.definitions.find(
                     (definition) => definition.name === agent.definitionName,
@@ -3023,13 +3178,14 @@ export function AgentsView({
                     definition.fingerprint !== agent.definitionFingerprint,
                 )}
                 selected={selectedAgentId === agent.id}
-                busy={busyAgentId === agent.id}
+                busy={busyAgentId === agent.id || agent.lifecycle === "busy"}
                 confirmingReset={confirmResetId === agent.id}
                 onRename={(label) =>
                   runAgentAction(
                     agent.id,
                     () => window.desktop.agents.rename(agent.id, label),
                     "Could not rename agent",
+                    "renamed",
                   )
                 }
                 onConfigure={(overrides) =>
@@ -3037,6 +3193,19 @@ export function AgentsView({
                     agent.id,
                     () => window.desktop.agents.configure(agent.id, overrides),
                     "Could not update agent configuration",
+                    "configured",
+                  )
+                }
+                onSetConversationSettings={(settings) =>
+                  runAgentAction(
+                    agent.id,
+                    () =>
+                      window.desktop.agents.setConversationSettings(
+                        agent.id,
+                        settings,
+                      ),
+                    "Could not change agent conversation settings",
+                    "conversation-settings-changed",
                   )
                 }
                 onReset={() => {
@@ -3049,6 +3218,7 @@ export function AgentsView({
                     agent.id,
                     () => window.desktop.agents.reset(agent.id),
                     "Could not reset agent",
+                    "reset",
                   ).then(() => undefined);
                 }}
                 onCancelReset={() => setConfirmResetId(undefined)}
@@ -3127,7 +3297,10 @@ export function AgentsView({
                 </dd>
               </dl>
               <button
-                disabled={creatingDefinition === definition.name}
+                disabled={
+                  session === undefined ||
+                  creatingDefinition === definition.name
+                }
                 onClick={() => void createAgent(definition.name)}
               >
                 {creatingDefinition === definition.name
@@ -3152,6 +3325,67 @@ function scopeLabel(scope: DesktopActiveAgent["config"]["editScope"]): string {
         : `${entry.track.name} #${entry.track.occurrence + 1}`,
     )
     .join(", ");
+}
+
+export function reasoningOptionsForModel(
+  modelId: string,
+  models: readonly DesktopAgentModel[],
+): AgentReasoningEffort[] {
+  if (modelId === "") return [];
+  const model = models.find(({ id }) => id === modelId);
+  if (
+    model === undefined ||
+    model.policyState !== "enabled" ||
+    !model.capabilities.reasoningEffort
+  ) {
+    return [];
+  }
+  return writableReasoningEfforts.filter((effort) =>
+    model.supportedReasoningEfforts.includes(effort),
+  );
+}
+
+export function reasoningEffortForDraftModel(
+  modelId: string,
+  reasoningEffort: string,
+  models: readonly DesktopAgentModel[],
+): string {
+  return reasoningEffort === "" ||
+    reasoningOptionsForModel(modelId, models).includes(
+      reasoningEffort as AgentReasoningEffort,
+    )
+    ? reasoningEffort
+    : "";
+}
+
+function agentModelLabel(
+  modelId: string | undefined,
+  models: readonly DesktopAgentModel[],
+): string {
+  if (modelId === undefined) return "SDK default";
+  const model = models.find(({ id }) => id === modelId);
+  if (model === undefined) return `${modelId} · unavailable`;
+  return `${model.displayName} · ${model.id}${
+    model.policyState === "enabled" ? "" : ` · ${model.policyState}`
+  }`;
+}
+
+function modelReasoningLabel(model: DesktopAgentModel): string {
+  if (!model.capabilities.reasoningEffort) {
+    return "Reasoning effort is fixed by this model.";
+  }
+  const efforts = model.supportedReasoningEfforts.join(", ") || "not reported";
+  return `Reasoning efforts: ${efforts}${
+    model.defaultReasoningEffort === undefined
+      ? ""
+      : ` · default ${model.defaultReasoningEffort}`
+  }`;
+}
+
+function agentReasoningLabel(
+  reasoningEffort: DesktopActiveAgent["reasoningEffort"],
+): string {
+  return reasoningEffort ?? "Model default";
 }
 
 export function ResolvedToolsDisclosure({
@@ -3204,7 +3438,45 @@ export type EventListenerDraft = Pick<
 > & {
   selected: boolean;
   messagePrefix: string;
+  preparedContextScope: PreparedContextConfiguration["scope"];
+  preparedContextTracks: string;
+  includeSessionClips: boolean;
 };
+
+function preparedContextTrackValue(
+  configuration: PreparedContextConfiguration,
+): string {
+  if (configuration.scope === "whole-session") return "";
+  return configuration.tracks
+    .map(
+      ({ track }) =>
+        `${track.name}${track.occurrence === 0 ? "" : ` #${track.occurrence + 1}`}`,
+    )
+    .join("\n");
+}
+
+function preparedContextFromDraft(
+  draft: EventListenerDraft,
+): PreparedContextConfiguration {
+  if (draft.preparedContextScope === "whole-session") {
+    return {
+      scope: "whole-session",
+      includeSessionClips: draft.includeSessionClips,
+    };
+  }
+  const parsed = parseTrackScope(draft.preparedContextTracks);
+  const tracks = parsed.filter((entry) => entry !== "session");
+  if (tracks.length === 0) {
+    throw new Error(
+      "Prepared context requires at least one selected track locator.",
+    );
+  }
+  return {
+    scope: "selected-tracks",
+    includeSessionClips: draft.includeSessionClips,
+    tracks,
+  };
+}
 
 function listenerForAgent(
   event: DesktopLiveEventState,
@@ -3215,16 +3487,34 @@ function listenerForAgent(
   )?.listener;
 }
 
+function preparedContextStatusForAgent(
+  event: DesktopLiveEventState,
+  agentInstanceId: string,
+): NonNullable<
+  DesktopLiveEventState["listeners"][number]["preparedContextStatus"]
+> {
+  return (
+    event.listeners.find((entry) => entry.agentInstanceId === agentInstanceId)
+      ?.preparedContextStatus ?? { state: "unavailable" }
+  );
+}
+
 function eventListenerDraft(
   event: DesktopLiveEventState,
   agentInstanceId: string,
 ): EventListenerDraft {
   const listener = listenerForAgent(event, agentInstanceId);
+  const preparedContext = resolvePreparedContextConfiguration(
+    listener?.preparedContext,
+  );
   return {
     selected: listener !== undefined,
     enabled: listener?.enabled ?? true,
     responseMode: listener?.responseMode ?? "next-prompt",
     messagePrefix: listener?.messagePrefix ?? "",
+    preparedContextScope: preparedContext.scope,
+    preparedContextTracks: preparedContextTrackValue(preparedContext),
+    includeSessionClips: preparedContext.includeSessionClips,
   };
 }
 
@@ -3245,24 +3535,34 @@ export async function saveAgentEventListeners(
       continue;
     }
     const messagePrefix = draft.messagePrefix.trim();
+    const preparedContext = preparedContextFromDraft(draft);
     if (listener === undefined) {
       await api.assignListener(agentInstanceId, event.definition.id, {
         enabled: draft.enabled,
         responseMode: draft.responseMode,
         ...(messagePrefix === "" ? {} : { messagePrefix }),
+        preparedContext,
       });
       continue;
     }
     const normalizedCurrentPrefix = listener.messagePrefix ?? "";
+    const currentPreparedContext = resolvePreparedContextConfiguration(
+      listener.preparedContext,
+    );
+    const preparedContextChanged =
+      JSON.stringify(currentPreparedContext) !==
+      JSON.stringify(preparedContext);
     if (
       listener.enabled !== draft.enabled ||
       listener.responseMode !== draft.responseMode ||
-      normalizedCurrentPrefix !== messagePrefix
+      normalizedCurrentPrefix !== messagePrefix ||
+      preparedContextChanged
     ) {
       await api.updateListener(agentInstanceId, event.definition.id, {
         enabled: draft.enabled,
         responseMode: draft.responseMode,
         messagePrefix: messagePrefix === "" ? null : messagePrefix,
+        ...(preparedContextChanged ? { preparedContext } : {}),
       });
     }
   }
@@ -3314,6 +3614,9 @@ export function ListeningEventsEditor({
           enabled: true,
           responseMode: "next-prompt",
           messagePrefix: "",
+          preparedContextScope: "whole-session",
+          preparedContextTracks: "",
+          includeSessionClips: true,
         }),
         ...update,
       },
@@ -3347,6 +3650,10 @@ export function ListeningEventsEditor({
             eventListenerDraft(event, agentInstanceId);
           const unavailable = !event.definition.enabled;
           const unresolved = event.resolution.status !== "resolved";
+          const preparedContextStatus = preparedContextStatusForAgent(
+            event,
+            agentInstanceId,
+          );
           return (
             <div className="listening-event-row" key={event.definition.id}>
               <label>
@@ -3410,6 +3717,67 @@ export function ListeningEventsEditor({
                       }
                     />
                   </label>
+                  <label>
+                    Prepared context
+                    <select
+                      value={draft.preparedContextScope}
+                      onChange={(change) =>
+                        updateDraft(event.definition.id, {
+                          preparedContextScope: change.target
+                            .value as PreparedContextConfiguration["scope"],
+                        })
+                      }
+                    >
+                      <option value="whole-session">
+                        Whole session (bounded)
+                      </option>
+                      <option value="selected-tracks">Selected tracks</option>
+                    </select>
+                  </label>
+                  {draft.preparedContextScope === "selected-tracks" && (
+                    <label>
+                      Tracks{" "}
+                      <small>
+                        One locator per line: track name, optionally #2 for a
+                        duplicate name.
+                      </small>
+                      <textarea
+                        rows={3}
+                        required
+                        value={draft.preparedContextTracks}
+                        onChange={(change) =>
+                          updateDraft(event.definition.id, {
+                            preparedContextTracks: change.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                  )}
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={draft.includeSessionClips}
+                      onChange={(change) =>
+                        updateDraft(event.definition.id, {
+                          includeSessionClips: change.target.checked,
+                        })
+                      }
+                    />
+                    Include Session clips
+                  </label>
+                  <small>
+                    Cache: {preparedContextStatus.state}
+                    {preparedContextStatus.state === "unavailable"
+                      ? ""
+                      : ` · captured ${new Date(
+                          preparedContextStatus.capturedAt,
+                        ).toLocaleTimeString()}${
+                          preparedContextStatus.unresolvedTrackLocators ===
+                          undefined
+                            ? ""
+                            : ` · ${preparedContextStatus.unresolvedTrackLocators} unresolved track locator(s)`
+                        }`}
+                  </small>
                 </div>
               )}
             </div>
@@ -3423,10 +3791,153 @@ export function ListeningEventsEditor({
   );
 }
 
+export function AgentModelEditor({
+  agentLabel,
+  currentModelId,
+  currentReasoningEffort,
+  model,
+  reasoningEffort,
+  models,
+  modelsStatus,
+  busy,
+  confirming,
+  onModelChange,
+  onReasoningEffortChange,
+  onRequestConfirmation,
+  onConfirm,
+  onCancel,
+}: {
+  agentLabel: string;
+  currentModelId?: string | undefined;
+  currentReasoningEffort?: AgentReasoningEffort | undefined;
+  model: string;
+  reasoningEffort: string;
+  models: readonly DesktopAgentModel[];
+  modelsStatus: "loading" | "loaded" | "failed";
+  busy: boolean;
+  confirming: boolean;
+  onModelChange: (model: string) => void;
+  onReasoningEffortChange: (reasoningEffort: string) => void;
+  onRequestConfirmation: () => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}): React.JSX.Element {
+  const selectedModel = models.find(({ id }) => id === model);
+  const currentModel = models.find(({ id }) => id === currentModelId);
+  const reasoningOptions = reasoningOptionsForModel(model, models);
+  const currentModelUnavailable =
+    currentModelId !== undefined &&
+    (currentModel === undefined || currentModel.policyState !== "enabled");
+  const currentReasoningUnavailable =
+    currentReasoningEffort !== undefined &&
+    reasoningEffort === currentReasoningEffort &&
+    !reasoningOptions.includes(currentReasoningEffort);
+  const modelChanged = model !== (currentModelId ?? "");
+  const reasoningChanged = reasoningEffort !== (currentReasoningEffort ?? "");
+  const modelSelectable =
+    model === "" || selectedModel?.policyState === "enabled";
+  const reasoningSelectable =
+    reasoningEffort === "" ||
+    reasoningOptions.includes(reasoningEffort as AgentReasoningEffort);
+  return (
+    <fieldset>
+      <legend>Conversation settings</legend>
+      <label>
+        Model
+        <select
+          aria-label={`Model for ${agentLabel}`}
+          disabled={busy || modelsStatus === "loading"}
+          value={model}
+          onChange={(event) => onModelChange(event.target.value)}
+        >
+          <option value="">SDK default</option>
+          {currentModelUnavailable && (
+            <option disabled value={currentModelId}>
+              {currentModelId} (unavailable)
+            </option>
+          )}
+          {models
+            .filter(({ policyState }) => policyState === "enabled")
+            .map((availableModel) => {
+              return (
+                <option key={availableModel.id} value={availableModel.id}>
+                  {availableModel.displayName} ({availableModel.id})
+                </option>
+              );
+            })}
+        </select>
+      </label>
+      {selectedModel !== undefined && (
+        <small>{modelReasoningLabel(selectedModel)}</small>
+      )}
+      <label>
+        Reasoning
+        <select
+          aria-label={`Reasoning for ${agentLabel}`}
+          disabled={
+            busy ||
+            modelsStatus === "loading" ||
+            (reasoningOptions.length === 0 && !currentReasoningUnavailable)
+          }
+          value={reasoningEffort}
+          onChange={(event) => onReasoningEffortChange(event.target.value)}
+        >
+          <option value="">Model default</option>
+          {currentReasoningUnavailable && (
+            <option disabled value={currentReasoningEffort}>
+              {currentReasoningEffort} (unavailable)
+            </option>
+          )}
+          {reasoningOptions.map((effort) => (
+            <option key={effort} value={effort}>
+              {effort}
+            </option>
+          ))}
+        </select>
+      </label>
+      {modelsStatus === "loading" && <small>Loading models…</small>}
+      {modelsStatus === "failed" && (
+        <small>
+          Model catalog unavailable. SDK default remains selectable.
+        </small>
+      )}
+      {confirming ? (
+        <div className="notice" role="alert">
+          <p>
+            Changing the model or reasoning starts a fresh Conversation. Live
+            track bindings, listening events, outputs, and this Agent instance
+            will remain.
+          </p>
+          <button disabled={busy} onClick={onConfirm}>
+            {busy ? "Changing settings…" : "Start fresh Conversation"}
+          </button>
+          <button disabled={busy} onClick={onCancel}>
+            Cancel settings change
+          </button>
+        </div>
+      ) : (
+        <button
+          disabled={
+            busy ||
+            (!modelChanged && !reasoningChanged) ||
+            !modelSelectable ||
+            !reasoningSelectable
+          }
+          onClick={onRequestConfirmation}
+        >
+          Apply conversation settings
+        </button>
+      )}
+    </fieldset>
+  );
+}
+
 function ActiveAgentCard({
   agent,
   availableSkills,
   liveEvents,
+  models,
+  modelsStatus,
   definitionSource,
   definitionUpdated,
   selected,
@@ -3434,6 +3945,7 @@ function ActiveAgentCard({
   confirmingReset,
   onRename,
   onConfigure,
+  onSetConversationSettings,
   onReset,
   onCancelReset,
   onEventError,
@@ -3444,6 +3956,8 @@ function ActiveAgentCard({
   agent: DesktopActiveAgent;
   availableSkills: DesktopState["agentCatalog"]["skills"];
   liveEvents: readonly DesktopLiveEventState[];
+  models: readonly DesktopAgentModel[];
+  modelsStatus: "loading" | "loaded" | "failed";
   definitionSource?: string | undefined;
   definitionUpdated: boolean;
   selected: boolean;
@@ -3453,6 +3967,9 @@ function ActiveAgentCard({
   onConfigure: (
     overrides: AgentOverrides,
   ) => Promise<DesktopActiveAgent | undefined>;
+  onSetConversationSettings: (
+    settings: DesktopAgentConversationSettings,
+  ) => Promise<DesktopActiveAgent | undefined>;
   onReset: () => Promise<void>;
   onCancelReset: () => void;
   onEventError: (error: unknown) => void;
@@ -3461,6 +3978,12 @@ function ActiveAgentCard({
   onDeactivate: () => Promise<void>;
 }): React.JSX.Element {
   const [editing, setEditing] = useState(false);
+  const [model, setModel] = useState(agent.model ?? "");
+  const [reasoningEffort, setReasoningEffort] = useState(
+    agent.reasoningEffort ?? "",
+  );
+  const [confirmingConversationSettings, setConfirmingConversationSettings] =
+    useState(false);
   const [label, setLabel] = useState(agent.label);
   const [systemPrompt, setSystemPrompt] = useState(agent.config.systemPrompt);
   const [tools, setTools] = useState(listValue(agent.config.tools));
@@ -3491,6 +4014,31 @@ function ActiveAgentCard({
     const validNames = new Set(availableSkills.map(({ name }) => name));
     setSkills(agent.config.skills.filter((name) => validNames.has(name)));
   }, [agent.config.skills, availableSkillNames]);
+
+  useEffect(() => {
+    setModel(agent.model ?? "");
+    setReasoningEffort(agent.reasoningEffort ?? "");
+    setConfirmingConversationSettings(false);
+  }, [agent.model, agent.reasoningEffort]);
+
+  const applyConversationSettings = async (): Promise<void> => {
+    const updated = await onSetConversationSettings({
+      ...(model === "" ? {} : { model }),
+      ...(reasoningEffort === ""
+        ? {}
+        : { reasoningEffort: reasoningEffort as AgentReasoningEffort }),
+    });
+    if (updated !== undefined) {
+      setConfirmingConversationSettings(false);
+      setEditing(false);
+    }
+  };
+  const closeEditor = (): void => {
+    setModel(agent.model ?? "");
+    setReasoningEffort(agent.reasoningEffort ?? "");
+    setConfirmingConversationSettings(false);
+    setEditing(false);
+  };
 
   const save = async (): Promise<void> => {
     const normalizedLabel = label.trim();
@@ -3545,6 +4093,10 @@ function ActiveAgentCard({
             </small>
           )}
         </dd>
+        <dt>Model</dt>
+        <dd>{agentModelLabel(agent.model, models)}</dd>
+        <dt>Reasoning</dt>
+        <dd>{agentReasoningLabel(agent.reasoningEffort)}</dd>
         <dt>Tools</dt>
         <dd>
           {agent.config.tools.join(", ")}
@@ -3592,6 +4144,33 @@ function ActiveAgentCard({
       </dl>
       {editing && (
         <div className="agent-editor">
+          <AgentModelEditor
+            agentLabel={agent.label}
+            currentModelId={agent.model}
+            currentReasoningEffort={agent.reasoningEffort}
+            model={model}
+            reasoningEffort={reasoningEffort}
+            models={models}
+            modelsStatus={modelsStatus}
+            busy={busy}
+            confirming={confirmingConversationSettings}
+            onModelChange={(value) => {
+              setModel(value);
+              setReasoningEffort(
+                reasoningEffortForDraftModel(value, reasoningEffort, models),
+              );
+              setConfirmingConversationSettings(false);
+            }}
+            onReasoningEffortChange={(value) => {
+              setReasoningEffort(value);
+              setConfirmingConversationSettings(false);
+            }}
+            onRequestConfirmation={() =>
+              setConfirmingConversationSettings(true)
+            }
+            onConfirm={() => void applyConversationSettings()}
+            onCancel={() => setConfirmingConversationSettings(false)}
+          />
           <label>
             Instance name
             <input
@@ -3699,7 +4278,7 @@ function ActiveAgentCard({
             >
               {busy ? "Saving…" : "Save overrides"}
             </button>
-            <button disabled={busy} onClick={() => setEditing(false)}>
+            <button disabled={busy} onClick={closeEditor}>
               Cancel
             </button>
           </div>
@@ -3714,7 +4293,10 @@ function ActiveAgentCard({
         <button disabled={busy} onClick={() => void onOpen()}>
           Open
         </button>
-        <button disabled={busy} onClick={() => setEditing((value) => !value)}>
+        <button
+          disabled={busy}
+          onClick={() => (editing ? closeEditor() : setEditing(true))}
+        >
           {editing ? "Close editor" : "Edit overrides"}
         </button>
         {confirmingReset ? (
@@ -3972,10 +4554,15 @@ export function Timeline({
           ...item,
           itemType: "operation" as const,
         })),
+        ...workspace.triggers.map((item) => ({
+          ...item,
+          timestamp: Date.parse(item.observedAt) || 0,
+          itemType: "trigger" as const,
+        })),
       ]
         .sort((left, right) => left.timestamp - right.timestamp)
         .slice(-200),
-    [workspace.messages, workspace.operations],
+    [workspace.messages, workspace.operations, workspace.triggers],
   );
   return (
     <div
@@ -4013,11 +4600,42 @@ export function Timeline({
               <p className="message-plain-text">{item.content}</p>
             )}
           </article>
-        ) : (
+        ) : item.itemType === "operation" ? (
           <OperationCard key={`operation-${item.id}`} operation={item} />
+        ) : (
+          <TriggerCard key={`trigger-${item.deliveryId}`} trigger={item} />
         ),
       )}
     </div>
+  );
+}
+
+export function TriggerCard({
+  trigger,
+}: {
+  trigger: DesktopState["agentWorkspaces"][string]["triggers"][number];
+}): React.JSX.Element {
+  const icon = {
+    queued: "◌",
+    completed: "✓",
+    failed: "×",
+  }[trigger.status];
+  return (
+    <details className={`trigger trigger-${trigger.status}`}>
+      <summary>
+        <span aria-hidden="true">{icon}</span> Listening Event ·{" "}
+        {trigger.sourceTrack}
+        <small>{trigger.status}</small>
+      </summary>
+      <p>{trigger.summary}</p>
+      {trigger.messagePrefix && (
+        <p>
+          <strong>Message prefix:</strong> {trigger.messagePrefix}
+        </p>
+      )}
+      <pre>{trigger.occurrence}</pre>
+      {trigger.error && <p className="warning">Warning: {trigger.error}</p>}
+    </details>
   );
 }
 
@@ -4699,32 +5317,6 @@ export function SettingsView({
         <span>Non-secret preferences</span>
       </div>
       <form className="settings-form" onSubmit={(event) => void save(event)}>
-        <label>
-          Model
-          <input
-            value={draft.model}
-            onChange={(event) =>
-              setDraft({ ...draft, model: event.target.value })
-            }
-          />
-        </label>
-        <label>
-          Reasoning
-          <select
-            value={draft.reasoning}
-            onChange={(event) =>
-              setDraft({
-                ...draft,
-                reasoning: event.target.value as typeof draft.reasoning,
-              })
-            }
-          >
-            <option>auto</option>
-            <option>low</option>
-            <option>medium</option>
-            <option>high</option>
-          </select>
-        </label>
         <label>
           Approval policy
           <select

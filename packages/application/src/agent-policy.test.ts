@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { SessionSnapshot } from "@ableton-agent/protocol";
 
 import {
+  AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE,
   browserIntentGuidance,
   compactProjectContext,
   createAgentHooks,
@@ -42,7 +43,22 @@ const snapshot: SessionSnapshot = {
       pan: 0,
     },
   ],
-  clips: [],
+  clips: [
+    {
+      reference: "00000000-0000-4000-8000-000000000003",
+      trackReference: "00000000-0000-4000-8000-000000000002",
+      trackIndex: 1,
+      sceneIndex: 2,
+      name: "Bass Verse",
+      kind: "midi",
+      length: 4,
+      noteCount: 4,
+      muted: false,
+      looping: true,
+      isPlaying: false,
+      isTriggered: false,
+    },
+  ],
 };
 
 const connected = {
@@ -53,14 +69,63 @@ const connected = {
 } as const;
 
 describe("agent policy", () => {
-  it("builds bounded project context without detailed musical content", () => {
+  it("builds fresh action context with exact identities but no musical detail", () => {
     const context = compactProjectContext(connected, snapshot);
 
+    expect(context).toContain("Fresh Ableton project context for this prompt");
+    expect(context).toContain("use these exact identities directly");
     expect(context).toContain('"projectId":"project-1"');
     expect(context).toContain('"name":"Drums"');
-    expect(context).toContain('"sessionClipCount":0');
+    expect(context).toContain('"sessionClipCount":1');
+    expect(context).toContain('"sessionClips":[{');
+    expect(context).toContain(
+      '"reference":"00000000-0000-4000-8000-000000000003"',
+    );
+    expect(context).toContain(
+      '"trackReference":"00000000-0000-4000-8000-000000000002"',
+    );
+    expect(context).toContain('"trackIndex":1');
+    expect(context).toContain('"sceneIndex":2');
+    expect(context).toContain('"name":"Bass Verse"');
+    expect(context).toContain('"sessionClipsTruncated":false');
+    expect(context).not.toContain('"noteCount"');
+    expect(context).not.toContain('"length"');
     expect(context).not.toContain('"volume"');
     expect(context).not.toContain('"pan"');
+  });
+
+  it("bounds project action identities and reports truncation", () => {
+    const tracks = Array.from({ length: 17 }, (_, index) => ({
+      ...snapshot.tracks[0]!,
+      index,
+      reference: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+      name: `Track ${index}`,
+    }));
+    const clips = Array.from({ length: 129 }, (_, index) => ({
+      ...snapshot.clips![0]!,
+      reference: `10000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+      sceneIndex: index,
+      name: `Clip ${index}`,
+    }));
+
+    const context = compactProjectContext(connected, {
+      ...snapshot,
+      trackCount: tracks.length,
+      tracks,
+      clips,
+    });
+    const serialized = context.slice(context.indexOf("{"));
+    const parsed = JSON.parse(serialized) as {
+      tracks: unknown[];
+      tracksTruncated: boolean;
+      sessionClips: unknown[];
+      sessionClipsTruncated: boolean;
+    };
+
+    expect(parsed.tracks).toHaveLength(16);
+    expect(parsed.tracksTruncated).toBe(true);
+    expect(parsed.sessionClips).toHaveLength(128);
+    expect(parsed.sessionClipsTruncated).toBe(true);
   });
 
   it("classifies non-retryable failures and returns targeted guidance", () => {
@@ -77,10 +142,17 @@ describe("agent policy", () => {
     expect(retryGuidance("connection reset")).toContain("at most once");
   });
 
-  it("injects fresh context at session and prompt boundaries", async () => {
+  it("injects cached context without prompt-bound session inspection", async () => {
     const getAbletonStatus = vi.fn(async () => connected);
     const inspectSession = vi.fn(async () => snapshot);
-    const hooks = createAgentHooks({ getAbletonStatus, inspectSession });
+    const getPreparedContext = vi.fn(() =>
+      compactProjectContext(connected, snapshot),
+    );
+    const hooks = createAgentHooks({
+      getAbletonStatus,
+      inspectSession,
+      preparedContext: { getPreparedContext },
+    });
 
     const started = await hooks.onSessionStart?.(
       {
@@ -101,9 +173,56 @@ describe("agent policy", () => {
       { sessionId: "session-1" },
     );
 
-    expect(started?.additionalContext).toContain("Current Ableton project");
+    expect(started?.additionalContext).toContain(
+      "supplied per prompt from the prepared context store",
+    );
     expect(prompted?.additionalContext).toContain('"tempo":124');
-    expect(inspectSession).toHaveBeenCalledTimes(2);
+    expect(prompted?.additionalContext).toContain('"name":"Bass Verse"');
+    expect(getPreparedContext).toHaveBeenCalledOnce();
+    expect(inspectSession).not.toHaveBeenCalled();
+    expect(getAbletonStatus).not.toHaveBeenCalled();
+  });
+
+  it("directs automatic Listening Events to use guarded cached identities", async () => {
+    const listener = {
+      id: "event-listener.00000000-0000-4000-8000-000000000001",
+      eventId: "live-event.00000000-0000-4000-8000-000000000001",
+      enabled: true,
+      responseMode: "automatic" as const,
+    };
+    const getPreparedContext = vi.fn(
+      () =>
+        'Prepared context\n{"freshness":"stale","identityPolicy":"guarded-exact-reference"}',
+    );
+    const hooks = createAgentHooks({
+      getAbletonStatus: async () => connected,
+      preparedContext: {
+        getPreparedContext,
+        activeListener: () => listener,
+      },
+    });
+
+    const prompted = await hooks.onUserPromptSubmitted?.(
+      {
+        sessionId: "session-1",
+        timestamp: new Date(),
+        workingDirectory: "/tmp",
+        prompt:
+          "<live-event-trigger>Launch the corresponding clip.</live-event-trigger>",
+      },
+      { sessionId: "session-1" },
+    );
+
+    expect(prompted?.additionalContext).toContain(
+      AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE,
+    );
+    expect(prompted?.additionalContext).toContain(
+      "Do not inspect solely because freshness is stale",
+    );
+    expect(prompted?.additionalContext).toContain(
+      "missing, ambiguous, unresolved, or truncated",
+    );
+    expect(getPreparedContext).toHaveBeenCalledWith(listener);
   });
 
   it("injects separate Browser guidance for piano and string bass requests", async () => {

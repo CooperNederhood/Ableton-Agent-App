@@ -68,6 +68,7 @@ describe("desktop IPC", () => {
       target: instanceId,
       enabled: true,
     });
+
     await handlers["agents:set-auto-approval"]({
       target: "all",
       enabled: false,
@@ -76,6 +77,36 @@ describe("desktop IPC", () => {
     expect(setAutoApproval.mock.calls).toEqual([
       [instanceId, true],
       ["all", false],
+    ]);
+  });
+
+  it("routes model discovery and per-agent conversation replacement", async () => {
+    const listAgentModels = vi.fn().mockResolvedValue([]);
+    const setActiveAgentConversationSettings = vi.fn().mockResolvedValue({});
+    const handlers = createIpcHandlers(
+      {
+        listAgentModels,
+        setActiveAgentConversationSettings,
+      } as unknown as DesktopService,
+      {} as DiagnosticsActions,
+    );
+    const instanceId = "00000000-0000-4000-8000-000000000001";
+    const settings = { model: "model-a", reasoningEffort: "high" } as const;
+
+    await handlers["agents:models"]({});
+    await handlers["agents:set-conversation-settings"]({
+      instanceId,
+      settings,
+    });
+    await handlers["agents:set-conversation-settings"]({
+      instanceId,
+      settings: {},
+    });
+
+    expect(listAgentModels).toHaveBeenCalledOnce();
+    expect(setActiveAgentConversationSettings.mock.calls).toEqual([
+      [instanceId, settings],
+      [instanceId, {}],
     ]);
   });
 

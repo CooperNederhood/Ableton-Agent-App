@@ -51,6 +51,7 @@ export function createIpcHandlers(
     "agents:catalog": () => service.getAgentCatalog(),
     "agents:refresh": () => service.refreshAgentCatalog(),
     "agents:active": () => service.listActiveAgents(),
+    "agents:models": () => service.listAgentModels(),
     "agents:create": ({ definitionName }) =>
       service.createActiveAgent(definitionName),
     "agents:rename": ({ instanceId, label }) =>
@@ -59,6 +60,8 @@ export function createIpcHandlers(
       service.configureActiveAgent(instanceId, overrides),
     "agents:reset": ({ instanceId }) => service.resetActiveAgent(instanceId),
     "agents:select": ({ instanceId }) => service.selectActiveAgent(instanceId),
+    "agents:set-conversation-settings": ({ instanceId, settings }) =>
+      service.setActiveAgentConversationSettings(instanceId, settings),
     "agents:set-auto-approval": ({ target, enabled }) =>
       service.setAutoApproval(target, enabled),
     "agents:deactivate": async ({ instanceId }) => {
@@ -174,11 +177,13 @@ export function createIpcHandlers(
       enabled,
       responseMode,
       messagePrefix,
+      preparedContext,
     }) =>
       service.assignLiveEventListener(agentInstanceId, eventId, {
         enabled,
         responseMode,
         ...(messagePrefix === undefined ? {} : { messagePrefix }),
+        ...(preparedContext === undefined ? {} : { preparedContext }),
       }),
     "events:unassign-listener": async ({ agentInstanceId, eventId }) => ({
       removed: await service.unassignLiveEventListener(
@@ -192,11 +197,13 @@ export function createIpcHandlers(
       enabled,
       responseMode,
       messagePrefix,
+      preparedContext,
     }) =>
       service.updateLiveEventListener(agentInstanceId, eventId, {
         ...(enabled === undefined ? {} : { enabled }),
         ...(responseMode === undefined ? {} : { responseMode }),
         ...(messagePrefix === undefined ? {} : { messagePrefix }),
+        ...(preparedContext === undefined ? {} : { preparedContext }),
       }),
     "event-history:search": (request) => service.searchEventHistory(request),
     "event-history:trace": ({ traceId, cursor, limit, order }) =>

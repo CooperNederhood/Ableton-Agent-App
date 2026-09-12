@@ -116,6 +116,20 @@ export class ApprovalCoordinator {
   public approveForAgentInstanceIds(
     agentInstanceIds: ReadonlySet<string>,
   ): number {
+    return this.resolveForAgentInstanceIds(agentInstanceIds, true);
+  }
+
+  /** Denies pending requests attributed to one of the selected agents. */
+  public denyForAgentInstanceIds(
+    agentInstanceIds: ReadonlySet<string>,
+  ): number {
+    return this.resolveForAgentInstanceIds(agentInstanceIds, false);
+  }
+
+  private resolveForAgentInstanceIds(
+    agentInstanceIds: ReadonlySet<string>,
+    approved: boolean,
+  ): number {
     let resolved = 0;
     for (const [id, pending] of [...this.#pending]) {
       const agentInstanceId = pending.attribution.agentInstanceId;
@@ -126,7 +140,7 @@ export class ApprovalCoordinator {
         continue;
       }
       this.#pending.delete(id);
-      pending.resolve(true);
+      pending.resolve(approved);
       resolved += 1;
     }
     return resolved;

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   DEFAULT_SIGNAL_USAGE_INSTRUCTION,
+  isMissingCopilotSessionError,
   type AgentSessionConfiguration,
   type HeadlessApplication,
 } from "@ableton-agent/application";
@@ -53,6 +54,9 @@ import {
 import {
   desktopActiveAgentSchema,
   desktopAgentCatalogSchema,
+  desktopAgentConversationSettingsSchema,
+  desktopAgentModelsSchema,
+  MAX_AGENT_TRIGGER_HISTORY,
   preferencesSchema,
   type ApprovalDecision,
   type AutoApprovalTarget,
@@ -71,8 +75,10 @@ import {
   type DesktopAutoApprovalUpdate,
   type DesktopAgentDefinition,
   type DesktopAgentConfigOverrides,
+  type DesktopAgentConversationSettings,
   type DesktopAgentHistoryMessage,
   type DesktopActiveAgent,
+  type DesktopAgentModel,
   type DesktopPreferences,
   type DesktopProjectSnapshot,
   type DesktopProjectIdentity,
@@ -81,6 +87,7 @@ import {
   type ProductMode,
   type LatestAcceptedOutput,
   type LiveEventDefinitionDraft,
+  type LiveEventTrigger,
   type OutputDeliveryMode,
   type PendingProjectTransition,
   type ProjectTransitionDecision,
@@ -213,6 +220,7 @@ export class HeadlessDesktopService implements DesktopService {
   #pinnedContext: ContextChip[] = [];
   #turn: ActiveTurn | undefined;
   readonly #managedTurns = new Map<string, ActiveTurn>();
+  readonly #managedAgentReplacements = new Set<string>();
   readonly #automaticStreamMessageIds = new Map<string, string>();
   readonly #managedTurnCleanup = new Set<string>();
   #acceptingActions = false;
@@ -220,6 +228,7 @@ export class HeadlessDesktopService implements DesktopService {
     Extract<DesktopLifecycleState, "ready" | "degraded"> | undefined;
   #latestOutputs = new Map<string, LatestAcceptedOutput>();
   #snapshotRefresh: Promise<DesktopProjectSnapshot> | undefined;
+  #snapshotEnrichmentGeneration = 0;
   #activeProductionSessionId: string | undefined;
   readonly #sdkSessionIds = new Map<string, string>();
   readonly #ephemeralSessionIds = new Set<string>();
@@ -627,6 +636,11 @@ export class HeadlessDesktopService implements DesktopService {
     return [...this.#requireActiveSession().activeAgents];
   }
 
+  public async listAgentModels(): Promise<DesktopAgentModel[]> {
+    this.#assertAccepting();
+    return desktopAgentModelsSchema.parse(await this.#application.listModels());
+  }
+
   public async createActiveAgent(
     definitionName: string,
   ): Promise<DesktopActiveAgent> {
@@ -760,6 +774,10 @@ export class HeadlessDesktopService implements DesktopService {
           ),
           label: current.label,
           autoApprove: current.autoApprove,
+          ...(current.model === undefined ? {} : { model: current.model }),
+          ...(current.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: current.reasoningEffort }),
           forkedHistory: current.forkedHistory ?? [],
         });
         await this.#application.reconfigureManagedAgent(
@@ -803,6 +821,124 @@ export class HeadlessDesktopService implements DesktopService {
         return instance;
       },
     );
+  }
+
+  public async setActiveAgentConversationSettings(
+    instanceId: string,
+    settings: DesktopAgentConversationSettings,
+  ): Promise<DesktopActiveAgent> {
+    const requested = desktopAgentConversationSettingsSchema.parse(settings);
+    const target = this.#captureActiveAgentTarget(instanceId);
+    return this.#queueAgentAction(instanceId, async () => {
+      this.#managedAgentReplacements.add(instanceId);
+      try {
+        const original = await this.#queueSessionAction(async () =>
+          this.#resolveActiveAgentTarget(target),
+        );
+        if (
+          original.instance.model === requested.model &&
+          original.instance.reasoningEffort === requested.reasoningEffort
+        ) {
+          return original.instance;
+        }
+        if (
+          this.#managedTurns.has(instanceId) ||
+          original.instance.lifecycle === "busy"
+        ) {
+          throw new Error(
+            `Agent instance '${instanceId}' has a turn in progress`,
+          );
+        }
+        if (requested.model === undefined) {
+          if (requested.reasoningEffort !== undefined) {
+            throw new Error(
+              "SDK default model does not support an explicit reasoning effort",
+            );
+          }
+        } else {
+          const available = await this.listAgentModels();
+          const selected = available.find(({ id }) => id === requested.model);
+          if (selected === undefined) {
+            throw new Error(
+              `Copilot model '${requested.model}' is unavailable`,
+            );
+          }
+          if (selected.policyState !== "enabled") {
+            throw new Error(
+              `Copilot model '${requested.model}' is ${selected.policyState} by policy`,
+            );
+          }
+          if (
+            requested.reasoningEffort !== undefined &&
+            (!selected.capabilities.reasoningEffort ||
+              !selected.supportedReasoningEfforts.includes(
+                requested.reasoningEffort,
+              ))
+          ) {
+            throw new Error(
+              `Copilot model '${requested.model}' does not support the '${requested.reasoningEffort}' reasoning effort`,
+            );
+          }
+        }
+        const oldSdkSessionId = original.instance.sdkSessionId;
+        if (oldSdkSessionId === undefined) {
+          throw new Error(`Agent instance '${instanceId}' has no SDK session`);
+        }
+        const configured: DesktopActiveAgent = { ...original.instance };
+        delete configured.model;
+        delete configured.reasoningEffort;
+        if (requested.model !== undefined) configured.model = requested.model;
+        if (requested.reasoningEffort !== undefined) {
+          configured.reasoningEffort = requested.reasoningEffort;
+        }
+        const sdkSessionId = await this.#application.createManagedAgent(
+          this.#managedConfiguration(configured),
+        );
+        const replacement = desktopActiveAgentSchema.parse({
+          ...configured,
+          sdkSessionId,
+          forkedHistory: [],
+          triggerHistory: [],
+        });
+        try {
+          return await this.#queueSessionAction(async () => {
+            const { session } = this.#resolveActiveAgentTarget(
+              target,
+              original.instance,
+            );
+            await this.#replaceActiveProductionSessionStrict({
+              ...session,
+              activeAgents: session.activeAgents.map((candidate) =>
+                candidate.id === instanceId ? replacement : candidate,
+              ),
+            });
+            await this.#recordAgentConfiguration(session, replacement);
+            this.#approvals.denyForAgentInstanceIds(new Set([instanceId]));
+            this.emit({
+              type: "agent.instance_changed",
+              instance: replacement,
+              change: "conversation-settings-changed",
+            });
+            return replacement;
+          });
+        } catch (error) {
+          try {
+            await this.#application.resumeManagedAgent(
+              this.#managedConfiguration(original.instance),
+              oldSdkSessionId,
+            );
+          } catch (rollbackError) {
+            throw new AggregateError(
+              [error, rollbackError],
+              `Agent instance '${instanceId}' conversation settings change failed and rollback was incomplete`,
+            );
+          }
+          throw error;
+        }
+      } finally {
+        this.#managedAgentReplacements.delete(instanceId);
+      }
+    });
   }
 
   public async setAutoApproval(
@@ -963,8 +1099,8 @@ export class HeadlessDesktopService implements DesktopService {
   public sendToActiveAgent(
     instanceId: string,
     message: string,
-    context: ContextChip[],
-    mode: ProductMode,
+    context: ContextChip[] = [],
+    mode: ProductMode = "explore",
   ): Promise<{ accepted: true; messageId: string }> {
     const prompt = composeAgentPrompt(
       message,
@@ -981,8 +1117,8 @@ export class HeadlessDesktopService implements DesktopService {
     instanceId: string,
     skillName: string,
     argumentsText: string,
-    context: ContextChip[],
-    mode: ProductMode,
+    context: ContextChip[] = [],
+    mode: ProductMode = "explore",
   ): Promise<{ accepted: true; messageId: string }> {
     skillNameSchema.parse(skillName);
     const request = composeAgentPrompt(
@@ -1057,6 +1193,11 @@ export class HeadlessDesktopService implements DesktopService {
     if (this.#managedTurns.size > 0 || this.#managedTurnCleanup.size > 0) {
       throw new Error(
         "Cannot resume a session while a managed agent turn is running",
+      );
+    }
+    if (this.#managedAgentReplacements.size > 0) {
+      throw new Error(
+        "Cannot resume a session while managed Agent conversation settings are changing",
       );
     }
     await this.#withSuspendedSignals(async () => {
@@ -1551,7 +1692,18 @@ export class HeadlessDesktopService implements DesktopService {
       snapshot: coreSnapshot,
     });
 
-    const trackDevices = await this.#readTrackDevices(snapshot);
+    const enrichmentGeneration = this.#snapshotEnrichmentGeneration;
+    const trackDevices = await this.#readTrackDevices(
+      snapshot,
+      enrichmentGeneration,
+    );
+    if (enrichmentGeneration !== this.#snapshotEnrichmentGeneration) {
+      this.#logger.debug("Project enrichment interrupted", {
+        refreshId,
+        durationMs: Date.now() - startedAt,
+      });
+      return coreSnapshot;
+    }
     const baseEnrichedSnapshot = toDesktopSnapshot(
       snapshot,
       status,
@@ -1577,9 +1729,15 @@ export class HeadlessDesktopService implements DesktopService {
     return enrichedSnapshot;
   }
 
-  async #readTrackDevices(snapshot: SessionSnapshot): Promise<TrackDevices[]> {
+  async #readTrackDevices(
+    snapshot: SessionSnapshot,
+    enrichmentGeneration: number,
+  ): Promise<TrackDevices[]> {
     const result: TrackDevices[] = [];
     for (const track of snapshot.tracks) {
+      if (enrichmentGeneration !== this.#snapshotEnrichmentGeneration) {
+        return result;
+      }
       const target = {
         index: track.index,
         expectedReference: track.reference,
@@ -1610,6 +1768,9 @@ export class HeadlessDesktopService implements DesktopService {
       }
       const devices: TrackDevices["devices"] = [];
       for (const device of page.devices) {
+        if (enrichmentGeneration !== this.#snapshotEnrichmentGeneration) {
+          return result;
+        }
         if (device.parameterCount === 0) {
           devices.push({ device, parameters: [] });
           continue;
@@ -1648,6 +1809,13 @@ export class HeadlessDesktopService implements DesktopService {
       result.push({ trackReference: track.reference, devices });
     }
     return result;
+  }
+
+  async #interruptSnapshotEnrichment(): Promise<void> {
+    const refresh = this.#snapshotRefresh;
+    if (refresh === undefined) return;
+    this.#snapshotEnrichmentGeneration += 1;
+    await refresh.catch(() => undefined);
   }
 
   #isOperationTimeout(error: unknown): boolean {
@@ -1909,9 +2077,9 @@ export class HeadlessDesktopService implements DesktopService {
           preferences.eventHistoryEnabled,
         );
       }
-      const restartRequired = (
-        ["abletonPort", "signalPort", "model", "reasoning"] as const
-      ).filter((key) => previous[key] !== preferences[key]);
+      const restartRequired = (["abletonPort", "signalPort"] as const).filter(
+        (key) => previous[key] !== preferences[key],
+      );
       if (restartRequired.length > 0) {
         this.emit({
           type: "diagnostic",
@@ -2016,6 +2184,8 @@ export class HeadlessDesktopService implements DesktopService {
         values: {
           label: instance.label,
           definition: instance.definitionName,
+          model: instance.model,
+          reasoning_effort: instance.reasoningEffort,
           description: instance.config.description,
           instructions: instance.config.systemPrompt,
           tools: instance.config.tools,
@@ -2088,6 +2258,10 @@ export class HeadlessDesktopService implements DesktopService {
 
   #onSharedEvent(event: AppEvent): void {
     this.#logger.debug("Application event received", { event });
+    if (event.type === "agent.sdk_session_rotated") {
+      void this.#persistRuntimeSessionRotation(event);
+      return;
+    }
     if (event.type === "lifecycle.changed") {
       if (
         !this.#acceptingActions &&
@@ -2104,12 +2278,111 @@ export class HeadlessDesktopService implements DesktopService {
     );
     this.#recordApplicationEvent(event, normalized);
     this.emit(normalized);
+    if (event.type === "agent.live_event_trigger_changed") {
+      void this.#persistLiveEventTrigger(event.trigger);
+    }
     if (
       event.type === "agent.message_complete" ||
       event.type === "operation.failed"
     ) {
       this.#clearAutomaticStreamMessageId(event);
     }
+  }
+
+  async #persistRuntimeSessionRotation(
+    event: Extract<AppEvent, { type: "agent.sdk_session_rotated" }>,
+  ): Promise<void> {
+    await this.#queueAgentAction(event.agentInstanceId, async () => {
+      const session = this.#activeSession();
+      const instance = session?.activeAgents.find(
+        ({ id }) => id === event.agentInstanceId,
+      );
+      if (session === undefined || instance === undefined) return;
+      if (instance.sdkSessionId === event.newSdkSessionId) return;
+      if (instance.sdkSessionId !== event.oldSdkSessionId) {
+        this.#logger.warn("Ignored stale SDK session rotation", { event });
+        return;
+      }
+      const rotated = { ...instance, sdkSessionId: event.newSdkSessionId };
+      try {
+        await this.#replaceActiveProductionSessionStrict({
+          ...session,
+          activeAgents: session.activeAgents.map((candidate) =>
+            candidate.id === rotated.id ? rotated : candidate,
+          ),
+        });
+      } catch (error) {
+        this.#report("Rotated SDK session could not be persisted", error);
+        return;
+      }
+      this.emit({
+        type: "diagnostic",
+        level: "warning",
+        message: `Agent '${rotated.label}' recovered after its Copilot session disappeared.`,
+      });
+      this.emit({
+        type: "agent.instance_changed",
+        instance: rotated,
+        change: "session-rotated",
+      });
+    });
+  }
+
+  async #persistLiveEventTrigger(trigger: LiveEventTrigger): Promise<void> {
+    await this.#queueAgentAction(trigger.agentInstanceId, async () => {
+      const session = this.#activeSession();
+      const instance = session?.activeAgents.find(
+        ({ id }) => id === trigger.agentInstanceId,
+      );
+      if (session === undefined || instance === undefined) return;
+      const triggerHistory = this.#upsertTrigger(
+        instance.triggerHistory ?? [],
+        trigger,
+      );
+      try {
+        await this.#replaceActiveProductionSessionStrict({
+          ...session,
+          activeAgents: session.activeAgents.map((candidate) =>
+            candidate.id === instance.id
+              ? { ...candidate, triggerHistory }
+              : candidate,
+          ),
+        });
+      } catch (error) {
+        this.#report(
+          "Listening Event trigger history could not be saved",
+          error,
+        );
+      }
+    });
+  }
+
+  #upsertTrigger(
+    history: readonly LiveEventTrigger[],
+    trigger: LiveEventTrigger,
+  ): LiveEventTrigger[] {
+    const existing = history.find(
+      ({ deliveryId }) => deliveryId === trigger.deliveryId,
+    );
+    if (
+      existing !== undefined &&
+      existing.status !== "queued" &&
+      trigger.status === "queued"
+    ) {
+      return [...history];
+    }
+    const updated =
+      existing === undefined
+        ? [...history, trigger]
+        : history.map((candidate) =>
+            candidate.deliveryId === trigger.deliveryId ? trigger : candidate,
+          );
+    return updated
+      .sort(
+        (left, right) =>
+          Date.parse(left.observedAt) - Date.parse(right.observedAt),
+      )
+      .slice(-MAX_AGENT_TRIGGER_HISTORY);
   }
 
   #messageIdForSharedEvent(event: AppEvent): string {
@@ -2320,10 +2593,11 @@ export class HeadlessDesktopService implements DesktopService {
           return;
         }
         try {
-          startupSession.activeAgents =
-            await this.#resumeManagedAgents(startupSession);
+          startupSession.activeAgents = await this.#resumeManagedAgents(
+            startupSession,
+            true,
+          );
           this.#activeProductionSessionId = startupSession.id;
-          await this.#touchSession(startupSession.id);
           this.#publishAutoApprovedAgentIds();
           const restored = this.#sessions.find(
             ({ id }) => id === startupSession.id,
@@ -2335,11 +2609,12 @@ export class HeadlessDesktopService implements DesktopService {
         } catch (error) {
           this.emit({
             type: "diagnostic",
-            level: "warning",
+            level: "error",
             message: `Project session ${startupSession.id} could not be resumed (${
               error instanceof Error ? error.message : String(error)
-            }); a new session was started.`,
+            }); restoration stopped without replacing the production session.`,
           });
+          return;
         }
       }
       await this.#createManagedProductionSession(
@@ -2482,24 +2757,45 @@ export class HeadlessDesktopService implements DesktopService {
 
   async #resumeManagedAgents(
     session: DesktopSession,
+    persistBeforeActivation = false,
   ): Promise<DesktopActiveAgent[]> {
     if (session.activeAgents.length === 0) {
       throw new Error("Production session has no active agent instances");
     }
     const resumed: DesktopActiveAgent[] = [];
+    const rotations: Array<{
+      oldSdkSessionId: string;
+      instance: DesktopActiveAgent;
+    }> = [];
     try {
       for (const instance of session.activeAgents) {
         if (instance.sdkSessionId === undefined) {
           throw new Error(`Agent instance '${instance.id}' has no SDK session`);
         }
         const resolved = await this.#resolveAgentBindings(instance);
-        await this.#application.resumeManagedAgent(
-          this.#managedConfiguration(resolved),
-          instance.sdkSessionId,
-        );
-        resumed.push(resolved);
+        try {
+          await this.#application.resumeManagedAgent(
+            this.#managedConfiguration(resolved),
+            instance.sdkSessionId,
+          );
+          resumed.push(resolved);
+        } catch (error) {
+          if (!isMissingCopilotSessionError(error)) throw error;
+          const oldSdkSessionId = instance.sdkSessionId;
+          const sdkSessionId = await this.#application.createManagedAgent(
+            this.#managedConfiguration(resolved),
+          );
+          const rotated = { ...resolved, sdkSessionId };
+          resumed.push(rotated);
+          rotations.push({ oldSdkSessionId, instance: rotated });
+        }
       }
-      return resumed;
+      if (persistBeforeActivation) {
+        await this.#replaceStoredProductionSessionStrict(session, {
+          ...session,
+          activeAgents: resumed,
+        });
+      }
     } catch (error) {
       const rollbackErrors = await this.#deactivateAgents(resumed);
       throw this.#sessionSwitchError(
@@ -2509,6 +2805,19 @@ export class HeadlessDesktopService implements DesktopService {
         rollbackErrors,
       );
     }
+    for (const { oldSdkSessionId, instance } of rotations) {
+      this.emit({
+        type: "diagnostic",
+        level: "warning",
+        message: `Agent '${instance.label}' received a replacement Copilot session because '${oldSdkSessionId}' no longer exists.`,
+      });
+      this.emit({
+        type: "agent.instance_changed",
+        instance,
+        change: "session-rotated",
+      });
+    }
+    return resumed;
   }
 
   async #switchManagedProductionSession(
@@ -2594,6 +2903,10 @@ export class HeadlessDesktopService implements DesktopService {
       instanceId: instance.id,
       definitionName: instance.definitionName,
       label: instance.label,
+      ...(instance.model === undefined ? {} : { model: instance.model }),
+      ...(instance.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: instance.reasoningEffort }),
       description: instance.config.description,
       systemPrompt:
         inheritedContext === ""
@@ -2638,6 +2951,7 @@ export class HeadlessDesktopService implements DesktopService {
           : `${definition.name[0]?.toUpperCase()}${definition.name.slice(1)}`,
       autoApprove: false,
       forkedHistory: [],
+      triggerHistory: [],
       config: {
         description: definition.description,
         systemPrompt: definition.systemPrompt,
@@ -3179,6 +3493,7 @@ export class HeadlessDesktopService implements DesktopService {
   ): Promise<LiveEventDefinition> {
     this.#assertAccepting();
     return this.#queueSessionAction(async () => {
+      await this.#interruptSnapshotEnrichment();
       const session = this.#requireActiveSession();
       const projectId = session.projectId ?? this.#projectIdentity?.projectId;
       if (projectId === undefined) {
@@ -3206,6 +3521,7 @@ export class HeadlessDesktopService implements DesktopService {
   ): Promise<LiveEventDefinition> {
     this.#assertAccepting();
     return this.#queueSessionAction(async () => {
+      await this.#interruptSnapshotEnrichment();
       const session = this.#requireActiveSession();
       const existing = this.#requireLiveEvent(session, eventId);
       const definition = {
@@ -3272,7 +3588,7 @@ export class HeadlessDesktopService implements DesktopService {
     eventId: string,
     settings: Pick<
       AgentEventListener,
-      "enabled" | "responseMode" | "messagePrefix"
+      "enabled" | "responseMode" | "messagePrefix" | "preparedContext"
     >,
   ): Promise<DesktopAgentEventListener> {
     this.#assertAccepting();
@@ -3295,6 +3611,9 @@ export class HeadlessDesktopService implements DesktopService {
         ...(settings.messagePrefix === undefined
           ? {}
           : { messagePrefix: settings.messagePrefix }),
+        ...(settings.preparedContext === undefined
+          ? {}
+          : { preparedContext: settings.preparedContext }),
       };
       await this.#commitLiveEventSession({
         ...session,
@@ -3353,6 +3672,7 @@ export class HeadlessDesktopService implements DesktopService {
     settings: Partial<
       Pick<AgentEventListener, "enabled" | "responseMode"> & {
         messagePrefix: string | null;
+        preparedContext: AgentEventListener["preparedContext"];
       }
     >,
   ): Promise<DesktopAgentEventListener> {
@@ -3381,6 +3701,9 @@ export class HeadlessDesktopService implements DesktopService {
         settings.messagePrefix === null
           ? {}
           : { messagePrefix: settings.messagePrefix }),
+        ...(settings.preparedContext === undefined
+          ? {}
+          : { preparedContext: settings.preparedContext }),
       };
       const listener = { ...updatedListener };
       if (settings.messagePrefix === null) delete listener.messagePrefix;
@@ -3531,6 +3854,13 @@ export class HeadlessDesktopService implements DesktopService {
                 agentInstanceId: agent.id,
                 agentLabel: agent.label,
                 listener,
+                preparedContextStatus:
+                  this.#liveEvents?.getPreparedContextStatus?.(
+                    agent.id,
+                    listener,
+                  ) ?? {
+                    state: "unavailable" as const,
+                  },
               })),
           ),
         };
@@ -3677,9 +4007,35 @@ export class HeadlessDesktopService implements DesktopService {
   async #replaceActiveProductionSessionStrict(
     session: DesktopSession,
   ): Promise<void> {
+    const expected = this.#requireExpectedActiveSession(session.id);
+    await this.#replaceStoredProductionSessionStrict(expected, session);
+  }
+
+  async #replaceStoredProductionSessionStrict(
+    expected: DesktopSession,
+    replacement: DesktopSession,
+  ): Promise<void> {
+    if (replacement.id !== expected.id) {
+      throw new Error(
+        `Cannot replace production session '${expected.id}' with '${replacement.id}'`,
+      );
+    }
+    const index = this.#sessions.findIndex(({ id }) => id === expected.id);
+    if (index === -1) {
+      throw new Error(`Production session '${expected.id}' not found`);
+    }
+    if (this.#sessions[index] !== expected) {
+      throw new Error(
+        `Production session '${expected.id}' changed while the operation was preparing`,
+      );
+    }
+    const committed = {
+      ...replacement,
+      updatedAt: new Date().toISOString(),
+    };
     const sessions = [
-      { ...session, updatedAt: new Date().toISOString() },
-      ...this.#sessions.filter(({ id }) => id !== session.id),
+      committed,
+      ...this.#sessions.filter((_, candidateIndex) => candidateIndex !== index),
     ];
     await this.options.sessionStore.save(
       sessions.filter(({ id }) => !this.#ephemeralSessionIds.has(id)),

@@ -21,26 +21,42 @@ const entry: PendingLiveEventContext = {
     eventId: "live-event.00000000-0000-4000-8000-000000000001",
     kind: "track.playing_clip_changed",
     sequence: 1,
+    projectRevision: 7,
     observedAt: "2026-08-29T18:00:00.000Z",
     target: {
       trackReference: "00000000-0000-4000-8000-000000000010",
       track: { name: "Keys" },
     },
     summary: "Keys started Session clip 1.",
-    current: { state: "session-clip", slotIndex: 0 },
+    previous: { state: "stopped" },
+    current: { state: "session-clip", slotIndex: 0, clipName: "Verse" },
   },
 };
 
 describe("Live event delivery formatting", () => {
-  it("places the message prefix immediately before the event summary", () => {
+  it("sends automatic events as the message prefix and full occurrence JSON", () => {
     const nextPrompt = constructNextPromptLiveEventContext([entry]);
     const automatic = formatAutomaticLiveEventPrompt({
       ...entry,
       listener: { ...entry.listener, responseMode: "automatic" },
     });
-    const adjacent = "Please inspect this.\nKeys started Session clip 1.";
-    expect(nextPrompt.additionalContext).toContain(adjacent);
+    const occurrenceJson = JSON.stringify(entry.occurrence, undefined, 2);
+    const adjacent = `Please inspect this.\n${occurrenceJson}`;
+
     expect(automatic).toContain(adjacent);
+    expect(automatic).toMatch(
+      /^<live-event-trigger delivery-id="delivery" occurrence-id="/u,
+    );
+    expect(automatic).toContain("</live-event-trigger>");
+    expect(nextPrompt.additionalContext).toContain(adjacent);
+    expect(automatic).toContain('"slotIndex": 0');
+    expect(automatic).toContain('"clipName": "Verse"');
+    expect(automatic).toContain('"name": "Keys"');
+    expect(automatic).toContain('"state": "stopped"');
+    expect(automatic).toContain('"observedAt": "2026-08-29T18:00:00.000Z"');
+    expect(automatic).toContain('"sequence": 1');
+    expect(automatic).not.toContain("[Internal Live event");
+    expect(automatic).not.toContain("Inspect current Live state");
   });
 
   it("keeps bounded ordered discrete occurrences", () => {
@@ -59,8 +75,8 @@ describe("Live event delivery formatting", () => {
       maximumContexts: 2,
     });
     expect(result.deliveryIds).toEqual(["delivery", "delivery-2"]);
-    expect(result.additionalContext!.indexOf("sequence 1")).toBeLessThan(
-      result.additionalContext!.indexOf("sequence 2"),
+    expect(result.additionalContext!.indexOf('"sequence": 1')).toBeLessThan(
+      result.additionalContext!.indexOf('"sequence": 2'),
     );
   });
 });

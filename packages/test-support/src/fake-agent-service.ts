@@ -1,5 +1,6 @@
 import type {
   AgentHistoryMessage,
+  AgentModelDescriptor,
   AgentService,
   AgentSessionConfiguration,
 } from "@ableton-agent/application";
@@ -36,6 +37,7 @@ export class FakeAgentService implements AgentService {
   readonly #managedHistory = new Map<string, AgentHistoryMessage[]>();
   readonly #managedAborts = new Map<string, (error: Error) => void>();
   readonly #managedReleases = new Map<string, () => void>();
+  public models: AgentModelDescriptor[] = [];
 
   public constructor(
     private readonly events: EventPublisher,
@@ -84,6 +86,10 @@ export class FakeAgentService implements AgentService {
   public async resumeSession(sessionId: string): Promise<void> {
     if (!this.started) throw new Error("Fake agent service is not started");
     this.#sessionId = sessionId;
+  }
+
+  public async listModels(): Promise<readonly AgentModelDescriptor[]> {
+    return this.models;
   }
 
   public async cancel(): Promise<boolean> {

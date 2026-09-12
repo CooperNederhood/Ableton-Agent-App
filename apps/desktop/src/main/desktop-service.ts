@@ -9,8 +9,10 @@ import type {
   DesktopAppEvent,
   DesktopActiveAgent,
   DesktopAgentConfigOverrides,
+  DesktopAgentConversationSettings,
   DesktopAgentHistoryMessage,
   DesktopAgentCatalog,
+  DesktopAgentModel,
   DesktopAutoApprovalUpdate,
   DesktopConnectionStatus,
   DiagnosticCheck,
@@ -71,6 +73,7 @@ export interface DesktopService {
   getAgentCatalog(): Promise<DesktopAgentCatalog>;
   refreshAgentCatalog(): Promise<DesktopAgentCatalog>;
   listActiveAgents(): Promise<DesktopActiveAgent[]>;
+  listAgentModels(): Promise<DesktopAgentModel[]>;
   createActiveAgent(definitionName: string): Promise<DesktopActiveAgent>;
   renameActiveAgent(
     instanceId: string,
@@ -82,6 +85,10 @@ export interface DesktopService {
   ): Promise<DesktopActiveAgent>;
   resetActiveAgent(instanceId: string): Promise<DesktopActiveAgent>;
   selectActiveAgent(instanceId: string): Promise<DesktopActiveAgent>;
+  setActiveAgentConversationSettings(
+    instanceId: string,
+    settings: DesktopAgentConversationSettings,
+  ): Promise<DesktopActiveAgent>;
   setAutoApproval(
     target: AutoApprovalTarget,
     enabled: boolean,
@@ -93,15 +100,15 @@ export interface DesktopService {
   sendToActiveAgent(
     instanceId: string,
     message: string,
-    context: ContextChip[],
-    mode: ProductMode,
+    context?: ContextChip[],
+    mode?: ProductMode,
   ): Promise<{ accepted: true; messageId: string }>;
   invokeActiveAgentSkill(
     instanceId: string,
     skillName: string,
     argumentsText: string,
-    context: ContextChip[],
-    mode: ProductMode,
+    context?: ContextChip[],
+    mode?: ProductMode,
   ): Promise<{ accepted: true; messageId: string }>;
   cancelActiveAgent(instanceId: string): Promise<{ cancelled: boolean }>;
   connect(): Promise<DesktopConnectionStatus>;
@@ -165,7 +172,7 @@ export interface DesktopService {
     eventId: string,
     settings: Pick<
       AgentEventListener,
-      "enabled" | "responseMode" | "messagePrefix"
+      "enabled" | "responseMode" | "messagePrefix" | "preparedContext"
     >,
   ): Promise<DesktopAgentEventListener>;
   unassignLiveEventListener(
@@ -178,6 +185,7 @@ export interface DesktopService {
     settings: Partial<
       Pick<AgentEventListener, "enabled" | "responseMode"> & {
         messagePrefix: string | null;
+        preparedContext: AgentEventListener["preparedContext"];
       }
     >,
   ): Promise<DesktopAgentEventListener>;
@@ -260,10 +268,18 @@ export class JsonSessionStore {
               activeAgents: versionTwo.activeAgents.map((agent) => ({
                 ...agent,
                 eventListeners: [],
+                triggerHistory: [],
               })),
             });
           }
-          return sessionSchema.parse(value);
+          const session = sessionSchema.parse(value);
+          return {
+            ...session,
+            activeAgents: session.activeAgents.map((agent) => ({
+              ...agent,
+              triggerHistory: agent.triggerHistory ?? [],
+            })),
+          };
         }
         const legacy = legacySessionSchema.parse(value);
         this.#legacySessionIds.add(legacy.id);

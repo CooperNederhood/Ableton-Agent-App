@@ -21,6 +21,62 @@ export interface AgentEventAttribution {
   sdkSessionId?: string;
 }
 
+export type LiveEventTypedState =
+  | {
+      readonly kind: "parameter.value_changed";
+      readonly state: {
+        readonly normalizedValue: number;
+        readonly value: number;
+        readonly displayValue: string;
+      };
+    }
+  | {
+      readonly kind: "track.playing_clip_changed";
+      readonly state:
+        | { readonly state: "stopped" | "arrangement" }
+        | {
+            readonly state: "session-clip";
+            readonly slotIndex: number;
+            readonly clipName?: string | undefined;
+          };
+    }
+  | {
+      readonly kind: "track.triggered_clip_changed";
+      readonly state:
+        | { readonly state: "none" | "stop" }
+        | {
+            readonly state: "session-clip";
+            readonly slotIndex: number;
+            readonly clipName?: string | undefined;
+          };
+    }
+  | {
+      readonly kind: "track.recording_state_changed";
+      readonly state: {
+        readonly recording: boolean;
+        readonly source: "track" | "session-clip" | "arrangement";
+      };
+    };
+
+export interface LiveEventTriggerView {
+  readonly deliveryId: string;
+  readonly occurrenceId: string;
+  readonly eventId: string;
+  readonly listenerId: string;
+  readonly agentInstanceId: string;
+  readonly sdkSessionId: string;
+  readonly kind: string;
+  readonly sourceTrack: string;
+  readonly state: LiveEventTypedState;
+  readonly observedAt: string;
+  readonly messagePrefix?: string;
+  readonly occurrence: string;
+  readonly summary: string;
+  readonly status: "queued" | "completed" | "failed";
+  readonly updatedAt: string;
+  readonly error?: string;
+}
+
 export type AppEvent =
   | { type: "lifecycle.changed"; state: LifecycleState }
   | { type: "ableton.connection_changed"; status: ConnectionStatus }
@@ -61,6 +117,17 @@ export type AppEvent =
       code: string;
       message: string;
       toolName?: string;
+    } & AgentEventAttribution)
+  | ({
+      type: "agent.sdk_session_rotated";
+      agentInstanceId: string;
+      oldSdkSessionId: string;
+      newSdkSessionId: string;
+      reason: "missing-session";
+    } & AgentEventAttribution)
+  | ({
+      type: "agent.live_event_trigger_changed";
+      trigger: LiveEventTriggerView;
     } & AgentEventAttribution);
 
 export interface EventPublisher {

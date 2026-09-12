@@ -387,8 +387,8 @@ export class DesktopJournalHost implements DesktopEventJournal {
 
 /**
  * Composes the Electron main process on the same headless application the CLI
- * uses. Bridge port, model, and reasoning come from persisted preferences; the
- * bridge token comes from OS-backed storage or the environment.
+ * uses. Bridge ports come from persisted preferences; the bridge token comes
+ * from OS-backed storage or the environment.
  */
 export async function createDesktopComposition(
   options: DesktopCompositionOptions,
@@ -460,11 +460,6 @@ export async function createDesktopComposition(
       ...(token === undefined || token === "" ? {} : { token }),
     },
     agent: {
-      // "auto" means "do not override the Copilot runtime default".
-      ...(preferences.model === "auto" ? {} : { model: preferences.model }),
-      ...(preferences.reasoning === "auto"
-        ? {}
-        : { reasoningEffort: preferences.reasoning }),
       baseDirectory: options.agentBaseDirectory,
     },
     requestToolApproval: (request: ToolApprovalRequest) =>

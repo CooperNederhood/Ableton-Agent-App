@@ -2,6 +2,13 @@
 
 ## Implemented baseline
 
+`live-events`
+
+- `live-event-registration`: configure a Triggered Clip Event against a real
+  track, assert target resolution and initial state, disable/unsubscribe,
+  re-enable/resubscribe, verify a missing target remains unsubscribed, correct
+  it, and restore an unchanged Set.
+
 `tracks-and-clips`
 
 - `808-track`: search first, create exactly one namespaced MIDI track, load
@@ -23,8 +30,7 @@
 - Session clip duplicate, launch, properties, and delete;
 - Arrangement create, note write, duplicate, properties, and delete;
 - device, parameter, rack, chain, and Drum Rack inspection;
-- transport mutation/restoration, cue points, denial, stale targets, and retry
-  safety.
+- transport mutation/restoration, cue points, denial, and retry safety.
 
 Each group starts in a fresh runner-owned default Set. Copilot session context
 may continue, but Live artifacts never carry across group restarts.

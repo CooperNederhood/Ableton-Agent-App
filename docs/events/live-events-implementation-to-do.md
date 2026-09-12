@@ -140,6 +140,16 @@ Likely files:
   ordered discrete context.
 - [x] Implement `Automatic`: settled continuous delivery and ordered discrete
   delivery through the target managed agent session.
+- [x] Attach listener-scoped prepared project context to automatic turns without
+  duplicating it into the visible occurrence payload.
+- [x] Treat prepared-context TTL expiry as mutable-state age rather than exact
+  identity invalidation, and direct automatic turns to use complete guarded
+  references without a preliminary inspection.
+- [x] Fall back to inspection for missing, ambiguous, unresolved, truncated, or
+  explicitly rejected identities, while blocking unchanged stale-reference
+  retries.
+- [x] Record bounded prepared-context age, revision, identity-count, truncation,
+  and unresolved-locator diagnostics without persisting the context body.
 - [x] Prepend the configured message immediately before the normalized event
   summary.
 - [x] Preserve normal agent tool permissions, edit scopes, auto-approval, and
@@ -240,6 +250,10 @@ Likely files:
 - [x] Add simulator integration covering continuous and discrete events.
 - [x] Add application tests proving automatic delivery targets the correct
   agent session and next-message delivery waits for that agent's user turn.
+- [x] Add prepared-context and application tests proving expired exact
+  identities remain usable, automatic guidance is listener-scoped, insufficient
+  identities require inspection, and context diagnostics exclude exact
+  references.
 - [x] Add Electron tests for the Events tab and Listening Events editor.
 - [x] Add real-Live scenarios:
   - turn a rack macro and observe bounded parameter occurrences;

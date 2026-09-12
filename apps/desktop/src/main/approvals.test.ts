@@ -181,8 +181,10 @@ describe("ApprovalCoordinator", () => {
     await expect(agentA).resolves.toBe(true);
     expect(approvals.pendingCount).toBe(2);
 
-    approvals.denyAll();
+    expect(approvals.denyForAgentInstanceIds(new Set(["agent-b"]))).toBe(1);
     await expect(agentB).resolves.toBe(false);
+    expect(approvals.pendingCount).toBe(1);
+    approvals.denyAll();
     await expect(unattributed).resolves.toBe(false);
   });
 

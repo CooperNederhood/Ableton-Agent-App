@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  activeSession,
   contextForSelection,
   desktopReducer,
   initialState,
+  selectedAgentInstance,
   selectedAgentSkills,
   selectedAgentWorkspace,
   type DesktopState,
@@ -36,6 +38,7 @@ function stateWithAgents(): DesktopState {
   });
   return {
     ...initialState,
+    activeSessionId: "session",
     sessions: [
       {
         version: 3 as const,
@@ -58,6 +61,48 @@ function stateWithAgents(): DesktopState {
 }
 
 describe("desktop reducer", () => {
+  it("does not infer an active session from stored session order", () => {
+    const state = stateWithAgents();
+    state.activeSessionId = undefined;
+
+    expect(activeSession(state)).toBeUndefined();
+    expect(selectedAgentInstance(state)).toBeUndefined();
+    expect(
+      desktopReducer(state, {
+        type: "event",
+        event: {
+          type: "agent.instance_changed",
+          instance: state.sessions[0]!.activeAgents[0]!,
+          change: "configured",
+        },
+      }),
+    ).toBe(state);
+  });
+
+  it("keeps startup session lists inactive until context is restored", () => {
+    const stored = stateWithAgents().sessions;
+    const listed = desktopReducer(initialState, {
+      type: "event",
+      event: { type: "sessions.changed", sessions: stored },
+    });
+
+    expect(listed.activeSessionId).toBeUndefined();
+    expect(activeSession(listed)).toBeUndefined();
+    expect(
+      desktopReducer(stateWithAgents(), {
+        type: "event",
+        event: { type: "sessions.changed", sessions: stored },
+      }).activeSessionId,
+    ).toBeUndefined();
+
+    const restored = desktopReducer(listed, {
+      type: "event",
+      event: { type: "session.context_restored", session: stored[0]! },
+    });
+    expect(restored.activeSessionId).toBe("session");
+    expect(activeSession(restored)?.id).toBe("session");
+  });
+
   it("applies a returned session with updated YOLO state immediately", () => {
     const state = stateWithAgents();
     const session = {
@@ -343,6 +388,64 @@ describe("desktop reducer", () => {
     ).toEqual(["Second request", "Two"]);
   });
 
+  it("clears only the changed agent workspace after a model replacement", () => {
+    let state = desktopReducer(stateWithAgents(), {
+      type: "user-message",
+      id: "first-user",
+      content: "First request",
+      agentInstanceId: firstAgentId,
+    });
+    state = desktopReducer(state, {
+      type: "user-message",
+      id: "second-user",
+      content: "Second request",
+      agentInstanceId: secondAgentId,
+    });
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "approval.requested",
+        agentInstanceId: firstAgentId,
+        approval: {
+          id: "approval",
+          title: "Approval",
+          risk: "medium",
+          summary: "Change",
+          changes: [],
+          destructive: false,
+        },
+      },
+    });
+
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.instance_changed",
+        instance: {
+          ...state.sessions[0]!.activeAgents[0]!,
+          model: "model-a",
+          reasoningEffort: "high",
+          sdkSessionId: "fresh-session",
+        },
+        change: "conversation-settings-changed",
+      },
+    });
+
+    expect(state.agentWorkspaces[firstAgentId]).toEqual({
+      messages: [],
+      operations: [],
+      triggers: [],
+    });
+    expect(state.agentWorkspaces[secondAgentId]?.messages).toEqual([
+      expect.objectContaining({ content: "Second request" }),
+    ]);
+    expect(state.sessions[0]?.activeAgents[0]).toMatchObject({
+      model: "model-a",
+      reasoningEffort: "high",
+      sdkSessionId: "fresh-session",
+    });
+  });
+
   it("isolates operations and approvals while switching selected agents", () => {
     let state = desktopReducer(stateWithAgents(), {
       type: "event",
@@ -439,11 +542,17 @@ describe("desktop reducer", () => {
   });
 
   it("hydrates only the requested agent history", () => {
-    const state = desktopReducer(stateWithAgents(), {
+    const initial = stateWithAgents();
+    initial.sessions[0]!.activeAgents[1] = {
+      ...initial.sessions[0]!.activeAgents[1]!,
+      sdkSessionId: "current-sdk-session",
+    };
+    const state = desktopReducer(initial, {
       type: "event",
       event: {
         type: "agent.history_hydrated",
         agentInstanceId: secondAgentId,
+        sdkSessionId: "current-sdk-session",
         history: [
           {
             role: "assistant",
@@ -460,6 +569,26 @@ describe("desktop reducer", () => {
     expect(state.agentWorkspaces[secondAgentId]?.messages[0]?.content).toBe(
       "Restored second history",
     );
+
+    expect(
+      desktopReducer(state, {
+        type: "event",
+        event: {
+          type: "agent.history_hydrated",
+          agentInstanceId: secondAgentId,
+          sdkSessionId: "previous-sdk-session",
+          history: [
+            {
+              role: "assistant",
+              content: "Stale history",
+              timestamp: new Date(11).toISOString(),
+              eventId: "history-2",
+              agentInstanceId: secondAgentId,
+            },
+          ],
+        },
+      }),
+    ).toBe(state);
   });
 
   it("turns selected project objects into explicit context", () => {
@@ -651,12 +780,23 @@ describe("desktop reducer", () => {
 
   it("reduces renderer-safe Live event snapshots", () => {
     const events = { activeSessionId: "session-1", events: [] };
-    const state = desktopReducer(initialState, {
+    const activeState = { ...initialState, activeSessionId: "session-1" };
+    const state = desktopReducer(activeState, {
       type: "event",
       event: { type: "events.changed", events },
     });
     expect(state.events).toEqual(events);
     expect(state.eventsLoad).toEqual({ status: "loaded" });
+
+    expect(
+      desktopReducer(activeState, {
+        type: "event",
+        event: {
+          type: "events.changed",
+          events: { activeSessionId: "session-2", events: [] },
+        },
+      }),
+    ).toBe(activeState);
   });
 
   it("tracks Live event loading errors and disclosure state", () => {
@@ -737,5 +877,56 @@ describe("desktop reducer", () => {
       expect(state.projectRefresh.message.length).toBeLessThanOrEqual(200);
       expect(state.projectRefresh.message.endsWith("…")).toBe(true);
     }
+  });
+
+  it("deduplicates trigger updates immutably within the receiving workspace", () => {
+    const restored = desktopReducer(stateWithAgents(), {
+      type: "event",
+      event: {
+        type: "session.context_restored",
+        session: stateWithAgents().sessions[0]!,
+      },
+    });
+    const trigger = {
+      deliveryId: "delivery-1",
+      occurrenceId: "00000000-0000-4000-8000-000000000101",
+      eventId: "live-event.00000000-0000-4000-8000-000000000001",
+      listenerId: "event-listener.00000000-0000-4000-8000-000000000001",
+      agentInstanceId: firstAgentId,
+      sdkSessionId: "sdk-1",
+      kind: "track.triggered_clip_changed",
+      sourceTrack: "Lead drum",
+      state: {
+        kind: "track.triggered_clip_changed" as const,
+        state: { state: "session-clip" as const, slotIndex: 1 },
+      },
+      observedAt: "2026-08-30T20:00:00.000Z",
+      occurrence: "{}",
+      summary: "Queued pattern2 in scene 2",
+      status: "queued" as const,
+      updatedAt: "2026-08-30T20:00:00.010Z",
+    };
+    const queued = desktopReducer(restored, {
+      type: "event",
+      event: { type: "agent.live_event_trigger_changed", trigger },
+    });
+    const completed = desktopReducer(queued, {
+      type: "event",
+      event: {
+        type: "agent.live_event_trigger_changed",
+        trigger: { ...trigger, status: "completed" },
+      },
+    });
+    const stale = desktopReducer(completed, {
+      type: "event",
+      event: { type: "agent.live_event_trigger_changed", trigger },
+    });
+
+    expect(restored.agentWorkspaces[firstAgentId]?.triggers).toEqual([]);
+    expect(completed.agentWorkspaces[firstAgentId]?.triggers).toEqual([
+      { ...trigger, status: "completed" },
+    ]);
+    expect(stale).toBe(completed);
+    expect(stale.agentWorkspaces[secondAgentId]?.triggers).toEqual([]);
   });
 });

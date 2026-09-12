@@ -14,6 +14,7 @@ import {
   liveEventOccurrenceSchema,
   liveEventResolutionSchema,
   outputSubscriptionSchema,
+  resolvePreparedContextConfiguration,
 } from "./schemas.js";
 import {
   createAgentEventListenerId,
@@ -106,6 +107,8 @@ describe("agent configuration schemas", () => {
       definitionName: "default",
       definitionFingerprint: "a".repeat(64),
       label: "Default",
+      model: "model-a",
+      reasoningEffort: "max",
       lifecycle: "ready",
       config: {
         description: "General-purpose agent.",
@@ -122,6 +125,14 @@ describe("agent configuration schemas", () => {
     });
 
     expect(instance.autoApprove).toBe(false);
+    expect(instance.model).toBe("model-a");
+    expect(instance.reasoningEffort).toBe("max");
+    expect(
+      activeAgentInstanceSchema.safeParse({
+        ...instance,
+        reasoningEffort: "minimal",
+      }).success,
+    ).toBe(false);
   });
 
   it("validates every live event definition kind as a discriminated union", () => {
@@ -250,5 +261,22 @@ describe("agent configuration schemas", () => {
         messagePrefix: "x".repeat(MAX_LIVE_EVENT_MESSAGE_PREFIX_LENGTH + 1),
       }).success,
     ).toBe(false);
+  });
+
+  it("keeps listeners without prepared context backward compatible", () => {
+    const parsed = agentEventListenerSchema.parse({
+      id: createAgentEventListenerId("00000000-0000-4000-8000-000000000001"),
+      eventId: createLiveEventId("00000000-0000-4000-8000-000000000002"),
+      enabled: true,
+      responseMode: "next-prompt",
+    });
+
+    expect(parsed.preparedContext).toBeUndefined();
+    expect(resolvePreparedContextConfiguration(parsed.preparedContext)).toEqual(
+      {
+        scope: "whole-session",
+        includeSessionClips: true,
+      },
+    );
   });
 });

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   AddEventPanel,
+  AgentModelEditor,
   ApprovalPanel,
   AgentsView,
   Arrangement,
@@ -30,6 +31,8 @@ import {
   ResolvedToolsDisclosure,
   refreshOutputs,
   refreshProjectSnapshot,
+  reasoningEffortForDraftModel,
+  reasoningOptionsForModel,
   saveAgentEventListeners,
   selectWorkspaceAgent,
   sendComposerMessage,
@@ -41,9 +44,10 @@ import {
   slashCompletionText,
   SlashCompletionSuggestions,
   Timeline,
+  TriggerCard,
   Workspace,
 } from "./App";
-import type { DesktopApi } from "../contracts";
+import type { DesktopAgentModel, DesktopApi } from "../contracts";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { desktopReducer, initialState, type DesktopState } from "./state";
 
@@ -118,6 +122,7 @@ describe("desktop components", () => {
   ): DesktopState => ({
     ...initialState,
     lifecycle: "ready" as const,
+    activeSessionId: "session",
     sessions: [
       {
         version: 3 as const,
@@ -289,6 +294,7 @@ describe("desktop components", () => {
         state={{
           ...initialState,
           lifecycle: "ready",
+          activeSessionId: "production-session",
           sessions: [
             {
               version: 3,
@@ -498,6 +504,8 @@ describe("desktop components", () => {
 
   it("replaces product modes with labeled active-agent instances", () => {
     const state = workspaceState();
+    state.sessions[0]!.activeAgents[0]!.model = "model-a";
+    state.sessions[0]!.activeAgents[0]!.reasoningEffort = "high";
     const header = renderToStaticMarkup(
       <ConnectionHeader state={state} dispatch={vi.fn()} />,
     );
@@ -510,6 +518,7 @@ describe("desktop components", () => {
     expect(header).toContain("Default 2");
     expect(header).not.toContain("Compose");
     expect(header).not.toContain("Explore");
+    expect(header).toContain("model-a · high");
     expect(workspace).toContain("Default · ready");
   });
 
@@ -574,6 +583,7 @@ describe("desktop components", () => {
             },
           ],
           operations: [],
+          triggers: [],
         },
         [secondAgentId]: {
           messages: [
@@ -586,6 +596,7 @@ describe("desktop components", () => {
             },
           ],
           operations: [],
+          triggers: [],
         },
       },
     };
@@ -942,6 +953,7 @@ describe("desktop components", () => {
         state={{
           ...initialState,
           lifecycle: "ready",
+          activeSessionId: "production-session",
           sessions: [
             {
               version: 3,
@@ -960,6 +972,8 @@ describe("desktop components", () => {
                   definitionName: "default",
                   definitionFingerprint: "a".repeat(64),
                   label: "Default",
+                  model: "retired-model",
+                  reasoningEffort: "max",
                   autoApprove: false,
                   lifecycle: "ready",
                   config: {
@@ -1019,6 +1033,9 @@ describe("desktop components", () => {
     expect(html).toContain("ableton_transport_get");
     expect(html).toContain("mix-review");
     expect(html).toContain("midi:drums");
+    expect(html).toContain("retired-model · unavailable");
+    expect(html).toContain(">max<");
+    expect(html).toContain("Loading Copilot models");
     expect(html).toContain("Full session");
     expect(html).toContain("default.yaml");
     expect(html).toContain("newer definition available");
@@ -1029,6 +1046,109 @@ describe("desktop components", () => {
     expect(html).toContain("Deactivate");
     expect(html).toContain("Open");
     expect(html).toContain("Create agent");
+  });
+
+  it("renders atomic model and reasoning settings with bounded live options", () => {
+    const models: DesktopAgentModel[] = [
+      {
+        id: "model-a",
+        displayName: "Model A",
+        policyState: "enabled",
+        capabilities: {
+          vision: true,
+          reasoningEffort: true,
+          maxContextWindowTokens: 64_000,
+        },
+        supportedReasoningEfforts: ["none", "minimal", "low", "xhigh"],
+        defaultReasoningEffort: "low",
+      },
+      {
+        id: "fixed",
+        displayName: "Fixed",
+        policyState: "enabled",
+        capabilities: {
+          vision: false,
+          reasoningEffort: false,
+        },
+        supportedReasoningEfforts: ["high"],
+      },
+    ];
+    const unavailable = renderToStaticMarkup(
+      <AgentModelEditor
+        agentLabel="Default"
+        currentModelId="retired-model"
+        currentReasoningEffort="max"
+        model="retired-model"
+        reasoningEffort="max"
+        models={[]}
+        modelsStatus="failed"
+        busy={false}
+        confirming={false}
+        onModelChange={vi.fn()}
+        onReasoningEffortChange={vi.fn()}
+        onRequestConfirmation={vi.fn()}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    const available = renderToStaticMarkup(
+      <AgentModelEditor
+        agentLabel="Default"
+        model="model-a"
+        reasoningEffort="xhigh"
+        models={models}
+        modelsStatus="loaded"
+        busy={false}
+        confirming={false}
+        onModelChange={vi.fn()}
+        onReasoningEffortChange={vi.fn()}
+        onRequestConfirmation={vi.fn()}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    const confirming = renderToStaticMarkup(
+      <AgentModelEditor
+        agentLabel="Default"
+        model="model-a"
+        reasoningEffort="low"
+        models={models}
+        modelsStatus="loaded"
+        busy
+        confirming
+        onModelChange={vi.fn()}
+        onReasoningEffortChange={vi.fn()}
+        onRequestConfirmation={vi.fn()}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(unavailable).toContain("retired-model (unavailable)");
+    expect(unavailable).toContain("max (unavailable)");
+    expect(unavailable).toContain("Model catalog unavailable");
+    expect(unavailable).toContain("SDK default");
+    expect(available).toContain(
+      "Reasoning efforts: none, minimal, low, xhigh · default low",
+    );
+    expect(available).toContain('value="low"');
+    expect(available).toContain('value="xhigh"');
+    expect(available).not.toContain('value="none"');
+    expect(available).not.toContain('value="minimal"');
+    expect(confirming).toContain("starts a fresh Conversation");
+    expect(confirming).toContain("model or reasoning");
+    expect(confirming).toContain("Cancel settings change");
+    expect(confirming).toContain("disabled");
+    expect(reasoningOptionsForModel("", models)).toEqual([]);
+    expect(reasoningOptionsForModel("fixed", models)).toEqual([]);
+    expect(reasoningOptionsForModel("model-a", models)).toEqual([
+      "low",
+      "xhigh",
+    ]);
+    expect(reasoningEffortForDraftModel("model-a", "xhigh", models)).toBe(
+      "xhigh",
+    );
+    expect(reasoningEffortForDraftModel("fixed", "xhigh", models)).toBe("");
   });
 
   it("renders per-agent Listening Events summaries and editor states", () => {
@@ -1079,12 +1199,18 @@ describe("desktop components", () => {
         enabled: false,
         responseMode: "next-prompt",
         messagePrefix: "",
+        preparedContextScope: "whole-session",
+        preparedContextTracks: "",
+        includeSessionClips: true,
       },
       [secondEventId]: {
         selected: true,
         enabled: true,
         responseMode: "automatic",
         messagePrefix: "Track this:",
+        preparedContextScope: "selected-tracks",
+        preparedContextTracks: "Keys",
+        includeSessionClips: false,
       },
     });
     await saveAgentEventListeners(api, secondAgentId, events, {
@@ -1093,6 +1219,9 @@ describe("desktop components", () => {
         enabled: false,
         responseMode: "next-prompt",
         messagePrefix: "",
+        preparedContextScope: "whole-session",
+        preparedContextTracks: "",
+        includeSessionClips: true,
       },
     });
 
@@ -1105,6 +1234,11 @@ describe("desktop components", () => {
       enabled: true,
       responseMode: "automatic",
       messagePrefix: "Track this:",
+      preparedContext: {
+        scope: "selected-tracks",
+        tracks: [{ track: { name: "Keys", occurrence: 0 } }],
+        includeSessionClips: false,
+      },
     });
     expect(unassignListener).toHaveBeenCalledWith(secondAgentId, firstEventId);
   });
@@ -1205,6 +1339,38 @@ describe("desktop components", () => {
     });
   });
 
+  it("renders an expandable Listening Event trigger card", () => {
+    const html = renderToStaticMarkup(
+      <TriggerCard
+        trigger={{
+          deliveryId: "delivery-1",
+          occurrenceId: "00000000-0000-4000-8000-000000000101",
+          eventId: "live-event.00000000-0000-4000-8000-000000000001",
+          listenerId: "event-listener.00000000-0000-4000-8000-000000000001",
+          agentInstanceId: firstAgentId,
+          sdkSessionId: "sdk-1",
+          kind: "track.triggered_clip_changed",
+          sourceTrack: "Lead drum",
+          state: {
+            kind: "track.triggered_clip_changed",
+            state: { state: "session-clip", slotIndex: 1 },
+          },
+          observedAt: "2026-08-30T20:00:00.000Z",
+          messagePrefix: "Check the launch.",
+          occurrence: '{"current":{"slotIndex":1}}',
+          summary: "Queued pattern2 in scene 2",
+          status: "queued",
+          updatedAt: "2026-08-30T20:00:00.010Z",
+        }}
+      />,
+    );
+    expect(html).toContain("Listening Event ·");
+    expect(html).toContain("Lead drum");
+    expect(html).toContain("Queued pattern2 in scene 2");
+    expect(html).toContain("Check the launch.");
+    expect(html).toContain("queued");
+  });
+
   it("renders approval preview and semantic actions", () => {
     const state = {
       ...initialState,
@@ -1248,6 +1414,7 @@ describe("desktop components", () => {
     expect(html).toContain(
       "You will not be prompted before Ableton changes are applied.",
     );
+    expect(html).not.toContain("Reasoning");
   });
 
   it("shows YOLO status without occupying composer space", () => {
@@ -1284,6 +1451,7 @@ describe("desktop components", () => {
     expect(settings).toContain("Current session: 1 YOLO override");
     expect(settings).toContain("Deny all overrides YOLO");
     expect(settings).toContain("Approve all globally approves every request");
+    expect(settings).not.toContain(">Model<");
   });
 
   it("renders plan and empty inspector states", () => {
@@ -1769,6 +1937,7 @@ describe("desktop components", () => {
 
   it("loads initial renderer state without StrictMode snapshot requests", async () => {
     const requestSnapshot = vi.fn();
+    const storedSessions = workspaceState().sessions;
     const desktop = {
       lifecycle: { get: vi.fn().mockResolvedValue("ready") },
       ableton: {
@@ -1778,7 +1947,7 @@ describe("desktop components", () => {
       preferences: {
         get: vi.fn().mockResolvedValue(initialState.preferences),
       },
-      agent: { getSessions: vi.fn().mockResolvedValue([]) },
+      agent: { getSessions: vi.fn().mockResolvedValue(storedSessions) },
       outputs: { list: vi.fn().mockResolvedValue(initialState.outputs) },
       events: { list: vi.fn().mockResolvedValue(initialState.events) },
       agents: {
@@ -1799,6 +1968,10 @@ describe("desktop components", () => {
       "agents.catalog_changed",
       "outputs.changed",
     ]);
+    expect(events.find((event) => event.type === "sessions.changed")).toEqual({
+      type: "sessions.changed",
+      sessions: storedSessions,
+    });
     expect(requestSnapshot).not.toHaveBeenCalled();
   });
 
@@ -1902,6 +2075,7 @@ describe("desktop components", () => {
           selectedTrackId: snapshot.tracks[0]!.id,
         }}
         dispatch={vi.fn()}
+        sessionActive
         onCreated={vi.fn()}
       />,
     );
@@ -2086,6 +2260,80 @@ describe("desktop components", () => {
     );
     expect(failed).toContain('role="alert"');
     expect(failed).toContain("Bridge offline");
+  });
+
+  it("shows actionable triggered clips without transient none activity", () => {
+    const eventId = "live-event.00000000-0000-4000-8000-000000000011";
+    const event = {
+      definition: {
+        id: eventId,
+        projectId: "project",
+        name: "Lead Drum trigger",
+        enabled: true,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        kind: "track.triggered_clip_changed" as const,
+        classification: "discrete" as const,
+        target: { track: { name: "Lead Drum", occurrence: 0 } },
+      },
+      resolution: {
+        status: "resolved" as const,
+        projectId: "project",
+        trackReference: "00000000-0000-4000-8000-000000000010",
+        track: { name: "Lead Drum" },
+      },
+      latestState: {
+        kind: "track.triggered_clip_changed" as const,
+        state: { state: "none" as const },
+      },
+      history: [
+        {
+          occurrenceId: "00000000-0000-4000-8000-000000000111",
+          eventId,
+          sequence: 1,
+          observedAt: "2026-01-01T00:00:01.000Z",
+          kind: "track.triggered_clip_changed" as const,
+          target: {
+            trackReference: "00000000-0000-4000-8000-000000000010",
+            track: { name: "Lead Drum" },
+          },
+          summary: "Track trigger changed to session-clip",
+          current: {
+            state: "session-clip" as const,
+            slotIndex: 1,
+            clipName: "pattern2",
+          },
+        },
+        {
+          occurrenceId: "00000000-0000-4000-8000-000000000112",
+          eventId,
+          sequence: 2,
+          observedAt: "2026-01-01T00:00:02.000Z",
+          kind: "track.triggered_clip_changed" as const,
+          target: {
+            trackReference: "00000000-0000-4000-8000-000000000010",
+            track: { name: "Lead Drum" },
+          },
+          summary: "Track trigger changed to none",
+          current: { state: "none" as const },
+        },
+      ],
+      listeners: [],
+    };
+
+    const html = renderToStaticMarkup(
+      <EventCard
+        event={event}
+        activityExpanded
+        onToggleActivity={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("Recent activity (1)");
+    expect(html).toContain("Queued pattern2 in scene 2");
+    expect(html).not.toContain("Track trigger changed to none");
+    expect(html).not.toContain("Track trigger changed to session-clip");
   });
 
   it("renders history roots, agent lanes, latency, and exact snapshots", () => {

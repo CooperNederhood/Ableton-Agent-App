@@ -11,6 +11,10 @@
       ]
     },
     {
+      "id": "live-events",
+      "scenarios": ["live-event-registration"]
+    },
+    {
       "id": "tracks",
       "scenarios": ["track-lifecycle", "808-track"]
     },

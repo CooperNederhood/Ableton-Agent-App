@@ -2,9 +2,13 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { readSkillDocument } from "@ableton-agent/agent-config";
+import {
+  readSkillDocument,
+  type AgentEventListener,
+} from "@ableton-agent/agent-config";
 import { describe, expect, it, vi } from "vitest";
 import type {
+  ModelInfo,
   ResumeSessionConfig,
   SessionConfig,
   SessionEvent,
@@ -14,11 +18,14 @@ import { InMemoryEventPublisher, type AppEvent } from "@ableton-agent/shared";
 
 import {
   CopilotAgentService,
+  isMissingCopilotSessionError,
+  MissingCopilotSessionError,
   type AgentRuntimeEvent,
   type AgentSkillDescriptor,
   type AgentSessionConfiguration,
   type CopilotAgentServiceOptions,
 } from "./index.js";
+import { AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE } from "./agent-policy.js";
 import type { SignalTurnRequest } from "./signal-delivery.js";
 import type { LiveEventTurnRequest } from "./live-event-delivery.js";
 
@@ -187,6 +194,7 @@ function createFakeSession(
       emit: (event: SessionEvent) => void,
     ) => Promise<{ data: { content: string } } | undefined>;
     history?: readonly SessionEvent[];
+    getEvents?: () => Promise<readonly SessionEvent[]>;
     abort?: () => Promise<void>;
   } = {},
 ) {
@@ -199,6 +207,7 @@ function createFakeSession(
     if (options.onSend !== undefined) {
       return await options.onSend(prompt, (event) => listener?.(event));
     }
+
     return { data: { content: `reply:${sessionId}:${prompt}` } };
   });
   return {
@@ -214,13 +223,94 @@ function createFakeSession(
         if (listener === receivedListener) listener = undefined;
       };
     },
-    ...(options.history === undefined
+    ...(options.getEvents === undefined && options.history === undefined
       ? {}
-      : { getEvents: vi.fn(async () => options.history!) }),
+      : {
+          getEvents: vi.fn(
+            options.getEvents ?? (async () => options.history ?? []),
+          ),
+        }),
+  };
+}
+
+function modelInfo(id: string, overrides: Partial<ModelInfo> = {}): ModelInfo {
+  return {
+    id,
+    name: `Model ${id}`,
+    capabilities: {
+      supports: { vision: true, reasoningEffort: true },
+      limits: {
+        max_prompt_tokens: 32_000,
+        max_context_window_tokens: 64_000,
+      },
+    },
+    policy: { state: "enabled", terms: "" },
+    supportedReasoningEfforts: ["low", "medium", "high"],
+    defaultReasoningEffort: "medium",
+    ...overrides,
   };
 }
 
 describe("CopilotAgentService managed sessions", () => {
+  it("validates resumed adapters and narrowly classifies missing SDK sessions", async () => {
+    const defaultSession = createFakeSession("default");
+    const missing = createFakeSession("missing", {
+      getEvents: async () => {
+        throw new Error(
+          "Request session.getMessages failed with message: Session not found for sessionId: missing",
+        );
+      },
+    });
+
+    const service = new CopilotAgentService(
+      baseOptions({
+        clientFactory: () => ({
+          createSession: vi.fn(async () => defaultSession),
+          resumeSession: vi.fn(async () => missing),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+
+    const error = await service
+      .resumeManagedAgent(configuration("managed"), "missing")
+      .catch((value: unknown) => value);
+    expect(error).toBeInstanceOf(MissingCopilotSessionError);
+    expect(isMissingCopilotSessionError(error)).toBe(true);
+    expect(missing.disconnect).toHaveBeenCalledOnce();
+    expect(
+      isMissingCopilotSessionError(
+        new Error("Request timed out while finding a session"),
+      ),
+    ).toBe(false);
+    expect(
+      isMissingCopilotSessionError(
+        new Error("Session not found for sessionId: missing"),
+      ),
+    ).toBe(false);
+    await service.stop();
+  });
+
+  it("validates a real resumed adapter before committing it", async () => {
+    const defaultSession = createFakeSession("default");
+    const resumed = createFakeSession("resumed", { history: [] });
+    const service = new CopilotAgentService(
+      baseOptions({
+        clientFactory: () => ({
+          createSession: vi.fn(async () => defaultSession),
+          resumeSession: vi.fn(async () => resumed),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+    await service.resumeManagedAgent(configuration("managed"), "resumed");
+    expect(resumed.getEvents).toHaveBeenCalledOnce();
+    expect(service.getManagedAgentSessionId("managed")).toBe("resumed");
+    await service.stop();
+  });
+
   it("keeps the prior managed session usable when validation or SDK creation fails", async () => {
     const history = [
       userMessage("old-user", "Original prompt", "2026-08-08T00:00:00.000Z"),
@@ -1208,6 +1298,11 @@ describe("CopilotAgentService managed sessions", () => {
     const sessionA = createFakeSession("session-a", {
       history: [
         userMessage("user-1", "Shape the bass", "2026-08-08T00:00:00.000Z"),
+        userMessage(
+          "automatic-1",
+          '<live-event-trigger delivery-id="delivery-1" occurrence-id="occurrence-1">\nQueued pattern1\n</live-event-trigger>',
+          "2026-08-08T00:00:02.000Z",
+        ),
         assistantMessage(
           "assistant-1",
           "message-1",
@@ -1351,11 +1446,23 @@ describe("CopilotAgentService managed sessions", () => {
     const defaultSession = createFakeSession("legacy-session", {
       onSend: async (prompt) => ({ data: { content: `legacy:${prompt}` } }),
     });
+    let managedConfig: SessionConfig | undefined;
+    const submittedContexts: string[] = [];
     const managedSession = createFakeSession("managed-session", {
       abort: async () => {
         releaseManaged();
       },
       onSend: async (prompt) => {
+        const submitted = await managedConfig?.hooks?.onUserPromptSubmitted?.(
+          {
+            sessionId: "managed-session",
+            timestamp: new Date(),
+            workingDirectory: "/tmp",
+            prompt,
+          },
+          { sessionId: "managed-session" },
+        );
+        submittedContexts.push(submitted?.additionalContext ?? "");
         if (prompt === "hold") {
           await blockedTurn;
           return undefined;
@@ -1372,11 +1479,11 @@ describe("CopilotAgentService managed sessions", () => {
     let latestResumeConfig: ResumeSessionConfig | undefined;
     const stop = vi.fn(async () => undefined);
     const createSession = vi.fn(async (config: SessionConfig) => {
-      void config;
       const next = [defaultSession, managedSession][
         createSession.mock.calls.length - 1
       ];
       if (next === undefined) throw new Error("unexpected createSession call");
+      if (next === managedSession) managedConfig = config;
       return next;
     });
     const resumeSession = vi.fn(
@@ -1387,6 +1494,13 @@ describe("CopilotAgentService managed sessions", () => {
       },
     );
     const runtimeEvents: AgentRuntimeEvent[] = [];
+    const getPreparedContext = vi.fn(
+      (agentInstanceId: string, listener?: AgentEventListener) =>
+        [
+          `prepared:${agentInstanceId}:${listener?.id ?? "default"}`,
+          '{"projectRevision":7,"freshness":"stale","identityPolicy":"guarded-exact-reference"}',
+        ].join("\n"),
+    );
     const service = new CopilotAgentService(
       baseOptions({
         runtimeObserver: {
@@ -1398,6 +1512,7 @@ describe("CopilotAgentService managed sessions", () => {
             markDelivered,
           },
         },
+        preparedContextProvider: { getPreparedContext },
         clientFactory: () => ({
           createSession,
           resumeSession,
@@ -1462,6 +1577,7 @@ describe("CopilotAgentService managed sessions", () => {
         eventId: "live-event.00000000-0000-4000-8000-000000000001",
         kind: "track.playing_clip_changed",
         sequence: 3,
+        projectRevision: 8,
         observedAt: "2026-08-29T18:00:03.000Z",
         target: {
           trackReference: trackAReference,
@@ -1473,10 +1589,29 @@ describe("CopilotAgentService managed sessions", () => {
     } satisfies LiveEventTurnRequest;
     await expect(
       service.enqueueLiveEventTurn(liveEventTurn),
-    ).resolves.toContain("Internal Live event");
+    ).resolves.toContain('"slotIndex": 0');
     expect(managedSession.prompts.at(-1)).toContain(
-      "Check the launch.\nKeys started clip 1.",
+      'Check the launch.\n{\n  "occurrenceId"',
     );
+    expect(managedSession.prompts.at(-1)).not.toContain("Internal Live event");
+    expect(managedSession.prompts.at(-1)).not.toContain(
+      '"identityPolicy":"guarded-exact-reference"',
+    );
+    expect(getPreparedContext).toHaveBeenCalledWith(
+      "managed",
+      liveEventTurn.listener,
+    );
+    expect(submittedContexts.at(-1)).toContain(
+      AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE,
+    );
+    expect(
+      submittedContexts
+        .slice(0, -1)
+        .every(
+          (context) =>
+            !context.includes(AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE),
+        ),
+    ).toBe(true);
     const outputTurn = runtimeEvents.find(
       (event) =>
         event.type === "agent.turn.started" &&
@@ -1551,5 +1686,328 @@ describe("CopilotAgentService managed sessions", () => {
 
     await service.stop();
     expect(stop).toHaveBeenCalledOnce();
+  });
+});
+
+function automaticLiveEvent(
+  occurrenceId = "00000000-0000-4000-8000-000000000101",
+): LiveEventTurnRequest {
+  return {
+    deliveryId: `delivery-${occurrenceId}`,
+    agentInstanceId: "managed",
+    listener: {
+      id: "event-listener.00000000-0000-4000-8000-000000000001",
+      eventId: "live-event.00000000-0000-4000-8000-000000000001",
+      enabled: true,
+      responseMode: "automatic",
+      messagePrefix: "Check the launch.",
+    },
+    occurrence: {
+      occurrenceId,
+      eventId: "live-event.00000000-0000-4000-8000-000000000001",
+      kind: "track.triggered_clip_changed",
+      sequence: 1,
+      observedAt: "2026-08-30T20:00:00.000Z",
+      target: {
+        trackReference: trackAReference,
+        track: { name: "Lead drum" },
+      },
+      summary: "Queued pattern2 in scene 2",
+      current: { state: "session-clip", slotIndex: 1, clipName: "pattern2" },
+    },
+  };
+}
+
+describe("CopilotAgentService model selection", () => {
+  it("maps the live SDK model catalog and propagates discovery errors", async () => {
+    const listModels = vi
+      .fn()
+      .mockResolvedValueOnce([
+        modelInfo("auto", {
+          capabilities: {
+            supports: {},
+            limits: { max_context_window_tokens: 0 },
+          } as ModelInfo["capabilities"],
+        }),
+        modelInfo("model-a"),
+        modelInfo("partial", {
+          capabilities: {
+            supports: {},
+            limits: { max_context_window_tokens: 0 },
+          },
+          supportedReasoningEfforts: [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+          ],
+        } as unknown as Partial<ModelInfo>),
+      ])
+      .mockRejectedValueOnce(new Error("catalog unavailable"));
+    const service = new CopilotAgentService(
+      baseOptions({
+        clientFactory: () => ({
+          createSession: vi.fn(async () => createFakeSession("default")),
+          resumeSession: vi.fn(async () => {
+            throw new Error("unused");
+          }),
+          listModels,
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+
+    await expect(service.listModels()).resolves.toEqual([
+      {
+        id: "model-a",
+        displayName: "Model model-a",
+        policyState: "enabled",
+        capabilities: {
+          vision: true,
+          reasoningEffort: true,
+          maxPromptTokens: 32_000,
+          maxContextWindowTokens: 64_000,
+        },
+        supportedReasoningEfforts: ["low", "medium", "high"],
+        defaultReasoningEffort: "medium",
+      },
+      {
+        id: "partial",
+        displayName: "Model partial",
+        policyState: "enabled",
+        capabilities: {
+          vision: false,
+          reasoningEffort: false,
+        },
+        supportedReasoningEfforts: [
+          "none",
+          "minimal",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+        ],
+        defaultReasoningEffort: "medium",
+      },
+    ]);
+    await expect(service.listModels()).rejects.toThrow("catalog unavailable");
+    await service.stop();
+  });
+
+  it("keeps runtime defaults isolated from managed model and reasoning settings", async () => {
+    const configs: SessionConfig[] = [];
+    const resumeConfigs: ResumeSessionConfig[] = [];
+    const createSession = vi.fn(async (config: SessionConfig) => {
+      configs.push(config);
+      return createFakeSession(`session-${configs.length}`);
+    });
+    const resumeSession = vi.fn(
+      async (_sessionId: string, config: ResumeSessionConfig) => {
+        resumeConfigs.push(config);
+        return createFakeSession("resumed-session");
+      },
+    );
+    const service = new CopilotAgentService(
+      baseOptions({
+        model: "runtime-default",
+        reasoningEffort: "high",
+        clientFactory: () => ({
+          createSession,
+          resumeSession,
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+    await service.createManagedAgent(configuration("sdk-default"));
+    await service.createManagedAgent(
+      configuration("explicit", {
+        model: "model-b",
+        reasoningEffort: "xhigh",
+      }),
+    );
+    await service.resumeManagedAgent(
+      configuration("resumed", {
+        model: "model-c",
+        reasoningEffort: "max",
+      }),
+      "resumed-session",
+    );
+
+    expect(configs[0]?.model).toBe("runtime-default");
+    expect(configs[0]?.reasoningEffort).toBe("high");
+    expect(configs[1]).not.toHaveProperty("model");
+    expect(configs[1]).not.toHaveProperty("reasoningEffort");
+    expect(configs[2]?.model).toBe("model-b");
+    expect(configs[2]?.reasoningEffort).toBe("xhigh");
+    expect(resumeConfigs[0]?.model).toBe("model-c");
+    expect(resumeConfigs[0]?.reasoningEffort).toBe("max");
+    await service.stop();
+  });
+});
+
+describe("CopilotAgentService missing-session automatic recovery", () => {
+  it("rotates once and retries an automatic event before any tool starts", async () => {
+    const events = new InMemoryEventPublisher();
+    const received: AppEvent[] = [];
+    events.subscribe((event) => received.push(event));
+    const sessions = [
+      createFakeSession("default"),
+      createFakeSession("missing", {
+        onSend: async () => {
+          throw new Error(
+            "Request session.send failed with message: Session not found for sessionId: missing",
+          );
+        },
+      }),
+      createFakeSession("replacement", {
+        onSend: async () => ({ data: { content: "recovered" } }),
+      }),
+    ];
+    const createSession = vi.fn(async () => sessions.shift()!);
+    const service = new CopilotAgentService(
+      baseOptions({
+        events,
+        clientFactory: () => ({
+          createSession,
+          resumeSession: vi.fn(async () => {
+            throw new Error("unused");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+    await service.createManagedAgent(configuration("managed"));
+
+    await expect(
+      service.enqueueLiveEventTurn(automaticLiveEvent()),
+    ).resolves.toBe("recovered");
+    expect(createSession).toHaveBeenCalledTimes(3);
+    expect(received).toContainEqual({
+      type: "agent.sdk_session_rotated",
+      agentInstanceId: "managed",
+      oldSdkSessionId: "missing",
+      newSdkSessionId: "replacement",
+      reason: "missing-session",
+    });
+    expect(
+      received.filter(
+        (event) => event.type === "agent.live_event_trigger_changed",
+      ),
+    ).toHaveLength(2);
+    await service.stop();
+  });
+
+  it("does not retry after a tool may have mutated Live", async () => {
+    const missing = createFakeSession("missing", {
+      onSend: async (_prompt, emit) => {
+        emit(toolStart("tool-1", "ableton_tracks_create"));
+        throw new Error(
+          "Request session.send failed with message: Session not found for sessionId: missing",
+        );
+      },
+    });
+    const createSession = vi
+      .fn()
+      .mockResolvedValueOnce(createFakeSession("default"))
+      .mockResolvedValueOnce(missing);
+    const service = new CopilotAgentService(
+      baseOptions({
+        clientFactory: () => ({
+          createSession,
+          resumeSession: vi.fn(async () => {
+            throw new Error("unused");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+    await service.createManagedAgent(configuration("managed"));
+    await expect(
+      service.enqueueLiveEventTurn(automaticLiveEvent()),
+    ).rejects.toThrow("Session not found");
+    expect(createSession).toHaveBeenCalledTimes(2);
+    await service.stop();
+  });
+
+  it("shares one replacement across concurrently queued automatic events", async () => {
+    const missing = createFakeSession("missing", {
+      onSend: async () => {
+        throw new Error(
+          "Request session.send failed with message: Session not found for sessionId: missing",
+        );
+      },
+    });
+    const replacement = createFakeSession("replacement", {
+      onSend: async (prompt) => ({ data: { content: prompt } }),
+    });
+    const createSession = vi
+      .fn()
+      .mockResolvedValueOnce(createFakeSession("default"))
+      .mockResolvedValueOnce(missing)
+      .mockResolvedValueOnce(replacement);
+    const service = new CopilotAgentService(
+      baseOptions({
+        clientFactory: () => ({
+          createSession,
+          resumeSession: vi.fn(async () => {
+            throw new Error("unused");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+    await service.createManagedAgent(configuration("managed"));
+    await Promise.all([
+      service.enqueueLiveEventTurn(automaticLiveEvent()),
+      service.enqueueLiveEventTurn(
+        automaticLiveEvent("00000000-0000-4000-8000-000000000102"),
+      ),
+    ]);
+    expect(createSession).toHaveBeenCalledTimes(3);
+    expect(replacement.sendAndWait).toHaveBeenCalledTimes(2);
+    await service.stop();
+  });
+
+  it("fails closed when replacement session creation fails", async () => {
+    const createSession = vi
+      .fn()
+      .mockResolvedValueOnce(createFakeSession("default"))
+      .mockResolvedValueOnce(
+        createFakeSession("missing", {
+          onSend: async () => {
+            throw new Error(
+              "Request session.send failed with message: Session not found for sessionId: missing",
+            );
+          },
+        }),
+      )
+      .mockRejectedValueOnce(new Error("replacement failed"));
+    const service = new CopilotAgentService(
+      baseOptions({
+        clientFactory: () => ({
+          createSession,
+          resumeSession: vi.fn(async () => {
+            throw new Error("unused");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+    await service.createManagedAgent(configuration("managed"));
+    await expect(
+      service.enqueueLiveEventTurn(automaticLiveEvent()),
+    ).rejects.toThrow("replacement failed");
+    expect(service.getManagedAgentSessionId("managed")).toBe("missing");
+    await service.stop();
   });
 });

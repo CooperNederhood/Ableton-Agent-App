@@ -1154,7 +1154,8 @@ small,
   contain: strict;
 }
 .message,
-.operation {
+.operation,
+.trigger {
   content-visibility: auto;
   contain-intrinsic-size: auto 96px;
   max-width: 880px;
@@ -1308,6 +1309,37 @@ small,
 .operation {
   color: var(--muted);
   font-size: 13px;
+}
+.trigger {
+  padding: 10px 12px;
+  border-left: 3px solid #6aa6c8;
+  background: #151d22;
+}
+.trigger-queued {
+  border-color: #ffd077;
+}
+.trigger-completed {
+  border-color: #78d99b;
+}
+.trigger-failed {
+  border-color: #ff8980;
+}
+.trigger summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.trigger summary small {
+  float: right;
+}
+.trigger p {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+.trigger pre {
+  max-height: 240px;
+  margin: 8px 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
 }
 .operation summary {
   display: grid;

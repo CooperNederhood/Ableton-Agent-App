@@ -207,6 +207,7 @@ describe("preload API", () => {
       "agents:invoke-skill": { accepted: true, messageId: "message-2" },
       "agents:cancel": { cancelled: true },
     });
+
     const api = createDesktopApi(transport);
 
     const context = [{ id: "track:1", kind: "track" as const, label: "Drums" }];
@@ -241,6 +242,72 @@ describe("preload API", () => {
         },
       ],
       ["agents:cancel", { instanceId }],
+    ]);
+  });
+
+  it("exposes model discovery and atomic per-agent conversation settings", async () => {
+    const instanceId = "00000000-0000-4000-8000-000000000001";
+    const activeAgent = {
+      id: instanceId,
+      definitionName: "default",
+      definitionFingerprint: "a".repeat(64),
+      label: "Default",
+      model: "model-a",
+      reasoningEffort: "high",
+      autoApprove: false,
+      sdkSessionId: "sdk-2",
+      lifecycle: "ready",
+      config: {
+        description: "General agent",
+        systemPrompt: "Help.",
+        tools: ["*"],
+        resolvedTools: [],
+        editScope: ["session"],
+        skills: [],
+        inputChannels: [],
+      },
+      boundTracks: [],
+      outputSubscriptions: [],
+      eventListeners: [],
+      modified: false,
+    };
+    const models = [
+      {
+        id: "model-a",
+        displayName: "Model A",
+        policyState: "enabled",
+        capabilities: {
+          vision: true,
+          reasoningEffort: true,
+          maxContextWindowTokens: 64_000,
+        },
+        supportedReasoningEfforts: ["low", "medium", "high"],
+        defaultReasoningEffort: "medium",
+      },
+    ];
+    const transport = transportFor({
+      "agents:models": models,
+      "agents:set-conversation-settings": activeAgent,
+    });
+    const api = createDesktopApi(transport);
+
+    await expect(api.agents.listModels()).resolves.toEqual(models);
+    await api.agents.setConversationSettings(instanceId, {
+      model: "model-a",
+      reasoningEffort: "high",
+    });
+    await api.agents.setConversationSettings(instanceId, {});
+
+    expect(vi.mocked(transport).invoke.mock.calls).toEqual([
+      ["agents:models", {}],
+      [
+        "agents:set-conversation-settings",
+        {
+          instanceId,
+          settings: { model: "model-a", reasoningEffort: "high" },
+        },
+      ],
+      ["agents:set-conversation-settings", { instanceId, settings: {} }],
     ]);
   });
 

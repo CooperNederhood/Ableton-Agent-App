@@ -1,0 +1,7 @@
+{
+  "formatVersion": 1,
+  "id": "live-event-registration",
+  "group": "live-events",
+  "execution": "live-event-runtime",
+  "timeoutMs": 15000
+}

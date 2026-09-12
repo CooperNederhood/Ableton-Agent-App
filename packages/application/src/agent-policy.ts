@@ -1,3 +1,4 @@
+import type { AgentEventListener } from "@ableton-agent/agent-config";
 import type { SessionSnapshot } from "@ableton-agent/protocol";
 import type { ConnectionStatus } from "@ableton-agent/shared";
 import type { SessionHooks } from "@github/copilot-sdk";
@@ -21,10 +22,19 @@ const NON_RETRYABLE_CODES = new Set([
   "invalid_params",
   "applied_indeterminate",
 ]);
+const projectContextTrackLimit = 16;
+const projectContextSessionClipLimit = 128;
+export const AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE =
+  "Automatic Listening Event identity policy: cached-context freshness describes mutable state age, not exact identity validity. When the required track and Session clip are present as one unambiguous exact-reference match, use those references directly with the tool's expected-reference guards. Do not inspect solely because freshness is stale or project revisions differ. Inspect only when a required identity is missing, ambiguous, unresolved, or truncated, or after a guarded tool rejects an identity as stale or ambiguous. Never retry unchanged rejected mutation arguments.";
 
 export interface AgentPolicyServices {
   getAbletonStatus(): Promise<ConnectionStatus>;
-  inspectSession(): Promise<SessionSnapshot>;
+  /** Retained for tool-service compatibility; prompt hooks never call it. */
+  inspectSession?: () => Promise<SessionSnapshot>;
+  preparedContext?: {
+    getPreparedContext(listener?: AgentEventListener): string;
+    activeListener?: () => AgentEventListener | undefined;
+  };
   signalContext?: SignalContextOptions;
   liveEventContext?: LiveEventContextOptions;
   promptContextEnabled?: () => boolean;
@@ -74,17 +84,30 @@ export function compactProjectContext(
   if (snapshot === undefined) {
     return `Ableton connection: connected to project ${status.projectId}. Inspect the session before making project-specific claims.`;
   }
-  const tracks = snapshot.tracks.slice(0, 16).map((track) => ({
-    index: track.index,
-    reference: track.reference,
-    name: track.name,
-    kind: track.kind,
-    muted: track.isMuted,
-    soloed: track.isSoloed,
-    armed: track.isArmed,
-  }));
+  const tracks = snapshot.tracks
+    .slice(0, projectContextTrackLimit)
+    .map((track) => ({
+      index: track.index,
+      reference: track.reference,
+      name: track.name,
+      kind: track.kind,
+      muted: track.isMuted,
+      soloed: track.isSoloed,
+      armed: track.isArmed,
+    }));
+  const snapshotClips = snapshot.clips ?? [];
+  const sessionClips = snapshotClips
+    .slice(0, projectContextSessionClipLimit)
+    .map((clip) => ({
+      reference: clip.reference,
+      trackReference: clip.trackReference,
+      trackIndex: clip.trackIndex,
+      sceneIndex: clip.sceneIndex,
+      name: clip.name,
+      kind: clip.kind,
+    }));
   return [
-    "Current Ableton project context (bounded, refresh before mutation):",
+    "Fresh Ableton project context for this prompt (bounded; use these exact identities directly when sufficient):",
     JSON.stringify({
       projectId: status.projectId,
       tempo: snapshot.tempo,
@@ -92,8 +115,12 @@ export function compactProjectContext(
       isPlaying: snapshot.isPlaying,
       trackCount: snapshot.trackCount,
       tracks,
-      tracksTruncated: snapshot.trackCount > tracks.length,
-      sessionClipCount: snapshot.clips?.length ?? 0,
+      tracksTruncated:
+        snapshot.trackCount > tracks.length ||
+        snapshot.tracks.length > tracks.length,
+      sessionClipCount: snapshotClips.length,
+      sessionClips,
+      sessionClipsTruncated: snapshotClips.length > sessionClips.length,
     }),
   ].join("\n");
 }
@@ -147,17 +174,23 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
   const blockedAttempts = new Map<string, string>();
 
   async function context(): Promise<string> {
-    const status = await services.getAbletonStatus();
-    if (status.state !== "connected") return compactProjectContext(status);
-    try {
-      return compactProjectContext(status, await services.inspectSession());
-    } catch {
-      return compactProjectContext(status);
+    const listener = services.preparedContext?.activeListener?.();
+    if (services.preparedContext !== undefined) {
+      const prepared = services.preparedContext.getPreparedContext(listener);
+      return listener === undefined
+        ? prepared
+        : [prepared, AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE].join("\n\n");
     }
+    return compactProjectContext(await services.getAbletonStatus());
   }
 
   const hooks: SessionHooks = {
-    onSessionStart: async () => ({ additionalContext: await context() }),
+    onSessionStart: async () => ({
+      additionalContext:
+        services.preparedContext === undefined
+          ? await context()
+          : "Ableton project context is supplied per prompt from the prepared context store so it can match the active agent and Listening Event binding.",
+    }),
     onUserPromptSubmitted: async (input) => ({
       additionalContext: await (async () => {
         const parts = [await context(), browserIntentGuidance(input.prompt)];

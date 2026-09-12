@@ -7,9 +7,12 @@ import {
   formatSkillInvocation,
   parseSkillInvocation,
   readSkillDocument,
+  agentReasoningEffortSchema,
   skillNameSchema,
+  type AgentReasoningEffort,
   type BoundTrackScope,
   type EditScopeEntry,
+  type AgentEventListener,
   type SkillInvocation,
 } from "@ableton-agent/agent-config";
 import type {
@@ -92,6 +95,8 @@ import type {
   ConnectionStatus,
   EventPublisher,
   LifecycleState,
+  LiveEventTriggerView,
+  LiveEventTypedState,
   Logger,
 } from "@ableton-agent/shared";
 import { noopLogger } from "@ableton-agent/shared";
@@ -109,6 +114,7 @@ import {
 import {
   CopilotClient,
   defineTool,
+  type ModelInfo,
   type ResumeSessionConfig,
   type SessionConfig,
   type SessionEvent,
@@ -129,6 +135,7 @@ import {
   type LiveEventContextOptions,
   type LiveEventDeliveryService,
   type LiveEventTurnRequest,
+  type PreparedContextProvider,
 } from "./live-event-delivery.js";
 
 export {
@@ -157,12 +164,15 @@ export {
   type LiveEventDeliveryService,
   type LiveEventTurnRequest,
   type PendingLiveEventContext,
+  type PreparedContextProvider,
 } from "./live-event-delivery.js";
 
 export interface AgentSessionConfiguration {
   readonly instanceId: string;
   readonly definitionName: string;
   readonly label: string;
+  readonly model?: string;
+  readonly reasoningEffort?: AgentReasoningEffort;
   readonly description: string;
   readonly systemPrompt: string;
   readonly resolvedTools: readonly string[];
@@ -170,6 +180,20 @@ export interface AgentSessionConfiguration {
   readonly boundTracks: readonly BoundTrackScope[];
   readonly skills: readonly string[];
   readonly availableSkills?: readonly AgentSkillDescriptor[];
+}
+
+export interface AgentModelDescriptor {
+  readonly id: string;
+  readonly displayName: string;
+  readonly policyState: "enabled" | "disabled" | "unconfigured";
+  readonly capabilities: {
+    readonly vision: boolean;
+    readonly reasoningEffort: boolean;
+    readonly maxPromptTokens?: number | undefined;
+    readonly maxContextWindowTokens?: number | undefined;
+  };
+  readonly supportedReasoningEfforts: readonly string[];
+  readonly defaultReasoningEffort?: string | undefined;
 }
 
 export interface AgentSkillDescriptor {
@@ -206,6 +230,8 @@ export interface AgentService
   createSession(): Promise<string>;
   /** Reopens a previously created conversation by ID. */
   resumeSession(sessionId: string): Promise<void>;
+  /** Lists models reported by the connected Copilot runtime. */
+  listModels?(): Promise<readonly AgentModelDescriptor[]>;
   /** Creates or replaces a managed agent session for one application instance. */
   createManagedAgent?(
     configuration: AgentSessionConfiguration,
@@ -236,6 +262,33 @@ export interface AgentService
   getManagedAgentHistory?(
     instanceId: string,
   ): Promise<readonly AgentHistoryMessage[]>;
+}
+
+const missingCopilotSessionPattern =
+  /^Request session\.(?:send|getMessages) failed with message: Session not found for sessionId: [^\s]+$/u;
+
+export class MissingCopilotSessionError extends Error {
+  public readonly cleanupError: unknown;
+
+  public constructor(
+    public readonly sdkSessionId: string,
+    options: { cause?: unknown; cleanupError?: unknown } = {},
+  ) {
+    super(`Copilot SDK session '${sdkSessionId}' no longer exists`, {
+      cause: options.cause,
+    });
+    this.name = "MissingCopilotSessionError";
+    this.cleanupError = options.cleanupError;
+  }
+}
+
+export function isMissingCopilotSessionError(
+  error: unknown,
+): error is MissingCopilotSessionError {
+  return (
+    error instanceof MissingCopilotSessionError ||
+    (error instanceof Error && missingCopilotSessionPattern.test(error.message))
+  );
 }
 
 export type { AbletonService } from "@ableton-agent/ableton-contracts";
@@ -274,6 +327,7 @@ interface CopilotClientAdapter {
     sessionId: string,
     config: ResumeSessionConfig,
   ): Promise<CopilotSessionAdapter>;
+  listModels?(): Promise<ModelInfo[]>;
   stop(): Promise<unknown>;
 }
 
@@ -282,6 +336,7 @@ export interface CopilotAgentServiceOptions {
   logger?: Logger;
   getAbletonStatus: () => Promise<ConnectionStatus>;
   inspectSession: () => Promise<SessionSnapshot>;
+  preparedContextProvider?: PreparedContextProvider;
   setTempo: (tempo: number) => Promise<SetTempoResult>;
   setPlaying: (isPlaying: boolean) => Promise<SetPlayingResult>;
   inspectArrangementTransport: (
@@ -376,7 +431,7 @@ export interface CopilotAgentServiceOptions {
   clientFactory?: () => CopilotClientAdapter;
   baseDirectory?: string;
   model?: string;
-  reasoningEffort?: "low" | "medium" | "high";
+  reasoningEffort?: AgentReasoningEffort;
   turnTimeoutMs?: number;
   signalContext?: SignalContextOptions;
   liveEventContext?: LiveEventContextOptions;
@@ -417,9 +472,9 @@ export interface AgentRuntimeObserver {
 }
 
 export const DEFAULT_AGENT_TURN_TIMEOUT_MS = 180_000;
-export const BASE_SYSTEM_MESSAGE_VERSION = 4;
+export const BASE_SYSTEM_MESSAGE_VERSION = 5;
 export const BASE_SYSTEM_MESSAGE =
-  "You are an Ableton Live production assistant. Use only the provided tools. Inspect current project state before making claims. Clearly distinguish observed state from suggestions. For every requested instrument, kit, preset, or sound, search the Ableton Browser before creating its destination track. Search each distinct requested sound separately, choose roots deliberately, and resolve an exact supported loadable item. Prefer exact, loadable device or preset results over folders or loose substring matches. If search is truncated or the matches are weak, narrow the roots or try a literal musical synonym before choosing. Only after resolving the content should you create the destination track and load that exact item. Perform dependent mutations sequentially. Never retry a mutation that may already have applied; re-inspect state first and continue from the verified result.";
+  "You are an Ableton Live production assistant. Use only the provided tools. Use supplied prepared project context and its exact identities directly when they are sufficient and the mutation is identity-guarded; do not inspect solely because cached mutable state is age-expired. Otherwise inspect current project state before making project-specific claims or mutations. Clearly distinguish observed state from suggestions. For every requested instrument, kit, preset, or sound, search the Ableton Browser before creating its destination track. Search each distinct requested sound separately, choose roots deliberately, and resolve an exact supported loadable item. Prefer exact, loadable device or preset results over folders or loose substring matches. If search is truncated or the matches are weak, narrow the roots or try a literal musical synonym before choosing. Only after resolving the content should you create the destination track and load that exact item. Perform dependent mutations sequentially. Never retry a mutation that may already have applied; re-inspect state first and continue from the verified result.";
 export const SKILL_TOOL_NAME = "skill";
 const directSkillHistoryPrefix = "<!-- ableton-agent:direct-skill ";
 
@@ -489,6 +544,8 @@ interface InstrumentedTurn {
   finalObserved: boolean;
   startedAt: number | undefined;
   terminalRecorded: boolean;
+  toolStarted: boolean;
+  retryAttempted: boolean;
 }
 
 interface ManagedSessionState {
@@ -502,6 +559,7 @@ interface ManagedSessionState {
   queuedTurns: number;
   turnQueue: Promise<void>;
   turnKind: CopilotTurnKind | undefined;
+  preparedContextListener: AgentEventListener | undefined;
   activeTurn: InstrumentedTurn | undefined;
   automaticDrainScheduled: boolean;
   readonly pendingAutomatic: Map<string, PendingAutomaticTurn>;
@@ -585,6 +643,7 @@ function formatDirectSkillPrompt(
 }
 
 function displayUserPrompt(content: string): string {
+  if (content.startsWith("<live-event-trigger ")) return "";
   const firstLineEnd = content.indexOf("\n");
   const firstLine =
     firstLineEnd === -1 ? content : content.slice(0, firstLineEnd);
@@ -594,6 +653,7 @@ function displayUserPrompt(content: string): string {
   ) {
     return content;
   }
+
   const encoded = firstLine.slice(
     directSkillHistoryPrefix.length,
     -" -->".length,
@@ -613,6 +673,21 @@ function displayUserPrompt(content: string): string {
   });
 }
 
+function liveEventTypedState(
+  occurrence: LiveEventTurnRequest["occurrence"],
+): LiveEventTypedState {
+  switch (occurrence.kind) {
+    case "parameter.value_changed":
+      return { kind: occurrence.kind, state: occurrence.current };
+    case "track.playing_clip_changed":
+      return { kind: occurrence.kind, state: occurrence.current };
+    case "track.triggered_clip_changed":
+      return { kind: occurrence.kind, state: occurrence.current };
+    case "track.recording_state_changed":
+      return { kind: occurrence.kind, state: occurrence.current };
+  }
+}
+
 function qualifyAvailableTools(toolNames: readonly string[]): string[] {
   return bareToolNames(toolNames).map((toolName) => `custom:${toolName}`);
 }
@@ -627,6 +702,35 @@ function toolParameterSchema(tool: Tool): Readonly<Record<string, unknown>> {
     return candidate.toJSONSchema();
   }
   return parameters as Record<string, unknown>;
+}
+
+function toAgentModelDescriptor(model: ModelInfo): AgentModelDescriptor {
+  const maxPromptTokens = model.capabilities?.limits?.max_prompt_tokens;
+  const maxContextWindowTokens =
+    model.capabilities?.limits?.max_context_window_tokens;
+  return {
+    id: model.id,
+    displayName: model.name,
+    policyState: model.policy?.state ?? "unconfigured",
+    capabilities: {
+      vision: model.capabilities?.supports?.vision === true,
+      reasoningEffort: model.capabilities?.supports?.reasoningEffort === true,
+      ...(typeof maxPromptTokens !== "number" || maxPromptTokens <= 0
+        ? {}
+        : { maxPromptTokens }),
+      ...(typeof maxContextWindowTokens !== "number" ||
+      maxContextWindowTokens <= 0
+        ? {}
+        : { maxContextWindowTokens }),
+    },
+    supportedReasoningEfforts: (model.supportedReasoningEfforts ?? []).filter(
+      (effort) => typeof effort === "string" && effort.length > 0,
+    ),
+    ...(typeof model.defaultReasoningEffort !== "string" ||
+    model.defaultReasoningEffort.length === 0
+      ? {}
+      : { defaultReasoningEffort: model.defaultReasoningEffort }),
+  };
 }
 
 function normalizeSessionConfiguration(
@@ -652,6 +756,7 @@ function normalizeSessionConfiguration(
                   `Skill '${normalized.name}' requires a description`,
                 );
               }
+
               if (normalized.sourcePath.length === 0) {
                 throw new Error(
                   `Skill '${normalized.name}' requires a source path`,
@@ -734,6 +839,16 @@ function normalizeSessionConfiguration(
     instanceId: configuration.instanceId,
     definitionName: configuration.definitionName,
     label: configuration.label,
+    ...(configuration.model === undefined
+      ? {}
+      : { model: configuration.model }),
+    ...(configuration.reasoningEffort === undefined
+      ? {}
+      : {
+          reasoningEffort: agentReasoningEffortSchema.parse(
+            configuration.reasoningEffort,
+          ),
+        }),
     description: configuration.description,
     systemPrompt: configuration.systemPrompt,
     resolvedTools: bareToolNames(configuration.resolvedTools),
@@ -772,9 +887,14 @@ function normalizeHistoryEvent(
   },
 ): AgentHistoryMessage | undefined {
   if (event.type === "user.message") {
+    if (event.data.content.startsWith("<live-event-trigger ")) {
+      return undefined;
+    }
+    const content = displayUserPrompt(event.data.content);
+    if (content === "") return undefined;
     return {
       role: "user",
-      content: displayUserPrompt(event.data.content),
+      content,
       timestamp: event.timestamp,
       eventId: event.id,
       ...attribution,
@@ -1016,6 +1136,7 @@ export class CopilotAgentService implements AgentService {
       queuedTurns: 0,
       turnQueue: Promise.resolve(),
       turnKind: undefined,
+      preparedContextListener: undefined,
       activeTurn: undefined,
       automaticDrainScheduled: false,
       pendingAutomatic: new Map(),
@@ -1133,6 +1254,8 @@ export class CopilotAgentService implements AgentService {
       finalObserved: false,
       startedAt: undefined,
       terminalRecorded: false,
+      toolStarted: false,
+      retryAttempted: false,
       trace: {
         traceId: identifiers.traceId ?? id,
         turnId: id,
@@ -1310,6 +1433,18 @@ export class CopilotAgentService implements AgentService {
     const agentPolicy = createAgentPolicy({
       getAbletonStatus: this.options.getAbletonStatus,
       inspectSession: this.options.inspectSession,
+      ...(this.options.preparedContextProvider === undefined
+        ? {}
+        : {
+            preparedContext: {
+              getPreparedContext: (listener?: AgentEventListener) =>
+                this.options.preparedContextProvider!.getPreparedContext(
+                  state.signalTargetId,
+                  listener,
+                ),
+              activeListener: () => state.preparedContextListener,
+            },
+          }),
       ...(scopedSignalContext === undefined
         ? {}
         : { signalContext: scopedSignalContext }),
@@ -1336,14 +1471,16 @@ export class CopilotAgentService implements AgentService {
       requestToolApproval,
       this.options.askForReadApproval,
     );
+    const model = state.exposeInstanceId
+      ? state.configuration.model
+      : this.options.model;
+    const reasoningEffort = state.exposeInstanceId
+      ? state.configuration.reasoningEffort
+      : this.options.reasoningEffort;
     const config: SessionConfig = {
       clientName: "ableton-agent-app",
-      ...(this.options.model === undefined
-        ? {}
-        : { model: this.options.model }),
-      ...(this.options.reasoningEffort === undefined
-        ? {}
-        : { reasoningEffort: this.options.reasoningEffort }),
+      ...(model === undefined ? {} : { model }),
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
       tools,
       availableTools: qualifyAvailableTools(configuredToolNames),
       customAgents: [
@@ -1478,6 +1615,7 @@ export class CopilotAgentService implements AgentService {
           sessionId: session.sessionId,
         });
       } else if (event.type === "tool.execution_start") {
+        if (state.activeTurn !== undefined) state.activeTurn.toolStarted = true;
         this.#recordRuntime(state, "agent.tool.started", sdkData, {
           occurredAt: event.timestamp,
           sessionId: session.sessionId,
@@ -1629,6 +1767,7 @@ export class CopilotAgentService implements AgentService {
     state.unsubscribe?.();
     state.unsubscribe = undefined;
     state.turnKind = undefined;
+    state.preparedContextListener = undefined;
     state.activeTurn = undefined;
     state.inFlightTurns = 0;
     state.queuedTurns = 0;
@@ -1684,6 +1823,29 @@ export class CopilotAgentService implements AgentService {
       sdkSessionId,
       config,
     );
+    try {
+      await session.getEvents?.();
+    } catch (error) {
+      let cleanupError: unknown;
+      try {
+        await session.disconnect();
+      } catch (disconnectError) {
+        cleanupError = disconnectError;
+      }
+      if (isMissingCopilotSessionError(error)) {
+        throw new MissingCopilotSessionError(sdkSessionId, {
+          cause: error,
+          cleanupError,
+        });
+      }
+      if (cleanupError !== undefined) {
+        throw new AggregateError(
+          [error, cleanupError],
+          "Copilot resumed-session validation failed and cleanup was incomplete",
+        );
+      }
+      throw error;
+    }
     state.session = session;
     this.#recordSessionConfiguration(state, config, session.sessionId);
     if (!state.exposeInstanceId) state.signalTargetId = session.sessionId;
@@ -1894,6 +2056,7 @@ export class CopilotAgentService implements AgentService {
     if (previous !== undefined) {
       this.#assertIdle(previous, "create a new default Copilot session");
     }
+
     const state = this.#createState(
       DEFAULT_AGENT_INSTANCE_KEY,
       this.#defaultSessionConfiguration(),
@@ -1911,6 +2074,19 @@ export class CopilotAgentService implements AgentService {
       sessionId: session.sessionId,
     });
     return session.sessionId;
+  }
+
+  public async listModels(): Promise<readonly AgentModelDescriptor[]> {
+    const client = this.#requireClient();
+    const listModels = client.listModels?.bind(client);
+    if (listModels === undefined) {
+      throw new Error(
+        "Configured Copilot client does not support model discovery",
+      );
+    }
+    return (await listModels())
+      .filter(({ id }) => id !== "auto")
+      .map(toAgentModelDescriptor);
   }
 
   public async resumeSession(sessionId: string): Promise<void> {
@@ -2263,6 +2439,80 @@ export class CopilotAgentService implements AgentService {
     return response.data.content;
   }
 
+  async #rotateMissingManagedSession(
+    state: ManagedSessionState,
+    missingSession: CopilotSessionAdapter,
+  ): Promise<void> {
+    const oldSdkSessionId = missingSession.sessionId;
+    const config = this.#sessionConfig(state);
+    const replacement = await this.#requireClient().createSession(config);
+    try {
+      state.unsubscribe?.();
+      state.unsubscribe = undefined;
+      await missingSession.disconnect();
+      state.session = replacement;
+      this.#recordSessionConfiguration(state, config, replacement.sessionId);
+      this.#observe(state, replacement);
+    } catch (error) {
+      state.unsubscribe?.();
+      state.unsubscribe = undefined;
+      state.session = undefined;
+      try {
+        await replacement.disconnect();
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          "Missing Copilot session replacement failed and cleanup was incomplete",
+        );
+      }
+      throw error;
+    }
+    this.options.events.publish({
+      type: "agent.sdk_session_rotated",
+      agentInstanceId: state.configuration.instanceId,
+      oldSdkSessionId,
+      newSdkSessionId: replacement.sessionId,
+      reason: "missing-session",
+    });
+  }
+
+  #liveEventTrigger(
+    state: ManagedSessionState,
+    request: LiveEventTurnRequest,
+    status: LiveEventTriggerView["status"],
+    error?: unknown,
+  ): LiveEventTriggerView {
+    return {
+      deliveryId: request.deliveryId,
+      occurrenceId: request.occurrence.occurrenceId,
+      eventId: request.occurrence.eventId,
+      listenerId: request.listener.id,
+      agentInstanceId: request.agentInstanceId,
+      sdkSessionId: state.session?.sessionId ?? "",
+      kind: request.occurrence.kind,
+      sourceTrack: request.occurrence.target.track.name,
+      state: liveEventTypedState(request.occurrence),
+      observedAt: request.occurrence.observedAt,
+      ...(request.listener.messagePrefix === undefined
+        ? {}
+        : { messagePrefix: request.listener.messagePrefix }),
+      occurrence: JSON.stringify(request.occurrence, undefined, 2),
+      summary: request.occurrence.summary,
+      status,
+      updatedAt: new Date().toISOString(),
+      ...(error === undefined
+        ? {}
+        : {
+            error:
+              error instanceof Error
+                ? error.message
+                : typeof error === "string"
+                  ? error
+                  : "Unknown automatic Listening Event failure",
+          }),
+    };
+  }
+
   #serialize<T>(
     state: ManagedSessionState,
     run: () => Promise<T>,
@@ -2506,9 +2756,63 @@ export class CopilotAgentService implements AgentService {
       occurrenceIds: [request.occurrence.occurrenceId],
       deliveryIds: [request.deliveryId],
     });
+    this.options.events.publish({
+      type: "agent.live_event_trigger_changed",
+      trigger: this.#liveEventTrigger(state, request, "queued"),
+    });
     return this.#serialize(
       state,
-      () => this.#sendNow(state, prompt, "automatic-action", turn),
+      async () => {
+        state.preparedContextListener = request.listener;
+        try {
+          let response: string;
+          try {
+            response = await this.#sendNow(
+              state,
+              prompt,
+              "automatic-action",
+              turn,
+            );
+          } catch (error) {
+            const missingSession = state.session;
+            if (
+              !isMissingCopilotSessionError(error) ||
+              missingSession === undefined ||
+              turn.toolStarted ||
+              turn.retryAttempted
+            ) {
+              throw error;
+            }
+            turn.retryAttempted = true;
+            await this.#rotateMissingManagedSession(state, missingSession);
+            const retryTurn = this.#newTurn("live-event.automatic", prompt, {
+              traceId: request.occurrence.occurrenceId,
+              occurrenceIds: [request.occurrence.occurrenceId],
+              deliveryIds: [request.deliveryId],
+            });
+            retryTurn.retryAttempted = true;
+            response = await this.#sendNow(
+              state,
+              prompt,
+              "automatic-action",
+              retryTurn,
+            );
+          }
+          this.options.events.publish({
+            type: "agent.live_event_trigger_changed",
+            trigger: this.#liveEventTrigger(state, request, "completed"),
+          });
+          return response;
+        } catch (error) {
+          this.options.events.publish({
+            type: "agent.live_event_trigger_changed",
+            trigger: this.#liveEventTrigger(state, request, "failed", error),
+          });
+          throw error;
+        } finally {
+          state.preparedContextListener = undefined;
+        }
+      },
       turn,
     );
   }
@@ -2529,7 +2833,8 @@ export class HeadlessApplication {
       | "invokeManagedAgentSkill"
       | "cancelManagedAgent"
       | "getManagedAgentSessionId"
-      | "getManagedAgentHistory",
+      | "getManagedAgentHistory"
+      | "listModels",
   >(name: K): NonNullable<AgentService[K]> {
     const method = this.services.agent[name];
     if (method === undefined) {
@@ -2644,6 +2949,10 @@ export class HeadlessApplication {
 
   public resumeAgentSession(sessionId: string): Promise<void> {
     return this.services.agent.resumeSession(sessionId);
+  }
+
+  public listModels(): Promise<readonly AgentModelDescriptor[]> {
+    return this.#requireManagedAgentMethod("listModels")();
   }
 
   public getManagedAgentSessionId(instanceId: string): string | undefined {

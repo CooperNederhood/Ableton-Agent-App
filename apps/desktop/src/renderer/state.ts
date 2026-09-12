@@ -14,6 +14,7 @@ import type {
   DesktopSession,
   ConfigurationSnapshotPage,
   JournalHealth,
+  LiveEventTrigger,
   PendingProjectTransition,
   OperationView,
   PlanSection,
@@ -43,6 +44,7 @@ export interface MessageView {
 export interface AgentWorkspaceState {
   messages: MessageView[];
   operations: OperationView[];
+  triggers: LiveEventTrigger[];
   approval?: ApprovalRequest | undefined;
 }
 
@@ -216,6 +218,7 @@ export type DesktopAction =
 
 const maxMessages = 500;
 const maxOperations = 500;
+const maxTriggers = 200;
 const maxDismissedContextIds = 500;
 const maxCollapsedOutputProducerIds = 500;
 const maxExpandedEventActivityIds = 500;
@@ -486,19 +489,45 @@ function reduceEvent(
       return {
         ...state,
         sessions: event.sessions,
-        activeSessionId: event.activeSessionId ?? state.activeSessionId,
+        activeSessionId: event.activeSessionId,
       };
     case "agents.catalog_changed":
       return { ...state, agentCatalog: event.catalog };
     case "agent.instance_changed":
       return reduceAgentInstanceChanged(state, event.instance, event.change);
     case "agent.history_hydrated":
+      if (
+        activeSession(state)?.activeAgents.find(
+          ({ id }) => id === event.agentInstanceId,
+        )?.sdkSessionId !== event.sdkSessionId
+      ) {
+        return state;
+      }
       return updateAgentWorkspace(
         state,
         event.agentInstanceId,
         (workspace) => ({
           ...workspace,
           messages: mergeHydratedMessages(workspace.messages, event.history),
+        }),
+      );
+    case "agent.live_event_trigger_changed":
+      if (
+        state.agentWorkspaces[event.trigger.agentInstanceId]?.triggers.some(
+          (trigger) =>
+            trigger.deliveryId === event.trigger.deliveryId &&
+            trigger.status !== "queued" &&
+            event.trigger.status === "queued",
+        )
+      ) {
+        return state;
+      }
+      return updateAgentWorkspace(
+        state,
+        event.trigger.agentInstanceId,
+        (workspace) => ({
+          ...workspace,
+          triggers: upsertTrigger(workspace.triggers, event.trigger),
         }),
       );
     case "session.context_restored":
@@ -511,10 +540,17 @@ function reduceEvent(
           ),
         ],
         activeSessionId: event.session.id,
-        agentWorkspaces:
-          state.activeSessionId === event.session.id
-            ? state.agentWorkspaces
-            : {},
+        agentWorkspaces: Object.fromEntries(
+          event.session.activeAgents.map((instance) => [
+            instance.id,
+            {
+              ...(state.activeSessionId === event.session.id
+                ? (state.agentWorkspaces[instance.id] ?? emptyAgentWorkspace())
+                : emptyAgentWorkspace()),
+              triggers: [...(instance.triggerHistory ?? [])],
+            },
+          ]),
+        ),
         mode: event.session.mode,
         plan: event.session.productionPlan,
       };
@@ -529,6 +565,7 @@ function reduceEvent(
     case "outputs.changed":
       return { ...state, outputs: event.outputs };
     case "events.changed":
+      if (event.events.activeSessionId !== state.activeSessionId) return state;
       return {
         ...state,
         events: event.events,
@@ -622,6 +659,7 @@ function reduceEvent(
 const emptyAgentWorkspace = (): AgentWorkspaceState => ({
   messages: [],
   operations: [],
+  triggers: [],
 });
 
 function updateAgentWorkspace(
@@ -652,6 +690,34 @@ function upsertOperation(
         )
       : [...operations, operation],
     maxOperations,
+  );
+}
+
+function upsertTrigger(
+  triggers: LiveEventTrigger[],
+  trigger: LiveEventTrigger,
+): LiveEventTrigger[] {
+  const existing = triggers.find(
+    ({ deliveryId }) => deliveryId === trigger.deliveryId,
+  );
+  if (
+    existing !== undefined &&
+    existing.status !== "queued" &&
+    trigger.status === "queued"
+  ) {
+    return triggers;
+  }
+  return bounded(
+    (existing === undefined
+      ? [...triggers, trigger]
+      : triggers.map((candidate) =>
+          candidate.deliveryId === trigger.deliveryId ? trigger : candidate,
+        )
+    ).sort(
+      (left, right) =>
+        Date.parse(left.observedAt) - Date.parse(right.observedAt),
+    ),
+    maxTriggers,
   );
 }
 
@@ -749,7 +815,9 @@ function reduceAgentInstanceChanged(
     | "reset"
     | "selected"
     | "deactivated"
-    | "lifecycle",
+    | "lifecycle"
+    | "session-rotated"
+    | "conversation-settings-changed",
 ): DesktopState {
   const session = activeSession(state);
   if (session === undefined) return state;
@@ -770,6 +838,14 @@ function reduceAgentInstanceChanged(
         : session.selectedAgentInstanceId;
   return {
     ...state,
+    ...(change === "conversation-settings-changed"
+      ? {
+          agentWorkspaces: {
+            ...state.agentWorkspaces,
+            [instance.id]: emptyAgentWorkspace(),
+          },
+        }
+      : {}),
     sessions: state.sessions.map((candidate) =>
       candidate.id === session.id
         ? {
@@ -785,10 +861,8 @@ function reduceAgentInstanceChanged(
 }
 
 export function activeSession(state: DesktopState): DesktopSession | undefined {
-  return (
-    state.sessions.find(({ id }) => id === state.activeSessionId) ??
-    state.sessions[0]
-  );
+  if (state.activeSessionId === undefined) return undefined;
+  return state.sessions.find(({ id }) => id === state.activeSessionId);
 }
 
 export function selectedAgentInstance(
@@ -808,6 +882,7 @@ export function selectedAgentWorkspace(
     return {
       messages: state.messages,
       operations: state.operations,
+      triggers: [],
       approval: state.approval,
     };
   }

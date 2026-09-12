@@ -11,6 +11,7 @@ Companion specification: [Desktop Application](desktop-application.md)
 - [x] Connect Electron main to the shared headless application bootstrap.
 - [x] Implement single-instance locking and safe deep-link handling.
 - [x] Implement startup, shutdown, crash, and reconnect presentation states.
+- [x] Apply the Ableton Agent App icon to development windows and the macOS Dock.
 
 Electron main now composes `createAgentRuntime` from `packages/runtime`, the
 same composition root the CLI uses, and adapts it through

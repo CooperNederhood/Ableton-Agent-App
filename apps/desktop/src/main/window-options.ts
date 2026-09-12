@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import type { BrowserWindowConstructorOptions } from "electron";
 
 export function shouldOpenDevelopmentTools(
@@ -10,6 +12,7 @@ export function shouldOpenDevelopmentTools(
 export function createWindowOptions(
   preload: string,
   development: boolean,
+  icon: string,
 ): BrowserWindowConstructorOptions {
   return {
     width: 1440,
@@ -19,6 +22,7 @@ export function createWindowOptions(
     show: false,
     title: "Ableton Agent",
     backgroundColor: "#101214",
+    icon,
     webPreferences: {
       preload,
       contextIsolation: true,
@@ -29,4 +33,14 @@ export function createWindowOptions(
       devTools: development,
     },
   };
+}
+
+export function resolveDesktopIconPath(
+  packaged: boolean,
+  resourcesPath: string,
+  mainDirectory: string,
+): string {
+  return packaged
+    ? join(resourcesPath, "icon.png")
+    : join(mainDirectory, "../../build/icon.png");
 }

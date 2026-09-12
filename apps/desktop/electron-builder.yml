@@ -15,6 +15,8 @@ files:
   - "!node_modules/@ableton-agent/*/tsconfig.json"
   - "!node_modules/@ableton-agent/*/dist/**/*.test.*"
 extraResources:
+  - from: build/icon.png
+    to: icon.png
   - from: ../../remote-script/AbletonAgent
     to: remote-script/AbletonAgent
     filter:
@@ -33,6 +35,7 @@ extraResources:
     filter:
       - "**/SKILL.md"
 mac:
+  icon: build/icon.icns
   category: public.app-category.music
   target:
     - target: dmg
@@ -46,6 +49,7 @@ mac:
   hardenedRuntime: true
   gatekeeperAssess: false
 win:
+  icon: build/icon.ico
   target:
     - target: nsis
       arch:

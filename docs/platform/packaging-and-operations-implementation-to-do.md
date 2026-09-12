@@ -5,6 +5,7 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 ## Desktop distribution
 
 - [x] Configure reproducible development and production builds.
+- [x] Configure branded macOS, Windows, and runtime application icons.
 - [ ] Configure macOS and Windows signing/notarization.
 - [x] Build installers with explicit Remote Script setup.
 - [x] Detect supported Ableton/User Library locations.

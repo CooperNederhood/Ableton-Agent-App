@@ -452,7 +452,7 @@ export class HeadlessDesktopService implements DesktopService {
         return this.#beginManagedTurn(managedTarget, () =>
           this.#application.sendToManagedAgent(
             managedTarget.agentInstanceId,
-            message,
+            composeAgentPrompt(message, selection, mode),
           ),
         );
       }
@@ -1099,10 +1099,17 @@ export class HeadlessDesktopService implements DesktopService {
   public sendToActiveAgent(
     instanceId: string,
     message: string,
+    context: ContextChip[],
+    mode: ProductMode,
   ): Promise<{ accepted: true; messageId: string }> {
+    const prompt = composeAgentPrompt(
+      message,
+      this.#withPinnedContext(context),
+      mode,
+    );
     return this.#beginManagedTurn(
       this.#captureActiveAgentTarget(instanceId),
-      () => this.#application.sendToManagedAgent(instanceId, message),
+      () => this.#application.sendToManagedAgent(instanceId, prompt),
     );
   }
 
@@ -1110,14 +1117,21 @@ export class HeadlessDesktopService implements DesktopService {
     instanceId: string,
     skillName: string,
     argumentsText: string,
+    context: ContextChip[],
+    mode: ProductMode,
   ): Promise<{ accepted: true; messageId: string }> {
     skillNameSchema.parse(skillName);
+    const request = composeAgentPrompt(
+      argumentsText,
+      this.#withPinnedContext(context),
+      mode,
+    );
     return this.#beginManagedTurn(
       this.#captureActiveAgentTarget(instanceId),
       () =>
         this.#application.invokeManagedAgentSkill(instanceId, {
           skillName,
-          request: argumentsText,
+          request,
         }),
       () => {
         if (!(

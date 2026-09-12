@@ -69,13 +69,15 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
         await invoke("agents:deactivate", { instanceId });
       },
       hydrateHistory: (instanceId) => invoke("agents:history", { instanceId }),
-      send: (instanceId, message) =>
-        invoke("agents:send", { instanceId, message }),
-      invokeSkill: (instanceId, skillName, argumentsText = "") =>
+      send: (instanceId, message, context, mode) =>
+        invoke("agents:send", { instanceId, message, context, mode }),
+      invokeSkill: (instanceId, skillName, argumentsText, context, mode) =>
         invoke("agents:invoke-skill", {
           instanceId,
           skillName,
           request: argumentsText,
+          context,
+          mode,
         }),
       cancel: (instanceId) => invoke("agents:cancel", { instanceId }),
     },

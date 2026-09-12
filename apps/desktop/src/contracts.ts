@@ -311,7 +311,7 @@ export const lifecycleStates = [
 export type DesktopLifecycleState = (typeof lifecycleStates)[number];
 
 export const contextChipSchema = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).max(512),
   kind: z.enum(["track", "clip", "range", "device", "section"]),
   label: z.string().min(1).max(160),
 });
@@ -1140,6 +1140,8 @@ export const ipcSchemas = {
       .object({
         instanceId: z.string().uuid(),
         message: z.string().trim().min(1).max(20_000),
+        context: z.array(contextChipSchema).max(20),
+        mode: z.enum(modes),
       })
       .strict(),
     response: z.object({ accepted: z.literal(true), messageId: z.string() }),
@@ -1150,6 +1152,8 @@ export const ipcSchemas = {
         instanceId: z.string().uuid(),
         skillName: z.string().min(1),
         request: z.string().max(20_000).default(""),
+        context: z.array(contextChipSchema).max(20),
+        mode: z.enum(modes),
       })
       .strict(),
     response: z.object({ accepted: z.literal(true), messageId: z.string() }),
@@ -1463,11 +1467,15 @@ export interface DesktopApi {
     send(
       instanceId: string,
       message: string,
+      context: ContextChip[],
+      mode: ProductMode,
     ): Promise<{ accepted: true; messageId: string }>;
     invokeSkill(
       instanceId: string,
       skillName: string,
-      request?: string,
+      request: string,
+      context: ContextChip[],
+      mode: ProductMode,
     ): Promise<{ accepted: true; messageId: string }>;
     cancel(instanceId: string): Promise<{ cancelled: boolean }>;
   };

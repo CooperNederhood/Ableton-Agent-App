@@ -23,20 +23,35 @@ describe("desktop IPC", () => {
     );
     const instanceId = "00000000-0000-4000-8000-000000000001";
 
-    await handlers["agents:send"]({ instanceId, message: "hello" });
+    const context = [{ id: "track:1", kind: "track" as const, label: "Drums" }];
+    await handlers["agents:send"]({
+      instanceId,
+      message: "hello",
+      context,
+      mode: "compose",
+    });
     await handlers["agents:invoke-skill"]({
       instanceId,
       skillName: "analyze",
       request: "the drums",
+      context,
+      mode: "mix",
     });
 
     await handlers["agents:cancel"]({ instanceId });
 
-    expect(sendToActiveAgent).toHaveBeenCalledWith(instanceId, "hello");
+    expect(sendToActiveAgent).toHaveBeenCalledWith(
+      instanceId,
+      "hello",
+      context,
+      "compose",
+    );
     expect(invokeActiveAgentSkill).toHaveBeenCalledWith(
       instanceId,
       "analyze",
       "the drums",
+      context,
+      "mix",
     );
     expect(cancelActiveAgent).toHaveBeenCalledWith(instanceId);
   });

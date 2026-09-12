@@ -539,11 +539,13 @@ export async function sendComposerMessage(
     if (catalogSkill === undefined) {
       throw new Error(`Unknown skill '/${invocation.skillName}'.`);
     }
-    await desktop.project.setContext(contextForSelection(state));
+    const context = contextForSelection(state);
     await desktop.agents.invokeSkill(
       agent.id,
       invocation.skillName,
       invocation.request,
+      context,
+      state.mode,
     );
     dispatch({
       type: "user-message",
@@ -559,8 +561,12 @@ export async function sendComposerMessage(
     content: message,
     agentInstanceId: agent.id,
   });
-  await desktop.project.setContext(contextForSelection(state));
-  await desktop.agents.send(agent.id, message);
+  await desktop.agents.send(
+    agent.id,
+    message,
+    contextForSelection(state),
+    state.mode,
+  );
 }
 
 export async function selectWorkspaceAgent(

@@ -100,11 +100,15 @@ export interface DesktopService {
   sendToActiveAgent(
     instanceId: string,
     message: string,
+    context: ContextChip[],
+    mode: ProductMode,
   ): Promise<{ accepted: true; messageId: string }>;
   invokeActiveAgentSkill(
     instanceId: string,
     skillName: string,
     argumentsText: string,
+    context: ContextChip[],
+    mode: ProductMode,
   ): Promise<{ accepted: true; messageId: string }>;
   cancelActiveAgent(instanceId: string): Promise<{ cancelled: boolean }>;
   connect(): Promise<DesktopConnectionStatus>;

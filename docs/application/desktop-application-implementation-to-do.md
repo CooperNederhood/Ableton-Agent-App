@@ -14,6 +14,8 @@ Companion specification: [Desktop Application](desktop-application.md)
 - [x] Apply the Ableton Agent App icon to development windows and the macOS Dock.
 - [x] Add a persisted always-on-top window preference with macOS Spaces and
   full-screen visibility.
+- [x] Support a 320x360 terminal-sized chat view when workspace sidebars and
+  application chrome are hidden.
 
 Electron main now composes `createAgentRuntime` from `packages/runtime`, the
 same composition root the CLI uses, and adapts it through

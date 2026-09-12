@@ -20,8 +20,8 @@ export function createWindowOptions(
   return {
     width: 1440,
     height: 940,
-    minWidth: 1080,
-    minHeight: 720,
+    minWidth: 320,
+    minHeight: 360,
     show: false,
     title: "Ableton Agent",
     backgroundColor: "#101214",

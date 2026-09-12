@@ -136,3 +136,59 @@ test("exposes essential landmarks and labels", async () => {
     await application.close();
   }
 });
+
+test("supports a terminal-sized chat-only window", async () => {
+  const application = await electron.launch({
+    args: [desktopPath],
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      ELECTRON_DISABLE_SECURITY_WARNINGS: "true",
+      NODE_ENV: "test",
+    },
+  });
+  try {
+    const window = await application.firstWindow();
+    await window.waitForLoadState("domcontentloaded");
+
+    await window.getByRole("button", { name: "Hide project sidebar" }).click();
+    await window
+      .getByRole("button", { name: "Hide inspector sidebar" })
+      .click();
+    await window
+      .getByRole("button", { name: "Hide application toolbar" })
+      .click();
+
+    const size = await application.evaluate(({ BrowserWindow }) => {
+      const desktopWindow = BrowserWindow.getAllWindows()[0];
+      if (desktopWindow === undefined)
+        throw new Error("Desktop window missing");
+      desktopWindow.setSize(320, 360);
+      return desktopWindow.getSize();
+    });
+
+    expect(size).toEqual([320, 360]);
+    await expect(
+      window.getByRole("region", {
+        name: "Conversation and operation timeline",
+      }),
+    ).toBeVisible();
+    const composer = window.getByRole("textbox", {
+      name: "Message the Ableton agent",
+    });
+    await expect(composer).toBeVisible();
+    await composer.fill("Compact chat");
+    await expect(composer).toHaveValue("Compact chat");
+    await expect(
+      window.getByRole("button", { name: "Show application toolbar" }),
+    ).toBeVisible();
+    await expect(
+      window.getByRole("button", { name: "Show project sidebar" }),
+    ).toBeVisible();
+    await expect(
+      window.getByRole("button", { name: "Show inspector sidebar" }),
+    ).toBeVisible();
+  } finally {
+    await application.close();
+  }
+});

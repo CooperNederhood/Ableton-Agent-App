@@ -107,6 +107,12 @@ and the connection header plus application navigation can be hidden together.
 All regions return on each application launch. The prompt composer is part of
 the Conversation column and follows its width as sidebars collapse.
 
+After hiding both sidebars and the application toolbar, the desktop window can
+be resized to a 320x360 chat-only view. At that size, conversation status is
+condensed and timeline/composer spacing tightens while controls for restoring
+all hidden regions remain available. Other multi-panel views may require a
+larger window.
+
 Settings includes an `Always on top` preference for keeping the desktop window
 visible while working in Ableton. The setting applies immediately, persists
 across launches, and on macOS keeps the window available across Spaces and over

@@ -29,6 +29,22 @@ describe("desktop window development options", () => {
     ).toBe("/icon.png");
   });
 
+  it("allows a terminal-sized chat window", () => {
+    const options = createWindowOptions(
+      "/preload.cjs",
+      false,
+      "/icon.png",
+      false,
+    );
+
+    expect(options).toMatchObject({
+      width: 1440,
+      height: 940,
+      minWidth: 320,
+      minHeight: 360,
+    });
+  });
+
   it("restores the saved always-on-top state before showing the window", () => {
     expect(
       createWindowOptions("/preload.cjs", false, "/icon.png", true).alwaysOnTop,

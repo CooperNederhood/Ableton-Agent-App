@@ -20,8 +20,8 @@
 }
 body {
   margin: 0;
-  min-width: 1080px;
-  min-height: 720px;
+  min-width: 320px;
+  min-height: 360px;
   overflow: hidden;
 }
 button,
@@ -1038,7 +1038,7 @@ small,
   grid-template-columns: 250px minmax(420px, 1fr);
 }
 .workspace.left-sidebar-hidden.right-sidebar-hidden {
-  grid-template-columns: minmax(420px, 1fr);
+  grid-template-columns: minmax(0, 1fr);
 }
 .project-outline,
 .inspector,
@@ -1853,10 +1853,55 @@ kbd {
     grid-template-columns: 220px minmax(400px, 1fr);
   }
   .workspace.left-sidebar-hidden.right-sidebar-hidden {
-    grid-template-columns: minmax(400px, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
   .model {
     display: none;
+  }
+}
+@media (max-width: 420px) {
+  .restore-top-chrome {
+    top: 6px;
+    right: 52px;
+  }
+  .conversation > .panel-heading {
+    gap: 4px;
+    padding: 6px 8px;
+  }
+  .conversation > .panel-heading > span {
+    display: none;
+  }
+  .timeline {
+    min-height: 0;
+    padding: 14px 12px;
+  }
+  .message,
+  .operation,
+  .trigger {
+    margin-bottom: 16px;
+  }
+  .message.user {
+    max-width: 88%;
+  }
+  .composer {
+    padding: 6px 8px 8px;
+  }
+  .composer form {
+    gap: 4px;
+    padding: 6px;
+    border-radius: 10px;
+  }
+  .composer textarea {
+    min-width: 0;
+    min-height: 42px;
+    padding: 8px;
+  }
+  .composer form > button {
+    white-space: nowrap;
+  }
+  .context-chips {
+    min-height: 0;
+    margin-bottom: 4px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

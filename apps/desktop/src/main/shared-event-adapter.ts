@@ -2,10 +2,17 @@ import type { AppEvent } from "@ableton-agent/shared";
 
 import { appEventSchema, type DesktopAppEvent } from "../contracts.js";
 
+function desktopToolName(toolName: string | undefined): string | undefined {
+  const bounded = toolName?.slice(0, 128);
+  return bounded === "" ? undefined : bounded;
+}
+
 export function normalizeSharedEvent(
   event: AppEvent,
   messageId: () => string,
 ): DesktopAppEvent {
+  const toolName =
+    "toolName" in event ? desktopToolName(event.toolName) : undefined;
   const normalized: DesktopAppEvent =
     event.type === "agent.message_delta"
       ? { ...event, messageId: messageId() }
@@ -29,6 +36,7 @@ export function normalizeSharedEvent(
                   operation: {
                     id: event.operationId,
                     label: event.label,
+                    ...(toolName === undefined ? {} : { toolName }),
                     status: "running",
                     warnings: [],
                     changed: [],
@@ -50,6 +58,7 @@ export function normalizeSharedEvent(
                     operation: {
                       id: event.operationId,
                       label: event.summary,
+                      ...(toolName === undefined ? {} : { toolName }),
                       status: "completed",
                       warnings: [],
                       changed: [event.summary],
@@ -71,6 +80,7 @@ export function normalizeSharedEvent(
                       operation: {
                         id: event.operationId,
                         label: event.message,
+                        ...(toolName === undefined ? {} : { toolName }),
                         status: "failed",
                         detail: event.code,
                         warnings: [event.message],

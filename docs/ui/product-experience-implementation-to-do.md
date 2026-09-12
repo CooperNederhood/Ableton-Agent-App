@@ -24,10 +24,15 @@ typed service calls, and sessions use explicit create/resume operations.
 - [ ] Add active-agent creation, editing, reset, deactivate, and modified state.
 - [x] Build application shell, connection header, mode switcher, and model
   status.
+- [x] Add transient independent Project/Inspector sidebars and combined
+  top-chrome controls, with the composer aligned to the expanding conversation
+  column.
 - [x] Build chat composer with explicit context chips.
 - [x] Send bounded, deduplicated context chips atomically with managed-agent
   messages and explicit skill invocations.
 - [x] Build streaming assistant and operation timeline.
+- [x] Present borderless assistant turns, right-aligned user cards, and compact
+  typed operation rows with expandable recovery details.
 - [x] Build project outline and selection model.
 - [x] Build inspector for tracks, clips, devices, and parameters.
 - [x] Build approval and change-preview panel.
@@ -54,6 +59,8 @@ typed service calls, and sessions use explicit create/resume operations.
 
 - [x] Implement keyboard navigation and focus management.
 - [x] Add semantic labels and non-color status indicators.
+- [x] Add accessible expanded-state labels and controls for all collapsible
+  workspace regions.
 - [x] Virtualize large lists and throttle streaming updates.
 - [x] Define loading, empty, degraded, and disconnected states.
 

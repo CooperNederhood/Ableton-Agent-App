@@ -591,6 +591,7 @@ export type ApprovalRequest = z.infer<typeof approvalSchema>;
 export const operationSchema = z.object({
   id: z.string(),
   label: z.string(),
+  toolName: z.string().min(1).max(128).optional(),
   status: z.enum(["running", "completed", "partial", "failed", "cancelled"]),
   detail: z.string().optional(),
   warnings: z.array(z.string()).default([]),

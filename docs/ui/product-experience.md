@@ -49,6 +49,18 @@ The conversation/operation timeline is the graphical form of the reference
 CLI chat experience. The surrounding project outline, inspector, context
 controls, and plan/change views progressively enhance it.
 
+The workspace opens as three columns. The Project and Inspector columns each
+have an independent accessible toggle in the conversation heading, and the
+connection header plus application tabs can be hidden as one top-chrome region.
+These visibility choices are intentionally transient and reset on launch. The
+composer belongs to the center conversation column, expanding with it when
+either sidebar is hidden so users can isolate chat without losing input.
+
+Assistant turns are borderless, left-aligned reading content. User turns are
+compact right-aligned cards. Neither role needs a repeated textual label in
+every turn; streaming state remains announced. This distinction must remain
+semantic and must not rely on color alone.
+
 ## Events
 
 The top-level **Events** view manages user-defined observations of Live. Event
@@ -118,6 +130,12 @@ Display structured activity rather than hidden tool calls:
 
 Users can expand an operation to inspect parameters, warnings, and affected
 objects. Internal protocol details remain hidden by default.
+
+In the conversation timeline, activity defaults to a muted one-line row with a
+small icon for its broad type, such as Ableton, search/read, terminal, edit,
+agent, or generic activity. Long tool names and previews truncate rather than
+expanding the row. Status remains textual, and recovery details, warnings,
+retry, and undo remain available in the disclosure.
 
 ## Selection-aware interaction
 

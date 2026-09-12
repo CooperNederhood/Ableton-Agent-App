@@ -51,6 +51,10 @@ never left pending, when no renderer is listening or the app is shutting down.
 - [x] Ensure every essential CLI interaction has a desktop equivalent.
 - [x] Add visual-only APIs through shared application services, not direct
   bridge calls.
+- [x] Add transient Project, Inspector, and combined top-chrome visibility
+  controls while keeping the composer aligned with the conversation column.
+- [x] Preserve optional tool identity in desktop operation view models and
+  render compact typed activity rows without removing recovery details.
 
 Project snapshots are read through the shared application (`inspectSession`,
 `inspectDevices`, `inspectDeviceParameters`) and mapped into desktop view

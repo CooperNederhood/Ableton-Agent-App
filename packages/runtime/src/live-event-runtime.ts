@@ -89,6 +89,7 @@ export interface LiveEventRuntimeOptions {
   readonly telemetry?: Pick<NonBlockingObservabilityRecorder, "enqueue">;
   readonly now?: () => Date;
   readonly preparedContextProvider?: PreparedContextProvider;
+  readonly subscriptionRetryDelaysMs?: readonly number[];
 }
 
 export interface LiveEventRuntime extends LiveEventContextProvider {
@@ -130,6 +131,15 @@ function unresolved(detail?: string): LiveEventResolution {
     reason: "not-connected",
     ...(detail === undefined ? {} : { detail: detail.slice(0, 512) }),
   };
+}
+
+function isRetryableBridgeError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "retryable" in error &&
+    error.retryable === true
+  );
 }
 
 function occurrenceState(
@@ -197,6 +207,7 @@ export class DefaultLiveEventRuntime
   readonly #nextPromptDiscreteLimit: number;
   readonly #automaticDiscreteLimit: number;
   readonly #continuousSettleMs: number;
+  readonly #subscriptionRetryDelaysMs: readonly number[];
   readonly #telemetry:
     Pick<NonBlockingObservabilityRecorder, "enqueue"> | undefined;
   readonly #now: () => Date;
@@ -209,6 +220,11 @@ export class DefaultLiveEventRuntime
   readonly #settleTimers = new Map<string, ReturnType<typeof setTimeout>>();
   readonly #subscribers = new Set<(event: LiveEventRuntimeEvent) => void>();
   readonly #subscriptionFingerprints = new Map<string, string>();
+  readonly #subscriptionRetryAttempts = new Map<string, number>();
+  readonly #subscriptionRetryTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
   #deliveryService: LiveEventDeliveryService | undefined;
   #unsubscribeEvents: (() => void) | undefined;
   #unsubscribeReconciliation: (() => void) | undefined;
@@ -232,6 +248,9 @@ export class DefaultLiveEventRuntime
       options.automaticDiscreteLimit ?? 128,
     );
     this.#continuousSettleMs = Math.max(0, options.continuousSettleMs ?? 120);
+    this.#subscriptionRetryDelaysMs = (
+      options.subscriptionRetryDelaysMs ?? [250, 500, 1_000]
+    ).map((delay) => Math.max(0, delay));
     this.#telemetry = options.telemetry;
     this.#now = options.now ?? (() => new Date());
     this.#preparedContextProvider = options.preparedContextProvider;
@@ -275,6 +294,12 @@ export class DefaultLiveEventRuntime
     this.#unsubscribeReconciliation = undefined;
     for (const timer of this.#settleTimers.values()) clearTimeout(timer);
     this.#settleTimers.clear();
+    for (const timer of this.#subscriptionRetryTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.#subscriptionRetryTimers.clear();
+    this.#subscriptionRetryAttempts.clear();
+    await this.#syncTail;
     const eventIds = [...this.#subscriptionFingerprints.keys()];
     this.#subscriptionFingerprints.clear();
     await Promise.allSettled(
@@ -305,10 +330,18 @@ export class DefaultLiveEventRuntime
     for (const eventId of this.#states.keys()) {
       if (!nextIds.has(eventId)) {
         this.#states.delete(eventId);
+        this.#clearSubscriptionRetry(eventId);
       }
     }
     for (const definition of definitions) {
       const existing = this.#states.get(definition.id);
+      if (
+        existing !== undefined &&
+        existing.definition.updatedAt !== definition.updatedAt
+      ) {
+        this.#clearSubscriptionRetry(definition.id);
+      }
+      if (!definition.enabled) this.#clearSubscriptionRetry(definition.id);
       this.#states.set(definition.id, {
         definition,
         resolution:
@@ -439,6 +472,7 @@ export class DefaultLiveEventRuntime
       this.#subscriptionFingerprints.delete(eventId);
     }
     for (const state of desired) {
+      if (this.#subscriptionRetryTimers.has(state.definition.id)) continue;
       const startedAt = this.#now().getTime();
       const traceId = stableTelemetryId(
         `live-event-subscription:${state.definition.id}`,
@@ -468,7 +502,16 @@ export class DefaultLiveEventRuntime
           await this.#bridge.unsubscribeLiveEvent(state.definition.id);
         }
         const result = await this.#bridge.subscribeLiveEvent(params);
+        if (!this.#started || this.#states.get(state.definition.id) !== state) {
+          await this.#bridge
+            .unsubscribeLiveEvent(state.definition.id)
+            .catch(() => undefined);
+          continue;
+        }
         this.#subscriptionFingerprints.set(state.definition.id, fingerprint);
+        const recovered =
+          (this.#subscriptionRetryAttempts.get(state.definition.id) ?? 0) > 0;
+        this.#clearSubscriptionRetry(state.definition.id);
         state.resolution = result.resolution;
         state.latestState = result.initialState;
         this.#emitState(state);
@@ -484,9 +527,13 @@ export class DefaultLiveEventRuntime
           attributes: {
             eventId: state.definition.id,
             eventKind: state.definition.kind,
+            recovered,
           },
         });
       } catch (error) {
+        if (!this.#started || this.#states.get(state.definition.id) !== state) {
+          continue;
+        }
         if (this.#subscriptionFingerprints.has(state.definition.id)) {
           const deactivated = await this.#bridge
             .unsubscribeLiveEvent(state.definition.id)
@@ -528,8 +575,65 @@ export class DefaultLiveEventRuntime
           `Live event '${state.definition.name}' is unresolved`,
           error,
         );
+        if (isRetryableBridgeError(error)) {
+          this.#scheduleSubscriptionRetry(state);
+        } else {
+          this.#clearSubscriptionRetry(state.definition.id);
+        }
       }
     }
+  }
+
+  #scheduleSubscriptionRetry(state: MutableState): void {
+    const eventId = state.definition.id;
+    if (this.#subscriptionRetryTimers.has(eventId)) return;
+    const attempt = this.#subscriptionRetryAttempts.get(eventId) ?? 0;
+    const delay = this.#subscriptionRetryDelaysMs[attempt];
+    if (delay === undefined) {
+      recordSignalTelemetry(this.#telemetry, {
+        name: "live-event.subscription.retry-exhausted",
+        source: "live-event-runtime",
+        correlationId: eventId,
+        projectId: state.definition.projectId,
+        liveEventId: eventId,
+        level: "warn",
+        outcome: "failure",
+        attributes: { eventId, attempts: attempt },
+      });
+      return;
+    }
+    this.#subscriptionRetryAttempts.set(eventId, attempt + 1);
+    const revision = state.definition.updatedAt;
+    const timer = setTimeout(() => {
+      this.#subscriptionRetryTimers.delete(eventId);
+      const current = this.#states.get(eventId);
+      if (
+        !this.#started ||
+        current === undefined ||
+        !current.definition.enabled ||
+        current.definition.updatedAt !== revision
+      ) {
+        return;
+      }
+      this.#scheduleSync();
+    }, delay);
+    this.#subscriptionRetryTimers.set(eventId, timer);
+    recordSignalTelemetry(this.#telemetry, {
+      name: "live-event.subscription.retry-scheduled",
+      source: "live-event-runtime",
+      correlationId: eventId,
+      projectId: state.definition.projectId,
+      liveEventId: eventId,
+      level: "warn",
+      attributes: { eventId, attempt: attempt + 1, delayMs: delay },
+    });
+  }
+
+  #clearSubscriptionRetry(eventId: string): void {
+    const timer = this.#subscriptionRetryTimers.get(eventId);
+    if (timer !== undefined) clearTimeout(timer);
+    this.#subscriptionRetryTimers.delete(eventId);
+    this.#subscriptionRetryAttempts.delete(eventId);
   }
 
   async #resolveParams(
@@ -622,6 +726,7 @@ export class DefaultLiveEventRuntime
       return;
     }
     if (event.event === "live_event.invalidated") {
+      this.#subscriptionFingerprints.delete(event.payload.eventId);
       state.resolution = {
         status: "invalidated",
         reason: event.payload.reason,
@@ -984,6 +1089,31 @@ export class DefaultLiveEventRuntime
         attributes: { subscriptionCount: signal.subscriptions.length },
       });
       this.#applyStatuses(signal.subscriptions);
+      const statuses = new Map(
+        signal.subscriptions.map((status) => [status.eventId, status]),
+      );
+      let shouldSync = false;
+      for (const state of this.#states.values()) {
+        if (!state.definition.enabled) continue;
+        const status = statuses.get(state.definition.id);
+        const retryableReplayFailure =
+          status?.status === "unresolved" && status.error.retryable;
+        if (status?.status === "unresolved") {
+          this.#subscriptionFingerprints.delete(state.definition.id);
+        }
+        if (
+          retryableReplayFailure ||
+          (status === undefined &&
+            !this.#subscriptionFingerprints.has(state.definition.id))
+        ) {
+          if (retryableReplayFailure) {
+            this.#subscriptionFingerprints.delete(state.definition.id);
+          }
+          this.#clearSubscriptionRetry(state.definition.id);
+          shouldSync = true;
+        }
+      }
+      if (shouldSync) this.#scheduleSync();
       return;
     }
     const startedAt = this.#now().getTime();

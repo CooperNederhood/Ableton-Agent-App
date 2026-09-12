@@ -264,6 +264,8 @@ summary.
 An occurrence schedules an internal agent turn. Automatic turns:
 
 - use the target agent's existing SDK session;
+- attach the listener's bounded prepared project context as SDK
+  `additionalContext`;
 - use normal tool allowlists, edit scopes, and approval behavior;
 - never inherit another agent's permissions;
 - serialize with that agent's active turn;
@@ -272,7 +274,34 @@ An occurrence schedules an internal agent turn. Automatic turns:
 
 The generated prompt clearly states that the trigger is a Live observation,
 not a user-authored message, followed by the configured prefix and structured
-event summary.
+event summary. The visible occurrence payload does not duplicate prepared
+project context. The context is a separate prompt attachment so the occurrence
+remains stable, bounded, and suitable for local history.
+
+#### Prepared context and exact identities
+
+Prepared context is refreshed in the background and served stale-while-refresh
+so an automatic turn does not wait for `session.inspect`. Its freshness field
+describes the age of mutable state such as transport and mixer values; age
+expiry does not by itself invalidate exact track or Session clip references.
+Likewise, `projectRevision` is not an identity-validity boundary because it can
+advance for tempo, transport, selection, and collection changes.
+
+When prepared context contains one unambiguous exact-reference match for every
+required track and clip, an automatic turn uses those references directly with
+the mutation tool's expected-reference guards. It must not inspect merely
+because the context is age-expired or its revision differs from the occurrence.
+This keeps performance-time Event actions on one model-decision path.
+
+Inspection is required before mutation when a required identity is absent,
+ambiguous, unresolved, or omitted by context limits. If a guarded tool rejects
+an identity as `stale_reference` or `ambiguous_reference`, the agent inspects
+once and may continue only with a newly verified identity; it never retries the
+unchanged rejected mutation.
+
+Context diagnostics record only bounded metadata such as age, project revision,
+selected-track and Session-clip counts, truncation, and unresolved-locator
+counts. They do not persist the prepared context body or exact references.
 
 ## Events view
 
@@ -401,6 +430,8 @@ There is no generic SQL, filesystem access, or raw journal IPC.
 
 - Creating a listener is read-only and requires no mutation approval.
 - Automatic agent responses retain normal mutation approval rules.
+- Cached exact identities are used only through identity-guarded mutations;
+  missing or rejected identities fall back to inspection.
 - Event payloads are bounded, sanitized before storage, and treated as local
   project data.
 - Detailed note/event payloads are retained within the documented bounds;

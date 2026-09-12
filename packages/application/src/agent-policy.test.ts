@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { SessionSnapshot } from "@ableton-agent/protocol";
 
 import {
+  AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE,
   browserIntentGuidance,
   compactProjectContext,
   createAgentHooks,
@@ -180,6 +181,48 @@ describe("agent policy", () => {
     expect(getPreparedContext).toHaveBeenCalledOnce();
     expect(inspectSession).not.toHaveBeenCalled();
     expect(getAbletonStatus).not.toHaveBeenCalled();
+  });
+
+  it("directs automatic Listening Events to use guarded cached identities", async () => {
+    const listener = {
+      id: "event-listener.00000000-0000-4000-8000-000000000001",
+      eventId: "live-event.00000000-0000-4000-8000-000000000001",
+      enabled: true,
+      responseMode: "automatic" as const,
+    };
+    const getPreparedContext = vi.fn(
+      () =>
+        'Prepared context\n{"freshness":"stale","identityPolicy":"guarded-exact-reference"}',
+    );
+    const hooks = createAgentHooks({
+      getAbletonStatus: async () => connected,
+      preparedContext: {
+        getPreparedContext,
+        activeListener: () => listener,
+      },
+    });
+
+    const prompted = await hooks.onUserPromptSubmitted?.(
+      {
+        sessionId: "session-1",
+        timestamp: new Date(),
+        workingDirectory: "/tmp",
+        prompt:
+          "<live-event-trigger>Launch the corresponding clip.</live-event-trigger>",
+      },
+      { sessionId: "session-1" },
+    );
+
+    expect(prompted?.additionalContext).toContain(
+      AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE,
+    );
+    expect(prompted?.additionalContext).toContain(
+      "Do not inspect solely because freshness is stale",
+    );
+    expect(prompted?.additionalContext).toContain(
+      "missing, ambiguous, unresolved, or truncated",
+    );
+    expect(getPreparedContext).toHaveBeenCalledWith(listener);
   });
 
   it("injects separate Browser guidance for piano and string bass requests", async () => {

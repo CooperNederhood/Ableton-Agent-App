@@ -153,6 +153,7 @@ export class PreparedProjectContextStore implements PreparedContextProvider {
       this.#record("project-context.cache.hit", {
         state: this.#stale ? "stale" : "fresh",
         scope: configuration.scope,
+        ...this.#diagnostics(configuration),
       });
       return cached;
     }
@@ -166,6 +167,7 @@ export class PreparedProjectContextStore implements PreparedContextProvider {
           : "project-context.cache.materialized",
       {
         scope: configuration.scope,
+        ...this.#diagnostics(configuration),
       },
     );
     return materialized;
@@ -361,6 +363,68 @@ export class PreparedProjectContextStore implements PreparedContextProvider {
     );
   }
 
+  #diagnostics(
+    configuration: PreparedContextConfiguration,
+  ): SanitizedAttributes {
+    const facts = this.#facts;
+    if (facts === undefined) {
+      return {
+        stateAgeExpired: false,
+        selectedTrackCount: 0,
+        sessionClipCount: 0,
+        hasExactTrackReferences: false,
+        hasExactSessionClipReferences: false,
+        tracksTruncated: false,
+        sessionClipsTruncated: false,
+        unresolvedTrackLocatorCount: 0,
+      };
+    }
+    const snapshot = facts.snapshot;
+    const selectedTracks =
+      configuration.scope === "whole-session"
+        ? snapshot.tracks.slice(0, WHOLE_SESSION_TRACK_LIMIT)
+        : configuration.tracks.flatMap(({ track: locator }) => {
+            const matches = snapshot.tracks.filter(
+              ({ name }) => name === locator.name,
+            );
+            const track = matches[locator.occurrence];
+            return track === undefined ? [] : [track];
+          });
+    const selectedReferences = new Set(
+      selectedTracks.map(({ reference }) => reference),
+    );
+    const matchingClips = configuration.includeSessionClips
+      ? (snapshot.clips ?? []).filter(
+          ({ trackReference }) =>
+            configuration.scope === "whole-session" ||
+            selectedReferences.has(trackReference),
+        )
+      : [];
+    const unresolvedTrackLocatorCount =
+      configuration.scope === "selected-tracks"
+        ? configuration.tracks.length - selectedTracks.length
+        : 0;
+    return {
+      contextAgeMs: Math.max(
+        0,
+        this.#now().getTime() - Date.parse(facts.capturedAt),
+      ),
+      ...(facts.projectRevision === undefined
+        ? {}
+        : { projectRevision: facts.projectRevision }),
+      stateAgeExpired: this.#isExpired(),
+      selectedTrackCount: selectedTracks.length,
+      sessionClipCount: Math.min(matchingClips.length, SESSION_CLIP_LIMIT),
+      hasExactTrackReferences: selectedTracks.length > 0,
+      hasExactSessionClipReferences: matchingClips.length > 0,
+      tracksTruncated:
+        configuration.scope === "whole-session" &&
+        snapshot.tracks.length > selectedTracks.length,
+      sessionClipsTruncated: matchingClips.length > SESSION_CLIP_LIMIT,
+      unresolvedTrackLocatorCount,
+    };
+  }
+
   #materialize(configuration: PreparedContextConfiguration): string {
     const facts = this.#facts;
     if (facts === undefined) {
@@ -424,7 +488,7 @@ export class PreparedProjectContextStore implements PreparedContextProvider {
       kind: clip.kind,
     }));
     return [
-      "Prepared Ableton project context (cached; use exact identities directly when sufficient):",
+      "Prepared Ableton project context (cached; freshness describes mutable state age, not exact identity validity. Use complete exact identities directly with identity guards when sufficient):",
       JSON.stringify({
         projectId: facts.status.projectId,
         ...(facts.projectRevision === undefined
@@ -432,6 +496,7 @@ export class PreparedProjectContextStore implements PreparedContextProvider {
           : { projectRevision: facts.projectRevision }),
         capturedAt: facts.capturedAt,
         freshness: this.#stale || this.#isExpired() ? "stale" : "fresh",
+        identityPolicy: "guarded-exact-reference",
         ageMs,
         tempo: facts.snapshot.tempo,
         timeSignature: `${facts.snapshot.timeSignature.numerator}/${facts.snapshot.timeSignature.denominator}`,

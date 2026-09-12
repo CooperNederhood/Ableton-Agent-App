@@ -100,18 +100,6 @@ try {
     await controller.launch(applicationPath);
     evidence.liveProcess = controller.publicRecord();
     await waitForBridge(environment, controller, evidence);
-    if (sessionId === undefined) {
-      const session = await runCli(
-        ["session-new", "--json", "--quiet"],
-        environment,
-      );
-      if (session.status !== 0 || typeof session.json?.sessionId !== "string") {
-        throw new Error(`Unable to create Copilot session: ${session.stderr}`);
-      }
-      sessionId = session.json.sessionId;
-      evidence.sessionId = sessionId;
-    }
-
     let groupPassed = true;
     for (const manifest of scenarios) {
       const tracePath = resolve(
@@ -119,6 +107,52 @@ try {
         "traces",
         `${manifest.id}.json`,
       );
+      if (manifest.execution === "live-event-runtime") {
+        const result = await runLiveEventRuntimeScenario(manifest, environment);
+        await mkdir(dirname(tracePath), { recursive: true });
+        await writeFile(
+          tracePath,
+          `${JSON.stringify(result, undefined, 2)}\n`,
+          {
+            encoding: "utf8",
+            mode: 0o600,
+          },
+        );
+        const classification = result.ok ? "pass" : "fail";
+        evidence.scenarios.push({
+          id: manifest.id,
+          group,
+          status: result.ok ? 0 : 5,
+          classification,
+          passed: result.ok,
+          toolNames: [],
+          tracePath,
+          result,
+          stderr: "",
+        });
+        if (!result.ok) {
+          groupPassed = false;
+          failed = true;
+          break;
+        }
+        continue;
+      }
+      if (sessionId === undefined) {
+        const session = await runCli(
+          ["session-new", "--json", "--quiet"],
+          environment,
+        );
+        if (
+          session.status !== 0 ||
+          typeof session.json?.sessionId !== "string"
+        ) {
+          throw new Error(
+            `Unable to create Copilot session: ${session.stderr}`,
+          );
+        }
+        sessionId = session.json.sessionId;
+        evidence.sessionId = sessionId;
+      }
       const result = await runCli(
         [
           "run",
@@ -221,7 +255,251 @@ async function loadManifest(id) {
   if (manifest.id !== id || typeof manifest.group !== "string") {
     throw new Error(`Invalid scenario manifest: ${id}`);
   }
+  if (
+    manifest.execution !== undefined &&
+    manifest.execution !== "live-event-runtime"
+  ) {
+    throw new Error(`Invalid scenario execution mode: ${manifest.execution}`);
+  }
+  if (
+    manifest.execution === "live-event-runtime" &&
+    (!Number.isInteger(manifest.timeoutMs) ||
+      manifest.timeoutMs < 10_000 ||
+      manifest.timeoutMs > 60_000)
+  ) {
+    throw new Error(`Invalid direct scenario timeout: ${manifest.timeoutMs}`);
+  }
   return manifest;
+}
+
+async function runLiveEventRuntimeScenario(manifest, environment) {
+  const { createAgentRuntime, resolveAbletonSettingsFromEnvironment } =
+    await import("../packages/runtime/dist/index.js");
+  const transitions = [];
+  const runtime = createAgentRuntime({
+    ableton: resolveAbletonSettingsFromEnvironment(environment),
+  });
+  const unsubscribe = runtime.liveEvents.subscribe((event) => {
+    if (event.type === "diagnostic") {
+      transitions.push({
+        diagnostic: event.level,
+        message: event.message,
+      });
+      return;
+    }
+    transitions.push({
+      eventId: event.state.definition.id,
+      status: event.state.resolution.status,
+      resolution: event.state.resolution,
+      latestState: event.state.latestState,
+    });
+  });
+  const assertions = [];
+  let baseline;
+  let stopError;
+  try {
+    await runtime.application.start({ startAgent: false });
+    const status = await runtime.application.getStatus();
+    baseline = await runtime.application.inspectSession();
+    const track = await firstEventCapableTrack(runtime.application, baseline);
+    if (status.state !== "connected" || track === undefined) {
+      throw new Error(
+        "Live Event smoke requires one connected non-Group Live track",
+      );
+    }
+    const occurrence = baseline.tracks
+      .slice(0, track.index)
+      .filter(({ name }) => name === track.name).length;
+    const definitionTime = Date.now();
+    const now = new Date(definitionTime).toISOString();
+    const eventId = `live-event.${randomUUID()}`;
+    const definition = {
+      id: eventId,
+      name: "Runner triggered clip",
+      projectId: status.projectId,
+      kind: "track.triggered_clip_changed",
+      classification: "discrete",
+      enabled: true,
+      target: { track: { name: track.name, occurrence } },
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    runtime.liveEvents.setConfiguration([definition], []);
+    const resolved = await waitForLiveEventState(
+      runtime.liveEvents,
+      eventId,
+      (state) =>
+        state.resolution.status === "resolved" &&
+        state.latestState?.kind === "track.triggered_clip_changed",
+      manifest.timeoutMs,
+    );
+    assertions.push({
+      assertion: "event-resolved-with-initial-state",
+      passed:
+        resolved.resolution.status === "resolved" &&
+        resolved.resolution.trackReference === track.reference,
+      evidence: resolved,
+    });
+
+    const disabled = {
+      ...definition,
+      enabled: false,
+      updatedAt: new Date(definitionTime + 1).toISOString(),
+    };
+    runtime.liveEvents.setConfiguration([disabled], []);
+    await waitForSubscriptionCount(runtime.ableton, 0, manifest.timeoutMs);
+    assertions.push({
+      assertion: "disable-unsubscribes",
+      passed: true,
+    });
+
+    const reenabled = {
+      ...disabled,
+      enabled: true,
+      updatedAt: new Date(definitionTime + 2).toISOString(),
+    };
+    runtime.liveEvents.setConfiguration([reenabled], []);
+    await waitForSubscriptionCount(runtime.ableton, 1, manifest.timeoutMs);
+    assertions.push({
+      assertion: "reenable-resubscribes-once",
+      passed: true,
+    });
+
+    const missing = {
+      ...reenabled,
+      target: {
+        track: {
+          name: `AA_EVENT_MISSING_${randomUUID()}`,
+          occurrence: 0,
+        },
+      },
+      updatedAt: new Date(definitionTime + 3).toISOString(),
+    };
+    runtime.liveEvents.setConfiguration([missing], []);
+    const unresolved = await waitForLiveEventState(
+      runtime.liveEvents,
+      eventId,
+      (state) => state.resolution.status === "unresolved",
+      manifest.timeoutMs,
+    );
+    await waitForSubscriptionCount(runtime.ableton, 0, manifest.timeoutMs);
+    assertions.push({
+      assertion: "missing-target-is-bounded-and-unsubscribed",
+      passed:
+        unresolved.resolution.status === "unresolved" &&
+        unresolved.resolution.detail?.includes("was not found") === true,
+      evidence: unresolved.resolution,
+    });
+
+    const corrected = {
+      ...reenabled,
+      updatedAt: new Date(definitionTime + 4).toISOString(),
+    };
+    runtime.liveEvents.setConfiguration([corrected], []);
+    await waitForLiveEventState(
+      runtime.liveEvents,
+      eventId,
+      (state) => state.resolution.status === "resolved",
+      manifest.timeoutMs,
+    );
+    await waitForSubscriptionCount(runtime.ableton, 1, manifest.timeoutMs);
+    assertions.push({
+      assertion: "corrected-target-recovers",
+      passed: true,
+    });
+
+    runtime.liveEvents.setConfiguration([], []);
+    await waitForSubscriptionCount(runtime.ableton, 0, manifest.timeoutMs);
+    const after = await runtime.application.inspectSession();
+    assertions.push({
+      assertion: "cleanup-and-session-unchanged",
+      passed: JSON.stringify(after) === JSON.stringify(baseline),
+      evidence:
+        JSON.stringify(after) === JSON.stringify(baseline)
+          ? undefined
+          : { baseline, after },
+    });
+  } catch (error) {
+    assertions.push({
+      assertion: "scenario-execution",
+      passed: false,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    unsubscribe();
+    try {
+      await runtime.application.stop();
+    } catch (error) {
+      stopError = error instanceof Error ? error.message : String(error);
+    }
+  }
+  if (stopError !== undefined) {
+    assertions.push({
+      assertion: "runtime-cleanup",
+      passed: false,
+      message: stopError,
+    });
+  }
+  return {
+    ok: assertions.every(({ passed }) => passed),
+    scenarioId: manifest.id,
+    assertions,
+    transitions,
+  };
+}
+
+async function firstEventCapableTrack(application, snapshot) {
+  for (const track of snapshot.tracks) {
+    try {
+      await application.inspectDevices({
+        index: track.index,
+        expectedReference: track.reference,
+        expectedName: track.name,
+        offset: 0,
+        limit: 1,
+      });
+      return track;
+    } catch (error) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "conflict"
+      ) {
+        continue;
+      }
+      throw error;
+    }
+  }
+  return undefined;
+}
+
+async function waitForLiveEventState(
+  liveEvents,
+  eventId,
+  predicate,
+  timeoutMs,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const state = liveEvents.getState(eventId);
+    if (state !== undefined && predicate(state)) return state;
+    await new Promise((resolve_) => setTimeout(resolve_, 25));
+  }
+  throw new Error(
+    `Timed out waiting for Live Event state '${eventId}': ${JSON.stringify(liveEvents.getState(eventId)?.resolution)}`,
+  );
+}
+
+async function waitForSubscriptionCount(ableton, expected, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await ableton.listLiveEventSubscriptions();
+    if (result.subscriptions.length === expected) return;
+    await new Promise((resolve_) => setTimeout(resolve_, 25));
+  }
+  throw new Error(`Timed out waiting for ${expected} Live Event subscriptions`);
 }
 
 async function waitForBridge(

@@ -228,6 +228,7 @@ export class HeadlessDesktopService implements DesktopService {
     Extract<DesktopLifecycleState, "ready" | "degraded"> | undefined;
   #latestOutputs = new Map<string, LatestAcceptedOutput>();
   #snapshotRefresh: Promise<DesktopProjectSnapshot> | undefined;
+  #snapshotEnrichmentGeneration = 0;
   #activeProductionSessionId: string | undefined;
   readonly #sdkSessionIds = new Map<string, string>();
   readonly #ephemeralSessionIds = new Set<string>();
@@ -1677,7 +1678,18 @@ export class HeadlessDesktopService implements DesktopService {
       snapshot: coreSnapshot,
     });
 
-    const trackDevices = await this.#readTrackDevices(snapshot);
+    const enrichmentGeneration = this.#snapshotEnrichmentGeneration;
+    const trackDevices = await this.#readTrackDevices(
+      snapshot,
+      enrichmentGeneration,
+    );
+    if (enrichmentGeneration !== this.#snapshotEnrichmentGeneration) {
+      this.#logger.debug("Project enrichment interrupted", {
+        refreshId,
+        durationMs: Date.now() - startedAt,
+      });
+      return coreSnapshot;
+    }
     const baseEnrichedSnapshot = toDesktopSnapshot(
       snapshot,
       status,
@@ -1703,9 +1715,15 @@ export class HeadlessDesktopService implements DesktopService {
     return enrichedSnapshot;
   }
 
-  async #readTrackDevices(snapshot: SessionSnapshot): Promise<TrackDevices[]> {
+  async #readTrackDevices(
+    snapshot: SessionSnapshot,
+    enrichmentGeneration: number,
+  ): Promise<TrackDevices[]> {
     const result: TrackDevices[] = [];
     for (const track of snapshot.tracks) {
+      if (enrichmentGeneration !== this.#snapshotEnrichmentGeneration) {
+        return result;
+      }
       const target = {
         index: track.index,
         expectedReference: track.reference,
@@ -1736,6 +1754,9 @@ export class HeadlessDesktopService implements DesktopService {
       }
       const devices: TrackDevices["devices"] = [];
       for (const device of page.devices) {
+        if (enrichmentGeneration !== this.#snapshotEnrichmentGeneration) {
+          return result;
+        }
         if (device.parameterCount === 0) {
           devices.push({ device, parameters: [] });
           continue;
@@ -1774,6 +1795,13 @@ export class HeadlessDesktopService implements DesktopService {
       result.push({ trackReference: track.reference, devices });
     }
     return result;
+  }
+
+  async #interruptSnapshotEnrichment(): Promise<void> {
+    const refresh = this.#snapshotRefresh;
+    if (refresh === undefined) return;
+    this.#snapshotEnrichmentGeneration += 1;
+    await refresh.catch(() => undefined);
   }
 
   #isOperationTimeout(error: unknown): boolean {
@@ -3451,6 +3479,7 @@ export class HeadlessDesktopService implements DesktopService {
   ): Promise<LiveEventDefinition> {
     this.#assertAccepting();
     return this.#queueSessionAction(async () => {
+      await this.#interruptSnapshotEnrichment();
       const session = this.#requireActiveSession();
       const projectId = session.projectId ?? this.#projectIdentity?.projectId;
       if (projectId === undefined) {
@@ -3478,6 +3507,7 @@ export class HeadlessDesktopService implements DesktopService {
   ): Promise<LiveEventDefinition> {
     this.#assertAccepting();
     return this.#queueSessionAction(async () => {
+      await this.#interruptSnapshotEnrichment();
       const session = this.#requireActiveSession();
       const existing = this.#requireLiveEvent(session, eventId);
       const definition = {

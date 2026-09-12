@@ -261,8 +261,9 @@ export function scenarioPrompt(
         const initialClipName = `${context.artifactPrefix}${assertion.initialClipNameSuffix}`;
         const finalClipName = `${context.artifactPrefix}${assertion.finalClipNameSuffix}`;
         return [
-          `Create exactly one MIDI track "${trackName}" and one ${assertion.length}-beat Session MIDI clip "${initialClipName}" in scene ${assertion.sourceSceneIndex}.`,
-          `Launch the active source clip once, verify it triggered or started, stop transport with ableton_transport_set_playing, then rename it to "${finalClipName}", set muted ${assertion.properties.muted} and looping ${assertion.properties.looping}, duplicate it on the same track to scene ${assertion.destinationSceneIndex}, then delete both generated clips and the generated track.`,
+          `Create exactly one MIDI track "${trackName}" and one ${assertion.length}-beat Session MIDI clip "${initialClipName}" at zero-based sceneIndex ${assertion.sourceSceneIndex} (Session scene ${assertion.sourceSceneIndex + 1}).`,
+          `Launch the active source clip once, verify it triggered or started, stop transport with ableton_transport_set_playing, then rename it to "${finalClipName}", set muted ${assertion.properties.muted} and looping ${assertion.properties.looping}, duplicate it on the same track to zero-based destinationSceneIndex ${assertion.destinationSceneIndex} (Session scene ${assertion.destinationSceneIndex + 1}), then delete both generated clips and the generated track.`,
+          `For every clip operation, including duplicate and delete, expectedName remains the track name "${trackName}"; expectedClipReference identifies the source or destination clip even after the clip is renamed.`,
           "Use the returned identity references for every dependent operation and inspect when needed; do not touch pre-existing clips or tracks.",
         ];
       }

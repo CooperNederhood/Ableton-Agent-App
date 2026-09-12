@@ -5,8 +5,18 @@ import {
   createAgentPolicy,
   retryGuidance,
 } from "./agent-policy.js";
+import { BASE_SYSTEM_MESSAGE } from "./index.js";
 
 describe("agent safety evaluations", () => {
+  it("prefers sufficient guarded prepared identities over age-based inspection", () => {
+    expect(BASE_SYSTEM_MESSAGE).toContain(
+      "Use supplied prepared project context and its exact identities directly",
+    );
+    expect(BASE_SYSTEM_MESSAGE).toContain(
+      "do not inspect solely because cached mutable state is age-expired",
+    );
+  });
+
   it("requires inspection before project-specific edits", () => {
     expect(
       compactProjectContext({

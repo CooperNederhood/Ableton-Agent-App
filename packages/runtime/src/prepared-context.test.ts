@@ -1,4 +1,5 @@
 import { InMemoryEventPublisher } from "@ableton-agent/shared";
+import type { TelemetryEventEnvelope } from "@ableton-agent/observability";
 import { describe, expect, it, vi } from "vitest";
 
 import { PreparedProjectContextStore } from "./prepared-context.js";
@@ -113,6 +114,7 @@ describe("PreparedProjectContextStore", () => {
     expect(bass).not.toContain('"name":"Keys"');
     expect(bass).not.toContain("Bass Verse");
     expect(keys).toContain('"projectRevision":7');
+    expect(keys).toContain('"identityPolicy":"guarded-exact-reference"');
   });
 
   it("serves stale facts immediately while scheduling one refresh", async () => {
@@ -137,8 +139,115 @@ describe("PreparedProjectContextStore", () => {
     const second = store.getPreparedContext("agent-1");
 
     expect(first).toContain('"freshness":"stale"');
+    expect(first).toContain(
+      "freshness describes mutable state age, not exact identity validity",
+    );
+    expect(first).toContain('"identityPolicy":"guarded-exact-reference"');
     expect(second).toBe(first);
     await vi.waitFor(() => expect(inspectSession).toHaveBeenCalledTimes(2));
     store.stop();
+  });
+
+  it("records bounded identity diagnostics without prepared context content", async () => {
+    const recorded: TelemetryEventEnvelope[] = [];
+    const store = new PreparedProjectContextStore({
+      events: new InMemoryEventPublisher(),
+      getAbletonStatus: async () => connected,
+      inspectSession: async () => snapshot,
+      getProjectRevision: () => 7,
+      now: () => new Date("2026-08-30T20:00:00.000Z"),
+      telemetry: { enqueue: (event) => recorded.push(event) },
+    });
+    await store.warm();
+
+    store.getPreparedContext("agent-1");
+
+    const materialized = recorded.find(
+      ({ name }) => name === "project-context.cache.materialized",
+    );
+    expect(materialized?.attributes).toMatchObject({
+      contextAgeMs: 0,
+      projectRevision: 7,
+      stateAgeExpired: false,
+      selectedTrackCount: 2,
+      sessionClipCount: 2,
+      hasExactTrackReferences: true,
+      hasExactSessionClipReferences: true,
+      tracksTruncated: false,
+      sessionClipsTruncated: false,
+      unresolvedTrackLocatorCount: 0,
+    });
+    expect(JSON.stringify(materialized)).not.toContain("Keys Verse");
+    expect(JSON.stringify(materialized)).not.toContain(
+      "00000000-0000-4000-8000-000000000020",
+    );
+  });
+
+  it("reports unresolved and truncated identity sets as insufficient", async () => {
+    const recorded: TelemetryEventEnvelope[] = [];
+    const tracks = Array.from({ length: 17 }, (_, index) => ({
+      ...snapshot.tracks[0]!,
+      index,
+      reference: `00000000-0000-4000-8000-${String(index + 100).padStart(12, "0")}`,
+      name: `Track ${index}`,
+    }));
+    const clips = Array.from({ length: 129 }, (_, index) => ({
+      ...snapshot.clips[0]!,
+      reference: `10000000-0000-4000-8000-${String(index + 100).padStart(12, "0")}`,
+      trackReference: tracks[0]!.reference,
+      sceneIndex: index,
+    }));
+    const store = new PreparedProjectContextStore({
+      events: new InMemoryEventPublisher(),
+      getAbletonStatus: async () => connected,
+      inspectSession: async () => ({
+        ...snapshot,
+        trackCount: tracks.length,
+        tracks,
+        clips,
+      }),
+      telemetry: { enqueue: (event) => recorded.push(event) },
+    });
+    await store.warm();
+
+    const wholeSession = store.getPreparedContext("agent-1");
+    const unresolved = store.getPreparedContext("agent-1", {
+      id: "event-listener.00000000-0000-4000-8000-000000000003",
+      eventId: "live-event.00000000-0000-4000-8000-000000000001",
+      enabled: true,
+      responseMode: "automatic",
+      preparedContext: {
+        scope: "selected-tracks",
+        tracks: [{ track: { name: "Missing", occurrence: 0 } }],
+        includeSessionClips: true,
+      },
+    });
+
+    expect(wholeSession).toContain('"tracksTruncated":true');
+    expect(wholeSession).toContain('"sessionClipsTruncated":true');
+    expect(unresolved).toContain(
+      '"unresolvedTrackLocators":[{"name":"Missing","occurrence":0}]',
+    );
+    const materialized = recorded.filter(
+      ({ name }) => name === "project-context.cache.materialized",
+    );
+    expect(materialized[0]?.attributes).toMatchObject({
+      selectedTrackCount: 16,
+      sessionClipCount: 128,
+      hasExactTrackReferences: true,
+      hasExactSessionClipReferences: true,
+      tracksTruncated: true,
+      sessionClipsTruncated: true,
+      unresolvedTrackLocatorCount: 0,
+    });
+    expect(materialized[1]?.attributes).toMatchObject({
+      selectedTrackCount: 0,
+      sessionClipCount: 0,
+      hasExactTrackReferences: false,
+      hasExactSessionClipReferences: false,
+      tracksTruncated: false,
+      sessionClipsTruncated: false,
+      unresolvedTrackLocatorCount: 1,
+    });
   });
 });

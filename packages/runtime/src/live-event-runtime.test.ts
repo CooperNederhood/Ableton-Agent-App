@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
   AgentEventListener,
@@ -25,6 +25,7 @@ import {
   DefaultLiveEventRuntime,
   type AgentLiveEventListener,
   type LiveEventBridge,
+  type LiveEventRuntimeState,
 } from "./live-event-runtime.js";
 
 const trackReference = "00000000-0000-4000-8000-000000000010";
@@ -34,6 +35,14 @@ const eventOne = "live-event.00000000-0000-4000-8000-000000000001";
 const eventTwo = "live-event.00000000-0000-4000-8000-000000000002";
 const listenerOne = "event-listener.00000000-0000-4000-8000-000000000001";
 const listenerTwo = "event-listener.00000000-0000-4000-8000-000000000002";
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
 
 function definition(
   id = eventOne,
@@ -156,27 +165,37 @@ class FakeBridge implements LiveEventBridge {
     ((signal: LiveEventReconciliationSignal) => void) | undefined;
   statuses: LiveEventSubscriptionStatus[] = [];
   unsubscribeFailures = 0;
+  inspectSessionCalls = 0;
+  inspectSessionFailures: Error[] = [];
+  subscribeAttempts = 0;
+  subscribeFailures: Error[] = [];
+  includeTargetTrack = true;
 
   async inspectSession() {
+    this.inspectSessionCalls += 1;
+    const failure = this.inspectSessionFailures.shift();
+    if (failure !== undefined) throw failure;
     return {
       tempo: 120,
       timeSignature: { numerator: 4, denominator: 4 },
       isPlaying: false,
-      trackCount: 1,
-      tracks: [
-        {
-          index: 0,
-          reference: trackReference,
-          name: "Keys",
-          kind: "midi" as const,
-          color: null,
-          isMuted: false,
-          isSoloed: false,
-          isArmed: false,
-          volume: 0.8,
-          pan: 0,
-        },
-      ],
+      trackCount: this.includeTargetTrack ? 1 : 0,
+      tracks: this.includeTargetTrack
+        ? [
+            {
+              index: 0,
+              reference: trackReference,
+              name: "Keys",
+              kind: "midi" as const,
+              color: null,
+              isMuted: false,
+              isSoloed: false,
+              isArmed: false,
+              volume: 0.8,
+              pan: 0,
+            },
+          ]
+        : [],
     };
   }
 
@@ -244,6 +263,9 @@ class FakeBridge implements LiveEventBridge {
   async subscribeLiveEvent(
     params: SubscribeEventParams,
   ): Promise<SubscribeEventResult> {
+    this.subscribeAttempts += 1;
+    const failure = this.subscribeFailures.shift();
+    if (failure !== undefined) throw failure;
     this.subscribed.push(params);
     const target = {
       trackReference,
@@ -353,6 +375,13 @@ class FakeBridge implements LiveEventBridge {
       receivedAt: value.observedAt,
     });
   }
+
+  emitReconnect() {
+    this.reconciliationListener?.({
+      reason: "reconnect",
+      subscriptions: this.statuses,
+    });
+  }
 }
 
 function binding(
@@ -363,6 +392,295 @@ function binding(
 }
 
 describe("DefaultLiveEventRuntime", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("recovers a subscription after a retryable inspection timeout", async () => {
+    vi.useFakeTimers();
+    const bridge = new FakeBridge();
+    bridge.inspectSessionFailures.push(
+      Object.assign(new Error("session inspection timed out"), {
+        code: "operation_timeout",
+        retryable: true,
+      }),
+    );
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const runtime = new DefaultLiveEventRuntime({
+      bridge,
+      subscriptionRetryDelaysMs: [10],
+      telemetry: {
+        enqueue: (event) => {
+          telemetry.push(telemetryEventEnvelopeSchema.parse(event));
+        },
+      },
+    });
+    runtime.setConfiguration([definition()], []);
+
+    await runtime.start();
+    expect(runtime.getState(eventOne)?.resolution).toMatchObject({
+      status: "unresolved",
+      detail: "session inspection timed out",
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(bridge.inspectSessionCalls).toBe(2);
+    expect(bridge.subscribed).toHaveLength(1);
+    expect(runtime.getState(eventOne)).toMatchObject({
+      resolution: { status: "resolved" },
+      latestState: {
+        kind: "track.playing_clip_changed",
+        state: { state: "stopped" },
+      },
+    });
+    expect(
+      telemetry.some(
+        ({ name }) => name === "live-event.subscription.retry-scheduled",
+      ),
+    ).toBe(true);
+    expect(
+      telemetry.find(({ name }) => name === "live-event.subscription.resolved")
+        ?.attributes,
+    ).toMatchObject({ recovered: true });
+    await runtime.stop();
+  });
+
+  it("bounds repeated retryable failures without a retry storm", async () => {
+    vi.useFakeTimers();
+    const bridge = new FakeBridge();
+    bridge.inspectSessionFailures.push(
+      ...Array.from({ length: 4 }, () =>
+        Object.assign(new Error("still busy"), {
+          code: "operation_timeout",
+          retryable: true,
+        }),
+      ),
+    );
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const runtime = new DefaultLiveEventRuntime({
+      bridge,
+      subscriptionRetryDelaysMs: [10, 20],
+      telemetry: {
+        enqueue: (event) => {
+          telemetry.push(telemetryEventEnvelopeSchema.parse(event));
+        },
+      },
+    });
+    runtime.setConfiguration([definition()], []);
+
+    await runtime.start();
+    await vi.runAllTimersAsync();
+
+    expect(bridge.inspectSessionCalls).toBe(3);
+    expect(bridge.subscribed).toHaveLength(0);
+    expect(
+      telemetry.filter(
+        ({ name }) => name === "live-event.subscription.retry-scheduled",
+      ),
+    ).toHaveLength(2);
+    expect(
+      telemetry.filter(
+        ({ name }) => name === "live-event.subscription.retry-exhausted",
+      ),
+    ).toHaveLength(1);
+    await runtime.stop();
+  });
+
+  it("recovers when the subscription command fails transiently", async () => {
+    vi.useFakeTimers();
+    const bridge = new FakeBridge();
+    bridge.subscribeFailures.push(
+      Object.assign(new Error("subscription timed out"), {
+        code: "operation_timeout",
+        retryable: true,
+      }),
+    );
+    const runtime = new DefaultLiveEventRuntime({
+      bridge,
+      subscriptionRetryDelaysMs: [10],
+    });
+    runtime.setConfiguration([definition()], []);
+
+    await runtime.start();
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(bridge.subscribeAttempts).toBe(2);
+    expect(bridge.subscribed).toHaveLength(1);
+    expect(runtime.getState(eventOne)?.resolution.status).toBe("resolved");
+    await runtime.stop();
+  });
+
+  it("does not retry a semantic target-resolution failure", async () => {
+    vi.useFakeTimers();
+    const bridge = new FakeBridge();
+    bridge.includeTargetTrack = false;
+    const runtime = new DefaultLiveEventRuntime({
+      bridge,
+      subscriptionRetryDelaysMs: [10],
+    });
+    runtime.setConfiguration([definition()], []);
+
+    await runtime.start();
+    await vi.runAllTimersAsync();
+
+    expect(bridge.inspectSessionCalls).toBe(1);
+    expect(bridge.subscribed).toHaveLength(0);
+    expect(runtime.getState(eventOne)?.resolution).toMatchObject({
+      status: "unresolved",
+      detail: "Track 'Keys' was not found",
+    });
+    await runtime.stop();
+  });
+
+  it("cancels pending retries when an Event is deleted or disabled", async () => {
+    vi.useFakeTimers();
+    const retryable = () =>
+      Object.assign(new Error("busy"), {
+        code: "operation_timeout",
+        retryable: true,
+      });
+    const deletedBridge = new FakeBridge();
+    deletedBridge.inspectSessionFailures.push(retryable());
+    const deletedRuntime = new DefaultLiveEventRuntime({
+      bridge: deletedBridge,
+      subscriptionRetryDelaysMs: [10],
+    });
+    deletedRuntime.setConfiguration([definition()], []);
+    await deletedRuntime.start();
+    deletedRuntime.setConfiguration([], []);
+
+    const disabledBridge = new FakeBridge();
+    disabledBridge.inspectSessionFailures.push(retryable());
+    const disabledRuntime = new DefaultLiveEventRuntime({
+      bridge: disabledBridge,
+      subscriptionRetryDelaysMs: [10],
+    });
+    disabledRuntime.setConfiguration([definition(eventTwo)], []);
+    await disabledRuntime.start();
+    disabledRuntime.setConfiguration(
+      [{ ...definition(eventTwo), enabled: false }],
+      [],
+    );
+
+    await vi.runAllTimersAsync();
+
+    expect(deletedBridge.inspectSessionCalls).toBe(1);
+    expect(disabledBridge.inspectSessionCalls).toBe(1);
+    expect(deletedBridge.subscribed).toHaveLength(0);
+    expect(disabledBridge.subscribed).toHaveLength(0);
+    await deletedRuntime.stop();
+    await disabledRuntime.stop();
+  });
+
+  it("retries a definition that failed before subscribe when Live reconnects", async () => {
+    vi.useFakeTimers();
+    const bridge = new FakeBridge();
+    bridge.inspectSessionFailures.push(
+      Object.assign(new Error("connection closed"), {
+        code: "connection_closed",
+        retryable: true,
+      }),
+    );
+    const runtime = new DefaultLiveEventRuntime({
+      bridge,
+      subscriptionRetryDelaysMs: [60_000],
+    });
+    runtime.setConfiguration([definition()], []);
+    await runtime.start();
+
+    bridge.emitReconnect();
+    bridge.emitReconnect();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(bridge.subscribed).toHaveLength(1);
+    expect(runtime.getState(eventOne)?.resolution.status).toBe("resolved");
+    await vi.runAllTimersAsync();
+    expect(bridge.subscribed).toHaveLength(1);
+    await runtime.stop();
+  });
+
+  it("recovers a subscription whose reconnect replay failed transiently", async () => {
+    const bridge = new FakeBridge();
+    const runtime = new DefaultLiveEventRuntime({ bridge });
+    runtime.setConfiguration([definition()], []);
+    await runtime.start();
+    bridge.statuses = [
+      {
+        eventId: eventOne,
+        status: "unresolved",
+        error: {
+          code: "operation_timeout",
+          message: "replay timed out",
+          retryable: true,
+        },
+      },
+    ];
+
+    bridge.emitReconnect();
+    await vi.waitFor(() => expect(bridge.subscribed).toHaveLength(2));
+
+    expect(runtime.getState(eventOne)?.resolution.status).toBe("resolved");
+    await runtime.stop();
+  });
+
+  it("discards an in-flight subscription result after the definition changes", async () => {
+    const bridge = new FakeBridge();
+    const inspection =
+      deferred<Awaited<ReturnType<FakeBridge["inspectSession"]>>>();
+    vi.spyOn(bridge, "inspectSession").mockImplementationOnce(
+      () => inspection.promise,
+    );
+    const runtime = new DefaultLiveEventRuntime({ bridge });
+    const stateEvents: LiveEventRuntimeState[] = [];
+    runtime.subscribe((event) => {
+      if (event.type === "state.changed") stateEvents.push(event.state);
+    });
+    runtime.setConfiguration([definition()], []);
+    const starting = runtime.start();
+    await Promise.resolve();
+
+    const edited = {
+      ...definition(),
+      name: "Edited",
+      updatedAt: "2026-08-29T18:01:00.000Z",
+    };
+    runtime.setConfiguration([edited], []);
+    inspection.resolve(await new FakeBridge().inspectSession());
+    await starting;
+    await vi.waitFor(() => expect(bridge.subscribed).toHaveLength(2));
+
+    expect(bridge.unsubscribed).toEqual([eventOne]);
+    expect(runtime.getState(eventOne)).toMatchObject({
+      definition: { name: "Edited" },
+      resolution: { status: "resolved" },
+    });
+    expect(
+      stateEvents.filter(({ resolution }) => resolution.status === "resolved"),
+    ).toHaveLength(1);
+    await runtime.stop();
+  });
+
+  it("cleans up an in-flight subscription when the runtime stops", async () => {
+    const bridge = new FakeBridge();
+    const inspection =
+      deferred<Awaited<ReturnType<FakeBridge["inspectSession"]>>>();
+    vi.spyOn(bridge, "inspectSession").mockImplementationOnce(
+      () => inspection.promise,
+    );
+    const runtime = new DefaultLiveEventRuntime({ bridge });
+    runtime.setConfiguration([definition()], []);
+    const starting = runtime.start();
+    await Promise.resolve();
+
+    const stopping = runtime.stop();
+    inspection.resolve(await new FakeBridge().inspectSession());
+    await Promise.all([starting, stopping]);
+
+    expect(bridge.subscribed).toHaveLength(1);
+    expect(bridge.unsubscribed).toEqual([eventOne]);
+    expect(runtime.getState(eventOne)?.resolution.status).toBe("unresolved");
+  });
   it("exposes the current Ableton event selection", async () => {
     const bridge = new FakeBridge();
     const runtime = new DefaultLiveEventRuntime({ bridge });

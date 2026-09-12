@@ -68,6 +68,23 @@ describe("integration scenarios", () => {
     );
   });
 
+  it("states zero-based Session indices and track identity fields", async () => {
+    const manifest = await loadScenarioManifest("session-clip-lifecycle");
+    const context = createScenarioRunContext(manifest);
+    const prompt = scenarioPrompt(manifest.prompt, context);
+
+    expect(prompt).toContain("zero-based sceneIndex 4 (Session scene 5)");
+    expect(prompt).toContain(
+      "zero-based destinationSceneIndex 5 (Session scene 6)",
+    );
+    expect(prompt).toContain(
+      `expectedName remains the track name "${context.trackNames[0]}"`,
+    );
+    expect(prompt).toContain(
+      "expectedClipReference identifies the source or destination clip",
+    );
+  });
+
   it("enforces ordering, names, item identity, and budgets", async () => {
     const manifest = await loadScenarioManifest("808-track");
     const context = createScenarioRunContext(manifest);

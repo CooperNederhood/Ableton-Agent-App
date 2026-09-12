@@ -4728,6 +4728,55 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
+  it("interrupts optional enrichment before binding a newly created Live Event", async () => {
+    const liveEvents = new FakeLiveEventRuntime();
+    const { service, application, events } = await harness({}, { liveEvents });
+    await service.start();
+
+    const deviceRead = deferred<void>();
+    const deviceReadEntered = deferred<void>();
+    const originalInspectDevices = application.inspectDevices.bind(application);
+    const inspectSession = vi.spyOn(application, "inspectSession");
+    vi.spyOn(application, "inspectDevices").mockImplementation(
+      async (params) => {
+        deviceReadEntered.resolve(undefined);
+        await deviceRead.promise;
+        return originalInspectDevices(params);
+      },
+    );
+    const inspectParameters = vi.spyOn(application, "inspectDeviceParameters");
+    const configurationCount = liveEvents.configurations.length;
+    events.length = 0;
+
+    const refresh = service.getSnapshot();
+    await deviceReadEntered.promise;
+    const creation = service.createLiveEvent({
+      kind: "track.triggered_clip_changed",
+      classification: "discrete",
+      name: "Keys triggered clip",
+      enabled: true,
+      target: { track: { name: "Keys", occurrence: 0 } },
+    });
+    await settle();
+
+    expect(liveEvents.configurations).toHaveLength(configurationCount);
+    expect(inspectSession).toHaveBeenCalledOnce();
+
+    deviceRead.resolve(undefined);
+    const [snapshot, created] = await Promise.all([refresh, creation]);
+
+    expect(inspectSession).toHaveBeenCalledOnce();
+    expect(inspectParameters).not.toHaveBeenCalled();
+    expect(snapshot.tracks[0]?.devices).toEqual([]);
+    expect(
+      liveEvents.configurations.at(-1)?.definitions.map(({ id }) => id),
+    ).toContain(created.id);
+    expect(
+      events.filter((event) => event.type === "project.snapshot_changed"),
+    ).toHaveLength(1);
+    await service.stop();
+  });
+
   it("defers identity polling while snapshot enrichment is in progress", async () => {
     const { service, application } = await harness(
       {},

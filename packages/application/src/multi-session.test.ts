@@ -25,6 +25,7 @@ import {
   type AgentSessionConfiguration,
   type CopilotAgentServiceOptions,
 } from "./index.js";
+import { AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE } from "./agent-policy.js";
 import type { SignalTurnRequest } from "./signal-delivery.js";
 import type { LiveEventTurnRequest } from "./live-event-delivery.js";
 
@@ -1446,12 +1447,13 @@ describe("CopilotAgentService managed sessions", () => {
       onSend: async (prompt) => ({ data: { content: `legacy:${prompt}` } }),
     });
     let managedConfig: SessionConfig | undefined;
+    const submittedContexts: string[] = [];
     const managedSession = createFakeSession("managed-session", {
       abort: async () => {
         releaseManaged();
       },
       onSend: async (prompt) => {
-        await managedConfig?.hooks?.onUserPromptSubmitted?.(
+        const submitted = await managedConfig?.hooks?.onUserPromptSubmitted?.(
           {
             sessionId: "managed-session",
             timestamp: new Date(),
@@ -1460,6 +1462,7 @@ describe("CopilotAgentService managed sessions", () => {
           },
           { sessionId: "managed-session" },
         );
+        submittedContexts.push(submitted?.additionalContext ?? "");
         if (prompt === "hold") {
           await blockedTurn;
           return undefined;
@@ -1493,7 +1496,10 @@ describe("CopilotAgentService managed sessions", () => {
     const runtimeEvents: AgentRuntimeEvent[] = [];
     const getPreparedContext = vi.fn(
       (agentInstanceId: string, listener?: AgentEventListener) =>
-        `prepared:${agentInstanceId}:${listener?.id ?? "default"}`,
+        [
+          `prepared:${agentInstanceId}:${listener?.id ?? "default"}`,
+          '{"projectRevision":7,"freshness":"stale","identityPolicy":"guarded-exact-reference"}',
+        ].join("\n"),
     );
     const service = new CopilotAgentService(
       baseOptions({
@@ -1571,6 +1577,7 @@ describe("CopilotAgentService managed sessions", () => {
         eventId: "live-event.00000000-0000-4000-8000-000000000001",
         kind: "track.playing_clip_changed",
         sequence: 3,
+        projectRevision: 8,
         observedAt: "2026-08-29T18:00:03.000Z",
         target: {
           trackReference: trackAReference,
@@ -1587,10 +1594,24 @@ describe("CopilotAgentService managed sessions", () => {
       'Check the launch.\n{\n  "occurrenceId"',
     );
     expect(managedSession.prompts.at(-1)).not.toContain("Internal Live event");
+    expect(managedSession.prompts.at(-1)).not.toContain(
+      '"identityPolicy":"guarded-exact-reference"',
+    );
     expect(getPreparedContext).toHaveBeenCalledWith(
       "managed",
       liveEventTurn.listener,
     );
+    expect(submittedContexts.at(-1)).toContain(
+      AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE,
+    );
+    expect(
+      submittedContexts
+        .slice(0, -1)
+        .every(
+          (context) =>
+            !context.includes(AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE),
+        ),
+    ).toBe(true);
     const outputTurn = runtimeEvents.find(
       (event) =>
         event.type === "agent.turn.started" &&

@@ -24,6 +24,8 @@ const NON_RETRYABLE_CODES = new Set([
 ]);
 const projectContextTrackLimit = 16;
 const projectContextSessionClipLimit = 128;
+export const AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE =
+  "Automatic Listening Event identity policy: cached-context freshness describes mutable state age, not exact identity validity. When the required track and Session clip are present as one unambiguous exact-reference match, use those references directly with the tool's expected-reference guards. Do not inspect solely because freshness is stale or project revisions differ. Inspect only when a required identity is missing, ambiguous, unresolved, or truncated, or after a guarded tool rejects an identity as stale or ambiguous. Never retry unchanged rejected mutation arguments.";
 
 export interface AgentPolicyServices {
   getAbletonStatus(): Promise<ConnectionStatus>;
@@ -174,7 +176,10 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
   async function context(): Promise<string> {
     const listener = services.preparedContext?.activeListener?.();
     if (services.preparedContext !== undefined) {
-      return services.preparedContext.getPreparedContext(listener);
+      const prepared = services.preparedContext.getPreparedContext(listener);
+      return listener === undefined
+        ? prepared
+        : [prepared, AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE].join("\n\n");
     }
     return compactProjectContext(await services.getAbletonStatus());
   }

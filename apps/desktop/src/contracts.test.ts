@@ -264,6 +264,42 @@ describe("desktop IPC contracts", () => {
       ipcSchemas["agents:send"].request.parse({
         instanceId: "00000000-0000-4000-8000-000000000001",
         message: " ",
+        context: [],
+        mode: "explore",
+      }),
+    ).toThrow();
+    expect(
+      ipcSchemas["agents:send"].request.parse({
+        instanceId: "00000000-0000-4000-8000-000000000001",
+        message: "Inspect it",
+        context: [{ id: "track:1", kind: "track", label: "Bass" }],
+        mode: "sound",
+      }),
+    ).toEqual({
+      instanceId: "00000000-0000-4000-8000-000000000001",
+      message: "Inspect it",
+      context: [{ id: "track:1", kind: "track", label: "Bass" }],
+      mode: "sound",
+    });
+    expect(() =>
+      ipcSchemas["agents:invoke-skill"].request.parse({
+        instanceId: "00000000-0000-4000-8000-000000000001",
+        skillName: "analyze",
+        request: "",
+        context: Array.from({ length: 21 }, (_, index) => ({
+          id: `track:${index}`,
+          kind: "track",
+          label: `Track ${index}`,
+        })),
+        mode: "mix",
+      }),
+    ).toThrow();
+    expect(() =>
+      ipcSchemas["agents:send"].request.parse({
+        instanceId: "00000000-0000-4000-8000-000000000001",
+        message: "Inspect it",
+        context: [{ id: "x".repeat(513), kind: "track", label: "Bass" }],
+        mode: "sound",
       }),
     ).toThrow();
     expect(() =>

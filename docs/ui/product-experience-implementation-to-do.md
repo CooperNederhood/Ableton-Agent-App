@@ -25,6 +25,8 @@ typed service calls, and sessions use explicit create/resume operations.
 - [x] Build application shell, connection header, mode switcher, and model
   status.
 - [x] Build chat composer with explicit context chips.
+- [x] Send bounded, deduplicated context chips atomically with managed-agent
+  messages and explicit skill invocations.
 - [x] Build streaming assistant and operation timeline.
 - [x] Build project outline and selection model.
 - [x] Build inspector for tracks, clips, devices, and parameters.
@@ -58,6 +60,8 @@ typed service calls, and sessions use explicit create/resume operations.
 ## Tests
 
 - [x] Unit-test view-model reducers and context-chip behavior.
+- [x] Test selection-context enablement, deduplication, per-turn replacement,
+  and managed message/skill delivery.
 - [x] Component-test operation, approval, inspector, and plan views.
 - [~] Test accessibility with automated checks and keyboard scenarios.
   - [x] Verify landmarks, labels, focus shortcuts, and sandboxed preload in

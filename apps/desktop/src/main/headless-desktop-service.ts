@@ -1099,8 +1099,8 @@ export class HeadlessDesktopService implements DesktopService {
   public sendToActiveAgent(
     instanceId: string,
     message: string,
-    context: ContextChip[],
-    mode: ProductMode,
+    context: ContextChip[] = [],
+    mode: ProductMode = "explore",
   ): Promise<{ accepted: true; messageId: string }> {
     const prompt = composeAgentPrompt(
       message,
@@ -1117,8 +1117,8 @@ export class HeadlessDesktopService implements DesktopService {
     instanceId: string,
     skillName: string,
     argumentsText: string,
-    context: ContextChip[],
-    mode: ProductMode,
+    context: ContextChip[] = [],
+    mode: ProductMode = "explore",
   ): Promise<{ accepted: true; messageId: string }> {
     skillNameSchema.parse(skillName);
     const request = composeAgentPrompt(

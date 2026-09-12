@@ -41,6 +41,11 @@ These services are constructed through an application bootstrap module shared
 with the terminal client. Electron-specific lifecycle and IPC remain thin
 adapters around that module.
 
+The desktop application uses a black-and-gray, interlocking triple-A mark for
+Ableton Agent App. The Electron main process applies the shared raster asset to
+development windows and the macOS Dock; packaged applications use the
+platform-specific assets in `apps/desktop/build`.
+
 ### Preload
 
 The preload script exposes a small typed API:

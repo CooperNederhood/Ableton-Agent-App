@@ -32,10 +32,16 @@ import {
 } from "./signal-credentials.js";
 import {
   createWindowOptions,
+  resolveDesktopIconPath,
   shouldOpenDevelopmentTools,
 } from "./window-options.js";
 
 const currentDirectory = fileURLToPath(new URL(".", import.meta.url));
+const desktopIconPath = resolveDesktopIconPath(
+  app.isPackaged,
+  process.resourcesPath,
+  currentDirectory,
+);
 let mainWindow: BrowserWindow | undefined;
 let shuttingDown = false;
 let rendererRestartAttempts = 0;
@@ -116,6 +122,7 @@ async function createWindow(): Promise<void> {
     createWindowOptions(
       join(currentDirectory, "../preload/index.cjs"),
       development,
+      desktopIconPath,
     ),
   );
   mainWindow = window;
@@ -212,6 +219,7 @@ let composition: DesktopComposition | undefined;
 async function bootstrap(): Promise<void> {
   await logger.prune();
   await app.whenReady();
+  app.dock?.setIcon(desktopIconPath);
   app.setAsDefaultProtocolClient("ableton-agent");
   if (!app.isPackaged)
     console.info(`Desktop development log (${activeLoggingLevel}): ${logPath}`);

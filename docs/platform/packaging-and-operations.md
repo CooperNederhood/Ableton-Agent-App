@@ -22,6 +22,10 @@ pnpm desktop:dist
 `electron-builder.yml` produces DMG/ZIP artifacts for Intel and Apple Silicon
 macOS and an assisted, per-user NSIS installer for 64-bit Windows. Signing and
 notarization are intentionally supplied only by the release environment.
+Packaged applications use the canonical interlocking triple-A artwork in
+`apps/desktop/build`: `icon.svg` is the editable master, `icon.png` is the
+runtime resource, and `icon.icns`/`icon.ico` supply native macOS and Windows
+icons.
 macOS release jobs provide `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`,
 `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`; Windows release jobs
 provide the appropriate `CSC_LINK` and `CSC_KEY_PASSWORD`. Unsigned pull-request

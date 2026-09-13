@@ -467,6 +467,16 @@ export const clearEventSubscriptionsResultSchema = z
 
 export const trackKindSchema = z.enum(["midi", "audio"]);
 
+export const sessionTrackDeviceSummarySchema = z.object({
+  index: z.number().int().nonnegative(),
+  reference: z.string().uuid(),
+  name: z.string(),
+  className: z.string(),
+  classDisplayName: z.string(),
+  enabled: z.boolean().nullable(),
+  parameterCount: z.number().int().nonnegative(),
+});
+
 export const trackSummarySchema = z.object({
   index: z.number().int().nonnegative(),
   reference: z.string().uuid(),
@@ -478,6 +488,8 @@ export const trackSummarySchema = z.object({
   isArmed: z.boolean(),
   volume: z.number().min(0).max(1),
   pan: z.number().min(-1).max(1),
+  devices: z.array(sessionTrackDeviceSummarySchema).max(32).optional(),
+  devicesTruncated: z.boolean().optional(),
 });
 
 export const sessionViewClipSummarySchema = z.object({

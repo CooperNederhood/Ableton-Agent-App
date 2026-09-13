@@ -444,7 +444,7 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
     stop: vi.fn(async () => undefined),
     getStatus: vi.fn(async () => status),
     getCapabilities: vi.fn(async () => ({
-      selectedProtocolVersion: 2 as const,
+      selectedProtocolVersion: 3 as const,
       liveVersion: "12.1",
       remoteScriptVersion: "0.2.0",
       projectId: "project",

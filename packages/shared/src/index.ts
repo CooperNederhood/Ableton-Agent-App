@@ -92,6 +92,13 @@ export type AppEvent =
       expectedSequence: number;
       receivedSequence: number;
     }
+  | {
+      type: "ableton.project_mutated";
+      command: string;
+      requestId: string;
+      correlationId?: string;
+      projectRevision?: number;
+    }
   | ({ type: "agent.message_delta"; content: string } & AgentEventAttribution)
   | ({
       type: "agent.message_complete";

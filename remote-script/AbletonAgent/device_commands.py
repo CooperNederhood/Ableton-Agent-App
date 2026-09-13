@@ -1030,6 +1030,7 @@ def register_device_commands(registry):
         inspect_device_parameters,
         capability="devices.inspect_parameters",
         validator=_inspect_device_parameters_params,
+        timeout_class="long",
     )
     registry.register(
         "devices.inspect_rack_chains",

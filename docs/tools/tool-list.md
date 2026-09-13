@@ -86,7 +86,7 @@ when replacing notes in a non-empty clip.
 | Tool | Purpose | Risk | Scope | Duration | Key inputs |
 | --- | --- | --- | --- | --- | --- |
 | `ableton_devices_inspect` | Inspect a bounded page of top-level devices on an exact regular track. | `read` | `read` | `short` | Track identity, `offset`, `limit` |
-| `ableton_device_parameters_inspect` | Inspect a bounded page of parameters on an exact top-level device. | `read` | `read` | `short` | Track/device identity, `offset`, `limit` |
+| `ableton_device_parameters_inspect` | Inspect a bounded page of parameters on an exact top-level device. | `read` | `read` | `long` | Track/device identity, `offset`, `limit` |
 | `ableton_rack_chains_inspect` | Inspect direct chains of an exact top-level rack without recursive expansion. | `read` | `read` | `short` | Track/rack identity, `offset`, `limit` |
 | `ableton_rack_chain_devices_inspect` | Inspect direct devices in an exact rack chain. | `read` | `read` | `short` | Track/rack/chain identity, `offset`, `limit` |
 | `ableton_drum_rack_pads_inspect` | Inspect a bounded page of pads on an exact top-level Drum Rack. | `read` | `read` | `short` | Track/Drum Rack identity, `offset`, `limit` |

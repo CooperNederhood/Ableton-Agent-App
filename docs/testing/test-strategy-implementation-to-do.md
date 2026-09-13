@@ -27,6 +27,10 @@ Companion specification: [Test Strategy](test-strategy.md)
   references, reversible creation, destructive deletion, and simulator parity.
 - [x] Cover bounded device/parameter pages, exact identity guards, quantized
   normalized mapping, disabled parameters, rollback, and simulator parity.
+  - [x] Cover serial concurrent reads, dispatch-scoped timeout budgets,
+    long-running Echo-style parameter inspection, bounded Session device
+    summaries, prepared-context mutation invalidation, and a runner-owned Echo
+    parameter-inspection scenario.
 - [x] Cover bounded rack/chain/pad pages, exact nested identity guards,
   runtime-reference pruning, no-recursion behavior, CLI reads, and simulator
   parity.

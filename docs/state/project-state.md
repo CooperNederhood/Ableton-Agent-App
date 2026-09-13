@@ -26,6 +26,8 @@ A normalized snapshot should include:
 - Selected objects.
 
 Large data such as all notes or every device parameter is loaded on demand.
+Prepared agent context keeps top-level device order and stable identities but
+bounds each track to 32 summaries and marks truncation explicitly.
 
 ## Revisions and invalidation
 
@@ -35,6 +37,8 @@ meaningful state changes occur. Responses and events include the revision.
 The application:
 
 - Applies events to its cache when possible.
+- Invalidates prepared context after successful application-owned bridge
+  mutations, including device loading and parameter changes.
 - Marks affected entities stale when detail is unknown.
 - Refreshes targeted state rather than the entire project.
 - Rejects mutations based on stale ambiguous references.

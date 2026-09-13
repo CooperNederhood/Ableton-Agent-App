@@ -45,12 +45,15 @@ Responsibilities:
 - Reconnection with bounded exponential backoff.
 - Heartbeats or explicit ping requests.
 - Pending-request tracking.
-- Per-command timeout policy.
-- Mutation serialization.
+- Per-command normal and long timeout policy.
+- Bounded FIFO serialization for every Live request, with response timeouts
+  starting only when a queued request is dispatched.
 - Event subscription.
 - Clean rejection of pending requests after disconnect.
 - Trace/correlation propagation and sanitized timing/lifecycle publication for
-  queue, send, response, timeout, cancellation, reconnect, and event ingestion.
+  queue, dispatch, completion, failure, timeout, cancellation, reconnect, and
+  event ingestion. Request records distinguish queue wait, execution, and total
+  duration.
 
 Bridge events feed the application-owned local journal through typed
 observability events. The bridge does not persist history itself, and

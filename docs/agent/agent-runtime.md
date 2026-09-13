@@ -66,6 +66,12 @@ Each turn may receive a compact context block containing:
 - Recent change sets.
 - Relevant user preferences.
 
+Prepared track context includes at most 32 ordered top-level device summaries
+per track: identity, name/class, enabled state, and parameter count. It does not
+automatically enumerate parameter bodies or nested rack chains. Successful
+bridge mutations explicitly invalidate the cache so a newly loaded effect is
+visible on the next refreshed turn.
+
 Do not inject a full project dump on every turn. The agent can call inspection
 tools for detail.
 

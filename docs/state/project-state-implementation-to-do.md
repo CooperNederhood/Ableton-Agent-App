@@ -14,8 +14,12 @@ Companion specification: [Project State](project-state.md)
 ## Snapshot and cache
 
 - [x] Implement normalized snapshot ingestion.
+- [x] Include bounded top-level device summaries in Session snapshots and
+  prepared agent context.
 - [x] Implement entity indexes and targeted stale markers.
 - [x] Apply Remote Script events with revision checks.
+- [x] Invalidate prepared context after successful bridge mutations even when
+  Live does not emit a structural listener event.
 - [x] Detect sequence gaps and trigger targeted/full refresh.
 - [x] Implement on-demand clip-note and parameter detail caches.
 - [x] Prevent stale or ambiguous references from reaching mutations.

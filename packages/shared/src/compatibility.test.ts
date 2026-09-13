@@ -15,10 +15,10 @@ describe("product compatibility", () => {
   });
 
   it.each([
-    ["protocol-incompatible", "12.0.0", 99, "0.4.0"],
-    ["remote-script-outdated", "12.0.0", 2, "0.3.9"],
-    ["live-unsupported", "10.1.0", 2, "0.4.0"],
-    ["live-unsupported", "11.2.9", 2, "0.4.0"],
+    ["protocol-incompatible", "12.0.0", 99, "0.5.0"],
+    ["remote-script-outdated", "12.0.0", 3, "0.4.9"],
+    ["live-unsupported", "10.1.0", 3, "0.5.0"],
+    ["live-unsupported", "11.2.9", 3, "0.5.0"],
   ] as const)(
     "reports %s",
     (reason, liveVersion, protocolVersion, remoteScriptVersion) => {

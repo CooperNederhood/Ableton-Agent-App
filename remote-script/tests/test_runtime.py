@@ -669,6 +669,22 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(responses[0]["result"]["trackCount"], 2)
         self.assertEqual(responses[0]["result"]["tracks"][0]["name"], "Drums")
         self.assertEqual(responses[0]["result"]["tracks"][0]["kind"], "midi")
+        self.assertEqual(
+            responses[0]["result"]["tracks"][0]["devices"][0]["name"],
+            "Instrument Rack",
+        )
+        self.assertEqual(
+            responses[0]["result"]["tracks"][0]["devices"][0][
+                "parameterCount"
+            ],
+            3,
+        )
+        self.assertTrue(
+            responses[0]["result"]["tracks"][0]["devices"][0]["enabled"]
+        )
+        self.assertFalse(
+            responses[0]["result"]["tracks"][0]["devicesTruncated"]
+        )
         self.assertEqual(responses[0]["result"]["clips"][0]["kind"], "audio")
         self.assertIsNone(
             responses[0]["result"]["clips"][0]["noteCount"]
@@ -719,6 +735,29 @@ class ExecutorTests(unittest.TestCase):
         self.assertFalse(
             responses[0]["result"]["tracks"][0]["isArmed"]
         )
+
+    def test_session_inspection_bounds_top_level_devices(self):
+        scheduled = []
+        responses = []
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        context = FakeContext()
+        context.song.tracks[0].devices = [
+            FakeDevice("Device {0}".format(index))
+            for index in range(33)
+        ]
+        executor = MainThreadExecutor(
+            lambda delay, callback: scheduled.append((delay, callback)),
+            registry,
+            context,
+        )
+
+        executor.submit(request("session.inspect"), responses.append)
+        scheduled[0][1]()
+
+        track = responses[0]["result"]["tracks"][0]
+        self.assertEqual(len(track["devices"]), 32)
+        self.assertTrue(track["devicesTruncated"])
 
     def test_rejects_unknown_commands(self):
         responses = []

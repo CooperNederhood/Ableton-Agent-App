@@ -16,15 +16,17 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
 - [x] Implement loopback TCP connection and authentication handshake.
 - [x] Implement length-prefixed frame encoding and incremental decoding.
 - [x] Track pending requests by request ID.
-- [~] Implement command-specific timeouts and cancellation.
-- [~] Serialize mutations and support workflow mutation leases.
-  - [x] Serialize all primitive mutations through a FIFO bridge queue.
+- [x] Implement command-specific timeouts and cancellation.
+- [~] Serialize Live requests and support workflow mutation leases.
+  - [x] Serialize all primitive reads and mutations through a bounded FIFO
+    bridge queue, starting response timeouts at dispatch.
   - [ ] Add multi-step workflow mutation leases.
 - [x] Implement bounded reconnect with jitter and explicit connection states.
 - [x] Reject all pending requests predictably after disconnect.
 - [x] Implement event ordering, subscription, and revision propagation.
-- [ ] Propagate trace/correlation context and publish sanitized queue, send,
-  response, timeout, cancellation, reconnect, and event-ingestion lifecycle.
+- [x] Propagate trace/correlation context and publish sanitized queue, dispatch,
+  completion, failure, timeout, cancellation, reconnect, and event-ingestion
+  lifecycle with queue, execution, and total timing.
 
 ## Domain modules
 
@@ -55,12 +57,14 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
 - [x] Integration-test against the Python simulator.
   - [x] Cover stateful Arrangement loop updates and cue creation/deletion.
 - [x] Test fragmented, combined, malformed, oversized, and out-of-order frames.
-- [~] Test reconnect, event sequence gaps, queue saturation, and cancellation.
-  - [x] Test bounded reconnect and event sequence-gap reporting.
-  - [ ] Test queue saturation and cancellation.
+- [x] Test reconnect, event sequence gaps, queue saturation, and cancellation.
+  - [x] Test bounded reconnect, event sequence-gap reporting, serialized reads,
+    dispatch-scoped timeout budgets, queue saturation, and stop cancellation.
 - [x] Run contract tests for every bridge method.
-- [ ] Test lifecycle coverage, timing, trace continuity, and non-blocking
+- [~] Test lifecycle coverage, timing, trace continuity, and non-blocking
   observability during saturation, gaps, cancellation, and reconnect.
+  Queue/dispatch/completion timing and cancellation coverage are implemented;
+  sustained non-blocking saturation coverage remains.
 
 ## Exit criteria
 

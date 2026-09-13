@@ -2231,6 +2231,7 @@ export class HeadlessDesktopService implements DesktopService {
 
   #onSharedEvent(event: AppEvent): void {
     this.#logger.debug("Application event received", { event });
+    if (event.type === "ableton.project_mutated") return;
     if (event.type === "agent.sdk_session_rotated") {
       void this.#persistRuntimeSessionRotation(event);
       return;

@@ -15,6 +15,8 @@ from .errors import ProtocolFailure
 from .identity import build_project_identity
 
 ARRANGEMENT_MAX_BEATS = 1576800
+SESSION_TRACK_DEVICE_LIMIT = 32
+DEVICE_ON_NAMES = ("Device On", "Device Activator")
 
 
 def _track_kind(track):
@@ -60,6 +62,60 @@ def _track_reference(context, track):
     references.append((track, reference))
     context._track_references = references
     return reference
+
+
+def _session_device_references(context, current_devices):
+    return [
+        (candidate, reference)
+        for candidate, reference in getattr(context, "_device_references", [])
+        if any(
+            _same_lom_object(candidate, current)
+            for current in current_devices
+        )
+    ]
+
+
+def _session_device_reference(device, references):
+    for candidate, reference in references:
+        if _same_lom_object(candidate, device):
+            return reference
+    reference = str(uuid.uuid4())
+    references.append((device, reference))
+    return reference
+
+
+def _session_device_enabled(device):
+    for parameter in _safe_lom_getattr(device, "parameters", ()) or ():
+        name = _safe_lom_getattr(parameter, "name", "") or ""
+        if name not in DEVICE_ON_NAMES:
+            continue
+        minimum = _safe_lom_getattr(parameter, "min")
+        maximum = _safe_lom_getattr(parameter, "max")
+        value = _safe_lom_getattr(parameter, "value")
+        if not all(
+            _is_finite_number(candidate)
+            for candidate in (minimum, maximum, value)
+        ):
+            return None
+        if maximum == minimum:
+            return value >= maximum
+        return (value - minimum) / (maximum - minimum) >= 0.5
+    return None
+
+
+def _session_device_summary(index, device, references):
+    parameters = _safe_lom_getattr(device, "parameters", ()) or ()
+    return {
+        "index": index,
+        "reference": _session_device_reference(device, references),
+        "name": _safe_lom_getattr(device, "name", "") or "",
+        "className": _safe_lom_getattr(device, "class_name", "") or "",
+        "classDisplayName": (
+            _safe_lom_getattr(device, "class_display_name", "") or ""
+        ),
+        "enabled": _session_device_enabled(device),
+        "parameterCount": len(parameters),
+    }
 
 
 def _clip_reference(context, clip):
@@ -268,7 +324,16 @@ def inspect_session(context, _params):
     song = context.song
     tracks = []
     clips = []
+    current_devices = [
+        device
+        for track in song.tracks
+        for device in _safe_lom_getattr(track, "devices", ()) or ()
+    ]
+    device_references = _session_device_references(context, current_devices)
     for index, track in enumerate(song.tracks):
+        track_devices = list(
+            _safe_lom_getattr(track, "devices", ()) or ()
+        )
         tracks.append(
             {
                 "index": index,
@@ -281,6 +346,17 @@ def inspect_session(context, _params):
                 "isArmed": _track_arm_state(track),
                 "volume": track.mixer_device.volume.value,
                 "pan": track.mixer_device.panning.value,
+                "devices": [
+                    _session_device_summary(
+                        device_index, device, device_references
+                    )
+                    for device_index, device in enumerate(
+                        track_devices[:SESSION_TRACK_DEVICE_LIMIT]
+                    )
+                ],
+                "devicesTruncated": (
+                    len(track_devices) > SESSION_TRACK_DEVICE_LIMIT
+                ),
             }
         )
         for scene_index, slot in enumerate(track.clip_slots):
@@ -290,6 +366,7 @@ def inspect_session(context, _params):
                         context, track, index, scene_index, slot.clip
                     )
                 )
+    context._device_references = device_references
     return {
         "tempo": song.tempo,
         "timeSignature": {

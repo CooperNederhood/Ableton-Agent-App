@@ -188,6 +188,7 @@ export const commandCatalog = {
   "devices.inspect_parameters": command(
     inspectDeviceParametersParamsSchema,
     inspectDeviceParametersResultSchema,
+    { timeoutClass: "long" },
   ),
   "devices.inspect_rack_chains": command(
     inspectRackChainsParamsSchema,

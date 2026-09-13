@@ -25,6 +25,7 @@ const DEFAULT_TTL_MS = 5_000;
 const DEFAULT_REFRESH_DEBOUNCE_MS = 100;
 const WHOLE_SESSION_TRACK_LIMIT = 16;
 const SESSION_CLIP_LIMIT = 128;
+const TRACK_DEVICE_LIMIT = 32;
 
 interface PreparedProjectFacts {
   readonly status: Extract<ConnectionStatus, { state: "connected" }>;
@@ -298,6 +299,13 @@ export class PreparedProjectContextStore implements PreparedContextProvider {
       this.#scheduleRefresh();
       return;
     }
+    if (event.type === "ableton.project_mutated") {
+      this.#invalidationVersion += 1;
+      this.#stale = true;
+      this.#materialized.clear();
+      this.#scheduleRefresh();
+      return;
+    }
     if (event.type !== "ableton.event_received") return;
     const cachedRevision = this.#facts?.projectRevision;
     if (
@@ -404,6 +412,9 @@ export class PreparedProjectContextStore implements PreparedContextProvider {
       configuration.scope === "selected-tracks"
         ? configuration.tracks.length - selectedTracks.length
         : 0;
+    const selectedDevices = selectedTracks.flatMap(({ devices }) =>
+      (devices ?? []).slice(0, TRACK_DEVICE_LIMIT),
+    );
     return {
       contextAgeMs: Math.max(
         0,
@@ -414,6 +425,12 @@ export class PreparedProjectContextStore implements PreparedContextProvider {
         : { projectRevision: facts.projectRevision }),
       stateAgeExpired: this.#isExpired(),
       selectedTrackCount: selectedTracks.length,
+      deviceCount: selectedDevices.length,
+      deviceListsTruncated: selectedTracks.some(
+        (track) =>
+          track.devicesTruncated === true ||
+          (track.devices?.length ?? 0) > TRACK_DEVICE_LIMIT,
+      ),
       sessionClipCount: Math.min(matchingClips.length, SESSION_CLIP_LIMIT),
       hasExactTrackReferences: selectedTracks.length > 0,
       hasExactSessionClipReferences: matchingClips.length > 0,
@@ -478,6 +495,20 @@ export class PreparedProjectContextStore implements PreparedContextProvider {
       muted: track.isMuted,
       soloed: track.isSoloed,
       armed: track.isArmed,
+      devices: (track.devices ?? [])
+        .slice(0, TRACK_DEVICE_LIMIT)
+        .map((device) => ({
+          index: device.index,
+          reference: device.reference,
+          name: device.name,
+          className: device.className,
+          classDisplayName: device.classDisplayName,
+          enabled: device.enabled,
+          parameterCount: device.parameterCount,
+        })),
+      devicesTruncated:
+        track.devicesTruncated === true ||
+        (track.devices?.length ?? 0) > TRACK_DEVICE_LIMIT,
     }));
     const sessionClips = clips.map((clip) => ({
       reference: clip.reference,

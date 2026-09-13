@@ -3,7 +3,7 @@ import { createInterface } from "node:readline";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { InMemoryEventPublisher } from "@ableton-agent/shared";
+import { InMemoryEventPublisher, type AppEvent } from "@ableton-agent/shared";
 import {
   registerCorrelationContext,
   unregisterCorrelationContext,
@@ -19,15 +19,25 @@ import { AbletonBridgeService, type AbletonLiveEvent } from "./index.js";
 const token = "test-token-that-is-at-least-thirty-two-characters";
 let simulator: ChildProcessWithoutNullStreams | undefined;
 
-async function startSimulator(expectedToken = token): Promise<number> {
-  simulator = spawn(
-    "python3",
-    ["remote-script/simulator.py", "--token", expectedToken],
-    {
-      cwd: new URL("../../..", import.meta.url),
-      stdio: ["pipe", "pipe", "pipe"],
-    },
-  );
+async function startSimulator(
+  expectedToken = token,
+  options: { delayCommand?: string; delayMs?: number } = {},
+): Promise<number> {
+  const args = [
+    "remote-script/simulator.py",
+    "--token",
+    expectedToken,
+    ...(options.delayCommand === undefined
+      ? []
+      : ["--delay-command", options.delayCommand]),
+    ...(options.delayMs === undefined
+      ? []
+      : ["--delay-ms", String(options.delayMs)]),
+  ];
+  simulator = spawn("python3", args, {
+    cwd: new URL("../../..", import.meta.url),
+    stdio: ["pipe", "pipe", "pipe"],
+  });
   const lines = createInterface({ input: simulator.stdout });
   const line = await new Promise<string>((resolve, reject) => {
     lines.once("line", resolve);
@@ -71,9 +81,12 @@ describe("AbletonBridgeService", () => {
       result?: unknown;
     }> = [];
     const telemetry: TelemetryEventEnvelope[] = [];
+    const events = new InMemoryEventPublisher();
+    const appEvents: AppEvent[] = [];
+    events.subscribe((event) => appEvents.push(event));
     const service = new AbletonBridgeService({
       authenticationToken: token,
-      events: new InMemoryEventPublisher(),
+      events,
       port,
       onRequest: (request) => requests.push(request),
       onResponse: (response) => responses.push(response),
@@ -91,11 +104,11 @@ describe("AbletonBridgeService", () => {
     expect(await service.getStatus()).toEqual({
       state: "connected",
       liveVersion: "12.1-simulator",
-      remoteScriptVersion: "0.4.0",
+      remoteScriptVersion: "0.5.0",
       projectId: "simulated-project",
     });
     await expect(service.getCapabilities()).resolves.toMatchObject({
-      selectedProtocolVersion: 2,
+      selectedProtocolVersion: 3,
       capabilities: {
         "system.ping": true,
         "transport.set_tempo": true,
@@ -167,11 +180,12 @@ describe("AbletonBridgeService", () => {
     });
     const tracedRequest = telemetry.find(
       ({ name, correlationId }) =>
-        name === "bridge.request.sent" && correlationId === "tool-call-123",
+        name === "bridge.request.dispatched" &&
+        correlationId === "tool-call-123",
     );
     const tracedResponse = telemetry.find(
       ({ name, correlationId }) =>
-        name === "bridge.response.received" &&
+        name === "bridge.request.completed" &&
         correlationId === "tool-call-123",
     );
     expect(tracedRequest?.attributes).toMatchObject({
@@ -205,6 +219,12 @@ describe("AbletonBridgeService", () => {
       afterTempo: 132,
       verified: true,
     });
+    expect(appEvents).toContainEqual(
+      expect.objectContaining({
+        type: "ableton.project_mutated",
+        command: "transport.set_tempo",
+      }),
+    );
     await expect(service.setPlaying(true)).resolves.toEqual({
       beforeIsPlaying: false,
       afterIsPlaying: true,
@@ -1002,6 +1022,178 @@ describe("AbletonBridgeService", () => {
     expect(service.getLiveEventSubscriptionStatuses()).toMatchObject([
       { eventId, status: "invalidated" },
     ]);
+    await service.stop();
+  });
+
+  it("serializes concurrent requests and starts timeouts at dispatch", async () => {
+    const port = await startSimulator(token, {
+      delayCommand: "devices.inspect_parameters",
+      delayMs: 300,
+    });
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      requestTimeoutMs: 200,
+      longRequestTimeoutMs: 1_000,
+      telemetry: {
+        enqueue: (event) => {
+          telemetry.push(telemetryEventEnvelopeSchema.parse(event));
+        },
+      },
+    });
+
+    await service.start();
+    const track = (await service.inspectSession()).tracks[0]!;
+    const device = (
+      await service.inspectDevices({
+        index: track.index,
+        expectedReference: track.reference,
+        expectedName: track.name,
+        offset: 0,
+        limit: 1,
+      })
+    ).devices[0]!;
+    const lifecycleStart = telemetry.length;
+    await expect(
+      Promise.all([
+        service.inspectDeviceParameters({
+          index: track.index,
+          expectedReference: track.reference,
+          expectedName: track.name,
+          deviceIndex: device.index,
+          expectedDeviceReference: device.reference,
+          expectedDeviceName: device.name,
+          offset: 0,
+          limit: 1,
+        }),
+        service.ping(),
+      ]),
+    ).resolves.toEqual([expect.objectContaining({ total: 3 }), { pong: true }]);
+
+    const lifecycle = telemetry
+      .slice(lifecycleStart)
+      .filter(
+        ({ name, attributes }) =>
+          ["devices.inspect_parameters", "system.ping"].includes(
+            String(attributes.command),
+          ) &&
+          [
+            "bridge.request.queued",
+            "bridge.request.dispatched",
+            "bridge.request.completed",
+          ].includes(name),
+      );
+    expect(lifecycle.map(({ name }) => name)).toEqual([
+      "bridge.request.queued",
+      "bridge.request.queued",
+      "bridge.request.dispatched",
+      "bridge.request.completed",
+      "bridge.request.dispatched",
+      "bridge.request.completed",
+    ]);
+    const parameterDispatch = lifecycle.find(
+      ({ name, attributes }) =>
+        name === "bridge.request.dispatched" &&
+        attributes.command === "devices.inspect_parameters",
+    );
+    expect(parameterDispatch?.attributes).toMatchObject({
+      timeoutClass: "long",
+      timeoutMs: 1_000,
+    });
+    const pingCompleted = lifecycle.find(
+      ({ name, attributes }) =>
+        name === "bridge.request.completed" &&
+        attributes.command === "system.ping",
+    );
+    expect(pingCompleted?.attributes).toMatchObject({
+      timeoutClass: "normal",
+      timeoutMs: 200,
+    });
+    expect(pingCompleted?.attributes.queueWaitMs).toBeGreaterThanOrEqual(250);
+    expect(pingCompleted?.attributes.totalDurationMs).toBeGreaterThan(200);
+    await service.stop();
+  });
+
+  it("cancels in-flight and queued requests when stopped", async () => {
+    const port = await startSimulator(token, {
+      delayCommand: "system.ping",
+      delayMs: 100,
+    });
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      requestTimeoutMs: 200,
+      telemetry: {
+        enqueue: (event) => {
+          telemetry.push(telemetryEventEnvelopeSchema.parse(event));
+        },
+      },
+    });
+
+    await service.start();
+    const resultsPromise = Promise.allSettled([service.ping(), service.ping()]);
+    await waitFor(
+      () =>
+        telemetry.filter(
+          ({ name, attributes }) =>
+            name === "bridge.request.queued" &&
+            attributes.command === "system.ping",
+        ).length === 2,
+    );
+    await service.stop();
+
+    const results = await resultsPromise;
+    expect(results.every(({ status }) => status === "rejected")).toBe(true);
+    expect(
+      telemetry.filter(
+        ({ name, attributes }) =>
+          name === "bridge.request.cancelled" &&
+          attributes.command === "system.ping",
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("rejects and records request queue saturation", async () => {
+    const port = await startSimulator(token, {
+      delayCommand: "system.ping",
+      delayMs: 40,
+    });
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      requestTimeoutMs: 80,
+      requestQueueLimit: 1,
+      telemetry: {
+        enqueue: (event) => {
+          telemetry.push(telemetryEventEnvelopeSchema.parse(event));
+        },
+      },
+    });
+
+    await service.start();
+    const first = service.ping();
+    await expect(service.ping()).rejects.toMatchObject({
+      code: "queue_full",
+      retryable: true,
+    });
+    await expect(first).resolves.toEqual({ pong: true });
+    expect(
+      telemetry.find(
+        ({ name, attributes }) =>
+          name === "bridge.request.failed" &&
+          attributes.errorCode === "queue_full",
+      )?.attributes,
+    ).toMatchObject({
+      command: "system.ping",
+      queueDepth: 1,
+      queueLimit: 1,
+    });
     await service.stop();
   });
 

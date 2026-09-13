@@ -25,6 +25,10 @@
     {
       "id": "instruments",
       "scenarios": ["piano-and-string-bass"]
+    },
+    {
+      "id": "audio-effects",
+      "scenarios": ["auto-filter-audio", "echo-parameter-inspection"]
     }
   ]
 }

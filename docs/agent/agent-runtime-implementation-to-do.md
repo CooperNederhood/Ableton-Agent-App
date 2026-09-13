@@ -27,7 +27,8 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 ## Agent behavior
 
 - [x] Write and version the base Ableton system message.
-- [x] Define compact project-context injection.
+- [x] Define compact project-context injection, including bounded top-level
+  device summaries and mutation-driven invalidation.
 - [x] Attach bounded UI selection context atomically to managed-agent messages
   and explicit skill turns without duplicating the general project snapshot.
 - [x] Implement session-start, prompt, pre-tool, post-tool, and failure hooks.

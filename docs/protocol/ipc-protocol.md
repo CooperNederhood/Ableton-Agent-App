@@ -34,7 +34,7 @@ Request:
 
 ```json
 {
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "kind": "request",
   "requestId": "uuid",
   "command": "clips.add_notes",
@@ -47,7 +47,7 @@ Success:
 
 ```json
 {
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "kind": "response",
   "requestId": "uuid",
   "ok": true,
@@ -61,7 +61,7 @@ Failure:
 
 ```json
 {
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "kind": "response",
   "requestId": "uuid",
   "ok": false,
@@ -78,7 +78,7 @@ Event:
 
 ```json
 {
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "kind": "event",
   "event": "tracks.changed",
   "sequence": 104,
@@ -126,6 +126,19 @@ The Remote Script returns:
 - Project identity.
 - Capability document.
 - Limits such as maximum frame and batch size.
+
+## Session snapshots and timeout classes
+
+`session.inspect` returns each regular track with up to 32 ordered top-level
+device summaries. Each summary includes stable device identity, name and class,
+enabled state when exposed, and parameter count. A per-track truncation flag
+indicates that additional devices exist. Full parameter bodies and nested rack
+contents remain explicit paginated reads.
+
+The command catalog classifies requests as `normal` or `long`. The bridge
+applies that class only after FIFO dispatch to Live. In particular,
+`devices.inspect_parameters` is long-running because some native devices expose
+large or comparatively expensive parameter surfaces.
 
 ## Error taxonomy
 

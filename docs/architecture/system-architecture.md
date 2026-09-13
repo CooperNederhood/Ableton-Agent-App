@@ -167,7 +167,8 @@ contract tests.
 4. Tool validates typed arguments.
 5. Safety policy approves, rejects, or asks for confirmation.
 6. Tool calls a primitive bridge operation or deterministic workflow.
-7. Bridge sends a framed request with a request ID.
+7. Bridge queues the request and sends it with a request ID when the prior Live
+   request completes.
 8. Remote Script schedules the command on Live's main thread.
 9. Handler reads or mutates the LOM.
 10. Remote Script returns a structured response.
@@ -197,9 +198,9 @@ must not depend on parsing exception strings.
 ## Concurrency model
 
 - One logical Ableton connection per app instance.
-- Multiple in-flight read requests may be supported only after request IDs and
-  Remote Script scheduling are proven safe.
-- Mutations are serialized by a bridge-side command scheduler.
+- Reads and mutations share one bounded bridge-side FIFO because the Remote
+  Script ultimately executes every LOM operation serially on Live's main
+  thread. Response timeout budgets begin at dispatch rather than queue entry.
 - Multi-command workflows acquire a mutation lease to prevent interleaving.
 - Every LOM operation, including reads, executes through the main-thread
   executor unless verified safe otherwise.

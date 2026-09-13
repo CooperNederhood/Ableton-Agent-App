@@ -2,13 +2,18 @@ import type { AppEvent } from "@ableton-agent/shared";
 
 import { appEventSchema, type DesktopAppEvent } from "../contracts.js";
 
+type DesktopSharedEvent = Exclude<
+  AppEvent,
+  { type: "ableton.project_mutated" }
+>;
+
 function desktopToolName(toolName: string | undefined): string | undefined {
   const bounded = toolName?.slice(0, 128);
   return bounded === "" ? undefined : bounded;
 }
 
 export function normalizeSharedEvent(
-  event: AppEvent,
+  event: DesktopSharedEvent,
   messageId: () => string,
 ): DesktopAppEvent {
   const toolName =

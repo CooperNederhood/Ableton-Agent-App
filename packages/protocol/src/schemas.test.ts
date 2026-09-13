@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { commandCatalog } from "./catalog.js";
 import {
   inspectBrowserChildrenParamsSchema,
   loadBrowserItemParamsSchema,
   searchBrowserParamsSchema,
+  sessionSnapshotSchema,
   selectProtocolVersion,
   createCuePointParamsSchema,
   deleteCuePointParamsSchema,
@@ -40,6 +42,55 @@ describe("protocol negotiation", () => {
   it("selects the highest mutually supported version", () => {
     expect(selectProtocolVersion([1, 2, 3], [1, 2])).toBe(2);
     expect(selectProtocolVersion([1], [2])).toBeUndefined();
+  });
+
+  describe("session inspection schema", () => {
+    it("accepts bounded top-level device summaries", () => {
+      const parsed = sessionSnapshotSchema.parse({
+        tempo: 120,
+        timeSignature: { numerator: 4, denominator: 4 },
+        isPlaying: false,
+        trackCount: 1,
+        tracks: [
+          {
+            index: 0,
+            reference: "00000000-0000-4000-8000-000000000001",
+            name: "Lead",
+            kind: "audio",
+            color: null,
+            isMuted: false,
+            isSoloed: false,
+            isArmed: false,
+            volume: 0.8,
+            pan: 0,
+            devices: [
+              {
+                index: 0,
+                reference: "00000000-0000-4000-8000-000000000002",
+                name: "Echo",
+                className: "Echo",
+                classDisplayName: "Echo",
+                enabled: true,
+                parameterCount: 52,
+              },
+            ],
+            devicesTruncated: false,
+          },
+        ],
+        clips: [],
+      });
+
+      expect(parsed.tracks[0]?.devices).toEqual([
+        expect.objectContaining({ name: "Echo", parameterCount: 52 }),
+      ]);
+      expect(parsed.tracks[0]?.devicesTruncated).toBe(false);
+    });
+
+    it("classifies device parameter inspection as long-running", () => {
+      expect(commandCatalog["devices.inspect_parameters"].timeoutClass).toBe(
+        "long",
+      );
+    });
   });
 });
 
@@ -105,7 +156,7 @@ describe("project identity schema", () => {
       it("parses typed occurred and invalidated event envelopes", () => {
         expect(
           liveEventEnvelopeSchema.parse({
-            protocolVersion: 2,
+            protocolVersion: 3,
             kind: "event",
             event: "live_event.invalidated",
             sequence: 2,

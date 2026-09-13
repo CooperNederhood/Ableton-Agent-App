@@ -6,12 +6,13 @@ import argparse
 import json
 import math
 import socket
+import time
 import uuid
 from collections import deque
 
 from AbletonAgent.protocol import FrameDecoder, encode_frame
 
-from AbletonAgent.version import PROTOCOL_VERSION
+from AbletonAgent.version import PROTOCOL_VERSION, REMOTE_SCRIPT_VERSION
 
 
 class SimulatorState(object):
@@ -514,7 +515,16 @@ class SimulatorState(object):
     def session_tracks(self):
         return [
             dict(
-                {"index": index},
+                {
+                    "index": index,
+                    "devices": [
+                        self.device_summary(index, device_index, device)
+                        for device_index, device in enumerate(
+                            track["devices"][:32]
+                        )
+                    ],
+                    "devicesTruncated": len(track["devices"]) > 32,
+                },
                 **{
                     key: value
                     for key, value in track.items()
@@ -703,7 +713,7 @@ def handle(request, token, state):
             {
                 "selectedProtocolVersion": PROTOCOL_VERSION,
                 "liveVersion": "12.1-simulator",
-                "remoteScriptVersion": "0.4.0",
+                "remoteScriptVersion": REMOTE_SCRIPT_VERSION,
                 "projectId": "simulated-project",
                 "capabilities": {
                     "system.ping": True,
@@ -2866,7 +2876,14 @@ def handle(request, token, state):
     return failure(request, "unknown_command", "Unknown command: {0}".format(command))
 
 
-def serve(host, port, token, connections=1):
+def serve(
+    host,
+    port,
+    token,
+    connections=1,
+    delay_command=None,
+    delay_ms=0,
+):
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((host, port))
@@ -2886,6 +2903,11 @@ def serve(host, port, token, connections=1):
                     if not chunk:
                         break
                     for request in decoder.push(chunk):
+                        if (
+                            delay_command is not None
+                            and request.get("command") == delay_command
+                        ):
+                            time.sleep(delay_ms / 1000.0)
                         result = handle(request, token, state)
                         if result is not None:
                             connection.sendall(encode_frame(result))
@@ -2909,10 +2931,21 @@ def main():
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--token", required=True)
     parser.add_argument("--connections", type=int, default=1)
+    parser.add_argument("--delay-command")
+    parser.add_argument("--delay-ms", type=int, default=0)
     args = parser.parse_args()
     if args.connections < 1:
         parser.error("--connections must be at least 1")
-    serve(args.host, args.port, args.token, args.connections)
+    if args.delay_ms < 0:
+        parser.error("--delay-ms must be non-negative")
+    serve(
+        args.host,
+        args.port,
+        args.token,
+        args.connections,
+        args.delay_command,
+        args.delay_ms,
+    )
 
 
 if __name__ == "__main__":

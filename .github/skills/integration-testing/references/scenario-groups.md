@@ -29,13 +29,16 @@
 - `auto-filter-audio`: search for Auto Filter, create exactly one namespaced
   audio track, load the identity-bound device even when Live reports preset
   children, and verify the final device.
+- `echo-parameter-inspection`: search for Echo, create one namespaced audio
+  track, load the identity-bound device, inspect its first 30 parameters, and
+  verify the final device without a bridge timeout.
 
 ## Planned expansion
 
 - connection and bounded inspection;
 - Session clip duplicate, launch, properties, and delete;
 - Arrangement create, note write, duplicate, properties, and delete;
-- device, parameter, rack, chain, and Drum Rack inspection;
+- rack, chain, and Drum Rack inspection;
 - transport mutation/restoration, cue points, denial, and retry safety.
 
 Each group starts in a fresh runner-owned default Set. Copilot session context

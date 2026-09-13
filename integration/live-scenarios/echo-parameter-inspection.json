@@ -1,9 +1,9 @@
 {
   "formatVersion": 1,
-  "id": "auto-filter-audio",
+  "id": "echo-parameter-inspection",
   "group": "audio-effects",
-  "prompt": "first search the Ableton browser for the Auto Filter audio effect and wait for the result; then create one new audio track and load that verified Auto Filter item onto it",
-  "artifactPrefix": "AA_SMOKE_FX_",
+  "prompt": "first search the Ableton browser for the Echo audio effect and wait for the result; then create one new audio track named Echo Probe, load that verified Echo item onto it, and inspect the first 30 Echo parameters",
+  "artifactPrefix": "AA_SMOKE_ECHO_",
   "allowedTools": [
     "ableton_connection_status",
     "ableton_session_inspect",
@@ -11,12 +11,13 @@
     "ableton_browser_children_inspect",
     "ableton_tracks_create",
     "ableton_browser_load_item",
-    "ableton_devices_inspect"
+    "ableton_devices_inspect",
+    "ableton_device_parameters_inspect"
   ],
   "allowedRisks": ["read", "reversible"],
-  "maxToolCalls": 10,
+  "maxToolCalls": 12,
   "maxMutations": 2,
-  "timeoutMs": 180000,
+  "timeoutMs": 240000,
   "ordering": [
     {
       "before": "ableton_browser_search",
@@ -25,23 +26,27 @@
     {
       "before": "ableton_tracks_create",
       "after": "ableton_browser_load_item"
+    },
+    {
+      "before": "ableton_browser_load_item",
+      "after": "ableton_device_parameters_inspect"
     }
   ],
-  "trackNameSuffixes": ["Filtered Audio"],
+  "trackNameSuffixes": ["Echo Probe"],
   "clipNameSuffixes": [],
-  "browserItemNames": ["Auto Filter"],
+  "browserItemNames": ["Echo"],
   "browserLoadTargets": [
     {
-      "trackNameSuffix": "Filtered Audio",
-      "itemName": "Auto Filter"
+      "trackNameSuffix": "Echo Probe",
+      "itemName": "Echo"
     }
   ],
   "assertions": [
     {
       "type": "track-device",
-      "trackNameSuffix": "Filtered Audio",
+      "trackNameSuffix": "Echo Probe",
       "trackKind": "audio",
-      "deviceName": "Auto Filter"
+      "deviceName": "Echo"
     },
     {
       "type": "tool-calls",
@@ -58,6 +63,11 @@
         },
         {
           "toolName": "ableton_browser_load_item",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "toolName": "ableton_device_parameters_inspect",
           "min": 1,
           "max": 1
         }

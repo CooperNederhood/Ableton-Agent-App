@@ -6,6 +6,7 @@ import {
   FrameDecoder,
   PROTOCOL_VERSION,
   capabilityDocumentSchema,
+  commandCatalog,
   createCuePointParamsSchema,
   cuePointMutationResultSchema,
   createArrangementMidiClipParamsSchema,
@@ -180,6 +181,7 @@ import {
   type UnsubscribeEventResult,
   type ClearEventSubscriptionsResult,
   type EventSubscriptionDescriptor,
+  type TimeoutClass,
 } from "@ableton-agent/protocol";
 import {
   currentCorrelationContext,
@@ -224,6 +226,8 @@ export interface AbletonBridgeOptions {
   port?: number;
   appVersion?: string;
   requestTimeoutMs?: number;
+  longRequestTimeoutMs?: number;
+  requestQueueLimit?: number;
   eventSubscriptions?: readonly string[];
   reconnect?: Partial<ReconnectPolicy>;
   random?: () => number;
@@ -348,6 +352,8 @@ interface PendingRequest {
   timeout: ReturnType<typeof setTimeout>;
 }
 
+const DEFAULT_REQUEST_QUEUE_LIMIT = 128;
+
 export class AbletonBridgeError extends Error {
   public constructor(
     public readonly code: string,
@@ -365,6 +371,8 @@ export class AbletonBridgeService implements AbletonService {
   readonly #port: number;
   readonly #appVersion: string;
   readonly #requestTimeoutMs: number;
+  readonly #longRequestTimeoutMs: number;
+  readonly #requestQueueLimit: number;
   readonly #eventSubscriptions: readonly string[];
   readonly #reconnect: ReconnectPolicy;
   readonly #random: () => number;
@@ -383,7 +391,8 @@ export class AbletonBridgeService implements AbletonService {
     string,
     LiveEventSubscriptionStatus
   >();
-  #mutationTail: Promise<void> = Promise.resolve();
+  #requestTail: Promise<void> = Promise.resolve();
+  #requestQueueDepth = 0;
   #socket: Socket | undefined;
   #reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   #connectPromise: Promise<void> | undefined;
@@ -407,6 +416,11 @@ export class AbletonBridgeService implements AbletonService {
     this.#port = options.port ?? 8765;
     this.#appVersion = options.appVersion ?? "0.1.0";
     this.#requestTimeoutMs = options.requestTimeoutMs ?? 5_000;
+    this.#longRequestTimeoutMs = options.longRequestTimeoutMs ?? 15_000;
+    this.#requestQueueLimit = Math.max(
+      1,
+      options.requestQueueLimit ?? DEFAULT_REQUEST_QUEUE_LIMIT,
+    );
     this.#eventSubscriptions = [...(options.eventSubscriptions ?? [])];
     this.#reconnect = {
       maxAttempts: options.reconnect?.maxAttempts ?? 5,
@@ -1200,41 +1214,7 @@ export class AbletonBridgeService implements AbletonService {
     command: string,
     params: Readonly<Record<string, unknown>>,
   ): Promise<unknown> {
-    const generation = this.#connectionGeneration;
-    const previous = this.#mutationTail;
-    let release: () => void = () => undefined;
-    this.#mutationTail = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    await previous;
-    try {
-      if (
-        generation !== this.#connectionGeneration ||
-        !this.#handshakeComplete
-      ) {
-        throw new AbletonBridgeError(
-          "connection_closed",
-          "Queued Ableton mutation belongs to a closed connection",
-          true,
-        );
-      }
-      return await this.#request(command, params, false);
-    } catch (error) {
-      if (
-        error instanceof AbletonBridgeError &&
-        error.code === "operation_timeout"
-      ) {
-        this.#destroySocket();
-        this.#setStatus({
-          state: "error",
-          code: error.code,
-          message: error.message,
-        });
-      }
-      throw error;
-    } finally {
-      release();
-    }
+    return this.#request(command, params, false);
   }
 
   async #request(
@@ -1242,8 +1222,7 @@ export class AbletonBridgeService implements AbletonService {
     params: Readonly<Record<string, unknown>>,
     timeoutRetryable = true,
   ): Promise<unknown> {
-    const socket = this.#socket;
-    if (!socket || socket.destroyed) {
+    if (!this.#socket || this.#socket.destroyed) {
       throw new Error("Ableton bridge is not connected");
     }
     if (command !== "system.hello" && !this.#handshakeComplete) {
@@ -1254,23 +1233,13 @@ export class AbletonBridgeService implements AbletonService {
       );
     }
     const requestId = randomUUID();
-    const request: RequestEnvelope = {
-      protocolVersion: PROTOCOL_VERSION,
-      kind: "request",
-      requestId,
-      command,
-      params: { ...params },
-      ...(command === "system.hello" || this.#projectRevision === undefined
-        ? {}
-        : { projectRevision: this.#projectRevision }),
-    };
+    const generation = this.#connectionGeneration;
     const correlationContext = currentCorrelationContext();
     const correlationId =
       correlationContext?.correlationId ?? currentCorrelationId();
     const projectId =
       correlationContext?.projectId ?? this.#capabilities?.projectId;
-    const requestedAt = this.#now();
-    const startedAt = requestedAt.getTime();
+    const queuedAt = this.#now();
     const traceId = correlationContext?.traceId ?? requestId;
     const requestSpanId = stableTelemetryId(
       `${traceId}:bridge-request:${requestId}`,
@@ -1306,145 +1275,321 @@ export class AbletonBridgeService implements AbletonService {
         ? {}
         : { toolName: correlationContext.toolName }),
     };
-    this.options.onRequest?.({
-      requestId,
-      command,
-      params,
-      requestedAt: requestedAt.toISOString(),
-      ...(correlationId === undefined ? {} : { correlationId }),
+    const timeoutClass = this.#timeoutClass(command);
+    const timeoutMs =
+      timeoutClass === "long"
+        ? this.#longRequestTimeoutMs
+        : this.#requestTimeoutMs;
+    if (this.#requestQueueDepth >= this.#requestQueueLimit) {
+      this.#record({
+        name: "bridge.request.failed",
+        source: "ableton-bridge",
+        ...linkage,
+        level: "warn",
+        outcome: "failure",
+        durationMs: 0,
+        trace,
+        occurredAt: queuedAt.toISOString(),
+        attributes: {
+          requestId,
+          command,
+          errorCode: "queue_full",
+          queueDepth: this.#requestQueueDepth,
+          queueLimit: this.#requestQueueLimit,
+          timeoutClass,
+          timeoutMs,
+        },
+      });
+      throw new AbletonBridgeError(
+        "queue_full",
+        "Ableton bridge request queue is full",
+        true,
+        { command, queueLimit: this.#requestQueueLimit },
+      );
+    }
+    const previous = this.#requestTail;
+    let release: () => void = () => undefined;
+    this.#requestTail = new Promise<void>((resolve) => {
+      release = resolve;
     });
+    this.#requestQueueDepth += 1;
     this.#record({
-      name: "bridge.request.sent",
+      name: "bridge.request.queued",
       source: "ableton-bridge",
       ...linkage,
       trace,
-      occurredAt: requestedAt.toISOString(),
+      occurredAt: queuedAt.toISOString(),
       attributes: {
         requestId,
         command,
+        queueDepth: this.#requestQueueDepth,
+        timeoutClass,
+        timeoutMs,
         ...(correlationId === undefined ? {} : { correlationId }),
       },
     });
 
-    const response = new Promise<ResponseEnvelope>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.#pending.delete(requestId);
-        reject(
-          new AbletonBridgeError(
-            "operation_timeout",
-            `Ableton request timed out: ${command}`,
-            timeoutRetryable,
-            { command },
-          ),
-        );
-      }, this.#requestTimeoutMs);
-      this.#pending.set(requestId, { resolve, reject, timeout });
-    });
-    socket.write(encodeFrame(request));
-    let envelope: ResponseEnvelope;
     try {
-      envelope = await response;
-    } catch (error) {
-      const receivedAt = this.#now();
-      const durationMs = receivedAt.getTime() - startedAt;
-      this.options.onResponse?.({
-        requestId,
-        command,
-        durationMs,
-        receivedAt: receivedAt.toISOString(),
-        ok: false,
-        ...(correlationId === undefined ? {} : { correlationId }),
-        error: {
-          code:
-            error instanceof AbletonBridgeError ? error.code : "request_failed",
-          message: error instanceof Error ? error.message : String(error),
-          retryable:
-            error instanceof AbletonBridgeError ? error.retryable : false,
-        },
-      });
-      this.#record({
-        name: "bridge.response.received",
-        source: "ableton-bridge",
-        ...linkage,
-        level: "warn",
-        outcome: "failure",
-        durationMs,
-        trace,
-        occurredAt: receivedAt.toISOString(),
-        attributes: {
-          requestId,
-          command,
-          errorCode:
-            error instanceof AbletonBridgeError ? error.code : "request-failed",
-          ...(correlationId === undefined ? {} : { correlationId }),
-        },
-      });
-      throw error;
-    }
-    if (!envelope.ok) {
-      const receivedAt = this.#now();
-      const durationMs = receivedAt.getTime() - startedAt;
-      this.options.onResponse?.({
-        requestId,
-        command,
-        durationMs,
-        receivedAt: receivedAt.toISOString(),
-        ok: false,
-        ...(correlationId === undefined ? {} : { correlationId }),
-        error: envelope.error,
-      });
-      this.#record({
-        name: "bridge.response.received",
-        source: "ableton-bridge",
-        ...linkage,
-        level: "warn",
-        outcome: "failure",
-        durationMs,
-        trace,
-        occurredAt: receivedAt.toISOString(),
-        attributes: {
-          requestId,
-          command,
-          errorCode: envelope.error.code,
-          ...(correlationId === undefined ? {} : { correlationId }),
-        },
-      });
-      throw new AbletonBridgeError(
-        envelope.error.code,
-        envelope.error.message,
-        envelope.error.retryable,
-        envelope.error.details,
+      await previous;
+      const dispatchedAt = this.#now();
+      const queueWaitMs = Math.max(
+        0,
+        dispatchedAt.getTime() - queuedAt.getTime(),
       );
-    }
-    if (envelope.projectRevision !== undefined) {
-      this.#projectRevision = envelope.projectRevision;
-    }
-    const receivedAt = this.#now();
-    const durationMs = receivedAt.getTime() - startedAt;
-    this.options.onResponse?.({
-      requestId,
-      command,
-      durationMs,
-      receivedAt: receivedAt.toISOString(),
-      ok: true,
-      result: envelope.result,
-      ...(correlationId === undefined ? {} : { correlationId }),
-    });
-    this.#record({
-      name: "bridge.response.received",
-      source: "ableton-bridge",
-      ...linkage,
-      outcome: "success",
-      durationMs,
-      trace,
-      occurredAt: receivedAt.toISOString(),
-      attributes: {
+      const socket = this.#socket;
+      if (
+        generation !== this.#connectionGeneration ||
+        !socket ||
+        socket.destroyed ||
+        (command !== "system.hello" && !this.#handshakeComplete)
+      ) {
+        const cancelledAt = this.#now();
+        this.#record({
+          name: "bridge.request.cancelled",
+          source: "ableton-bridge",
+          ...linkage,
+          level: "warn",
+          outcome: "cancelled",
+          durationMs: cancelledAt.getTime() - queuedAt.getTime(),
+          trace,
+          occurredAt: cancelledAt.toISOString(),
+          attributes: {
+            requestId,
+            command,
+            reason: "connection-changed-before-dispatch",
+            queueWaitMs,
+            timeoutClass,
+            timeoutMs,
+          },
+        });
+        throw new AbletonBridgeError(
+          "connection_closed",
+          "Queued Ableton request belongs to a closed connection",
+          true,
+          { command },
+        );
+      }
+      const request: RequestEnvelope = {
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "request",
         requestId,
         command,
+        params: { ...params },
+        ...(command === "system.hello" || this.#projectRevision === undefined
+          ? {}
+          : { projectRevision: this.#projectRevision }),
+      };
+      this.options.onRequest?.({
+        requestId,
+        command,
+        params,
+        requestedAt: dispatchedAt.toISOString(),
         ...(correlationId === undefined ? {} : { correlationId }),
-      },
-    });
-    return envelope.result;
+      });
+      this.#record({
+        name: "bridge.request.dispatched",
+        source: "ableton-bridge",
+        ...linkage,
+        trace,
+        occurredAt: dispatchedAt.toISOString(),
+        attributes: {
+          requestId,
+          command,
+          queueWaitMs,
+          timeoutClass,
+          timeoutMs,
+          ...(correlationId === undefined ? {} : { correlationId }),
+        },
+      });
+      const response = new Promise<ResponseEnvelope>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          this.#pending.delete(requestId);
+          reject(
+            new AbletonBridgeError(
+              "operation_timeout",
+              `Ableton request timed out: ${command}`,
+              timeoutRetryable,
+              { command, timeoutClass, timeoutMs },
+            ),
+          );
+        }, timeoutMs);
+        this.#pending.set(requestId, { resolve, reject, timeout });
+      });
+      socket.write(encodeFrame(request));
+      let envelope: ResponseEnvelope;
+      try {
+        envelope = await response;
+      } catch (error) {
+        const receivedAt = this.#now();
+        const executionDurationMs = Math.max(
+          0,
+          receivedAt.getTime() - dispatchedAt.getTime(),
+        );
+        const totalDurationMs = Math.max(
+          0,
+          receivedAt.getTime() - queuedAt.getTime(),
+        );
+        const errorCode =
+          error instanceof AbletonBridgeError ? error.code : "request_failed";
+        const cancelled =
+          errorCode === "connection_closed" && !this.#desiredRunning;
+        if (errorCode === "operation_timeout" && !timeoutRetryable) {
+          this.#destroySocket();
+          this.#setStatus({
+            state: "error",
+            code: errorCode,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+        this.options.onResponse?.({
+          requestId,
+          command,
+          durationMs: totalDurationMs,
+          receivedAt: receivedAt.toISOString(),
+          ok: false,
+          ...(correlationId === undefined ? {} : { correlationId }),
+          error: {
+            code: errorCode,
+            message: error instanceof Error ? error.message : String(error),
+            retryable:
+              error instanceof AbletonBridgeError ? error.retryable : false,
+          },
+        });
+        this.#record({
+          name: cancelled
+            ? "bridge.request.cancelled"
+            : errorCode === "operation_timeout"
+              ? "bridge.request.timed_out"
+              : "bridge.request.failed",
+          source: "ableton-bridge",
+          ...linkage,
+          level: "warn",
+          outcome: cancelled ? "cancelled" : "failure",
+          durationMs: totalDurationMs,
+          trace,
+          occurredAt: receivedAt.toISOString(),
+          attributes: {
+            requestId,
+            command,
+            errorCode,
+            queueWaitMs,
+            executionDurationMs,
+            totalDurationMs,
+            timeoutClass,
+            timeoutMs,
+            ...(correlationId === undefined ? {} : { correlationId }),
+          },
+        });
+        throw error;
+      }
+      const receivedAt = this.#now();
+      const executionDurationMs = Math.max(
+        0,
+        receivedAt.getTime() - dispatchedAt.getTime(),
+      );
+      const totalDurationMs = Math.max(
+        0,
+        receivedAt.getTime() - queuedAt.getTime(),
+      );
+      if (!envelope.ok) {
+        this.options.onResponse?.({
+          requestId,
+          command,
+          durationMs: totalDurationMs,
+          receivedAt: receivedAt.toISOString(),
+          ok: false,
+          ...(correlationId === undefined ? {} : { correlationId }),
+          error: envelope.error,
+        });
+        this.#record({
+          name: "bridge.request.failed",
+          source: "ableton-bridge",
+          ...linkage,
+          level: "warn",
+          outcome: "failure",
+          durationMs: totalDurationMs,
+          trace,
+          occurredAt: receivedAt.toISOString(),
+          attributes: {
+            requestId,
+            command,
+            errorCode: envelope.error.code,
+            queueWaitMs,
+            executionDurationMs,
+            totalDurationMs,
+            timeoutClass,
+            timeoutMs,
+            ...(correlationId === undefined ? {} : { correlationId }),
+          },
+        });
+        throw new AbletonBridgeError(
+          envelope.error.code,
+          envelope.error.message,
+          envelope.error.retryable,
+          envelope.error.details,
+        );
+      }
+      if (envelope.projectRevision !== undefined) {
+        this.#projectRevision = envelope.projectRevision;
+      }
+      if (this.#commandMutates(command)) {
+        this.options.events.publish({
+          type: "ableton.project_mutated",
+          command,
+          requestId,
+          ...(correlationId === undefined ? {} : { correlationId }),
+          ...(envelope.projectRevision === undefined
+            ? {}
+            : { projectRevision: envelope.projectRevision }),
+        });
+      }
+      this.options.onResponse?.({
+        requestId,
+        command,
+        durationMs: totalDurationMs,
+        receivedAt: receivedAt.toISOString(),
+        ok: true,
+        result: envelope.result,
+        ...(correlationId === undefined ? {} : { correlationId }),
+      });
+      this.#record({
+        name: "bridge.request.completed",
+        source: "ableton-bridge",
+        ...linkage,
+        outcome: "success",
+        durationMs: totalDurationMs,
+        trace,
+        occurredAt: receivedAt.toISOString(),
+        attributes: {
+          requestId,
+          command,
+          queueWaitMs,
+          executionDurationMs,
+          totalDurationMs,
+          timeoutClass,
+          timeoutMs,
+          ...(correlationId === undefined ? {} : { correlationId }),
+        },
+      });
+      return envelope.result;
+    } finally {
+      this.#requestQueueDepth -= 1;
+      release();
+    }
+  }
+
+  #timeoutClass(command: string): TimeoutClass {
+    if (!Object.prototype.hasOwnProperty.call(commandCatalog, command)) {
+      return "normal";
+    }
+    return commandCatalog[command as keyof typeof commandCatalog].timeoutClass;
+  }
+
+  #commandMutates(command: string): boolean {
+    if (!Object.prototype.hasOwnProperty.call(commandCatalog, command)) {
+      return false;
+    }
+    return commandCatalog[command as keyof typeof commandCatalog].mutates;
   }
 
   async #connect(): Promise<void> {

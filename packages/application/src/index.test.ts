@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionConfig, SessionEvent } from "@github/copilot-sdk";
 import type { SkillInvocation } from "@ableton-agent/agent-config";
+import { serializeAbletonToolFailure } from "@ableton-agent/tools";
 
 import {
   InMemoryEventPublisher,
@@ -1080,7 +1081,7 @@ describe("CopilotAgentService", () => {
         description:
           "Primary Ableton Live production assistant for the current session.",
         prompt:
-          "Follow the session system message exactly and use the available Ableton tools to help the user.",
+          "Act as the general-purpose Ableton production agent for the current Live Set. Inspect when needed, then directly perform the user's requested supported edits with the available tools. Mutations are restricted by tool approval, edit scope, connection, and automatic-analysis policies. Follow the session system message and clearly report observed state, applied changes, and real limitations.",
         tools: [
           "ableton_connection_status",
           "ableton_session_inspect",
@@ -1177,7 +1178,7 @@ describe("CopilotAgentService", () => {
     );
     expect(snapshot?.data).toMatchObject({
       customAgentPrompt:
-        "Follow the session system message exactly and use the available Ableton tools to help the user.",
+        "Act as the general-purpose Ableton production agent for the current Live Set. Inspect when needed, then directly perform the user's requested supported edits with the available tools. Mutations are restricted by tool approval, edit scope, connection, and automatic-analysis policies. Follow the session system message and clearly report observed state, applied changes, and real limitations.",
       model: "claude-sonnet-4.6",
       reasoningEffort: "high",
       skills: [],
@@ -1557,7 +1558,16 @@ describe("CopilotAgentService", () => {
       data: {
         toolCallId: "tool-2",
         success: false,
-        error: { code: "offline", message: "Ableton is offline" },
+        error: {
+          code: "failure",
+          message: serializeAbletonToolFailure(
+            Object.assign(new Error("Ableton is offline"), {
+              code: "offline",
+              retryable: true,
+              details: { state: "disconnected" },
+            }),
+          ),
+        },
       },
     });
 
@@ -1595,6 +1605,8 @@ describe("CopilotAgentService", () => {
         operationId: "tool-2",
         code: "offline",
         message: "Ableton is offline",
+        retryable: true,
+        details: { state: "disconnected" },
         toolName: "ableton_connection_status",
         sdkSessionId: "session-1",
       },
@@ -1619,6 +1631,18 @@ describe("CopilotAgentService", () => {
     ).toMatchObject({
       toolCallId: "tool-1",
       arguments: {},
+      durationMs: 1_000,
+    });
+    expect(
+      runtimeEvents.find((event) => event.type === "agent.tool.failed")?.data,
+    ).toMatchObject({
+      toolCallId: "tool-2",
+      structuredFailure: {
+        code: "offline",
+        message: "Ableton is offline",
+        retryable: true,
+        details: { state: "disconnected" },
+      },
       durationMs: 1_000,
     });
     await service.stop();

@@ -11,6 +11,7 @@ describe("shared application event adapter", () => {
           operationId: "op-1",
           code: "bridge_timeout",
           message: "Timed out",
+          retryable: true,
           toolName: "ableton_session_inspect",
         },
         () => "message-1",

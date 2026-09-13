@@ -96,6 +96,17 @@ The script should:
 - Keep serializers stable across versions.
 - Maintain an explicit supported Live-version matrix.
 
+Browser item identity remains exact across the search/load round trip. Runtime
+reference, root, path, and name must match, while URI comparison treats
+equivalent percent-encoded and decoded spellings as the same identity. A
+materially different decoded URI remains a `stale_reference`.
+
+Live may expose a loadable device such as Auto Filter as navigable because it
+also has preset children. An item explicitly reported as both `is_device` and
+`is_loadable` remains a supported device even when navigable. Navigable
+non-device containers, unsupported media types, and external plug-ins remain
+rejected before mutation.
+
 ## Live Set identity
 
 The Remote Script derives project identity directly from the LOM:

@@ -82,7 +82,7 @@ Exit criteria:
 Deliverables:
 
 - Structured production plan.
-- Compose, Arrange, Sound, and Mix modes.
+- Compose, Arrange, Sound, and Mix agent workflows.
 - Transactional musical workflows.
 - Change sets and recovery actions.
 - Plan preview and approval UI.

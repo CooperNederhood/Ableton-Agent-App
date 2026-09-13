@@ -1,12 +1,4 @@
-import type { ContextChip, ProductMode } from "../contracts.js";
-
-const modeGuidance: Record<ProductMode, string> = {
-  explore: "Explore the Live set and explain what is actually there.",
-  compose: "Work on musical material: clips, notes, and parts.",
-  arrange: "Work on arrangement structure, sections, and transitions.",
-  sound: "Work on instruments, devices, and sound design.",
-  mix: "Work on mixing: levels, panning, and mix-oriented devices.",
-};
+import type { ContextChip } from "../contracts.js";
 
 /**
  * Builds the prompt sent to the shared agent. Selected context is passed as
@@ -16,9 +8,8 @@ const modeGuidance: Record<ProductMode, string> = {
 export function composeAgentPrompt(
   message: string,
   context: readonly ContextChip[],
-  mode: ProductMode,
 ): string {
-  const sections = [`Mode: ${mode}. ${modeGuidance[mode]}`];
+  const sections: string[] = [];
   if (context.length > 0) {
     sections.push(
       [

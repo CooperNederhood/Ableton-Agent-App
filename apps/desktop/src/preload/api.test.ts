@@ -211,26 +211,15 @@ describe("preload API", () => {
     const api = createDesktopApi(transport);
 
     const context = [{ id: "track:1", kind: "track" as const, label: "Drums" }];
-    await api.agents.send(instanceId, "hello", context, "compose");
-    await api.agents.invokeSkill(
-      instanceId,
-      "analyze",
-      "the drums",
-      context,
-      "mix",
-    );
+    await api.agents.send(instanceId, "hello", context);
+    await api.agents.invokeSkill(instanceId, "analyze", "the drums", context);
     await expect(api.agents.cancel(instanceId)).resolves.toEqual({
       cancelled: true,
     });
-    await expect(
-      api.agents.send("invalid", "hello", [], "explore"),
-    ).rejects.toThrow();
+    await expect(api.agents.send("invalid", "hello", [])).rejects.toThrow();
 
     expect(vi.mocked(transport).invoke.mock.calls).toEqual([
-      [
-        "agents:send",
-        { instanceId, message: "hello", context, mode: "compose" },
-      ],
+      ["agents:send", { instanceId, message: "hello", context }],
       [
         "agents:invoke-skill",
         {
@@ -238,7 +227,6 @@ describe("preload API", () => {
           skillName: "analyze",
           request: "the drums",
           context,
-          mode: "mix",
         },
       ],
       ["agents:cancel", { instanceId }],
@@ -321,7 +309,6 @@ describe("preload API", () => {
         updatedAt: new Date(0).toISOString(),
         projectName: "Set",
         activeAgents: [],
-        mode: "explore",
         productionPlan: [],
         outputAssignments: [],
         liveEvents: [],

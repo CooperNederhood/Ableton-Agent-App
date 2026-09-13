@@ -93,8 +93,8 @@ relevant validation pass.
 ### Stage 5: React product superset
 
 - [~] Implement the complete reference chat interaction contract in React.
-- [~] Add project outline, inspectors, context selection, modes, plans, and
-  change previews.
+- [~] Add project outline, inspectors, context selection, active agents, plans,
+  and change previews.
 - [x] Ensure React actions resolve through shared services and tools.
 - [ ] Complete Electron end-to-end coverage.
 
@@ -106,7 +106,7 @@ presentation-only and report themselves as unsupported.
 
 ### Stage 6: workflows and release
 
-- [~] Replace fixed modes with definition-driven active agents and canonical
+- [x] Replace the fixed workflow selector with definition-driven active agents and canonical
   Agent Skills.
 - [ ] Route Outputs independently to multiple active agents.
 - [ ] Implement Remote Script-owned Live Events and per-agent event listeners.

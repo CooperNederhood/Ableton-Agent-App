@@ -408,274 +408,27 @@ describe("desktop persistence stores", () => {
     expect(await readFile(path, "utf8")).toBe("{not-json");
   });
 
-  describe("desktop active agent migration", () => {
-    it("migrates a legacy mode session to one active agent snapshot", async () => {
-      const directory = await temporaryDirectory();
-      const sessionsPath = join(directory, "sessions.json");
-      await writeFile(
-        sessionsPath,
-        JSON.stringify([
-          {
-            id: "legacy-sdk-session",
-            title: "Legacy",
-            updatedAt: new Date().toISOString(),
-            projectName: "Legacy Project",
-            mode: "explore",
-            productionPlan: [],
-            outputAssignments: [],
-          },
-        ]),
-        "utf8",
-      );
-      const catalog = desktopAgentCatalogSchema.parse({
-        definitions: [
-          {
-            name: "default",
-            description: "General-purpose Ableton agent.",
-            systemPrompt: "Help with Ableton.",
-            tools: ["*"],
-            resolvedTools: ["ableton_session_inspect"],
-            editScope: ["session"],
-            skills: [],
-            inputChannels: [],
-            sourceFile: "default.yaml",
-            fingerprint: "a".repeat(64),
-          },
-        ],
-        loadedAt: new Date().toISOString(),
-      });
-
-      const fake = createFakeApplication();
-      const service = new HeadlessDesktopService({
-        application: fake.application,
-        approvals: new ApprovalCoordinator(),
-        preferencesStore: new JsonPreferencesStore(
-          join(directory, "preferences.json"),
-        ),
-        sessionStore: new JsonSessionStore(sessionsPath),
-        agentCatalog: {
-          current: catalog,
-          refresh: () => Promise.resolve(catalog),
-        },
-      });
-
-      await service.start();
-      const [session] = await new JsonSessionStore(sessionsPath).load();
-      expect(session).toMatchObject({
-        version: 3,
-        liveEvents: [],
-        selectedAgentInstanceId: session?.activeAgents[0]?.id,
-        activeAgents: [
-          {
-            definitionName: "default",
-            label: "Default",
-            sdkSessionId: "legacy-sdk-session",
-            lifecycle: "ready",
-            autoApprove: false,
-            outputSubscriptions: [],
-          },
-        ],
-      });
-      await service.stop();
-    });
-
-    it("maps every legacy mode exactly and preserves SDK linkage and production data idempotently", async () => {
-      const directory = await temporaryDirectory();
-      const sessionsPath = join(directory, "sessions.json");
-      const modeNames = [
-        "explore",
-        "compose",
-        "arrange",
-        "sound",
-        "mix",
-      ] as const;
-      const assignment = {
-        assignmentId: "assignment-legacy",
-        producerId: "producer-legacy",
-        enabled: true,
-        deliveryMode: "next-prompt" as const,
-        usageInstruction: "Use the captured material.",
-        processingPolicyIds: ["latest-window"],
-      };
-      const plan = [
+  it("rejects obsolete unversioned session records", async () => {
+    const directory = await temporaryDirectory();
+    const sessionsPath = join(directory, "sessions.json");
+    await writeFile(
+      sessionsPath,
+      JSON.stringify([
         {
-          id: "section-legacy",
-          name: "Verse",
-          startBar: 1,
-          endBar: 8,
-          tracks: ["track-1"],
-          status: "approved" as const,
-        },
-      ];
-      const legacy = modeNames.map((mode) => ({
-        id: `legacy-sdk-${mode}`,
-        title: `${mode} session`,
-        updatedAt: new Date().toISOString(),
-        projectName: "Preserved Project",
-        projectId: "preserved-project-id",
-        mode,
-        productionPlan: mode === "arrange" ? plan : [],
-        outputAssignments: mode === "arrange" ? [assignment] : [],
-      }));
-      await writeFile(sessionsPath, JSON.stringify(legacy), "utf8");
-      const catalog = desktopAgentCatalogSchema.parse({
-        definitions: ["default", "compose", "arrange", "sound", "mix"].map(
-          (name) => ({
-            name,
-            description: `${name} agent`,
-            systemPrompt: `Act as ${name}.`,
-            tools: ["*"],
-            resolvedTools: ["ableton_session_inspect"],
-            editScope: ["session"],
-            skills: [],
-            inputChannels: [],
-            sourceFile: `${name}.yaml`,
-            fingerprint: "a".repeat(64),
-          }),
-        ),
-      });
-      const build = () => {
-        const fake = createFakeApplication();
-        return {
-          fake,
-          service: new HeadlessDesktopService({
-            application: fake.application,
-            approvals: new ApprovalCoordinator(),
-            preferencesStore: new JsonPreferencesStore(
-              join(directory, "preferences.json"),
-            ),
-            sessionStore: new JsonSessionStore(sessionsPath),
-            agentCatalog: {
-              current: catalog,
-              refresh: () => Promise.resolve(catalog),
-            },
-          }),
-        };
-      };
-
-      const first = build();
-      await first.service.start();
-      const migrated = await new JsonSessionStore(sessionsPath).load();
-      const expectedDefinitions = new Map([
-        ["explore", "default"],
-        ["compose", "compose"],
-        ["arrange", "arrange"],
-        ["sound", "sound"],
-        ["mix", "mix"],
-      ]);
-      for (const mode of modeNames) {
-        const session = migrated.find(
-          ({ title }) => title === `${mode} session`,
-        )!;
-        expect(session.id).not.toBe(`legacy-sdk-${mode}`);
-        expect(session.activeAgents[0]).toMatchObject({
-          definitionName: expectedDefinitions.get(mode),
-          sdkSessionId: `legacy-sdk-${mode}`,
-        });
-        expect(session.mode).toBe(mode);
-      }
-      const arranged = migrated.find(
-        ({ title }) => title === "arrange session",
-      )!;
-      expect(arranged).toMatchObject({
-        projectName: "Preserved Project",
-        projectId: "preserved-project-id",
-        productionPlan: plan,
-        outputAssignments: [assignment],
-      });
-      expect(arranged.activeAgents[0]?.outputSubscriptions).toEqual([
-        assignment,
-      ]);
-      const ids = new Map(migrated.map(({ title, id }) => [title, id]));
-      await first.service.stop();
-
-      const second = build();
-      await second.service.start();
-      expect(
-        new Map(
-          (await new JsonSessionStore(sessionsPath).load()).map(
-            ({ title, id }) => [title, id],
-          ),
-        ),
-      ).toEqual(ids);
-      await second.service.stop();
-    });
-
-    it("preserves an unmigrated legacy record exactly when its canonical definition is missing", async () => {
-      const directory = await temporaryDirectory();
-      const sessionsPath = join(directory, "sessions.json");
-      const legacy = [
-        {
-          id: "legacy-arrange-sdk",
-          title: "Legacy Arrange",
-          updatedAt: "2026-01-01T00:00:00.000Z",
-          projectName: "Original Project",
-          projectId: "original-project-id",
-          mode: "arrange",
-          productionPlan: [
-            {
-              id: "legacy-plan",
-              name: "Original Plan",
-              startBar: 1,
-              endBar: 16,
-              tracks: ["track-1"],
-              status: "proposed",
-            },
-          ],
+          id: "obsolete-session",
+          title: "Obsolete",
+          updatedAt: new Date().toISOString(),
+          projectName: "Old Project",
+          productionPlan: [],
           outputAssignments: [],
         },
-      ];
-      const original = JSON.stringify(legacy);
-      await writeFile(sessionsPath, original, "utf8");
-      const catalog = defaultCatalog();
-      const fake = createFakeApplication();
-      const service = new HeadlessDesktopService({
-        application: fake.application,
-        approvals: new ApprovalCoordinator(),
-        preferencesStore: new JsonPreferencesStore(
-          join(directory, "preferences.json"),
-        ),
-        sessionStore: new JsonSessionStore(sessionsPath),
-        agentCatalog: {
-          current: catalog,
-          refresh: () => Promise.resolve(catalog),
-        },
-      });
-      const events: DesktopAppEvent[] = [];
-      service.subscribe((event) => events.push(event));
+      ]),
+      "utf8",
+    );
 
-      await service.start();
-
-      expect(fake.agent.sessionId).toBe("legacy-arrange-sdk");
-      expect(await readFile(sessionsPath, "utf8")).toBe(original);
-      expect(
-        events.some(
-          (event) =>
-            event.type === "diagnostic" &&
-            event.level === "warning" &&
-            event.message.includes("canonical agent definition 'arrange'") &&
-            event.message.includes("preserved"),
-        ),
-      ).toBe(true);
-      await service.send("Continue the legacy conversation", [], "arrange");
-      await settle();
-      expect(fake.agent.prompts[0]).toContain(
-        "Continue the legacy conversation",
-      );
-      const [preservedAfterUse] = JSON.parse(
-        await readFile(sessionsPath, "utf8"),
-      ) as Array<Record<string, unknown>>;
-      expect(preservedAfterUse).toMatchObject({
-        id: "legacy-arrange-sdk",
-        projectName: "Original Project",
-        projectId: "original-project-id",
-        mode: "arrange",
-        productionPlan: legacy[0]!.productionPlan,
-        outputAssignments: [],
-      });
-      expect(preservedAfterUse).not.toHaveProperty("version");
-      await service.stop();
-    });
+    await expect(new JsonSessionStore(sessionsPath).load()).rejects.toThrow(
+      "Sessions could not be loaded",
+    );
   });
 
   it("round-trips multiple instances, selection, overrides, and subscriptions", async () => {
@@ -750,7 +503,6 @@ describe("desktop persistence stores", () => {
           },
         ],
         selectedAgentInstanceId: secondId,
-        mode: "explore" as const,
         productionPlan: [],
         outputAssignments: [],
         liveEvents: [],
@@ -814,7 +566,6 @@ describe("desktop persistence stores", () => {
             },
           ],
           selectedAgentInstanceId: agentId,
-          mode: "explore",
           productionPlan: [],
           outputAssignments: [subscription],
         },
@@ -1198,40 +949,34 @@ describe("desktop adapter over the shared application", () => {
       ),
     ).toHaveLength(3);
 
-    await service.sendToActiveAgent(first.id, "first history", [], "explore");
+    await service.sendToActiveAgent(first.id, "first history", []);
     await settle();
     await service.setContext([
       { id: "track:1", kind: "track", label: "Stale drums" },
     ]);
-    await service.sendToActiveAgent(
-      second.id,
-      "second history",
-      selection,
-      "compose",
-    );
+    await service.sendToActiveAgent(second.id, "second history", selection);
     await settle();
     await service.invokeActiveAgentSkill(
       second.id,
       "analyze",
       "the drums",
       selection,
-      "mix",
     );
     await settle();
     const managedPrompts = agent.managedPrompts.get(second.id) ?? [];
-    expect(managedPrompts[0]).toContain("Mode: compose.");
+    expect(managedPrompts[0]).not.toContain("Mode:");
     expect(managedPrompts[0]).toContain("- track: Drums (track:1)");
     expect(managedPrompts[0]).not.toContain("Stale drums");
     expect(managedPrompts[0]?.match(/- track:/g)).toHaveLength(1);
     expect(managedPrompts[0]).toContain("- clip: Main Beat (clip:2)");
     expect(managedPrompts[0]).toContain("- device: Drum Rack (device:3)");
     expect(managedPrompts[0]?.endsWith("second history")).toBe(true);
-    expect(managedPrompts[1]).toContain("/analyze Mode: mix.");
+    expect(managedPrompts[1]).not.toContain("Mode:");
     expect(managedPrompts[1]).toContain("- track: Drums (track:1)");
     expect(managedPrompts[1]?.match(/- track:/g)).toHaveLength(1);
     expect(managedPrompts[1]?.endsWith("the drums")).toBe(true);
     await expect(
-      service.invokeActiveAgentSkill(second.id, "missing", "", [], "explore"),
+      service.invokeActiveAgentSkill(second.id, "missing", "", []),
     ).rejects.toThrow("Unknown skill");
     expect(
       (await service.hydrateActiveAgentHistory(first.id)).some(
@@ -2698,8 +2443,8 @@ describe("desktop adapter over the shared application", () => {
     const [first] = await service.listActiveAgents();
     const second = await service.createActiveAgent("default");
 
-    await service.sendToActiveAgent(first!.id, "first", [], "explore");
-    await service.sendToActiveAgent(second.id, "second", [], "explore");
+    await service.sendToActiveAgent(first!.id, "first", []);
+    await service.sendToActiveAgent(second.id, "second", []);
     await expect(service.cancelActiveAgent(first!.id)).resolves.toEqual({
       cancelled: true,
     });
@@ -2763,11 +2508,9 @@ describe("desktop adapter over the shared application", () => {
     });
     await service.start();
 
-    const { messageId } = await service.send(
-      "What is in the set?",
-      [{ id: "track:1", kind: "track", label: "Bass" }],
-      "explore",
-    );
+    const { messageId } = await service.send("What is in the set?", [
+      { id: "track:1", kind: "track", label: "Bass" },
+    ]);
     await settle();
 
     const deltas = events.filter(
@@ -2880,20 +2623,17 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
-  it("sends active-agent prompts with mode and selected context", async () => {
+  it("sends active-agent prompts with selected context", async () => {
     const { service, agent } = await harness();
     await service.start();
 
-    await service.send(
-      "Make it darker",
-      [{ id: "track:1", kind: "track", label: "Bass" }],
-      "sound",
-    );
+    await service.send("Make it darker", [
+      { id: "track:1", kind: "track", label: "Bass" },
+    ]);
     await settle();
 
     expect(agent.prompts[0]).toBe(
       [
-        "Mode: sound. Work on instruments, devices, and sound design.",
         "Selected context (verify with Ableton tools before acting):\n- track: Bass (track:1)",
         "Make it darker",
       ].join("\n\n"),
@@ -2908,7 +2648,7 @@ describe("desktop adapter over the shared application", () => {
     await service.start();
 
     await expect(service.cancel()).resolves.toEqual({ cancelled: false });
-    const { messageId } = await service.send("Long job", [], "arrange");
+    const { messageId } = await service.send("Long job", []);
     await settle();
     await expect(service.cancel()).resolves.toEqual({ cancelled: true });
     await settle();
@@ -2938,8 +2678,8 @@ describe("desktop adapter over the shared application", () => {
     });
     await service.start();
 
-    await service.send("First", [], "explore");
-    await expect(service.send("Second", [], "explore")).rejects.toThrow(
+    await service.send("First", []);
+    await expect(service.send("Second", [])).rejects.toThrow(
       "already in progress",
     );
     agent.setBehavior({ failWith: new Error("model unavailable") });
@@ -2994,7 +2734,7 @@ describe("desktop adapter over the shared application", () => {
       },
     ];
     await first.service.updatePlan(plan);
-    await first.service.send("Use arrangement mode", [], "arrange");
+    await first.service.send("Continue the arrangement", []);
     await settle();
     await first.service.stop();
 
@@ -3009,7 +2749,6 @@ describe("desktop adapter over the shared application", () => {
     const restoredSession = (await restarted.service.getSessions()).find(
       ({ id }) => id === productionSessionId,
     );
-    expect(restoredSession?.mode).toBe("arrange");
     expect(restoredSession?.productionPlan).toEqual(plan);
     expect(typeof restoredSession?.selectedAgentInstanceId).toBe("string");
     expect(restoredSession?.activeAgents).toEqual([
@@ -3025,7 +2764,6 @@ describe("desktop adapter over the shared application", () => {
     if (restoredContext?.type === "session.context_restored") {
       expect(restoredContext.session).toMatchObject({
         id: productionSessionId,
-        mode: "arrange",
         productionPlan: plan,
       });
     }
@@ -3080,7 +2818,6 @@ describe("desktop adapter over the shared application", () => {
       firstSession.activeAgents[0]!.id,
       "Remember project A",
       [],
-      "explore",
     );
     await settle();
     await first.service.stop();
@@ -3129,7 +2866,6 @@ describe("desktop adapter over the shared application", () => {
       active.activeAgents[0]!.id,
       "Temporary idea",
       [],
-      "explore",
     );
     await settle();
     await service.stop();
@@ -3172,7 +2908,7 @@ describe("desktop adapter over the shared application", () => {
     });
     const activeAgentId = (await service.listActiveAgents())[0]!.id;
     expect(() =>
-      service.sendToActiveAgent(activeAgentId, "Do not run", [], "explore"),
+      service.sendToActiveAgent(activeAgentId, "Do not run", []),
     ).toThrow("transition decision");
     if (requested?.type !== "project.transition_requested") {
       throw new Error("Expected a pending project transition");
@@ -3235,7 +2971,6 @@ describe("desktop adapter over the shared application", () => {
       sourceAgent.id,
       "Remember this direction",
       [],
-      "explore",
     );
     await settle();
     ableton.state.projectIdentity = {
@@ -3863,7 +3598,7 @@ describe("desktop adapter over the shared application", () => {
     };
 
     const creating = service.createSession();
-    await expect(service.send("race", [], "explore")).rejects.toThrow(
+    await expect(service.send("race", [])).rejects.toThrow(
       "session transition",
     );
     release();
@@ -5112,9 +4847,9 @@ describe("desktop adapter over the shared application", () => {
       ),
     ).toBe(true);
 
-    await service.send("Warm it up", [], "sound");
+    await service.send("Warm it up", []);
     await settle();
-    expect(agent.prompts[0]).toContain("Mode: sound.");
+    expect(agent.prompts[0]).not.toContain("Mode:");
     expect(agent.prompts[0]).toContain("- track: Bass (track-1)");
     expect(agent.prompts[0]?.endsWith("Warm it up")).toBe(true);
     await service.stop();

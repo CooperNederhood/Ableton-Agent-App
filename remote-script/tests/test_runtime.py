@@ -2945,6 +2945,99 @@ class BrowserCommandTests(unittest.TestCase):
         self.assertEqual(result["after"]["deviceCount"], 2)
         self.assertEqual(result["addedDevices"][0]["name"], "Operator")
 
+    def test_accepts_equivalent_uri_encoding_for_exact_browser_item(self):
+        track = self.context.song.tracks[0]
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        self.context._track_references = [(track, track_reference)]
+        auto_filter = FakeBrowserItem(
+            "Auto Filter",
+            "query:AudioFx#EQ%20&%20Filters:Auto%20Filter",
+            children=[
+                FakeBrowserItem(
+                    "Clean Sweep.adv",
+                    "ableton://audio-effects/auto-filter/clean-sweep",
+                    loadable=True,
+                )
+            ],
+            loadable=True,
+            device=True,
+            source="Core Library",
+        )
+        self.context.application.browser.audio_effects.children.append(
+            auto_filter
+        )
+        item = self.execute(
+            "browser.search",
+            {
+                "query": "auto filter",
+                "roots": ["audio_effects"],
+                "maxNodes": 8,
+                "maxResults": 1,
+                "maxDepth": 3,
+                "maxDurationMs": 100,
+            },
+        )["items"][0]
+
+        self.assertTrue(item["isNavigable"])
+        self.assertTrue(item["isLoadableDevice"])
+        result = self.execute(
+            "browser.load_item",
+            {
+                "index": 0,
+                "expectedReference": track_reference,
+                "expectedName": track.name,
+                "expectedItemReference": item["reference"],
+                "expectedItemRoot": item["root"],
+                "expectedItemPath": item["path"],
+                "expectedItemName": item["name"],
+                "expectedItemUri": (
+                    "query:AudioFx#EQ %26 Filters:Auto Filter"
+                ),
+            },
+        )
+
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["addedDevices"][0]["name"], "Auto Filter")
+
+    def test_rejects_materially_different_browser_uri(self):
+        track = self.context.song.tracks[0]
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        self.context._track_references = [(track, track_reference)]
+        item = self.execute(
+            "browser.search",
+            {
+                "query": "operator",
+                "roots": ["instruments"],
+                "maxNodes": 8,
+                "maxResults": 1,
+                "maxDepth": 3,
+                "maxDurationMs": 100,
+            },
+        )["items"][0]
+        params = {
+            "index": 0,
+            "expectedReference": track_reference,
+            "expectedName": track.name,
+            "expectedItemReference": item["reference"],
+            "expectedItemRoot": item["root"],
+            "expectedItemPath": item["path"],
+            "expectedItemName": item["name"],
+            "expectedItemUri": "ableton://instruments/analog",
+        }
+
+        with self.assertRaises(Exception) as raised:
+            self.execute("browser.load_item", params)
+
+        self.assertEqual(raised.exception.code, "stale_reference")
+        self.assertEqual(
+            raised.exception.details["expectedUri"],
+            "ableton://instruments/analog",
+        )
+        self.assertEqual(
+            raised.exception.details["actualUri"],
+            "ableton://instruments/operator",
+        )
+
     def test_rejects_external_plugins_and_stale_browser_paths(self):
         roots = self.execute("browser.inspect_roots")["roots"]
         plugins = next(root for root in roots if root["root"] == "plugins")

@@ -1,5 +1,5 @@
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 import { describe, expect, it } from "vitest";
@@ -7,6 +7,24 @@ import { describe, expect, it } from "vitest";
 import { loadAgentCatalog, readSkillDocument } from "./loader.js";
 
 describe("agent catalog loading", () => {
+  it("loads Default as a general-purpose editing-capable agent", async () => {
+    const catalog = await loadAgentCatalog({
+      agentsDirectory: resolve("agents"),
+      skillsDirectory: resolve("skills"),
+      availableTools: ["ableton_session_inspect"],
+    });
+    const defaultAgent = catalog.agents.find(
+      ({ definition }) => definition.name === "default",
+    );
+
+    expect(catalog.diagnostics).toEqual([]);
+    expect(defaultAgent?.definition.editScope).toEqual(["session"]);
+    expect(defaultAgent?.definition.systemPrompt).toMatch(
+      /directly perform the user's requested supported\s+edits/u,
+    );
+    expect(defaultAgent?.definition.systemPrompt).not.toContain("mode");
+  });
+
   it("loads validated definitions and canonical skills", async () => {
     const root = await mkdtemp(join(tmpdir(), "ableton-agent-config-"));
     const agents = join(root, "agents");

@@ -130,7 +130,6 @@ describe("desktop components", () => {
         title: "Session",
         updatedAt: new Date(0).toISOString(),
         projectName: "Project",
-        mode: "explore" as const,
         productionPlan: [],
         outputAssignments: [],
         liveEvents: [],
@@ -302,7 +301,6 @@ describe("desktop components", () => {
               title: "Session",
               updatedAt: new Date(0).toISOString(),
               projectName: "Project",
-              mode: "explore",
               productionPlan: [],
               outputAssignments: [],
               liveEvents: [],
@@ -502,7 +500,7 @@ describe("desktop components", () => {
     expect(slashCompletionKey("Enter", 0, 0)).toBeUndefined();
   });
 
-  it("replaces product modes with labeled active-agent instances", () => {
+  it("shows labeled active-agent instances", () => {
     const state = workspaceState();
     state.sessions[0]!.activeAgents[0]!.model = "model-a";
     state.sessions[0]!.activeAgents[0]!.reasoningEffort = "high";
@@ -513,11 +511,9 @@ describe("desktop components", () => {
       <Workspace state={state} dispatch={vi.fn()} />,
     );
 
-    expect(header).toContain('aria-label="Agent Mode"');
+    expect(header).toContain('aria-label="Active Agent"');
     expect(header).toContain("Default");
     expect(header).toContain("Default 2");
-    expect(header).not.toContain("Compose");
-    expect(header).not.toContain("Explore");
     expect(header).toContain("model-a · high");
     expect(workspace).toContain("Default · ready");
   });
@@ -628,7 +624,6 @@ describe("desktop components", () => {
       secondAgentId,
       "Inspect the drums",
       state.context,
-      "explore",
     );
     expect(setContext).not.toHaveBeenCalled();
     expect(cancel).toHaveBeenCalledWith(secondAgentId);
@@ -662,13 +657,11 @@ describe("desktop components", () => {
         secondAgentId,
         "First",
         [{ id: "track:1", kind: "track", label: "Drums" }],
-        "explore",
       ],
       [
         secondAgentId,
         "Second",
         [{ id: "track:2", kind: "track", label: "Bass" }],
-        "explore",
       ],
     ]);
   });
@@ -712,7 +705,6 @@ describe("desktop components", () => {
       "mix-review",
       "preserve the vocal dynamics",
       state.context,
-      "explore",
     );
     expect(send).not.toHaveBeenCalled();
     expect(dispatch).toHaveBeenCalledWith(
@@ -961,7 +953,6 @@ describe("desktop components", () => {
               title: "Session",
               updatedAt: new Date(0).toISOString(),
               projectName: "Project",
-              mode: "explore",
               productionPlan: [],
               outputAssignments: [],
               liveEvents: [],
@@ -1524,7 +1515,6 @@ describe("desktop components", () => {
             agent(secondAgentInstanceId, "Mix agent"),
           ],
           selectedAgentInstanceId: agentInstanceId,
-          mode: "explore" as const,
           productionPlan: [],
           outputAssignments: [],
           liveEvents: [],

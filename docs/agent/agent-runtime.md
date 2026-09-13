@@ -70,12 +70,12 @@ Do not inject a full project dump on every turn. The agent can call inspection
 tools for detail.
 
 For user-authored managed-agent messages and explicit skill invocations, the
-renderer sends the visible selection and product mode in the same validated IPC
-request as the user text. The main process composes that bounded selection into
-the effective prompt before starting the turn. This atomic boundary prevents a
-prior selection update from becoming stale or being dropped. The general
-per-turn project snapshot remains an independent hook context and must not repeat
-the explicit selection block.
+renderer sends the visible selection in the same validated IPC request as the
+user text. The main process composes that bounded selection into the effective
+prompt before starting the turn. This atomic boundary prevents a prior
+selection update from becoming stale or being dropped. The general per-turn
+project snapshot remains an independent hook context and must not repeat the
+explicit selection block.
 
 ## Hooks
 

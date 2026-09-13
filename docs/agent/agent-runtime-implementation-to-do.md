@@ -33,7 +33,8 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [x] Implement session-start, prompt, pre-tool, post-tool, and failure hooks.
 - [x] Add retry guidance based on structured error codes.
 - [x] Prevent retry loops for denial, unsupported capability, and stale targets.
-- [~] Replace task modes with YAML-defined active agents.
+- [x] Use YAML-defined active agents for workflow specialization and remove the
+  obsolete turn classifier from prompts and transport fields.
 - [x] Add canonical Agent Skills through application-owned progressive
   disclosure.
 - [ ] Add independent SDK sessions, scoped tools, edit scopes, and attributed

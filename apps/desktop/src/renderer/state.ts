@@ -18,7 +18,6 @@ import type {
   PendingProjectTransition,
   OperationView,
   PlanSection,
-  ProductMode,
   RootTracePage,
   TelemetryEventPage,
 } from "../contracts";
@@ -63,7 +62,6 @@ export interface DesktopState {
   lifecycle:
     "stopped" | "starting" | "ready" | "degraded" | "stopping" | "crashed";
   connection: DesktopConnectionStatus;
-  mode: ProductMode;
   activeView: WorkspaceView;
   messages: MessageView[];
   operations: OperationView[];
@@ -108,7 +106,6 @@ export interface DesktopState {
 export const initialState: DesktopState = {
   lifecycle: "starting",
   connection: { state: "disconnected" },
-  mode: "explore",
   activeView: "workspace",
   messages: [],
   operations: [],
@@ -551,7 +548,6 @@ function reduceEvent(
             },
           ]),
         ),
-        mode: event.session.mode,
         plan: event.session.productionPlan,
       };
     case "project.transition_requested":

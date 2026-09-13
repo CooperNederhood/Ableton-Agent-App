@@ -28,14 +28,12 @@ describe("desktop IPC", () => {
       instanceId,
       message: "hello",
       context,
-      mode: "compose",
     });
     await handlers["agents:invoke-skill"]({
       instanceId,
       skillName: "analyze",
       request: "the drums",
       context,
-      mode: "mix",
     });
 
     await handlers["agents:cancel"]({ instanceId });
@@ -44,14 +42,12 @@ describe("desktop IPC", () => {
       instanceId,
       "hello",
       context,
-      "compose",
     );
     expect(invokeActiveAgentSkill).toHaveBeenCalledWith(
       instanceId,
       "analyze",
       "the drums",
       context,
-      "mix",
     );
     expect(cancelActiveAgent).toHaveBeenCalledWith(instanceId);
   });

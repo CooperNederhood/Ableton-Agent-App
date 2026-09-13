@@ -2,7 +2,10 @@ import type { AgentEventListener } from "@ableton-agent/agent-config";
 import type { SessionSnapshot } from "@ableton-agent/protocol";
 import type { ConnectionStatus } from "@ableton-agent/shared";
 import type { SessionHooks } from "@github/copilot-sdk";
-import { abletonToolMetadata } from "@ableton-agent/tools";
+import {
+  abletonToolMetadata,
+  parseAbletonToolFailure,
+} from "@ableton-agent/tools";
 
 import {
   constructNextPromptSignalContext,
@@ -126,6 +129,8 @@ export function compactProjectContext(
 }
 
 export function structuredErrorCode(error: string): string | undefined {
+  const structured = parseAbletonToolFailure(error);
+  if (structured !== undefined) return structured.code;
   const normalized = error.toLowerCase();
   if (
     normalized.includes("postcondition verification failed") ||
@@ -143,6 +148,7 @@ export function structuredErrorCode(error: string): string | undefined {
 }
 
 export function retryGuidance(error: string): string {
+  const structured = parseAbletonToolFailure(error);
   const code = structuredErrorCode(error);
   switch (code) {
     case "stale_reference":
@@ -158,6 +164,9 @@ export function retryGuidance(error: string): string {
     case "applied_indeterminate":
       return "The mutation may already have changed Ableton. Do not retry it. Re-inspect the relevant project state, report the verified result, and only continue from that fresh state.";
     default:
+      if (structured?.retryable === false) {
+        return `Do not retry unchanged arguments. The tool reported ${structured.code}: ${structured.message}`;
+      }
       return "Retry at most once only when the failure is explicitly retryable. Otherwise report the failure and preserve the observed state.";
   }
 }
@@ -278,7 +287,12 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
         return;
       }
       const guidance = retryGuidance(input.error);
-      if (structuredErrorCode(input.error) !== undefined) {
+      const structured = parseAbletonToolFailure(input.error);
+      if (
+        structured?.retryable === false ||
+        (structured === undefined &&
+          structuredErrorCode(input.error) !== undefined)
+      ) {
         blockedAttempts.set(
           attemptKey(input.toolName, input.toolArgs),
           guidance,

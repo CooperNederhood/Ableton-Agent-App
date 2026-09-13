@@ -33,6 +33,9 @@ Companion specification: [Test Strategy](test-strategy.md)
 - [x] Cover bounded Browser roots/children/search, deterministic traversal,
   strict node/result/depth/time limits, exact item revalidation, prohibited
   plug-in loading, approved CLI loading, and simulator bridge parity.
+  - [x] Cover equivalent Browser URI encodings, loadable/navigable native
+    devices, structured SDK failures, and the runner-owned Auto Filter audio
+    scenario.
 - [x] Implement CLI transcript tests.
 - [x] Implement Playwright Electron harness.
 - [ ] Add deterministic local-journal fixtures for clocks, IDs, sensitive

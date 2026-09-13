@@ -24,6 +24,12 @@
   `Upright Bass.adv` onto their identity-bound targets, and verify both final
   devices.
 
+`audio-effects`
+
+- `auto-filter-audio`: search for Auto Filter, create exactly one namespaced
+  audio track, load the identity-bound device even when Live reports preset
+  children, and verify the final device.
+
 ## Planned expansion
 
 - connection and bounded inspection;

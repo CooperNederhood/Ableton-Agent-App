@@ -116,6 +116,8 @@ export type AppEvent =
       operationId: string;
       code: string;
       message: string;
+      retryable?: boolean;
+      details?: Readonly<Record<string, unknown>>;
       toolName?: string;
     } & AgentEventAttribution)
   | ({

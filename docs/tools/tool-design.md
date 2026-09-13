@@ -94,6 +94,12 @@ Return two representations:
 Do not return enormous browser trees or parameter lists to the model. Support
 filtering, pagination, and targeted detail.
 
+Custom tool failures use the Copilot SDK's native failure result rather than a
+thrown handler exception. The bounded failure payload retains a stable code,
+message, retryability, and sanitized details for model guidance, operation UI,
+logs, and Desktop History. Unknown exceptions fail closed as non-retryable and
+never expose stacks, credentials, binary bodies, or unbounded values.
+
 ## Feature adoption from existing MCP projects
 
 Adopt and improve:

@@ -22,7 +22,6 @@ function session(
     projectName: projectId ?? "Unsaved Live Set",
     ...(projectId === undefined ? {} : { projectId }),
     activeAgents: [],
-    mode: "explore",
     productionPlan: [],
     outputAssignments: [],
   });

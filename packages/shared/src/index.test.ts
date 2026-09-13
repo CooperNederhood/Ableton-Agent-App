@@ -144,8 +144,8 @@ describe("shared runtime contracts", () => {
   });
 
   it("keeps configuration, secrets, and shutdown behind narrow interfaces", async () => {
-    const configuration: ConfigurationStore<{ mode: string }> = {
-      load: vi.fn(() => Promise.resolve({ mode: "explore" })),
+    const configuration: ConfigurationStore<{ theme: string }> = {
+      load: vi.fn(() => Promise.resolve({ theme: "dark" })),
       save: vi.fn(() => Promise.resolve()),
     };
     const secureStorage: SecureStorage = {
@@ -159,7 +159,7 @@ describe("shared runtime contracts", () => {
       shutdown,
     };
 
-    expect(await configuration.load()).toEqual({ mode: "explore" });
+    expect(await configuration.load()).toEqual({ theme: "dark" });
     expect(await secureStorage.get("token")).toBe("secret");
     await participant.shutdown(new AbortController().signal);
     expect(shutdown).toHaveBeenCalledOnce();

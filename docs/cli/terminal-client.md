@@ -80,7 +80,6 @@ Initial slash commands:
 - `/status`
 - `/connect`
 - `/snapshot`
-- `/mode explore|compose|arrange|sound|mix`
 - `/session new`
 - `/session resume <id>`
 - `/verbose on|off`

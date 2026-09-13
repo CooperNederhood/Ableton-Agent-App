@@ -545,7 +545,6 @@ export async function sendComposerMessage(
       invocation.skillName,
       invocation.request,
       context,
-      state.mode,
     );
     dispatch({
       type: "user-message",
@@ -561,12 +560,7 @@ export async function sendComposerMessage(
     content: message,
     agentInstanceId: agent.id,
   });
-  await desktop.agents.send(
-    agent.id,
-    message,
-    contextForSelection(state),
-    state.mode,
-  );
+  await desktop.agents.send(agent.id, message, contextForSelection(state));
 }
 
 export async function selectWorkspaceAgent(
@@ -2771,10 +2765,10 @@ export function ConnectionHeader({
       </div>
       <div className="header-controls">
         <label>
-          Agent Mode
+          Active Agent
           <select
             className="agent-instance-selector"
-            aria-label="Agent Mode"
+            aria-label="Active Agent"
             value={activeAgent?.id ?? ""}
             disabled={(session?.activeAgents.length ?? 0) === 0}
             onChange={(event) => void selectAgent(event.target.value)}

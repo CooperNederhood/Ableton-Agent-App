@@ -123,10 +123,6 @@ mode and message prefix. These listeners are session overrides and are not
 seeded from canonical agent YAML in the initial implementation. One event may
 feed multiple agents without creating duplicate LOM subscriptions.
 
-Legacy Explore sessions migrate to Default. Compose, Arrange, Sound, and Mix
-sessions migrate to matching definitions while retaining their SDK history,
-plans, and outputs.
-
 ## Approval layering and safety
 
 `/yolo`, `/yolo on`, and `/yolo off` change automatic approval for the selected
@@ -151,8 +147,8 @@ bindings, and global mutations remain denied.
 
 The **Agents** tab lists definitions, diagnostics, and active instances. Users
 can create, rename, edit, reset, deactivate, and refresh. The workspace's
-**Agent Mode** selector switches among active instances and therefore switches
-the visible transcript, activity, approvals, composer target, and cancellation
+**Active Agent** selector switches among instances and therefore switches the
+visible transcript, activity, approvals, composer target, and cancellation
 target.
 
 **Edit overrides** includes a **Listening Events** selector populated from the
@@ -162,4 +158,6 @@ editor remains unchanged. Output subscriptions remain managed in Outputs until
 those workflows are deliberately consolidated.
 
 The canonical definitions are Default, Compose, Arrange, Sound, and Mix. They
-initially have every Ableton tool and session scope.
+initially have every Ableton tool and session scope. Default is the
+general-purpose editing-capable production agent. Only actual approval,
+edit-scope, connection, and automatic-analysis policy may block its edits.

@@ -1,0 +1,67 @@
+{
+  "formatVersion": 1,
+  "id": "auto-filter-audio",
+  "group": "audio-effects",
+  "prompt": "create one new audio track and load Ableton's Auto Filter audio effect onto it",
+  "artifactPrefix": "AA_SMOKE_FX_",
+  "allowedTools": [
+    "ableton_connection_status",
+    "ableton_session_inspect",
+    "ableton_browser_search",
+    "ableton_browser_children_inspect",
+    "ableton_tracks_create",
+    "ableton_browser_load_item",
+    "ableton_devices_inspect"
+  ],
+  "allowedRisks": ["read", "reversible"],
+  "maxToolCalls": 10,
+  "maxMutations": 2,
+  "timeoutMs": 180000,
+  "ordering": [
+    {
+      "before": "ableton_browser_search",
+      "after": "ableton_tracks_create"
+    },
+    {
+      "before": "ableton_tracks_create",
+      "after": "ableton_browser_load_item"
+    }
+  ],
+  "trackNameSuffixes": ["Filtered Audio"],
+  "clipNameSuffixes": [],
+  "browserItemNames": ["Auto Filter"],
+  "browserLoadTargets": [
+    {
+      "trackNameSuffix": "Filtered Audio",
+      "itemName": "Auto Filter"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "track-device",
+      "trackNameSuffix": "Filtered Audio",
+      "trackKind": "audio",
+      "deviceName": "Auto Filter"
+    },
+    {
+      "type": "tool-calls",
+      "required": [
+        {
+          "toolName": "ableton_browser_search",
+          "min": 1,
+          "max": 2
+        },
+        {
+          "toolName": "ableton_tracks_create",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "toolName": "ableton_browser_load_item",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    }
+  ]
+}

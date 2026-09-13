@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { SessionSnapshot } from "@ableton-agent/protocol";
+import { serializeAbletonToolFailure } from "@ableton-agent/tools";
 
 import {
   AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE,
@@ -140,6 +141,17 @@ describe("agent policy", () => {
       "may already have changed Ableton",
     );
     expect(retryGuidance("connection reset")).toContain("at most once");
+    const structured = serializeAbletonToolFailure(
+      Object.assign(new Error("Device target is incompatible"), {
+        code: "conflict",
+        retryable: false,
+        details: { trackKind: "audio" },
+      }),
+    );
+    expect(structuredErrorCode(structured)).toBe("conflict");
+    expect(retryGuidance(structured)).toContain(
+      "Device target is incompatible",
+    );
   });
 
   it("injects cached context without prompt-bound session inspection", async () => {

@@ -36,8 +36,7 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
       get: async () => (await invoke("app:lifecycle", {})).state,
     },
     agent: {
-      send: (message, context, mode) =>
-        invoke("agent:send", { message, context, mode }),
+      send: (message, context) => invoke("agent:send", { message, context }),
       cancel: () => invoke("agent:cancel", {}),
       createSession: async () =>
         (await invoke("agent:create-session", {})).sessionId,
@@ -69,15 +68,14 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
         await invoke("agents:deactivate", { instanceId });
       },
       hydrateHistory: (instanceId) => invoke("agents:history", { instanceId }),
-      send: (instanceId, message, context, mode) =>
-        invoke("agents:send", { instanceId, message, context, mode }),
-      invokeSkill: (instanceId, skillName, argumentsText, context, mode) =>
+      send: (instanceId, message, context) =>
+        invoke("agents:send", { instanceId, message, context }),
+      invokeSkill: (instanceId, skillName, argumentsText, context) =>
         invoke("agents:invoke-skill", {
           instanceId,
           skillName,
           request: argumentsText,
           context,
-          mode,
         }),
       cancel: (instanceId) => invoke("agents:cancel", { instanceId }),
     },

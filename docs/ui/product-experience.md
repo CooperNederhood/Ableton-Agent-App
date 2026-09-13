@@ -13,10 +13,10 @@ agent behavior must not diverge.
 React should not shell out to the CLI or reuse terminal rendering components.
 The reusable layer is the headless interaction contract and application core.
 
-## Agent Mode
+## Active agents
 
-The UI switches among active custom-agent instances rather than a fixed mode
-enum. Canonical definitions include:
+The UI switches among active custom-agent instances. Canonical definitions
+include:
 
 - **Default:** general inspection and editing.
 - **Compose:** generate or edit notes, rhythm, harmony, and motifs.
@@ -25,9 +25,9 @@ enum. Canonical definitions include:
 - **Mix:** adjust levels, pan, devices, and comparative balance.
 
 Multiple instances may use the same definition and retain independent
-conversation histories. Agent Mode changes the selected conversation, composer
-target, activity, approvals, and cancellation target. Agent-specific placeholder
-panels are not part of the initial custom-agent release.
+conversation histories. Selecting an active agent changes the conversation,
+composer target, activity, approvals, and cancellation target. Agent-specific
+placeholder panels are not part of the initial custom-agent release.
 
 ## Main workspace
 
@@ -35,7 +35,7 @@ Suggested layout:
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ Connection · Project · Mode · Model                         │
+│ Connection · Project · Active Agent · Model                 │
 ├──────────────────┬───────────────────────────┬───────────────┤
 │ Project outline  │ Conversation / operation  │ Inspector     │
 │ Tracks/sections  │ timeline                  │ Selection     │
@@ -107,7 +107,7 @@ Every essential CLI action has a React equivalent:
 | Type a prompt | Prompt composer with selected-context chips |
 | Stream operation text | Expandable visual operation timeline |
 | `/snapshot` | Navigable project outline |
-| `/mode arrange` | Visible mode switcher and mode-specific workspace |
+| Select an active agent | Visible active-agent selector and independent workspace |
 | Terminal approval | Visual change preview and approval panel |
 | `/status` and `/doctor` | Connection and diagnostics views |
 | Text arrangement plan | Editable section/timeline plan |
@@ -195,7 +195,7 @@ The terminal client should preserve the essential interaction model:
 
 ```text
 Ableton: connected · Live 12.1 · Project "Sketch 04"
-Mode: Arrange
+Agent: Arrange
 
 You: turn the selected four-bar loop into a 16-bar intro
 

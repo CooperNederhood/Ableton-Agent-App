@@ -25,8 +25,8 @@ Companion specification: [Terminal Client](terminal-client.md)
   session context while preserving plain redirected output.
 - [x] Render structured approval metadata and readable nested arguments.
 - [x] Render operation start, progress, completion, and failure events.
-- [~] Implement `/help`, `/status`, `/connect`, `/snapshot`, `/mode`,
-  `/session`, `/verbose`, `/cancel`, `/doctor`, and `/exit`.
+- [~] Implement `/help`, `/status`, `/connect`, `/snapshot`, `/session`,
+  `/verbose`, `/cancel`, `/doctor`, and `/exit`.
 - [x] Implement interactive approval, denial, and detail inspection.
 - [~] Handle Ctrl+C as cancellation first and process exit second. (Ctrl+C
   now reliably exits with code 130 from any mode; it does not yet attempt a

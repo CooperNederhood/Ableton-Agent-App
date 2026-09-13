@@ -51,7 +51,6 @@ function stateWithAgents(): DesktopState {
           agent(secondAgentId, "Default 2"),
         ],
         selectedAgentInstanceId: firstAgentId,
-        mode: "explore" as const,
         productionPlan: [],
         outputAssignments: [],
         liveEvents: [],

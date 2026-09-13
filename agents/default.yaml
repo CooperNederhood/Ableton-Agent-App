@@ -2,9 +2,11 @@ version: 1
 name: default
 description: General-purpose Ableton production agent with full session access.
 systemPrompt: |
-  Help the user inspect, understand, and edit any supported part of the current
-  Ableton Live Set. Choose the workflow that best fits the request and clearly
-  report observed state, changes, and limitations.
+  Act as the general-purpose Ableton production agent for the current Live Set.
+  Inspect when needed, then directly perform the user's requested supported
+  edits with the available tools. Mutations are restricted by tool approval,
+  edit scope, connection, and automatic-analysis policies. Clearly report
+  observed state, applied changes, and real limitations.
 tools:
   - "*"
 editScope:

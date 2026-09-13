@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { ConnectionStatus } from "@ableton-agent/shared";
 
 import {
-  AbletonToolPreconditionError,
   abletonToolMetadata,
   createAbletonPermissionHandler,
   createAbletonTools,
+  parseAbletonToolFailure,
   toolCatalogPolicy,
   type AbletonToolServices,
   type ToolApprovalRequest,
@@ -899,14 +899,71 @@ describe("Ableton tools", () => {
       arguments: {},
     };
 
-    await expect(
-      toolSet.tools[1].handler?.({}, invocation),
-    ).rejects.toMatchObject({
+    const result = await toolSet.tools[1].handler?.({}, invocation);
+
+    const failureResult = result as
+      | { resultType?: string; textResultForLlm?: string; error?: string }
+      | undefined;
+    expect(failureResult?.resultType).toBe("failure");
+    expect(failureResult?.textResultForLlm).toContain("not_connected");
+    expect(parseAbletonToolFailure(failureResult?.error)).toMatchObject({
       code: "not_connected",
       retryable: true,
-      name: AbletonToolPreconditionError.name,
+      message: "Ableton Live must be connected before using this tool",
     });
     expect(ports.inspectSession).not.toHaveBeenCalled();
+  });
+
+  it("returns bounded sanitized structured failures for Ableton handlers", async () => {
+    const ports = services();
+    const failure = Object.assign(new Error("Browser item identity changed"), {
+      code: "stale_reference",
+      retryable: false,
+      details: {
+        expectedUri: "query:AudioFx#EQ %26 Filters:Auto Filter",
+        diagnostic: "token=embedded-secret",
+        authorization: "Bearer top-secret-token",
+        oversized: "x".repeat(3_000),
+      },
+    });
+    ports.loadBrowserItem.mockRejectedValue(failure);
+    const tool = createAbletonTools(ports).tools[37];
+    const result = await tool?.handler?.(
+      {
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Audio",
+        expectedItemReference: "00000000-0000-4000-8000-000000000050",
+        expectedItemRoot: "audio_effects",
+        expectedItemPath: [{ index: 0, name: "Auto Filter" }],
+        expectedItemName: "Auto Filter",
+        expectedItemUri: "query:AudioFx#EQ %26 Filters:Auto Filter",
+      },
+      {
+        sessionId: "session",
+        toolCallId: "call",
+        toolName: "ableton_browser_load_item",
+        arguments: {},
+      },
+    );
+    const failureResult = result as
+      | { resultType?: string; textResultForLlm?: string; error?: string }
+      | undefined;
+    const parsed = parseAbletonToolFailure(failureResult?.error);
+
+    expect(failureResult?.resultType).toBe("failure");
+    expect(failureResult?.textResultForLlm).toContain("stale_reference");
+    expect(parsed).toMatchObject({
+      code: "stale_reference",
+      message: "Browser item identity changed",
+      retryable: false,
+      details: {
+        authorization: "[REDACTED]",
+        diagnostic: "token=[REDACTED]",
+      },
+    });
+    expect(typeof parsed?.details.oversized).toBe("string");
+    expect(String(parsed?.details.oversized)).toContain("[TRUNCATED]");
   });
 
   it("defines complete metadata for every registered tool", () => {

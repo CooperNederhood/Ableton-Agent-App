@@ -219,7 +219,7 @@ describe("agent runtime composition", () => {
       Readonly<Record<string, unknown>> | undefined;
     expect(sdkSystemMessage?.content).toBe(BASE_SYSTEM_MESSAGE);
     expect(configurationData?.customAgentPrompt).toBe(
-      "Follow the session system message exactly and use the available Ableton tools to help the user.",
+      "Act as the general-purpose Ableton production agent for the current Live Set. Inspect when needed, then directly perform the user's requested supported edits with the available tools. Mutations are restricted by tool approval, edit scope, connection, and automatic-analysis policies. Follow the session system message and clearly report observed state, applied changes, and real limitations.",
     );
     expect(configurationData?.skills).toEqual([]);
     const configuredTools = configurationData?.tools as

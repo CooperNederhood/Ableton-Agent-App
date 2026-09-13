@@ -37,26 +37,16 @@ import type {
   LiveEventSelection,
   DesktopSession,
   PlanSection,
-  ProductMode,
 } from "../contracts.js";
 import type {
   AgentEventListener,
   LiveEventDefinition,
 } from "@ableton-agent/agent-config";
 import {
-  legacySessionSchema,
   preferencesSchema,
   sessionSchema,
   versionTwoSessionSchema,
 } from "../contracts.js";
-
-const legacySdkSessionIds = new WeakMap<DesktopSession, string>();
-
-export function legacySdkSessionId(
-  session: DesktopSession,
-): string | undefined {
-  return legacySdkSessionIds.get(session);
-}
 
 export interface DesktopService {
   start(): Promise<void>;
@@ -64,7 +54,6 @@ export interface DesktopService {
   send(
     message: string,
     context: ContextChip[],
-    mode: ProductMode,
   ): Promise<{ accepted: true; messageId: string }>;
   cancel(): Promise<{ cancelled: boolean }>;
   createSession(): Promise<string>;
@@ -101,14 +90,12 @@ export interface DesktopService {
     instanceId: string,
     message: string,
     context?: ContextChip[],
-    mode?: ProductMode,
   ): Promise<{ accepted: true; messageId: string }>;
   invokeActiveAgentSkill(
     instanceId: string,
     skillName: string,
     argumentsText: string,
     context?: ContextChip[],
-    mode?: ProductMode,
   ): Promise<{ accepted: true; messageId: string }>;
   cancelActiveAgent(instanceId: string): Promise<{ cancelled: boolean }>;
   connect(): Promise<DesktopConnectionStatus>;
@@ -246,8 +233,6 @@ export class JsonPreferencesStore {
 }
 
 export class JsonSessionStore {
-  readonly #legacySessionIds = new Set<string>();
-
   public constructor(private readonly path: string) {}
 
   public async load(): Promise<DesktopSession[]> {
@@ -281,16 +266,7 @@ export class JsonSessionStore {
             })),
           };
         }
-        const legacy = legacySessionSchema.parse(value);
-        this.#legacySessionIds.add(legacy.id);
-        const migrated = sessionSchema.parse({
-          ...legacy,
-          version: 3,
-          activeAgents: [],
-          liveEvents: [],
-        });
-        legacySdkSessionIds.set(migrated, legacy.id);
-        return migrated;
+        return sessionSchema.parse(value);
       });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
@@ -304,19 +280,7 @@ export class JsonSessionStore {
     try {
       await writeFile(
         temporaryPath,
-        JSON.stringify(
-          sessionSchema
-            .array()
-            .parse(sessions)
-            .map((session) =>
-              this.#legacySessionIds.has(session.id) &&
-              session.activeAgents.length === 0
-                ? legacySessionSchema.parse(session)
-                : session,
-            ),
-          undefined,
-          2,
-        ),
+        JSON.stringify(sessionSchema.array().parse(sessions), undefined, 2),
         { encoding: "utf8", mode: 0o600 },
       );
       await rename(temporaryPath, this.path);

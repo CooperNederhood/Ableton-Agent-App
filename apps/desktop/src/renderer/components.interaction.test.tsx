@@ -75,7 +75,6 @@ function rendererState(active = true): DesktopState {
         projectName: "Project",
         activeAgents: [activeAgent()],
         selectedAgentInstanceId: agentId,
-        mode: "explore",
         productionPlan: [],
         outputAssignments: [],
         liveEvents: [],

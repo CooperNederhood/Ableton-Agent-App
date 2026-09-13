@@ -84,7 +84,6 @@ import {
   type DesktopProjectIdentity,
   type DesktopSession,
   type PlanSection,
-  type ProductMode,
   type LatestAcceptedOutput,
   type LiveEventDefinitionDraft,
   type LiveEventTrigger,
@@ -94,7 +93,6 @@ import {
 } from "../contracts.js";
 import type { ApprovalCoordinator } from "./approvals.js";
 import type { AgentCatalogService } from "./agent-catalog.js";
-import { legacySdkSessionId } from "./desktop-service.js";
 import type {
   DesktopService,
   JsonPreferencesStore,
@@ -290,20 +288,12 @@ export class HeadlessDesktopService implements DesktopService {
     );
     this.#sessions = await this.#loadSessions();
     this.#sdkSessionIds.clear();
-    for (const session of this.#sessions) {
-      const sdkSessionId = legacySdkSessionId(session);
-      if (sdkSessionId !== undefined) {
-        this.#sdkSessionIds.set(session.id, sdkSessionId);
-      }
-    }
-    const migratedSessions = this.#migrateAgentModes(catalog);
     this.#projectAssociations = await this.#loadProjectAssociations();
     this.#activeProductionSessionId = undefined;
     this.#publishAutoApprovedAgentIds();
     this.emit({ type: "preferences.changed", preferences: this.#preferences });
     this.emit({ type: "sessions.changed", sessions: this.#sessions });
     this.emit({ type: "agents.catalog_changed", catalog });
-    if (migratedSessions) await this.#persistSessions();
 
     try {
       await this.#signals.start();
@@ -402,7 +392,6 @@ export class HeadlessDesktopService implements DesktopService {
   public async send(
     message: string,
     context: ContextChip[],
-    mode: ProductMode,
   ): Promise<{ accepted: true; messageId: string }> {
     this.#assertAccepting();
     if (this.#turn) {
@@ -421,7 +410,6 @@ export class HeadlessDesktopService implements DesktopService {
       async () => {
         const selection = this.#withPinnedContext(context);
         const session = this.#requireExpectedActiveSession(expectedSessionId);
-        await this.#updateActiveSessionInTransaction({ mode });
         if (this.options.agentCatalog === undefined) {
           return { managedTarget: undefined, selection };
         }
@@ -445,14 +433,13 @@ export class HeadlessDesktopService implements DesktopService {
       messageId,
       message,
       context: selection,
-      mode,
     });
     if (this.options.agentCatalog !== undefined) {
       if (managedTarget !== undefined) {
         return this.#beginManagedTurn(managedTarget, () =>
           this.#application.sendToManagedAgent(
             managedTarget.agentInstanceId,
-            composeAgentPrompt(message, selection, mode),
+            composeAgentPrompt(message, selection),
           ),
         );
       }
@@ -462,7 +449,7 @@ export class HeadlessDesktopService implements DesktopService {
       type: "operation.changed",
       operation: {
         id: messageId,
-        label: `Agent turn (${mode})`,
+        label: "Agent turn",
         status: "running",
         detail:
           selection.length > 0
@@ -476,11 +463,7 @@ export class HeadlessDesktopService implements DesktopService {
         timestamp: Date.now(),
       },
     });
-    void this.#runTurn(
-      turn,
-      composeAgentPrompt(message, selection, mode),
-      mode,
-    );
+    void this.#runTurn(turn, composeAgentPrompt(message, selection));
     return { accepted: true, messageId };
   }
 
@@ -494,23 +477,18 @@ export class HeadlessDesktopService implements DesktopService {
     ];
   }
 
-  async #runTurn(
-    turn: ActiveTurn,
-    prompt: string,
-    mode: ProductMode,
-  ): Promise<void> {
+  async #runTurn(turn: ActiveTurn, prompt: string): Promise<void> {
     const startedAt = Date.now();
     try {
       await this.#application.send(prompt);
       this.#logger.debug("Desktop agent turn completed", {
         messageId: turn.messageId,
         prompt,
-        mode,
         durationMs: Date.now() - startedAt,
       });
       this.#completeTurn(turn, {
         status: "completed",
-        label: `Agent turn (${mode})`,
+        label: "Agent turn",
         detail: "The agent finished this turn.",
       });
     } catch (error) {
@@ -518,13 +496,12 @@ export class HeadlessDesktopService implements DesktopService {
       this.#logger.error("Desktop agent turn failed", {
         messageId: turn.messageId,
         prompt,
-        mode,
         durationMs: Date.now() - startedAt,
         error: message,
       });
       this.#completeTurn(turn, {
         status: turn.cancelRequested ? "cancelled" : "failed",
-        label: `Agent turn (${mode})`,
+        label: "Agent turn",
         detail: turn.cancelRequested ? "Cancelled by you." : message,
         ...(turn.cancelRequested ? {} : { warnings: [message] }),
       });
@@ -1100,12 +1077,10 @@ export class HeadlessDesktopService implements DesktopService {
     instanceId: string,
     message: string,
     context: ContextChip[] = [],
-    mode: ProductMode = "explore",
   ): Promise<{ accepted: true; messageId: string }> {
     const prompt = composeAgentPrompt(
       message,
       this.#withPinnedContext(context),
-      mode,
     );
     return this.#beginManagedTurn(
       this.#captureActiveAgentTarget(instanceId),
@@ -1118,13 +1093,11 @@ export class HeadlessDesktopService implements DesktopService {
     skillName: string,
     argumentsText: string,
     context: ContextChip[] = [],
-    mode: ProductMode = "explore",
   ): Promise<{ accepted: true; messageId: string }> {
     skillNameSchema.parse(skillName);
     const request = composeAgentPrompt(
       argumentsText,
       this.#withPinnedContext(context),
-      mode,
     );
     return this.#beginManagedTurn(
       this.#captureActiveAgentTarget(instanceId),
@@ -2470,6 +2443,10 @@ export class HeadlessDesktopService implements DesktopService {
                 operation_id: event.operationId,
                 error_code: event.code.slice(0, 2_048),
                 error_message: event.message.slice(0, 2_048),
+                error_retryable: event.retryable ?? false,
+                ...(event.details === undefined
+                  ? {}
+                  : { error_details: event.details }),
                 status: "failed",
               };
     void this.#eventJournal
@@ -2685,7 +2662,6 @@ export class HeadlessDesktopService implements DesktopService {
         identity?.projectName ??
         projectLabel(await this.#application.getStatus()),
       ...(identity?.saved === true ? { projectId: identity.projectId } : {}),
-      mode: "explore",
       productionPlan: [],
       outputAssignments: [],
       liveEvents: [],
@@ -2729,7 +2705,6 @@ export class HeadlessDesktopService implements DesktopService {
       ...(identity?.saved === true ? { projectId: identity.projectId } : {}),
       activeAgents: [connected],
       selectedAgentInstanceId: connected.id,
-      mode: "explore",
       productionPlan: [],
       outputAssignments: [],
       liveEvents: [],
@@ -2979,47 +2954,6 @@ export class HeadlessDesktopService implements DesktopService {
     };
   }
 
-  #migrateAgentModes(catalog: DesktopAgentCatalog): boolean {
-    let changed = false;
-    this.#sessions = this.#sessions.map((session) => {
-      if (session.activeAgents.length > 0) return session;
-      const definitionName =
-        session.mode === "explore" ? "default" : session.mode;
-      const definition = catalog.definitions.find(
-        (candidate) => candidate.name === definitionName,
-      );
-      if (definition === undefined) {
-        if (legacySdkSessionId(session) !== undefined) {
-          this.emit({
-            type: "diagnostic",
-            level: "warning",
-            message: `Legacy session '${session.id}' was not migrated because canonical agent definition '${definitionName}' is unavailable; its SDK resume linkage and production data were preserved.`,
-          });
-        }
-        return session;
-      }
-      const sdkSessionId = legacySdkSessionId(session);
-      if (sdkSessionId === undefined) return session;
-      const activeAgent = {
-        ...this.#activeAgentFromDefinition(definition, sdkSessionId),
-        outputSubscriptions: session.outputAssignments,
-      };
-      changed = true;
-      let productionSessionId = randomUUID();
-      while (productionSessionId === sdkSessionId) {
-        productionSessionId = randomUUID();
-      }
-      this.#sdkSessionIds.set(productionSessionId, sdkSessionId);
-      return {
-        ...session,
-        id: productionSessionId,
-        activeAgents: [activeAgent],
-        selectedAgentInstanceId: activeAgent.id,
-      };
-    });
-    return changed;
-  }
-
   async #touchSession(sessionId: string): Promise<void> {
     const touched = this.#sessions.find((session) => session.id === sessionId);
     if (!touched) return;
@@ -3034,11 +2968,7 @@ export class HeadlessDesktopService implements DesktopService {
     update: Partial<
       Pick<
         DesktopSession,
-        | "mode"
-        | "productionPlan"
-        | "projectId"
-        | "projectName"
-        | "outputAssignments"
+        "productionPlan" | "projectId" | "projectName" | "outputAssignments"
       >
     >,
   ): Promise<void> {
@@ -4203,10 +4133,7 @@ export class HeadlessDesktopService implements DesktopService {
   ): string | undefined {
     return (
       this.#selectedAgent(session)?.sdkSessionId ??
-      (session === undefined
-        ? undefined
-        : this.#sdkSessionIds.get(session.id)) ??
-      (session === undefined ? undefined : legacySdkSessionId(session))
+      (session === undefined ? undefined : this.#sdkSessionIds.get(session.id))
     );
   }
 

@@ -11,19 +11,11 @@ import {
 } from "./contracts";
 
 describe("desktop IPC contracts", () => {
-  it("rejects empty prompts and unknown request properties", () => {
+  it("rejects empty prompts", () => {
     expect(() =>
       ipcSchemas["agent:send"].request.parse({
         message: "",
         context: [],
-        mode: "explore",
-      }),
-    ).toThrow();
-    expect(() =>
-      ipcSchemas["agent:send"].request.parse({
-        message: "hello",
-        context: [],
-        mode: "unsafe",
       }),
     ).toThrow();
   });
@@ -428,7 +420,6 @@ describe("desktop IPC contracts", () => {
         instanceId: "00000000-0000-4000-8000-000000000001",
         message: " ",
         context: [],
-        mode: "explore",
       }),
     ).toThrow();
     expect(
@@ -436,13 +427,11 @@ describe("desktop IPC contracts", () => {
         instanceId: "00000000-0000-4000-8000-000000000001",
         message: "Inspect it",
         context: [{ id: "track:1", kind: "track", label: "Bass" }],
-        mode: "sound",
       }),
     ).toEqual({
       instanceId: "00000000-0000-4000-8000-000000000001",
       message: "Inspect it",
       context: [{ id: "track:1", kind: "track", label: "Bass" }],
-      mode: "sound",
     });
     expect(() =>
       ipcSchemas["agents:invoke-skill"].request.parse({
@@ -454,7 +443,6 @@ describe("desktop IPC contracts", () => {
           kind: "track",
           label: `Track ${index}`,
         })),
-        mode: "mix",
       }),
     ).toThrow();
     expect(() =>
@@ -462,7 +450,6 @@ describe("desktop IPC contracts", () => {
         instanceId: "00000000-0000-4000-8000-000000000001",
         message: "Inspect it",
         context: [{ id: "x".repeat(513), kind: "track", label: "Bass" }],
-        mode: "sound",
       }),
     ).toThrow();
     expect(() =>

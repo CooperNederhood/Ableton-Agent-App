@@ -10,6 +10,7 @@ Companion specification: [Custom Agents](custom-agents.md)
 - [~] Implement safe YAML discovery, validation, fingerprints, duplicate
   detection, wildcard expansion, and refresh.
 - [~] Add Default, Compose, Arrange, Sound, and Mix definitions.
+  - [x] Define Default as a general-purpose editing-capable agent.
 
 ## Runtime
 
@@ -39,14 +40,15 @@ Companion specification: [Custom Agents](custom-agents.md)
 - [ ] Persist definition snapshots, overrides, bindings, and selected instance.
 - [x] Persist `autoApprove` per active instance with a migration default of
   `false`.
-- [ ] Migrate legacy mode sessions atomically and idempotently.
+- [x] Remove the obsolete turn-mode field, prompt injection, IPC surface, and
+  session migration path; active agents are the only workflow selector.
 - [ ] Preserve SDK session histories, production plans, and output settings.
 
 ## Desktop
 
 - [ ] Add typed definition and active-agent IPC.
 - [ ] Build the Agents tab and definition diagnostics.
-- [ ] Replace Mode with Agent Mode.
+- [x] Replace the old selector with Active Agent selection.
 - [ ] Partition transcript, activity, approvals, busy state, and cancellation.
 - [ ] Remove mode-specific placeholder panels and prompt prefixes.
 - [x] Add strict local `/yolo` control, unified slash completion, badges,

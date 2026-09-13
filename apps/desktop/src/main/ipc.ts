@@ -37,8 +37,7 @@ export function createIpcHandlers(
     "app:lifecycle": async () => ({
       state: await service.getLifecycleState(),
     }),
-    "agent:send": (request) =>
-      service.send(request.message, request.context, request.mode),
+    "agent:send": (request) => service.send(request.message, request.context),
     "agent:cancel": () => service.cancel(),
     "agent:create-session": async () => ({
       sessionId: await service.createSession(),
@@ -70,22 +69,10 @@ export function createIpcHandlers(
     },
     "agents:history": ({ instanceId }) =>
       service.hydrateActiveAgentHistory(instanceId),
-    "agents:send": ({ instanceId, message, context, mode }) =>
-      service.sendToActiveAgent(instanceId, message, context, mode),
-    "agents:invoke-skill": ({
-      instanceId,
-      skillName,
-      request,
-      context,
-      mode,
-    }) =>
-      service.invokeActiveAgentSkill(
-        instanceId,
-        skillName,
-        request,
-        context,
-        mode,
-      ),
+    "agents:send": ({ instanceId, message, context }) =>
+      service.sendToActiveAgent(instanceId, message, context),
+    "agents:invoke-skill": ({ instanceId, skillName, request, context }) =>
+      service.invokeActiveAgentSkill(instanceId, skillName, request, context),
     "agents:cancel": ({ instanceId }) => service.cancelActiveAgent(instanceId),
     "ableton:connect": () => service.connect(),
     "ableton:status": () => service.getStatus(),

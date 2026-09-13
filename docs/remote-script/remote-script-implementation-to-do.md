@@ -67,6 +67,9 @@ Companion specification: [Remote Script](remote-script.md)
   breadth-first search with node/result/depth/time limits, a 512-entry
   runtime-reference cache, exact path/URI revalidation, and verified built-in
   device loading on selected identity-bound regular tracks.
+  - [x] Normalize equivalent Browser URI encodings during identity
+    revalidation and allow explicitly loadable devices that expose preset
+    children while retaining container and external-content guards.
 - [x] Implement selected low-frequency LOM listeners and cleanup.
 
 ## Tests

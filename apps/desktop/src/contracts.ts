@@ -297,8 +297,6 @@ const journalHealthSchema = z
   })
   .strict();
 
-export const modes = ["explore", "compose", "arrange", "sound", "mix"] as const;
-export type ProductMode = (typeof modes)[number];
 export type ApprovalDecision = "approve" | "deny";
 export const lifecycleStates = [
   "stopped",
@@ -723,8 +721,6 @@ export const sessionSchema = z
     projectId: z.string().optional(),
     activeAgents: z.array(desktopActiveAgentSchema).default([]),
     selectedAgentInstanceId: z.string().uuid().optional(),
-    // Retained while older renderer workflows move to per-agent state.
-    mode: z.enum(modes).default("explore"),
     productionPlan: z.array(planSectionSchema).default([]),
     outputAssignments: z.array(desktopOutputAssignmentSchema).default([]),
     liveEvents: z
@@ -814,7 +810,6 @@ export const versionTwoSessionSchema = z.object({
   projectId: z.string().optional(),
   activeAgents: z.array(desktopActiveAgentSchema).default([]),
   selectedAgentInstanceId: z.string().uuid().optional(),
-  mode: z.enum(modes).default("explore"),
   productionPlan: z.array(planSectionSchema).default([]),
   outputAssignments: z.array(desktopOutputAssignmentSchema).default([]),
 });
@@ -826,17 +821,6 @@ export const desktopAutoApprovalUpdateSchema = z.object({
 export type DesktopAutoApprovalUpdate = z.infer<
   typeof desktopAutoApprovalUpdateSchema
 >;
-
-export const legacySessionSchema = z.object({
-  id: z.string().min(1),
-  title: z.string().min(1),
-  updatedAt: z.string().min(1),
-  projectName: z.string().min(1),
-  projectId: z.string().optional(),
-  mode: z.enum(modes).default("explore"),
-  productionPlan: z.array(planSectionSchema).default([]),
-  outputAssignments: z.array(desktopOutputAssignmentSchema).default([]),
-});
 
 export const preferencesSchema = z.object({
   version: z.literal(1).default(1),
@@ -1045,7 +1029,6 @@ export const ipcSchemas = {
     request: z.object({
       message: z.string().trim().min(1).max(20_000),
       context: z.array(contextChipSchema).max(20),
-      mode: z.enum(modes),
     }),
     response: z.object({ accepted: z.literal(true), messageId: z.string() }),
   },
@@ -1143,7 +1126,6 @@ export const ipcSchemas = {
         instanceId: z.string().uuid(),
         message: z.string().trim().min(1).max(20_000),
         context: z.array(contextChipSchema).max(20),
-        mode: z.enum(modes),
       })
       .strict(),
     response: z.object({ accepted: z.literal(true), messageId: z.string() }),
@@ -1155,7 +1137,6 @@ export const ipcSchemas = {
         skillName: z.string().min(1),
         request: z.string().max(20_000).default(""),
         context: z.array(contextChipSchema).max(20),
-        mode: z.enum(modes),
       })
       .strict(),
     response: z.object({ accepted: z.literal(true), messageId: z.string() }),
@@ -1436,7 +1417,6 @@ export interface DesktopApi {
     send(
       message: string,
       context: ContextChip[],
-      mode: ProductMode,
     ): Promise<{ accepted: true; messageId: string }>;
     cancel(): Promise<{ cancelled: boolean }>;
     createSession(): Promise<string>;
@@ -1470,14 +1450,12 @@ export interface DesktopApi {
       instanceId: string,
       message: string,
       context: ContextChip[],
-      mode: ProductMode,
     ): Promise<{ accepted: true; messageId: string }>;
     invokeSkill(
       instanceId: string,
       skillName: string,
       request: string,
       context: ContextChip[],
-      mode: ProductMode,
     ): Promise<{ accepted: true; messageId: string }>;
     cancel(instanceId: string): Promise<{ cancelled: boolean }>;
   };

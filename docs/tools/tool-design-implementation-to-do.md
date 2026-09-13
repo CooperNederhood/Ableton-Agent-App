@@ -7,6 +7,9 @@ Companion specification: [Tool Design](tool-design.md)
 - [x] Define typed tool metadata, risk, capability, and duration fields.
 - [x] Build a tool factory around Copilot SDK custom tools.
 - [x] Standardize runtime validation and structured failure results.
+  - [x] Preserve bounded code, message, retryability, and sanitized details
+    across the Copilot SDK custom-tool boundary without throwing away the
+    model/UI-visible failure.
 - [x] Standardize model-facing summaries and UI metadata.
 - [x] Add deferred/loading policy for large tool catalogs.
   - The initial bounded catalog remains eagerly registered; expansion beyond
@@ -77,6 +80,8 @@ Companion specification: [Tool Design](tool-design.md)
 - [x] Unit-test workflow ordering, partial failure, and compensation.
 - [x] Integration-test tools against fake and simulated bridges.
 - [~] Add Copilot SDK invocation tests for representative tools.
+  - [x] Cover structured Ableton failure results and application event
+    recovery when the SDK reports the generic `failure` event code.
 - [ ] Test journal lifecycle completeness, redaction, trace continuity, timing,
   cancellation/failure, and Desktop History visibility for every tool family.
 - [ ] Validate every mutation against real Live before marking supported.

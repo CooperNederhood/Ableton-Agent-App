@@ -107,6 +107,7 @@ import {
   createAbletonMutationLockManager,
   createAbletonPermissionHandler,
   createAbletonTools,
+  parseAbletonToolFailure,
   runAuthorizedAbletonMutation,
   type AbletonMutationAuthorizationContext,
   type ToolApprovalRequester,
@@ -507,7 +508,7 @@ const DEFAULT_AGENT_LABEL = "Ableton Agent";
 const DEFAULT_AGENT_DESCRIPTION =
   "Primary Ableton Live production assistant for the current session.";
 const DEFAULT_AGENT_PROMPT =
-  "Follow the session system message exactly and use the available Ableton tools to help the user.";
+  "Act as the general-purpose Ableton production agent for the current Live Set. Inspect when needed, then directly perform the user's requested supported edits with the available tools. Mutations are restricted by tool approval, edit scope, connection, and automatic-analysis policies. Follow the session system message and clearly report observed state, applied changes, and real limitations.";
 
 type CopilotTurnKind = "user" | "automatic-analysis" | "automatic-action";
 
@@ -1588,8 +1589,15 @@ export class CopilotAgentService implements AgentService {
     state.unsubscribe?.();
     state.unsubscribe = session.on((event) => {
       if (this.#states.get(state.key) !== state) return;
+      const structuredToolFailure =
+        event.type === "tool.execution_complete" && !event.data.success
+          ? parseAbletonToolFailure(event.data.error?.message)
+          : undefined;
       const sdkData = {
         ...event.data,
+        ...(structuredToolFailure === undefined
+          ? {}
+          : { structuredFailure: structuredToolFailure }),
         sdkEventId: event.id,
         parentSdkEventId: event.parentId,
       };
@@ -1735,13 +1743,23 @@ export class CopilotAgentService implements AgentService {
               : {}),
             operationId: event.data.toolCallId,
             toolName: operation?.toolName,
-            error: event.data.error,
+            error: structuredToolFailure ?? event.data.error,
           });
           this.options.events.publish({
             type: "operation.failed",
             operationId: event.data.toolCallId,
-            code: event.data.error?.code ?? "tool_failed",
-            message: event.data.error?.message ?? `${label} failed`,
+            code:
+              structuredToolFailure?.code ??
+              event.data.error?.code ??
+              "tool_failed",
+            message:
+              structuredToolFailure?.message ??
+              event.data.error?.message ??
+              `${label} failed`,
+            retryable: structuredToolFailure?.retryable ?? false,
+            ...(structuredToolFailure === undefined
+              ? {}
+              : { details: structuredToolFailure.details }),
             ...(operation === undefined
               ? {}
               : { toolName: operation.toolName }),

@@ -114,6 +114,8 @@ Maintain a small manually triggered suite for supported Live versions:
 - Load a built-in device and set a parameter.
 - Exercise Browser lookup through Live virtual roots and load a device preset
   discovered under Drums, Packs, or User Library.
+- Load Auto Filter onto a generated audio track to cover loadable devices that
+  Live also reports as navigable because they expose preset children.
 - Confirm unsupported Browser item categories fail before mutation and a
   failed post-create load leaves exactly one clearly reported empty track.
 - Verify listeners and disconnect cleanup.
@@ -125,7 +127,7 @@ These tests are not expected to run on ordinary hosted CI.
 Critical workflows:
 
 - Definition refresh and active-agent creation.
-- Switching independent Agent Mode conversations.
+- Switching independent active-agent conversations.
 - Duplicate instances of one definition.
 - Output subscription fan-out across active agents.
 - Live Event creation, per-agent response modes, message prefixes, and hidden

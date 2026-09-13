@@ -74,6 +74,7 @@ import {
   defineTool,
   type PermissionHandler,
   type Tool,
+  type ToolResultObject,
 } from "@github/copilot-sdk";
 import { z } from "zod";
 import type { MutationTarget } from "./mutation-policy.js";
@@ -607,13 +608,212 @@ export class AbletonToolPreconditionError extends Error {
   }
 }
 
+export interface AbletonToolFailurePayload {
+  readonly version: 1;
+  readonly code: string;
+  readonly message: string;
+  readonly retryable: boolean;
+  readonly details: Readonly<Record<string, unknown>>;
+}
+
+const abletonToolFailurePrefix = "ABLETON_TOOL_FAILURE:";
+const failureSanitizerOptions = {
+  maxDepth: 6,
+  maxStringCharacters: 2_048,
+  maxArrayItems: 32,
+  maxObjectFields: 32,
+  maxBytes: 16_384,
+} as const;
+const maximumFailureStringLength = failureSanitizerOptions.maxStringCharacters;
+const maximumFailureArrayLength = failureSanitizerOptions.maxArrayItems;
+const maximumFailureObjectEntries = failureSanitizerOptions.maxObjectFields;
+const maximumFailureDepth = failureSanitizerOptions.maxDepth;
+const bearerToken = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/giu;
+const credentialAssignment =
+  /\b(token|secret|password|api[_ -]?key|authorization)\s*[:=]\s*[^\s,;]+/giu;
+const truncatedFailureValue = "[TRUNCATED]";
+
+function isCredentialKey(key: string): boolean {
+  const normalized = key.replaceAll(/[^a-z0-9]/giu, "").toLowerCase();
+  return [
+    "token",
+    "secret",
+    "credential",
+    "authorization",
+    "password",
+    "passphrase",
+    "apikey",
+    "privatekey",
+  ].some((suffix) => normalized.endsWith(suffix));
+}
+
+function sanitizeFailureValue(
+  value: unknown,
+  key: string,
+  depth: number,
+  ancestors: WeakSet<object>,
+): unknown {
+  if (isCredentialKey(key)) return "[REDACTED]";
+  if (typeof value === "string") {
+    const redacted = value.replace(bearerToken, "Bearer [REDACTED]");
+    const scrubbed = redacted.replace(credentialAssignment, "$1=[REDACTED]");
+    return scrubbed.length <= maximumFailureStringLength
+      ? scrubbed
+      : `${scrubbed.slice(0, maximumFailureStringLength)}${truncatedFailureValue}`;
+  }
+  if (
+    Buffer.isBuffer(value) ||
+    value instanceof ArrayBuffer ||
+    ArrayBuffer.isView(value)
+  ) {
+    return "[OMITTED BINARY DATA]";
+  }
+  if (
+    depth >= maximumFailureDepth &&
+    value !== null &&
+    typeof value === "object"
+  ) {
+    return truncatedFailureValue;
+  }
+  if (Array.isArray(value)) {
+    const items = value
+      .slice(0, maximumFailureArrayLength)
+      .map((item) => sanitizeFailureValue(item, "", depth + 1, ancestors));
+    if (value.length > maximumFailureArrayLength)
+      items.push(truncatedFailureValue);
+    return items;
+  }
+  if (value !== null && typeof value === "object") {
+    if (ancestors.has(value)) return "[CIRCULAR]";
+    ancestors.add(value);
+    const entries = Object.entries(value);
+    const sanitized = Object.fromEntries(
+      entries
+        .slice(0, maximumFailureObjectEntries)
+        .map(([childKey, child]) => [
+          childKey,
+          sanitizeFailureValue(child, childKey, depth + 1, ancestors),
+        ]),
+    );
+    if (entries.length > maximumFailureObjectEntries) {
+      sanitized.__truncated__ = `${entries.length - maximumFailureObjectEntries} entries`;
+    }
+    ancestors.delete(value);
+    return sanitized;
+  }
+  return value;
+}
+
+function errorProperty(error: unknown, key: string): unknown {
+  return error !== null && typeof error === "object"
+    ? Reflect.get(error, key)
+    : undefined;
+}
+
+export function abletonToolFailurePayload(
+  error: unknown,
+): AbletonToolFailurePayload {
+  const rawCode = errorProperty(error, "code");
+  const rawRetryable = errorProperty(error, "retryable");
+  const rawDetails = errorProperty(error, "details");
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "Ableton tool execution failed";
+  const details = sanitizeFailureValue(rawDetails, "details", 0, new WeakSet());
+  const payload: AbletonToolFailurePayload = {
+    version: 1,
+    code:
+      typeof rawCode === "string" && rawCode.length > 0
+        ? rawCode.slice(0, 128)
+        : "tool_execution_failed",
+    message: String(sanitizeFailureValue(message, "message", 0, new WeakSet())),
+    retryable: typeof rawRetryable === "boolean" ? rawRetryable : false,
+    details:
+      details !== null && typeof details === "object" && !Array.isArray(details)
+        ? (details as Readonly<Record<string, unknown>>)
+        : {},
+  };
+  if (JSON.stringify(payload).length <= failureSanitizerOptions.maxBytes) {
+    return payload;
+  }
+  return {
+    ...payload,
+    details: { truncated: "Failure details exceeded the bounded payload size" },
+  };
+}
+
+export function serializeAbletonToolFailure(error: unknown): string {
+  return `${abletonToolFailurePrefix}${JSON.stringify(
+    abletonToolFailurePayload(error),
+  )}`;
+}
+
+export function parseAbletonToolFailure(
+  value: string | undefined,
+): AbletonToolFailurePayload | undefined {
+  if (value === undefined || !value.startsWith(abletonToolFailurePrefix)) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(
+      value.slice(abletonToolFailurePrefix.length),
+    ) as Partial<AbletonToolFailurePayload>;
+    if (
+      parsed.version !== 1 ||
+      typeof parsed.code !== "string" ||
+      typeof parsed.message !== "string" ||
+      typeof parsed.retryable !== "boolean" ||
+      parsed.details === null ||
+      typeof parsed.details !== "object" ||
+      Array.isArray(parsed.details)
+    ) {
+      return undefined;
+    }
+    return parsed as AbletonToolFailurePayload;
+  } catch {
+    return undefined;
+  }
+}
+
+function failureToolResult(error: unknown): ToolResultObject {
+  const payload = abletonToolFailurePayload(error);
+  const serialized = `${abletonToolFailurePrefix}${JSON.stringify(payload)}`;
+  const details = Object.keys(payload.details).length
+    ? ` Details: ${JSON.stringify(payload.details)}`
+    : "";
+  return {
+    resultType: "failure",
+    textResultForLlm: `Ableton tool failed (${payload.code}): ${payload.message}.${details}`,
+    error: serialized,
+    sessionLog: serialized,
+  };
+}
+
+function withStructuredFailures<T>(tool: Tool<T>): Tool<T> {
+  const handler = tool.handler;
+  if (handler === undefined) return tool;
+  return {
+    ...tool,
+    handler: async (params, invocation) => {
+      try {
+        return await handler(params, invocation);
+      } catch (error) {
+        return failureToolResult(error);
+      }
+    },
+  };
+}
+
 function requireConnectedTool<T extends Record<string, unknown>>(
   tool: Tool<T>,
   services: AbletonToolServices,
 ): Tool<T> {
   const handler = tool.handler;
   if (handler === undefined) return tool;
-  return {
+  return withStructuredFailures({
     ...tool,
     handler: async (params, invocation) => {
       return withCorrelation(invocation.toolCallId, async () => {
@@ -629,7 +829,7 @@ function requireConnectedTool<T extends Record<string, unknown>>(
         return handler(params, invocation);
       });
     },
-  };
+  });
 }
 
 export function createAbletonTools(
@@ -1343,7 +1543,7 @@ export function createAbletonTools(
 
   return {
     tools: [
-      connectionStatusTool,
+      withStructuredFailures(connectionStatusTool),
       requireConnectedTool(inspectSessionTool, services),
       requireConnectedTool(setTempoTool, services),
       requireConnectedTool(setPlayingTool, services),

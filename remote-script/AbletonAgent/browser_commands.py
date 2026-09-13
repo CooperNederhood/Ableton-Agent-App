@@ -7,6 +7,11 @@ import uuid
 from collections import deque
 import re
 
+try:
+    from urllib.parse import unquote
+except ImportError:  # pragma: no cover - Python 2 compatibility
+    from urllib import unquote
+
 from .device_commands import _device_summary
 from .errors import ProtocolFailure
 from .system_commands import (
@@ -76,6 +81,10 @@ def _item_name(item):
 
 def _item_uri(item):
     return str(getattr(item, "uri", "") or "")
+
+
+def _normalized_item_uri(uri):
+    return unquote(uri)
 
 
 def _item_source(item):
@@ -165,10 +174,11 @@ def _item_is_loadable_device(root, item):
     is_device_or_preset = bool(
         getattr(item, "is_device", False)
     ) or name.endswith(_DEVICE_PRESET_SUFFIXES)
+    is_device = bool(getattr(item, "is_device", False))
     return (
         is_device_or_preset
         and bool(getattr(item, "is_loadable", False))
-        and not _item_is_navigable(item)
+        and (is_device or not _item_is_navigable(item))
         and _item_is_trusted_internal_content(root, item)
     )
 
@@ -268,7 +278,12 @@ def _resolve_expected_item(context, params):
         "name": params["expectedItemName"],
         "uri": params["expectedItemUri"],
     }
-    if any(actual[key] != value for key, value in expected.items()):
+    identity_changed = any(
+        actual[key] != value for key, value in expected.items() if key != "uri"
+    ) or _normalized_item_uri(actual["uri"]) != _normalized_item_uri(
+        expected["uri"]
+    )
+    if identity_changed:
         raise ProtocolFailure(
             "stale_reference",
             "Browser item identity changed",

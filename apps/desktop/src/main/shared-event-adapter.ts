@@ -92,7 +92,7 @@ export function normalizeSharedEvent(
                           warnings: [event.message],
                           changed: [],
                           unchanged: [],
-                          retryable: true,
+                          retryable: event.retryable ?? false,
                           undoable: false,
                           timestamp: Date.now(),
                         },

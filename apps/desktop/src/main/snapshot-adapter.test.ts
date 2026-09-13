@@ -86,16 +86,11 @@ describe("project snapshot adapter", () => {
 
 describe("agent prompt composition", () => {
   it("states the mode and passes selections as verifiable references", () => {
-    const prompt = composeAgentPrompt(
-      "Add a riser",
-      [
-        { id: "track:1", kind: "track", label: "Bass" },
-        { id: "clip:2", kind: "clip", label: "Sub Motif" },
-      ],
-      "arrange",
-    );
+    const prompt = composeAgentPrompt("Add a riser", [
+      { id: "track:1", kind: "track", label: "Bass" },
+      { id: "clip:2", kind: "clip", label: "Sub Motif" },
+    ]);
 
-    expect(prompt).toContain("Mode: arrange.");
     expect(prompt).toContain(
       "Selected context (verify with Ableton tools before acting):",
     );
@@ -105,8 +100,6 @@ describe("agent prompt composition", () => {
   });
 
   it("omits the context section when nothing is selected", () => {
-    expect(composeAgentPrompt("Hello", [], "explore")).toBe(
-      "Mode: explore. Explore the Live set and explain what is actually there.\n\nHello",
-    );
+    expect(composeAgentPrompt("Hello", [])).toBe("Hello");
   });
 });

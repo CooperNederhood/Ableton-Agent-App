@@ -160,6 +160,37 @@ describe("integration scenarios", () => {
     ).toBe(true);
   });
 
+  it("binds the Auto Filter fixture to the generated audio track", async () => {
+    const manifest = await loadScenarioManifest("auto-filter-audio");
+    const context = createScenarioRunContext(manifest);
+    const prompt = scenarioPrompt(manifest.prompt, context);
+
+    expect(prompt).toContain('Browser item "Auto Filter"');
+    expect(
+      await context.approvals.request(
+        request("ableton_browser_search", "read", {
+          query: "Auto Filter",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      await context.approvals.request(
+        request("ableton_tracks_create", "reversible", {
+          kind: "audio",
+          name: context.trackNames[0],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      await context.approvals.request(
+        request("ableton_browser_load_item", "reversible", {
+          expectedName: context.trackNames[0],
+          expectedItemName: "Auto Filter",
+        }),
+      ),
+    ).toBe(true);
+  });
+
   it("guards and verifies exact Arrangement MIDI patterns", async () => {
     const manifest = scenarioManifestSchema.parse({
       formatVersion: 1,

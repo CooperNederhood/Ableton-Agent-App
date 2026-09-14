@@ -212,8 +212,15 @@ the exact runtime identities required by the selected action. Routing
 assignment additionally carries a recent snapshot ID and opaque option token;
 the Remote Script rejects stale snapshots, mismatched display names, and
 changed target/direction state. Modern MIDI mutation identifies notes by Live
-11 note IDs and intentionally excludes per-note expression fields. Warp-marker
-access is read-only.
+11 note IDs and intentionally excludes per-note expression fields. Note removal
+is destructive and cannot be assumed rollback- or retry-safe after an
+indeterminate failure. Audio inspection returns the currently available warp
+modes; assignment repeats that exact availability snapshot and selects one of
+its modes. Warp-marker access is read-only.
+
+Protocol 3 uses the documented Live 11 integer domains for launch
+quantization (`0..13`), record quantization (`0..8`), audio pitch fine
+(`-50..49`), and warp mode (`0..6`).
 
 ## Compatibility rules
 

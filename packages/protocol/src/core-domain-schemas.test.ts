@@ -94,6 +94,49 @@ describe("Live 11 core domain schemas", () => {
     ).toBe("set-time-signature");
   });
 
+  it("enforces Live 11 quantization and pitch domains", () => {
+    expect(
+      transportOperationParamsSchema.safeParse({
+        action: "set-launch-quantization",
+        quantization: 13,
+      }).success,
+    ).toBe(true);
+    expect(
+      transportOperationParamsSchema.safeParse({
+        action: "set-launch-quantization",
+        quantization: 14,
+      }).success,
+    ).toBe(false);
+    expect(
+      transportOperationParamsSchema.safeParse({
+        action: "set-record-quantization",
+        quantization: 8,
+      }).success,
+    ).toBe(true);
+    expect(
+      transportOperationParamsSchema.safeParse({
+        action: "set-record-quantization",
+        quantization: 9,
+      }).success,
+    ).toBe(false);
+    expect(
+      audioClipsOperationParamsSchema.safeParse({
+        action: "set-pitch",
+        target: clip,
+        coarse: 0,
+        fine: 49,
+      }).success,
+    ).toBe(true);
+    expect(
+      audioClipsOperationParamsSchema.safeParse({
+        action: "set-pitch",
+        target: clip,
+        coarse: 0,
+        fine: 50,
+      }).success,
+    ).toBe(false);
+  });
+
   it("models modern note properties without per-note expression", () => {
     const parsed = midiNotesOperationParamsSchema.parse({
       action: "add",
@@ -160,6 +203,33 @@ describe("Live 11 core domain schemas", () => {
         target: clip,
         beatTime: 1,
         sampleTime: 44100,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires an inspected available warp-mode selection", () => {
+    expect(
+      audioClipsOperationParamsSchema.safeParse({
+        action: "set-warp-mode",
+        target: clip,
+        warpMode: 4,
+        expectedAvailableWarpModes: [0, 1, 2, 3, 4, 6],
+      }).success,
+    ).toBe(true);
+    expect(
+      audioClipsOperationParamsSchema.safeParse({
+        action: "set-warp-mode",
+        target: clip,
+        warpMode: 5,
+        expectedAvailableWarpModes: [0, 1, 2, 3, 4, 6],
+      }).success,
+    ).toBe(false);
+    expect(
+      audioClipsOperationParamsSchema.safeParse({
+        action: "set-warp-mode",
+        target: clip,
+        warpMode: 7,
+        expectedAvailableWarpModes: [0, 1, 2, 3, 4, 6],
       }).success,
     ).toBe(false);
   });

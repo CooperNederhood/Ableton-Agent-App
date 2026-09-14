@@ -18,6 +18,7 @@ from .system_commands import _safe_lom_getattr, _same_lom_object
 
 MAX_BEATS = 1576800
 MAX_COLOR_INDEX = 69
+MAX_WARP_MODE = 6
 ROUTING_SNAPSHOT_SECONDS = 30.0
 ROUTING_SNAPSHOT_LIMIT = 64
 
@@ -460,9 +461,10 @@ def validate_transport(params):
         "set-launch-quantization",
         "set-record-quantization",
     ):
+        maximum = 13 if action == "set-launch-quantization" else 8
         valid = (
             _strict(params, ("action", "quantization"))
-            and _integer(params.get("quantization"), 0)
+            and _integer(params.get("quantization"), 0, maximum)
         )
     elif action == "rename-cue":
         valid = (
@@ -576,7 +578,7 @@ def validate_audio(params):
             _strict(params, ("action", "target", "coarse", "fine"))
             and target_ok
             and _integer(params.get("coarse"), -48, 48)
-            and _integer(params.get("fine"), -50, 50)
+            and _integer(params.get("fine"), -50, 49)
         )
     elif action == "set-warp":
         valid = (
@@ -586,9 +588,26 @@ def validate_audio(params):
         )
     elif action == "set-warp-mode":
         valid = (
-            _strict(params, ("action", "target", "warpMode"))
+            _strict(
+                params,
+                (
+                    "action",
+                    "target",
+                    "warpMode",
+                    "expectedAvailableWarpModes",
+                ),
+            )
             and target_ok
-            and _integer(params.get("warpMode"), 0)
+            and _integer(params.get("warpMode"), 0, MAX_WARP_MODE)
+            and isinstance(params.get("expectedAvailableWarpModes"), list)
+            and 1 <= len(params["expectedAvailableWarpModes"]) <= 7
+            and all(
+                _integer(mode, 0, MAX_WARP_MODE)
+                for mode in params["expectedAvailableWarpModes"]
+            )
+            and len(set(params["expectedAvailableWarpModes"]))
+            == len(params["expectedAvailableWarpModes"])
+            and params["warpMode"] in params["expectedAvailableWarpModes"]
         )
     elif action == "set-markers":
         markers = params.get("markers")
@@ -1021,6 +1040,103 @@ def _verified_property_mutation(
         )
 
 
+def _range_assignment_order(
+    current_lower,
+    current_upper,
+    target_lower,
+    target_upper,
+    lower_attribute,
+    upper_attribute,
+):
+    if target_lower >= current_upper:
+        return (
+            (upper_attribute, target_upper),
+            (lower_attribute, target_lower),
+        )
+    return (
+        (lower_attribute, target_lower),
+        (upper_attribute, target_upper),
+    )
+
+
+def _verified_audio_range_mutation(
+    clip,
+    lower_attribute,
+    upper_attribute,
+    lower_key,
+    upper_key,
+    target_lower,
+    target_upper,
+    summarize,
+    looping=None,
+):
+    before = summarize()
+
+    def assign_range(target_state):
+        current = summarize()
+        for attribute, requested in _range_assignment_order(
+            current[lower_key],
+            current[upper_key],
+            target_state[lower_key],
+            target_state[upper_key],
+            lower_attribute,
+            upper_attribute,
+        ):
+            setattr(clip, attribute, requested)
+
+    try:
+        assign_range({lower_key: target_lower, upper_key: target_upper})
+        if looping is not None:
+            clip.looping = looping
+        after = summarize()
+        verified = (
+            abs(after[lower_key] - target_lower) < 0.000001
+            and abs(after[upper_key] - target_upper) < 0.000001
+            and (looping is None or after["looping"] == looping)
+        )
+        if not verified:
+            raise ProtocolFailure(
+                "conflict", "Audio clip mutation could not be verified"
+            )
+        return before, after
+    except Exception as exc:
+        try:
+            assign_range(before)
+            if looping is not None:
+                clip.looping = before["looping"]
+            restored = summarize()
+            if (
+                abs(restored[lower_key] - before[lower_key]) >= 0.000001
+                or abs(restored[upper_key] - before[upper_key]) >= 0.000001
+                or (
+                    looping is not None
+                    and restored["looping"] != before["looping"]
+                )
+            ):
+                raise ProtocolFailure(
+                    "conflict", "Audio clip prior range was not restored"
+                )
+        except Exception as recovery_exc:
+            raise ProtocolFailure(
+                "lom_error",
+                "Audio clip mutation failed; recovery was indeterminate",
+                retryable=False,
+                details={
+                    "outcome": "applied_indeterminate",
+                    "operationError": str(exc),
+                    "recoveryError": str(recovery_exc),
+                },
+            )
+        if isinstance(exc, ProtocolFailure):
+            raise exc
+        raise ProtocolFailure(
+            "lom_error",
+            "Audio clip mutation failed; prior state was restored",
+            retryable=False,
+            details={"outcome": "not_applied", "operationError": str(exc)},
+        )
+
+
 def execute_scenes(context, params):
     song = context.song
     action = params["action"]
@@ -1398,7 +1514,7 @@ def execute_tracks(context, params):
         before = summarize()
         track.stop_all_clips(params.get("quantized", True))
         after = summarize()
-        if _safe_lom_getattr(track, "playing_slot_index") not in (-1, None):
+        if _safe_lom_getattr(track, "playing_slot_index") not in (-2, -1, None):
             raise ProtocolFailure(
                 "conflict", "Track clips did not stop as requested"
             )
@@ -2329,8 +2445,12 @@ def execute_midi(context, params):
             clip, (), "Modern MIDI note removal is unavailable", ("remove_notes_by_id",)
         )
         _selected_notes(before, params["noteIds"])
-        clip.remove_notes_by_id(tuple(params["noteIds"]))
         affected = list(params["noteIds"])
+        removal_error = None
+        try:
+            clip.remove_notes_by_id(tuple(affected))
+        except Exception as exc:
+            removal_error = exc
     elif action == "duplicate":
         factory = _note_factory(context)
         _require_attrs(
@@ -2419,7 +2539,21 @@ def execute_midi(context, params):
             )
             for note_id in affected
         ]
-    after = _modern_notes(clip)
+    try:
+        after = _modern_notes(clip)
+    except Exception as exc:
+        if action == "remove":
+            raise ProtocolFailure(
+                "lom_error",
+                "MIDI note removal may have applied but could not be verified",
+                retryable=False,
+                details={
+                    "outcome": "applied_indeterminate",
+                    "operationError": str(removal_error or exc),
+                    "verificationError": str(exc),
+                },
+            )
+        raise
     after_by_id = dict((note["noteId"], note) for note in after)
     if action == "remove":
         verified = all(note_id not in after_by_id for note_id in affected)
@@ -2442,6 +2576,27 @@ def execute_midi(context, params):
         "quantize": before_count,
     }[action]
     if not verified or len(after) != expected_count:
+        if action == "remove":
+            outcome = "not_applied" if after == before else "applied_indeterminate"
+            raise ProtocolFailure(
+                "conflict",
+                (
+                    "MIDI note removal was not observed"
+                    if outcome == "not_applied"
+                    else "MIDI note removal may have applied but could not be fully verified"
+                ),
+                retryable=False,
+                details={
+                    "outcome": outcome,
+                    "beforeNoteCount": before_count,
+                    "afterNoteCount": len(after),
+                    **(
+                        {"operationError": str(removal_error)}
+                        if removal_error is not None
+                        else {}
+                    ),
+                },
+            )
         if action in ("add", "duplicate") and affected and callable(
             _safe_lom_getattr(clip, "remove_notes_by_id")
         ):
@@ -2498,6 +2653,10 @@ def _audio_summary(context, clip):
         value = _safe_lom_getattr(clip, name)
         return bool(value) if value is not None else None
     file_path = _safe_lom_getattr(clip, "file_path")
+    available_warp_modes = []
+    for mode in _safe_lom_getattr(clip, "available_warp_modes", ()) or ():
+        if _finite(mode) and int(mode) == mode and 0 <= int(mode) <= MAX_WARP_MODE:
+            available_warp_modes.append(int(mode))
     return {
         "reference": _clip_reference(context, clip),
         "name": _safe_lom_getattr(clip, "name", "") or "",
@@ -2507,6 +2666,7 @@ def _audio_summary(context, clip):
         "pitchFine": optional_int("pitch_fine"),
         "warping": optional_bool("warping"),
         "warpMode": optional_int("warp_mode"),
+        "availableWarpModes": sorted(set(available_warp_modes)),
         "startMarker": optional_number("start_marker"),
         "endMarker": optional_number("end_marker"),
         "loopStart": optional_number("loop_start"),
@@ -2565,32 +2725,32 @@ def execute_audio(context, params):
         changes = (("warping", params["enabled"]),)
         expected = lambda state: state["warping"] == params["enabled"]
     elif action == "set-warp-mode":
+        before = _audio_summary(context, clip)
+        expected_modes = sorted(params["expectedAvailableWarpModes"])
+        if before["availableWarpModes"] != expected_modes:
+            raise ProtocolFailure(
+                "stale_reference",
+                "Available warp modes changed since inspection",
+            )
+        if params["warpMode"] not in before["availableWarpModes"]:
+            raise ProtocolFailure(
+                "invalid_params",
+                "Selected warp mode is not currently available",
+            )
         changes = (("warp_mode", params["warpMode"]),)
         expected = lambda state: state["warpMode"] == params["warpMode"]
     elif action == "set-ram-mode":
         changes = (("ram_mode", params["enabled"]),)
         expected = lambda state: state["ramMode"] == params["enabled"]
-    else:
+    elif action == "set-markers":
         markers = params["markers"]
         if markers["kind"] == "start-end":
-            changes = (
-                ("start_marker", markers["startMarker"]),
-                ("end_marker", markers["endMarker"]),
-            )
-            expected = lambda state: (
-                abs(state["startMarker"] - markers["startMarker"]) < 0.000001
-                and abs(state["endMarker"] - markers["endMarker"]) < 0.000001
-            )
+            changes = (("start_marker", None), ("end_marker", None))
         else:
             changes = (
-                ("loop_start", markers["loopStart"]),
-                ("loop_end", markers["loopEnd"]),
-                ("looping", markers["looping"]),
-            )
-            expected = lambda state: (
-                abs(state["loopStart"] - markers["loopStart"]) < 0.000001
-                and abs(state["loopEnd"] - markers["loopEnd"]) < 0.000001
-                and state["looping"] == markers["looping"]
+                ("loop_start", None),
+                ("loop_end", None),
+                ("looping", None),
             )
     _require_attrs(
         clip,
@@ -2636,6 +2796,36 @@ def execute_audio(context, params):
             context.schedule_message(1, verify)
 
         return DeferredResult(start_verification)
+    if action == "set-markers":
+        if markers["kind"] == "start-end":
+            before, after = _verified_audio_range_mutation(
+                clip,
+                "start_marker",
+                "end_marker",
+                "startMarker",
+                "endMarker",
+                markers["startMarker"],
+                markers["endMarker"],
+                lambda: _audio_summary(context, clip),
+            )
+        else:
+            before, after = _verified_audio_range_mutation(
+                clip,
+                "loop_start",
+                "loop_end",
+                "loopStart",
+                "loopEnd",
+                markers["loopStart"],
+                markers["loopEnd"],
+                lambda: _audio_summary(context, clip),
+                markers["looping"],
+            )
+        return {
+            "action": action,
+            "before": before,
+            "after": after,
+            "verified": True,
+        }
     before, after = _verified_property_mutation(
         clip,
         changes,

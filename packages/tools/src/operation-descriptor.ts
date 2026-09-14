@@ -544,6 +544,7 @@ export const abletonOperationDescriptors = [
     handlerBinding: "executeMidiNotesOperation",
     actions: ["query", "add", "update", "remove", "duplicate", "quantize"],
     readActions: new Set(["query"]),
+    destructiveActions: new Set(["remove"]),
     trackActions: new Set(["add", "update", "remove", "duplicate", "quantize"]),
   }),
   ...domainOperationDescriptors(audioClipsOperationParamsSchema.options, {

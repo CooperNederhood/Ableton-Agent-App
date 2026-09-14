@@ -27,6 +27,8 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
   - [x] Define strict action-discriminated Live 11 scene, track,
     mixer/routing, transport, modern MIDI-note, and audio-clip schemas with
     bounded pages and exact runtime identities.
+  - [x] Bound Live 11 launch/record quantization and audio pitch-fine domains,
+    and require exact available-warp-mode state for warp-mode assignment.
 - [x] Export JSON Schema and representative fixtures for Python tests.
 
 ## Framing and negotiation

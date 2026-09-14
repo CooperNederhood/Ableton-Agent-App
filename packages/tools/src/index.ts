@@ -1026,7 +1026,7 @@ export function createAbletonTools(
   });
   const midiNotesTool = defineTool("ableton_midi_notes", {
     description:
-      "Queries and edits identity-bound Live 11 MIDI notes through modern note IDs, including probability, velocity deviation, and release velocity. It does not edit per-note expression.",
+      "Queries and edits identity-bound Live 11 MIDI notes through modern note IDs, including destructive removal and probability, velocity deviation, and release velocity. It does not edit per-note expression.",
     parameters: midiNotesOperationParamsSchema,
     handler: async (params) =>
       verifyOperationResultAction(

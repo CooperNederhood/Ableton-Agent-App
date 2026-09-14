@@ -1957,6 +1957,49 @@ describe("Ableton tools", () => {
     });
   });
 
+  it("requests destructive approval metadata for MIDI note removal", async () => {
+    const requestApproval = vi.fn((request: ToolApprovalRequest) => {
+      void request;
+      return Promise.resolve(true);
+    });
+    const handler = createAbletonPermissionHandler(requestApproval);
+    const args = {
+      action: "remove",
+      target: {
+        view: "session",
+        track: {
+          kind: "regular",
+          index: 0,
+          expectedReference: "00000000-0000-4000-8000-000000000001",
+          expectedName: "Drums",
+        },
+        sceneIndex: 0,
+        expectedClipReference: "00000000-0000-4000-8000-000000000002",
+        expectedClipName: "Beat",
+      },
+      noteIds: [1],
+    };
+
+    await expect(
+      handler(
+        {
+          kind: "custom-tool",
+          toolName: "ableton_midi_notes",
+          toolDescription: "Remove MIDI notes",
+          args,
+        },
+        { sessionId: "session" },
+      ),
+    ).resolves.toEqual({ kind: "approve-once" });
+    expect(requestApproval.mock.calls[0]?.[0]).toMatchObject({
+      metadata: {
+        operationId: "midi_notes.remove",
+        risk: "destructive",
+      },
+      arguments: args,
+    });
+  });
+
   it("can require approval for read-only tools", async () => {
     const requests: ToolApprovalRequest[] = [];
     const requestApproval = (

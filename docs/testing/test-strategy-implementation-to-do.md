@@ -44,6 +44,9 @@ Companion specification: [Test Strategy](test-strategy.md)
   resolution, read-versus-mutation protocol separation, Python handler
   identity/rollback paths, simulator parity, and runner-owned scene, track, and
   transport inspection scenarios.
+  - [x] Cover grouped-tool automatic-analysis policy, destructive note removal,
+    scheduled-stop state, valid audio range ordering/rollback, exact warp-mode
+    availability, and documented Live 11 scalar domains.
 - [x] Implement CLI transcript tests.
 - [x] Implement Playwright Electron harness.
 - [ ] Add deterministic local-journal fixtures for clocks, IDs, sensitive

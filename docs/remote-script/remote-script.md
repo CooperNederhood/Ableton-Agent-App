@@ -148,7 +148,11 @@ warnings for feedback-prone or external-MIDI routes.
 
 Modern MIDI edits use Live 11 note IDs and the extended note API, retaining
 probability, velocity deviation, and release velocity. The existing
-full-replacement commands remain destructive compatibility operations.
+full-replacement commands and note-ID removal are destructive operations.
+Removal failures that cannot be verified exactly are reported as
+non-retryable, applied-indeterminate outcomes. Audio clip inspection includes
+the current `available_warp_modes`; warp-mode mutation rejects a selection
+outside that exact inspected list or a list that has since changed.
 
 This layer intentionally omits APIs that are not safely available in Live 11:
 scene-scoped stop, arbitrary track reordering, per-note expression mutation,

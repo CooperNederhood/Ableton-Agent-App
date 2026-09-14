@@ -57,6 +57,8 @@ Companion specification: [Tool Design](tool-design.md)
     separately capability-gated.
   - [x] Add modern Live 11 note-ID query/add/update/remove/duplicate/quantize
     operations with probability, velocity deviation, and release velocity.
+  - [x] Classify note-ID removal as destructive through per-action approval
+    metadata and block grouped mutation actions during automatic analysis.
   - [x] Add audio metadata, gain/pitch, warp state/mode, clip marker, RAM mode,
     and bounded warp-marker inspection operations.
 - [~] Implement arrangement placement and property operations.

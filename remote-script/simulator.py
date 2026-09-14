@@ -1146,6 +1146,7 @@ def _sim_audio_summary(clip):
         "pitchFine": clip.get("pitchFine"),
         "warping": clip.get("warping"),
         "warpMode": clip.get("warpMode"),
+        "availableWarpModes": list(clip.get("availableWarpModes", [])),
         "startMarker": clip.get("startMarker"),
         "endMarker": clip.get("endMarker"),
         "loopStart": clip.get("loopStart"),
@@ -1973,6 +1974,20 @@ def _handle_sim_audio(request, params, state):
     elif action == "set-warp":
         clip["warping"] = params["enabled"]
     elif action == "set-warp-mode":
+        expected_modes = sorted(params["expectedAvailableWarpModes"])
+        current_modes = sorted(clip.get("availableWarpModes", []))
+        if expected_modes != current_modes:
+            return failure(
+                request,
+                "stale_reference",
+                "Available warp modes changed since inspection",
+            )
+        if params["warpMode"] not in current_modes:
+            return failure(
+                request,
+                "invalid_params",
+                "Selected warp mode is not currently available",
+            )
         clip["warpMode"] = params["warpMode"]
     elif action == "set-ram-mode":
         clip["ramMode"] = params["enabled"]

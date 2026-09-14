@@ -629,8 +629,8 @@ export const transportStateSchema = z
       })
       .strict(),
     metronome: z.boolean(),
-    launchQuantization: z.number().int(),
-    recordQuantization: z.number().int(),
+    launchQuantization: z.number().int().min(0).max(13),
+    recordQuantization: z.number().int().min(0).max(8),
     linkEnabled: z.boolean().nullable(),
     backToArrangement: z.boolean().nullable(),
   })
@@ -663,13 +663,13 @@ export const transportOperationParamsSchema = z.discriminatedUnion("action", [
   z
     .object({
       action: z.literal("set-launch-quantization"),
-      quantization: z.number().int().nonnegative(),
+      quantization: z.number().int().min(0).max(13),
     })
     .strict(),
   z
     .object({
       action: z.literal("set-record-quantization"),
-      quantization: z.number().int().nonnegative(),
+      quantization: z.number().int().min(0).max(8),
     })
     .strict(),
   z.object({ action: z.literal("set-link"), enabled: z.boolean() }).strict(),
@@ -911,9 +911,10 @@ export const audioClipSummarySchema = z
     length: z.number().finite().positive(),
     gain: z.number().finite().nullable(),
     pitchCoarse: z.number().int().nullable(),
-    pitchFine: z.number().int().nullable(),
+    pitchFine: z.number().int().min(-50).max(49).nullable(),
     warping: z.boolean().nullable(),
-    warpMode: z.number().int().nullable(),
+    warpMode: z.number().int().min(0).max(6).nullable(),
+    availableWarpModes: z.array(z.number().int().min(0).max(6)).max(7),
     startMarker: z.number().finite().nullable(),
     endMarker: z.number().finite().nullable(),
     loopStart: z.number().finite().nullable(),
@@ -950,7 +951,7 @@ export const audioClipsOperationParamsSchema = z.discriminatedUnion("action", [
       action: z.literal("set-pitch"),
       target: clipLocationSchema,
       coarse: z.number().int().min(-48).max(48),
-      fine: z.number().int().min(-50).max(50),
+      fine: z.number().int().min(-50).max(49),
     })
     .strict(),
   z
@@ -964,9 +965,24 @@ export const audioClipsOperationParamsSchema = z.discriminatedUnion("action", [
     .object({
       action: z.literal("set-warp-mode"),
       target: clipLocationSchema,
-      warpMode: z.number().int().nonnegative(),
+      warpMode: z.number().int().min(0).max(6),
+      expectedAvailableWarpModes: z
+        .array(z.number().int().min(0).max(6))
+        .min(1)
+        .max(7),
     })
-    .strict(),
+    .strict()
+    .refine(
+      (value) =>
+        new Set(value.expectedAvailableWarpModes).size ===
+          value.expectedAvailableWarpModes.length &&
+        value.expectedAvailableWarpModes.includes(value.warpMode),
+      {
+        message:
+          "warpMode must identify one unique expected available warp mode",
+        path: ["warpMode"],
+      },
+    ),
   z
     .object({
       action: z.literal("set-markers"),

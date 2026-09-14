@@ -84,6 +84,7 @@ class CoreClipApi(object):
     pitch_fine = None
     warping = None
     warp_mode = None
+    available_warp_modes = None
     start_marker = None
     end_marker = None
     loop_start = None
@@ -122,6 +123,7 @@ class CoreAudioClip(FakeClip):
         self.pitch_fine = 0
         self.warping = True
         self.warp_mode = 2
+        self.available_warp_modes = (0, 1, 2, 3, 4, 6)
         self.start_marker = 0.0
         self.end_marker = 8.0
         self.loop_start = 0.0
@@ -131,6 +133,77 @@ class CoreAudioClip(FakeClip):
         self.sample_length = 384000
         self.sample_rate = 48000
         self.warp_markers = [WarpMarker(0.0, 0.0), WarpMarker(4.0, 2.0)]
+
+
+class RangeCheckedAudioClip(CoreAudioClip):
+    def __init__(self):
+        self.assignments = []
+        self.fail_after_assignment = None
+        super(RangeCheckedAudioClip, self).__init__()
+        self.assignments = []
+
+    def _set_bound(self, name, value, other_name, lower):
+        other = getattr(self, other_name, None)
+        if other is not None:
+            valid = value < other if lower else value > other
+            if not valid:
+                raise RuntimeError("invalid range assignment")
+        setattr(self, "_" + name, value)
+        self.assignments.append(name)
+        if self.fail_after_assignment == name:
+            self.fail_after_assignment = None
+            raise RuntimeError("setter failed after assignment")
+
+    @property
+    def start_marker(self):
+        return getattr(self, "_start_marker", None)
+
+    @start_marker.setter
+    def start_marker(self, value):
+        self._set_bound("start_marker", value, "_end_marker", True)
+
+    @property
+    def end_marker(self):
+        return getattr(self, "_end_marker", None)
+
+    @end_marker.setter
+    def end_marker(self, value):
+        self._set_bound("end_marker", value, "_start_marker", False)
+
+    @property
+    def loop_start(self):
+        return getattr(self, "_loop_start", None)
+
+    @loop_start.setter
+    def loop_start(self, value):
+        self._set_bound("loop_start", value, "_loop_end", True)
+
+    @property
+    def loop_end(self):
+        return getattr(self, "_loop_end", None)
+
+    @loop_end.setter
+    def loop_end(self, value):
+        self._set_bound("loop_end", value, "_loop_start", False)
+
+
+class IndeterminateRemovalClip(CoreMidiClip):
+    def __init__(self, length):
+        super(IndeterminateRemovalClip, self).__init__(length)
+        self.fail_reads = False
+
+    def get_all_notes_extended(self):
+        if self.fail_reads:
+            raise RuntimeError("note verification unavailable")
+        return super(IndeterminateRemovalClip, self).get_all_notes_extended()
+
+    def remove_notes_by_id(self, note_ids):
+        selected = set(note_ids)
+        self.notes = [
+            note for note in self.notes if note.note_id not in selected
+        ]
+        self.fail_reads = True
+        raise RuntimeError("remove failed after applying")
 
 
 def target(summary):
@@ -606,6 +679,23 @@ class CoreDomainCommandTests(unittest.TestCase):
                 },
             )["result"]["result"]["verified"]
         )
+        self.context.song.tracks[0].playing_slot_index = 0
+        self.context.song.tracks[0].stop_all_clips = types.MethodType(
+            lambda current, _quantized: setattr(
+                current, "playing_slot_index", -2
+            ),
+            self.context.song.tracks[0],
+        )
+        self.assertTrue(
+            self.execute(
+                "tracks.execute",
+                {
+                    "action": "stop-clips",
+                    "target": target(regular),
+                    "quantized": True,
+                },
+            )["result"]["result"]["verified"]
+        )
         self.assertTrue(
             self.execute(
                 "tracks.execute",
@@ -938,10 +1028,21 @@ class CoreDomainCommandTests(unittest.TestCase):
             },
         )["result"]
         self.assertEqual(changed["after"]["pitchCoarse"], 12)
+        inspected = self.execute(
+            "audio_clips.execute",
+            {"action": "inspect", "target": clip_target},
+        )["result"]["clip"]
+        self.assertEqual(inspected["availableWarpModes"], [0, 1, 2, 3, 4, 6])
         for params in (
             {"action": "set-gain", "gain": 0.75},
             {"action": "set-warp", "enabled": False},
-            {"action": "set-warp-mode", "warpMode": 4},
+            {
+                "action": "set-warp-mode",
+                "warpMode": 4,
+                "expectedAvailableWarpModes": inspected[
+                    "availableWarpModes"
+                ],
+            },
             {
                 "action": "set-markers",
                 "markers": {
@@ -964,6 +1065,212 @@ class CoreDomainCommandTests(unittest.TestCase):
         )["result"]
         self.assertEqual(markers["total"], 2)
         self.assertEqual(markers["markers"][1]["beatTime"], 4.0)
+
+    def test_live_11_scalar_domains_are_rejected_by_python_validators(self):
+        for params in (
+            {"action": "set-launch-quantization", "quantization": 14},
+            {"action": "set-record-quantization", "quantization": 9},
+        ):
+            failed = self.execute("transport.execute", params)
+            self.assertEqual(failed["error"]["code"], "invalid_params")
+
+        audio_track = next(
+            item
+            for item in self.tracks()
+            if item["kind"] == "regular" and item["name"] == "Bass"
+        )
+        clip = self.context.song.tracks[1].clip_slots[0].clip
+        failed = self.execute(
+            "audio_clips.execute",
+            {
+                "action": "set-pitch",
+                "target": {
+                    "view": "session",
+                    "track": target(audio_track),
+                    "sceneIndex": 0,
+                    "expectedClipReference": self._clip_reference(clip),
+                    "expectedClipName": clip.name,
+                },
+                "coarse": 0,
+                "fine": 50,
+            },
+        )
+        self.assertEqual(failed["error"]["code"], "invalid_params")
+
+    def test_audio_marker_ranges_choose_valid_orders_and_roll_back(self):
+        audio_track = next(
+            item
+            for item in self.tracks()
+            if item["kind"] == "regular" and item["name"] == "Bass"
+        )
+        clip = RangeCheckedAudioClip()
+        self.context.song.tracks[1].clip_slots[0].clip = clip
+        clip_target = {
+            "view": "session",
+            "track": target(audio_track),
+            "sceneIndex": 0,
+            "expectedClipReference": self._clip_reference(clip),
+            "expectedClipName": clip.name,
+        }
+
+        moved_right = self.execute(
+            "audio_clips.execute",
+            {
+                "action": "set-markers",
+                "target": clip_target,
+                "markers": {
+                    "kind": "start-end",
+                    "startMarker": 10.0,
+                    "endMarker": 18.0,
+                },
+            },
+        )
+        self.assertTrue(moved_right["ok"])
+        self.assertEqual(clip.assignments, ["end_marker", "start_marker"])
+
+        clip.assignments = []
+        moved_left = self.execute(
+            "audio_clips.execute",
+            {
+                "action": "set-markers",
+                "target": clip_target,
+                "markers": {
+                    "kind": "start-end",
+                    "startMarker": 0.0,
+                    "endMarker": 8.0,
+                },
+            },
+        )
+        self.assertTrue(moved_left["ok"])
+        self.assertEqual(clip.assignments, ["start_marker", "end_marker"])
+
+        clip.assignments = []
+        loop_right = self.execute(
+            "audio_clips.execute",
+            {
+                "action": "set-markers",
+                "target": clip_target,
+                "markers": {
+                    "kind": "loop",
+                    "loopStart": 10.0,
+                    "loopEnd": 18.0,
+                    "looping": True,
+                },
+            },
+        )
+        self.assertTrue(loop_right["ok"])
+        self.assertEqual(clip.assignments, ["loop_end", "loop_start"])
+
+        clip.assignments = []
+        loop_left = self.execute(
+            "audio_clips.execute",
+            {
+                "action": "set-markers",
+                "target": clip_target,
+                "markers": {
+                    "kind": "loop",
+                    "loopStart": 0.0,
+                    "loopEnd": 8.0,
+                    "looping": True,
+                },
+            },
+        )
+        self.assertTrue(loop_left["ok"])
+        self.assertEqual(clip.assignments, ["loop_start", "loop_end"])
+
+        clip.assignments = []
+        clip.fail_after_assignment = "loop_start"
+        failed = self.execute(
+            "audio_clips.execute",
+            {
+                "action": "set-markers",
+                "target": clip_target,
+                "markers": {
+                    "kind": "loop",
+                    "loopStart": 10.0,
+                    "loopEnd": 18.0,
+                    "looping": False,
+                },
+            },
+        )
+        self.assertFalse(failed["ok"])
+        self.assertEqual(failed["error"]["details"]["outcome"], "not_applied")
+        self.assertEqual((clip.loop_start, clip.loop_end), (0.0, 8.0))
+        self.assertEqual(
+            clip.assignments,
+            ["loop_end", "loop_start", "loop_start", "loop_end"],
+        )
+
+    def test_warp_mode_rejects_stale_or_unavailable_selection(self):
+        audio_track = next(
+            item
+            for item in self.tracks()
+            if item["kind"] == "regular" and item["name"] == "Bass"
+        )
+        clip = self.context.song.tracks[1].clip_slots[0].clip
+        clip_target = {
+            "view": "session",
+            "track": target(audio_track),
+            "sceneIndex": 0,
+            "expectedClipReference": self._clip_reference(clip),
+            "expectedClipName": clip.name,
+        }
+        stale = self.execute(
+            "audio_clips.execute",
+            {
+                "action": "set-warp-mode",
+                "target": clip_target,
+                "warpMode": 4,
+                "expectedAvailableWarpModes": [0, 1, 2, 3, 4],
+            },
+        )
+        self.assertEqual(stale["error"]["code"], "stale_reference")
+        invalid = self.execute(
+            "audio_clips.execute",
+            {
+                "action": "set-warp-mode",
+                "target": clip_target,
+                "warpMode": 5,
+                "expectedAvailableWarpModes": [0, 1, 2, 3, 4, 6],
+            },
+        )
+        self.assertEqual(invalid["error"]["code"], "invalid_params")
+
+    def test_midi_remove_reports_indeterminate_when_verification_fails(self):
+        track_summary = self.tracks()[0]
+        clip = IndeterminateRemovalClip(8.0)
+        clip.name = "MIDI"
+        note = FakeMidiNoteSpecification(
+            pitch=60,
+            start_time=0.0,
+            duration=1.0,
+            velocity=100,
+            mute=False,
+        )
+        note.note_id = 42
+        clip.notes = [note]
+        self.context.song.tracks[0].clip_slots[0].clip = clip
+        clip_target = {
+            "view": "session",
+            "track": target(track_summary),
+            "sceneIndex": 0,
+            "expectedClipReference": self._clip_reference(clip),
+            "expectedClipName": clip.name,
+        }
+        failed = self.execute(
+            "midi_notes.execute",
+            {
+                "action": "remove",
+                "target": clip_target,
+                "noteIds": [42],
+            },
+        )
+        self.assertFalse(failed["ok"])
+        self.assertFalse(failed["error"]["retryable"])
+        self.assertEqual(
+            failed["error"]["details"]["outcome"],
+            "applied_indeterminate",
+        )
 
     def test_capabilities_are_per_action_and_fail_closed(self):
         document = build_capability_document(
@@ -1171,6 +1478,7 @@ class SimulatorCoreDomainTests(unittest.TestCase):
             "pitchFine": 0,
             "warping": True,
             "warpMode": 2,
+            "availableWarpModes": [0, 1, 2, 3, 4, 6],
             "startMarker": 0.0,
             "endMarker": 4.0,
             "loopStart": 0.0,
@@ -1191,10 +1499,24 @@ class SimulatorCoreDomainTests(unittest.TestCase):
                 "expectedClipName": audio_clip["name"],
             }
         )
+        inspected = self.execute(
+            "audio_clips.execute",
+            {"action": "inspect", "target": audio_target},
+        )
+        self.assertTrue(inspected["ok"])
+        self.assertEqual(
+            inspected["result"]["clip"]["availableWarpModes"],
+            [0, 1, 2, 3, 4, 6],
+        )
         self.assertTrue(
             self.execute(
                 "audio_clips.execute",
-                {"action": "inspect", "target": audio_target},
+                {
+                    "action": "set-warp-mode",
+                    "target": audio_target,
+                    "warpMode": 4,
+                    "expectedAvailableWarpModes": [0, 1, 2, 3, 4, 6],
+                },
             )["ok"]
         )
 

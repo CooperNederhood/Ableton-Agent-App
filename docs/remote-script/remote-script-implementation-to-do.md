@@ -52,6 +52,11 @@ Companion specification: [Remote Script](remote-script.md)
   - [x] Add modern note-ID query/add/update/remove/duplicate/quantize operations
     and audio metadata/gain/pitch/warp/marker/RAM operations with read-only warp
     markers.
+  - [x] Treat note-ID removal as destructive and non-retryable when application
+    cannot be verified, accept scheduled quantized track stops, and order audio
+    range assignment and rollback against current bounds.
+  - [x] Enforce Live 11 quantization/pitch domains and exact currently available
+    warp-mode selection.
 - [~] Implement arrangement handlers.
   - [x] Create non-overlapping MIDI clips with verified placement and rollback.
   - [x] Inspect Arrangement clips with bounded pagination.

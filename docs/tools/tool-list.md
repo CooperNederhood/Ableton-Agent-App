@@ -67,12 +67,18 @@ identity.
 | `ableton_tracks` | Bounded `list`/`get` across regular, group, return, and master tracks; `create-return`, regular-track `duplicate`, `set-color`, `set-monitoring`, `set-fold`, `stop-clips`, `back-to-arrangement`, and guarded regular/return `delete` |
 | `ableton_mixer_routing` | Mixer `inspect`; bounded `meters`; volume, pan, sends, activator, crossfade assignment, master crossfader, and cue volume updates; routing option discovery and exact snapshot-token assignment |
 | `ableton_transport` | `get`, `seek`, relative `jump`, time signature, metronome, launch/record quantization, Link when exposed, cue rename/jump, and Back to Arrangement |
-| `ableton_midi_notes` | Modern note-ID `query`, `add`, `update`, `remove`, `duplicate`, and `quantize`, preserving probability, velocity deviation, and release velocity |
-| `ableton_audio_clips` | Metadata `inspect`; gain, pitch, warp state/mode, start/end/loop markers, and RAM mode updates; bounded warp-marker reads |
+| `ableton_midi_notes` | Modern note-ID `query`, `add`, `update`, exact destructive `remove`, `duplicate`, and `quantize`, preserving probability, velocity deviation, and release velocity |
+| `ableton_audio_clips` | Metadata `inspect`, including currently available warp modes; gain, pitch, warp state/mode, start/end/loop markers, and RAM mode updates; bounded warp-marker reads |
 
 Routing assignments require a recent option snapshot, exact option token, exact
 display name, target identity, and routing direction. Results surface warnings
 for feedback-prone routes and external MIDI destinations.
+
+MIDI note removal is destructive and requires destructive-operation approval.
+Warp-mode assignment must select a mode from the exact availability list
+returned by inspection; changed availability is rejected as stale.
+Live 11 launch quantization is bounded to `0..13`, record quantization to
+`0..8`, pitch fine to `-50..49`, and warp-mode identifiers to `0..6`.
 
 The compatibility note-replacement tools remain destructive. The core-domain
 layer does not expose scene-scoped stop, arbitrary track reordering, recording

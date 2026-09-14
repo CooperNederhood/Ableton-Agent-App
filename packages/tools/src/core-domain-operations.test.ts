@@ -73,6 +73,12 @@ describe("core domain operation descriptors", () => {
     });
 
     expect(operation).toMatchObject({
+      descriptor: {
+        risk: "destructive",
+      },
+      metadata: {
+        risk: "destructive",
+      },
       affectedTrackReferences: [trackReference],
       lifecycleIdentity: {
         domain: "midi_notes",

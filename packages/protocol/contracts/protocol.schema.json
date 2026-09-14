@@ -8465,13 +8465,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -8563,13 +8563,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -8617,13 +8617,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -8680,13 +8680,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -8734,13 +8734,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -8797,13 +8797,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -8851,13 +8851,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -8914,13 +8914,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -8968,13 +8968,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -9034,13 +9034,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -9088,13 +9088,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -9154,13 +9154,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -9208,13 +9208,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -9271,13 +9271,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -9325,13 +9325,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -9388,13 +9388,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -9442,13 +9442,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -9600,11 +9600,7 @@
                 "type": "string",
                 "const": "set-launch-quantization"
               },
-              "quantization": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 9007199254740991
-              }
+              "quantization": { "type": "integer", "minimum": 0, "maximum": 13 }
             },
             "required": ["action", "quantization"],
             "additionalProperties": false
@@ -9616,11 +9612,7 @@
                 "type": "string",
                 "const": "set-record-quantization"
               },
-              "quantization": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 9007199254740991
-              }
+              "quantization": { "type": "integer", "minimum": 0, "maximum": 8 }
             },
             "required": ["action", "quantization"],
             "additionalProperties": false
@@ -9738,13 +9730,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -9836,13 +9828,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -9890,13 +9882,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -9953,13 +9945,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -10007,13 +9999,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -10070,13 +10062,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -10124,13 +10116,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -10187,13 +10179,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -10241,13 +10233,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -10307,13 +10299,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -10361,13 +10353,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -10427,13 +10419,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -10481,13 +10473,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -10544,13 +10536,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -10598,13 +10590,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -10661,13 +10653,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -10715,13 +10707,13 @@
                   "metronome": { "type": "boolean" },
                   "launchQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 13
                   },
                   "recordQuantization": {
                     "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
+                    "minimum": 0,
+                    "maximum": 8
                   },
                   "linkEnabled": {
                     "anyOf": [{ "type": "boolean" }, { "type": "null" }]
@@ -12491,11 +12483,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -12504,13 +12492,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -12566,6 +12555,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -12611,11 +12601,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -12624,13 +12610,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -12686,6 +12673,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -12723,11 +12711,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -12736,13 +12720,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -12798,6 +12783,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -12844,11 +12830,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -12857,13 +12839,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -12919,6 +12902,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -12956,11 +12940,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -12969,13 +12949,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -13031,6 +13012,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -13077,11 +13059,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -13090,13 +13068,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -13152,6 +13131,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -13189,11 +13169,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -13202,13 +13178,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -13264,6 +13241,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -13310,11 +13288,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -13323,13 +13297,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -13385,6 +13360,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -13422,11 +13398,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -13435,13 +13407,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -13497,6 +13470,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -13543,11 +13517,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -13556,13 +13526,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -13618,6 +13589,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -13655,11 +13627,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -13668,13 +13636,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -13730,6 +13699,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -13776,11 +13746,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -13789,13 +13755,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -13851,6 +13818,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -13888,11 +13856,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -13901,13 +13865,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -13963,6 +13928,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -14250,7 +14216,7 @@
                 ]
               },
               "coarse": { "type": "integer", "minimum": -48, "maximum": 48 },
-              "fine": { "type": "integer", "minimum": -50, "maximum": 50 }
+              "fine": { "type": "integer", "minimum": -50, "maximum": 49 }
             },
             "required": ["action", "target", "coarse", "fine"],
             "additionalProperties": false
@@ -14478,13 +14444,20 @@
                   }
                 ]
               },
-              "warpMode": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 9007199254740991
+              "warpMode": { "type": "integer", "minimum": 0, "maximum": 6 },
+              "expectedAvailableWarpModes": {
+                "minItems": 1,
+                "maxItems": 7,
+                "type": "array",
+                "items": { "type": "integer", "minimum": 0, "maximum": 6 }
               }
             },
-            "required": ["action", "target", "warpMode"],
+            "required": [
+              "action",
+              "target",
+              "warpMode",
+              "expectedAvailableWarpModes"
+            ],
             "additionalProperties": false
           },
           {
@@ -14773,11 +14746,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -14786,13 +14755,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -14848,6 +14818,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -14893,11 +14864,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -14906,13 +14873,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -14968,6 +14936,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -15005,11 +14974,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -15018,13 +14983,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -15080,6 +15046,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -15126,11 +15093,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -15139,13 +15102,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -15201,6 +15165,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -15238,11 +15203,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -15251,13 +15212,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -15313,6 +15275,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -15359,11 +15322,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -15372,13 +15331,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -15434,6 +15394,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -15471,11 +15432,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -15484,13 +15441,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -15546,6 +15504,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -15592,11 +15551,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -15605,13 +15560,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -15667,6 +15623,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -15704,11 +15661,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -15717,13 +15670,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -15779,6 +15733,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -15825,11 +15780,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -15838,13 +15789,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -15900,6 +15852,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -15937,11 +15890,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -15950,13 +15899,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -16012,6 +15962,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -16058,11 +16009,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -16071,13 +16018,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -16133,6 +16081,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",
@@ -16170,11 +16119,7 @@
                   },
                   "pitchFine": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": -50, "maximum": 49 },
                       { "type": "null" }
                     ]
                   },
@@ -16183,13 +16128,14 @@
                   },
                   "warpMode": {
                     "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      },
+                      { "type": "integer", "minimum": 0, "maximum": 6 },
                       { "type": "null" }
                     ]
+                  },
+                  "availableWarpModes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 0, "maximum": 6 }
                   },
                   "startMarker": {
                     "anyOf": [{ "type": "number" }, { "type": "null" }]
@@ -16245,6 +16191,7 @@
                   "pitchFine",
                   "warping",
                   "warpMode",
+                  "availableWarpModes",
                   "startMarker",
                   "endMarker",
                   "loopStart",

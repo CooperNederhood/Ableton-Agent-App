@@ -530,7 +530,10 @@ def build_capability_document(
             and clip_api_exposes("pitch_fine")
         ),
         "audio_clips.set_warp": clip_api_exposes("warping"),
-        "audio_clips.set_warp_mode": clip_api_exposes("warp_mode"),
+        "audio_clips.set_warp_mode": (
+            clip_api_exposes("warp_mode")
+            and clip_api_exposes("available_warp_modes")
+        ),
         "audio_clips.set_markers": all(
             clip_api_exposes(attribute)
             for attribute in (

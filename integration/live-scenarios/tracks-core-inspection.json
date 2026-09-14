@@ -1,0 +1,25 @@
+{
+  "formatVersion": 1,
+  "id": "tracks-core-inspection",
+  "group": "inspection",
+  "prompt": "Use the consolidated Live 11 track tool to list a bounded page containing regular, return, and master tracks, then inspect the first regular track by its exact runtime identity. Do not change the Live Set.",
+  "artifactPrefix": "AA_SMOKE_TRACKS_CORE_",
+  "allowedTools": ["ableton_tracks"],
+  "allowedRisks": ["read"],
+  "maxToolCalls": 2,
+  "maxMutations": 0,
+  "timeoutMs": 120000,
+  "assertions": [
+    {
+      "type": "connection-capabilities",
+      "requiredCapabilities": ["tracks.list", "tracks.get"]
+    },
+    {
+      "type": "tool-calls",
+      "required": [{ "toolName": "ableton_tracks", "min": 2, "max": 2 }]
+    },
+    {
+      "type": "session-unchanged"
+    }
+  ]
+}

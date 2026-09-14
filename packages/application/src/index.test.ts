@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionConfig, SessionEvent } from "@github/copilot-sdk";
 import type { SkillInvocation } from "@ableton-agent/agent-config";
+import {
+  PROTOCOL_VERSION,
+  recordingCommandParamsSchema,
+} from "@ableton-agent/protocol";
 import { serializeAbletonToolFailure } from "@ableton-agent/tools";
 
 import {
@@ -11,6 +15,7 @@ import {
 
 import {
   CopilotAgentService,
+  type CopilotAgentServiceOptions,
   HeadlessApplication,
   type AbletonService,
   type AgentRuntimeEvent,
@@ -405,6 +410,118 @@ function deviceServices() {
       offset: params.offset,
       limit: params.limit,
     }),
+    inspectChainMixer: async (
+      params: Parameters<AbletonService["inspectChainMixer"]>[0],
+    ) => ({
+      chainReference: params.target.chain.expectedReference,
+      mixer: {
+        mute: false,
+        solo: false,
+        volume: null,
+        pan: null,
+        sends: [],
+      },
+    }),
+    findDevicePosition: async (
+      params: Parameters<AbletonService["findDevicePosition"]>[0],
+    ) => ({
+      source: {
+        kind: "track-device" as const,
+        track: {
+          index: params.source.track.index,
+          reference: params.source.track.expectedReference,
+          name: params.source.track.expectedName,
+        },
+        device: {
+          index: params.source.device.index,
+          reference: params.source.device.expectedReference,
+          name: params.source.device.expectedName,
+        },
+      },
+      destination: {
+        kind: "track" as const,
+        track: {
+          index: params.destination.track.index,
+          reference: params.destination.track.expectedReference,
+          name: params.destination.track.expectedName,
+        },
+        deviceIndex: params.destination.deviceIndex,
+      },
+      requestedIndex: params.destination.deviceIndex,
+      resolvedIndex: params.destination.deviceIndex,
+      apiTargetPosition: params.destination.deviceIndex,
+      sameParent: false,
+      exact: true,
+    }),
+    moveDevice: async (
+      params: Parameters<AbletonService["moveDevice"]>[0],
+    ) => ({
+      deviceReference: params.source.device.expectedReference,
+      before: {
+        kind: "track-device" as const,
+        track: {
+          index: params.source.track.index,
+          reference: params.source.track.expectedReference,
+          name: params.source.track.expectedName,
+        },
+        device: {
+          index: params.source.device.index,
+          reference: params.source.device.expectedReference,
+          name: params.source.device.expectedName,
+        },
+      },
+      after: {
+        kind: "track-device" as const,
+        track: {
+          index: params.destination.track.index,
+          reference: params.destination.track.expectedReference,
+          name: params.destination.track.expectedName,
+        },
+        device: {
+          index: params.destination.deviceIndex,
+          reference: params.source.device.expectedReference,
+          name: params.source.device.expectedName,
+        },
+      },
+      requestedDestinationIndex: params.destination.deviceIndex,
+      preflightIndex: params.destination.deviceIndex,
+      moveReturnedIndex: params.destination.deviceIndex,
+      sameParent: false,
+      verified: true as const,
+    }),
+    setChainProperties: async (
+      params: Parameters<AbletonService["setChainProperties"]>[0],
+    ) => ({
+      chainReference: params.target.chain.expectedReference,
+      before: {
+        name: params.target.chain.expectedName,
+        color: 0x0f_0f_0f,
+        colorIndex: 5,
+      },
+      after: {
+        name: params.name ?? params.target.chain.expectedName,
+        color: params.colorIndex === undefined ? 0x0f_0f_0f : 0x33_33_33,
+        colorIndex: params.colorIndex ?? 5,
+      },
+      verified: true as const,
+    }),
+    setChainMixer: async (
+      params: Parameters<AbletonService["setChainMixer"]>[0],
+    ) => {
+      const state = {
+        mute: false,
+        solo: false,
+        volume: null,
+        pan: null,
+        sends: [],
+      };
+      return {
+        chainReference: params.target.chain.expectedReference,
+        before: state,
+        after: { ...state, mute: params.mute ?? false },
+        verified: true as const,
+      };
+    },
     setDeviceEnabled: async (
       params: Parameters<AbletonService["setDeviceEnabled"]>[0],
     ) => ({
@@ -444,7 +561,7 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
     stop: vi.fn(async () => undefined),
     getStatus: vi.fn(async () => status),
     getCapabilities: vi.fn(async () => ({
-      selectedProtocolVersion: 3 as const,
+      selectedProtocolVersion: PROTOCOL_VERSION,
       liveVersion: "12.1",
       remoteScriptVersion: "0.2.0",
       projectId: "project",
@@ -464,6 +581,24 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
       trackCount: 0,
       tracks: [],
     })),
+    executeScenesOperation: vi.fn(async () => {
+      throw new Error("Not implemented by test service");
+    }),
+    executeTracksOperation: vi.fn(async () => {
+      throw new Error("Not implemented by test service");
+    }),
+    executeMixerRoutingOperation: vi.fn(async () => {
+      throw new Error("Not implemented by test service");
+    }),
+    executeTransportOperation: vi.fn(async () => {
+      throw new Error("Not implemented by test service");
+    }),
+    executeMidiNotesOperation: vi.fn(async () => {
+      throw new Error("Not implemented by test service");
+    }),
+    executeAudioClipsOperation: vi.fn(async () => {
+      throw new Error("Not implemented by test service");
+    }),
     setTempo: vi.fn(async (tempo: number) => ({
       beforeTempo: 120,
       afterTempo: tempo,
@@ -783,6 +918,32 @@ describe("CopilotAgentService", () => {
     );
     const requestToolApproval = vi.fn(() => Promise.resolve(true));
     const runtimeEvents: AgentRuntimeEvent[] = [];
+    const jobId = "00000000-0000-4000-8000-000000000070";
+    const correlationId = "00000000-0000-4000-8000-000000000071";
+    const traceId = "00000000-0000-4000-8000-000000000072";
+    let receivedRecordingParams: unknown;
+    let jobStatus: "running" | "completed" = "running";
+    const workflowJob = () => ({
+      jobId,
+      kind: "timed-session-recording" as const,
+      status: jobStatus,
+      progress: jobStatus === "completed" ? 1 : 0.25,
+      createdAt: "2026-09-14T00:00:00.000Z",
+      updatedAt: "2026-09-14T00:00:01.000Z",
+      correlationId,
+      traceId,
+      ...(jobStatus === "completed" ? { result: { verified: true } } : {}),
+    });
+    const renameTrack = vi.fn(
+      (params: Parameters<CopilotAgentServiceOptions["renameTrack"]>[0]) =>
+        Promise.resolve({
+          reference: params.expectedReference,
+          index: params.index,
+          beforeName: params.expectedName,
+          afterName: params.name,
+          verified: true as const,
+        }),
+    );
     const service = new CopilotAgentService({
       events: new InMemoryEventPublisher(),
       runtimeObserver: {
@@ -842,14 +1003,7 @@ describe("CopilotAgentService", () => {
           },
           verified: true,
         }),
-      renameTrack: (params) =>
-        Promise.resolve({
-          reference: params.expectedReference,
-          index: params.index,
-          beforeName: params.expectedName,
-          afterName: params.name,
-          verified: true,
-        }),
+      renameTrack,
       setTrackMixer: (params) =>
         Promise.resolve({
           reference: params.expectedReference,
@@ -1004,6 +1158,19 @@ describe("CopilotAgentService", () => {
           },
           verified: true as const,
         }),
+      executeRecordingOperation: (params) => {
+        receivedRecordingParams = params;
+        return Promise.resolve({
+          action: params.action as "record-session-slot",
+          job: workflowJob(),
+          recordingIntent: "record" as const,
+        });
+      },
+      executeWorkflowJobOperation: (params) =>
+        Promise.resolve({
+          action: params.action as "get",
+          job: workflowJob(),
+        }),
       requestToolApproval,
       clientFactory: () => ({
         createSession: (received) => {
@@ -1030,6 +1197,83 @@ describe("CopilotAgentService", () => {
       name: "AgentTurnTimeoutError",
       timeoutMs: 180_000,
     });
+    type TestTool = {
+      name: string;
+      handler: (
+        args: unknown,
+        invocation: { toolCallId: string },
+      ) => Promise<unknown>;
+    };
+    const configuredTools = config?.tools as unknown as TestTool[];
+    const recordingTool = configuredTools.find(
+      (tool) => tool.name === "ableton_recording",
+    );
+    const renameTool = configuredTools.find(
+      (tool) => tool.name === "ableton_tracks_rename",
+    );
+    if (recordingTool === undefined || renameTool === undefined) {
+      throw new Error("Expected recording and rename tools");
+    }
+    await recordingTool.handler(
+      {
+        action: "record-session-slot",
+        target: {
+          track: {
+            kind: "regular",
+            index: 0,
+            expectedReference: "00000000-0000-4000-8000-000000000001",
+            expectedName: "Drums",
+          },
+          sceneIndex: 0,
+          expectedSceneReference: "00000000-0000-4000-8000-000000000002",
+          expectedSceneName: "Verse",
+          expectedHasClip: false,
+        },
+        durationBeats: 4,
+      },
+      { toolCallId: "recording-1" },
+    );
+    const receivedRecording = recordingCommandParamsSchema.parse(
+      receivedRecordingParams,
+    );
+    if (receivedRecording.action !== "record-session-slot") {
+      throw new Error("Expected runtime-enriched recording parameters");
+    }
+    expect(receivedRecording.runtimeContext.ownerId).not.toHaveLength(0);
+    expect(receivedRecording.runtimeContext.correlationId).not.toHaveLength(0);
+    expect(receivedRecording.runtimeContext.causationId).toBe("recording-1");
+    expect(receivedRecording.runtimeContext.traceId).not.toHaveLength(0);
+    expect(receivedRecording.runtimeContext.trackReferences).toEqual([
+      "00000000-0000-4000-8000-000000000001",
+    ]);
+    const renamePromise = renameTool.handler(
+      {
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Drums",
+        name: "Drums 2",
+      },
+      { toolCallId: "rename-1" },
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    expect(renameTrack).not.toHaveBeenCalled();
+    expect(
+      runtimeEvents.some(
+        (event) =>
+          event.type === "agent.operation.completed" &&
+          event.data.toolCallId === "recording-1",
+      ),
+    ).toBe(false);
+    jobStatus = "completed";
+    await renamePromise;
+    expect(renameTrack).toHaveBeenCalledOnce();
+    expect(
+      runtimeEvents.some(
+        (event) =>
+          event.type === "agent.operation.completed" &&
+          event.data.toolCallId === "recording-1",
+      ),
+    ).toBe(true);
     await service.stop();
 
     expect(response).toBe("Ableton is connected.");
@@ -1043,7 +1287,6 @@ describe("CopilotAgentService", () => {
       "custom:ableton_transport_create_cue_point",
       "custom:ableton_transport_delete_cue_point",
       "custom:ableton_tracks_create",
-      "custom:ableton_tracks_delete",
       "custom:ableton_tracks_rename",
       "custom:ableton_tracks_set_mixer",
       "custom:ableton_clips_create_midi",
@@ -1072,8 +1315,28 @@ describe("CopilotAgentService", () => {
       "custom:ableton_browser_search",
       "custom:ableton_browser_search_external_plugins",
       "custom:ableton_browser_load_item",
+      "custom:ableton_rack_chain_mixer_inspect",
+      "custom:ableton_device_find_position",
+      "custom:ableton_device_move",
+      "custom:ableton_rack_chain_set_properties",
+      "custom:ableton_rack_chain_set_mixer",
+      "custom:ableton_scenes",
+      "custom:ableton_tracks",
+      "custom:ableton_mixer_routing",
+      "custom:ableton_transport",
+      "custom:ableton_midi_notes",
+      "custom:ableton_audio_clips",
+      "custom:ableton_recording",
+      "custom:ableton_grooves",
+      "custom:ableton_selection_view",
+      "custom:ableton_live_history",
+      "custom:ableton_browser_adapters",
+      "custom:ableton_clip_automation",
+      "custom:ableton_warp_markers",
+      "custom:ableton_special_devices",
+      "custom:ableton_workflow_jobs",
     ]);
-    expect(config?.tools).toHaveLength(38);
+    expect(config?.tools).toHaveLength(57);
     expect(config?.customAgents).toEqual([
       {
         name: "default-agent",
@@ -1092,7 +1355,6 @@ describe("CopilotAgentService", () => {
           "ableton_transport_create_cue_point",
           "ableton_transport_delete_cue_point",
           "ableton_tracks_create",
-          "ableton_tracks_delete",
           "ableton_tracks_rename",
           "ableton_tracks_set_mixer",
           "ableton_clips_create_midi",
@@ -1121,6 +1383,26 @@ describe("CopilotAgentService", () => {
           "ableton_browser_search",
           "ableton_browser_search_external_plugins",
           "ableton_browser_load_item",
+          "ableton_rack_chain_mixer_inspect",
+          "ableton_device_find_position",
+          "ableton_device_move",
+          "ableton_rack_chain_set_properties",
+          "ableton_rack_chain_set_mixer",
+          "ableton_scenes",
+          "ableton_tracks",
+          "ableton_mixer_routing",
+          "ableton_transport",
+          "ableton_midi_notes",
+          "ableton_audio_clips",
+          "ableton_recording",
+          "ableton_grooves",
+          "ableton_selection_view",
+          "ableton_live_history",
+          "ableton_browser_adapters",
+          "ableton_clip_automation",
+          "ableton_warp_markers",
+          "ableton_special_devices",
+          "ableton_workflow_jobs",
         ],
         infer: false,
       },

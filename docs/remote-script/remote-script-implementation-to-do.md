@@ -30,11 +30,15 @@ Companion specification: [Remote Script](remote-script.md)
     enable/start/length with finite validation, verification, and rollback.
   - [x] Create reversible cue points and destructively delete identity-bound
     cue points using runtime-stable references where Live exposes no IDs.
+  - [x] Add seek/jump, time signature, metronome, launch/record quantization,
+    capability-gated Link, cue rename/jump, and Back to Arrangement.
 - [~] Implement track and mixer handlers.
   - [x] Create MIDI/audio tracks with optional names and verified postconditions.
   - [x] Delete identity-bound non-group tracks with last-track protection.
   - [x] Rename identity-bound tracks and update verified mixer state.
-  - [ ] Implement routing and group-aware structural operations.
+  - [x] Implement return/master/group-aware inspection, return creation,
+    regular-track duplication, monitoring/fold/state actions, mixer controls,
+    bounded meters, and snapshot-bound routing assignment.
 - [~] Implement session clip and MIDI-note handlers.
   - [x] Create guarded MIDI clips in empty Session View slots.
   - [x] Replace bounded MIDI note sets with full-note verification and recovery.
@@ -45,6 +49,14 @@ Companion specification: [Remote Script](remote-script.md)
   - [ ] Validate launch quantization, cross-track duplication compatibility,
     audio mute/loop properties, and rollback timing in supported real Live
     versions.
+  - [x] Add modern note-ID query/add/update/remove/duplicate/quantize operations
+    and audio metadata/gain/pitch/warp/marker/RAM operations with read-only warp
+    markers.
+  - [x] Treat note-ID removal as destructive and non-retryable when application
+    cannot be verified, accept scheduled quantized track stops, and order audio
+    range assignment and rollback against current bounds.
+  - [x] Enforce Live 11 quantization/pitch domains and exact currently available
+    warp-mode selection.
 - [~] Implement arrangement handlers.
   - [x] Create non-overlapping MIDI clips with verified placement and rollback.
   - [x] Inspect Arrangement clips with bounded pagination.
@@ -62,7 +74,16 @@ Companion specification: [Remote Script](remote-script.md)
   - [x] Inspect one exact top-level rack through independently bounded direct
     chain, chain-device, Drum Rack pad, pad-chain, and pad-chain-device pages
     with runtime-stable pruned references and no recursive traversal.
-  - [ ] Add return/group tracks and separately designed nested-rack traversal.
+  - [x] Add Live 11 `find_device_position` preflight and verified
+    `move_device` support within/between regular tracks and existing rack or
+    Drum Rack pad chains, including same-parent index translation in forward
+    moves and recovery.
+  - [x] Add exact existing-chain name/palette-index and exposed
+    mute/solo/volume/pan/send mutation with verification and rollback.
+  - [ ] Keep empty-chain creation, direct native insertion, single-chain
+    deletion, and chain reordering unsupported until separately approved APIs
+    and semantics exist.
+  - [ ] Add separately designed nested-rack traversal.
 - [x] Implement bounded Browser root/category pages, deterministic
   breadth-first search with node/result/depth/time limits, a 512-entry
   runtime-reference cache, exact path/URI revalidation, and verified built-in
@@ -75,6 +96,14 @@ Companion specification: [Remote Script](remote-script.md)
 ## Tests
 
 - [~] Build fake Song, Track, Clip, Device, Browser, and Application objects.
+- [x] Add capability-detected recording, grooves, selection/view, Live history,
+  Session automation, warp-marker, Browser adapter, specialized-device, and
+  workflow-job handlers with exact identity and readback.
+- [x] Add curated state listeners with topology rebinding, bounded/coalesced
+  meters, initial snapshots, and complete cleanup.
+- [ ] Record real-Live evidence for every optional private Browser, Simpler,
+  Looper, Wavetable, envelope, and warp-marker API shape before enabling it in
+  release builds.
 - [~] Unit-test every handler's validation, success, and LOM failure paths.
 - [~] Unit-test main-thread scheduling and timeout behavior.
 - [x] Unit-test listener registration and removal.
@@ -90,6 +119,8 @@ Companion specification: [Remote Script](remote-script.md)
   - [ ] Validate rack/Drum Rack capability properties, chain/pad ordering and
     object identity, empty pads, pad-chain exposure, and chain device access in
     supported Live versions.
+  - [ ] Validate Live 11 device movement and chain mixer/property behavior
+    against real Live using the checked-in capability matrix.
   - [ ] Validate Browser roots and BrowserItem properties, URI/object
     stability, child ordering and latency, selected-track targeting,
     `Browser.load_item` timing, hotswap state, track compatibility,

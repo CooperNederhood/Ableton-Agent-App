@@ -40,6 +40,16 @@ Companion specification: [Test Strategy](test-strategy.md)
   - [x] Cover equivalent Browser URI encodings, loadable/navigable native
     devices, structured SDK failures, and the runner-owned Auto Filter audio
     scenario.
+- [x] Cover strict Live 11 core-domain unions, per-action risk/scope/capability
+  resolution, read-versus-mutation protocol separation, Python handler
+  identity/rollback paths, simulator parity, and runner-owned scene, track, and
+  transport inspection scenarios.
+  - [x] Cover grouped-tool automatic-analysis policy, destructive note removal,
+    scheduled-stop state, valid audio range ordering/rollback, exact warp-mode
+    availability, and documented Live 11 scalar domains.
+  - [x] Cover recording/history safety, exact empty-slot intent, workflow-job
+    ordering, cancellation, bounded lifecycle payloads, and trace/correlation
+    propagation for the final workflow-adapter layer.
 - [x] Implement CLI transcript tests.
 - [x] Implement Playwright Electron harness.
 - [ ] Add deterministic local-journal fixtures for clocks, IDs, sensitive
@@ -69,6 +79,9 @@ Companion specification: [Test Strategy](test-strategy.md)
     URI stability, child ordering/latency, selected-track and hotswap behavior,
     `Browser.load_item` timing, track compatibility, multi-device presets, and
     indeterminate failure reporting.
+  - [ ] Record real-Live results for recording/capture, Groove Pool,
+    selection/view, Session automation, warp markers, and each optional
+    Simpler/Looper/Wavetable API shape.
 
 ## CI
 

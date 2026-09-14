@@ -9,6 +9,52 @@ export interface AbletonService {
   getProjectIdentity(): Promise<Protocol.ProjectIdentity>;
   ping(): Promise<Protocol.PingResult>;
   inspectSession(): Promise<Protocol.SessionSnapshot>;
+  inspectCuratedLiveState?(): Promise<Protocol.InspectCuratedLiveStateResult>;
+  executeScenesOperation?(
+    params: Protocol.ScenesOperationParams,
+  ): Promise<Protocol.ScenesOperationResult>;
+  executeTracksOperation?(
+    params: Protocol.TracksOperationParams,
+  ): Promise<Protocol.TracksOperationResult>;
+  executeMixerRoutingOperation?(
+    params: Protocol.MixerRoutingOperationParams,
+  ): Promise<Protocol.MixerRoutingOperationResult>;
+  executeTransportOperation?(
+    params: Protocol.TransportOperationParams,
+  ): Promise<Protocol.TransportOperationResult>;
+  executeMidiNotesOperation?(
+    params: Protocol.MidiNotesOperationParams,
+  ): Promise<Protocol.MidiNotesOperationResult>;
+  executeAudioClipsOperation?(
+    params: Protocol.AudioClipsOperationParams,
+  ): Promise<Protocol.AudioClipsOperationResult>;
+  executeRecordingOperation?(
+    params: Protocol.RecordingCommandParams,
+  ): Promise<Protocol.RecordingOperationResult>;
+  executeGrooveOperation?(
+    params: Protocol.GrooveOperationParams,
+  ): Promise<Protocol.GrooveOperationResult>;
+  executeSelectionViewOperation?(
+    params: Protocol.SelectionViewOperationParams,
+  ): Promise<Protocol.SelectionViewOperationResult>;
+  executeLiveHistoryOperation?(
+    params: Protocol.LiveHistoryOperationParams,
+  ): Promise<Protocol.LiveHistoryOperationResult>;
+  executeBrowserAdapterOperation?(
+    params: Protocol.BrowserAdapterOperationParams,
+  ): Promise<Protocol.BrowserAdapterOperationResult>;
+  executeClipAutomationOperation?(
+    params: Protocol.ClipAutomationOperationParams,
+  ): Promise<Protocol.ClipAutomationOperationResult>;
+  executeWarpMarkerOperation?(
+    params: Protocol.WarpMarkerOperationParams,
+  ): Promise<Protocol.WarpMarkerOperationResult>;
+  executeSpecializedDeviceOperation?(
+    params: Protocol.SpecializedDeviceCommandParams,
+  ): Promise<Protocol.SpecializedDeviceOperationResult>;
+  executeWorkflowJobOperation?(
+    params: Protocol.WorkflowJobCommandParams,
+  ): Promise<Protocol.WorkflowJobOperationResult>;
   setTempo(tempo: number): Promise<Protocol.SetTempoResult>;
   setPlaying(isPlaying: boolean): Promise<Protocol.SetPlayingResult>;
   inspectArrangementTransport(
@@ -66,6 +112,21 @@ export interface AbletonService {
   inspectDrumPadChainDevices(
     params: Protocol.InspectDrumPadChainDevicesParams,
   ): Promise<Protocol.InspectDrumPadChainDevicesResult>;
+  inspectChainMixer(
+    params: Protocol.InspectChainMixerParams,
+  ): Promise<Protocol.InspectChainMixerResult>;
+  findDevicePosition(
+    params: Protocol.FindDevicePositionParams,
+  ): Promise<Protocol.FindDevicePositionResult>;
+  moveDevice(
+    params: Protocol.MoveDeviceParams,
+  ): Promise<Protocol.MoveDeviceResult>;
+  setChainProperties(
+    params: Protocol.SetChainPropertiesParams,
+  ): Promise<Protocol.SetChainPropertiesResult>;
+  setChainMixer(
+    params: Protocol.SetChainMixerParams,
+  ): Promise<Protocol.SetChainMixerResult>;
   setDeviceEnabled(
     params: Protocol.SetDeviceEnabledParams,
   ): Promise<Protocol.SetDeviceEnabledResult>;

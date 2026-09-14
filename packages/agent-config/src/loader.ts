@@ -11,7 +11,10 @@ import {
   skillMetadataSchema,
   type SkillMetadata,
 } from "./schemas.js";
-import { resolveToolPatterns } from "./tool-patterns.js";
+import {
+  resolveToolPatterns,
+  type ToolOperationPatternEntry,
+} from "./tool-patterns.js";
 
 const maximumDefinitionBytes = 256 * 1024;
 const maximumSkillBytes = 512 * 1024;
@@ -32,6 +35,8 @@ export interface SkillDocument {
 export interface LoadedAgentDefinition {
   readonly definition: AgentDefinition;
   readonly resolvedTools: string[];
+  readonly resolvedOperations: string[];
+  readonly explicitCompatibilityAliases: string[];
   readonly sourcePath: string;
   readonly fingerprint: string;
 }
@@ -156,6 +161,8 @@ async function loadSkills(skillsDirectory: string): Promise<{
 async function loadAgents(
   agentsDirectory: string,
   availableTools: readonly string[],
+  availableOperations: readonly ToolOperationPatternEntry[],
+  compatibilityAliases: Readonly<Record<string, string>>,
   skills: readonly LoadedSkill[],
 ): Promise<{
   agents: LoadedAgentDefinition[];
@@ -204,7 +211,10 @@ async function loadAgents(
         );
         continue;
       }
-      const resolution = resolveToolPatterns(definition.tools, availableTools);
+      const resolution = resolveToolPatterns(definition.tools, availableTools, {
+        operations: availableOperations,
+        compatibilityAliases,
+      });
       if (resolution.unmatchedPatterns.length > 0) {
         diagnostics.push(
           diagnostic(
@@ -218,6 +228,8 @@ async function loadAgents(
       agents.push({
         definition,
         resolvedTools: resolution.tools,
+        resolvedOperations: resolution.operationIds,
+        explicitCompatibilityAliases: resolution.explicitAliases,
         sourcePath,
         fingerprint: fingerprint(content),
       });
@@ -264,6 +276,8 @@ export async function loadAgentCatalog(options: {
   readonly agentsDirectory: string;
   readonly skillsDirectory: string;
   readonly availableTools: readonly string[];
+  readonly availableOperations?: readonly ToolOperationPatternEntry[];
+  readonly compatibilityAliases?: Readonly<Record<string, string>>;
 }): Promise<AgentCatalog> {
   const loadedSkills = await loadSkills(options.skillsDirectory);
   const deduplicatedSkills = removeDuplicates(
@@ -275,6 +289,8 @@ export async function loadAgentCatalog(options: {
   const loadedAgents = await loadAgents(
     options.agentsDirectory,
     options.availableTools,
+    options.availableOperations ?? [],
+    options.compatibilityAliases ?? {},
     deduplicatedSkills.unique,
   );
   const deduplicatedAgents = removeDuplicates(

@@ -89,6 +89,10 @@ Likely files:
   behavior.
 - [x] Add Python tests for registration, initial state, translation,
   throttling, invalidation, and complete cleanup.
+- [x] Add fixed typed state coverage for transport, tempo/signature, selection,
+  track/scene/clip/device topology, routing, and coalesced meters.
+- [x] Add a bounded initial-state command, topology rebinding, and workflow-job
+  lifecycle events with trace/correlation/causation attribution.
 
 Likely files:
 

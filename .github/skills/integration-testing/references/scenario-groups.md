@@ -41,5 +41,18 @@
 - rack, chain, and Drum Rack inspection;
 - transport mutation/restoration, cue points, denial, and retry safety.
 
+## Live 11 core-domain inspection
+
+`inspection`
+
+- `scenes-core-inspection`: bounded scene list followed by exact-identity get.
+- `tracks-core-inspection`: bounded regular/return/master list followed by
+  exact regular-track get.
+- `transport-core-inspection`: consolidated transport and bounded cue-point
+  state.
+- `workflow-state-inspection`: recording state, bounded Groove Pool, exact
+  selection/view state, global history availability, and workflow-job list
+  without mutation.
+
 Each group starts in a fresh runner-owned default Set. Copilot session context
 may continue, but Live artifacts never carry across group restarts.

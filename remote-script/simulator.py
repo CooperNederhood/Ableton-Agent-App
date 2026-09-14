@@ -3,6 +3,8 @@
 from __future__ import absolute_import, print_function, unicode_literals
 
 import argparse
+import copy
+import hashlib
 import json
 import math
 import socket
@@ -11,8 +13,42 @@ import uuid
 from collections import deque
 
 from AbletonAgent.protocol import FrameDecoder, encode_frame
+from AbletonAgent.core_domain_commands import (
+    ROUTING_SNAPSHOT_LIMIT,
+    ROUTING_SNAPSHOT_SECONDS,
+    validate_audio_inspect,
+    validate_audio_mutate,
+    validate_midi_inspect,
+    validate_midi_mutate,
+    validate_mixer_inspect,
+    validate_mixer_mutate,
+    validate_scenes_inspect,
+    validate_scenes_mutate,
+    validate_tracks_inspect,
+    validate_tracks_mutate,
+    validate_transport_inspect,
+    validate_transport_mutate,
+)
+from AbletonAgent.workflow_adapter_commands import (
+    GLOBAL_HISTORY_WARNING,
+    validate_browser_adapters,
+    validate_clip_automation,
+    validate_grooves,
+    validate_history,
+    validate_jobs,
+    validate_recording,
+    validate_selection_view,
+    validate_special_devices,
+    validate_warp_markers,
+)
 
 from AbletonAgent.version import PROTOCOL_VERSION, REMOTE_SCRIPT_VERSION
+
+LIVE_11_MAX_COLOR_INDEX = 69
+
+
+def simulated_palette_color(color_index):
+    return (color_index + 1) * 0x010101
 
 
 class SimulatorState(object):
@@ -84,10 +120,126 @@ class SimulatorState(object):
                 "devices": [self.simulated_device("Operator")],
             },
         ]
+        self.scenes = [
+            {
+                "reference": str(uuid.uuid4()),
+                "name": "Scene 1",
+                "colorIndex": 1,
+                "tempo": 120.0,
+                "tempoEnabled": False,
+                "numerator": 4,
+                "denominator": 4,
+                "timeSignatureEnabled": False,
+                "isTriggered": False,
+            },
+            {
+                "reference": str(uuid.uuid4()),
+                "name": "Scene 2",
+                "colorIndex": 2,
+                "tempo": 120.0,
+                "tempoEnabled": False,
+                "numerator": 4,
+                "denominator": 4,
+                "timeSignatureEnabled": False,
+                "isTriggered": False,
+            },
+        ]
+        self.return_tracks = []
+        self.master_track = {
+            "reference": str(uuid.uuid4()),
+            "name": "Master",
+            "kind": "audio",
+            "color": None,
+            "isMuted": False,
+            "isSoloed": False,
+            "isArmed": False,
+            "devices": [],
+        }
+        for track in self.tracks + [self.master_track]:
+            self.initialize_core_track(track)
+        self.signature_numerator = 4
+        self.signature_denominator = 4
+        self.metronome = False
+        self.launch_quantization = 4
+        self.record_quantization = 4
+        self.link_enabled = False
+        self.back_to_arrangement = False
+        self.current_song_time = 0.0
+        self.routing_snapshots = {}
+        self.next_note_id = 1
         self.live_event_subscriptions = {}
         self.live_event_messages = deque()
         self.live_event_sequence = 0
         self.browser_roots = self.create_browser_roots()
+        self.recording_state = {
+            "arrangementRecord": False,
+            "sessionRecord": False,
+            "overdub": False,
+            "sessionAutomationRecord": False,
+            "punchIn": False,
+            "punchOut": False,
+        }
+        self.groove_amount = 1.0
+        self.grooves = [
+            {
+                "index": 0,
+                "reference": str(uuid.uuid4()),
+                "name": "Swing 16-66",
+                "base": 0.25,
+                "quantizationAmount": 1.0,
+                "timingAmount": 1.0,
+                "randomAmount": 0.0,
+                "velocityAmount": 1.0,
+            }
+        ]
+        self.selected_track_reference = self.tracks[0]["reference"]
+        self.selected_scene_reference = self.scenes[0]["reference"]
+        self.selected_slot = None
+        self.visible_views = ["Session", "Detail", "Browser"]
+        self.focused_view = "Session"
+        self.follow = False
+        self.draw_mode = False
+        self.can_undo = True
+        self.can_redo = False
+        self.workflow_jobs = {}
+
+    def initialize_core_track(self, track):
+        track.setdefault("colorIndex", track.get("color"))
+        track.setdefault("isGroup", False)
+        track.setdefault("isFolded", False)
+        track.setdefault("monitoringState", 1)
+        track.setdefault("canBeArmed", track.get("kind") == "midi")
+        track.setdefault("backToArrangement", False)
+        track.setdefault("playingSceneIndex", None)
+        track.setdefault("clips", [None for _scene in self.scenes])
+        track.setdefault("arrangementClips", [])
+        track.setdefault("volumeParameterReference", str(uuid.uuid4()))
+        track.setdefault("panParameterReference", str(uuid.uuid4()))
+        track.setdefault("sendValues", [0.0])
+        track.setdefault("sendReferences", [str(uuid.uuid4())])
+        track.setdefault("crossfadeAssignment", 1)
+        track.setdefault("crossfader", 0.5)
+        track.setdefault("crossfaderReference", str(uuid.uuid4()))
+        track.setdefault("cueVolume", 0.5)
+        track.setdefault("cueVolumeReference", str(uuid.uuid4()))
+        track.setdefault(
+            "routing",
+            {
+                "input-type": "All Ins",
+                "input-channel": "All Channels",
+                "output-type": "Master",
+                "output-channel": "Track In",
+            },
+        )
+        track.setdefault(
+            "routingOptions",
+            {
+                "input-type": ["All Ins", "External MIDI"],
+                "input-channel": ["All Channels", "Channel 1"],
+                "output-type": ["Master", track.get("name", "")],
+                "output-channel": ["Track In", "External MIDI"],
+            },
+        )
 
     def live_event_target(self, track, device=None, parameter=None):
         target = {
@@ -213,6 +365,29 @@ class SimulatorState(object):
                 "projectRevision": 0,
                 "reason": reason,
             },
+        })
+
+    def publish_workflow_job_event(self, stage, job):
+        sequence = self.live_event_sequence
+        self.live_event_sequence += 1
+        payload = {
+            "jobId": job["jobId"],
+            "kind": job["kind"],
+            "status": job["status"],
+            "progress": job["progress"],
+            "updatedAt": job["updatedAt"],
+            "correlationId": job["correlationId"],
+            "traceId": job["traceId"],
+        }
+        if job.get("causationId") is not None:
+            payload["causationId"] = job["causationId"]
+        self.live_event_messages.append({
+            "protocolVersion": PROTOCOL_VERSION,
+            "kind": "event",
+            "event": "workflow_job.{0}".format(stage),
+            "sequence": sequence,
+            "projectRevision": 0,
+            "payload": payload,
         })
 
     def browser_item(
@@ -495,10 +670,28 @@ class SimulatorState(object):
         }
 
     def simulated_chain(self, name, devices):
+        def parameter(parameter_name, value):
+            return {
+                "reference": str(uuid.uuid4()),
+                "name": parameter_name,
+                "value": value,
+                "min": 0.0,
+                "max": 1.0,
+                "isEnabled": True,
+            }
+
         return {
             "reference": str(uuid.uuid4()),
             "name": name,
-            "color": None,
+            "color": simulated_palette_color(5),
+            "colorIndex": 5,
+            "mute": False,
+            "solo": False,
+            "mixer": {
+                "volume": parameter("Chain Volume", 0.8),
+                "pan": parameter("Chain Pan", 0.5),
+                "sends": [parameter("Send A", 0.0)],
+            },
             "devices": devices,
         }
 
@@ -601,6 +794,27 @@ class SimulatorState(object):
             "deviceCount": len(chain["devices"]),
         }
 
+    def chain_mixer_summary(self, chain):
+        def parameter_summary(parameter):
+            span = parameter["max"] - parameter["min"]
+            normalized = (
+                0.0
+                if span == 0
+                else (parameter["value"] - parameter["min"]) / span
+            )
+            return dict(parameter, normalizedValue=normalized)
+
+        return {
+            "mute": chain["mute"],
+            "solo": chain["solo"],
+            "volume": parameter_summary(chain["mixer"]["volume"]),
+            "pan": parameter_summary(chain["mixer"]["pan"]),
+            "sends": [
+                parameter_summary(parameter)
+                for parameter in chain["mixer"]["sends"]
+            ],
+        }
+
     def pad_summary(self, rack, index, pad):
         return {
             "reference": pad["reference"],
@@ -641,6 +855,137 @@ class SimulatorState(object):
             "canHaveChains": device["canHaveChains"],
             "canHaveDrumPads": device["canHaveDrumPads"],
         }
+
+    def resolve_track_identity(self, identity):
+        index = identity.get("index")
+        if not isinstance(index, int) or index < 0 or index >= len(self.tracks):
+            return None
+        track = self.tracks[index]
+        if (
+            track["reference"] != identity.get("expectedReference")
+            or track["name"] != identity.get("expectedName")
+        ):
+            return None
+        return track
+
+    def resolve_indexed_identity(self, values, identity):
+        index = identity.get("index")
+        if not isinstance(index, int) or index < 0 or index >= len(values):
+            return None
+        value = values[index]
+        if (
+            value["reference"] != identity.get("expectedReference")
+            or value["name"] != identity.get("expectedName")
+        ):
+            return None
+        return value
+
+    def resolve_chain_target(self, target):
+        track = self.resolve_track_identity(target.get("track", {}))
+        if track is None:
+            return None
+        rack = self.resolve_indexed_identity(
+            track["devices"], target.get("rack", {})
+        )
+        if rack is None:
+            return None
+        pad = None
+        chains = rack["chains"]
+        if target.get("kind") in (
+            "drum-pad-chain",
+            "drum-pad-chain-device",
+        ):
+            pad = self.resolve_indexed_identity(
+                rack["drumPads"], target.get("pad", {})
+            )
+            if (
+                pad is None
+                or pad["note"] != target["pad"].get("expectedNote")
+            ):
+                return None
+            chains = pad["chains"]
+        chain = self.resolve_indexed_identity(
+            chains, target.get("chain", {})
+        )
+        if chain is None:
+            return None
+        return track, rack, pad, chain
+
+    def resolve_device_location(self, target):
+        track = self.resolve_track_identity(target.get("track", {}))
+        if track is None:
+            return None
+        if target.get("kind") == "track-device":
+            device = self.resolve_indexed_identity(
+                track["devices"], target.get("device", {})
+            )
+            return (
+                None
+                if device is None
+                else (track, None, None, None, track["devices"], device)
+            )
+        resolved = self.resolve_chain_target(target)
+        if resolved is None:
+            return None
+        track, rack, pad, chain = resolved
+        device = self.resolve_indexed_identity(
+            chain["devices"], target.get("device", {})
+        )
+        return (
+            None
+            if device is None
+            else (track, rack, pad, chain, chain["devices"], device)
+        )
+
+    def resolve_device_destination(self, target):
+        track = self.resolve_track_identity(target.get("track", {}))
+        if track is None:
+            return None
+        if target.get("kind") == "track":
+            return track, None, None, None, track["devices"]
+        resolved = self.resolve_chain_target(target)
+        if resolved is None:
+            return None
+        track, rack, pad, chain = resolved
+        return track, rack, pad, chain, chain["devices"]
+
+    def device_location_summary(
+        self, kind, track, rack, pad, chain, devices, device
+    ):
+        result = {
+            "kind": kind,
+            "track": {
+                "index": self.tracks.index(track),
+                "reference": track["reference"],
+                "name": track["name"],
+            },
+            "device": {
+                "index": devices.index(device),
+                "reference": device["reference"],
+                "name": device["name"],
+            },
+        }
+        if rack is not None:
+            result["rack"] = {
+                "index": track["devices"].index(rack),
+                "reference": rack["reference"],
+                "name": rack["name"],
+            }
+        if chain is not None:
+            chains = pad["chains"] if pad is not None else rack["chains"]
+            result["chain"] = {
+                "index": chains.index(chain),
+                "reference": chain["reference"],
+                "name": chain["name"],
+            }
+        if pad is not None:
+            result["pad"] = {
+                "index": rack["drumPads"].index(pad),
+                "reference": pad["reference"],
+                "note": pad["note"],
+                "name": pad["name"],
+            }
+        return result
 
     def parameter_summary(self, device, index, parameter):
         span = parameter["max"] - parameter["min"]
@@ -690,11 +1035,1531 @@ def failure(request, code, message):
     }
 
 
+def _sim_scene_summary(scene, index):
+    return {
+        "index": index,
+        "reference": scene["reference"],
+        "name": scene["name"],
+        "colorIndex": scene.get("colorIndex"),
+        "tempo": scene.get("tempo"),
+        "tempoEnabled": scene.get("tempoEnabled"),
+        "timeSignature": {
+            "numerator": scene["numerator"],
+            "denominator": scene["denominator"],
+            "enabled": scene.get("timeSignatureEnabled"),
+        },
+        "isTriggered": scene.get("isTriggered"),
+    }
+
+
+def _sim_track_summary(track, kind, index):
+    return {
+        "kind": kind,
+        "index": index,
+        "reference": track["reference"],
+        "name": track["name"],
+        "trackType": track["kind"],
+        "colorIndex": track.get("colorIndex"),
+        "isGroup": bool(track.get("isGroup", False)),
+        "isFolded": (
+            bool(track.get("isFolded"))
+            if "isFolded" in track
+            else None
+        ),
+        "monitoringState": track.get("monitoringState"),
+        "canBeArmed": bool(track.get("canBeArmed", False)),
+        "isArmed": bool(track.get("isArmed", False)),
+        "isMuted": bool(track.get("isMuted", False)),
+        "isSoloed": bool(track.get("isSoloed", False)),
+        "backToArrangement": track.get("backToArrangement"),
+    }
+
+
+def _sim_resolve_track(state, target):
+    kind = target["kind"]
+    if kind == "regular":
+        tracks = state.tracks
+        index = target["index"]
+        if index >= len(tracks):
+            return None, "not_found"
+        track = tracks[index]
+    elif kind == "return":
+        tracks = state.return_tracks
+        index = target["index"]
+        if index >= len(tracks):
+            return None, "not_found"
+        track = tracks[index]
+    else:
+        track = state.master_track
+    if (
+        track["reference"] != target["expectedReference"]
+        or track["name"] != target["expectedName"]
+    ):
+        return None, "stale_reference"
+    return track, None
+
+
+def _sim_resolve_scene(state, target):
+    index = target["sceneIndex"]
+    if index >= len(state.scenes):
+        return None, "not_found"
+    scene = state.scenes[index]
+    if (
+        scene["reference"] != target["expectedSceneReference"]
+        or scene["name"] != target["expectedSceneName"]
+    ):
+        return None, "stale_reference"
+    return scene, None
+
+
+def _sim_resolve_session_slot(state, target):
+    track, error = _sim_resolve_track(state, target["track"])
+    if error:
+        return None, None, error
+    _scene, error = _sim_resolve_scene(state, target)
+    if error:
+        return None, None, error
+    index = target["sceneIndex"]
+    if index >= len(track["clips"]):
+        return None, None, "not_found"
+    clip = track["clips"][index]
+    if (clip is not None) != target["expectedHasClip"]:
+        return None, None, "stale_reference"
+    if clip is not None and (
+        clip["reference"] != target.get("expectedClipReference")
+        or clip["name"] != target.get("expectedClipName")
+    ):
+        return None, None, "stale_reference"
+    return track, clip, None
+
+
+def _sim_resolve_clip(state, target):
+    track, error = _sim_resolve_track(state, target["track"])
+    if error:
+        return None, error
+    if target["view"] == "session":
+        index = target["sceneIndex"]
+        if index >= len(track["clips"]) or track["clips"][index] is None:
+            return None, "not_found"
+        clip = track["clips"][index]
+    else:
+        clip = next(
+            (
+                candidate
+                for candidate in track["arrangementClips"]
+                if candidate["reference"]
+                == target["expectedClipReference"]
+            ),
+            None,
+        )
+        if clip is None:
+            return None, "not_found"
+        if abs(
+            clip.get("startTime", clip.get("start", 0.0))
+            - target["expectedStartTime"]
+        ) > 0.000001:
+            return None, "stale_reference"
+    if (
+        clip["reference"] != target["expectedClipReference"]
+        or clip["name"] != target["expectedClipName"]
+    ):
+        return None, "stale_reference"
+    return clip, None
+
+
+def _sim_parameter(reference, name, normalized):
+    return {
+        "reference": reference,
+        "name": name,
+        "normalizedValue": normalized,
+        "value": normalized,
+        "displayValue": "{0:.3f}".format(normalized),
+    }
+
+
+def _sim_mixer_summary(track, target):
+    sends = [
+        _sim_parameter(reference, "Send {0}".format(index + 1), value)
+        for index, (reference, value) in enumerate(
+            zip(track["sendReferences"], track["sendValues"])
+        )
+    ]
+    return {
+        "target": _sim_track_summary(
+            track, target["kind"], target.get("index")
+        ),
+        "volume": _sim_parameter(
+            track["volumeParameterReference"], "Volume", track["volume"]
+        ),
+        "pan": _sim_parameter(
+            track["panParameterReference"],
+            "Pan",
+            (track["pan"] + 1.0) / 2.0,
+        ),
+        "sends": sends,
+        "activator": not track["isMuted"],
+        "crossfadeAssignment": track.get("crossfadeAssignment"),
+        "crossfader": (
+            _sim_parameter(
+                track["crossfaderReference"],
+                "Crossfader",
+                track["crossfader"],
+            )
+            if target["kind"] == "master"
+            else None
+        ),
+        "cueVolume": (
+            _sim_parameter(
+                track["cueVolumeReference"],
+                "Cue Volume",
+                track["cueVolume"],
+            )
+            if target["kind"] == "master"
+            else None
+        ),
+    }
+
+
+def _sim_transport_state(state):
+    return {
+        "currentSongTime": state.current_song_time,
+        "isPlaying": state.is_playing,
+        "tempo": state.tempo,
+        "timeSignature": {
+            "numerator": state.signature_numerator,
+            "denominator": state.signature_denominator,
+        },
+        "metronome": state.metronome,
+        "launchQuantization": state.launch_quantization,
+        "recordQuantization": state.record_quantization,
+        "linkEnabled": state.link_enabled,
+        "backToArrangement": state.back_to_arrangement,
+    }
+
+
+def _sim_audio_summary(clip):
+    return {
+        "reference": clip["reference"],
+        "name": clip["name"],
+        "length": clip["length"],
+        "gain": clip.get("gain"),
+        "pitchCoarse": clip.get("pitchCoarse"),
+        "pitchFine": clip.get("pitchFine"),
+        "warping": clip.get("warping"),
+        "warpMode": clip.get("warpMode"),
+        "availableWarpModes": list(clip.get("availableWarpModes", [])),
+        "startMarker": clip.get("startMarker"),
+        "endMarker": clip.get("endMarker"),
+        "loopStart": clip.get("loopStart"),
+        "loopEnd": clip.get("loopEnd"),
+        "looping": clip.get("looping"),
+        "ramMode": clip.get("ramMode"),
+        "filePath": clip.get("filePath"),
+        "sampleLength": clip.get("sampleLength"),
+        "sampleRate": clip.get("sampleRate"),
+    }
+
+
+def _active_sim_routing_snapshots(state, now):
+    state.routing_snapshots = {
+        snapshot_id: snapshot
+        for snapshot_id, snapshot in state.routing_snapshots.items()
+        if (
+            isinstance(snapshot.get("created"), (int, float))
+            and 0 <= now - snapshot["created"] <= ROUTING_SNAPSHOT_SECONDS
+        )
+    }
+    return state.routing_snapshots
+
+
+def _store_sim_routing_snapshot(state, snapshot_id, snapshot, now):
+    snapshots = _active_sim_routing_snapshots(state, now)
+    while len(snapshots) >= ROUTING_SNAPSHOT_LIMIT:
+        oldest_id = min(
+            snapshots,
+            key=lambda candidate: (
+                snapshots[candidate]["created"],
+                candidate,
+            ),
+        )
+        snapshots.pop(oldest_id)
+    snapshots[snapshot_id] = snapshot
+
+
+def _handle_sim_scenes(request, params, state):
+    action = params["action"]
+    if action == "list":
+        offset, limit = params.get("offset", 0), params.get("limit", 64)
+        return response(
+            request,
+            {
+                "action": action,
+                "scenes": [
+                    _sim_scene_summary(scene, index)
+                    for index, scene in enumerate(
+                        state.scenes[offset : offset + limit], start=offset
+                    )
+                ],
+                "total": len(state.scenes),
+                "offset": offset,
+                "limit": limit,
+            },
+        )
+    if action == "create":
+        before = len(state.scenes)
+        index = params["index"]
+        if index > before:
+            return failure(request, "not_found", "Scene index is out of range")
+        actual = before if index == -1 else index
+        scene = {
+            "reference": str(uuid.uuid4()),
+            "name": params.get("name", "Scene {0}".format(actual + 1)).strip(),
+            "colorIndex": None,
+            "tempo": state.tempo,
+            "tempoEnabled": False,
+            "numerator": state.signature_numerator,
+            "denominator": state.signature_denominator,
+            "timeSignatureEnabled": False,
+            "isTriggered": False,
+        }
+        state.scenes.insert(actual, scene)
+        for track in state.tracks + state.return_tracks:
+            track["clips"].insert(actual, None)
+        return response(
+            request,
+            {
+                "action": action,
+                "beforeSceneCount": before,
+                "afterSceneCount": len(state.scenes),
+                "scene": _sim_scene_summary(scene, actual),
+                "verified": True,
+            },
+        )
+    target = params["target"]
+    if target["index"] >= len(state.scenes):
+        return failure(request, "not_found", "Scene index is out of range")
+    scene = state.scenes[target["index"]]
+    if (
+        scene["reference"] != target["expectedReference"]
+        or scene["name"] != target["expectedName"]
+    ):
+        return failure(request, "stale_reference", "Scene identity changed")
+    index = target["index"]
+    if action == "get":
+        return response(
+            request,
+            {"action": action, "scene": _sim_scene_summary(scene, index)},
+        )
+    if action == "duplicate":
+        before = len(state.scenes)
+        duplicate = copy.deepcopy(scene)
+        duplicate["reference"] = str(uuid.uuid4())
+        state.scenes.insert(index + 1, duplicate)
+        for track in state.tracks + state.return_tracks:
+            source = track["clips"][index]
+            copied = copy.deepcopy(source)
+            if copied is not None:
+                copied["reference"] = str(uuid.uuid4())
+            track["clips"].insert(index + 1, copied)
+        return response(
+            request,
+            {
+                "action": action,
+                "beforeSceneCount": before,
+                "afterSceneCount": len(state.scenes),
+                "scene": _sim_scene_summary(duplicate, index + 1),
+                "verified": True,
+            },
+        )
+    if action in ("rename", "set-color", "set-tempo-time-signature"):
+        before = _sim_scene_summary(scene, index)
+        if action == "rename":
+            scene["name"] = params["name"].strip()
+        elif action == "set-color":
+            scene["colorIndex"] = params["colorIndex"]
+        elif params["state"]["kind"] == "tempo":
+            scene["tempo"] = params["state"]["tempo"]
+            scene["tempoEnabled"] = params["state"]["enabled"]
+        else:
+            scene["numerator"] = params["state"]["numerator"]
+            scene["denominator"] = params["state"]["denominator"]
+            scene["timeSignatureEnabled"] = params["state"]["enabled"]
+        return response(
+            request,
+            {
+                "action": action,
+                "before": before,
+                "after": _sim_scene_summary(scene, index),
+                "verified": True,
+            },
+        )
+    if action == "fire":
+        for candidate in state.scenes:
+            candidate["isTriggered"] = False
+        scene["isTriggered"] = True
+        return response(
+            request,
+            {
+                "action": action,
+                "scene": _sim_scene_summary(scene, index),
+                "verified": True,
+            },
+        )
+    before = len(state.scenes)
+    deleted = _sim_scene_summary(scene, index)
+    del state.scenes[index]
+    for track in state.tracks + state.return_tracks:
+        del track["clips"][index]
+    return response(
+        request,
+        {
+            "action": action,
+            "deleted": deleted,
+            "beforeSceneCount": before,
+            "afterSceneCount": len(state.scenes),
+            "verified": True,
+        },
+    )
+
+
+def _handle_sim_tracks(request, params, state):
+    action = params["action"]
+    if action == "list":
+        selected = []
+        kind = params.get("trackKind", "all")
+        if kind in ("regular", "all"):
+            selected.extend(
+                (track, "regular", index)
+                for index, track in enumerate(state.tracks)
+            )
+        if kind in ("return", "all"):
+            selected.extend(
+                (track, "return", index)
+                for index, track in enumerate(state.return_tracks)
+            )
+        if kind in ("master", "all"):
+            selected.append((state.master_track, "master", None))
+        offset, limit = params.get("offset", 0), params.get("limit", 64)
+        return response(
+            request,
+            {
+                "action": action,
+                "tracks": [
+                    _sim_track_summary(track, track_kind, index)
+                    for track, track_kind, index in selected[
+                        offset : offset + limit
+                    ]
+                ],
+                "total": len(selected),
+                "offset": offset,
+                "limit": limit,
+            },
+        )
+    if action == "create-return":
+        before = len(state.return_tracks)
+        track = {
+            "reference": str(uuid.uuid4()),
+            "name": params.get("name", "Return {0}".format(before + 1)).strip(),
+            "kind": "audio",
+            "color": None,
+            "isMuted": False,
+            "isSoloed": False,
+            "isArmed": False,
+            "devices": [],
+        }
+        state.initialize_core_track(track)
+        state.return_tracks.append(track)
+        return response(
+            request,
+            {
+                "action": action,
+                "track": _sim_track_summary(track, "return", before),
+                "beforeReturnTrackCount": before,
+                "afterReturnTrackCount": len(state.return_tracks),
+                "verified": True,
+            },
+        )
+    target = params["target"]
+    track, error = _sim_resolve_track(state, target)
+    if error:
+        return failure(request, error, "Track identity changed")
+    if action == "get":
+        return response(
+            request,
+            {
+                "action": action,
+                "track": _sim_track_summary(
+                    track, target["kind"], target.get("index")
+                ),
+            },
+        )
+    if action == "duplicate":
+        before = len(state.tracks)
+        duplicate = copy.deepcopy(track)
+        duplicate["reference"] = str(uuid.uuid4())
+        duplicate["name"] = track["name"] + " Copy"
+        duplicate["volumeParameterReference"] = str(uuid.uuid4())
+        duplicate["panParameterReference"] = str(uuid.uuid4())
+        duplicate["sendReferences"] = [str(uuid.uuid4())]
+        state.tracks.insert(target["index"] + 1, duplicate)
+        return response(
+            request,
+            {
+                "action": action,
+                "source": _sim_track_summary(
+                    track, "regular", target["index"]
+                ),
+                "track": _sim_track_summary(
+                    duplicate, "regular", target["index"] + 1
+                ),
+                "beforeTrackCount": before,
+                "afterTrackCount": len(state.tracks),
+                "verified": True,
+            },
+        )
+    if action in (
+        "set-color",
+        "set-monitoring",
+        "set-fold",
+        "stop-clips",
+        "back-to-arrangement",
+    ):
+        before = _sim_track_summary(
+            track, target["kind"], target.get("index")
+        )
+        if action == "set-color":
+            track["colorIndex"] = params["colorIndex"]
+        elif action == "set-monitoring":
+            track["monitoringState"] = params["monitoringState"]
+        elif action == "set-fold":
+            if not track["isGroup"]:
+                return failure(
+                    request,
+                    "unsupported_capability",
+                    "Track folding is unavailable",
+                )
+            track["isFolded"] = params["folded"]
+        elif action == "stop-clips":
+            track["playingSceneIndex"] = None
+            for clip in track["clips"]:
+                if clip is not None:
+                    clip["isPlaying"] = False
+                    clip["isTriggered"] = False
+        else:
+            track["backToArrangement"] = False
+        return response(
+            request,
+            {
+                "action": action,
+                "result": {
+                    "before": before,
+                    "after": _sim_track_summary(
+                        track, target["kind"], target.get("index")
+                    ),
+                    "verified": True,
+                },
+            },
+        )
+    collection = (
+        state.tracks
+        if target["kind"] == "regular"
+        else state.return_tracks
+    )
+    before = len(collection)
+    deleted = _sim_track_summary(
+        track, target["kind"], target["index"]
+    )
+    del collection[target["index"]]
+    return response(
+        request,
+        {
+            "action": action,
+            "deleted": deleted,
+            "beforeCount": before,
+            "afterCount": len(collection),
+            "verified": True,
+        },
+    )
+
+
+def _handle_sim_mixer(request, params, state):
+    action = params["action"]
+    target = params.get("target") or params.get("value", {}).get("target")
+    track, error = _sim_resolve_track(state, target)
+    if error:
+        return failure(request, error, "Track identity changed")
+    if action == "inspect":
+        return response(
+            request,
+            {"action": action, "mixer": _sim_mixer_summary(track, target)},
+        )
+    if action == "meters":
+        return response(
+            request,
+            {
+                "action": action,
+                "inputLeft": 0.25,
+                "inputRight": 0.2,
+                "outputLeft": 0.5,
+                "outputRight": 0.45,
+                "observedAt": "2000-01-01T00:00:00Z",
+            },
+        )
+    if action in ("set-volume", "set-pan"):
+        value = params["value"]
+        field = "volume" if action == "set-volume" else "pan"
+        reference = track[
+            "volumeParameterReference"
+            if field == "volume"
+            else "panParameterReference"
+        ]
+        expected_name = "Volume" if field == "volume" else "Pan"
+        if (
+            reference != value["expectedParameterReference"]
+            or expected_name != value["expectedParameterName"]
+        ):
+            return failure(
+                request, "stale_reference", "Parameter identity changed"
+            )
+        before = (
+            _sim_parameter(reference, expected_name, track[field])
+            if field == "volume"
+            else _sim_parameter(
+                reference, expected_name, (track[field] + 1.0) / 2.0
+            )
+        )
+        normalized = value["normalizedValue"]
+        track[field] = normalized if field == "volume" else normalized * 2 - 1
+        after = _sim_parameter(reference, expected_name, normalized)
+        return response(
+            request,
+            {
+                "action": action,
+                "result": {
+                    "before": before,
+                    "after": after,
+                    "verified": True,
+                },
+            },
+        )
+    if action == "set-send":
+        index = params["sendIndex"]
+        if index >= len(track["sendValues"]):
+            return failure(request, "not_found", "Send index is out of range")
+        reference = track["sendReferences"][index]
+        name = "Send {0}".format(index + 1)
+        if (
+            reference != params["expectedParameterReference"]
+            or name != params["expectedParameterName"]
+        ):
+            return failure(
+                request, "stale_reference", "Parameter identity changed"
+            )
+        before = _sim_parameter(
+            reference, name, track["sendValues"][index]
+        )
+        track["sendValues"][index] = params["normalizedValue"]
+        return response(
+            request,
+            {
+                "action": action,
+                "result": {
+                    "before": before,
+                    "after": _sim_parameter(
+                        reference, name, track["sendValues"][index]
+                    ),
+                    "verified": True,
+                },
+            },
+        )
+    if action == "set-activator":
+        before = not track["isMuted"]
+        track["isMuted"] = not params["active"]
+        return response(
+            request,
+            {
+                "action": action,
+                "before": before,
+                "after": params["active"],
+                "verified": True,
+            },
+        )
+    if action == "set-crossfade-assignment":
+        before = track["crossfadeAssignment"]
+        track["crossfadeAssignment"] = params["assignment"]
+        return response(
+            request,
+            {
+                "action": action,
+                "before": before,
+                "after": track["crossfadeAssignment"],
+                "verified": True,
+            },
+        )
+    if action in ("set-master-crossfader", "set-cue-volume"):
+        if target["kind"] != "master":
+            return failure(
+                request, "invalid_params", "The target must be master"
+            )
+        value = params["value"]
+        field = (
+            "crossfader"
+            if action == "set-master-crossfader"
+            else "cueVolume"
+        )
+        reference_field = field + "Reference"
+        name = "Crossfader" if field == "crossfader" else "Cue Volume"
+        if (
+            track[reference_field] != value["expectedParameterReference"]
+            or name != value["expectedParameterName"]
+        ):
+            return failure(
+                request, "stale_reference", "Parameter identity changed"
+            )
+        before = _sim_parameter(track[reference_field], name, track[field])
+        track[field] = value["normalizedValue"]
+        return response(
+            request,
+            {
+                "action": action,
+                "result": {
+                    "before": before,
+                    "after": _sim_parameter(
+                        track[reference_field], name, track[field]
+                    ),
+                    "verified": True,
+                },
+            },
+        )
+    direction = params["direction"]
+    if action == "routing-options":
+        snapshot_id = str(uuid.uuid4())
+        options = []
+        token_map = {}
+        current_token = None
+        warnings = []
+        for display in track["routingOptions"][direction]:
+            token = str(uuid.uuid4())
+            option = {
+                "token": token,
+                "displayName": display,
+                "isExternalMidi": "external midi" in display.lower(),
+            }
+            options.append(option)
+            token_map[token] = option
+            if display == track["routing"][direction]:
+                current_token = token
+            if option["isExternalMidi"]:
+                warnings.append(
+                    "This routing option targets external MIDI; verify connected hardware."
+                )
+            if (
+                direction.startswith("output")
+                and track["name"].lower() in display.lower()
+            ):
+                warnings.append(
+                    "This routing option may create an audio or MIDI feedback loop."
+                )
+        now = time.time()
+        _store_sim_routing_snapshot(state, snapshot_id, {
+            "created": now,
+            "target": copy.deepcopy(target),
+            "direction": direction,
+            "options": token_map,
+        }, now)
+        return response(
+            request,
+            {
+                "action": action,
+                "snapshotId": snapshot_id,
+                "options": options,
+                "currentOptionToken": current_token,
+                "warnings": list(dict.fromkeys(warnings))[:8],
+            },
+        )
+    snapshots = _active_sim_routing_snapshots(state, time.time())
+    snapshot = snapshots.get(params["snapshotId"])
+    if (
+        snapshot is None
+        or snapshot["target"] != target
+        or snapshot["direction"] != direction
+    ):
+        return failure(
+            request, "stale_reference", "Routing snapshot is stale"
+        )
+    option = snapshot["options"].get(params["optionToken"])
+    if (
+        option is None
+        or option["displayName"] != params["expectedDisplayName"]
+    ):
+        return failure(
+            request, "stale_reference", "Routing option identity changed"
+        )
+    before_display = track["routing"][direction]
+    before = next(
+        (
+            candidate
+            for candidate in snapshot["options"].values()
+            if candidate["displayName"] == before_display
+        ),
+        None,
+    )
+    if before is None:
+        return failure(
+            request,
+            "stale_reference",
+            "Current routing option was not in the snapshot",
+        )
+    track["routing"][direction] = option["displayName"]
+    warnings = []
+    if option["isExternalMidi"]:
+        warnings.append(
+            "This routing option targets external MIDI; verify connected hardware."
+        )
+    if (
+        direction.startswith("output")
+        and track["name"].lower() in option["displayName"].lower()
+    ):
+        warnings.append(
+            "This routing option may create an audio or MIDI feedback loop."
+        )
+    snapshots.pop(params["snapshotId"], None)
+    return response(
+        request,
+        {
+            "action": action,
+            "before": before,
+            "after": option,
+            "warnings": warnings,
+            "verified": True,
+        },
+    )
+
+
+def _handle_sim_transport(request, params, state):
+    action = params["action"]
+    if action == "get":
+        offset, limit = params.get("offset", 0), params.get("limit", 64)
+        cues = sorted(state.cue_points, key=lambda cue: cue["time"])
+        return response(
+            request,
+            {
+                "action": action,
+                "transport": _sim_transport_state(state),
+                "cuePoints": cues[offset : offset + limit],
+                "totalCuePoints": len(cues),
+                "offset": offset,
+                "limit": limit,
+            },
+        )
+    if action in ("rename-cue", "jump-to-cue"):
+        target = params["target"]
+        cue = next(
+            (
+                item
+                for item in state.cue_points
+                if item["reference"] == target["expectedReference"]
+            ),
+            None,
+        )
+        if (
+            cue is None
+            or cue["name"] != target["expectedName"]
+            or abs(cue["time"] - target["expectedTime"]) > 0.000001
+        ):
+            return failure(
+                request, "stale_reference", "Cue point identity changed"
+            )
+        if action == "rename-cue":
+            before = dict(cue)
+            cue["name"] = params["name"].strip()
+            return response(
+                request,
+                {
+                    "action": action,
+                    "before": before,
+                    "after": dict(cue),
+                    "verified": True,
+                },
+            )
+        before = state.current_song_time
+        state.current_song_time = cue["time"]
+        return response(
+            request,
+            {
+                "action": action,
+                "cuePoint": dict(cue),
+                "beforeTime": before,
+                "afterTime": state.current_song_time,
+                "verified": True,
+            },
+        )
+    before = _sim_transport_state(state)
+    if action == "seek":
+        state.current_song_time = params["time"]
+    elif action == "jump":
+        state.current_song_time = max(
+            0.0, state.current_song_time + params["beats"]
+        )
+    elif action == "set-time-signature":
+        state.signature_numerator = params["numerator"]
+        state.signature_denominator = params["denominator"]
+    elif action == "set-metronome":
+        state.metronome = params["enabled"]
+    elif action == "set-launch-quantization":
+        state.launch_quantization = params["quantization"]
+    elif action == "set-record-quantization":
+        state.record_quantization = params["quantization"]
+    elif action == "set-link":
+        state.link_enabled = params["enabled"]
+    else:
+        state.back_to_arrangement = False
+    return response(
+        request,
+        {
+            "action": action,
+            "before": before,
+            "after": _sim_transport_state(state),
+            "verified": True,
+        },
+    )
+
+
+def _handle_sim_midi(request, params, state):
+    clip, error = _sim_resolve_clip(state, params["target"])
+    if error:
+        return failure(request, error, "Clip identity changed")
+    if clip.get("kind") != "midi":
+        return failure(request, "conflict", "The target is not a MIDI clip")
+    notes = clip.setdefault("notes", [])
+    action = params["action"]
+    if action == "query":
+        start = params.get("fromTime", 0)
+        end = start + params.get("timeSpan", 1576800)
+        low = params.get("fromPitch", 0)
+        high = low + params.get("pitchSpan", 128)
+        selected = [
+            note
+            for note in notes
+            if start <= note["startTime"] < end
+            and low <= note["pitch"] < high
+        ]
+        offset, limit = params.get("offset", 0), params.get("limit", 64)
+        return response(
+            request,
+            {
+                "action": action,
+                "notes": selected[offset : offset + limit],
+                "total": len(selected),
+                "offset": offset,
+                "limit": limit,
+                "truncated": offset + limit < len(selected),
+            },
+        )
+    before_count = len(notes)
+    by_id = dict((note.get("noteId"), note) for note in notes)
+    affected = []
+    if action == "add":
+        for requested in params["notes"]:
+            note = dict(requested)
+            note["noteId"] = state.next_note_id
+            state.next_note_id += 1
+            notes.append(note)
+            affected.append(note["noteId"])
+    elif action == "update":
+        if any(note["noteId"] not in by_id for note in params["notes"]):
+            return failure(
+                request, "stale_reference", "MIDI note identity changed"
+            )
+        for requested in params["notes"]:
+            by_id[requested["noteId"]].update(requested)
+            affected.append(requested["noteId"])
+    elif action == "remove":
+        if any(note_id not in by_id for note_id in params["noteIds"]):
+            return failure(
+                request, "stale_reference", "MIDI note identity changed"
+            )
+        affected = list(params["noteIds"])
+        clip["notes"] = [
+            note for note in notes if note["noteId"] not in affected
+        ]
+        notes = clip["notes"]
+    elif action == "duplicate":
+        if any(note_id not in by_id for note_id in params["noteIds"]):
+            return failure(
+                request, "stale_reference", "MIDI note identity changed"
+            )
+        copies = []
+        for note_id in params["noteIds"]:
+            copied = dict(by_id[note_id])
+            copied["noteId"] = state.next_note_id
+            state.next_note_id += 1
+            copied["startTime"] += params["timeOffset"]
+            copied["pitch"] += params.get("pitchOffset", 0)
+            if (
+                copied["startTime"] < 0
+                or copied["pitch"] < 0
+                or copied["pitch"] > 127
+            ):
+                return failure(
+                    request,
+                    "invalid_params",
+                    "Duplicated notes exceed clip bounds",
+                )
+            copies.append(copied)
+            affected.append(copied["noteId"])
+        notes.extend(copies)
+    else:
+        if any(note_id not in by_id for note_id in params["noteIds"]):
+            return failure(
+                request, "stale_reference", "MIDI note identity changed"
+            )
+        for note_id in params["noteIds"]:
+            note = by_id[note_id]
+            snapped = round(
+                note["startTime"] / params["gridBeats"]
+            ) * params["gridBeats"]
+            note["startTime"] = max(
+                0.0,
+                note["startTime"]
+                + (snapped - note["startTime"]) * params["amount"],
+            )
+            affected.append(note_id)
+    return response(
+        request,
+        {
+            "action": action,
+            "beforeNoteCount": before_count,
+            "afterNoteCount": len(notes),
+            "affectedNoteIds": affected,
+            "verified": True,
+        },
+    )
+
+
+def _handle_sim_audio(request, params, state):
+    clip, error = _sim_resolve_clip(state, params["target"])
+    if error:
+        return failure(request, error, "Clip identity changed")
+    if clip.get("kind") != "audio":
+        return failure(request, "conflict", "The target is not an audio clip")
+    action = params["action"]
+    if action == "inspect":
+        return response(
+            request, {"action": action, "clip": _sim_audio_summary(clip)}
+        )
+    if action == "warp-markers":
+        markers = clip.get("warpMarkers", [])
+        offset, limit = params.get("offset", 0), params.get("limit", 64)
+        return response(
+            request,
+            {
+                "action": action,
+                "markers": [
+                    dict({"index": index}, **marker)
+                    for index, marker in enumerate(
+                        markers[offset : offset + limit], start=offset
+                    )
+                ],
+                "total": len(markers),
+                "offset": offset,
+                "limit": limit,
+            },
+        )
+    before = _sim_audio_summary(clip)
+    if action == "set-gain":
+        clip["gain"] = params["gain"]
+    elif action == "set-pitch":
+        clip["pitchCoarse"] = params["coarse"]
+        clip["pitchFine"] = params["fine"]
+    elif action == "set-warp":
+        clip["warping"] = params["enabled"]
+    elif action == "set-warp-mode":
+        expected_modes = sorted(params["expectedAvailableWarpModes"])
+        current_modes = sorted(clip.get("availableWarpModes", []))
+        if expected_modes != current_modes:
+            return failure(
+                request,
+                "stale_reference",
+                "Available warp modes changed since inspection",
+            )
+        if params["warpMode"] not in current_modes:
+            return failure(
+                request,
+                "invalid_params",
+                "Selected warp mode is not currently available",
+            )
+        clip["warpMode"] = params["warpMode"]
+    elif action == "set-ram-mode":
+        clip["ramMode"] = params["enabled"]
+    elif params["markers"]["kind"] == "start-end":
+        clip["startMarker"] = params["markers"]["startMarker"]
+        clip["endMarker"] = params["markers"]["endMarker"]
+    else:
+        clip["loopStart"] = params["markers"]["loopStart"]
+        clip["loopEnd"] = params["markers"]["loopEnd"]
+        clip["looping"] = params["markers"]["looping"]
+    return response(
+        request,
+        {
+            "action": action,
+            "before": before,
+            "after": _sim_audio_summary(clip),
+            "verified": True,
+        },
+    )
+
+
+def _handle_core_domain(request, command, params, state):
+    handlers = {
+        "scenes.inspect": (validate_scenes_inspect, _handle_sim_scenes),
+        "scenes.mutate": (validate_scenes_mutate, _handle_sim_scenes),
+        "tracks.inspect": (validate_tracks_inspect, _handle_sim_tracks),
+        "tracks.mutate": (validate_tracks_mutate, _handle_sim_tracks),
+        "mixer_routing.inspect": (
+            validate_mixer_inspect,
+            _handle_sim_mixer,
+        ),
+        "mixer_routing.mutate": (
+            validate_mixer_mutate,
+            _handle_sim_mixer,
+        ),
+        "transport.inspect": (
+            validate_transport_inspect,
+            _handle_sim_transport,
+        ),
+        "transport.mutate": (
+            validate_transport_mutate,
+            _handle_sim_transport,
+        ),
+        "midi_notes.inspect": (validate_midi_inspect, _handle_sim_midi),
+        "midi_notes.mutate": (validate_midi_mutate, _handle_sim_midi),
+        "audio_clips.inspect": (
+            validate_audio_inspect,
+            _handle_sim_audio,
+        ),
+        "audio_clips.mutate": (
+            validate_audio_mutate,
+            _handle_sim_audio,
+        ),
+    }
+    entry = handlers.get(command)
+    if entry is None:
+        return None
+    validation_error = entry[0](params)
+    if validation_error:
+        return failure(request, "invalid_params", validation_error)
+    return entry[1](request, params, state)
+
+
+def _sim_groove_revision(state):
+    payload = [
+        (groove["reference"], groove["name"]) for groove in state.grooves
+    ]
+    return hashlib.sha256(
+        json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _public_sim_job(job):
+    return dict((key, value) for key, value in job.items() if not key.startswith("_"))
+
+
+def _sim_job(state, kind, params, result):
+    runtime_context = params["runtimeContext"]
+    job_id = str(uuid.uuid4())
+    job = {
+        "jobId": job_id,
+        "kind": kind,
+        "status": "queued",
+        "progress": 0.0,
+        "createdAt": "2000-01-01T00:00:00Z",
+        "updatedAt": "2000-01-01T00:00:00Z",
+        "correlationId": runtime_context["correlationId"],
+        "traceId": runtime_context["traceId"],
+        "_ownerId": runtime_context["ownerId"],
+        "_trackReferences": list(runtime_context["trackReferences"]),
+        "_completionResult": result,
+    }
+    if runtime_context.get("causationId") is not None:
+        job["causationId"] = runtime_context["causationId"]
+    state.workflow_jobs[job_id] = job
+    state.publish_workflow_job_event("queued", job)
+    job["status"] = "started"
+    job["updatedAt"] = "2000-01-01T00:00:01Z"
+    state.publish_workflow_job_event("started", job)
+    job["status"] = "running"
+    job["progress"] = 0.5
+    job["updatedAt"] = "2000-01-01T00:00:02Z"
+    state.publish_workflow_job_event("progress", job)
+    return _public_sim_job(job)
+
+
+def _complete_sim_job(state, job):
+    if job["status"] != "running":
+        return
+    job["status"] = "completed"
+    job["progress"] = 1.0
+    job["updatedAt"] = "2000-01-01T00:00:03Z"
+    job["result"] = job.pop("_completionResult")
+    state.publish_workflow_job_event("completed", job)
+
+
+def _handle_sim_recording(request, params, state):
+    action = params["action"]
+    if action == "inspect":
+        return response(request, {"action": action, "state": state.recording_state})
+    if action == "record-session-slot":
+        track, _clip, slot_error = _sim_resolve_session_slot(
+            state, params["target"]
+        )
+        if slot_error:
+            return failure(request, slot_error, "Session slot identity changed")
+        index = params["target"]["sceneIndex"]
+        if not track.get("isArmed", False):
+            return failure(request, "conflict", "Target track must be armed")
+        clip = {
+            "reference": str(uuid.uuid4()),
+            "name": "Recorded Clip",
+            "kind": "midi" if track["kind"] == "midi" else "audio",
+            "length": params["durationBeats"],
+            "notes": [],
+            "warpMarkers": [],
+        }
+        track["clips"][index] = clip
+        job = _sim_job(
+            state,
+            "timed-session-recording",
+            params,
+            {
+                "trackReference": track["reference"],
+                "clipReference": clip["reference"],
+                "sceneIndex": index,
+            },
+        )
+        return response(request, {
+            "action": action,
+            "job": job,
+            "recordingIntent": "record",
+        })
+    if action == "capture-midi":
+        return response(request, {
+            "action": action,
+            "destination": "selected-armed-tracks",
+            "captured": True,
+            "verified": True,
+            "warnings": [
+                "Capture MIDI uses Live's selected armed-track destination semantics."
+            ],
+        })
+    before = dict(state.recording_state)
+    if action == "set-arrangement-record":
+        state.recording_state["arrangementRecord"] = params["enabled"]
+    elif action == "set-session-record":
+        state.recording_state["sessionRecord"] = params["enabled"]
+    elif action == "set-overdub":
+        state.recording_state["overdub"] = params["enabled"]
+    elif action == "set-session-automation-record":
+        state.recording_state["sessionAutomationRecord"] = params["enabled"]
+    else:
+        if "punchIn" in params:
+            state.recording_state["punchIn"] = params["punchIn"]
+        if "punchOut" in params:
+            state.recording_state["punchOut"] = params["punchOut"]
+    return response(request, {
+        "action": action,
+        "result": {
+            "before": before,
+            "after": dict(state.recording_state),
+            "verified": True,
+            "warnings": [],
+        },
+    })
+
+
+def _handle_sim_grooves(request, params, state):
+    action = params["action"]
+    revision = _sim_groove_revision(state)
+    if action == "list":
+        offset, limit = params.get("offset", 0), params.get("limit", 64)
+        return response(request, {
+            "action": action,
+            "grooves": state.grooves[offset : offset + limit],
+            "total": len(state.grooves),
+            "offset": offset,
+            "limit": limit,
+            "poolRevision": revision,
+            "globalAmount": state.groove_amount,
+        })
+    if action == "set-global-amount":
+        before = state.groove_amount
+        state.groove_amount = params["amount"]
+        return response(request, {
+            "action": action,
+            "before": before,
+            "after": state.groove_amount,
+            "verified": True,
+        })
+    if action in ("get", "set-properties"):
+        target = params["target"]
+        if target["poolRevision"] != revision:
+            return failure(request, "stale_reference", "Groove Pool changed")
+        if target["index"] >= len(state.grooves):
+            return failure(request, "not_found", "Groove not found")
+        groove = state.grooves[target["index"]]
+        if (
+            groove["reference"] != target["expectedReference"]
+            or groove["name"] != target["expectedName"]
+        ):
+            return failure(request, "stale_reference", "Groove identity changed")
+        if action == "get":
+            return response(request, {
+                "action": action,
+                "groove": groove,
+                "poolRevision": revision,
+            })
+        before = dict(groove)
+        for key in (
+            "quantizationAmount",
+            "timingAmount",
+            "randomAmount",
+            "velocityAmount",
+        ):
+            if key in params:
+                groove[key] = params[key]
+        return response(request, {
+            "action": action,
+            "before": before,
+            "after": dict(groove),
+            "poolRevision": revision,
+            "verified": True,
+        })
+    clip, error = _sim_resolve_clip(state, params["target"])
+    if error:
+        return failure(request, error, "Clip identity changed")
+    before = {
+        "clipReference": clip["reference"],
+        "groove": clip.get("groove"),
+    }
+    if action == "inspect-clip":
+        return response(request, {"action": action, "state": before})
+    if action == "clear-clip-groove":
+        clip["groove"] = None
+    else:
+        groove_target = params["groove"]
+        if groove_target["poolRevision"] != revision:
+            return failure(request, "stale_reference", "Groove Pool changed")
+        clip["groove"] = dict(state.grooves[groove_target["index"]])
+    return response(request, {
+        "action": action,
+        "before": before,
+        "after": {
+            "clipReference": clip["reference"],
+            "groove": clip.get("groove"),
+        },
+        "verified": True,
+    })
+
+
+def _sim_selection(state):
+    return {
+        "trackReference": state.selected_track_reference,
+        "sceneReference": state.selected_scene_reference,
+        "clipReference": None,
+        "slot": state.selected_slot,
+        "deviceReference": None,
+        "chainReference": None,
+    }
+
+
+def _sim_view(state):
+    return {
+        "visibleViews": list(state.visible_views),
+        "focusedView": state.focused_view,
+        "follow": state.follow,
+        "drawMode": state.draw_mode,
+    }
+
+
+def _handle_sim_selection(request, params, state):
+    action = params["action"]
+    if action == "inspect-selection":
+        return response(request, {"action": action, "selection": _sim_selection(state)})
+    if action == "inspect-view":
+        return response(request, {"action": action, "view": _sim_view(state)})
+    selection_action = action.startswith("select-")
+    before = _sim_selection(state) if selection_action else _sim_view(state)
+    if action == "select-track":
+        track, track_error = _sim_resolve_track(state, params["target"])
+        if track_error:
+            return failure(request, track_error, "Track identity changed")
+        state.selected_track_reference = track["reference"]
+    elif action == "select-scene":
+        scene, scene_error = _sim_resolve_scene(
+            state,
+            {
+                "sceneIndex": params["sceneIndex"],
+                "expectedSceneReference": params["expectedSceneReference"],
+                "expectedSceneName": params["expectedSceneName"],
+            },
+        )
+        if scene_error:
+            return failure(request, scene_error, "Scene identity changed")
+        state.selected_scene_reference = scene["reference"]
+    elif action == "select-slot":
+        track, _clip, slot_error = _sim_resolve_session_slot(
+            state, params["target"]
+        )
+        if slot_error:
+            return failure(request, slot_error, "Session slot identity changed")
+        state.selected_track_reference = track["reference"]
+        state.selected_scene_reference = params["target"]["expectedSceneReference"]
+        state.selected_slot = {
+            "trackReference": track["reference"],
+            "sceneIndex": params["target"]["sceneIndex"],
+        }
+    elif action == "set-view":
+        view = params["view"]
+        if params["state"] == "hide":
+            state.visible_views = [item for item in state.visible_views if item != view]
+        else:
+            if view not in state.visible_views:
+                state.visible_views.append(view)
+            if params["state"] == "focus":
+                state.focused_view = view
+    elif action == "set-follow":
+        state.follow = params["enabled"]
+    elif action == "set-draw-mode":
+        state.draw_mode = params["enabled"]
+    after = _sim_selection(state) if selection_action else _sim_view(state)
+    return response(request, {
+        "action": action,
+        "before": before,
+        "after": after,
+        "verified": True,
+    })
+
+
+def _handle_sim_history(request, params, state):
+    action = params["action"]
+    before = {"canUndo": state.can_undo, "canRedo": state.can_redo}
+    if action == "inspect":
+        return response(request, {
+            "action": action,
+            "state": before,
+            "warnings": [GLOBAL_HISTORY_WARNING],
+        })
+    if params.get("confirmation") != "global-live-history":
+        return failure(request, "invalid_params", "Global history confirmation required")
+    if action == "undo" and not state.can_undo:
+        return failure(request, "conflict", "No undo step")
+    if action == "redo" and not state.can_redo:
+        return failure(request, "conflict", "No redo step")
+    state.can_undo, state.can_redo = action == "redo", action == "undo"
+    return response(request, {
+        "action": action,
+        "before": before,
+        "after": {"canUndo": state.can_undo, "canRedo": state.can_redo},
+        "verified": True,
+        "warnings": [GLOBAL_HISTORY_WARNING],
+    })
+
+
+def _handle_sim_workflow(request, command, params, state):
+    handlers = {
+        "recording": (validate_recording, _handle_sim_recording),
+        "grooves": (validate_grooves, _handle_sim_grooves),
+        "selection_view": (validate_selection_view, _handle_sim_selection),
+        "live_history": (validate_history, _handle_sim_history),
+    }
+    domain = command.split(".", 1)[0] if isinstance(command, str) else ""
+    action = params.get("action")
+    expected_command = (
+        "{0}.{1}".format(domain, action.replace("-", "_"))
+        if isinstance(action, str)
+        else None
+    )
+    if domain == "workflow_jobs":
+        if command != expected_command:
+            return failure(request, "invalid_params", "Command/action mismatch")
+        error = validate_jobs(params)
+        if error:
+            return failure(request, "invalid_params", error)
+        if action == "list":
+            jobs = [
+                _public_sim_job(job) for job in state.workflow_jobs.values()
+            ]
+            offset, limit = params.get("offset", 0), params.get("limit", 64)
+            return response(request, {
+                "action": action,
+                "jobs": jobs[offset : offset + limit],
+                "total": len(jobs),
+                "offset": offset,
+                "limit": limit,
+            })
+        job = state.workflow_jobs.get(params["jobId"])
+        if job is None:
+            return failure(request, "not_found", "Workflow job not found")
+        if action == "cancel":
+            if job.get("_ownerId") != params["runtimeContext"]["ownerId"]:
+                return failure(
+                    request,
+                    "conflict",
+                    "Workflow job can only be cancelled by its originating agent",
+                )
+            cancelled = job["status"] not in ("completed", "failed", "cancelled")
+            if cancelled:
+                job["status"] = "cancelled"
+                job["updatedAt"] = "2000-01-01T00:00:03Z"
+                job.pop("_completionResult", None)
+                state.publish_workflow_job_event("cancelled", job)
+            return response(request, {
+                "action": action,
+                "job": _public_sim_job(job),
+                "cancelled": cancelled,
+            })
+        _complete_sim_job(state, job)
+        return response(request, {"action": action, "job": _public_sim_job(job)})
+    entry = handlers.get(domain)
+    if entry is None:
+        validators = {
+            "browser_adapters": validate_browser_adapters,
+            "clip_automation": validate_clip_automation,
+            "warp_markers": validate_warp_markers,
+            "special_devices": validate_special_devices,
+        }
+        validator = validators.get(domain)
+        if validator is None:
+            return None
+        if command != expected_command:
+            return failure(request, "invalid_params", "Command/action mismatch")
+        error = validator(params)
+        if error:
+            return failure(request, "invalid_params", error)
+        return failure(
+            request,
+            "unsupported_capability",
+            "Simulator does not model this capability-dependent Live 11 adapter",
+        )
+    if command != expected_command:
+        return failure(request, "invalid_params", "Command/action mismatch")
+    error = entry[0](params)
+    if error:
+        return failure(request, "invalid_params", error)
+    return entry[1](request, params, state)
+
+
 def handle(request, token, state):
     if request.get("kind") != "request":
         return None
     command = request.get("command")
     params = request.get("params", {})
+    core_response = _handle_core_domain(request, command, params, state)
+    if core_response is not None:
+        return core_response
+    workflow_response = _handle_sim_workflow(request, command, params, state)
+    if workflow_response is not None:
+        return workflow_response
     if command == "system.hello":
         if params.get("authenticationToken") != token:
             return failure(
@@ -708,14 +2573,7 @@ def handle(request, token, state):
                 "protocol_version_unsupported",
                 "No supported protocol version",
             )
-        return response(
-            request,
-            {
-                "selectedProtocolVersion": PROTOCOL_VERSION,
-                "liveVersion": "12.1-simulator",
-                "remoteScriptVersion": REMOTE_SCRIPT_VERSION,
-                "projectId": "simulated-project",
-                "capabilities": {
+        capabilities = {
                     "system.ping": True,
                     "session.inspect": True,
                     "transport.set_tempo": True,
@@ -735,6 +2593,11 @@ def handle(request, token, state):
                     "devices.inspect_drum_rack_pads": True,
                     "devices.inspect_drum_pad_chains": True,
                     "devices.inspect_drum_pad_chain_devices": True,
+                    "devices.find_position": True,
+                    "devices.inspect_chain_mixer": True,
+                    "devices.move": True,
+                    "devices.set_chain_properties": True,
+                    "devices.set_chain_mixer": True,
                     "devices.set_enabled": True,
                     "devices.set_parameter": True,
                     "browser.inspect_roots": True,
@@ -756,6 +2619,7 @@ def handle(request, token, state):
                     "arrangement.duplicate_clip": True,
                     "arrangement.set_clip_properties": True,
                     "events.inspect_selection": True,
+                    "events.inspect_curated_state": True,
                     "events.subscribe": True,
                     "events.unsubscribe": True,
                     "events.list_subscriptions": True,
@@ -764,7 +2628,137 @@ def handle(request, token, state):
                     "events.track.playing_clip_changed": True,
                     "events.track.triggered_clip_changed": True,
                     "events.track.recording_state_changed": True,
-                },
+                    "scenes.list": True,
+                    "scenes.get": True,
+                    "scenes.create": True,
+                    "scenes.duplicate": True,
+                    "scenes.rename": True,
+                    "scenes.set_color": True,
+                    "scenes.set_tempo_time_signature": True,
+                    "scenes.fire": True,
+                    "scenes.delete": True,
+                    "tracks.list": True,
+                    "tracks.get": True,
+                    "tracks.create_return": True,
+                    "tracks.duplicate": True,
+                    "tracks.set_color": True,
+                    "tracks.set_monitoring": True,
+                    "tracks.set_fold": True,
+                    "tracks.stop_clips": True,
+                    "tracks.back_to_arrangement": True,
+                    "tracks.delete": True,
+                    "mixer_routing.inspect": True,
+                    "mixer_routing.meters": True,
+                    "mixer_routing.set_volume": True,
+                    "mixer_routing.set_pan": True,
+                    "mixer_routing.set_send": True,
+                    "mixer_routing.set_activator": True,
+                    "mixer_routing.set_crossfade_assignment": True,
+                    "mixer_routing.set_master_crossfader": True,
+                    "mixer_routing.set_cue_volume": True,
+                    "mixer_routing.routing_options": True,
+                    "mixer_routing.set_routing": True,
+                    "transport.get": True,
+                    "transport.seek": True,
+                    "transport.jump": True,
+                    "transport.set_time_signature": True,
+                    "transport.set_metronome": True,
+                    "transport.set_launch_quantization": True,
+                    "transport.set_record_quantization": True,
+                    "transport.set_link": True,
+                    "transport.rename_cue": True,
+                    "transport.jump_to_cue": True,
+                    "transport.back_to_arrangement": True,
+                    "midi_notes.query": True,
+                    "midi_notes.add": True,
+                    "midi_notes.update": True,
+                    "midi_notes.remove": True,
+                    "midi_notes.duplicate": True,
+                    "midi_notes.quantize": True,
+                    "audio_clips.inspect": True,
+                    "audio_clips.set_gain": True,
+                    "audio_clips.set_pitch": True,
+                    "audio_clips.set_warp": True,
+                    "audio_clips.set_warp_mode": True,
+                    "audio_clips.set_markers": True,
+                    "audio_clips.set_ram_mode": True,
+                    "audio_clips.warp_markers": True,
+                    "recording.inspect": True,
+                    "recording.set_arrangement_record": True,
+                    "recording.set_session_record": True,
+                    "recording.set_overdub": True,
+                    "recording.set_session_automation_record": True,
+                    "recording.set_punch": True,
+                    "recording.capture_midi": True,
+                    "recording.record_session_slot": True,
+                    "grooves.list": True,
+                    "grooves.get": True,
+                    "grooves.inspect_clip": True,
+                    "grooves.set_clip_groove": True,
+                    "grooves.clear_clip_groove": True,
+                    "grooves.set_properties": True,
+                    "grooves.set_global_amount": True,
+                    "selection_view.inspect_selection": True,
+                    "selection_view.inspect_view": True,
+                    "selection_view.select_track": True,
+                    "selection_view.select_scene": True,
+                    "selection_view.select_slot": False,
+                    "selection_view.select_clip": False,
+                    "selection_view.select_device": False,
+                    "selection_view.select_chain": False,
+                    "selection_view.set_view": True,
+                    "selection_view.set_follow": True,
+                    "selection_view.set_draw_mode": True,
+                    "selection_view.set_track_fold": False,
+                    "selection_view.set_device_collapsed": False,
+                    "live_history.inspect": True,
+                    "live_history.undo": True,
+                    "live_history.redo": True,
+                    "browser_adapters.preview": False,
+                    "browser_adapters.stop_preview": False,
+                    "browser_adapters.hot_swap": False,
+                    "browser_adapters.insert_adjacent": False,
+                    "browser_adapters.load_empty_drum_pad": False,
+                    "clip_automation.list_envelopes": False,
+                    "clip_automation.sample": False,
+                    "clip_automation.insert_step": False,
+                    "clip_automation.clear_envelope": False,
+                    "clip_automation.clear_all": False,
+                    "warp_markers.inspect": False,
+                    "warp_markers.add": False,
+                    "warp_markers.move": False,
+                    "warp_markers.remove": False,
+                    "special_devices.inspect_simpler": False,
+                    "special_devices.set_simpler_markers": False,
+                    "special_devices.set_simpler_slices": False,
+                    "special_devices.inspect_looper": False,
+                    "special_devices.control_looper": False,
+                    "special_devices.export_looper": False,
+                    "special_devices.inspect_wavetable": False,
+                    "special_devices.set_wavetable_modulation": False,
+                    "workflow_jobs.get": True,
+                    "workflow_jobs.list": True,
+                    "workflow_jobs.cancel": True,
+                }
+        capability_details = {
+            name: {
+                "supported": supported,
+                "evidence": "public" if supported else "unavailable",
+                "minimumLiveVersion": "11.0",
+                "testedLiveVersions": ["simulator"] if supported else [],
+                "limitations": [],
+            }
+            for name, supported in capabilities.items()
+        }
+        return response(
+            request,
+            {
+                "selectedProtocolVersion": PROTOCOL_VERSION,
+                "liveVersion": "11.3-simulator",
+                "remoteScriptVersion": REMOTE_SCRIPT_VERSION,
+                "projectId": "simulated-project",
+                "capabilities": capabilities,
+                "capabilityDetails": capability_details,
                 "limits": {
                     "maxFrameBytes": 4 * 1024 * 1024,
                     "maxBatchItems": 128,
@@ -773,6 +2767,109 @@ def handle(request, token, state):
         )
     if command == "system.ping":
         return response(request, {"pong": True})
+    if command == "events.inspect_curated_state":
+        if params:
+            return failure(
+                request, "invalid_params", "Command does not accept parameters"
+            )
+        return response(
+            request,
+            {
+                "states": [
+                    {
+                        "topic": "transport",
+                        "state": {
+                            "isPlaying": state.is_playing,
+                            "arrangementRecord": state.recording_state[
+                                "arrangementRecord"
+                            ],
+                            "sessionRecord": state.recording_state[
+                                "sessionRecord"
+                            ],
+                        },
+                    },
+                    {
+                        "topic": "tempo-signature",
+                        "state": {
+                            "tempo": state.tempo,
+                            "numerator": state.signature_numerator,
+                            "denominator": state.signature_denominator,
+                        },
+                    },
+                    {
+                        "topic": "selection",
+                        "state": {
+                            "trackReference": state.selected_track_reference,
+                            "sceneReference": state.selected_scene_reference,
+                            "clipReference": None,
+                            "deviceReference": None,
+                        },
+                    },
+                    {
+                        "topic": "track-topology",
+                        "state": {
+                            "references": [
+                                track["reference"] for track in state.tracks
+                            ]
+                        },
+                    },
+                    {
+                        "topic": "scene-topology",
+                        "state": {
+                            "references": [
+                                scene["reference"] for scene in state.scenes
+                            ]
+                        },
+                    },
+                    {
+                        "topic": "clip-topology",
+                        "state": {
+                            "trackReferences": [
+                                track["reference"] for track in state.tracks
+                            ],
+                            "clipCount": sum(
+                                1
+                                for track in state.tracks
+                                for clip in track["clips"]
+                                if clip is not None
+                            ),
+                        },
+                    },
+                    {
+                        "topic": "device-topology",
+                        "state": {
+                            "trackReferences": [
+                                track["reference"] for track in state.tracks
+                            ],
+                            "deviceCount": sum(
+                                len(track["devices"]) for track in state.tracks
+                            ),
+                        },
+                    },
+                    {
+                        "topic": "routing",
+                        "state": {
+                            "trackReferences": [
+                                track["reference"] for track in state.tracks
+                            ]
+                        },
+                    },
+                    {
+                        "topic": "meters",
+                        "state": {
+                            "samples": [
+                                {
+                                    "trackReference": track["reference"],
+                                    "left": 0.0,
+                                    "right": 0.0,
+                                }
+                                for track in state.tracks
+                            ]
+                        },
+                    },
+                ]
+            },
+        )
     if command == "events.inspect_selection":
         if params:
             return failure(
@@ -1484,13 +3581,14 @@ def handle(request, token, state):
             "isArmed": False,
             "volume": 0.85,
             "pan": 0.0,
-            "clips": [None, None],
+            "clips": [None for _scene in state.scenes],
             "arrangementClips": [],
             "playingSceneIndex": None,
             "firedSceneIndex": None,
             "recording": False,
             "devices": [],
         }
+        state.initialize_core_track(track)
         state.tracks.append(track)
         return response(
             request,
@@ -1609,6 +3707,246 @@ def handle(request, token, state):
             {
                 "reference": track["reference"],
                 "index": index,
+                "before": before,
+                "after": after,
+                "verified": True,
+            },
+        )
+    if command in ("devices.find_position", "devices.move"):
+        source_target = params.get("source", {})
+        destination_target = params.get("destination", {})
+        source = state.resolve_device_location(source_target)
+        destination = state.resolve_device_destination(destination_target)
+        if source is None or destination is None:
+            return failure(
+                request,
+                "stale_reference",
+                "Device or parent identity changed before operation",
+            )
+        (
+            source_track,
+            source_rack,
+            source_pad,
+            source_chain,
+            source_devices,
+            device,
+        ) = source
+        (
+            destination_track,
+            destination_rack,
+            destination_pad,
+            destination_chain,
+            destination_devices,
+        ) = destination
+        source_index = source_devices.index(device)
+        requested_index = destination_target.get("deviceIndex")
+        same_parent = source_devices is destination_devices
+        maximum = len(destination_devices) - (1 if same_parent else 0)
+        if (
+            isinstance(requested_index, bool)
+            or not isinstance(requested_index, int)
+            or requested_index < 0
+            or requested_index > maximum
+        ):
+            return failure(
+                request, "not_found", "Destination device index is out of range"
+            )
+        api_position = (
+            requested_index + 1
+            if same_parent and source_index < requested_index
+            else requested_index
+        )
+        source_summary = state.device_location_summary(
+            source_target["kind"],
+            source_track,
+            source_rack,
+            source_pad,
+            source_chain,
+            source_devices,
+            device,
+        )
+        destination_summary = {
+            "kind": destination_target["kind"],
+            "track": {
+                "index": state.tracks.index(destination_track),
+                "reference": destination_track["reference"],
+                "name": destination_track["name"],
+            },
+            "deviceIndex": requested_index,
+        }
+        if destination_rack is not None:
+            destination_summary["rack"] = {
+                "index": destination_track["devices"].index(destination_rack),
+                "reference": destination_rack["reference"],
+                "name": destination_rack["name"],
+            }
+        if destination_chain is not None:
+            chains = (
+                destination_pad["chains"]
+                if destination_pad is not None
+                else destination_rack["chains"]
+            )
+            destination_summary["chain"] = {
+                "index": chains.index(destination_chain),
+                "reference": destination_chain["reference"],
+                "name": destination_chain["name"],
+            }
+        if destination_pad is not None:
+            destination_summary["pad"] = {
+                "index": destination_rack["drumPads"].index(destination_pad),
+                "reference": destination_pad["reference"],
+                "note": destination_pad["note"],
+                "name": destination_pad["name"],
+            }
+        if command == "devices.find_position":
+            return response(
+                request,
+                {
+                    "source": source_summary,
+                    "destination": destination_summary,
+                    "requestedIndex": requested_index,
+                    "resolvedIndex": requested_index,
+                    "apiTargetPosition": api_position,
+                    "sameParent": same_parent,
+                    "exact": True,
+                },
+            )
+        source_devices.remove(device)
+        destination_devices.insert(requested_index, device)
+        after_kind = destination_target["kind"] + "-device"
+        after = state.device_location_summary(
+            after_kind,
+            destination_track,
+            destination_rack,
+            destination_pad,
+            destination_chain,
+            destination_devices,
+            device,
+        )
+        return response(
+            request,
+            {
+                "deviceReference": device["reference"],
+                "before": source_summary,
+                "after": after,
+                "requestedDestinationIndex": requested_index,
+                "preflightIndex": requested_index,
+                "moveReturnedIndex": requested_index,
+                "sameParent": same_parent,
+                "verified": True,
+            },
+        )
+    if command in (
+        "devices.inspect_chain_mixer",
+        "devices.set_chain_properties",
+        "devices.set_chain_mixer",
+    ):
+        resolved = state.resolve_chain_target(params.get("target", {}))
+        if resolved is None:
+            return failure(
+                request,
+                "stale_reference",
+                "Chain identity changed before operation",
+            )
+        _track, rack, _pad, chain = resolved
+        if command == "devices.inspect_chain_mixer":
+            return response(
+                request,
+                {
+                    "chainReference": chain["reference"],
+                    "mixer": state.chain_mixer_summary(chain),
+                },
+            )
+        if command == "devices.set_chain_properties":
+            color_index = params.get("colorIndex")
+            if (
+                set(params.keys()) - set(["target", "name", "colorIndex"])
+                or ("name" not in params and "colorIndex" not in params)
+                or (
+                    "colorIndex" in params
+                    and (
+                        isinstance(color_index, bool)
+                        or not isinstance(color_index, int)
+                        or color_index < 0
+                        or color_index > LIVE_11_MAX_COLOR_INDEX
+                    )
+                )
+            ):
+                return failure(
+                    request,
+                    "invalid_params",
+                    "colorIndex must be an integer between 0 and 69",
+                )
+            before = {
+                "name": chain["name"],
+                "color": chain["color"],
+                "colorIndex": chain["colorIndex"],
+            }
+            if "name" in params:
+                chain["name"] = params["name"]
+            if "colorIndex" in params:
+                chain["colorIndex"] = params["colorIndex"]
+                chain["color"] = simulated_palette_color(
+                    params["colorIndex"]
+                )
+            return response(
+                request,
+                {
+                    "chainReference": chain["reference"],
+                    "before": before,
+                    "after": {
+                        "name": chain["name"],
+                        "color": chain["color"],
+                        "colorIndex": chain["colorIndex"],
+                    },
+                    "verified": True,
+                },
+            )
+        before = state.chain_mixer_summary(chain)
+        if "mute" in params:
+            chain["mute"] = params["mute"]
+        if "solo" in params:
+            chain["solo"] = params["solo"]
+        for name in ("volume", "pan"):
+            if name in params:
+                parameter = chain["mixer"][name]
+                change = params[name]
+                if (
+                    parameter["reference"]
+                    != change["expectedParameterReference"]
+                    or parameter["name"] != change["expectedParameterName"]
+                ):
+                    return failure(
+                        request,
+                        "stale_reference",
+                        "Chain mixer parameter identity changed",
+                    )
+                parameter["value"] = (
+                    parameter["min"]
+                    + (parameter["max"] - parameter["min"])
+                    * change["normalizedValue"]
+                )
+        for change in params.get("sends", []):
+            if change["index"] >= len(chain["mixer"]["sends"]):
+                return failure(
+                    request, "not_found", "Chain send index is out of range"
+                )
+            parameter = chain["mixer"]["sends"][change["index"]]
+            if (
+                parameter["reference"] != change["expectedParameterReference"]
+                or parameter["name"] != change["expectedParameterName"]
+            ):
+                return failure(
+                    request,
+                    "stale_reference",
+                    "Chain send identity changed",
+                )
+            parameter["value"] = change["normalizedValue"]
+        after = state.chain_mixer_summary(chain)
+        return response(
+            request,
+            {
+                "chainReference": chain["reference"],
                 "before": before,
                 "after": after,
                 "verified": True,

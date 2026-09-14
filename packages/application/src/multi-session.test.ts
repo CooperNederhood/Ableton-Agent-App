@@ -15,6 +15,10 @@ import type {
 } from "@github/copilot-sdk";
 
 import { InMemoryEventPublisher, type AppEvent } from "@ableton-agent/shared";
+import type {
+  MidiNotesOperationParams,
+  TracksOperationParams,
+} from "@ableton-agent/protocol";
 
 import {
   CopilotAgentService,
@@ -846,6 +850,298 @@ describe("CopilotAgentService managed sessions", () => {
     ).rejects.toMatchObject({ code: "binding_stale" });
     expect(renameTrack).toHaveBeenCalledOnce();
     expect(createTrack).not.toHaveBeenCalled();
+    await service.stop();
+  });
+
+  it("records target-aware lifecycle for descriptor-backed operations", async () => {
+    const deviceReference = "00000000-0000-4000-8000-000000000040";
+    const configs: SessionConfig[] = [];
+    const runtimeEvents: AgentRuntimeEvent[] = [];
+    const moveDevice = vi.fn(async () => ({
+      deviceReference,
+      before: {
+        kind: "track-device" as const,
+        track: {
+          index: 0,
+          reference: trackAReference,
+          name: "Track A",
+        },
+        device: {
+          index: 0,
+          reference: deviceReference,
+          name: "Operator",
+        },
+      },
+      after: {
+        kind: "track-device" as const,
+        track: {
+          index: 1,
+          reference: trackBReference,
+          name: "Track B",
+        },
+        device: {
+          index: 0,
+          reference: deviceReference,
+          name: "Operator",
+        },
+      },
+      requestedDestinationIndex: 0,
+      preflightIndex: 0,
+      moveReturnedIndex: 0,
+      sameParent: false,
+      verified: true as const,
+    }));
+    const service = new CopilotAgentService(
+      baseOptions({
+        moveDevice,
+        getAbletonStatus: async () =>
+          ({
+            state: "connected",
+            projectId: "project-1",
+          }) as never,
+        runtimeObserver: {
+          enqueue: (event) => runtimeEvents.push(event),
+        },
+        clientFactory: () => ({
+          createSession: vi.fn(async (config: SessionConfig) => {
+            configs.push(config);
+            return createFakeSession(`session-${configs.length}`);
+          }),
+          resumeSession: vi.fn(async () => {
+            throw new Error("resume not expected");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+
+    await service.start();
+    await service.createManagedAgent(
+      configuration("device-editor", {
+        resolvedTools: ["ableton_device_move"],
+        editScope: ["session"],
+      }),
+    );
+    const move = configs[1]?.tools?.find(
+      ({ name }) => name === "ableton_device_move",
+    )?.handler;
+    const args = {
+      source: {
+        kind: "track-device" as const,
+        track: {
+          index: 0,
+          expectedReference: trackAReference,
+          expectedName: "Track A",
+        },
+        device: {
+          index: 0,
+          expectedReference: deviceReference,
+          expectedName: "Operator",
+        },
+      },
+      destination: {
+        kind: "track" as const,
+        track: {
+          index: 1,
+          expectedReference: trackBReference,
+          expectedName: "Track B",
+        },
+        deviceIndex: 0,
+      },
+    };
+
+    await expect(
+      move?.(args, {
+        sessionId: "session-2",
+        toolCallId: "move-tool-call",
+        toolName: "ableton_device_move",
+        arguments: args,
+      }),
+    ).resolves.toMatchObject({ verified: true });
+
+    const operationEvents = runtimeEvents.filter((event) =>
+      event.type.startsWith("agent.operation."),
+    );
+    expect(operationEvents.map(({ type }) => type)).toEqual([
+      "agent.operation.requested",
+      "agent.operation.policy",
+      "agent.operation.queued",
+      "agent.operation.started",
+      "agent.operation.verification",
+      "agent.operation.completed",
+    ]);
+    expect(operationEvents[0]).toMatchObject({
+      sessionId: "session-2",
+      agentInstanceId: "device-editor",
+      data: {
+        toolCallId: "move-tool-call",
+        operationDescriptorId: "devices.move",
+        action: "move",
+        targetIdentity: {
+          domain: "devices",
+          action: "move",
+          targetKind: "track-device-to-track",
+          targetReferences: [trackAReference, deviceReference, trackBReference],
+        },
+      },
+    });
+    expect(operationEvents.at(-2)?.data.verified).toBe(true);
+    expect(typeof operationEvents.at(-2)?.data.durationMs).toBe("number");
+    expect(typeof operationEvents.at(-2)?.data.executionDurationMs).toBe(
+      "number",
+    );
+    expect(typeof operationEvents.at(-1)?.data.durationMs).toBe("number");
+    expect(moveDevice).toHaveBeenCalledWith(args);
+    await service.stop();
+  });
+
+  it("emits action-specific lifecycle for consolidated read and mutation tools", async () => {
+    const configs: SessionConfig[] = [];
+    const runtimeEvents: AgentRuntimeEvent[] = [];
+    const executeMidiNotesOperation = vi.fn(
+      async (params: MidiNotesOperationParams) =>
+        params.action === "query"
+          ? {
+              action: "query" as const,
+              notes: [],
+              total: 0,
+              offset: params.offset,
+              limit: params.limit,
+              truncated: false,
+            }
+          : {
+              action: "remove" as const,
+              beforeNoteCount: 1,
+              afterNoteCount: 0,
+              affectedNoteIds: [7],
+              verified: true as const,
+            },
+    );
+    const executeTracksOperation = vi.fn(
+      async (params: TracksOperationParams) => {
+        if (params.action !== "set-color") {
+          throw new Error("Unexpected track operation");
+        }
+        const before = {
+          kind: "regular" as const,
+          index: 0,
+          reference: trackAReference,
+          name: "Track A",
+          trackType: "midi" as const,
+          colorIndex: 1,
+          isGroup: false,
+          isFolded: false,
+          monitoringState: 1,
+          canBeArmed: true,
+          isArmed: false,
+          isMuted: false,
+          isSoloed: false,
+          backToArrangement: false,
+        };
+        return {
+          action: "set-color" as const,
+          result: {
+            before,
+            after: { ...before, colorIndex: params.colorIndex },
+            verified: true as const,
+          },
+        };
+      },
+    );
+    const service = new CopilotAgentService(
+      baseOptions({
+        executeMidiNotesOperation,
+        executeTracksOperation,
+        getAbletonStatus: async () =>
+          ({ state: "connected", projectId: "project-1" }) as never,
+        runtimeObserver: {
+          enqueue: (event) => runtimeEvents.push(event),
+        },
+        clientFactory: () => ({
+          createSession: vi.fn(async (config: SessionConfig) => {
+            configs.push(config);
+            return createFakeSession(`session-${configs.length}`);
+          }),
+          resumeSession: vi.fn(async () => {
+            throw new Error("resume not expected");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+    await service.createManagedAgent(
+      configuration("note-editor", {
+        resolvedTools: ["ableton_midi_notes", "ableton_tracks"],
+        editScope: ["session"],
+      }),
+    );
+    const handler = configs[1]?.tools?.find(
+      ({ name }) => name === "ableton_midi_notes",
+    )?.handler;
+    const target = {
+      view: "session" as const,
+      track: {
+        kind: "regular" as const,
+        index: 0,
+        expectedReference: trackAReference,
+        expectedName: "Track A",
+      },
+      sceneIndex: 0,
+      expectedClipReference: "00000000-0000-4000-8000-000000000003",
+      expectedClipName: "Beat",
+    };
+
+    await handler?.(
+      { action: "query", target, offset: 0, limit: 32 },
+      {
+        sessionId: "session-2",
+        toolCallId: "query-notes",
+        toolName: "ableton_midi_notes",
+        arguments: {},
+      },
+    );
+    await handler?.(
+      { action: "remove", target, noteIds: [7] },
+      {
+        sessionId: "session-2",
+        toolCallId: "remove-notes",
+        toolName: "ableton_midi_notes",
+        arguments: {},
+      },
+    );
+    const trackHandler = configs[1]?.tools?.find(
+      ({ name }) => name === "ableton_tracks",
+    )?.handler;
+    await trackHandler?.(
+      {
+        action: "set-color",
+        target: {
+          kind: "regular",
+          index: 0,
+          expectedReference: trackAReference,
+          expectedName: "Track A",
+        },
+        colorIndex: 2,
+      },
+      {
+        sessionId: "session-2",
+        toolCallId: "set-track-color",
+        toolName: "ableton_tracks",
+        arguments: {},
+      },
+    );
+
+    expect(
+      runtimeEvents
+        .filter((event) => event.type === "agent.operation.requested")
+        .map((event) => event.data.operationDescriptorId),
+    ).toEqual(["midi_notes.query", "midi_notes.remove", "tracks.set_color"]);
+    expect(
+      runtimeEvents
+        .filter((event) => event.type === "agent.operation.verification")
+        .map((event) => event.data.verified),
+    ).toEqual([false, true, true]);
     await service.stop();
   });
 

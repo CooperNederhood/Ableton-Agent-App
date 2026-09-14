@@ -50,6 +50,18 @@ Initial event kinds:
 | `track.triggered_clip_changed` | Discrete | A track queued or cleared a pending Session clip launch. |
 | `track.recording_state_changed` | Discrete | A track or its active clip started or stopped recording. |
 
+The Remote Script also exposes a fixed, typed `live_state.changed` stream for
+transport/recording, tempo/signature, selection, track/scene/clip/device
+topology, routing, and meters. This stream is not an arbitrary-property
+subscription API. `events.inspect_curated_state` provides the bounded initial
+state, topology changes rebind dependent listeners, and meter callbacks are
+coalesced before crossing the socket.
+
+Long-running Live operations publish
+`workflow_job.queued|started|progress|completed|failed|cancelled|indeterminate`.
+These payloads contain bounded job metadata and trace/correlation/causation
+identifiers, but omit prompts, binary data, and operation result bodies.
+
 The schema must be a discriminated union. Each kind owns only the fields needed
 to resolve and serialize that source.
 

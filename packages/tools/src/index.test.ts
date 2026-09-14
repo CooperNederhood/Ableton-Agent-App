@@ -6,6 +6,8 @@ import {
   createAbletonPermissionHandler,
   createAbletonTools,
   parseAbletonToolFailure,
+  resolveAbletonOperation,
+  scopeAbletonTools,
   toolCatalogPolicy,
   type AbletonToolServices,
   type ToolApprovalRequest,
@@ -823,6 +825,127 @@ function services() {
           limit: params.limit,
         }),
     ),
+    inspectChainMixer: vi.fn(
+      async (
+        params: Parameters<AbletonToolServices["inspectChainMixer"]>[0],
+      ) => ({
+        chainReference: params.target.chain.expectedReference,
+        mixer: {
+          mute: false,
+          solo: false,
+          volume: null,
+          pan: null,
+          sends: [],
+        },
+      }),
+    ),
+    findDevicePosition: vi.fn(
+      async (
+        params: Parameters<AbletonToolServices["findDevicePosition"]>[0],
+      ) => ({
+        source: {
+          kind: "track-device" as const,
+          track: {
+            index: params.source.track.index,
+            reference: params.source.track.expectedReference,
+            name: params.source.track.expectedName,
+          },
+          device: {
+            index: params.source.device.index,
+            reference: params.source.device.expectedReference,
+            name: params.source.device.expectedName,
+          },
+        },
+        destination: {
+          kind: "track" as const,
+          track: {
+            index: params.destination.track.index,
+            reference: params.destination.track.expectedReference,
+            name: params.destination.track.expectedName,
+          },
+          deviceIndex: params.destination.deviceIndex,
+        },
+        requestedIndex: params.destination.deviceIndex,
+        resolvedIndex: params.destination.deviceIndex,
+        apiTargetPosition: params.destination.deviceIndex,
+        sameParent: false,
+        exact: true,
+      }),
+    ),
+    moveDevice: vi.fn(
+      async (params: Parameters<AbletonToolServices["moveDevice"]>[0]) => ({
+        deviceReference: params.source.device.expectedReference,
+        before: {
+          kind: "track-device" as const,
+          track: {
+            index: params.source.track.index,
+            reference: params.source.track.expectedReference,
+            name: params.source.track.expectedName,
+          },
+          device: {
+            index: params.source.device.index,
+            reference: params.source.device.expectedReference,
+            name: params.source.device.expectedName,
+          },
+        },
+        after: {
+          kind: "track-device" as const,
+          track: {
+            index: params.destination.track.index,
+            reference: params.destination.track.expectedReference,
+            name: params.destination.track.expectedName,
+          },
+          device: {
+            index: params.destination.deviceIndex,
+            reference: params.source.device.expectedReference,
+            name: params.source.device.expectedName,
+          },
+        },
+        requestedDestinationIndex: params.destination.deviceIndex,
+        preflightIndex: params.destination.deviceIndex,
+        moveReturnedIndex: params.destination.deviceIndex,
+        sameParent: false,
+        verified: true as const,
+      }),
+    ),
+    setChainProperties: vi.fn(
+      async (
+        params: Parameters<AbletonToolServices["setChainProperties"]>[0],
+      ) => ({
+        chainReference: params.target.chain.expectedReference,
+        before: {
+          name: params.target.chain.expectedName,
+          color: 0x0f_0f_0f,
+          colorIndex: 5,
+        },
+        after: {
+          name: params.name ?? params.target.chain.expectedName,
+          color: params.colorIndex === undefined ? 0x0f_0f_0f : 0x33_33_33,
+          colorIndex: params.colorIndex ?? 5,
+        },
+        verified: true as const,
+      }),
+    ),
+    setChainMixer: vi.fn(
+      async (params: Parameters<AbletonToolServices["setChainMixer"]>[0]) => ({
+        chainReference: params.target.chain.expectedReference,
+        before: {
+          mute: false,
+          solo: false,
+          volume: null,
+          pan: null,
+          sends: [],
+        },
+        after: {
+          mute: params.mute ?? false,
+          solo: params.solo ?? false,
+          volume: null,
+          pan: null,
+          sends: [],
+        },
+        verified: true as const,
+      }),
+    ),
     setDeviceEnabled: vi.fn(
       (params: Parameters<AbletonToolServices["setDeviceEnabled"]>[0]) =>
         Promise.resolve({
@@ -1011,92 +1134,237 @@ describe("Ableton tools", () => {
       "custom:ableton_browser_search",
       "custom:ableton_browser_search_external_plugins",
       "custom:ableton_browser_load_item",
+      "custom:ableton_rack_chain_mixer_inspect",
+      "custom:ableton_device_find_position",
+      "custom:ableton_device_move",
+      "custom:ableton_rack_chain_set_properties",
+      "custom:ableton_rack_chain_set_mixer",
+      "custom:ableton_scenes",
+      "custom:ableton_tracks",
+      "custom:ableton_mixer_routing",
+      "custom:ableton_transport",
+      "custom:ableton_midi_notes",
+      "custom:ableton_audio_clips",
+      "custom:ableton_recording",
+      "custom:ableton_grooves",
+      "custom:ableton_selection_view",
+      "custom:ableton_live_history",
+      "custom:ableton_browser_adapters",
+      "custom:ableton_clip_automation",
+      "custom:ableton_warp_markers",
+      "custom:ableton_special_devices",
+      "custom:ableton_workflow_jobs",
     ]);
     expect(toolSet.tools.length).toBeLessThanOrEqual(
       toolCatalogPolicy.maximumEagerTools,
     );
-    expect(abletonToolMetadata.map((metadata) => metadata.risk)).toEqual([
-      "read",
-      "read",
-      "reversible",
-      "reversible",
-      "read",
-      "reversible",
-      "reversible",
-      "destructive",
-      "reversible",
-      "destructive",
-      "reversible",
-      "reversible",
-      "reversible",
-      "destructive",
-      "reversible",
-      "reversible",
-      "destructive",
-      "reversible",
-      "reversible",
-      "read",
-      "destructive",
-      "destructive",
-      "reversible",
-      "reversible",
-      "read",
-      "read",
-      "read",
-      "read",
-      "read",
-      "read",
-      "read",
-      "reversible",
-      "reversible",
-      "read",
-      "read",
-      "read",
-      "read",
-      "reversible",
-    ]);
     expect(
-      abletonToolMetadata.map((metadata) => metadata.mutationTarget),
+      abletonToolMetadata.every((metadata) =>
+        ["read", "reversible", "destructive", "broad"].includes(metadata.risk),
+      ),
+    ).toBe(true);
+    expect(
+      abletonToolMetadata.every((metadata) =>
+        ["read", "session", "track", "tracks"].includes(
+          metadata.mutationTarget,
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      abletonToolMetadata
+        .filter((metadata) =>
+          [
+            "ableton_scenes",
+            "ableton_tracks",
+            "ableton_mixer_routing",
+            "ableton_transport",
+            "ableton_midi_notes",
+            "ableton_audio_clips",
+            "ableton_recording",
+            "ableton_grooves",
+            "ableton_selection_view",
+            "ableton_live_history",
+            "ableton_browser_adapters",
+            "ableton_clip_automation",
+            "ableton_warp_markers",
+            "ableton_special_devices",
+            "ableton_workflow_jobs",
+          ].includes(metadata.name),
+        )
+        .map(({ name }) => name),
     ).toEqual([
-      "read",
-      "read",
-      "session",
-      "session",
-      "read",
-      "session",
-      "session",
-      "session",
-      "session",
-      "track",
-      "track",
-      "track",
-      "track",
-      "track",
-      "track",
-      "tracks",
-      "track",
-      "track",
-      "track",
-      "read",
-      "track",
-      "track",
-      "track",
-      "track",
-      "read",
-      "read",
-      "read",
-      "read",
-      "read",
-      "read",
-      "read",
-      "track",
-      "track",
-      "read",
-      "read",
-      "read",
-      "read",
-      "track",
+      "ableton_scenes",
+      "ableton_tracks",
+      "ableton_mixer_routing",
+      "ableton_transport",
+      "ableton_midi_notes",
+      "ableton_audio_clips",
+      "ableton_recording",
+      "ableton_grooves",
+      "ableton_selection_view",
+      "ableton_live_history",
+      "ableton_browser_adapters",
+      "ableton_clip_automation",
+      "ableton_warp_markers",
+      "ableton_special_devices",
+      "ableton_workflow_jobs",
     ]);
+  });
+
+  it("prunes grouped tool actions by operation allowlist and capabilities", () => {
+    const scoped = scopeAbletonTools(createAbletonTools(services()), {
+      allowedToolNames: ["ableton_recording", "ableton_tracks_delete"],
+      allowedOperationIds: [
+        "recording.inspect",
+        "recording.set_arrangement_record",
+      ],
+      capabilities: {
+        "recording.inspect": true,
+        "recording.set_arrangement_record": false,
+      },
+    });
+
+    expect(scoped.map((tool) => tool.name)).toEqual([
+      "ableton_tracks_delete",
+      "ableton_recording",
+    ]);
+    const recording = scoped.find((tool) => tool.name === "ableton_recording");
+    const parameters = recording?.parameters as {
+      safeParse(value: unknown): { success: boolean };
+    };
+    expect(parameters.safeParse({ action: "inspect" }).success).toBe(true);
+    expect(
+      parameters.safeParse({
+        action: "set-arrangement-record",
+        enabled: true,
+        confirmation: {
+          expectedProjectId: "00000000-0000-4000-8000-000000000001",
+          expectedValue: false,
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("fails closed when a connected capability document omits an action", () => {
+    const scoped = scopeAbletonTools(createAbletonTools(services()), {
+      allowedToolNames: ["ableton_recording"],
+      allowedOperationIds: ["recording.inspect", "recording.set_overdub"],
+      capabilities: {
+        "recording.inspect": true,
+      },
+    });
+    const recording = scoped[0];
+    const parameters = recording?.parameters as {
+      safeParse(value: unknown): { success: boolean };
+    };
+
+    expect(parameters.safeParse({ action: "inspect" }).success).toBe(true);
+    expect(
+      parameters.safeParse({ action: "set-overdub", enabled: true }).success,
+    ).toBe(false);
+  });
+
+  it("resolves action-aware metadata and exact affected tracks from arguments", () => {
+    const operation = resolveAbletonOperation("ableton_device_move", {
+      source: {
+        kind: "track-device",
+        track: {
+          index: 0,
+          expectedReference: "00000000-0000-4000-8000-000000000001",
+          expectedName: "Drums",
+        },
+        device: {
+          index: 0,
+          expectedReference: "00000000-0000-4000-8000-000000000010",
+          expectedName: "Drum Rack",
+        },
+      },
+      destination: {
+        kind: "track",
+        track: {
+          index: 1,
+          expectedReference: "00000000-0000-4000-8000-000000000002",
+          expectedName: "Bass",
+        },
+        deviceIndex: 0,
+      },
+    });
+
+    expect(operation).toMatchObject({
+      descriptor: {
+        operationId: "devices.move",
+        action: "move",
+        handlerBinding: "moveDevice",
+        editScope: "affected-tracks",
+      },
+      affectedTrackReferences: [
+        "00000000-0000-4000-8000-000000000001",
+        "00000000-0000-4000-8000-000000000002",
+      ],
+      lifecycleIdentity: {
+        domain: "devices",
+        action: "move",
+        targetKind: "track-device-to-track",
+      },
+    });
+  });
+
+  it("classifies recording and global history actions with exact approval scope", () => {
+    const globalRecord = resolveAbletonOperation("ableton_recording", {
+      action: "set-arrangement-record",
+      enabled: true,
+    });
+    expect(globalRecord?.metadata).toMatchObject({
+      operationId: "recording.set_arrangement_record",
+      risk: "broad",
+      editScope: "session",
+    });
+    expect(globalRecord?.descriptor).toMatchObject({
+      protocolCommand: "recording.set_arrangement_record",
+      lifecycleEvents: {
+        requested: "agent.operation.requested",
+        policyEvaluated: "agent.operation.policy",
+        queued: "agent.operation.queued",
+        started: "agent.operation.started",
+        progress: "workflow_job.progress",
+        verification: "agent.operation.verification",
+        completed: "agent.operation.completed",
+        failed: "agent.operation.failed",
+        cancelled: "agent.operation.cancelled",
+      },
+    });
+
+    const timed = resolveAbletonOperation("ableton_recording", {
+      action: "record-session-slot",
+      target: {
+        track: {
+          kind: "regular",
+          index: 0,
+          expectedReference: "00000000-0000-4000-8000-000000000001",
+          expectedName: "Drums",
+        },
+        sceneIndex: 2,
+        expectedSceneReference: "00000000-0000-4000-8000-000000000020",
+        expectedSceneName: "Verse",
+        expectedHasClip: false,
+      },
+      durationBeats: 4,
+    });
+    expect(timed?.affectedTrackReferences).toEqual([
+      "00000000-0000-4000-8000-000000000001",
+    ]);
+    expect(timed?.metadata).toMatchObject({
+      duration: "long",
+      editScope: "affected-tracks",
+      mutationTarget: "tracks",
+    });
+
+    expect(
+      resolveAbletonOperation("ableton_live_history", {
+        action: "undo",
+        confirmation: "global-live-history",
+      })?.metadata,
+    ).toMatchObject({ risk: "broad", editScope: "session" });
   });
 
   it("invokes application service ports instead of transport code", async () => {
@@ -1424,9 +1692,64 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
+    const operationTrack = {
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000001",
+      expectedName: "Drums",
+    };
+    const operationDevice = {
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000040",
+      expectedName: "Operator",
+    };
+    const operationChain = {
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000042",
+      expectedName: "Main",
+    };
+    const operationSource = {
+      kind: "track-device" as const,
+      track: operationTrack,
+      device: operationDevice,
+    };
+    const operationDestination = {
+      kind: "track" as const,
+      track: operationTrack,
+      deviceIndex: 0,
+    };
+    const operationChainTarget = {
+      kind: "rack-chain" as const,
+      track: operationTrack,
+      rack: operationDevice,
+      chain: operationChain,
+    };
+    await toolSet.tools[38].handler?.(
+      { target: operationChainTarget },
+      invocation,
+    );
+    await toolSet.tools[39].handler?.(
+      { source: operationSource, destination: operationDestination },
+      invocation,
+    );
+    await toolSet.tools[40].handler?.(
+      { source: operationSource, destination: operationDestination },
+      invocation,
+    );
+    await toolSet.tools[41].handler?.(
+      {
+        target: operationChainTarget,
+        name: "Parallel",
+        colorIndex: 17,
+      },
+      invocation,
+    );
+    await toolSet.tools[42].handler?.(
+      { target: operationChainTarget, mute: true },
+      invocation,
+    );
 
     expect(ports.getConnectionStatus).toHaveBeenCalledTimes(
-      toolSet.tools.length,
+      toolSet.tools.length - 15,
     );
     expect(ports.inspectSession).toHaveBeenCalledOnce();
     expect(ports.setTempo).toHaveBeenCalledWith(132);
@@ -1620,6 +1943,9 @@ describe("Ableton tools", () => {
       offset: 0,
       limit: 10,
     });
+    expect(ports.inspectChainMixer).toHaveBeenCalledWith({
+      target: operationChainTarget,
+    });
     expect(ports.inspectDeviceParameters).toHaveBeenCalledWith({
       ...deviceTarget,
       offset: 0,
@@ -1663,6 +1989,11 @@ describe("Ableton tools", () => {
       expectedReference: "00000000-0000-4000-8000-000000000001",
       expectedName: "Drums",
       ...browserTarget,
+    });
+    expect(ports.setChainProperties).toHaveBeenCalledWith({
+      target: operationChainTarget,
+      name: "Parallel",
+      colorIndex: 17,
     });
   });
 
@@ -1762,6 +2093,49 @@ describe("Ableton tools", () => {
         risk: "reversible",
       },
       arguments: { tempo: 132 },
+    });
+  });
+
+  it("requests destructive approval metadata for MIDI note removal", async () => {
+    const requestApproval = vi.fn((request: ToolApprovalRequest) => {
+      void request;
+      return Promise.resolve(true);
+    });
+    const handler = createAbletonPermissionHandler(requestApproval);
+    const args = {
+      action: "remove",
+      target: {
+        view: "session",
+        track: {
+          kind: "regular",
+          index: 0,
+          expectedReference: "00000000-0000-4000-8000-000000000001",
+          expectedName: "Drums",
+        },
+        sceneIndex: 0,
+        expectedClipReference: "00000000-0000-4000-8000-000000000002",
+        expectedClipName: "Beat",
+      },
+      noteIds: [1],
+    };
+
+    await expect(
+      handler(
+        {
+          kind: "custom-tool",
+          toolName: "ableton_midi_notes",
+          toolDescription: "Remove MIDI notes",
+          args,
+        },
+        { sessionId: "session" },
+      ),
+    ).resolves.toEqual({ kind: "approve-once" });
+    expect(requestApproval.mock.calls[0]?.[0]).toMatchObject({
+      metadata: {
+        operationId: "midi_notes.remove",
+        risk: "destructive",
+      },
+      arguments: args,
     });
   });
 

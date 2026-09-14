@@ -1,0 +1,44 @@
+{
+  "formatVersion": 1,
+  "id": "workflow-state-inspection",
+  "group": "inspection",
+  "prompt": "Inspect Live 11 recording state, the bounded Groove Pool, exact current selection and view state, global undo/redo availability, and the bounded workflow-job list. Do not mutate Live, invoke undo/redo, or start/cancel a job.",
+  "artifactPrefix": "AA_SMOKE_WORKFLOW_STATE_",
+  "allowedTools": [
+    "ableton_recording",
+    "ableton_grooves",
+    "ableton_selection_view",
+    "ableton_live_history",
+    "ableton_workflow_jobs"
+  ],
+  "allowedRisks": ["read"],
+  "maxToolCalls": 6,
+  "maxMutations": 0,
+  "timeoutMs": 120000,
+  "assertions": [
+    {
+      "type": "connection-capabilities",
+      "requiredCapabilities": [
+        "recording.inspect",
+        "grooves.list",
+        "selection_view.inspect_selection",
+        "selection_view.inspect_view",
+        "live_history.inspect",
+        "workflow_jobs.list"
+      ]
+    },
+    {
+      "type": "tool-calls",
+      "required": [
+        { "toolName": "ableton_recording", "min": 1, "max": 1 },
+        { "toolName": "ableton_grooves", "min": 1, "max": 1 },
+        { "toolName": "ableton_selection_view", "min": 2, "max": 2 },
+        { "toolName": "ableton_live_history", "min": 1, "max": 1 },
+        { "toolName": "ableton_workflow_jobs", "min": 1, "max": 1 }
+      ]
+    },
+    {
+      "type": "session-unchanged"
+    }
+  ]
+}

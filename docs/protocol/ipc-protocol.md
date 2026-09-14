@@ -165,6 +165,98 @@ TypeScript schemas are canonical for the application packages. Export JSON
 Schema fixtures and validate them against Python-side parsing in contract tests.
 Do not rely on manually synchronized interfaces.
 
+### Live 11 device/rack commands
+
+The device/rack slice adds:
+
+```text
+devices.inspect_chain_mixer
+devices.find_position
+devices.move
+devices.set_chain_properties
+devices.set_chain_mixer
+```
+
+Device sources are strict discriminated `track-device`,
+`rack-chain-device`, or `drum-pad-chain-device` targets. Destinations are
+strict `track`, `rack-chain`, or `drum-pad-chain` parents with a requested
+device index. Requests carry exact track, rack, pad, chain, device, and mixer
+parameter identities as applicable. Results return canonical before/after
+locations or states and explicit verification. Unknown fields and ambiguous
+topologies are rejected rather than normalized heuristically.
+
+`devices.set_chain_properties` accepts `name` and/or `colorIndex`. The color
+index is an integer in Live 11's documented `0..69` palette range. Mutation
+uses `Chain.color_index` for exact verification; before/after state includes
+both the palette index and Live's observed RGB `color` value.
+
+These commands do not imply support for empty-chain creation, native device
+insertion, single-chain deletion, or chain reordering.
+
+### Live 11 core-domain commands
+
+The expanded Live 11 surface uses separate inspection and mutation commands so
+read-only requests never advance project mutation state:
+
+```text
+scenes.inspect              scenes.mutate
+tracks.inspect              tracks.mutate
+mixer_routing.inspect       mixer_routing.mutate
+transport.inspect           transport.mutate
+midi_notes.inspect          midi_notes.mutate
+audio_clips.inspect         audio_clips.mutate
+```
+
+Each command accepts a strict `action` discriminant. Mutation requests carry
+the exact runtime identities required by the selected action. Routing
+assignment additionally carries a recent snapshot ID and opaque option token;
+the Remote Script rejects stale snapshots, mismatched display names, and
+changed target/direction state. Modern MIDI mutation identifies notes by Live
+11 note IDs and intentionally excludes per-note expression fields. Note removal
+is destructive and cannot be assumed rollback- or retry-safe after an
+indeterminate failure. Audio inspection returns the currently available warp
+modes; assignment repeats that exact availability snapshot and selects one of
+its modes. Warp-marker access is read-only.
+
+Protocol 3 introduced the documented Live 11 integer domains for launch
+quantization (`0..13`), record quantization (`0..8`), audio pitch fine
+(`-50..49`), and warp mode (`0..6`).
+
+## Live 11 workflow adapters
+
+The additive public domain tools `recording`, `grooves`, `selection_view`,
+`live_history`, `browser_adapters`, `clip_automation`, `warp_markers`,
+`special_devices`, and `workflow_jobs` use action-discriminated request and
+result schemas. Each validated action routes to its own granular protocol
+command, capability, timeout class, mutation flag, and Remote Script registry
+entry. Timed recording and Looper export return typed jobs rather than blocking
+Live's main thread.
+
+The handshake retains the boolean `capabilities` map and additively exposes
+`capabilityDetails` with evidence, minimum/tested Live versions, and bounded
+limitations. Private API shape detection alone is reported as
+`private_detected_untested` and remains disabled until that exact Live 11 build
+has real-Live validation evidence.
+
+Protocol 4 adds the workflow-adapter commands and capability-detail handshake
+shape. The version bump preserves compatibility by preventing protocol 3 peers
+from accepting the extended `system.hello` contract without negotiation.
+Remote Script `0.6.0` is the minimum compatible installation for protocol 4,
+so a protocol-3 `0.5.0` installation is detected as outdated and reinstalled.
+
+`events.inspect_curated_state` returns bounded initial transport,
+tempo/signature, selection, topology, routing, and meter state.
+`live_state.changed` carries only these enumerated topics. Workflow jobs emit
+`workflow_job.queued|started|progress|completed|failed|cancelled|indeterminate`
+with bounded IDs and progress; result bodies are not copied into lifecycle
+events. Job linkage and ownership are injected from the active application
+turn rather than accepted from model-authored tool arguments. Cancellation is
+lock-free so it can stop the job holding that lock, but the Remote Script
+rejects callers other than the originating agent.
+
+See [the capability ledger](live-11-workflow-capability-ledger.md) for exact
+Live 11 support and deliberate omissions.
+
 ## Compatibility rules
 
 - `system.hello` selects the highest version present in both the client's

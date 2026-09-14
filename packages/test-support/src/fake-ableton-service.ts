@@ -164,6 +164,96 @@ export class FakeAbletonService implements AbletonService {
     return this.state.snapshot;
   }
 
+  public inspectCuratedLiveState(): Promise<Protocol.InspectCuratedLiveStateResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("inspectCuratedLiveState"),
+    );
+  }
+
+  public executeScenesOperation(): Promise<Protocol.ScenesOperationResult> {
+    return Promise.reject(new UnsupportedByFakeError("executeScenesOperation"));
+  }
+
+  public executeTracksOperation(): Promise<Protocol.TracksOperationResult> {
+    return Promise.reject(new UnsupportedByFakeError("executeTracksOperation"));
+  }
+
+  public executeMixerRoutingOperation(): Promise<Protocol.MixerRoutingOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeMixerRoutingOperation"),
+    );
+  }
+
+  public executeTransportOperation(): Promise<Protocol.TransportOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeTransportOperation"),
+    );
+  }
+
+  public executeMidiNotesOperation(): Promise<Protocol.MidiNotesOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeMidiNotesOperation"),
+    );
+  }
+
+  public executeAudioClipsOperation(): Promise<Protocol.AudioClipsOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeAudioClipsOperation"),
+    );
+  }
+
+  public executeRecordingOperation(): Promise<Protocol.RecordingOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeRecordingOperation"),
+    );
+  }
+
+  public executeGrooveOperation(): Promise<Protocol.GrooveOperationResult> {
+    return Promise.reject(new UnsupportedByFakeError("executeGrooveOperation"));
+  }
+
+  public executeSelectionViewOperation(): Promise<Protocol.SelectionViewOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeSelectionViewOperation"),
+    );
+  }
+
+  public executeLiveHistoryOperation(): Promise<Protocol.LiveHistoryOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeLiveHistoryOperation"),
+    );
+  }
+
+  public executeBrowserAdapterOperation(): Promise<Protocol.BrowserAdapterOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeBrowserAdapterOperation"),
+    );
+  }
+
+  public executeClipAutomationOperation(): Promise<Protocol.ClipAutomationOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeClipAutomationOperation"),
+    );
+  }
+
+  public executeWarpMarkerOperation(): Promise<Protocol.WarpMarkerOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeWarpMarkerOperation"),
+    );
+  }
+
+  public executeSpecializedDeviceOperation(): Promise<Protocol.SpecializedDeviceOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeSpecializedDeviceOperation"),
+    );
+  }
+
+  public executeWorkflowJobOperation(): Promise<Protocol.WorkflowJobOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeWorkflowJobOperation"),
+    );
+  }
+
   public async setTempo(tempo: number): Promise<Protocol.SetTempoResult> {
     const beforeTempo = this.state.snapshot.tempo;
     this.state.snapshot = { ...this.state.snapshot, tempo };
@@ -275,6 +365,21 @@ export class FakeAbletonService implements AbletonService {
     return Promise.reject(
       new UnsupportedByFakeError("inspectDrumPadChainDevices"),
     );
+  }
+  public inspectChainMixer(): Promise<Protocol.InspectChainMixerResult> {
+    return Promise.reject(new UnsupportedByFakeError("inspectChainMixer"));
+  }
+  public findDevicePosition(): Promise<Protocol.FindDevicePositionResult> {
+    return Promise.reject(new UnsupportedByFakeError("findDevicePosition"));
+  }
+  public moveDevice(): Promise<Protocol.MoveDeviceResult> {
+    return Promise.reject(new UnsupportedByFakeError("moveDevice"));
+  }
+  public setChainProperties(): Promise<Protocol.SetChainPropertiesResult> {
+    return Promise.reject(new UnsupportedByFakeError("setChainProperties"));
+  }
+  public setChainMixer(): Promise<Protocol.SetChainMixerResult> {
+    return Promise.reject(new UnsupportedByFakeError("setChainMixer"));
   }
   public setDeviceEnabled(): Promise<Protocol.SetDeviceEnabledResult> {
     return Promise.reject(new UnsupportedByFakeError("setDeviceEnabled"));

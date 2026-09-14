@@ -177,6 +177,36 @@ describe("automatic signal delivery", () => {
         sessionId: "session",
       }),
     ).toBeUndefined();
+    const audioTarget = {
+      view: "session" as const,
+      track: {
+        kind: "regular" as const,
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Audio",
+      },
+      sceneIndex: 0,
+      expectedClipReference: "00000000-0000-4000-8000-000000000002",
+      expectedClipName: "Clip",
+    };
+    expect(
+      await policy.hooks.onPreToolUse?.(
+        {
+          ...hookInput("ableton_audio_clips"),
+          toolArgs: { action: "inspect", target: audioTarget },
+        },
+        { sessionId: "session" },
+      ),
+    ).toBeUndefined();
+    expect(
+      await policy.hooks.onPreToolUse?.(
+        {
+          ...hookInput("ableton_audio_clips"),
+          toolArgs: { action: "set-gain", target: audioTarget, gain: 0.5 },
+        },
+        { sessionId: "session" },
+      ),
+    ).toMatchObject({ permissionDecision: "deny" });
     blocked = false;
     expect(
       await policy.hooks.onPreToolUse?.(hookInput("ableton_tracks_create"), {

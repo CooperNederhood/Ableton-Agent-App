@@ -21,7 +21,7 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
     pad-chain, and pad-chain-device inspection schemas.
   - [x] Define strict discriminated Live 11 device source/destination targets,
     exact-position preflight, verified move results, and existing-chain
-    property/mixer mutation schemas.
+    name/palette-index property and mixer mutation schemas.
   - [x] Define bounded Browser root/child/search schemas, exact runtime item
     targets, strict traversal limits, and verified built-in load results.
 - [x] Export JSON Schema and representative fixtures for Python tests.

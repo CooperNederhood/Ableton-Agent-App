@@ -120,7 +120,7 @@ The checked-in support ledger is:
 | Validate a destination for an existing device | `devices.find_position` | Callable `Song.find_device_position` | Supported |
 | Reorder an existing device in a regular track or existing rack/Drum Rack pad chain | `devices.move` | Callable `Song.find_device_position` and `Song.move_device`; same-parent index translation | Supported |
 | Move an existing device between regular tracks and existing chains | `devices.move` | Same APIs | Supported |
-| Rename or recolor an existing chain | `devices.set_chain_properties` | Exposed writable `Chain.name` and `Chain.color` | Supported when exposed |
+| Rename or recolor an existing chain | `devices.set_chain_properties` | Exposed writable `Chain.name` and `Chain.color_index`, with observed `Chain.color` | Supported when exposed; color index is bounded to `0..69` |
 | Set existing chain mute, solo, volume, pan, or sends | `devices.set_chain_mixer` | Exposed `Chain` and `Chain.mixer_device` properties | Supported when exposed and exact parameter identity matches |
 | Create an empty rack chain | None | No approved Live 11 operation in this slice | Unsupported |
 | Insert a native device directly without Browser loading | None | No approved Live 11 operation in this slice | Unsupported |

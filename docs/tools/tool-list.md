@@ -95,7 +95,7 @@ when replacing notes in a non-empty clip.
 | `ableton_rack_chain_mixer_inspect` | Inspect an exact existing chain's mute, solo, volume, pan, sends, and mixer parameter identities. | `read` | `read` | `short` | Exact rack or Drum Rack pad chain topology |
 | `ableton_device_find_position` | Validate the exact Live 11 destination position for an existing device without moving it. | `read` | `read` | `short` | Strict source location and destination parent identities plus destination index |
 | `ableton_device_move` | Move or reorder an existing device between a track and existing rack/Drum Rack chains using Live 11 `Song.move_device`. | `reversible` | `tracks` | `short` | Exact source device/parent identities and exact destination parent/index |
-| `ableton_rack_chain_set_properties` | Rename and/or recolor an exact existing rack or Drum Rack pad chain. | `reversible` | `track` | `short` | Exact chain topology and one or more properties |
+| `ableton_rack_chain_set_properties` | Rename and/or recolor an exact existing rack or Drum Rack pad chain. | `reversible` | `track` | `short` | Exact chain topology plus `name` and/or Live 11 palette `colorIndex` (`0..69`) |
 | `ableton_rack_chain_set_mixer` | Set mute, solo, volume, pan, and/or exposed sends on an exact existing chain. | `reversible` | `track` | `short` | Exact chain topology and exact mixer parameter identities |
 | `ableton_device_set_enabled` | Enable or disable an exact top-level device through its Device On parameter. | `reversible` | `track` | `short` | Track/device identity, `enabled` |
 | `ableton_device_set_parameter` | Set an exact writable parameter using normalized `0..1` input, with quantization support and rollback. | `reversible` | `track` | `short` | Track/device/parameter identity, `normalizedValue` |
@@ -104,8 +104,10 @@ Device inspection is intentionally bounded and non-recursive. Nested rack
 contents are reached through the rack-, chain-, pad-, and device-specific
 inspection tools. Device movement and chain editing are Live 11 operations:
 they preflight with `Song.find_device_position`, account for same-parent index
-shifts, verify the canonical parent and final index, and fail closed on stale
-or ambiguous topology.
+shifts in both forward moves and rollback, mutate chain colors through the
+exact `Chain.color_index` palette index, verify the canonical state, and fail
+closed on stale or ambiguous topology. Chain-property results retain Live's
+observed RGB `color` alongside `colorIndex`.
 
 This slice does **not** support creating empty rack chains, direct native
 device insertion, deleting one chain, or reordering chains. Those operations

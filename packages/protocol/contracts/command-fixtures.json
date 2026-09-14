@@ -1181,7 +1181,7 @@
         }
       },
       "success": {
-        "protocolVersion": 2,
+        "protocolVersion": 3,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001026",
         "ok": true,
@@ -1217,7 +1217,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 2,
+        "protocolVersion": 3,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001026",
         "ok": false,
@@ -1231,7 +1231,7 @@
     },
     "devices.move": {
       "request": {
-        "protocolVersion": 2,
+        "protocolVersion": 3,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001027",
         "command": "devices.move",
@@ -1261,7 +1261,7 @@
         }
       },
       "success": {
-        "protocolVersion": 2,
+        "protocolVersion": 3,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001027",
         "ok": true,
@@ -1302,7 +1302,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 2,
+        "protocolVersion": 3,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001027",
         "ok": false,
@@ -1316,7 +1316,7 @@
     },
     "devices.set_chain_properties": {
       "request": {
-        "protocolVersion": 2,
+        "protocolVersion": 3,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001028",
         "command": "devices.set_chain_properties",
@@ -1339,24 +1339,24 @@
               "expectedName": "x"
             }
           },
-          "name": "x"
+          "colorIndex": 0
         }
       },
       "success": {
-        "protocolVersion": 2,
+        "protocolVersion": 3,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001028",
         "ok": true,
         "result": {
           "chainReference": "00000000-0000-4000-8000-000000000099",
-          "before": { "name": "x", "color": -9007199254740991 },
-          "after": { "name": "x", "color": -9007199254740991 },
+          "before": { "name": "x", "color": 0, "colorIndex": 0 },
+          "after": { "name": "x", "color": 0, "colorIndex": 0 },
           "verified": true
         },
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 2,
+        "protocolVersion": 3,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001028",
         "ok": false,
@@ -1370,7 +1370,7 @@
     },
     "devices.set_chain_mixer": {
       "request": {
-        "protocolVersion": 2,
+        "protocolVersion": 3,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001029",
         "command": "devices.set_chain_mixer",
@@ -1397,7 +1397,7 @@
         }
       },
       "success": {
-        "protocolVersion": 2,
+        "protocolVersion": 3,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001029",
         "ok": true,
@@ -1454,7 +1454,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 2,
+        "protocolVersion": 3,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001029",
         "ok": false,
@@ -1468,7 +1468,7 @@
     },
     "devices.inspect_chain_mixer": {
       "request": {
-        "protocolVersion": 2,
+        "protocolVersion": 3,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001030",
         "command": "devices.inspect_chain_mixer",
@@ -1494,7 +1494,7 @@
         }
       },
       "success": {
-        "protocolVersion": 2,
+        "protocolVersion": 3,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001030",
         "ok": true,
@@ -1527,7 +1527,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 2,
+        "protocolVersion": 3,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001030",
         "ok": false,
@@ -1541,7 +1541,7 @@
     },
     "devices.set_enabled": {
       "request": {
-        "protocolVersion": 2,
+        "protocolVersion": 3,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001031",
         "command": "devices.set_enabled",

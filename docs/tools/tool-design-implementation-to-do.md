@@ -64,9 +64,10 @@ Companion specification: [Tool Design](tool-design.md)
     roots with track/item identity gates, semantic load classification,
     before/after state, and postcondition verification.
   - [x] Add Live 11 destination preflight and verified movement/reordering for
-    existing devices across regular tracks and existing rack/Drum Rack chains.
-  - [x] Add verified, rollback-capable rename/color and exposed mixer edits for
-    existing rack and Drum Rack pad chains.
+    existing devices across regular tracks and existing rack/Drum Rack chains,
+    including pre-removal index translation during same-parent rollback.
+  - [x] Add verified, rollback-capable rename/palette-index and exposed mixer
+    edits for existing rack and Drum Rack pad chains.
   - [ ] Add explicit sample, clip, and groove destination tools, device
     deletion, separately designed plug-in loading, empty-chain creation,
     single-chain deletion, and chain reordering.

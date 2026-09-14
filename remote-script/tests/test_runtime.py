@@ -125,9 +125,9 @@ class FakeParameter(object):
 
 class FakeChain(object):
     def __init__(self, name, devices=None):
-        self.fail_next_color_set_after_mutation = False
+        self.fail_next_color_index_set_after_mutation = False
         self.name = name
-        self.color = None
+        self.color_index = 5
         self.devices = list(devices or [])
         self.mute = False
         self.solo = False
@@ -135,14 +135,19 @@ class FakeChain(object):
 
     def __setattr__(self, key, value):
         if (
-            key == "color"
-            and getattr(self, "fail_next_color_set_after_mutation", False)
+            key == "color_index"
+            and getattr(
+                self, "fail_next_color_index_set_after_mutation", False
+            )
         ):
             object.__setattr__(self, key, value)
+            object.__setattr__(self, "color", (value + 1) * 0x010101)
             object.__setattr__(
-                self, "fail_next_color_set_after_mutation", False
+                self, "fail_next_color_index_set_after_mutation", False
             )
-            raise RuntimeError("simulated chain color setter failure")
+            raise RuntimeError("simulated chain color index setter failure")
+        if key == "color_index":
+            object.__setattr__(self, "color", (value + 1) * 0x010101)
         object.__setattr__(self, key, value)
 
 
@@ -2090,11 +2095,13 @@ class ExecutorTests(unittest.TestCase):
                     "chain": destination["chain"],
                 },
                 "name": "Layer",
-                "color": 0x112233,
+                "colorIndex": 17,
             },
         )["result"]
         self.assertEqual(properties["after"]["name"], "Layer")
-        self.assertEqual(properties["after"]["color"], 0x112233)
+        self.assertEqual(properties["before"]["colorIndex"], 5)
+        self.assertEqual(properties["after"]["colorIndex"], 17)
+        self.assertEqual(properties["after"]["color"], 0x121212)
 
         chain_target = {
             "kind": "rack-chain",
@@ -2106,18 +2113,40 @@ class ExecutorTests(unittest.TestCase):
             },
         }
         target_chain = context.song.tracks[0].devices[0].chains[0]
-        target_chain.fail_next_color_set_after_mutation = True
+        target_chain.fail_next_color_index_set_after_mutation = True
         failed_properties = execute(
             "devices.set_chain_properties",
             {
                 "target": chain_target,
                 "name": "Broken",
-                "color": 0x445566,
+                "colorIndex": 23,
             },
         )
         self.assertEqual(failed_properties["error"]["code"], "lom_error")
         self.assertEqual(target_chain.name, "Layer")
-        self.assertEqual(target_chain.color, 0x112233)
+        self.assertEqual(target_chain.color_index, 17)
+        self.assertEqual(target_chain.color, 0x121212)
+
+        for invalid_color_index in (-1, 70):
+            invalid_properties = execute(
+                "devices.set_chain_properties",
+                {
+                    "target": chain_target,
+                    "colorIndex": invalid_color_index,
+                },
+            )
+            self.assertEqual(
+                invalid_properties["error"]["code"], "invalid_params"
+            )
+
+        legacy_color = execute(
+            "devices.set_chain_properties",
+            {
+                "target": chain_target,
+                "color": 0x445566,
+            },
+        )
+        self.assertEqual(legacy_color["error"]["code"], "invalid_params")
 
         mixer = execute(
             "devices.inspect_chain_mixer",
@@ -2243,6 +2272,65 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(
             _device_reference(context, track.devices[0]), first_reference
         )
+
+    def test_device_move_rollback_restores_leftward_same_parent_move(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        track = context.song.tracks[0]
+        track.devices.extend([FakeDevice("Second"), FakeDevice("Third")])
+        original_devices = list(track.devices)
+        moved_device = track.devices[2]
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        context._track_references = [(track, track_reference)]
+
+        from AbletonAgent.device_commands import _device_reference
+
+        device_reference = _device_reference(context, moved_device)
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+        context.song.fail_move_verification = True
+        executor.submit(
+            request(
+                "devices.move",
+                {
+                    "source": {
+                        "kind": "track-device",
+                        "track": {
+                            "index": 0,
+                            "expectedReference": track_reference,
+                            "expectedName": "Drums",
+                        },
+                        "device": {
+                            "index": 2,
+                            "expectedReference": device_reference,
+                            "expectedName": moved_device.name,
+                        },
+                    },
+                    "destination": {
+                        "kind": "track",
+                        "track": {
+                            "index": 0,
+                            "expectedReference": track_reference,
+                            "expectedName": "Drums",
+                        },
+                        "deviceIndex": 1,
+                    },
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["error"]["code"], "lom_error")
+        self.assertIsNone(responses[0]["error"]["details"]["rollbackError"])
+        self.assertEqual(track.devices, original_devices)
+        self.assertIs(track.devices[2], moved_device)
 
     def test_rack_chain_and_drum_pad_inspection_is_bounded_and_identity_safe(self):
         scheduled = []
@@ -4276,7 +4364,7 @@ class CapabilityAndTokenTests(unittest.TestCase):
         for limited_track in limited_chain_song.tracks:
             for limited_rack in limited_track.devices:
                 for limited_chain in limited_rack.chains:
-                    del limited_chain.color
+                    del limited_chain.color_index
                     limited_chain.mixer_device = None
         limited_chain_document = build_capability_document(
             FakeApplication(),

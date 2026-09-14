@@ -18,6 +18,7 @@ CHAIN_PAGE_LIMIT = 64
 CHAIN_DEVICE_PAGE_LIMIT = 128
 DRUM_PAD_PAGE_LIMIT = 128
 DEVICE_ON_NAMES = ("Device On", "Device Activator")
+LIVE_11_MAX_COLOR_INDEX = 69
 
 
 def _is_finite_number(value):
@@ -1330,12 +1331,31 @@ def move_device(context, params):
                 )
                 else source_parent
             )
-            rollback_position = song.find_device_position(
-                device, source_parent, source_index
+            current_indexes = [
+                index
+                for index, candidate in enumerate(
+                    getattr(current_parent, "devices", ())
+                )
+                if _same_lom_object(candidate, device)
+            ]
+            if len(current_indexes) != 1:
+                raise RuntimeError(
+                    "device rollback could not identify the current position"
+                )
+            current_index = current_indexes[0]
+            rollback_target_position = (
+                source_index + 1
+                if _same_lom_object(current_parent, source_parent)
+                and current_index < source_index
+                else source_index
             )
-            if not _same_lom_object(current_parent, source_parent) or list(
-                getattr(source_parent, "devices", ())
-            ).index(device) != source_index:
+            rollback_position = song.find_device_position(
+                device, source_parent, rollback_target_position
+            )
+            if (
+                not _same_lom_object(current_parent, source_parent)
+                or current_index != source_index
+            ):
                 song.move_device(device, source_parent, rollback_position)
             if list(getattr(source_parent, "devices", ())).index(device) != source_index:
                 raise RuntimeError("device rollback verification failed")
@@ -1396,7 +1416,7 @@ def _validate_chain_location_target(value):
 
 
 def _validate_set_chain_properties_params(params):
-    if not _exact_keys(params, ["target"], ["name", "color"]):
+    if not _exact_keys(params, ["target"], ["name", "colorIndex"]):
         return "target and at least one supported chain property are required"
     if not _validate_chain_location_target(params.get("target")):
         return "target must identify one exact existing chain"
@@ -1406,14 +1426,14 @@ def _validate_set_chain_properties_params(params):
         or len(params["name"]) > 128
     ):
         return "name must contain 1 to 128 characters"
-    if "color" in params and (
-        isinstance(params["color"], bool)
-        or not isinstance(params["color"], int)
-        or params["color"] < 0
-        or params["color"] > 0xFFFFFF
+    if "colorIndex" in params and (
+        isinstance(params["colorIndex"], bool)
+        or not isinstance(params["colorIndex"], int)
+        or params["colorIndex"] < 0
+        or params["colorIndex"] > LIVE_11_MAX_COLOR_INDEX
     ):
-        return "color must be an RGB integer"
-    if "name" not in params and "color" not in params:
+        return "colorIndex must be an integer between 0 and 69"
+    if "name" not in params and "colorIndex" not in params:
         return "At least one chain property is required"
     return None
 
@@ -1422,6 +1442,7 @@ def _chain_properties_state(chain):
     return {
         "name": getattr(chain, "name", "") or "",
         "color": getattr(chain, "color", None),
+        "colorIndex": getattr(chain, "color_index", None),
     }
 
 
@@ -1433,20 +1454,23 @@ def set_chain_properties(context, params):
     try:
         if "name" in params:
             chain.name = params["name"]
-        if "color" in params:
-            chain.color = params["color"]
+        if "colorIndex" in params:
+            chain.color_index = params["colorIndex"]
         after = _chain_properties_state(chain)
         if (
             ("name" in params and after["name"] != params["name"])
-            or ("color" in params and after["color"] != params["color"])
+            or (
+                "colorIndex" in params
+                and after["colorIndex"] != params["colorIndex"]
+            )
         ):
             raise RuntimeError("chain property verification failed")
     except Exception as exc:
         try:
             if "name" in params:
                 chain.name = before["name"]
-            if "color" in params:
-                chain.color = before["color"]
+            if "colorIndex" in params:
+                chain.color_index = before["colorIndex"]
             restored = _chain_properties_state(chain)
             if restored != before:
                 raise RuntimeError("chain property rollback verification failed")

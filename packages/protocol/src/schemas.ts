@@ -3,6 +3,7 @@ import { z } from "zod";
 import { PROTOCOL_VERSION } from "./constants.js";
 
 export const MAX_LIVE_EVENT_OCCURRENCE_BYTES = 16_384;
+export const LIVE_11_MAX_COLOR_INDEX = 69;
 export const liveEventIdSchema = z
   .string()
   .regex(
@@ -1119,20 +1120,24 @@ export const chainLocationTargetSchema = z.discriminatedUnion("kind", [
 export const chainPropertiesStateSchema = z
   .object({
     name: z.string(),
-    color: z.number().int().nullable(),
+    color: z.number().int().min(0).max(0xff_ff_ff).nullable(),
+    colorIndex: z.number().int().min(0).max(LIVE_11_MAX_COLOR_INDEX),
   })
   .strict();
 
 export const setChainPropertiesParamsSchema = z
   .object({
     target: chainLocationTargetSchema,
+    colorIndex: z.number().int().min(0).max(LIVE_11_MAX_COLOR_INDEX).optional(),
     name: z.string().min(1).max(128).optional(),
-    color: z.number().int().min(0).max(0xff_ff_ff).optional(),
   })
   .strict()
-  .refine((params) => params.name !== undefined || params.color !== undefined, {
-    message: "At least one chain property is required",
-  });
+  .refine(
+    (params) => params.name !== undefined || params.colorIndex !== undefined,
+    {
+      message: "At least one chain property is required",
+    },
+  );
 
 export const setChainPropertiesResultSchema = z
   .object({

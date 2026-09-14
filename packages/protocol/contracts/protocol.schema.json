@@ -5974,8 +5974,8 @@
               }
             ]
           },
-          "name": { "type": "string", "minLength": 1, "maxLength": 128 },
-          "color": { "type": "integer", "minimum": 0, "maximum": 16777215 }
+          "colorIndex": { "type": "integer", "minimum": 0, "maximum": 69 },
+          "name": { "type": "string", "minLength": 1, "maxLength": 128 }
         },
         "required": ["target"],
         "additionalProperties": false
@@ -5995,16 +5995,13 @@
               "name": { "type": "string" },
               "color": {
                 "anyOf": [
-                  {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
-                  },
+                  { "type": "integer", "minimum": 0, "maximum": 16777215 },
                   { "type": "null" }
                 ]
-              }
+              },
+              "colorIndex": { "type": "integer", "minimum": 0, "maximum": 69 }
             },
-            "required": ["name", "color"],
+            "required": ["name", "color", "colorIndex"],
             "additionalProperties": false
           },
           "after": {
@@ -6013,16 +6010,13 @@
               "name": { "type": "string" },
               "color": {
                 "anyOf": [
-                  {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
-                  },
+                  { "type": "integer", "minimum": 0, "maximum": 16777215 },
                   { "type": "null" }
                 ]
-              }
+              },
+              "colorIndex": { "type": "integer", "minimum": 0, "maximum": 69 }
             },
-            "required": ["name", "color"],
+            "required": ["name", "color", "colorIndex"],
             "additionalProperties": false
           },
           "verified": { "type": "boolean", "const": true }

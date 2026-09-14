@@ -212,6 +212,7 @@ def build_capability_document(
             all(_lom_exposes(chain, attribute) for attribute in (
                 "name",
                 "color",
+                "color_index",
             ))
             for chain in chains
         ),

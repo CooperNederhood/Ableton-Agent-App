@@ -527,13 +527,27 @@ describe("AbletonBridgeService", () => {
           chain: moveParams.source.chain,
         },
         name: "Layer",
-        color: 0x11_22_33,
+        colorIndex: 17,
       }),
     ).resolves.toMatchObject({
-      before: { name: "Kick" },
-      after: { name: "Layer", color: 0x11_22_33 },
+      before: { name: "Kick", color: 0x06_06_06, colorIndex: 5 },
+      after: { name: "Layer", color: 0x12_12_12, colorIndex: 17 },
       verified: true,
     });
+    await expect(
+      service.setChainProperties({
+        target: {
+          kind: "rack-chain",
+          track: moveParams.source.track,
+          rack: moveParams.source.rack,
+          chain: {
+            ...moveParams.source.chain,
+            expectedName: "Layer",
+          },
+        },
+        colorIndex: 70,
+      }),
+    ).rejects.toBeDefined();
     const inspectedMixer = await service.inspectChainMixer({
       target: {
         kind: "rack-chain",

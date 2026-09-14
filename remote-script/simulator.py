@@ -14,6 +14,12 @@ from AbletonAgent.protocol import FrameDecoder, encode_frame
 
 from AbletonAgent.version import PROTOCOL_VERSION, REMOTE_SCRIPT_VERSION
 
+LIVE_11_MAX_COLOR_INDEX = 69
+
+
+def simulated_palette_color(color_index):
+    return (color_index + 1) * 0x010101
+
 
 class SimulatorState(object):
     def __init__(self):
@@ -508,7 +514,8 @@ class SimulatorState(object):
         return {
             "reference": str(uuid.uuid4()),
             "name": name,
-            "color": None,
+            "color": simulated_palette_color(5),
+            "colorIndex": 5,
             "mute": False,
             "solo": False,
             "mixer": {
@@ -1934,11 +1941,37 @@ def handle(request, token, state):
                 },
             )
         if command == "devices.set_chain_properties":
-            before = {"name": chain["name"], "color": chain["color"]}
+            color_index = params.get("colorIndex")
+            if (
+                set(params.keys()) - set(["target", "name", "colorIndex"])
+                or ("name" not in params and "colorIndex" not in params)
+                or (
+                    "colorIndex" in params
+                    and (
+                        isinstance(color_index, bool)
+                        or not isinstance(color_index, int)
+                        or color_index < 0
+                        or color_index > LIVE_11_MAX_COLOR_INDEX
+                    )
+                )
+            ):
+                return failure(
+                    request,
+                    "invalid_params",
+                    "colorIndex must be an integer between 0 and 69",
+                )
+            before = {
+                "name": chain["name"],
+                "color": chain["color"],
+                "colorIndex": chain["colorIndex"],
+            }
             if "name" in params:
                 chain["name"] = params["name"]
-            if "color" in params:
-                chain["color"] = params["color"]
+            if "colorIndex" in params:
+                chain["colorIndex"] = params["colorIndex"]
+                chain["color"] = simulated_palette_color(
+                    params["colorIndex"]
+                )
             return response(
                 request,
                 {
@@ -1947,6 +1980,7 @@ def handle(request, token, state):
                     "after": {
                         "name": chain["name"],
                         "color": chain["color"],
+                        "colorIndex": chain["colorIndex"],
                     },
                     "verified": True,
                 },

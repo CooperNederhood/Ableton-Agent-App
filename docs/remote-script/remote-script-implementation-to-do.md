@@ -64,9 +64,10 @@ Companion specification: [Remote Script](remote-script.md)
     with runtime-stable pruned references and no recursive traversal.
   - [x] Add Live 11 `find_device_position` preflight and verified
     `move_device` support within/between regular tracks and existing rack or
-    Drum Rack pad chains, including same-parent index translation and recovery.
-  - [x] Add exact existing-chain name/color and exposed mute/solo/volume/pan/
-    send mutation with verification and rollback.
+    Drum Rack pad chains, including same-parent index translation in forward
+    moves and recovery.
+  - [x] Add exact existing-chain name/palette-index and exposed
+    mute/solo/volume/pan/send mutation with verification and rollback.
   - [ ] Keep empty-chain creation, direct native insertion, single-chain
     deletion, and chain reordering unsupported until separately approved APIs
     and semantics exist.

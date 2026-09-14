@@ -912,10 +912,15 @@ function services() {
         params: Parameters<AbletonToolServices["setChainProperties"]>[0],
       ) => ({
         chainReference: params.target.chain.expectedReference,
-        before: { name: params.target.chain.expectedName, color: null },
+        before: {
+          name: params.target.chain.expectedName,
+          color: 0x0f_0f_0f,
+          colorIndex: 5,
+        },
         after: {
           name: params.name ?? params.target.chain.expectedName,
-          color: params.color ?? null,
+          color: params.colorIndex === undefined ? 0x0f_0f_0f : 0x33_33_33,
+          colorIndex: params.colorIndex ?? 5,
         },
         verified: true as const,
       }),
@@ -1645,7 +1650,11 @@ describe("Ableton tools", () => {
       invocation,
     );
     await toolSet.tools[41].handler?.(
-      { target: operationChainTarget, name: "Parallel" },
+      {
+        target: operationChainTarget,
+        name: "Parallel",
+        colorIndex: 17,
+      },
       invocation,
     );
     await toolSet.tools[42].handler?.(
@@ -1894,6 +1903,11 @@ describe("Ableton tools", () => {
       expectedReference: "00000000-0000-4000-8000-000000000001",
       expectedName: "Drums",
       ...browserTarget,
+    });
+    expect(ports.setChainProperties).toHaveBeenCalledWith({
+      target: operationChainTarget,
+      name: "Parallel",
+      colorIndex: 17,
     });
   });
 

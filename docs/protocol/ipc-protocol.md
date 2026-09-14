@@ -185,6 +185,11 @@ parameter identities as applicable. Results return canonical before/after
 locations or states and explicit verification. Unknown fields and ambiguous
 topologies are rejected rather than normalized heuristically.
 
+`devices.set_chain_properties` accepts `name` and/or `colorIndex`. The color
+index is an integer in Live 11's documented `0..69` palette range. Mutation
+uses `Chain.color_index` for exact verification; before/after state includes
+both the palette index and Live's observed RGB `color` value.
+
 These commands do not imply support for empty-chain creation, native device
 insertion, single-chain deletion, or chain reordering.
 

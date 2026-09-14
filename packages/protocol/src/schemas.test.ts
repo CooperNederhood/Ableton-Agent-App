@@ -241,12 +241,30 @@ describe("Live 11 device operation schemas", () => {
       setChainPropertiesParamsSchema.parse({
         target,
         name: "Parallel",
-        color: 0x12_34_56,
+        colorIndex: 17,
       }),
-    ).toMatchObject({ name: "Parallel" });
+    ).toMatchObject({ name: "Parallel", colorIndex: 17 });
     expect(setChainPropertiesParamsSchema.safeParse({ target }).success).toBe(
       false,
     );
+    expect(
+      setChainPropertiesParamsSchema.safeParse({
+        target,
+        colorIndex: -1,
+      }).success,
+    ).toBe(false);
+    expect(
+      setChainPropertiesParamsSchema.safeParse({
+        target,
+        colorIndex: 70,
+      }).success,
+    ).toBe(false);
+    expect(
+      setChainPropertiesParamsSchema.safeParse({
+        target,
+        color: 0x12_34_56,
+      }).success,
+    ).toBe(false);
     expect(
       setChainMixerParamsSchema.safeParse({
         target,

@@ -488,10 +488,15 @@ function deviceServices() {
       params: Parameters<AbletonService["setChainProperties"]>[0],
     ) => ({
       chainReference: params.target.chain.expectedReference,
-      before: { name: params.target.chain.expectedName, color: null },
+      before: {
+        name: params.target.chain.expectedName,
+        color: 0x0f_0f_0f,
+        colorIndex: 5,
+      },
       after: {
         name: params.name ?? params.target.chain.expectedName,
-        color: params.color ?? null,
+        color: params.colorIndex === undefined ? 0x0f_0f_0f : 0x33_33_33,
+        colorIndex: params.colorIndex ?? 5,
       },
       verified: true as const,
     }),

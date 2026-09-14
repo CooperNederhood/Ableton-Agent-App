@@ -56,9 +56,14 @@ commands use the complete validated catalog.
 The initial resource set includes:
 
 - `midi-composition`
-- `arrangement-planning`
+- `techno-arrangement-planning`
 - `sound-design`
 - `mix-review`
+
+The techno arrangement skill inspects the current Arrangement, classifies it as
+beginner, intermediate, or advanced using phrase, energy, evolution,
+transition, identity, and DJ-function criteria, and returns bar-specific
+recommendations for reaching the next level.
 
 Skills package domain guidance. Tool access and edit authority remain governed
 by the active agent's tool set and edit scope.

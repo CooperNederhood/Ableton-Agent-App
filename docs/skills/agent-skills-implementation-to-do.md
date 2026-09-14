@@ -8,6 +8,8 @@ Companion specification: [Agent Skills](agent-skills.md)
 - [x] Validate bounded YAML frontmatter and duplicate skill names.
 - [x] Resolve development and packaged skill roots.
 - [x] Expose skill metadata and diagnostics through typed Desktop APIs.
+- [x] Replace generic arrangement guidance with a researched, three-level
+      techno arrangement assessment and recommendation rubric.
 
 ## Progressive disclosure
 

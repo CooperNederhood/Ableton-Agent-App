@@ -28,6 +28,17 @@ describe("agent safety evaluations", () => {
     ).toContain("Inspect the session before making project-specific claims");
   });
 
+  it("keeps unsupported Live 11 claims and routing safety out of plans", () => {
+    expect(BASE_SYSTEM_MESSAGE).toContain(
+      "Discover routing options immediately before assignment",
+    );
+    expect(BASE_SYSTEM_MESSAGE).toContain(
+      "Never claim scene-scoped stop, arbitrary track reordering",
+    );
+    expect(BASE_SYSTEM_MESSAGE).toContain("per-note expression editing");
+    expect(BASE_SYSTEM_MESSAGE).toContain("warp-marker mutation");
+  });
+
   it.each([
     [
       "stale_reference",

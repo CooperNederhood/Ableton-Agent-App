@@ -1042,6 +1042,313 @@ describe("AbletonBridgeService", () => {
     await service.stop();
   });
 
+  it("executes split core-domain commands against the simulator", async () => {
+    const port = await startSimulator();
+    const events = new InMemoryEventPublisher();
+    const appEvents: AppEvent[] = [];
+    events.subscribe((event) => appEvents.push(event));
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events,
+      port,
+    });
+
+    await service.start();
+    const capabilities = (await service.getCapabilities()).capabilities;
+    expect(capabilities).toMatchObject({
+      "scenes.list": true,
+      "scenes.delete": true,
+      "tracks.list": true,
+      "tracks.create_return": true,
+      "mixer_routing.routing_options": true,
+      "mixer_routing.set_routing": true,
+      "transport.get": true,
+      "transport.set_link": true,
+      "midi_notes.query": true,
+      "midi_notes.quantize": true,
+      "audio_clips.inspect": true,
+      "audio_clips.warp_markers": true,
+    });
+
+    const scenes = await service.executeScenesOperation({
+      action: "list",
+      offset: 0,
+      limit: 2,
+    });
+    if (scenes.action !== "list") {
+      throw new Error("Expected a scene list");
+    }
+    expect(scenes).toMatchObject({
+      action: "list",
+      total: 2,
+    });
+    expect(scenes.scenes.map(({ index }) => index)).toEqual([0, 1]);
+    expect(scenes.scenes.every(({ reference }) => reference.length > 0)).toBe(
+      true,
+    );
+    const createdScene = await service.executeScenesOperation({
+      action: "create",
+      index: -1,
+      name: "Bridge Scene",
+    });
+    if (createdScene.action !== "create") {
+      throw new Error("Expected a created scene");
+    }
+    const renamedScene = await service.executeScenesOperation({
+      action: "rename",
+      target: {
+        index: createdScene.scene.index,
+        expectedReference: createdScene.scene.reference,
+        expectedName: createdScene.scene.name,
+      },
+      name: "Bridge Scene Renamed",
+    });
+    expect(renamedScene).toMatchObject({
+      action: "rename",
+      after: { name: "Bridge Scene Renamed" },
+      verified: true,
+    });
+
+    const tracks = await service.executeTracksOperation({
+      action: "list",
+      trackKind: "all",
+      offset: 0,
+      limit: 16,
+    });
+    if (tracks.action !== "list") {
+      throw new Error("Expected a track list");
+    }
+    expect(tracks.tracks.map(({ kind }) => kind)).toEqual(
+      expect.arrayContaining(["regular", "master"]),
+    );
+    const drums = tracks.tracks.find(
+      ({ kind, name }) => kind === "regular" && name === "Drums",
+    );
+    expect(drums).toBeDefined();
+    const drumsTarget = {
+      kind: "regular" as const,
+      index: drums?.index ?? 0,
+      expectedReference: drums?.reference ?? "",
+      expectedName: drums?.name ?? "",
+    };
+    const createdReturn = await service.executeTracksOperation({
+      action: "create-return",
+      name: "Bridge Return",
+    });
+    expect(createdReturn).toMatchObject({
+      action: "create-return",
+      track: { kind: "return", name: "Bridge Return" },
+      verified: true,
+    });
+
+    const mixer = await service.executeMixerRoutingOperation({
+      action: "inspect",
+      target: drumsTarget,
+    });
+    if (mixer.action !== "inspect") {
+      throw new Error("Expected mixer state");
+    }
+    await expect(
+      service.executeMixerRoutingOperation({
+        action: "set-volume",
+        value: {
+          target: drumsTarget,
+          expectedParameterReference: mixer.mixer.volume.reference,
+          expectedParameterName: mixer.mixer.volume.name,
+          normalizedValue: 0.7,
+        },
+      }),
+    ).resolves.toMatchObject({
+      action: "set-volume",
+      result: { after: { normalizedValue: 0.7 }, verified: true },
+    });
+    const routing = await service.executeMixerRoutingOperation({
+      action: "routing-options",
+      target: drumsTarget,
+      direction: "input-type",
+    });
+    if (routing.action !== "routing-options") {
+      throw new Error("Expected routing options");
+    }
+    const externalMidi = routing.options.find(
+      ({ isExternalMidi }) => isExternalMidi,
+    );
+    expect(externalMidi).toBeDefined();
+    await expect(
+      service.executeMixerRoutingOperation({
+        action: "set-routing",
+        target: drumsTarget,
+        direction: "input-type",
+        snapshotId: "00000000-0000-4000-8000-000000000099",
+        optionToken: externalMidi?.token ?? "",
+        expectedDisplayName: externalMidi?.displayName ?? "",
+      }),
+    ).rejects.toMatchObject({ code: "stale_reference" });
+    await expect(
+      service.executeMixerRoutingOperation({
+        action: "set-routing",
+        target: drumsTarget,
+        direction: "input-type",
+        snapshotId: routing.snapshotId,
+        optionToken: externalMidi?.token ?? "",
+        expectedDisplayName: externalMidi?.displayName ?? "",
+      }),
+    ).resolves.toMatchObject({
+      action: "set-routing",
+      after: { isExternalMidi: true },
+      warnings: [expect.stringMatching(/external MIDI/i)],
+      verified: true,
+    });
+
+    const transport = await service.executeTransportOperation({
+      action: "get",
+      offset: 0,
+      limit: 4,
+    });
+    if (transport.action !== "get") {
+      throw new Error("Expected transport state");
+    }
+    await expect(
+      service.executeTransportOperation({
+        action: "set-metronome",
+        enabled: !transport.transport.metronome,
+      }),
+    ).resolves.toMatchObject({
+      action: "set-metronome",
+      after: { metronome: !transport.transport.metronome },
+      verified: true,
+    });
+
+    const clip = await service.createMidiClip({
+      index: drums?.index ?? 0,
+      expectedReference: drums?.reference ?? "",
+      expectedName: drums?.name ?? "",
+      sceneIndex: 0,
+      length: 4,
+      name: "Modern Notes",
+    });
+    const clipTarget = {
+      view: "session" as const,
+      track: drumsTarget,
+      sceneIndex: 0,
+      expectedClipReference: clip.clip.reference,
+      expectedClipName: clip.clip.name,
+    };
+    const added = await service.executeMidiNotesOperation({
+      action: "add",
+      target: clipTarget,
+      notes: [
+        {
+          pitch: 60,
+          startTime: 0.13,
+          duration: 0.5,
+          velocity: 100.5,
+          mute: false,
+          probability: 0.75,
+          velocityDeviation: -8.5,
+          releaseVelocity: 64.5,
+        },
+      ],
+    });
+    expect(added).toMatchObject({
+      action: "add",
+      beforeNoteCount: 0,
+      afterNoteCount: 1,
+      verified: true,
+    });
+    const queried = await service.executeMidiNotesOperation({
+      action: "query",
+      target: clipTarget,
+      fromTime: 0,
+      timeSpan: 4,
+      fromPitch: 0,
+      pitchSpan: 128,
+      offset: 0,
+      limit: 16,
+    });
+    expect(queried).toMatchObject({
+      action: "query",
+      notes: [
+        {
+          pitch: 60,
+          probability: 0.75,
+          velocity: 100.5,
+          velocityDeviation: -8.5,
+          releaseVelocity: 64.5,
+        },
+      ],
+      total: 1,
+      truncated: false,
+    });
+    if (queried.action !== "query") {
+      throw new Error("Expected queried MIDI notes");
+    }
+    await expect(
+      service.executeMidiNotesOperation({
+        action: "quantize",
+        target: clipTarget,
+        noteIds: [queried.notes[0]?.noteId ?? -1],
+        gridBeats: 0.25,
+        amount: 1,
+      }),
+    ).resolves.toMatchObject({
+      action: "quantize",
+      affectedNoteIds: [queried.notes[0]?.noteId],
+      verified: true,
+    });
+    await expect(
+      service.executeAudioClipsOperation({
+        action: "inspect",
+        target: clipTarget,
+      }),
+    ).rejects.toBeDefined();
+
+    if (createdReturn.action !== "create-return") {
+      throw new Error("Expected a created return track");
+    }
+    await service.executeTracksOperation({
+      action: "delete",
+      target: {
+        kind: "return",
+        index: createdReturn.track.index ?? 0,
+        expectedReference: createdReturn.track.reference,
+        expectedName: createdReturn.track.name,
+      },
+    });
+    await service.executeScenesOperation({
+      action: "delete",
+      target: {
+        index:
+          renamedScene.action === "rename"
+            ? renamedScene.after.index
+            : createdScene.scene.index,
+        expectedReference:
+          renamedScene.action === "rename"
+            ? renamedScene.after.reference
+            : createdScene.scene.reference,
+        expectedName:
+          renamedScene.action === "rename"
+            ? renamedScene.after.name
+            : createdScene.scene.name,
+      },
+    });
+
+    expect(
+      appEvents.filter(
+        (event) =>
+          event.type === "ableton.project_mutated" &&
+          event.command === "scenes.inspect",
+      ),
+    ).toHaveLength(0);
+    expect(appEvents).toContainEqual(
+      expect.objectContaining({
+        type: "ableton.project_mutated",
+        command: "scenes.mutate",
+      }),
+    );
+    await service.stop();
+  });
+
   it("manages simulator subscriptions and decodes typed Live events", async () => {
     const port = await startSimulator();
     const telemetry: TelemetryEventEnvelope[] = [];

@@ -1,15 +1,27 @@
 import {
+  audioClipsOperationParamsSchema,
+  audioClipsOperationResultSchema,
   chainLocationTargetSchema,
   findDevicePositionParamsSchema,
   findDevicePositionResultSchema,
   inspectChainMixerParamsSchema,
   inspectChainMixerResultSchema,
+  midiNotesOperationParamsSchema,
+  midiNotesOperationResultSchema,
+  mixerRoutingOperationParamsSchema,
+  mixerRoutingOperationResultSchema,
   moveDeviceParamsSchema,
   moveDeviceResultSchema,
+  scenesOperationParamsSchema,
+  scenesOperationResultSchema,
   setChainMixerParamsSchema,
   setChainMixerResultSchema,
   setChainPropertiesParamsSchema,
   setChainPropertiesResultSchema,
+  tracksOperationParamsSchema,
+  tracksOperationResultSchema,
+  transportOperationParamsSchema,
+  transportOperationResultSchema,
   type ChainLocationTarget,
   type DeviceDestinationTarget,
   type DeviceLocationTarget,
@@ -45,7 +57,13 @@ export interface AbletonOperationDescriptor {
     | "inspectChainMixer"
     | "moveDevice"
     | "setChainProperties"
-    | "setChainMixer";
+    | "setChainMixer"
+    | "executeScenesOperation"
+    | "executeTracksOperation"
+    | "executeMixerRoutingOperation"
+    | "executeTransportOperation"
+    | "executeMidiNotesOperation"
+    | "executeAudioClipsOperation";
   readonly affectedTrackReferences: (input: unknown) => readonly string[];
   readonly lifecycleIdentity: (
     input: unknown,
@@ -64,6 +82,153 @@ function normalizeReferences(references: readonly string[]): readonly string[] {
   return [...new Set(references)].sort((left, right) =>
     left.localeCompare(right),
   );
+}
+
+function collectExpectedReferences(
+  value: unknown,
+  references: string[] = [],
+): readonly string[] {
+  if (Array.isArray(value)) {
+    for (const item of value) collectExpectedReferences(item, references);
+    return references;
+  }
+  if (value === null || typeof value !== "object") return references;
+  for (const [key, child] of Object.entries(value)) {
+    if (
+      key.toLowerCase().includes("expected") &&
+      key.toLowerCase().includes("reference") &&
+      typeof child === "string"
+    ) {
+      references.push(child);
+    } else {
+      collectExpectedReferences(child, references);
+    }
+  }
+  return references;
+}
+
+function collectTrackReferences(
+  value: unknown,
+  references: string[] = [],
+): readonly string[] {
+  if (Array.isArray(value)) {
+    for (const item of value) collectTrackReferences(item, references);
+    return references;
+  }
+  if (value === null || typeof value !== "object") return references;
+  const record = value as Record<string, unknown>;
+  if (
+    ["regular", "return", "master"].includes(String(record.kind)) &&
+    typeof record.expectedReference === "string"
+  ) {
+    references.push(record.expectedReference);
+  }
+  for (const child of Object.values(record)) {
+    collectTrackReferences(child, references);
+  }
+  return references;
+}
+
+function operationTargetKind(input: unknown): string {
+  if (input === null || typeof input !== "object") return "session";
+  const record = input as Record<string, unknown>;
+  const value =
+    record.value && typeof record.value === "object"
+      ? (record.value as Record<string, unknown>)
+      : undefined;
+  const targetValue = record.target ?? value?.target;
+  const target =
+    targetValue && typeof targetValue === "object"
+      ? (targetValue as Record<string, unknown>)
+      : undefined;
+  if (typeof target?.kind === "string") return target.kind;
+  if (typeof target?.view === "string") return `${target.view}-clip`;
+  return "session";
+}
+
+interface CoreOperationDefinition {
+  readonly operationId: string;
+  readonly action: string;
+  readonly toolName: string;
+  readonly title: string;
+  readonly inputSchema: ZodType;
+  readonly resultSchema: ZodType;
+  readonly risk: ToolRisk;
+  readonly mutationTarget: MutationTarget;
+  readonly editScope: AbletonOperationEditScope;
+  readonly requiredCapability: string;
+  readonly handlerBinding: AbletonOperationDescriptor["handlerBinding"];
+}
+
+function coreOperationDescriptor(
+  definition: CoreOperationDefinition,
+): AbletonOperationDescriptor {
+  return {
+    ...definition,
+    duration: "short",
+    affectedTrackReferences: (input) =>
+      normalizeReferences(collectTrackReferences(input)),
+    lifecycleIdentity: (input) => ({
+      domain: definition.operationId.split(".")[0] ?? "ableton",
+      action: definition.action,
+      targetKind: operationTargetKind(input),
+      targetReferences: normalizeReferences(collectExpectedReferences(input)),
+    }),
+  };
+}
+
+function operationCapability(domain: string, action: string): string {
+  return `${domain}.${action.replaceAll("-", "_")}`;
+}
+
+function domainOperationDescriptors(
+  options: readonly ZodType[],
+  configuration: {
+    readonly domain: string;
+    readonly toolName: string;
+    readonly title: string;
+    readonly resultSchemas: readonly ZodType[];
+    readonly handlerBinding: AbletonOperationDescriptor["handlerBinding"];
+    readonly actions: readonly string[];
+    readonly readActions: ReadonlySet<string>;
+    readonly destructiveActions?: ReadonlySet<string>;
+    readonly trackActions?: ReadonlySet<string>;
+  },
+): readonly AbletonOperationDescriptor[] {
+  if (
+    options.length !== configuration.actions.length ||
+    options.length !== configuration.resultSchemas.length
+  ) {
+    throw new Error(
+      `Operation action/schema mismatch for ${configuration.domain}`,
+    );
+  }
+  return options.map((inputSchema, index) => {
+    const action = configuration.actions[index]!;
+    const isRead = configuration.readActions.has(action);
+    const isTrackMutation = configuration.trackActions?.has(action) ?? false;
+    return coreOperationDescriptor({
+      operationId: `${configuration.domain}.${action.replaceAll("-", "_")}`,
+      action,
+      toolName: configuration.toolName,
+      title: `${configuration.title}: ${action}`,
+      inputSchema,
+      resultSchema: configuration.resultSchemas[index]!,
+      risk: isRead
+        ? "read"
+        : configuration.destructiveActions?.has(action)
+          ? "destructive"
+          : "reversible",
+      mutationTarget: isRead ? "read" : isTrackMutation ? "tracks" : "session",
+      editScope: isRead
+        ? "none"
+        : isTrackMutation
+          ? "affected-tracks"
+          : "session",
+      requiredCapability: operationCapability(configuration.domain, action),
+      handlerBinding: configuration.handlerBinding,
+    });
+  });
 }
 
 function deviceTrackReferences(input: unknown): readonly string[] {
@@ -269,22 +434,171 @@ export const abletonOperationDescriptors = [
       };
     },
   },
+  ...domainOperationDescriptors(scenesOperationParamsSchema.options, {
+    domain: "scenes",
+    toolName: "ableton_scenes",
+    title: "Scene operation",
+    resultSchemas: scenesOperationResultSchema.options,
+    handlerBinding: "executeScenesOperation",
+    actions: [
+      "list",
+      "get",
+      "create",
+      "duplicate",
+      "rename",
+      "set-color",
+      "set-tempo-time-signature",
+      "fire",
+      "delete",
+    ],
+    readActions: new Set(["list", "get"]),
+    destructiveActions: new Set(["delete"]),
+  }),
+  ...domainOperationDescriptors(tracksOperationParamsSchema.options, {
+    domain: "tracks",
+    toolName: "ableton_tracks",
+    title: "Track operation",
+    resultSchemas: tracksOperationResultSchema.options,
+    handlerBinding: "executeTracksOperation",
+    actions: [
+      "list",
+      "get",
+      "create-return",
+      "duplicate",
+      "set-color",
+      "set-monitoring",
+      "set-fold",
+      "stop-clips",
+      "back-to-arrangement",
+      "delete",
+    ],
+    readActions: new Set(["list", "get"]),
+    destructiveActions: new Set(["delete"]),
+    trackActions: new Set([
+      "duplicate",
+      "set-color",
+      "set-monitoring",
+      "set-fold",
+      "stop-clips",
+      "back-to-arrangement",
+      "delete",
+    ]),
+  }),
+  ...domainOperationDescriptors(mixerRoutingOperationParamsSchema.options, {
+    domain: "mixer_routing",
+    toolName: "ableton_mixer_routing",
+    title: "Mixer and routing operation",
+    resultSchemas: mixerRoutingOperationResultSchema.options,
+    handlerBinding: "executeMixerRoutingOperation",
+    actions: [
+      "inspect",
+      "meters",
+      "set-volume",
+      "set-pan",
+      "set-send",
+      "set-activator",
+      "set-crossfade-assignment",
+      "set-master-crossfader",
+      "set-cue-volume",
+      "routing-options",
+      "set-routing",
+    ],
+    readActions: new Set(["inspect", "meters", "routing-options"]),
+    trackActions: new Set([
+      "set-volume",
+      "set-pan",
+      "set-send",
+      "set-activator",
+      "set-crossfade-assignment",
+      "set-master-crossfader",
+      "set-cue-volume",
+      "set-routing",
+    ]),
+  }),
+  ...domainOperationDescriptors(transportOperationParamsSchema.options, {
+    domain: "transport",
+    toolName: "ableton_transport",
+    title: "Transport operation",
+    resultSchemas: transportOperationResultSchema.options,
+    handlerBinding: "executeTransportOperation",
+    actions: [
+      "get",
+      "seek",
+      "jump",
+      "set-time-signature",
+      "set-metronome",
+      "set-launch-quantization",
+      "set-record-quantization",
+      "set-link",
+      "rename-cue",
+      "jump-to-cue",
+      "back-to-arrangement",
+    ],
+    readActions: new Set(["get"]),
+  }),
+  ...domainOperationDescriptors(midiNotesOperationParamsSchema.options, {
+    domain: "midi_notes",
+    toolName: "ableton_midi_notes",
+    title: "MIDI note operation",
+    resultSchemas: midiNotesOperationResultSchema.options,
+    handlerBinding: "executeMidiNotesOperation",
+    actions: ["query", "add", "update", "remove", "duplicate", "quantize"],
+    readActions: new Set(["query"]),
+    trackActions: new Set(["add", "update", "remove", "duplicate", "quantize"]),
+  }),
+  ...domainOperationDescriptors(audioClipsOperationParamsSchema.options, {
+    domain: "audio_clips",
+    toolName: "ableton_audio_clips",
+    title: "Audio clip operation",
+    resultSchemas: audioClipsOperationResultSchema.options,
+    handlerBinding: "executeAudioClipsOperation",
+    actions: [
+      "inspect",
+      "set-gain",
+      "set-pitch",
+      "set-warp",
+      "set-warp-mode",
+      "set-markers",
+      "set-ram-mode",
+      "warp-markers",
+    ],
+    readActions: new Set(["inspect", "warp-markers"]),
+    trackActions: new Set([
+      "set-gain",
+      "set-pitch",
+      "set-warp",
+      "set-warp-mode",
+      "set-markers",
+      "set-ram-mode",
+    ]),
+  }),
 ] as const satisfies readonly AbletonOperationDescriptor[];
 
-const operationByToolName = new Map<string, AbletonOperationDescriptor>(
-  abletonOperationDescriptors.map((descriptor) => [
-    descriptor.toolName,
-    descriptor,
-  ]),
-);
+const operationsByToolName = new Map<string, AbletonOperationDescriptor[]>();
+for (const descriptor of abletonOperationDescriptors) {
+  const descriptors = operationsByToolName.get(descriptor.toolName) ?? [];
+  descriptors.push(descriptor);
+  operationsByToolName.set(descriptor.toolName, descriptors);
+}
 
 export function resolveAbletonOperation(
   toolName: string,
   input: unknown,
 ): ResolvedAbletonOperation | undefined {
-  const descriptor = operationByToolName.get(toolName);
-  if (descriptor === undefined) return undefined;
-  const parsed = descriptor.inputSchema.parse(input);
+  const descriptors = operationsByToolName.get(toolName);
+  if (descriptors === undefined) return undefined;
+  const match = descriptors
+    .map((descriptor) => ({
+      descriptor,
+      parsed: descriptor.inputSchema.safeParse(input),
+    }))
+    .find((candidate) => candidate.parsed.success);
+  if (match === undefined) {
+    descriptors[0]?.inputSchema.parse(input);
+    return undefined;
+  }
+  const descriptor = match.descriptor;
+  const parsed = match.parsed.data;
   return {
     descriptor,
     metadata: {
@@ -308,5 +622,5 @@ export function resolveAbletonOperation(
 export function getAbletonOperationDescriptor(
   toolName: string,
 ): AbletonOperationDescriptor | undefined {
-  return operationByToolName.get(toolName);
+  return operationsByToolName.get(toolName)?.[0];
 }

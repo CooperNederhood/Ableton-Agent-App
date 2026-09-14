@@ -1,4 +1,6 @@
 import type {
+  AudioClipsOperationParams,
+  AudioClipsOperationResult,
   CreateTrackParams,
   CreateMidiClipParams,
   CreateMidiClipResult,
@@ -36,6 +38,10 @@ import type {
   SearchBrowserResult,
   LoadBrowserItemParams,
   LoadBrowserItemResult,
+  MidiNotesOperationParams,
+  MidiNotesOperationResult,
+  MixerRoutingOperationParams,
+  MixerRoutingOperationResult,
   MoveDeviceParams,
   MoveDeviceResult,
   InspectDrumPadChainDevicesParams,
@@ -65,6 +71,8 @@ import type {
   SetChainPropertiesResult,
   SetSessionClipPropertiesParams,
   SetSessionClipPropertiesResult,
+  ScenesOperationParams,
+  ScenesOperationResult,
   SessionSnapshot,
   SetPlayingParams,
   SetPlayingResult,
@@ -77,6 +85,24 @@ import type {
   SetDeviceParameterParams,
   SetDeviceParameterResult,
   TrackMutationResult,
+  TracksOperationParams,
+  TracksOperationResult,
+  TransportOperationParams,
+  TransportOperationResult,
+} from "@ableton-agent/protocol";
+import {
+  audioClipsOperationParamsSchema,
+  audioClipsOperationResultSchema,
+  midiNotesOperationParamsSchema,
+  midiNotesOperationResultSchema,
+  mixerRoutingOperationParamsSchema,
+  mixerRoutingOperationResultSchema,
+  scenesOperationParamsSchema,
+  scenesOperationResultSchema,
+  tracksOperationParamsSchema,
+  tracksOperationResultSchema,
+  transportOperationParamsSchema,
+  transportOperationResultSchema,
 } from "@ableton-agent/protocol";
 import type { ConnectionStatus } from "@ableton-agent/shared";
 import { withCorrelation } from "@ableton-agent/correlation";
@@ -114,6 +140,24 @@ export interface AbletonToolMetadata {
 export interface AbletonToolServices {
   getConnectionStatus(): Promise<ConnectionStatus>;
   inspectSession(): Promise<SessionSnapshot>;
+  executeScenesOperation?(
+    params: ScenesOperationParams,
+  ): Promise<ScenesOperationResult>;
+  executeTracksOperation?(
+    params: TracksOperationParams,
+  ): Promise<TracksOperationResult>;
+  executeMixerRoutingOperation?(
+    params: MixerRoutingOperationParams,
+  ): Promise<MixerRoutingOperationResult>;
+  executeTransportOperation?(
+    params: TransportOperationParams,
+  ): Promise<TransportOperationResult>;
+  executeMidiNotesOperation?(
+    params: MidiNotesOperationParams,
+  ): Promise<MidiNotesOperationResult>;
+  executeAudioClipsOperation?(
+    params: AudioClipsOperationParams,
+  ): Promise<AudioClipsOperationResult>;
   setTempo(tempo: number): Promise<SetTempoResult>;
   setPlaying(isPlaying: boolean): Promise<SetPlayingResult>;
   inspectArrangementTransport(
@@ -514,17 +558,22 @@ export const abletonToolMetadata = [
     mutationTarget: "track",
     requiredCapability: "browser.load_item",
   },
-  ...abletonOperationDescriptors.map((descriptor) => ({
-    name: descriptor.toolName,
-    title: descriptor.title,
-    risk: descriptor.risk,
-    duration: descriptor.duration,
-    mutationTarget: descriptor.mutationTarget,
-    requiredCapability: descriptor.requiredCapability,
-    operationId: descriptor.operationId,
-    action: descriptor.action,
-    editScope: descriptor.editScope,
-  })),
+  ...new Map(
+    abletonOperationDescriptors.map((descriptor) => [
+      descriptor.toolName,
+      {
+        name: descriptor.toolName,
+        title: descriptor.title,
+        risk: descriptor.risk,
+        duration: descriptor.duration,
+        mutationTarget: descriptor.mutationTarget,
+        requiredCapability: descriptor.requiredCapability,
+        operationId: descriptor.operationId,
+        action: descriptor.action,
+        editScope: descriptor.editScope,
+      },
+    ]),
+  ).values(),
 ] as const satisfies readonly AbletonToolMetadata[];
 
 export function resolveAbletonToolMetadata(
@@ -645,6 +694,12 @@ export interface AbletonToolSet {
     Tool<MoveDeviceParams>,
     Tool<SetChainPropertiesParams>,
     Tool<SetChainMixerParams>,
+    Tool<ScenesOperationParams>,
+    Tool<TracksOperationParams>,
+    Tool<MixerRoutingOperationParams>,
+    Tool<TransportOperationParams>,
+    Tool<MidiNotesOperationParams>,
+    Tool<AudioClipsOperationParams>,
   ];
   availableTools: string[];
 }
@@ -663,6 +718,18 @@ export class AbletonToolPreconditionError extends Error {
     this.name = "AbletonToolPreconditionError";
     this.code = code;
   }
+}
+
+function verifyOperationResultAction<T extends { action: string }>(
+  expectedAction: string,
+  result: T,
+): T {
+  if (result.action !== expectedAction) {
+    throw new Error(
+      `Ableton operation returned '${result.action}' for '${expectedAction}'`,
+    );
+  }
+  return result;
 }
 
 export interface AbletonToolFailurePayload {
@@ -908,6 +975,78 @@ export function createAbletonTools(
       "Inspects the current Ableton Live set, including transport, tempo, time signature, and track summaries.",
     parameters: z.object({}),
     handler: async () => services.inspectSession(),
+  });
+  const scenesTool = defineTool("ableton_scenes", {
+    description:
+      "Lists, inspects, creates, duplicates, renames, recolors, configures, fires, or deletes Live 11 scenes using strict action variants and exact runtime identities. Scene stop is intentionally unavailable because Live 11 does not expose a scene-scoped stop operation.",
+    parameters: scenesOperationParamsSchema,
+    handler: async (params) =>
+      verifyOperationResultAction(
+        params.action,
+        scenesOperationResultSchema.parse(
+          await services.executeScenesOperation!(params),
+        ),
+      ),
+  });
+  const tracksTool = defineTool("ableton_tracks", {
+    description:
+      "Lists and inspects regular, group, return, and master tracks, or performs supported Live 11 track actions with exact identity checks. It does not provide arbitrary track reordering.",
+    parameters: tracksOperationParamsSchema,
+    handler: async (params) =>
+      verifyOperationResultAction(
+        params.action,
+        tracksOperationResultSchema.parse(
+          await services.executeTracksOperation!(params),
+        ),
+      ),
+  });
+  const mixerRoutingTool = defineTool("ableton_mixer_routing", {
+    description:
+      "Inspects or changes Live 11 track, return, and master mixer state; reads bounded meters; and discovers or assigns routing through exact recent snapshot tokens with feedback and external-MIDI warnings.",
+    parameters: mixerRoutingOperationParamsSchema,
+    handler: async (params) =>
+      verifyOperationResultAction(
+        params.action,
+        mixerRoutingOperationResultSchema.parse(
+          await services.executeMixerRoutingOperation!(params),
+        ),
+      ),
+  });
+  const transportTool = defineTool("ableton_transport", {
+    description:
+      "Inspects and controls Live 11 song position, time signature, metronome, launch and record quantization, Link when exposed, cue names/jumps, and Back to Arrangement. Recording controls are intentionally excluded.",
+    parameters: transportOperationParamsSchema,
+    handler: async (params) =>
+      verifyOperationResultAction(
+        params.action,
+        transportOperationResultSchema.parse(
+          await services.executeTransportOperation!(params),
+        ),
+      ),
+  });
+  const midiNotesTool = defineTool("ableton_midi_notes", {
+    description:
+      "Queries and edits identity-bound Live 11 MIDI notes through modern note IDs, including probability, velocity deviation, and release velocity. It does not edit per-note expression.",
+    parameters: midiNotesOperationParamsSchema,
+    handler: async (params) =>
+      verifyOperationResultAction(
+        params.action,
+        midiNotesOperationResultSchema.parse(
+          await services.executeMidiNotesOperation!(params),
+        ),
+      ),
+  });
+  const audioClipsTool = defineTool("ableton_audio_clips", {
+    description:
+      "Inspects and updates identity-bound Live 11 audio clip gain, pitch, warp, markers, and RAM state, and reads bounded warp markers. Warp-marker mutation and unrestricted file import are intentionally unavailable.",
+    parameters: audioClipsOperationParamsSchema,
+    handler: async (params) =>
+      verifyOperationResultAction(
+        params.action,
+        audioClipsOperationResultSchema.parse(
+          await services.executeAudioClipsOperation!(params),
+        ),
+      ),
   });
   const setTempoTool = defineTool("ableton_transport_set_tempo", {
     description:
@@ -1694,10 +1833,18 @@ export function createAbletonTools(
       requireConnectedTool(moveDeviceTool, services),
       requireConnectedTool(setChainPropertiesTool, services),
       requireConnectedTool(setChainMixerTool, services),
+      requireConnectedTool(scenesTool, services),
+      requireConnectedTool(tracksTool, services),
+      requireConnectedTool(mixerRoutingTool, services),
+      requireConnectedTool(transportTool, services),
+      requireConnectedTool(midiNotesTool, services),
+      requireConnectedTool(audioClipsTool, services),
     ],
-    availableTools: abletonToolMetadata.map(
-      (metadata) => `custom:${metadata.name}`,
-    ),
+    availableTools: [
+      ...new Set(
+        abletonToolMetadata.map((metadata) => `custom:${metadata.name}`),
+      ),
+    ],
   };
 }
 

@@ -652,6 +652,16 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     askForReadApproval: options.askForReadApproval ?? false,
     getAbletonStatus: () => ableton.getStatus(),
     inspectSession: () => ableton.inspectSession(),
+    executeScenesOperation: (params) => ableton.executeScenesOperation!(params),
+    executeTracksOperation: (params) => ableton.executeTracksOperation!(params),
+    executeMixerRoutingOperation: (params) =>
+      ableton.executeMixerRoutingOperation!(params),
+    executeTransportOperation: (params) =>
+      ableton.executeTransportOperation!(params),
+    executeMidiNotesOperation: (params) =>
+      ableton.executeMidiNotesOperation!(params),
+    executeAudioClipsOperation: (params) =>
+      ableton.executeAudioClipsOperation!(params),
     preparedContextProvider: preparedContext,
     setTempo: (tempo) => ableton.setTempo(tempo),
     setPlaying: (isPlaying) => ableton.setPlaying(isPlaying),

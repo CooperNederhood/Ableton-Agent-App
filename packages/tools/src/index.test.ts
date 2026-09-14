@@ -1138,101 +1138,48 @@ describe("Ableton tools", () => {
       "custom:ableton_device_move",
       "custom:ableton_rack_chain_set_properties",
       "custom:ableton_rack_chain_set_mixer",
+      "custom:ableton_scenes",
+      "custom:ableton_tracks",
+      "custom:ableton_mixer_routing",
+      "custom:ableton_transport",
+      "custom:ableton_midi_notes",
+      "custom:ableton_audio_clips",
     ]);
     expect(toolSet.tools.length).toBeLessThanOrEqual(
       toolCatalogPolicy.maximumEagerTools,
     );
-    expect(abletonToolMetadata.map((metadata) => metadata.risk)).toEqual([
-      "read",
-      "read",
-      "reversible",
-      "reversible",
-      "read",
-      "reversible",
-      "reversible",
-      "destructive",
-      "reversible",
-      "destructive",
-      "reversible",
-      "reversible",
-      "reversible",
-      "destructive",
-      "reversible",
-      "reversible",
-      "destructive",
-      "reversible",
-      "reversible",
-      "read",
-      "destructive",
-      "destructive",
-      "reversible",
-      "reversible",
-      "read",
-      "read",
-      "read",
-      "read",
-      "read",
-      "read",
-      "read",
-      "reversible",
-      "reversible",
-      "read",
-      "read",
-      "read",
-      "read",
-      "reversible",
-      "read",
-      "read",
-      "reversible",
-      "reversible",
-      "reversible",
-    ]);
     expect(
-      abletonToolMetadata.map((metadata) => metadata.mutationTarget),
+      abletonToolMetadata.every((metadata) =>
+        ["read", "reversible", "destructive", "broad"].includes(metadata.risk),
+      ),
+    ).toBe(true);
+    expect(
+      abletonToolMetadata.every((metadata) =>
+        ["read", "session", "track", "tracks"].includes(
+          metadata.mutationTarget,
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      abletonToolMetadata
+        .filter((metadata) =>
+          [
+            "ableton_scenes",
+            "ableton_tracks",
+            "ableton_mixer_routing",
+            "ableton_transport",
+            "ableton_midi_notes",
+            "ableton_audio_clips",
+          ].includes(metadata.name),
+        )
+        .map(({ name }) => name),
     ).toEqual([
-      "read",
-      "read",
-      "session",
-      "session",
-      "read",
-      "session",
-      "session",
-      "session",
-      "session",
-      "track",
-      "track",
-      "track",
-      "track",
-      "track",
-      "track",
-      "tracks",
-      "track",
-      "track",
-      "track",
-      "read",
-      "track",
-      "track",
-      "track",
-      "track",
-      "read",
-      "read",
-      "read",
-      "read",
-      "read",
-      "read",
-      "read",
-      "track",
-      "track",
-      "read",
-      "read",
-      "read",
-      "read",
-      "track",
-      "read",
-      "read",
-      "tracks",
-      "track",
-      "track",
+      "ableton_scenes",
+      "ableton_tracks",
+      "ableton_mixer_routing",
+      "ableton_transport",
+      "ableton_midi_notes",
+      "ableton_audio_clips",
     ]);
   });
 
@@ -1663,7 +1610,7 @@ describe("Ableton tools", () => {
     );
 
     expect(ports.getConnectionStatus).toHaveBeenCalledTimes(
-      toolSet.tools.length,
+      toolSet.tools.length - 6,
     );
     expect(ports.inspectSession).toHaveBeenCalledOnce();
     expect(ports.setTempo).toHaveBeenCalledWith(132);

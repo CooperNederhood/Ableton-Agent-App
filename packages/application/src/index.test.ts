@@ -576,6 +576,24 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
       trackCount: 0,
       tracks: [],
     })),
+    executeScenesOperation: vi.fn(async () => {
+      throw new Error("Not implemented by test service");
+    }),
+    executeTracksOperation: vi.fn(async () => {
+      throw new Error("Not implemented by test service");
+    }),
+    executeMixerRoutingOperation: vi.fn(async () => {
+      throw new Error("Not implemented by test service");
+    }),
+    executeTransportOperation: vi.fn(async () => {
+      throw new Error("Not implemented by test service");
+    }),
+    executeMidiNotesOperation: vi.fn(async () => {
+      throw new Error("Not implemented by test service");
+    }),
+    executeAudioClipsOperation: vi.fn(async () => {
+      throw new Error("Not implemented by test service");
+    }),
     setTempo: vi.fn(async (tempo: number) => ({
       beforeTempo: 120,
       afterTempo: tempo,
@@ -1189,8 +1207,14 @@ describe("CopilotAgentService", () => {
       "custom:ableton_device_move",
       "custom:ableton_rack_chain_set_properties",
       "custom:ableton_rack_chain_set_mixer",
+      "custom:ableton_scenes",
+      "custom:ableton_tracks",
+      "custom:ableton_mixer_routing",
+      "custom:ableton_transport",
+      "custom:ableton_midi_notes",
+      "custom:ableton_audio_clips",
     ]);
-    expect(config?.tools).toHaveLength(43);
+    expect(config?.tools).toHaveLength(49);
     expect(config?.customAgents).toEqual([
       {
         name: "default-agent",
@@ -1243,6 +1267,12 @@ describe("CopilotAgentService", () => {
           "ableton_device_move",
           "ableton_rack_chain_set_properties",
           "ableton_rack_chain_set_mixer",
+          "ableton_scenes",
+          "ableton_tracks",
+          "ableton_mixer_routing",
+          "ableton_transport",
+          "ableton_midi_notes",
+          "ableton_audio_clips",
         ],
         infer: false,
       },

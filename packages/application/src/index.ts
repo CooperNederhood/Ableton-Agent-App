@@ -16,6 +16,8 @@ import {
   type SkillInvocation,
 } from "@ableton-agent/agent-config";
 import type {
+  AudioClipsOperationParams,
+  AudioClipsOperationResult,
   CapabilityDocument,
   CreateCuePointParams,
   CuePointMutationResult,
@@ -73,6 +75,10 @@ import type {
   SearchBrowserResult,
   LoadBrowserItemParams,
   LoadBrowserItemResult,
+  MidiNotesOperationParams,
+  MidiNotesOperationResult,
+  MixerRoutingOperationParams,
+  MixerRoutingOperationResult,
   MoveDeviceParams,
   MoveDeviceResult,
   InspectDrumPadChainDevicesParams,
@@ -90,6 +96,8 @@ import type {
   InspectRackChainsParams,
   InspectRackChainsResult,
   SessionSnapshot,
+  ScenesOperationParams,
+  ScenesOperationResult,
   SetPlayingResult,
   SetTempoResult,
   SetTrackMixerParams,
@@ -99,6 +107,10 @@ import type {
   SetDeviceParameterParams,
   SetDeviceParameterResult,
   TrackMutationResult,
+  TracksOperationParams,
+  TracksOperationResult,
+  TransportOperationParams,
+  TransportOperationResult,
 } from "@ableton-agent/protocol";
 import type {
   AppEvent,
@@ -350,6 +362,24 @@ export interface CopilotAgentServiceOptions {
   logger?: Logger;
   getAbletonStatus: () => Promise<ConnectionStatus>;
   inspectSession: () => Promise<SessionSnapshot>;
+  executeScenesOperation?: (
+    params: ScenesOperationParams,
+  ) => Promise<ScenesOperationResult>;
+  executeTracksOperation?: (
+    params: TracksOperationParams,
+  ) => Promise<TracksOperationResult>;
+  executeMixerRoutingOperation?: (
+    params: MixerRoutingOperationParams,
+  ) => Promise<MixerRoutingOperationResult>;
+  executeTransportOperation?: (
+    params: TransportOperationParams,
+  ) => Promise<TransportOperationResult>;
+  executeMidiNotesOperation?: (
+    params: MidiNotesOperationParams,
+  ) => Promise<MidiNotesOperationResult>;
+  executeAudioClipsOperation?: (
+    params: AudioClipsOperationParams,
+  ) => Promise<AudioClipsOperationResult>;
   preparedContextProvider?: PreparedContextProvider;
   setTempo: (tempo: number) => Promise<SetTempoResult>;
   setPlaying: (isPlaying: boolean) => Promise<SetPlayingResult>;
@@ -497,11 +527,22 @@ export interface AgentRuntimeObserver {
 }
 
 export const DEFAULT_AGENT_TURN_TIMEOUT_MS = 180_000;
-export const BASE_SYSTEM_MESSAGE_VERSION = 5;
+export const BASE_SYSTEM_MESSAGE_VERSION = 6;
 export const BASE_SYSTEM_MESSAGE =
-  "You are an Ableton Live production assistant. Use only the provided tools. Use supplied prepared project context and its exact identities directly when they are sufficient and the mutation is identity-guarded; do not inspect solely because cached mutable state is age-expired. Otherwise inspect current project state before making project-specific claims or mutations. Clearly distinguish observed state from suggestions. For every requested instrument, kit, preset, or sound, search the Ableton Browser before creating its destination track. Search each distinct requested sound separately, choose roots deliberately, and resolve an exact supported loadable item. Prefer exact, loadable device or preset results over folders or loose substring matches. If search is truncated or the matches are weak, narrow the roots or try a literal musical synonym before choosing. Only after resolving the content should you create the destination track and load that exact item. Perform dependent mutations sequentially. Never retry a mutation that may already have applied; re-inspect state first and continue from the verified result.";
+  "You are an Ableton Live production assistant. Use only the provided tools. Use supplied prepared project context and its exact identities directly when they are sufficient and the mutation is identity-guarded; do not inspect solely because cached mutable state is age-expired. Otherwise inspect current project state before making project-specific claims or mutations. Use the strict action variant matching the requested scene, track, mixer/routing, transport, MIDI-note, or audio-clip operation. Discover routing options immediately before assignment and reuse the exact snapshot ID, option token, display name, target, and direction; surface feedback and external-MIDI warnings. Never claim scene-scoped stop, arbitrary track reordering, recording controls in the transport tool, per-note expression editing, warp-marker mutation, or unrestricted file import. Clearly distinguish observed state from suggestions. For every requested instrument, kit, preset, or sound, search the Ableton Browser before creating its destination track. Search each distinct requested sound separately, choose roots deliberately, and resolve an exact supported loadable item. Prefer exact, loadable device or preset results over folders or loose substring matches. If search is truncated or the matches are weak, narrow the roots or try a literal musical synonym before choosing. Only after resolving the content should you create the destination track and load that exact item. Perform dependent mutations sequentially. Never retry a mutation that may already have applied; re-inspect state first and continue from the verified result.";
 export const SKILL_TOOL_NAME = "skill";
 const directSkillHistoryPrefix = "<!-- ableton-agent:direct-skill ";
+
+function isVerifiedOperationResult(result: unknown): boolean {
+  if (result === null || typeof result !== "object") return false;
+  if (Reflect.get(result, "verified") === true) return true;
+  const nestedResult: unknown = Reflect.get(result, "result");
+  return (
+    nestedResult !== null &&
+    typeof nestedResult === "object" &&
+    Reflect.get(nestedResult, "verified") === true
+  );
+}
 
 export class AgentTurnTimeoutError extends Error {
   public constructor(
@@ -1000,6 +1041,30 @@ export class CopilotAgentService implements AgentService {
     this.#toolSet ??= createAbletonTools({
       getConnectionStatus: this.options.getAbletonStatus,
       inspectSession: this.options.inspectSession,
+      executeScenesOperation:
+        this.options.executeScenesOperation ??
+        (() => Promise.reject(new Error("Scene operations are unavailable"))),
+      executeTracksOperation:
+        this.options.executeTracksOperation ??
+        (() => Promise.reject(new Error("Track operations are unavailable"))),
+      executeMixerRoutingOperation:
+        this.options.executeMixerRoutingOperation ??
+        (() =>
+          Promise.reject(
+            new Error("Mixer and routing operations are unavailable"),
+          )),
+      executeTransportOperation:
+        this.options.executeTransportOperation ??
+        (() =>
+          Promise.reject(new Error("Transport operations are unavailable"))),
+      executeMidiNotesOperation:
+        this.options.executeMidiNotesOperation ??
+        (() =>
+          Promise.reject(new Error("MIDI note operations are unavailable"))),
+      executeAudioClipsOperation:
+        this.options.executeAudioClipsOperation ??
+        (() =>
+          Promise.reject(new Error("Audio clip operations are unavailable"))),
       setTempo: this.options.setTempo,
       setPlaying: this.options.setPlaying,
       inspectArrangementTransport: this.options.inspectArrangementTransport,
@@ -1107,15 +1172,6 @@ export class CopilotAgentService implements AgentService {
   #scopedAbletonTools(state: ManagedSessionState): Tool[] {
     const tools = this.#abletonToolSet().tools as unknown as Tool[];
     return tools.map((tool): Tool => {
-      const mutationTarget = this.#mutationAuthorizer.resolveMutationTarget(
-        tool.name,
-      );
-      if (mutationTarget === undefined) {
-        throw new AbletonMutationAuthorizationError(
-          "unknown_tool",
-          `Ableton tool ${tool.name} has no mutation classification`,
-        );
-      }
       if (tool.handler === undefined) return tool;
       const handler = tool.handler;
       const runOperation = async (
@@ -1151,10 +1207,7 @@ export class CopilotAgentService implements AgentService {
           this.#recordRuntime(state, "agent.operation.verification", {
             ...base,
             durationMs: Math.max(0, Date.now() - requestedAt),
-            verified:
-              result !== null &&
-              typeof result === "object" &&
-              Reflect.get(result, "verified") === true,
+            verified: isVerifiedOperationResult(result),
           });
           this.#recordRuntime(state, "agent.operation.completed", {
             ...base,
@@ -1176,18 +1229,24 @@ export class CopilotAgentService implements AgentService {
           throw error;
         }
       };
-      if (mutationTarget === "read") {
-        return {
-          ...tool,
-          handler: async (args: unknown, invocation: ToolInvocation) =>
-            runOperation(args, invocation, () =>
-              Promise.resolve(handler(args, invocation)),
-            ),
-        };
-      }
       return {
         ...tool,
         handler: async (args: unknown, invocation: ToolInvocation) => {
+          const mutationTarget = this.#mutationAuthorizer.resolveMutationTarget(
+            tool.name,
+            args,
+          );
+          if (mutationTarget === undefined) {
+            throw new AbletonMutationAuthorizationError(
+              "unknown_tool",
+              `Ableton tool ${tool.name} has no mutation classification`,
+            );
+          }
+          if (mutationTarget === "read") {
+            return runOperation(args, invocation, () =>
+              Promise.resolve(handler(args, invocation)),
+            );
+          }
           const requestedAt = Date.now();
           let queuedAt: number | undefined;
           let startedAt: number | undefined;
@@ -1240,10 +1299,7 @@ export class CopilotAgentService implements AgentService {
                     }),
                 ...(event.stage === "verification"
                   ? {
-                      verified:
-                        event.result !== null &&
-                        typeof event.result === "object" &&
-                        Reflect.get(event.result, "verified") === true,
+                      verified: isVerifiedOperationResult(event.result),
                     }
                   : {}),
               });
@@ -3290,6 +3346,42 @@ export class HeadlessApplication {
 
   public inspectSession(): Promise<SessionSnapshot> {
     return this.services.ableton.inspectSession();
+  }
+
+  public executeScenesOperation(
+    params: ScenesOperationParams,
+  ): Promise<ScenesOperationResult> {
+    return this.services.ableton.executeScenesOperation!(params);
+  }
+
+  public executeTracksOperation(
+    params: TracksOperationParams,
+  ): Promise<TracksOperationResult> {
+    return this.services.ableton.executeTracksOperation!(params);
+  }
+
+  public executeMixerRoutingOperation(
+    params: MixerRoutingOperationParams,
+  ): Promise<MixerRoutingOperationResult> {
+    return this.services.ableton.executeMixerRoutingOperation!(params);
+  }
+
+  public executeTransportOperation(
+    params: TransportOperationParams,
+  ): Promise<TransportOperationResult> {
+    return this.services.ableton.executeTransportOperation!(params);
+  }
+
+  public executeMidiNotesOperation(
+    params: MidiNotesOperationParams,
+  ): Promise<MidiNotesOperationResult> {
+    return this.services.ableton.executeMidiNotesOperation!(params);
+  }
+
+  public executeAudioClipsOperation(
+    params: AudioClipsOperationParams,
+  ): Promise<AudioClipsOperationResult> {
+    return this.services.ableton.executeAudioClipsOperation!(params);
   }
 
   public setTempo(tempo: number): Promise<SetTempoResult> {

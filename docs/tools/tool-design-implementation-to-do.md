@@ -20,7 +20,10 @@ Companion specification: [Tool Design](tool-design.md)
   - [x] Add reusable action-aware operation descriptors and application-owned
     requested/policy/queued/started/verification/completed/failed/cancelled
     events for the first Live 11 device/rack slice.
-  - [ ] Migrate the older tool families and add complete persisted timing and
+  - [x] Extend action-aware descriptors to Live 11 scenes, tracks,
+    mixer/routing, transport, modern MIDI notes, and audio clips with bounded
+    identities and timing.
+  - [ ] Migrate the remaining legacy tool aliases and add complete persisted
     trace-continuity coverage.
 
 ## Inspection tools
@@ -42,7 +45,9 @@ Companion specification: [Tool Design](tool-design.md)
   - [x] Implement approved MIDI/audio track creation.
   - [x] Implement destructive identity-bound track deletion.
   - [x] Implement identity-bound rename and normalized mixer controls.
-  - [ ] Implement routing and group-aware structural operations.
+  - [x] Implement return/master/group-aware inspection, return creation,
+    regular-track duplication, monitoring/fold/state actions, mixer controls,
+    meters, and snapshot-bound routing assignment.
 - [~] Implement session clip and note operations.
   - [x] Implement approved MIDI clip creation in empty slots.
   - [x] Implement destructive bounded MIDI note replacement.
@@ -50,6 +55,10 @@ Companion specification: [Tool Design](tool-design.md)
     destructive deletion, and conservative properties for existing MIDI and
     audio clips. Audio creation and file loading remain out of scope until
     separately capability-gated.
+  - [x] Add modern Live 11 note-ID query/add/update/remove/duplicate/quantize
+    operations with probability, velocity deviation, and release velocity.
+  - [x] Add audio metadata, gain/pitch, warp state/mode, clip marker, RAM mode,
+    and bounded warp-marker inspection operations.
 - [~] Implement arrangement placement and property operations.
   - [x] Implement approved non-overlapping MIDI clip placement.
   - [x] Implement bounded Arrangement inspection.
@@ -75,6 +84,9 @@ Companion specification: [Tool Design](tool-design.md)
   - [x] Auto-approve bounded loop/cue inspection, classify loop updates and cue
     creation as reversible, and classify identity-bound cue deletion as
     destructive.
+  - [x] Add action-discriminated seek/jump, time signature, metronome,
+    launch/record quantization, capability-gated Link, cue rename/jump, and
+    Back to Arrangement operations without recording controls.
 
 ## Workflow tools
 

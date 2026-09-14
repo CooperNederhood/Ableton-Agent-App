@@ -30,11 +30,15 @@ Companion specification: [Remote Script](remote-script.md)
     enable/start/length with finite validation, verification, and rollback.
   - [x] Create reversible cue points and destructively delete identity-bound
     cue points using runtime-stable references where Live exposes no IDs.
+  - [x] Add seek/jump, time signature, metronome, launch/record quantization,
+    capability-gated Link, cue rename/jump, and Back to Arrangement.
 - [~] Implement track and mixer handlers.
   - [x] Create MIDI/audio tracks with optional names and verified postconditions.
   - [x] Delete identity-bound non-group tracks with last-track protection.
   - [x] Rename identity-bound tracks and update verified mixer state.
-  - [ ] Implement routing and group-aware structural operations.
+  - [x] Implement return/master/group-aware inspection, return creation,
+    regular-track duplication, monitoring/fold/state actions, mixer controls,
+    bounded meters, and snapshot-bound routing assignment.
 - [~] Implement session clip and MIDI-note handlers.
   - [x] Create guarded MIDI clips in empty Session View slots.
   - [x] Replace bounded MIDI note sets with full-note verification and recovery.
@@ -45,6 +49,9 @@ Companion specification: [Remote Script](remote-script.md)
   - [ ] Validate launch quantization, cross-track duplication compatibility,
     audio mute/loop properties, and rollback timing in supported real Live
     versions.
+  - [x] Add modern note-ID query/add/update/remove/duplicate/quantize operations
+    and audio metadata/gain/pitch/warp/marker/RAM operations with read-only warp
+    markers.
 - [~] Implement arrangement handlers.
   - [x] Create non-overlapping MIDI clips with verified placement and rollback.
   - [x] Inspect Arrangement clips with bounded pagination.
@@ -71,7 +78,7 @@ Companion specification: [Remote Script](remote-script.md)
   - [ ] Keep empty-chain creation, direct native insertion, single-chain
     deletion, and chain reordering unsupported until separately approved APIs
     and semantics exist.
-  - [ ] Add return/group tracks and separately designed nested-rack traversal.
+  - [ ] Add separately designed nested-rack traversal.
 - [x] Implement bounded Browser root/category pages, deterministic
   breadth-first search with node/result/depth/time limits, a 512-entry
   runtime-reference cache, exact path/URI revalidation, and verified built-in

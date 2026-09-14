@@ -8,7 +8,7 @@ import { commandCatalog, commandNames } from "./catalog.js";
 function quotedCommands(source: string): string[] {
   return [
     ...source.matchAll(
-      /"(?:system|project|session|transport|tracks|clips|arrangement|devices|browser|events)\.[a-z_]+"/g,
+      /"(?:system|project|session|scenes|transport|tracks|mixer_routing|midi_notes|audio_clips|clips|arrangement|devices|browser|events)\.[a-z_]+"/g,
     ),
   ]
     .map(([match]) => match.slice(1, -1))
@@ -38,6 +38,7 @@ describe("command catalog", () => {
   it("matches every Remote Script registry command", () => {
     const sources = [
       "remote-script/AbletonAgent/system_commands.py",
+      "remote-script/AbletonAgent/core_domain_commands.py",
       "remote-script/AbletonAgent/device_commands.py",
       "remote-script/AbletonAgent/browser_commands.py",
       "remote-script/AbletonAgent/event_subscriptions.py",

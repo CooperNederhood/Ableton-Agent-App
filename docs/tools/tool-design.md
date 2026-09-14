@@ -150,3 +150,10 @@ A workflow operation should:
 
 The operation record and its stages remain queryable in Desktop History after
 the live activity UI has moved on.
+
+For dense Live 11 domains, one agent-facing tool may expose a strict
+discriminated union of actions. Each action still resolves to its own operation
+descriptor before authorization, so read and mutation variants preserve their
+individual risk, capability, edit-scope, lock, target-identity, and lifecycle
+semantics. The protocol keeps inspection and mutation commands separate to
+avoid mutation invalidation for reads.

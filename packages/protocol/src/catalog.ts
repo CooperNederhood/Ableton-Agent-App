@@ -99,6 +99,26 @@ import {
   unsubscribeEventParamsSchema,
   unsubscribeEventResultSchema,
 } from "./schemas.js";
+import {
+  audioClipsInspectParamsSchema,
+  audioClipsMutationParamsSchema,
+  audioClipsOperationResultSchema,
+  midiNotesInspectParamsSchema,
+  midiNotesMutationParamsSchema,
+  midiNotesOperationResultSchema,
+  mixerRoutingInspectParamsSchema,
+  mixerRoutingMutationParamsSchema,
+  mixerRoutingOperationResultSchema,
+  scenesInspectParamsSchema,
+  scenesMutationParamsSchema,
+  scenesOperationResultSchema,
+  tracksInspectParamsSchema,
+  tracksMutationParamsSchema,
+  tracksOperationResultSchema,
+  transportInspectParamsSchema,
+  transportMutationParamsSchema,
+  transportOperationResultSchema,
+} from "./core-domain-schemas.js";
 
 export const timeoutClassSchema = z.enum(["normal", "long"]);
 export type TimeoutClass = z.infer<typeof timeoutClassSchema>;
@@ -130,6 +150,60 @@ export const commandCatalog = {
   "system.ping": command(emptyParamsSchema, pingResultSchema),
   "project.get_identity": command(emptyParamsSchema, projectIdentitySchema),
   "session.inspect": command(emptyParamsSchema, sessionSnapshotSchema),
+  "scenes.inspect": command(
+    scenesInspectParamsSchema,
+    scenesOperationResultSchema,
+  ),
+  "scenes.mutate": command(
+    scenesMutationParamsSchema,
+    scenesOperationResultSchema,
+    { mutates: true },
+  ),
+  "tracks.inspect": command(
+    tracksInspectParamsSchema,
+    tracksOperationResultSchema,
+  ),
+  "tracks.mutate": command(
+    tracksMutationParamsSchema,
+    tracksOperationResultSchema,
+    { mutates: true },
+  ),
+  "mixer_routing.inspect": command(
+    mixerRoutingInspectParamsSchema,
+    mixerRoutingOperationResultSchema,
+  ),
+  "mixer_routing.mutate": command(
+    mixerRoutingMutationParamsSchema,
+    mixerRoutingOperationResultSchema,
+    { mutates: true },
+  ),
+  "transport.inspect": command(
+    transportInspectParamsSchema,
+    transportOperationResultSchema,
+  ),
+  "transport.mutate": command(
+    transportMutationParamsSchema,
+    transportOperationResultSchema,
+    { mutates: true },
+  ),
+  "midi_notes.inspect": command(
+    midiNotesInspectParamsSchema,
+    midiNotesOperationResultSchema,
+  ),
+  "midi_notes.mutate": command(
+    midiNotesMutationParamsSchema,
+    midiNotesOperationResultSchema,
+    { mutates: true },
+  ),
+  "audio_clips.inspect": command(
+    audioClipsInspectParamsSchema,
+    audioClipsOperationResultSchema,
+  ),
+  "audio_clips.mutate": command(
+    audioClipsMutationParamsSchema,
+    audioClipsOperationResultSchema,
+    { mutates: true },
+  ),
   "events.inspect_selection": command(
     inspectEventSelectionParamsSchema,
     inspectEventSelectionResultSchema,

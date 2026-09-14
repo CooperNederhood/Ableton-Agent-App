@@ -9,6 +9,24 @@ export interface AbletonService {
   getProjectIdentity(): Promise<Protocol.ProjectIdentity>;
   ping(): Promise<Protocol.PingResult>;
   inspectSession(): Promise<Protocol.SessionSnapshot>;
+  executeScenesOperation?(
+    params: Protocol.ScenesOperationParams,
+  ): Promise<Protocol.ScenesOperationResult>;
+  executeTracksOperation?(
+    params: Protocol.TracksOperationParams,
+  ): Promise<Protocol.TracksOperationResult>;
+  executeMixerRoutingOperation?(
+    params: Protocol.MixerRoutingOperationParams,
+  ): Promise<Protocol.MixerRoutingOperationResult>;
+  executeTransportOperation?(
+    params: Protocol.TransportOperationParams,
+  ): Promise<Protocol.TransportOperationResult>;
+  executeMidiNotesOperation?(
+    params: Protocol.MidiNotesOperationParams,
+  ): Promise<Protocol.MidiNotesOperationResult>;
+  executeAudioClipsOperation?(
+    params: Protocol.AudioClipsOperationParams,
+  ): Promise<Protocol.AudioClipsOperationResult>;
   setTempo(tempo: number): Promise<Protocol.SetTempoResult>;
   setPlaying(isPlaying: boolean): Promise<Protocol.SetPlayingResult>;
   inspectArrangementTransport(

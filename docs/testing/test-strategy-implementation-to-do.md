@@ -40,6 +40,10 @@ Companion specification: [Test Strategy](test-strategy.md)
   - [x] Cover equivalent Browser URI encodings, loadable/navigable native
     devices, structured SDK failures, and the runner-owned Auto Filter audio
     scenario.
+- [x] Cover strict Live 11 core-domain unions, per-action risk/scope/capability
+  resolution, read-versus-mutation protocol separation, Python handler
+  identity/rollback paths, simulator parity, and runner-owned scene, track, and
+  transport inspection scenarios.
 - [x] Implement CLI transcript tests.
 - [x] Implement Playwright Electron harness.
 - [ ] Add deterministic local-journal fixtures for clocks, IDs, sensitive

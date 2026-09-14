@@ -164,6 +164,38 @@ export class FakeAbletonService implements AbletonService {
     return this.state.snapshot;
   }
 
+  public executeScenesOperation(): Promise<Protocol.ScenesOperationResult> {
+    return Promise.reject(new UnsupportedByFakeError("executeScenesOperation"));
+  }
+
+  public executeTracksOperation(): Promise<Protocol.TracksOperationResult> {
+    return Promise.reject(new UnsupportedByFakeError("executeTracksOperation"));
+  }
+
+  public executeMixerRoutingOperation(): Promise<Protocol.MixerRoutingOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeMixerRoutingOperation"),
+    );
+  }
+
+  public executeTransportOperation(): Promise<Protocol.TransportOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeTransportOperation"),
+    );
+  }
+
+  public executeMidiNotesOperation(): Promise<Protocol.MidiNotesOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeMidiNotesOperation"),
+    );
+  }
+
+  public executeAudioClipsOperation(): Promise<Protocol.AudioClipsOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeAudioClipsOperation"),
+    );
+  }
+
   public async setTempo(tempo: number): Promise<Protocol.SetTempoResult> {
     const beforeTempo = this.state.snapshot.tempo;
     this.state.snapshot = { ...this.state.snapshot, tempo };

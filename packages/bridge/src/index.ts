@@ -5,6 +5,8 @@ import type { AbletonService } from "@ableton-agent/ableton-contracts";
 import {
   FrameDecoder,
   PROTOCOL_VERSION,
+  audioClipsOperationParamsSchema,
+  audioClipsOperationResultSchema,
   capabilityDocumentSchema,
   commandCatalog,
   createCuePointParamsSchema,
@@ -60,6 +62,8 @@ import {
   pingResultSchema,
   projectIdentitySchema,
   sessionSnapshotSchema,
+  scenesOperationParamsSchema,
+  scenesOperationResultSchema,
   setPlayingParamsSchema,
   setPlayingResultSchema,
   renameTrackParamsSchema,
@@ -75,6 +79,10 @@ import {
   listEventSubscriptionsParamsSchema,
   listEventSubscriptionsResultSchema,
   liveEventEnvelopeSchema,
+  midiNotesOperationParamsSchema,
+  midiNotesOperationResultSchema,
+  mixerRoutingOperationParamsSchema,
+  mixerRoutingOperationResultSchema,
   replaceMidiNotesParamsSchema,
   replaceMidiNotesResultSchema,
   replaceArrangementMidiNotesParamsSchema,
@@ -99,12 +107,18 @@ import {
   setDeviceParameterResultSchema,
   setTempoParamsSchema,
   setTempoResultSchema,
+  tracksOperationParamsSchema,
+  tracksOperationResultSchema,
+  transportOperationParamsSchema,
+  transportOperationResultSchema,
   trackMutationResultSchema,
   unsubscribeEventParamsSchema,
   unsubscribeEventResultSchema,
   clearEventSubscriptionsParamsSchema,
   clearEventSubscriptionsResultSchema,
   type CapabilityDocument,
+  type AudioClipsOperationParams,
+  type AudioClipsOperationResult,
   type CreateCuePointParams,
   type CuePointMutationResult,
   type CreateArrangementMidiClipParams,
@@ -143,6 +157,10 @@ import {
   type LiveEventInitialStatePayload,
   type LiveEventInvalidationPayload,
   type LiveEventOccurrencePayload,
+  type MidiNotesOperationParams,
+  type MidiNotesOperationResult,
+  type MixerRoutingOperationParams,
+  type MixerRoutingOperationResult,
   type InspectDrumPadChainDevicesParams,
   type InspectDrumPadChainDevicesResult,
   type InspectDrumPadChainsParams,
@@ -163,6 +181,8 @@ import {
   type RequestEnvelope,
   type ResponseEnvelope,
   type SessionSnapshot,
+  type ScenesOperationParams,
+  type ScenesOperationResult,
   type SetPlayingResult,
   type RenameTrackParams,
   type RenameTrackResult,
@@ -198,6 +218,10 @@ import {
   type SetDeviceParameterResult,
   type SetTempoResult,
   type TrackMutationResult,
+  type TracksOperationParams,
+  type TracksOperationResult,
+  type TransportOperationParams,
+  type TransportOperationResult,
   type UnsubscribeEventResult,
   type ClearEventSubscriptionsResult,
   type EventSubscriptionDescriptor,
@@ -218,6 +242,22 @@ import type { ConnectionStatus, EventPublisher } from "@ableton-agent/shared";
 function stableTelemetryId(value: string): string {
   const hex = createHash("sha256").update(value).digest("hex").slice(0, 32);
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20)}`;
+}
+
+function operationCapability(domain: string, action: string): string {
+  return `${domain}.${action.replaceAll("-", "_")}`;
+}
+
+function verifyOperationResultAction<T extends { action: string }>(
+  expectedAction: string,
+  result: T,
+): T {
+  if (result.action !== expectedAction) {
+    throw new Error(
+      `Ableton operation returned '${result.action}' for '${expectedAction}'`,
+    );
+  }
+  return result;
 }
 
 interface BridgeTelemetryInput {
@@ -698,6 +738,115 @@ export class AbletonBridgeService implements AbletonService {
   public async inspectSession(): Promise<SessionSnapshot> {
     return sessionSnapshotSchema.parse(
       await this.#request("session.inspect", {}),
+    );
+  }
+
+  public async executeScenesOperation(
+    params: ScenesOperationParams,
+  ): Promise<ScenesOperationResult> {
+    const validated = scenesOperationParamsSchema.parse(params);
+    this.#requireCapability(operationCapability("scenes", validated.action));
+    const command =
+      validated.action === "list" || validated.action === "get"
+        ? "scenes.inspect"
+        : "scenes.mutate";
+    return verifyOperationResultAction(
+      validated.action,
+      scenesOperationResultSchema.parse(
+        command === "scenes.inspect"
+          ? await this.#request(command, validated)
+          : await this.#mutationRequest(command, validated),
+      ),
+    );
+  }
+
+  public async executeTracksOperation(
+    params: TracksOperationParams,
+  ): Promise<TracksOperationResult> {
+    const validated = tracksOperationParamsSchema.parse(params);
+    this.#requireCapability(operationCapability("tracks", validated.action));
+    const command =
+      validated.action === "list" || validated.action === "get"
+        ? "tracks.inspect"
+        : "tracks.mutate";
+    return verifyOperationResultAction(
+      validated.action,
+      tracksOperationResultSchema.parse(
+        command === "tracks.inspect"
+          ? await this.#request(command, validated)
+          : await this.#mutationRequest(command, validated),
+      ),
+    );
+  }
+
+  public async executeMixerRoutingOperation(
+    params: MixerRoutingOperationParams,
+  ): Promise<MixerRoutingOperationResult> {
+    const validated = mixerRoutingOperationParamsSchema.parse(params);
+    this.#requireCapability(
+      operationCapability("mixer_routing", validated.action),
+    );
+    const command = ["inspect", "meters", "routing-options"].includes(
+      validated.action,
+    )
+      ? "mixer_routing.inspect"
+      : "mixer_routing.mutate";
+    return verifyOperationResultAction(
+      validated.action,
+      mixerRoutingOperationResultSchema.parse(
+        command === "mixer_routing.inspect"
+          ? await this.#request(command, validated)
+          : await this.#mutationRequest(command, validated),
+      ),
+    );
+  }
+
+  public async executeTransportOperation(
+    params: TransportOperationParams,
+  ): Promise<TransportOperationResult> {
+    const validated = transportOperationParamsSchema.parse(params);
+    this.#requireCapability(operationCapability("transport", validated.action));
+    return verifyOperationResultAction(
+      validated.action,
+      transportOperationResultSchema.parse(
+        validated.action === "get"
+          ? await this.#request("transport.inspect", validated)
+          : await this.#mutationRequest("transport.mutate", validated),
+      ),
+    );
+  }
+
+  public async executeMidiNotesOperation(
+    params: MidiNotesOperationParams,
+  ): Promise<MidiNotesOperationResult> {
+    const validated = midiNotesOperationParamsSchema.parse(params);
+    this.#requireCapability(
+      operationCapability("midi_notes", validated.action),
+    );
+    return verifyOperationResultAction(
+      validated.action,
+      midiNotesOperationResultSchema.parse(
+        validated.action === "query"
+          ? await this.#request("midi_notes.inspect", validated)
+          : await this.#mutationRequest("midi_notes.mutate", validated),
+      ),
+    );
+  }
+
+  public async executeAudioClipsOperation(
+    params: AudioClipsOperationParams,
+  ): Promise<AudioClipsOperationResult> {
+    const validated = audioClipsOperationParamsSchema.parse(params);
+    this.#requireCapability(
+      operationCapability("audio_clips", validated.action),
+    );
+    return verifyOperationResultAction(
+      validated.action,
+      audioClipsOperationResultSchema.parse(
+        validated.action === "inspect" || validated.action === "warp-markers"
+          ? await this.#request("audio_clips.inspect", validated)
+          : await this.#mutationRequest("audio_clips.mutate", validated),
+      ),
     );
   }
 

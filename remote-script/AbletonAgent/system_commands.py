@@ -2921,3 +2921,6 @@ def register_system_commands(registry):
     from .browser_commands import register_browser_commands
 
     register_browser_commands(registry)
+    from .core_domain_commands import register_core_domain_commands
+
+    register_core_domain_commands(registry)

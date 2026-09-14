@@ -278,8 +278,8 @@ export function createAbletonMutationAuthorizer(
       context: AbletonMutationAuthorizationContext,
       invocation: AbletonToolInvocation,
     ): AbletonMutationAuthorizationResult {
-      const descriptor = descriptorsByName.get(invocation.toolName);
-      if (descriptor === undefined) {
+      const catalogDescriptor = descriptorsByName.get(invocation.toolName);
+      if (catalogDescriptor === undefined) {
         return deny(
           "unknown_tool",
           `Unknown Ableton tool: ${invocation.toolName}`,
@@ -295,7 +295,19 @@ export function createAbletonMutationAuthorizer(
         );
       }
 
-      switch (descriptor.mutationTarget) {
+      let mutationTarget = catalogDescriptor.mutationTarget;
+      try {
+        mutationTarget =
+          resolveAbletonOperation(invocation.toolName, invocation.args)
+            ?.metadata.mutationTarget ?? mutationTarget;
+      } catch {
+        return deny(
+          "track_reference_missing",
+          `Ableton operation ${invocation.toolName} has invalid or incomplete arguments`,
+        );
+      }
+
+      switch (mutationTarget) {
         case "read":
           return allow(invocation.toolName, "read", [], undefined);
         case "session":
@@ -336,12 +348,10 @@ export function createAbletonMutationAuthorizer(
             }
           }
 
-          return allow(
-            invocation.toolName,
-            descriptor.mutationTarget,
+          return allow(invocation.toolName, mutationTarget, trackReferences, {
+            kind: "tracks",
             trackReferences,
-            { kind: "tracks", trackReferences },
-          );
+          });
         }
       }
     },

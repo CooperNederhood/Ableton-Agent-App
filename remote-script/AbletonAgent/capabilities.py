@@ -7,6 +7,16 @@ try:
 except ImportError:  # pragma: no cover - available only inside Live
     MidiNoteSpecification = None
 
+try:
+    from Live.Clip import Clip as LiveClip
+except ImportError:  # pragma: no cover - available only inside Live
+    LiveClip = None
+
+try:
+    from Live.Song import CuePoint as LiveCuePoint
+except ImportError:  # pragma: no cover - available only inside Live
+    LiveCuePoint = None
+
 from .protocol import DEFAULT_MAX_FRAME_BYTES
 from .identity import build_project_identity
 from .version import PROTOCOL_VERSION, REMOTE_SCRIPT_VERSION
@@ -42,6 +52,21 @@ def build_capability_document(
     live_version = application.get_version_string()
     project_identity = build_project_identity(song)
     capabilities = {name: True for name in registry.metadata()}
+    for grouped_command in (
+        "scenes.inspect",
+        "scenes.mutate",
+        "tracks.inspect",
+        "tracks.mutate",
+        "mixer_routing.inspect",
+        "mixer_routing.mutate",
+        "transport.inspect",
+        "transport.mutate",
+        "midi_notes.inspect",
+        "midi_notes.mutate",
+        "audio_clips.inspect",
+        "audio_clips.mutate",
+    ):
+        capabilities.pop(grouped_command, None)
     tracks = list(song.tracks)
     capabilities.update({
         "events.parameter.value_changed": any(
@@ -141,6 +166,15 @@ def build_capability_document(
             capabilities[name] = supported
     if "clips.replace_notes" in capabilities:
         capabilities["clips.replace_notes"] = note_editing_supported
+    cue_points = list(_lom_getattr(song, "cue_points", []) or [])
+    cue_point_api = LiveCuePoint
+    if cue_point_api is None and cue_points:
+        cue_point_api = cue_points[0]
+    cue_name_supported = _lom_exposes(cue_point_api, "name")
+    cue_time_supported = _lom_exposes(cue_point_api, "time")
+    cue_jump_supported = _lom_callable(cue_point_api, "jump") or (
+        cue_time_supported and _lom_exposes(song, "current_song_time")
+    )
     transport_support = {
         "transport.inspect_arrangement": all(
             _lom_hasattr(song, attribute)
@@ -268,6 +302,257 @@ def build_capability_document(
     for name, supported in browser_support.items():
         if name in capabilities:
             capabilities[name] = supported
+    return_tracks = list(_lom_getattr(song, "return_tracks", []) or [])
+    master_track = _lom_getattr(song, "master_track")
+    all_tracks = tracks + return_tracks + (
+        [master_track] if master_track is not None else []
+    )
+    scenes = list(_lom_getattr(song, "scenes", []) or [])
+    scene_support = {
+        "scenes.list": _lom_exposes(song, "scenes"),
+        "scenes.get": bool(scenes),
+        "scenes.create": _lom_callable(song, "create_scene"),
+        "scenes.duplicate": bool(scenes)
+        and _lom_callable(song, "duplicate_scene"),
+        "scenes.rename": any(_lom_exposes(scene, "name") for scene in scenes),
+        "scenes.set_color": any(
+            _lom_exposes(scene, "color_index") for scene in scenes
+        ),
+        "scenes.set_tempo_time_signature": any(
+            all(
+                _lom_exposes(scene, attribute)
+                for attribute in (
+                    "tempo",
+                    "tempo_enabled",
+                    "time_signature_numerator",
+                    "time_signature_denominator",
+                    "time_signature_enabled",
+                )
+            )
+            for scene in scenes
+        ),
+        "scenes.fire": any(
+            _lom_callable(scene, "fire")
+            and _lom_exposes(scene, "is_triggered")
+            for scene in scenes
+        ),
+        "scenes.delete": bool(scenes)
+        and _lom_callable(song, "delete_scene"),
+    }
+    track_support = {
+        "tracks.list": _lom_exposes(song, "tracks"),
+        "tracks.get": bool(all_tracks),
+        "tracks.create_return": _lom_callable(song, "create_return_track"),
+        "tracks.duplicate": bool(tracks)
+        and _lom_callable(song, "duplicate_track"),
+        "tracks.set_color": any(
+            _lom_exposes(track, "color_index") for track in all_tracks
+        ),
+        "tracks.set_monitoring": any(
+            _lom_exposes(track, "current_monitoring_state")
+            for track in tracks
+        ),
+        "tracks.set_fold": any(
+            bool(_lom_getattr(track, "is_foldable", False))
+            and _lom_exposes(track, "fold_state")
+            for track in tracks
+        ),
+        "tracks.stop_clips": any(
+            _lom_callable(track, "stop_all_clips")
+            and _lom_exposes(track, "playing_slot_index")
+            for track in tracks
+        ),
+        "tracks.back_to_arrangement": any(
+            _lom_exposes(track, "back_to_arranger") for track in tracks
+        ),
+        "tracks.delete": _lom_callable(song, "delete_track")
+        and _lom_callable(song, "delete_return_track"),
+    }
+    mixer_devices = [
+        _lom_getattr(track, "mixer_device") for track in all_tracks
+    ]
+    mixer_devices = [mixer for mixer in mixer_devices if mixer is not None]
+    routing_pairs = (
+        ("input-type", "available_input_routing_types", "input_routing_type"),
+        (
+            "input-channel",
+            "available_input_routing_channels",
+            "input_routing_channel",
+        ),
+        (
+            "output-type",
+            "available_output_routing_types",
+            "output_routing_type",
+        ),
+        (
+            "output-channel",
+            "available_output_routing_channels",
+            "output_routing_channel",
+        ),
+    )
+    routing_supported = any(
+        all(
+            _lom_exposes(track, attribute)
+            for pair in routing_pairs
+            for attribute in pair[1:]
+        )
+        for track in all_tracks
+    )
+    mixer_support = {
+        "mixer_routing.inspect": any(
+            all(
+                _lom_exposes(mixer, attribute)
+                for attribute in ("volume", "panning", "sends")
+            )
+            for mixer in mixer_devices
+        ),
+        "mixer_routing.meters": any(
+            any(
+                _lom_exposes(track, attribute)
+                for attribute in (
+                    "input_meter_left",
+                    "input_meter_right",
+                    "output_meter_left",
+                    "output_meter_right",
+                )
+            )
+            for track in all_tracks
+        ),
+        "mixer_routing.set_volume": any(
+            _lom_exposes(mixer, "volume") for mixer in mixer_devices
+        ),
+        "mixer_routing.set_pan": any(
+            _lom_exposes(mixer, "panning") for mixer in mixer_devices
+        ),
+        "mixer_routing.set_send": any(
+            bool(_lom_getattr(mixer, "sends", ())) for mixer in mixer_devices
+        ),
+        "mixer_routing.set_activator": any(
+            _lom_exposes(track, "mute") for track in all_tracks
+        ),
+        "mixer_routing.set_crossfade_assignment": any(
+            _lom_exposes(mixer, "crossfade_assign")
+            for mixer in mixer_devices
+        ),
+        "mixer_routing.set_master_crossfader": (
+            master_track is not None
+            and _lom_exposes(
+                _lom_getattr(master_track, "mixer_device"), "crossfader"
+            )
+        ),
+        "mixer_routing.set_cue_volume": (
+            master_track is not None
+            and _lom_exposes(
+                _lom_getattr(master_track, "mixer_device"), "cue_volume"
+            )
+        ),
+        "mixer_routing.routing_options": routing_supported,
+        "mixer_routing.set_routing": routing_supported,
+    }
+    transport_state_attributes = (
+        "current_song_time",
+        "is_playing",
+        "tempo",
+        "signature_numerator",
+        "signature_denominator",
+        "metronome",
+        "clip_trigger_quantization",
+        "midi_recording_quantization",
+    )
+    transport_get = all(
+        _lom_exposes(song, attribute)
+        for attribute in transport_state_attributes
+    ) and _lom_exposes(song, "cue_points")
+    transport_support = {
+        "transport.get": transport_get,
+        "transport.seek": transport_get
+        and _lom_exposes(song, "current_song_time"),
+        "transport.jump": transport_get and _lom_callable(song, "jump_by"),
+        "transport.set_time_signature": transport_get and all(
+            _lom_exposes(song, attribute)
+            for attribute in ("signature_numerator", "signature_denominator")
+        ),
+        "transport.set_metronome": transport_get
+        and _lom_exposes(song, "metronome"),
+        "transport.set_launch_quantization": transport_get and _lom_exposes(
+            song, "clip_trigger_quantization"
+        ),
+        "transport.set_record_quantization": transport_get and _lom_exposes(
+            song, "midi_recording_quantization"
+        ),
+        "transport.set_link": transport_get and _lom_exposes(
+            song, "is_ableton_link_enabled"
+        ),
+        "transport.rename_cue": transport_get and cue_name_supported,
+        "transport.jump_to_cue": transport_get and cue_jump_supported,
+        "transport.back_to_arrangement": transport_get and _lom_exposes(
+            song, "back_to_arranger"
+        ),
+    }
+    clips = []
+    for track in tracks:
+        for slot in list(_lom_getattr(track, "clip_slots", []) or []):
+            if bool(_lom_getattr(slot, "has_clip", False)):
+                clips.append(_lom_getattr(slot, "clip"))
+        clips.extend(
+            list(_lom_getattr(track, "arrangement_clips", []) or [])
+        )
+    clip_api = LiveClip
+    clip_apis = [clip_api] if clip_api is not None else clips
+
+    def clip_api_callable(name):
+        return any(_lom_callable(api, name) for api in clip_apis)
+
+    def clip_api_exposes(name):
+        return any(_lom_exposes(api, name) for api in clip_apis)
+
+    midi_query = clip_api_callable("get_all_notes_extended")
+    midi_support = {
+        "midi_notes.query": midi_query,
+        "midi_notes.add": note_editing_supported
+        and clip_api_callable("add_new_notes"),
+        "midi_notes.update": note_editing_supported
+        and clip_api_callable("apply_note_modifications"),
+        "midi_notes.remove": clip_api_callable("remove_notes_by_id"),
+        "midi_notes.duplicate": note_editing_supported
+        and clip_api_callable("add_new_notes"),
+        "midi_notes.quantize": note_editing_supported
+        and clip_api_callable("apply_note_modifications"),
+    }
+    audio_support = {
+        "audio_clips.inspect": all(
+            clip_api_exposes(attribute)
+            for attribute in ("is_midi_clip", "name", "length")
+        ),
+        "audio_clips.set_gain": clip_api_exposes("gain"),
+        "audio_clips.set_pitch": (
+            clip_api_exposes("pitch_coarse")
+            and clip_api_exposes("pitch_fine")
+        ),
+        "audio_clips.set_warp": clip_api_exposes("warping"),
+        "audio_clips.set_warp_mode": clip_api_exposes("warp_mode"),
+        "audio_clips.set_markers": all(
+            clip_api_exposes(attribute)
+            for attribute in (
+                "start_marker",
+                "end_marker",
+                "loop_start",
+                "loop_end",
+                "looping",
+            )
+        ),
+        "audio_clips.set_ram_mode": clip_api_exposes("ram_mode"),
+        "audio_clips.warp_markers": clip_api_exposes("warp_markers"),
+    }
+    for support in (
+        scene_support,
+        track_support,
+        mixer_support,
+        transport_support,
+        midi_support,
+        audio_support,
+    ):
+        capabilities.update(support)
     document = {
         "selectedProtocolVersion": PROTOCOL_VERSION,
         "liveVersion": live_version,

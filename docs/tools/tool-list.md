@@ -32,7 +32,7 @@ if the target changed.
 | Tool | Purpose | Risk | Scope | Duration | Key inputs |
 | --- | --- | --- | --- | --- | --- |
 | `ableton_connection_status` | Return the current Remote Script bridge connection status. | `read` | `read` | `instant` | None |
-| `ableton_session_inspect` | Inspect transport, tempo, time signature, project identity, tracks, scenes, clips, and capabilities. | `read` | `read` | `short` | None |
+| `ableton_session_inspect` | Inspect tempo, time signature, playback, regular tracks, and Session clips. | `read` | `read` | `short` | None |
 
 ## Transport, Arrangement loop, and cue points
 
@@ -53,6 +53,31 @@ if the target changed.
 | `ableton_tracks_delete` | Delete an exact track; refuses to delete the final remaining track. | `destructive` | `track` | `short` | Track `index`, identity, expected kind |
 | `ableton_tracks_rename` | Rename an exact inspected track. | `reversible` | `track` | `short` | Track identity, `name` |
 | `ableton_tracks_set_mixer` | Update mute, solo, arm, normalized volume, and/or pan. | `reversible` | `track` | `short` | Track identity plus one or more mixer properties |
+
+## Live 11 core-domain operations
+
+Six action-discriminated tools provide the broader Live 11 surface without
+creating one tool per property. Every action has its own operation descriptor,
+capability key, risk, edit scope, affected-track resolution, and lifecycle
+identity.
+
+| Tool | Supported actions |
+| --- | --- |
+| `ableton_scenes` | Bounded `list`/`get`; `create`, `duplicate`, `rename`, `set-color`, `set-tempo-time-signature`, `fire`, and exact destructive `delete` |
+| `ableton_tracks` | Bounded `list`/`get` across regular, group, return, and master tracks; `create-return`, regular-track `duplicate`, `set-color`, `set-monitoring`, `set-fold`, `stop-clips`, `back-to-arrangement`, and guarded regular/return `delete` |
+| `ableton_mixer_routing` | Mixer `inspect`; bounded `meters`; volume, pan, sends, activator, crossfade assignment, master crossfader, and cue volume updates; routing option discovery and exact snapshot-token assignment |
+| `ableton_transport` | `get`, `seek`, relative `jump`, time signature, metronome, launch/record quantization, Link when exposed, cue rename/jump, and Back to Arrangement |
+| `ableton_midi_notes` | Modern note-ID `query`, `add`, `update`, `remove`, `duplicate`, and `quantize`, preserving probability, velocity deviation, and release velocity |
+| `ableton_audio_clips` | Metadata `inspect`; gain, pitch, warp state/mode, start/end/loop markers, and RAM mode updates; bounded warp-marker reads |
+
+Routing assignments require a recent option snapshot, exact option token, exact
+display name, target identity, and routing direction. Results surface warnings
+for feedback-prone routes and external MIDI destinations.
+
+The compatibility note-replacement tools remain destructive. The core-domain
+layer does not expose scene-scoped stop, arbitrary track reordering, recording
+controls, per-note expression editing, warp-marker mutation, or unrestricted
+file import.
 
 ## Session View clips and MIDI notes
 

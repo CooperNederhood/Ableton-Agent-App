@@ -193,6 +193,28 @@ both the palette index and Live's observed RGB `color` value.
 These commands do not imply support for empty-chain creation, native device
 insertion, single-chain deletion, or chain reordering.
 
+### Live 11 core-domain commands
+
+The expanded Live 11 surface uses separate inspection and mutation commands so
+read-only requests never advance project mutation state:
+
+```text
+scenes.inspect              scenes.mutate
+tracks.inspect              tracks.mutate
+mixer_routing.inspect       mixer_routing.mutate
+transport.inspect           transport.mutate
+midi_notes.inspect          midi_notes.mutate
+audio_clips.inspect         audio_clips.mutate
+```
+
+Each command accepts a strict `action` discriminant. Mutation requests carry
+the exact runtime identities required by the selected action. Routing
+assignment additionally carries a recent snapshot ID and opaque option token;
+the Remote Script rejects stale snapshots, mismatched display names, and
+changed target/direction state. Modern MIDI mutation identifies notes by Live
+11 note IDs and intentionally excludes per-note expression fields. Warp-marker
+access is read-only.
+
 ## Compatibility rules
 
 - `system.hello` selects the highest version present in both the client's

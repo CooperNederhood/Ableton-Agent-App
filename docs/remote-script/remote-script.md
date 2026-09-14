@@ -132,6 +132,29 @@ implementation rejects stale identities, out-of-range or nearest-only
 positions, cross-kind aliases of the same chain, and unsupported or ambiguous
 topology.
 
+### Live 11 core domains
+
+The core-domain commands are split into `*.inspect` and `*.mutate` protocol
+entries while each agent-facing tool uses a strict action discriminator. This
+preserves mutation invalidation and queue semantics without multiplying
+read-only tools.
+
+Runtime references are cached for scenes, regular/return/master tracks, clips,
+cue points, mixer parameters, MIDI note IDs, and routing options. Mutations
+revalidate every supplied identity immediately before touching the LOM.
+Routing options are short-lived snapshots: assignment requires the exact
+snapshot ID, option token, display name, target, and direction, and returns
+warnings for feedback-prone or external-MIDI routes.
+
+Modern MIDI edits use Live 11 note IDs and the extended note API, retaining
+probability, velocity deviation, and release velocity. The existing
+full-replacement commands remain destructive compatibility operations.
+
+This layer intentionally omits APIs that are not safely available in Live 11:
+scene-scoped stop, arbitrary track reordering, per-note expression mutation,
+warp-marker mutation, unrestricted file import, take lanes, direct native
+device insertion, chain insertion, and Simpler replacement.
+
 Browser item identity remains exact across the search/load round trip. Runtime
 reference, root, path, and name must match, while URI comparison treats
 equivalent percent-encoded and decoded spellings as the same identity. A

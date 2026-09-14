@@ -16,6 +16,8 @@ Companion specification: [Desktop Application](desktop-application.md)
   full-screen visibility.
 - [x] Support a 320x360 terminal-sized chat view when workspace sidebars and
   application chrome are hidden.
+- [x] Present workflow-job lifecycle events through the existing sanitized
+  diagnostics and typed Desktop History surfaces.
 
 Electron main now composes `createAgentRuntime` from `packages/runtime`, the
 same composition root the CLI uses, and adapts it through

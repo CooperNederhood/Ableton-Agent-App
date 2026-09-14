@@ -218,9 +218,39 @@ indeterminate failure. Audio inspection returns the currently available warp
 modes; assignment repeats that exact availability snapshot and selects one of
 its modes. Warp-marker access is read-only.
 
-Protocol 3 uses the documented Live 11 integer domains for launch
+Protocol 3 introduced the documented Live 11 integer domains for launch
 quantization (`0..13`), record quantization (`0..8`), audio pitch fine
 (`-50..49`), and warp mode (`0..6`).
+
+## Live 11 workflow adapters
+
+The additive public domain tools `recording`, `grooves`, `selection_view`,
+`live_history`, `browser_adapters`, `clip_automation`, `warp_markers`,
+`special_devices`, and `workflow_jobs` use action-discriminated request and
+result schemas. Each validated action routes to its own granular protocol
+command, capability, timeout class, mutation flag, and Remote Script registry
+entry. Timed recording and Looper export return typed jobs rather than blocking
+Live's main thread.
+
+The handshake retains the boolean `capabilities` map and additively exposes
+`capabilityDetails` with evidence, minimum/tested Live versions, and bounded
+limitations. Private API shape detection alone is reported as
+`private_detected_untested` and remains disabled until that exact Live 11 build
+has real-Live validation evidence.
+
+Protocol 4 adds the workflow-adapter commands and capability-detail handshake
+shape. The version bump preserves compatibility by preventing protocol 3 peers
+from accepting the extended `system.hello` contract without negotiation.
+
+`events.inspect_curated_state` returns bounded initial transport,
+tempo/signature, selection, topology, routing, and meter state.
+`live_state.changed` carries only these enumerated topics. Workflow jobs emit
+`workflow_job.queued|started|progress|completed|failed|cancelled|indeterminate`
+with bounded IDs and progress; result bodies are not copied into lifecycle
+events.
+
+See [the capability ledger](live-11-workflow-capability-ledger.md) for exact
+Live 11 support and deliberate omissions.
 
 ## Compatibility rules
 

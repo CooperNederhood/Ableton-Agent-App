@@ -12,6 +12,19 @@ function desktopToolName(toolName: string | undefined): string | undefined {
   return bounded === "" ? undefined : bounded;
 }
 
+function workflowJobMessage(eventName: string, payload: unknown): string {
+  const fields =
+    payload !== null && typeof payload === "object"
+      ? (payload as Record<string, unknown>)
+      : {};
+  const jobId = typeof fields.jobId === "string" ? fields.jobId : "unknown";
+  const status =
+    typeof fields.status === "string"
+      ? fields.status
+      : eventName.slice("workflow_job.".length);
+  return `Ableton workflow job ${jobId.slice(0, 64)}: ${status.slice(0, 32)}`;
+}
+
 export function normalizeSharedEvent(
   event: DesktopSharedEvent,
   messageId: () => string,
@@ -33,7 +46,9 @@ export function normalizeSharedEvent(
             ? {
                 type: "diagnostic",
                 level: "info",
-                message: `Ableton event ${event.event} (#${event.sequence})`,
+                message: event.event.startsWith("workflow_job.")
+                  ? workflowJobMessage(event.event, event.payload)
+                  : `Ableton event ${event.event} (#${event.sequence})`,
               }
             : event.type === "ableton.event_gap"
               ? {

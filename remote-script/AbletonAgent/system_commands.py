@@ -2924,3 +2924,6 @@ def register_system_commands(registry):
     from .core_domain_commands import register_core_domain_commands
 
     register_core_domain_commands(registry)
+    from .workflow_adapter_commands import register_workflow_adapter_commands
+
+    register_workflow_adapter_commands(registry)

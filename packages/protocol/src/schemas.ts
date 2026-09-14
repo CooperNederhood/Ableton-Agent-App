@@ -202,6 +202,130 @@ export const liveEventEnvelopeSchema = z.discriminatedUnion("event", [
   liveEventInvalidatedEnvelopeSchema,
 ]);
 
+export const curatedLiveStateTopicSchema = z.enum([
+  "transport",
+  "tempo-signature",
+  "selection",
+  "track-topology",
+  "scene-topology",
+  "clip-topology",
+  "device-topology",
+  "routing",
+  "meters",
+]);
+const curatedReferenceListSchema = z.array(z.string().uuid()).max(256);
+const curatedMeterSchema = z
+  .object({
+    trackReference: z.string().uuid(),
+    left: z.number().finite().min(0).max(1),
+    right: z.number().finite().min(0).max(1),
+  })
+  .strict();
+export const curatedLiveStateEntrySchema = z.discriminatedUnion("topic", [
+  z
+    .object({
+      topic: z.literal("transport"),
+      state: z
+        .object({
+          isPlaying: z.boolean(),
+          arrangementRecord: z.boolean(),
+          sessionRecord: z.boolean(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      topic: z.literal("tempo-signature"),
+      state: z
+        .object({
+          tempo: z.number().finite().min(20).max(999),
+          numerator: z.number().int().min(1).max(99),
+          denominator: z.number().int().min(1).max(16),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      topic: z.literal("selection"),
+      state: z
+        .object({
+          trackReference: z.string().uuid().nullable(),
+          sceneReference: z.string().uuid().nullable(),
+          clipReference: z.string().uuid().nullable(),
+          deviceReference: z.string().uuid().nullable(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      topic: z.literal("track-topology"),
+      state: z.object({ references: curatedReferenceListSchema }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      topic: z.literal("scene-topology"),
+      state: z.object({ references: curatedReferenceListSchema }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      topic: z.literal("clip-topology"),
+      state: z
+        .object({
+          trackReferences: curatedReferenceListSchema,
+          clipCount: z.number().int().nonnegative(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      topic: z.literal("device-topology"),
+      state: z
+        .object({
+          trackReferences: curatedReferenceListSchema,
+          deviceCount: z.number().int().nonnegative(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      topic: z.literal("routing"),
+      state: z.object({ trackReferences: curatedReferenceListSchema }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      topic: z.literal("meters"),
+      state: z
+        .object({ samples: z.array(curatedMeterSchema).max(256) })
+        .strict(),
+    })
+    .strict(),
+]);
+export const inspectCuratedLiveStateParamsSchema = z.object({}).strict();
+export const inspectCuratedLiveStateResultSchema = z
+  .object({ states: z.array(curatedLiveStateEntrySchema).max(9) })
+  .strict();
+export const curatedLiveStateChangedEnvelopeSchema = eventEnvelopeSchema.extend(
+  {
+    event: z.literal("live_state.changed"),
+    payload: z
+      .object({
+        phase: z.enum(["initial", "update", "rebound"]),
+        observedAt: z.string().datetime(),
+        projectRevision: z.number().int().nonnegative(),
+        entry: curatedLiveStateEntrySchema,
+      })
+      .strict(),
+  },
+);
+
 export const messageEnvelopeSchema = z.union([
   requestEnvelopeSchema,
   successResponseEnvelopeSchema,
@@ -221,6 +345,13 @@ export type LiveEventInvalidatedEnvelope = z.infer<
   typeof liveEventInvalidatedEnvelopeSchema
 >;
 export type LiveEventEnvelope = z.infer<typeof liveEventEnvelopeSchema>;
+export type CuratedLiveStateEntry = z.infer<typeof curatedLiveStateEntrySchema>;
+export type CuratedLiveStateChangedEnvelope = z.infer<
+  typeof curatedLiveStateChangedEnvelopeSchema
+>;
+export type InspectCuratedLiveStateResult = z.infer<
+  typeof inspectCuratedLiveStateResultSchema
+>;
 export type LiveEventOccurrencePayload = LiveEventOccurredEnvelope["payload"];
 export type LiveEventInvalidationPayload =
   LiveEventInvalidatedEnvelope["payload"];
@@ -243,6 +374,24 @@ export const helloParamsSchema = z.object({
   eventSubscriptions: z.array(z.string()).default([]),
 });
 
+export const capabilityEvidenceSchema = z.enum([
+  "public",
+  "release_note_provisional",
+  "private_tested",
+  "private_detected_untested",
+  "unavailable",
+]);
+
+export const capabilityDetailSchema = z
+  .object({
+    supported: z.boolean(),
+    evidence: capabilityEvidenceSchema,
+    minimumLiveVersion: z.string().min(1).max(32).optional(),
+    testedLiveVersions: z.array(z.string().min(1).max(32)).max(16),
+    limitations: z.array(z.string().min(1).max(256)).max(16),
+  })
+  .strict();
+
 export const capabilityDocumentSchema = z.object({
   selectedProtocolVersion: z.literal(PROTOCOL_VERSION),
   liveVersion: z.string().min(1),
@@ -251,6 +400,7 @@ export const capabilityDocumentSchema = z.object({
   projectName: z.string().min(1).optional(),
   saved: z.boolean().optional(),
   capabilities: z.record(z.string(), z.boolean()),
+  capabilityDetails: z.record(z.string(), capabilityDetailSchema).optional(),
   limits: z.object({
     maxFrameBytes: z.number().int().positive(),
     maxBatchItems: z.number().int().positive(),

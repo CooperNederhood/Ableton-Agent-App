@@ -164,6 +164,12 @@ export class FakeAbletonService implements AbletonService {
     return this.state.snapshot;
   }
 
+  public inspectCuratedLiveState(): Promise<Protocol.InspectCuratedLiveStateResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("inspectCuratedLiveState"),
+    );
+  }
+
   public executeScenesOperation(): Promise<Protocol.ScenesOperationResult> {
     return Promise.reject(new UnsupportedByFakeError("executeScenesOperation"));
   }
@@ -193,6 +199,58 @@ export class FakeAbletonService implements AbletonService {
   public executeAudioClipsOperation(): Promise<Protocol.AudioClipsOperationResult> {
     return Promise.reject(
       new UnsupportedByFakeError("executeAudioClipsOperation"),
+    );
+  }
+
+  public executeRecordingOperation(): Promise<Protocol.RecordingOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeRecordingOperation"),
+    );
+  }
+
+  public executeGrooveOperation(): Promise<Protocol.GrooveOperationResult> {
+    return Promise.reject(new UnsupportedByFakeError("executeGrooveOperation"));
+  }
+
+  public executeSelectionViewOperation(): Promise<Protocol.SelectionViewOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeSelectionViewOperation"),
+    );
+  }
+
+  public executeLiveHistoryOperation(): Promise<Protocol.LiveHistoryOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeLiveHistoryOperation"),
+    );
+  }
+
+  public executeBrowserAdapterOperation(): Promise<Protocol.BrowserAdapterOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeBrowserAdapterOperation"),
+    );
+  }
+
+  public executeClipAutomationOperation(): Promise<Protocol.ClipAutomationOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeClipAutomationOperation"),
+    );
+  }
+
+  public executeWarpMarkerOperation(): Promise<Protocol.WarpMarkerOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeWarpMarkerOperation"),
+    );
+  }
+
+  public executeSpecializedDeviceOperation(): Promise<Protocol.SpecializedDeviceOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeSpecializedDeviceOperation"),
+    );
+  }
+
+  public executeWorkflowJobOperation(): Promise<Protocol.WorkflowJobOperationResult> {
+    return Promise.reject(
+      new UnsupportedByFakeError("executeWorkflowJobOperation"),
     );
   }
 

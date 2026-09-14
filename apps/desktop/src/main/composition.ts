@@ -24,7 +24,9 @@ import {
 } from "@ableton-agent/runtime";
 import type { Logger } from "@ableton-agent/shared";
 import {
+  abletonCompatibilityAliases,
   abletonToolMetadata,
+  abletonToolOperationPatterns,
   type ToolApprovalRequest,
 } from "@ableton-agent/tools";
 
@@ -404,6 +406,8 @@ export async function createDesktopComposition(
     agentsDirectory: options.agentsDirectory,
     skillsDirectory: options.skillsDirectory,
     availableTools: abletonToolMetadata.map((tool) => tool.name),
+    availableOperations: abletonToolOperationPatterns,
+    compatibilityAliases: abletonCompatibilityAliases,
   });
   const notices: Notice[] = [];
   const preferences = await loadPreferences(preferencesStore, notices);

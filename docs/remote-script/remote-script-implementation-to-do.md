@@ -96,6 +96,14 @@ Companion specification: [Remote Script](remote-script.md)
 ## Tests
 
 - [~] Build fake Song, Track, Clip, Device, Browser, and Application objects.
+- [x] Add capability-detected recording, grooves, selection/view, Live history,
+  Session automation, warp-marker, Browser adapter, specialized-device, and
+  workflow-job handlers with exact identity and readback.
+- [x] Add curated state listeners with topology rebinding, bounded/coalesced
+  meters, initial snapshots, and complete cleanup.
+- [ ] Record real-Live evidence for every optional private Browser, Simpler,
+  Looper, Wavetable, envelope, and warp-marker API shape before enabling it in
+  release builds.
 - [~] Unit-test every handler's validation, success, and LOM failure paths.
 - [~] Unit-test main-thread scheduling and timeout behavior.
 - [x] Unit-test listener registration and removal.

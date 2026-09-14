@@ -1280,6 +1280,16 @@ class CoreDomainCommandTests(unittest.TestCase):
             note_editing_supported=True,
         )
         capabilities = document["capabilities"]
+        self.assertEqual(
+            set(capabilities.keys()), set(document["capabilityDetails"].keys())
+        )
+        self.assertTrue(
+            all(
+                supported
+                == document["capabilityDetails"][name]["supported"]
+                for name, supported in capabilities.items()
+            )
+        )
         self.assertNotIn("scenes.execute", capabilities)
         self.assertNotIn("scenes.inspect", capabilities)
         self.assertNotIn("scenes.mutate", capabilities)
@@ -1289,6 +1299,14 @@ class CoreDomainCommandTests(unittest.TestCase):
         self.assertTrue(capabilities["mixer_routing.routing_options"])
         self.assertTrue(capabilities["midi_notes.update"])
         self.assertTrue(capabilities["audio_clips.warp_markers"])
+        self.assertEqual(
+            "public",
+            document["capabilityDetails"]["scenes.create"]["evidence"],
+        )
+        self.assertEqual(
+            capabilities["scenes.create"],
+            document["capabilityDetails"]["scenes.create"]["supported"],
+        )
         self.assertNotIn("scenes.stop", capabilities)
         self.assertNotIn("tracks.reorder", capabilities)
         self.assertNotIn("midi_notes.expression", capabilities)

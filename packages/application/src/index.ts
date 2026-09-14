@@ -7,6 +7,7 @@ import {
   formatSkillInvocation,
   parseSkillInvocation,
   readSkillDocument,
+  resolveToolPatterns,
   agentReasoningEffortSchema,
   skillNameSchema,
   type AgentReasoningEffort,
@@ -18,6 +19,8 @@ import {
 import type {
   AudioClipsOperationParams,
   AudioClipsOperationResult,
+  BrowserAdapterOperationParams,
+  BrowserAdapterOperationResult,
   CapabilityDocument,
   CreateCuePointParams,
   CuePointMutationResult,
@@ -35,6 +38,8 @@ import type {
   CreateMidiClipParams,
   CreateMidiClipResult,
   CreateTrackParams,
+  ClipAutomationOperationParams,
+  ClipAutomationOperationResult,
   DeleteTrackParams,
   DeleteSessionClipParams,
   DeleteSessionClipResult,
@@ -75,6 +80,10 @@ import type {
   SearchBrowserResult,
   LoadBrowserItemParams,
   LoadBrowserItemResult,
+  GrooveOperationParams,
+  GrooveOperationResult,
+  LiveHistoryOperationParams,
+  LiveHistoryOperationResult,
   MidiNotesOperationParams,
   MidiNotesOperationResult,
   MixerRoutingOperationParams,
@@ -100,6 +109,12 @@ import type {
   ScenesOperationResult,
   SetPlayingResult,
   SetTempoResult,
+  RecordingOperationParams,
+  RecordingOperationResult,
+  SelectionViewOperationParams,
+  SelectionViewOperationResult,
+  SpecializedDeviceOperationParams,
+  SpecializedDeviceOperationResult,
   SetTrackMixerParams,
   SetTrackMixerResult,
   SetDeviceEnabledParams,
@@ -111,6 +126,10 @@ import type {
   TracksOperationResult,
   TransportOperationParams,
   TransportOperationResult,
+  WarpMarkerOperationParams,
+  WarpMarkerOperationResult,
+  WorkflowJobOperationParams,
+  WorkflowJobOperationResult,
 } from "@ableton-agent/protocol";
 import type {
   AppEvent,
@@ -124,7 +143,9 @@ import type {
 import { noopLogger } from "@ableton-agent/shared";
 import {
   AbletonMutationAuthorizationError,
+  abletonCompatibilityAliases,
   abletonToolMetadata,
+  abletonToolOperationPatterns,
   createAbletonMutationAuthorizer,
   createAbletonMutationLockManager,
   createAbletonPermissionHandler,
@@ -133,6 +154,7 @@ import {
   resolveAbletonOperation,
   resolveAbletonToolMetadata,
   runAuthorizedAbletonMutation,
+  scopeAbletonTools,
   type AbletonOperationLifecycleIdentity,
   type AbletonMutationAuthorizationContext,
   type ToolApprovalRequester,
@@ -202,6 +224,7 @@ export interface AgentSessionConfiguration {
   readonly description: string;
   readonly systemPrompt: string;
   readonly resolvedTools: readonly string[];
+  readonly resolvedOperations?: readonly string[];
   readonly editScope: readonly EditScopeEntry[];
   readonly boundTracks: readonly BoundTrackScope[];
   readonly skills: readonly string[];
@@ -361,6 +384,7 @@ export interface CopilotAgentServiceOptions {
   events: EventPublisher;
   logger?: Logger;
   getAbletonStatus: () => Promise<ConnectionStatus>;
+  getAbletonCapabilities?: () => Promise<CapabilityDocument>;
   inspectSession: () => Promise<SessionSnapshot>;
   executeScenesOperation?: (
     params: ScenesOperationParams,
@@ -380,6 +404,33 @@ export interface CopilotAgentServiceOptions {
   executeAudioClipsOperation?: (
     params: AudioClipsOperationParams,
   ) => Promise<AudioClipsOperationResult>;
+  executeRecordingOperation?: (
+    params: RecordingOperationParams,
+  ) => Promise<RecordingOperationResult>;
+  executeGrooveOperation?: (
+    params: GrooveOperationParams,
+  ) => Promise<GrooveOperationResult>;
+  executeSelectionViewOperation?: (
+    params: SelectionViewOperationParams,
+  ) => Promise<SelectionViewOperationResult>;
+  executeLiveHistoryOperation?: (
+    params: LiveHistoryOperationParams,
+  ) => Promise<LiveHistoryOperationResult>;
+  executeBrowserAdapterOperation?: (
+    params: BrowserAdapterOperationParams,
+  ) => Promise<BrowserAdapterOperationResult>;
+  executeClipAutomationOperation?: (
+    params: ClipAutomationOperationParams,
+  ) => Promise<ClipAutomationOperationResult>;
+  executeWarpMarkerOperation?: (
+    params: WarpMarkerOperationParams,
+  ) => Promise<WarpMarkerOperationResult>;
+  executeSpecializedDeviceOperation?: (
+    params: SpecializedDeviceOperationParams,
+  ) => Promise<SpecializedDeviceOperationResult>;
+  executeWorkflowJobOperation?: (
+    params: WorkflowJobOperationParams,
+  ) => Promise<WorkflowJobOperationResult>;
   preparedContextProvider?: PreparedContextProvider;
   setTempo: (tempo: number) => Promise<SetTempoResult>;
   setPlaying: (isPlaying: boolean) => Promise<SetPlayingResult>;
@@ -542,6 +593,29 @@ function isVerifiedOperationResult(result: unknown): boolean {
     typeof nestedResult === "object" &&
     Reflect.get(nestedResult, "verified") === true
   );
+}
+
+function workflowJobState(
+  result: unknown,
+): { readonly jobId: string; readonly status: string } | undefined {
+  if (result === null || typeof result !== "object") return undefined;
+  const job: unknown = Reflect.get(result, "job");
+  if (job === null || typeof job !== "object") return undefined;
+  const jobId: unknown = Reflect.get(job, "jobId");
+  const status: unknown = Reflect.get(job, "status");
+  return typeof jobId === "string" && typeof status === "string"
+    ? { jobId, status }
+    : undefined;
+}
+
+function isTerminalWorkflowJobStatus(status: string): boolean {
+  return ["completed", "failed", "cancelled", "indeterminate"].includes(status);
+}
+
+function workflowJobTerminalError(status: string, jobId: string): Error {
+  const error = new Error(`Workflow job ${jobId} ended with status ${status}`);
+  if (status === "cancelled") error.name = "AbortError";
+  return error;
 }
 
 export class AgentTurnTimeoutError extends Error {
@@ -921,6 +995,15 @@ function normalizeSessionConfiguration(
     description: configuration.description,
     systemPrompt: configuration.systemPrompt,
     resolvedTools: bareToolNames(configuration.resolvedTools),
+    ...(configuration.resolvedOperations === undefined
+      ? {}
+      : {
+          resolvedOperations: dedupeStrings(
+            configuration.resolvedOperations.map((operation) =>
+              operation.trim(),
+            ),
+          ).filter((operation) => operation.length > 0),
+        }),
     editScope: configuration.editScope.map((entry) =>
       entry === "session"
         ? entry
@@ -1018,6 +1101,44 @@ export class CopilotAgentService implements AgentService {
     return this.#states.get(key)?.session?.sessionId;
   }
 
+  #deferWorkflowJobCompletion(result: unknown): Promise<unknown> | undefined {
+    const initial = workflowJobState(result);
+    if (initial === undefined) {
+      return undefined;
+    }
+    if (isTerminalWorkflowJobStatus(initial.status)) {
+      return initial.status === "completed"
+        ? undefined
+        : Promise.reject(
+            workflowJobTerminalError(initial.status, initial.jobId),
+          );
+    }
+    if (this.options.executeWorkflowJobOperation === undefined) {
+      return Promise.reject(
+        new Error(
+          `Workflow job ${initial.jobId} cannot be monitored to a terminal state`,
+        ),
+      );
+    }
+    return (async () => {
+      while (true) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 50));
+        const terminal = await this.options.executeWorkflowJobOperation!({
+          action: "get",
+          jobId: initial.jobId,
+        });
+        const state = workflowJobState(terminal);
+        if (state === undefined || !isTerminalWorkflowJobStatus(state.status)) {
+          continue;
+        }
+        if (state.status !== "completed") {
+          throw workflowJobTerminalError(state.status, state.jobId);
+        }
+        return terminal;
+      }
+    })();
+  }
+
   #serializeLifecycle<T>(
     instanceId: string,
     run: () => Promise<T>,
@@ -1065,6 +1186,49 @@ export class CopilotAgentService implements AgentService {
         this.options.executeAudioClipsOperation ??
         (() =>
           Promise.reject(new Error("Audio clip operations are unavailable"))),
+      executeRecordingOperation:
+        this.options.executeRecordingOperation ??
+        (() =>
+          Promise.reject(new Error("Recording operations are unavailable"))),
+      executeGrooveOperation:
+        this.options.executeGrooveOperation ??
+        (() => Promise.reject(new Error("Groove operations are unavailable"))),
+      executeSelectionViewOperation:
+        this.options.executeSelectionViewOperation ??
+        (() =>
+          Promise.reject(
+            new Error("Selection/view operations are unavailable"),
+          )),
+      executeLiveHistoryOperation:
+        this.options.executeLiveHistoryOperation ??
+        (() =>
+          Promise.reject(new Error("Live history operations are unavailable"))),
+      executeBrowserAdapterOperation:
+        this.options.executeBrowserAdapterOperation ??
+        (() =>
+          Promise.reject(
+            new Error("Browser adapter operations are unavailable"),
+          )),
+      executeClipAutomationOperation:
+        this.options.executeClipAutomationOperation ??
+        (() =>
+          Promise.reject(
+            new Error("Clip automation operations are unavailable"),
+          )),
+      executeWarpMarkerOperation:
+        this.options.executeWarpMarkerOperation ??
+        (() =>
+          Promise.reject(new Error("Warp marker operations are unavailable"))),
+      executeSpecializedDeviceOperation:
+        this.options.executeSpecializedDeviceOperation ??
+        (() =>
+          Promise.reject(
+            new Error("Specialized device operations are unavailable"),
+          )),
+      executeWorkflowJobOperation:
+        this.options.executeWorkflowJobOperation ??
+        (() =>
+          Promise.reject(new Error("Workflow job operations are unavailable"))),
       setTempo: this.options.setTempo,
       setPlaying: this.options.setPlaying,
       inspectArrangementTransport: this.options.inspectArrangementTransport,
@@ -1169,8 +1333,27 @@ export class CopilotAgentService implements AgentService {
     };
   }
 
-  #scopedAbletonTools(state: ManagedSessionState): Tool[] {
-    const tools = this.#abletonToolSet().tools as unknown as Tool[];
+  async #scopedAbletonTools(state: ManagedSessionState): Promise<Tool[]> {
+    let capabilities: CapabilityDocument | undefined;
+    if (this.options.getAbletonCapabilities !== undefined) {
+      try {
+        capabilities = await this.options.getAbletonCapabilities();
+      } catch {
+        // A disconnected session keeps its authorized schema and execution
+        // remains guarded by the bridge's fail-closed capability checks.
+      }
+    }
+    const tools = scopeAbletonTools(this.#abletonToolSet(), {
+      allowedToolNames: bareToolNames(state.configuration.resolvedTools),
+      ...(state.configuration.resolvedOperations === undefined
+        ? {}
+        : {
+            allowedOperationIds: state.configuration.resolvedOperations,
+          }),
+      ...(capabilities === undefined
+        ? {}
+        : { capabilities: capabilities.capabilities }),
+    });
     return tools.map((tool): Tool => {
       if (tool.handler === undefined) return tool;
       const handler = tool.handler;
@@ -1200,26 +1383,42 @@ export class CopilotAgentService implements AgentService {
           action: operation.descriptor.action,
           targetIdentity: operation.lifecycleIdentity,
         };
-        this.#recordRuntime(state, "agent.operation.requested", base);
+        this.#recordRuntime(
+          state,
+          operation.descriptor.lifecycleEvents.requested,
+          base,
+        );
         try {
-          this.#recordRuntime(state, "agent.operation.started", base);
+          this.#recordRuntime(
+            state,
+            operation.descriptor.lifecycleEvents.started,
+            base,
+          );
           const result = await execute();
-          this.#recordRuntime(state, "agent.operation.verification", {
-            ...base,
-            durationMs: Math.max(0, Date.now() - requestedAt),
-            verified: isVerifiedOperationResult(result),
-          });
-          this.#recordRuntime(state, "agent.operation.completed", {
-            ...base,
-            durationMs: Math.max(0, Date.now() - requestedAt),
-          });
+          this.#recordRuntime(
+            state,
+            operation.descriptor.lifecycleEvents.verification,
+            {
+              ...base,
+              durationMs: Math.max(0, Date.now() - requestedAt),
+              verified: isVerifiedOperationResult(result),
+            },
+          );
+          this.#recordRuntime(
+            state,
+            operation.descriptor.lifecycleEvents.completed,
+            {
+              ...base,
+              durationMs: Math.max(0, Date.now() - requestedAt),
+            },
+          );
           return result;
         } catch (error) {
           this.#recordRuntime(
             state,
             error instanceof Error && error.name === "AbortError"
-              ? "agent.operation.cancelled"
-              : "agent.operation.failed",
+              ? operation.descriptor.lifecycleEvents.cancelled
+              : operation.descriptor.lifecycleEvents.failed,
             {
               ...base,
               durationMs: Math.max(0, Date.now() - requestedAt),
@@ -1256,13 +1455,29 @@ export class CopilotAgentService implements AgentService {
             getContext: () => this.#mutationContext(state),
             invocation: { toolName: tool.name, args },
             handler: () => Promise.resolve(handler(args, invocation)),
+            deferCompletion: (result) => {
+              const operation = resolveAbletonOperation(tool.name, args);
+              return operation?.descriptor.duration === "long"
+                ? this.#deferWorkflowJobCompletion(result)
+                : undefined;
+            },
             onLifecycle: (event) => {
               const now = Date.now();
               if (event.stage === "queued") queuedAt = now;
               if (event.stage === "started") startedAt = now;
               const operation = resolveAbletonOperation(tool.name, args);
               if (operation === undefined) return;
-              this.#recordRuntime(state, `agent.operation.${event.stage}`, {
+              const lifecycleName = {
+                requested: operation.descriptor.lifecycleEvents.requested,
+                policy: operation.descriptor.lifecycleEvents.policyEvaluated,
+                queued: operation.descriptor.lifecycleEvents.queued,
+                started: operation.descriptor.lifecycleEvents.started,
+                verification: operation.descriptor.lifecycleEvents.verification,
+                completed: operation.descriptor.lifecycleEvents.completed,
+                failed: operation.descriptor.lifecycleEvents.failed,
+                cancelled: operation.descriptor.lifecycleEvents.cancelled,
+              }[event.stage];
+              this.#recordRuntime(state, lifecycleName, {
                 toolCallId: invocation.toolCallId,
                 toolName: tool.name,
                 operationDescriptorId: operation.descriptor.operationId,
@@ -1299,7 +1514,9 @@ export class CopilotAgentService implements AgentService {
                     }),
                 ...(event.stage === "verification"
                   ? {
-                      verified: isVerifiedOperationResult(event.result),
+                      verified:
+                        isVerifiedOperationResult(event.result) ||
+                        workflowJobState(event.result)?.status === "completed",
                     }
                   : {}),
               });
@@ -1311,13 +1528,22 @@ export class CopilotAgentService implements AgentService {
   }
 
   #defaultSessionConfiguration(): AgentSessionConfiguration {
+    const resolution = resolveToolPatterns(
+      ["ableton_*"],
+      abletonToolMetadata.map(({ name }) => name),
+      {
+        operations: abletonToolOperationPatterns,
+        compatibilityAliases: abletonCompatibilityAliases,
+      },
+    );
     return {
       instanceId: DEFAULT_AGENT_INSTANCE_KEY,
       definitionName: DEFAULT_AGENT_DEFINITION_NAME,
       label: DEFAULT_AGENT_LABEL,
       description: DEFAULT_AGENT_DESCRIPTION,
       systemPrompt: DEFAULT_AGENT_PROMPT,
-      resolvedTools: abletonToolMetadata.map(({ name }) => name),
+      resolvedTools: resolution.tools,
+      resolvedOperations: resolution.operationIds,
       editScope: ["session"],
       boundTracks: [],
       skills: [],
@@ -1626,16 +1852,13 @@ export class CopilotAgentService implements AgentService {
     }) as Tool;
   }
 
-  #sessionConfig(state: ManagedSessionState): SessionConfig {
+  async #sessionConfig(state: ManagedSessionState): Promise<SessionConfig> {
     const skillTool = this.#skillTool(state);
     const tools = [
-      ...this.#scopedAbletonTools(state),
+      ...(await this.#scopedAbletonTools(state)),
       ...(skillTool === undefined ? [] : [skillTool]),
     ];
-    const configuredToolNames = [
-      ...bareToolNames(state.configuration.resolvedTools),
-      ...(skillTool === undefined ? [] : [SKILL_TOOL_NAME]),
-    ];
+    const configuredToolNames = [...tools.map((tool) => tool.name)];
     const skillInstructions = formatSkillSystemInstructions(
       enabledSkillDescriptors(state.configuration),
     );
@@ -1782,10 +2005,11 @@ export class CopilotAgentService implements AgentService {
     config: SessionConfig,
     sessionId: string,
   ): void {
-    const configuredToolNames = new Set([
-      ...bareToolNames(state.configuration.resolvedTools),
-      ...(state.configuration.skills.length === 0 ? [] : [SKILL_TOOL_NAME]),
-    ]);
+    const configuredToolNames = new Set(
+      bareToolNames(
+        Array.isArray(config.availableTools) ? config.availableTools : [],
+      ),
+    );
     const tools = config.tools as readonly Tool[];
     this.#recordRuntime(
       state,
@@ -2069,7 +2293,7 @@ export class CopilotAgentService implements AgentService {
   async #connectCreatedState(
     state: ManagedSessionState,
   ): Promise<CopilotSessionAdapter> {
-    const config = this.#sessionConfig(state);
+    const config = await this.#sessionConfig(state);
     const session = await this.#requireClient().createSession(config);
     state.session = session;
     this.#recordSessionConfiguration(state, config, session.sessionId);
@@ -2095,7 +2319,7 @@ export class CopilotAgentService implements AgentService {
     state: ManagedSessionState,
     sdkSessionId: string,
   ): Promise<CopilotSessionAdapter> {
-    const config = this.#sessionConfig(state);
+    const config = await this.#sessionConfig(state);
     const session = await this.#requireClient().resumeSession(
       sdkSessionId,
       config,
@@ -2721,7 +2945,7 @@ export class CopilotAgentService implements AgentService {
     missingSession: CopilotSessionAdapter,
   ): Promise<void> {
     const oldSdkSessionId = missingSession.sessionId;
-    const config = this.#sessionConfig(state);
+    const config = await this.#sessionConfig(state);
     const replacement = await this.#requireClient().createSession(config);
     try {
       state.unsubscribe?.();
@@ -3382,6 +3606,60 @@ export class HeadlessApplication {
     params: AudioClipsOperationParams,
   ): Promise<AudioClipsOperationResult> {
     return this.services.ableton.executeAudioClipsOperation!(params);
+  }
+
+  public executeRecordingOperation(
+    params: RecordingOperationParams,
+  ): Promise<RecordingOperationResult> {
+    return this.services.ableton.executeRecordingOperation!(params);
+  }
+
+  public executeGrooveOperation(
+    params: GrooveOperationParams,
+  ): Promise<GrooveOperationResult> {
+    return this.services.ableton.executeGrooveOperation!(params);
+  }
+
+  public executeSelectionViewOperation(
+    params: SelectionViewOperationParams,
+  ): Promise<SelectionViewOperationResult> {
+    return this.services.ableton.executeSelectionViewOperation!(params);
+  }
+
+  public executeLiveHistoryOperation(
+    params: LiveHistoryOperationParams,
+  ): Promise<LiveHistoryOperationResult> {
+    return this.services.ableton.executeLiveHistoryOperation!(params);
+  }
+
+  public executeBrowserAdapterOperation(
+    params: BrowserAdapterOperationParams,
+  ): Promise<BrowserAdapterOperationResult> {
+    return this.services.ableton.executeBrowserAdapterOperation!(params);
+  }
+
+  public executeClipAutomationOperation(
+    params: ClipAutomationOperationParams,
+  ): Promise<ClipAutomationOperationResult> {
+    return this.services.ableton.executeClipAutomationOperation!(params);
+  }
+
+  public executeWarpMarkerOperation(
+    params: WarpMarkerOperationParams,
+  ): Promise<WarpMarkerOperationResult> {
+    return this.services.ableton.executeWarpMarkerOperation!(params);
+  }
+
+  public executeSpecializedDeviceOperation(
+    params: SpecializedDeviceOperationParams,
+  ): Promise<SpecializedDeviceOperationResult> {
+    return this.services.ableton.executeSpecializedDeviceOperation!(params);
+  }
+
+  public executeWorkflowJobOperation(
+    params: WorkflowJobOperationParams,
+  ): Promise<WorkflowJobOperationResult> {
+    return this.services.ableton.executeWorkflowJobOperation!(params);
   }
 
   public setTempo(tempo: number): Promise<SetTempoResult> {

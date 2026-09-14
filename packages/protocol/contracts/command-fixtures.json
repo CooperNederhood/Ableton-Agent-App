@@ -1,10 +1,10 @@
 {
   "producer": "typescript",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "commands": {
     "system.hello": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001000",
         "command": "system.hello",
@@ -16,12 +16,12 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001000",
         "ok": true,
         "result": {
-          "selectedProtocolVersion": 3,
+          "selectedProtocolVersion": 4,
           "liveVersion": "x",
           "remoteScriptVersion": "x",
           "projectId": "x",
@@ -32,7 +32,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001000",
         "ok": false,
@@ -46,14 +46,14 @@
     },
     "system.ping": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001001",
         "command": "system.ping",
         "params": {}
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001001",
         "ok": true,
@@ -61,7 +61,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001001",
         "ok": false,
@@ -75,14 +75,14 @@
     },
     "project.get_identity": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001002",
         "command": "project.get_identity",
         "params": {}
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001002",
         "ok": true,
@@ -90,7 +90,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001002",
         "ok": false,
@@ -104,14 +104,14 @@
     },
     "session.inspect": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001003",
         "command": "session.inspect",
         "params": {}
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001003",
         "ok": true,
@@ -126,7 +126,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001003",
         "ok": false,
@@ -140,14 +140,14 @@
     },
     "scenes.inspect": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001004",
         "command": "scenes.inspect",
         "params": { "action": "list", "offset": 0, "limit": 64 }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001004",
         "ok": true,
@@ -161,7 +161,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001004",
         "ok": false,
@@ -175,14 +175,14 @@
     },
     "scenes.mutate": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001005",
         "command": "scenes.mutate",
         "params": { "action": "create", "index": -1, "name": "x" }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001005",
         "ok": true,
@@ -196,7 +196,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001005",
         "ok": false,
@@ -210,7 +210,7 @@
     },
     "tracks.inspect": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001006",
         "command": "tracks.inspect",
@@ -222,7 +222,7 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001006",
         "ok": true,
@@ -236,7 +236,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001006",
         "ok": false,
@@ -250,14 +250,14 @@
     },
     "tracks.mutate": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001007",
         "command": "tracks.mutate",
         "params": { "action": "create-return", "name": "x" }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001007",
         "ok": true,
@@ -271,7 +271,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001007",
         "ok": false,
@@ -285,7 +285,7 @@
     },
     "mixer_routing.inspect": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001008",
         "command": "mixer_routing.inspect",
@@ -300,7 +300,7 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001008",
         "ok": true,
@@ -359,7 +359,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001008",
         "ok": false,
@@ -373,7 +373,7 @@
     },
     "mixer_routing.mutate": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001009",
         "command": "mixer_routing.mutate",
@@ -393,7 +393,7 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001009",
         "ok": true,
@@ -452,7 +452,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001009",
         "ok": false,
@@ -466,14 +466,14 @@
     },
     "transport.inspect": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001010",
         "command": "transport.inspect",
         "params": { "action": "get", "offset": 0, "limit": 64 }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001010",
         "ok": true,
@@ -498,7 +498,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001010",
         "ok": false,
@@ -512,14 +512,14 @@
     },
     "transport.mutate": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001011",
         "command": "transport.mutate",
         "params": { "action": "seek", "time": 0 }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001011",
         "ok": true,
@@ -544,7 +544,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001011",
         "ok": false,
@@ -558,7 +558,7 @@
     },
     "midi_notes.inspect": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001012",
         "command": "midi_notes.inspect",
@@ -585,7 +585,7 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001012",
         "ok": true,
@@ -600,7 +600,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001012",
         "ok": false,
@@ -614,7 +614,7 @@
     },
     "midi_notes.mutate": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001013",
         "command": "midi_notes.mutate",
@@ -647,7 +647,7 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001013",
         "ok": true,
@@ -662,7 +662,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001013",
         "ok": false,
@@ -676,7 +676,7 @@
     },
     "audio_clips.inspect": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001014",
         "command": "audio_clips.inspect",
@@ -697,7 +697,7 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001014",
         "ok": true,
@@ -727,7 +727,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001014",
         "ok": false,
@@ -741,7 +741,7 @@
     },
     "audio_clips.mutate": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001015",
         "command": "audio_clips.mutate",
@@ -763,7 +763,7 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001015",
         "ok": true,
@@ -793,7 +793,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001015",
         "ok": false,
@@ -805,18 +805,2931 @@
         }
       }
     },
-    "events.inspect_selection": {
+    "recording.inspect": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001016",
+        "command": "recording.inspect",
+        "params": { "action": "inspect" }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001016",
+        "ok": true,
+        "result": {
+          "action": "inspect",
+          "state": {
+            "arrangementRecord": false,
+            "sessionRecord": false,
+            "overdub": false,
+            "sessionAutomationRecord": false,
+            "punchIn": false,
+            "punchOut": false
+          }
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001016",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden recording.inspect failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "recording.set_arrangement_record": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001017",
+        "command": "recording.set_arrangement_record",
+        "params": { "action": "set-arrangement-record", "enabled": false }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001017",
+        "ok": true,
+        "result": {
+          "action": "set-arrangement-record",
+          "result": {
+            "before": {
+              "arrangementRecord": false,
+              "sessionRecord": false,
+              "overdub": false,
+              "sessionAutomationRecord": false,
+              "punchIn": false,
+              "punchOut": false
+            },
+            "after": {
+              "arrangementRecord": false,
+              "sessionRecord": false,
+              "overdub": false,
+              "sessionAutomationRecord": false,
+              "punchIn": false,
+              "punchOut": false
+            },
+            "verified": true,
+            "warnings": []
+          }
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001017",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden recording.set_arrangement_record failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "recording.set_session_record": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001018",
+        "command": "recording.set_session_record",
+        "params": { "action": "set-session-record", "enabled": false }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001018",
+        "ok": true,
+        "result": {
+          "action": "set-session-record",
+          "result": {
+            "before": {
+              "arrangementRecord": false,
+              "sessionRecord": false,
+              "overdub": false,
+              "sessionAutomationRecord": false,
+              "punchIn": false,
+              "punchOut": false
+            },
+            "after": {
+              "arrangementRecord": false,
+              "sessionRecord": false,
+              "overdub": false,
+              "sessionAutomationRecord": false,
+              "punchIn": false,
+              "punchOut": false
+            },
+            "verified": true,
+            "warnings": []
+          }
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001018",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden recording.set_session_record failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "recording.set_overdub": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001019",
+        "command": "recording.set_overdub",
+        "params": { "action": "set-overdub", "enabled": false }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001019",
+        "ok": true,
+        "result": {
+          "action": "set-overdub",
+          "result": {
+            "before": {
+              "arrangementRecord": false,
+              "sessionRecord": false,
+              "overdub": false,
+              "sessionAutomationRecord": false,
+              "punchIn": false,
+              "punchOut": false
+            },
+            "after": {
+              "arrangementRecord": false,
+              "sessionRecord": false,
+              "overdub": false,
+              "sessionAutomationRecord": false,
+              "punchIn": false,
+              "punchOut": false
+            },
+            "verified": true,
+            "warnings": []
+          }
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001019",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden recording.set_overdub failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "recording.set_session_automation_record": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001020",
+        "command": "recording.set_session_automation_record",
+        "params": {
+          "action": "set-session-automation-record",
+          "enabled": false
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001020",
+        "ok": true,
+        "result": {
+          "action": "set-session-automation-record",
+          "result": {
+            "before": {
+              "arrangementRecord": false,
+              "sessionRecord": false,
+              "overdub": false,
+              "sessionAutomationRecord": false,
+              "punchIn": false,
+              "punchOut": false
+            },
+            "after": {
+              "arrangementRecord": false,
+              "sessionRecord": false,
+              "overdub": false,
+              "sessionAutomationRecord": false,
+              "punchIn": false,
+              "punchOut": false
+            },
+            "verified": true,
+            "warnings": []
+          }
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001020",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden recording.set_session_automation_record failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "recording.set_punch": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001021",
+        "command": "recording.set_punch",
+        "params": { "action": "set-punch", "punchIn": false }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001021",
+        "ok": true,
+        "result": {
+          "action": "set-punch",
+          "result": {
+            "before": {
+              "arrangementRecord": false,
+              "sessionRecord": false,
+              "overdub": false,
+              "sessionAutomationRecord": false,
+              "punchIn": false,
+              "punchOut": false
+            },
+            "after": {
+              "arrangementRecord": false,
+              "sessionRecord": false,
+              "overdub": false,
+              "sessionAutomationRecord": false,
+              "punchIn": false,
+              "punchOut": false
+            },
+            "verified": true,
+            "warnings": []
+          }
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001021",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden recording.set_punch failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "recording.capture_midi": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001022",
+        "command": "recording.capture_midi",
+        "params": {
+          "action": "capture-midi",
+          "destination": "selected-armed-tracks"
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001022",
+        "ok": true,
+        "result": {
+          "action": "capture-midi",
+          "destination": "selected-armed-tracks",
+          "captured": true,
+          "verified": true,
+          "warnings": []
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001022",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden recording.capture_midi failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "recording.record_session_slot": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001023",
+        "command": "recording.record_session_slot",
+        "params": {
+          "action": "record-session-slot",
+          "target": {
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "sceneIndex": 0,
+            "expectedSceneReference": "00000000-0000-4000-8000-000000000099",
+            "expectedSceneName": "x",
+            "expectedHasClip": false,
+            "expectedClipReference": "00000000-0000-4000-8000-000000000099"
+          },
+          "durationBeats": 1,
+          "launchQuantization": 0,
+          "correlationId": "00000000-0000-4000-8000-000000000099",
+          "traceId": "00000000-0000-4000-8000-000000000099"
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001023",
+        "ok": true,
+        "result": {
+          "action": "record-session-slot",
+          "job": {
+            "jobId": "00000000-0000-4000-8000-000000000099",
+            "kind": "timed-session-recording",
+            "status": "queued",
+            "progress": 0,
+            "createdAt": "2000-01-01T00:00:00Z",
+            "updatedAt": "2000-01-01T00:00:00Z",
+            "correlationId": "00000000-0000-4000-8000-000000000099",
+            "causationId": "00000000-0000-4000-8000-000000000099",
+            "traceId": "00000000-0000-4000-8000-000000000099"
+          },
+          "recordingIntent": "record"
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001023",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden recording.record_session_slot failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "grooves.list": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001024",
+        "command": "grooves.list",
+        "params": { "action": "list", "offset": 0, "limit": 64 }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001024",
+        "ok": true,
+        "result": {
+          "action": "list",
+          "grooves": [],
+          "total": 0,
+          "offset": 0,
+          "limit": 1,
+          "poolRevision": "xxxxxxxxxxxxxxxx",
+          "globalAmount": 0
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001024",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden grooves.list failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "grooves.get": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001025",
+        "command": "grooves.get",
+        "params": {
+          "action": "get",
+          "target": {
+            "index": 0,
+            "expectedReference": "00000000-0000-4000-8000-000000000099",
+            "expectedName": "x",
+            "poolRevision": "xxxxxxxxxxxxxxxx"
+          }
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001025",
+        "ok": true,
+        "result": {
+          "action": "get",
+          "groove": {
+            "index": 0,
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "name": "x",
+            "base": 0,
+            "quantizationAmount": 0,
+            "timingAmount": 0,
+            "randomAmount": 0,
+            "velocityAmount": 0
+          },
+          "poolRevision": "xxxxxxxxxxxxxxxx"
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001025",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden grooves.get failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "grooves.inspect_clip": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001026",
+        "command": "grooves.inspect_clip",
+        "params": {
+          "action": "inspect-clip",
+          "target": {
+            "view": "session",
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "sceneIndex": 0,
+            "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+            "expectedClipName": "x"
+          }
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001026",
+        "ok": true,
+        "result": {
+          "action": "inspect-clip",
+          "state": {
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "groove": {
+              "index": 0,
+              "reference": "00000000-0000-4000-8000-000000000099",
+              "name": "x",
+              "base": 0,
+              "quantizationAmount": 0,
+              "timingAmount": 0,
+              "randomAmount": 0,
+              "velocityAmount": 0
+            }
+          }
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001026",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden grooves.inspect_clip failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "grooves.set_clip_groove": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001027",
+        "command": "grooves.set_clip_groove",
+        "params": {
+          "action": "set-clip-groove",
+          "target": {
+            "view": "session",
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "sceneIndex": 0,
+            "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+            "expectedClipName": "x"
+          },
+          "groove": {
+            "index": 0,
+            "expectedReference": "00000000-0000-4000-8000-000000000099",
+            "expectedName": "x",
+            "poolRevision": "xxxxxxxxxxxxxxxx"
+          }
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001027",
+        "ok": true,
+        "result": {
+          "action": "set-clip-groove",
+          "before": {
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "groove": {
+              "index": 0,
+              "reference": "00000000-0000-4000-8000-000000000099",
+              "name": "x",
+              "base": 0,
+              "quantizationAmount": 0,
+              "timingAmount": 0,
+              "randomAmount": 0,
+              "velocityAmount": 0
+            }
+          },
+          "after": {
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "groove": {
+              "index": 0,
+              "reference": "00000000-0000-4000-8000-000000000099",
+              "name": "x",
+              "base": 0,
+              "quantizationAmount": 0,
+              "timingAmount": 0,
+              "randomAmount": 0,
+              "velocityAmount": 0
+            }
+          },
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001027",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden grooves.set_clip_groove failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "grooves.clear_clip_groove": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001028",
+        "command": "grooves.clear_clip_groove",
+        "params": {
+          "action": "clear-clip-groove",
+          "target": {
+            "view": "session",
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "sceneIndex": 0,
+            "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+            "expectedClipName": "x"
+          }
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001028",
+        "ok": true,
+        "result": {
+          "action": "clear-clip-groove",
+          "before": {
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "groove": {
+              "index": 0,
+              "reference": "00000000-0000-4000-8000-000000000099",
+              "name": "x",
+              "base": 0,
+              "quantizationAmount": 0,
+              "timingAmount": 0,
+              "randomAmount": 0,
+              "velocityAmount": 0
+            }
+          },
+          "after": {
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "groove": {
+              "index": 0,
+              "reference": "00000000-0000-4000-8000-000000000099",
+              "name": "x",
+              "base": 0,
+              "quantizationAmount": 0,
+              "timingAmount": 0,
+              "randomAmount": 0,
+              "velocityAmount": 0
+            }
+          },
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001028",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden grooves.clear_clip_groove failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "grooves.set_properties": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001029",
+        "command": "grooves.set_properties",
+        "params": {
+          "action": "set-properties",
+          "target": {
+            "index": 0,
+            "expectedReference": "00000000-0000-4000-8000-000000000099",
+            "expectedName": "x",
+            "poolRevision": "xxxxxxxxxxxxxxxx"
+          },
+          "quantizationAmount": 0
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001029",
+        "ok": true,
+        "result": {
+          "action": "set-properties",
+          "before": {
+            "index": 0,
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "name": "x",
+            "base": 0,
+            "quantizationAmount": 0,
+            "timingAmount": 0,
+            "randomAmount": 0,
+            "velocityAmount": 0
+          },
+          "after": {
+            "index": 0,
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "name": "x",
+            "base": 0,
+            "quantizationAmount": 0,
+            "timingAmount": 0,
+            "randomAmount": 0,
+            "velocityAmount": 0
+          },
+          "poolRevision": "xxxxxxxxxxxxxxxx",
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001029",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden grooves.set_properties failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "grooves.set_global_amount": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001030",
+        "command": "grooves.set_global_amount",
+        "params": { "action": "set-global-amount", "amount": 0 }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001030",
+        "ok": true,
+        "result": {
+          "action": "set-global-amount",
+          "before": 0,
+          "after": 0,
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001030",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden grooves.set_global_amount failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "selection_view.inspect_selection": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001031",
+        "command": "selection_view.inspect_selection",
+        "params": { "action": "inspect-selection" }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001031",
+        "ok": true,
+        "result": {
+          "action": "inspect-selection",
+          "selection": {
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "sceneReference": "00000000-0000-4000-8000-000000000099",
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "slot": {
+              "trackReference": "00000000-0000-4000-8000-000000000099",
+              "sceneIndex": 0
+            },
+            "deviceReference": "00000000-0000-4000-8000-000000000099",
+            "chainReference": "00000000-0000-4000-8000-000000000099"
+          }
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001031",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden selection_view.inspect_selection failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "selection_view.inspect_view": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001032",
+        "command": "selection_view.inspect_view",
+        "params": { "action": "inspect-view" }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001032",
+        "ok": true,
+        "result": {
+          "action": "inspect-view",
+          "view": {
+            "visibleViews": [],
+            "focusedView": "Session",
+            "follow": false,
+            "drawMode": false
+          }
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001032",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden selection_view.inspect_view failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "selection_view.select_track": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001033",
+        "command": "selection_view.select_track",
+        "params": {
+          "action": "select-track",
+          "target": {
+            "kind": "regular",
+            "index": 0,
+            "expectedReference": "00000000-0000-4000-8000-000000000099",
+            "expectedName": "x"
+          }
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001033",
+        "ok": true,
+        "result": {
+          "action": "select-track",
+          "before": {
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "sceneReference": "00000000-0000-4000-8000-000000000099",
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "slot": {
+              "trackReference": "00000000-0000-4000-8000-000000000099",
+              "sceneIndex": 0
+            },
+            "deviceReference": "00000000-0000-4000-8000-000000000099",
+            "chainReference": "00000000-0000-4000-8000-000000000099"
+          },
+          "after": {
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "sceneReference": "00000000-0000-4000-8000-000000000099",
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "slot": {
+              "trackReference": "00000000-0000-4000-8000-000000000099",
+              "sceneIndex": 0
+            },
+            "deviceReference": "00000000-0000-4000-8000-000000000099",
+            "chainReference": "00000000-0000-4000-8000-000000000099"
+          },
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001033",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden selection_view.select_track failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "selection_view.select_scene": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001034",
+        "command": "selection_view.select_scene",
+        "params": {
+          "action": "select-scene",
+          "sceneIndex": 0,
+          "expectedSceneReference": "00000000-0000-4000-8000-000000000099",
+          "expectedSceneName": "x"
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001034",
+        "ok": true,
+        "result": {
+          "action": "select-scene",
+          "before": {
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "sceneReference": "00000000-0000-4000-8000-000000000099",
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "slot": {
+              "trackReference": "00000000-0000-4000-8000-000000000099",
+              "sceneIndex": 0
+            },
+            "deviceReference": "00000000-0000-4000-8000-000000000099",
+            "chainReference": "00000000-0000-4000-8000-000000000099"
+          },
+          "after": {
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "sceneReference": "00000000-0000-4000-8000-000000000099",
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "slot": {
+              "trackReference": "00000000-0000-4000-8000-000000000099",
+              "sceneIndex": 0
+            },
+            "deviceReference": "00000000-0000-4000-8000-000000000099",
+            "chainReference": "00000000-0000-4000-8000-000000000099"
+          },
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001034",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden selection_view.select_scene failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "selection_view.select_slot": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001035",
+        "command": "selection_view.select_slot",
+        "params": {
+          "action": "select-slot",
+          "target": {
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "sceneIndex": 0,
+            "expectedSceneReference": "00000000-0000-4000-8000-000000000099",
+            "expectedSceneName": "x",
+            "expectedHasClip": false,
+            "expectedClipReference": "00000000-0000-4000-8000-000000000099"
+          }
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001035",
+        "ok": true,
+        "result": {
+          "action": "select-slot",
+          "before": {
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "sceneReference": "00000000-0000-4000-8000-000000000099",
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "slot": {
+              "trackReference": "00000000-0000-4000-8000-000000000099",
+              "sceneIndex": 0
+            },
+            "deviceReference": "00000000-0000-4000-8000-000000000099",
+            "chainReference": "00000000-0000-4000-8000-000000000099"
+          },
+          "after": {
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "sceneReference": "00000000-0000-4000-8000-000000000099",
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "slot": {
+              "trackReference": "00000000-0000-4000-8000-000000000099",
+              "sceneIndex": 0
+            },
+            "deviceReference": "00000000-0000-4000-8000-000000000099",
+            "chainReference": "00000000-0000-4000-8000-000000000099"
+          },
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001035",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden selection_view.select_slot failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "selection_view.select_clip": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001036",
+        "command": "selection_view.select_clip",
+        "params": {
+          "action": "select-clip",
+          "target": {
+            "view": "session",
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "sceneIndex": 0,
+            "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+            "expectedClipName": "x"
+          }
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001036",
+        "ok": true,
+        "result": {
+          "action": "select-clip",
+          "before": {
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "sceneReference": "00000000-0000-4000-8000-000000000099",
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "slot": {
+              "trackReference": "00000000-0000-4000-8000-000000000099",
+              "sceneIndex": 0
+            },
+            "deviceReference": "00000000-0000-4000-8000-000000000099",
+            "chainReference": "00000000-0000-4000-8000-000000000099"
+          },
+          "after": {
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "sceneReference": "00000000-0000-4000-8000-000000000099",
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "slot": {
+              "trackReference": "00000000-0000-4000-8000-000000000099",
+              "sceneIndex": 0
+            },
+            "deviceReference": "00000000-0000-4000-8000-000000000099",
+            "chainReference": "00000000-0000-4000-8000-000000000099"
+          },
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001036",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden selection_view.select_clip failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "selection_view.select_device": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001037",
+        "command": "selection_view.select_device",
+        "params": {
+          "action": "select-device",
+          "target": {
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "deviceIndex": 0,
+            "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+            "expectedDeviceName": "x",
+            "expectedClassName": "x"
+          }
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001037",
+        "ok": true,
+        "result": {
+          "action": "select-device",
+          "before": {
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "sceneReference": "00000000-0000-4000-8000-000000000099",
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "slot": {
+              "trackReference": "00000000-0000-4000-8000-000000000099",
+              "sceneIndex": 0
+            },
+            "deviceReference": "00000000-0000-4000-8000-000000000099",
+            "chainReference": "00000000-0000-4000-8000-000000000099"
+          },
+          "after": {
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "sceneReference": "00000000-0000-4000-8000-000000000099",
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "slot": {
+              "trackReference": "00000000-0000-4000-8000-000000000099",
+              "sceneIndex": 0
+            },
+            "deviceReference": "00000000-0000-4000-8000-000000000099",
+            "chainReference": "00000000-0000-4000-8000-000000000099"
+          },
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001037",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden selection_view.select_device failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "selection_view.select_chain": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001038",
+        "command": "selection_view.select_chain",
+        "params": {
+          "action": "select-chain",
+          "target": {
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "rackIndex": 0,
+            "expectedRackReference": "00000000-0000-4000-8000-000000000099",
+            "expectedRackName": "x",
+            "chainIndex": 0,
+            "expectedChainReference": "00000000-0000-4000-8000-000000000099",
+            "expectedChainName": "x"
+          }
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001038",
+        "ok": true,
+        "result": {
+          "action": "select-chain",
+          "before": {
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "sceneReference": "00000000-0000-4000-8000-000000000099",
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "slot": {
+              "trackReference": "00000000-0000-4000-8000-000000000099",
+              "sceneIndex": 0
+            },
+            "deviceReference": "00000000-0000-4000-8000-000000000099",
+            "chainReference": "00000000-0000-4000-8000-000000000099"
+          },
+          "after": {
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "sceneReference": "00000000-0000-4000-8000-000000000099",
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "slot": {
+              "trackReference": "00000000-0000-4000-8000-000000000099",
+              "sceneIndex": 0
+            },
+            "deviceReference": "00000000-0000-4000-8000-000000000099",
+            "chainReference": "00000000-0000-4000-8000-000000000099"
+          },
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001038",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden selection_view.select_chain failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "selection_view.set_view": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001039",
+        "command": "selection_view.set_view",
+        "params": { "action": "set-view", "view": "Session", "state": "show" }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001039",
+        "ok": true,
+        "result": {
+          "action": "set-view",
+          "before": {
+            "visibleViews": [],
+            "focusedView": "Session",
+            "follow": false,
+            "drawMode": false
+          },
+          "after": {
+            "visibleViews": [],
+            "focusedView": "Session",
+            "follow": false,
+            "drawMode": false
+          },
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001039",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden selection_view.set_view failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "selection_view.set_follow": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001040",
+        "command": "selection_view.set_follow",
+        "params": { "action": "set-follow", "enabled": false }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001040",
+        "ok": true,
+        "result": {
+          "action": "set-follow",
+          "before": {
+            "visibleViews": [],
+            "focusedView": "Session",
+            "follow": false,
+            "drawMode": false
+          },
+          "after": {
+            "visibleViews": [],
+            "focusedView": "Session",
+            "follow": false,
+            "drawMode": false
+          },
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001040",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden selection_view.set_follow failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "selection_view.set_draw_mode": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001041",
+        "command": "selection_view.set_draw_mode",
+        "params": { "action": "set-draw-mode", "enabled": false }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001041",
+        "ok": true,
+        "result": {
+          "action": "set-draw-mode",
+          "before": {
+            "visibleViews": [],
+            "focusedView": "Session",
+            "follow": false,
+            "drawMode": false
+          },
+          "after": {
+            "visibleViews": [],
+            "focusedView": "Session",
+            "follow": false,
+            "drawMode": false
+          },
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001041",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden selection_view.set_draw_mode failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "selection_view.set_track_fold": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001042",
+        "command": "selection_view.set_track_fold",
+        "params": {
+          "action": "set-track-fold",
+          "target": {
+            "kind": "regular",
+            "index": 0,
+            "expectedReference": "00000000-0000-4000-8000-000000000099",
+            "expectedName": "x"
+          },
+          "folded": false
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001042",
+        "ok": true,
+        "result": {
+          "action": "set-track-fold",
+          "before": false,
+          "after": false,
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001042",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden selection_view.set_track_fold failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "selection_view.set_device_collapsed": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001043",
+        "command": "selection_view.set_device_collapsed",
+        "params": {
+          "action": "set-device-collapsed",
+          "target": {
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "deviceIndex": 0,
+            "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+            "expectedDeviceName": "x",
+            "expectedClassName": "x"
+          },
+          "collapsed": false
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001043",
+        "ok": true,
+        "result": {
+          "action": "set-device-collapsed",
+          "before": false,
+          "after": false,
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001043",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden selection_view.set_device_collapsed failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "live_history.inspect": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001044",
+        "command": "live_history.inspect",
+        "params": { "action": "inspect" }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001044",
+        "ok": true,
+        "result": {
+          "action": "inspect",
+          "state": { "canUndo": false, "canRedo": false },
+          "warnings": []
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001044",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden live_history.inspect failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "live_history.undo": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001045",
+        "command": "live_history.undo",
+        "params": { "action": "undo", "confirmation": "global-live-history" }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001045",
+        "ok": true,
+        "result": {
+          "action": "undo",
+          "before": { "canUndo": false, "canRedo": false },
+          "after": { "canUndo": false, "canRedo": false },
+          "verified": true,
+          "warnings": []
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001045",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden live_history.undo failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "live_history.redo": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001046",
+        "command": "live_history.redo",
+        "params": { "action": "redo", "confirmation": "global-live-history" }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001046",
+        "ok": true,
+        "result": {
+          "action": "redo",
+          "before": { "canUndo": false, "canRedo": false },
+          "after": { "canUndo": false, "canRedo": false },
+          "verified": true,
+          "warnings": []
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001046",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden live_history.redo failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "browser_adapters.preview": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001047",
+        "command": "browser_adapters.preview",
+        "params": {
+          "action": "preview",
+          "expectedItemReference": "00000000-0000-4000-8000-000000000099",
+          "expectedItemRoot": "sounds",
+          "expectedItemPath": [],
+          "expectedItemUri": "x",
+          "expectedItemName": "x"
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001047",
+        "ok": true,
+        "result": {
+          "action": "preview",
+          "before": {
+            "previewing": false,
+            "hotswap": false,
+            "filterType": -9007199254740991,
+            "deviceInsertMode": -9007199254740991,
+            "selectionRestored": false
+          },
+          "after": {
+            "previewing": false,
+            "hotswap": false,
+            "filterType": -9007199254740991,
+            "deviceInsertMode": -9007199254740991,
+            "selectionRestored": false
+          },
+          "verified": true,
+          "warnings": []
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001047",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden browser_adapters.preview failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "browser_adapters.stop_preview": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001048",
+        "command": "browser_adapters.stop_preview",
+        "params": { "action": "stop-preview" }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001048",
+        "ok": true,
+        "result": {
+          "action": "stop-preview",
+          "before": {
+            "previewing": false,
+            "hotswap": false,
+            "filterType": -9007199254740991,
+            "deviceInsertMode": -9007199254740991,
+            "selectionRestored": false
+          },
+          "after": {
+            "previewing": false,
+            "hotswap": false,
+            "filterType": -9007199254740991,
+            "deviceInsertMode": -9007199254740991,
+            "selectionRestored": false
+          },
+          "verified": true,
+          "warnings": []
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001048",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden browser_adapters.stop_preview failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "browser_adapters.hot_swap": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001049",
+        "command": "browser_adapters.hot_swap",
+        "params": {
+          "action": "hot-swap",
+          "target": {
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "deviceIndex": 0,
+            "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+            "expectedDeviceName": "x",
+            "expectedClassName": "x"
+          },
+          "expectedItemReference": "00000000-0000-4000-8000-000000000099",
+          "expectedItemRoot": "sounds",
+          "expectedItemPath": [],
+          "expectedItemUri": "x",
+          "expectedItemName": "x"
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001049",
+        "ok": true,
+        "result": {
+          "action": "hot-swap",
+          "before": {
+            "previewing": false,
+            "hotswap": false,
+            "filterType": -9007199254740991,
+            "deviceInsertMode": -9007199254740991,
+            "selectionRestored": false
+          },
+          "after": {
+            "previewing": false,
+            "hotswap": false,
+            "filterType": -9007199254740991,
+            "deviceInsertMode": -9007199254740991,
+            "selectionRestored": false
+          },
+          "verified": true,
+          "warnings": []
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001049",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden browser_adapters.hot_swap failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "browser_adapters.insert_adjacent": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001050",
+        "command": "browser_adapters.insert_adjacent",
+        "params": {
+          "action": "insert-adjacent",
+          "target": {
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "deviceIndex": 0,
+            "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+            "expectedDeviceName": "x",
+            "expectedClassName": "x"
+          },
+          "placement": "before",
+          "expectedItemReference": "00000000-0000-4000-8000-000000000099",
+          "expectedItemRoot": "sounds",
+          "expectedItemPath": [],
+          "expectedItemUri": "x",
+          "expectedItemName": "x"
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001050",
+        "ok": true,
+        "result": {
+          "action": "insert-adjacent",
+          "before": {
+            "previewing": false,
+            "hotswap": false,
+            "filterType": -9007199254740991,
+            "deviceInsertMode": -9007199254740991,
+            "selectionRestored": false
+          },
+          "after": {
+            "previewing": false,
+            "hotswap": false,
+            "filterType": -9007199254740991,
+            "deviceInsertMode": -9007199254740991,
+            "selectionRestored": false
+          },
+          "verified": true,
+          "warnings": []
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001050",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden browser_adapters.insert_adjacent failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "browser_adapters.load_empty_drum_pad": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001051",
+        "command": "browser_adapters.load_empty_drum_pad",
+        "params": {
+          "action": "load-empty-drum-pad",
+          "rack": {
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "deviceIndex": 0,
+            "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+            "expectedDeviceName": "x",
+            "expectedClassName": "x"
+          },
+          "note": 0,
+          "expectedPadReference": "00000000-0000-4000-8000-000000000099",
+          "expectedItemReference": "00000000-0000-4000-8000-000000000099",
+          "expectedItemRoot": "sounds",
+          "expectedItemPath": [],
+          "expectedItemUri": "x",
+          "expectedItemName": "x"
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001051",
+        "ok": true,
+        "result": {
+          "action": "load-empty-drum-pad",
+          "before": {
+            "previewing": false,
+            "hotswap": false,
+            "filterType": -9007199254740991,
+            "deviceInsertMode": -9007199254740991,
+            "selectionRestored": false
+          },
+          "after": {
+            "previewing": false,
+            "hotswap": false,
+            "filterType": -9007199254740991,
+            "deviceInsertMode": -9007199254740991,
+            "selectionRestored": false
+          },
+          "verified": true,
+          "warnings": []
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001051",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden browser_adapters.load_empty_drum_pad failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "clip_automation.list_envelopes": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001052",
+        "command": "clip_automation.list_envelopes",
+        "params": {
+          "action": "list-envelopes",
+          "target": {
+            "view": "session",
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "sceneIndex": 0,
+            "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+            "expectedClipName": "x"
+          },
+          "offset": 0,
+          "limit": 64
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001052",
+        "ok": true,
+        "result": {
+          "action": "list-envelopes",
+          "parameters": [],
+          "total": 0,
+          "offset": 0,
+          "limit": 1
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001052",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden clip_automation.list_envelopes failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "clip_automation.sample": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001053",
+        "command": "clip_automation.sample",
+        "params": {
+          "action": "sample",
+          "target": {
+            "clip": {
+              "view": "session",
+              "track": {
+                "kind": "regular",
+                "index": 0,
+                "expectedReference": "00000000-0000-4000-8000-000000000099",
+                "expectedName": "x"
+              },
+              "sceneIndex": 0,
+              "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+              "expectedClipName": "x"
+            },
+            "parameter": {
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            }
+          },
+          "startTime": 0,
+          "endTime": 0,
+          "sampleCount": 1
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001053",
+        "ok": true,
+        "result": { "action": "sample", "samples": [] },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001053",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden clip_automation.sample failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "clip_automation.insert_step": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001054",
+        "command": "clip_automation.insert_step",
+        "params": {
+          "action": "insert-step",
+          "target": {
+            "clip": {
+              "view": "session",
+              "track": {
+                "kind": "regular",
+                "index": 0,
+                "expectedReference": "00000000-0000-4000-8000-000000000099",
+                "expectedName": "x"
+              },
+              "sceneIndex": 0,
+              "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+              "expectedClipName": "x"
+            },
+            "parameter": {
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            }
+          },
+          "time": 0,
+          "duration": 1,
+          "value": 0
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001054",
+        "ok": true,
+        "result": {
+          "action": "insert-step",
+          "beforeValue": 0,
+          "afterValue": 0,
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001054",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden clip_automation.insert_step failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "clip_automation.clear_envelope": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001055",
+        "command": "clip_automation.clear_envelope",
+        "params": {
+          "action": "clear-envelope",
+          "target": {
+            "clip": {
+              "view": "session",
+              "track": {
+                "kind": "regular",
+                "index": 0,
+                "expectedReference": "00000000-0000-4000-8000-000000000099",
+                "expectedName": "x"
+              },
+              "sceneIndex": 0,
+              "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+              "expectedClipName": "x"
+            },
+            "parameter": {
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            }
+          },
+          "confirmation": "clear-session-clip-envelope"
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001055",
+        "ok": true,
+        "result": {
+          "action": "clear-envelope",
+          "cleared": true,
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001055",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden clip_automation.clear_envelope failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "clip_automation.clear_all": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001056",
+        "command": "clip_automation.clear_all",
+        "params": {
+          "action": "clear-all",
+          "target": {
+            "view": "session",
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "sceneIndex": 0,
+            "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+            "expectedClipName": "x"
+          },
+          "confirmation": "clear-all-session-clip-envelopes"
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001056",
+        "ok": true,
+        "result": { "action": "clear-all", "cleared": true, "verified": true },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001056",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden clip_automation.clear_all failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "warp_markers.inspect": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001057",
+        "command": "warp_markers.inspect",
+        "params": {
+          "action": "inspect",
+          "target": {
+            "view": "session",
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "sceneIndex": 0,
+            "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+            "expectedClipName": "x"
+          },
+          "offset": 0,
+          "limit": 64
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001057",
+        "ok": true,
+        "result": {
+          "action": "inspect",
+          "snapshot": {
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "revision": "xxxxxxxxxxxxxxxx",
+            "markers": []
+          },
+          "total": 0,
+          "offset": 0,
+          "limit": 1
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001057",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden warp_markers.inspect failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "warp_markers.add": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001058",
+        "command": "warp_markers.add",
+        "params": {
+          "action": "add",
+          "target": {
+            "view": "session",
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "sceneIndex": 0,
+            "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+            "expectedClipName": "x"
+          },
+          "snapshotRevision": "xxxxxxxxxxxxxxxx",
+          "marker": { "beatTime": 0, "sampleTime": 0 }
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001058",
+        "ok": true,
+        "result": {
+          "action": "add",
+          "before": {
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "revision": "xxxxxxxxxxxxxxxx",
+            "markers": []
+          },
+          "after": {
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "revision": "xxxxxxxxxxxxxxxx",
+            "markers": []
+          },
+          "verified": true,
+          "rolledBack": false
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001058",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden warp_markers.add failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "warp_markers.move": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001059",
+        "command": "warp_markers.move",
+        "params": {
+          "action": "move",
+          "target": {
+            "view": "session",
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "sceneIndex": 0,
+            "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+            "expectedClipName": "x"
+          },
+          "snapshotRevision": "xxxxxxxxxxxxxxxx",
+          "expectedMarker": { "beatTime": 0, "sampleTime": 0, "segmentBpm": 1 },
+          "marker": { "beatTime": 0, "sampleTime": 0 }
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001059",
+        "ok": true,
+        "result": {
+          "action": "move",
+          "before": {
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "revision": "xxxxxxxxxxxxxxxx",
+            "markers": []
+          },
+          "after": {
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "revision": "xxxxxxxxxxxxxxxx",
+            "markers": []
+          },
+          "verified": true,
+          "rolledBack": false
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001059",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden warp_markers.move failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "warp_markers.remove": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001060",
+        "command": "warp_markers.remove",
+        "params": {
+          "action": "remove",
+          "target": {
+            "view": "session",
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "sceneIndex": 0,
+            "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+            "expectedClipName": "x"
+          },
+          "snapshotRevision": "xxxxxxxxxxxxxxxx",
+          "expectedMarker": { "beatTime": 0, "sampleTime": 0, "segmentBpm": 1 }
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001060",
+        "ok": true,
+        "result": {
+          "action": "remove",
+          "before": {
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "revision": "xxxxxxxxxxxxxxxx",
+            "markers": []
+          },
+          "after": {
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "revision": "xxxxxxxxxxxxxxxx",
+            "markers": []
+          },
+          "verified": true,
+          "rolledBack": false
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001060",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden warp_markers.remove failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "special_devices.inspect_simpler": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001061",
+        "command": "special_devices.inspect_simpler",
+        "params": {
+          "action": "inspect-simpler",
+          "target": {
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "deviceIndex": 0,
+            "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+            "expectedDeviceName": "x",
+            "expectedClassName": "x"
+          }
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001061",
+        "ok": true,
+        "result": { "action": "inspect-simpler", "state": {} },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001061",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden special_devices.inspect_simpler failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "special_devices.set_simpler_markers": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001062",
+        "command": "special_devices.set_simpler_markers",
+        "params": {
+          "action": "set-simpler-markers",
+          "target": {
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "deviceIndex": 0,
+            "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+            "expectedDeviceName": "x",
+            "expectedClassName": "x"
+          },
+          "start": 0,
+          "end": 1,
+          "loopStart": 0
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001062",
+        "ok": true,
+        "result": {
+          "action": "set-simpler-markers",
+          "before": {},
+          "after": {},
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001062",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden special_devices.set_simpler_markers failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "special_devices.set_simpler_slices": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001063",
+        "command": "special_devices.set_simpler_slices",
+        "params": {
+          "action": "set-simpler-slices",
+          "target": {
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "deviceIndex": 0,
+            "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+            "expectedDeviceName": "x",
+            "expectedClassName": "x"
+          },
+          "slices": []
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001063",
+        "ok": true,
+        "result": {
+          "action": "set-simpler-slices",
+          "before": {},
+          "after": {},
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001063",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden special_devices.set_simpler_slices failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "special_devices.inspect_looper": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001064",
+        "command": "special_devices.inspect_looper",
+        "params": {
+          "action": "inspect-looper",
+          "target": {
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "deviceIndex": 0,
+            "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+            "expectedDeviceName": "x",
+            "expectedClassName": "x"
+          }
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001064",
+        "ok": true,
+        "result": { "action": "inspect-looper", "state": {} },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001064",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden special_devices.inspect_looper failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "special_devices.control_looper": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001065",
+        "command": "special_devices.control_looper",
+        "params": {
+          "action": "control-looper",
+          "target": {
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "deviceIndex": 0,
+            "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+            "expectedDeviceName": "x",
+            "expectedClassName": "x"
+          },
+          "command": "record"
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001065",
+        "ok": true,
+        "result": {
+          "action": "control-looper",
+          "before": {},
+          "after": {},
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001065",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden special_devices.control_looper failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "special_devices.export_looper": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001066",
+        "command": "special_devices.export_looper",
+        "params": {
+          "action": "export-looper",
+          "target": {
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "deviceIndex": 0,
+            "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+            "expectedDeviceName": "x",
+            "expectedClassName": "x"
+          },
+          "destination": {
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "sceneIndex": 0,
+            "expectedSceneReference": "00000000-0000-4000-8000-000000000099",
+            "expectedSceneName": "x",
+            "expectedHasClip": false,
+            "expectedClipReference": "00000000-0000-4000-8000-000000000099"
+          },
+          "correlationId": "00000000-0000-4000-8000-000000000099",
+          "causationId": "00000000-0000-4000-8000-000000000099",
+          "traceId": "00000000-0000-4000-8000-000000000099"
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001066",
+        "ok": true,
+        "result": {
+          "action": "export-looper",
+          "job": {
+            "jobId": "00000000-0000-4000-8000-000000000099",
+            "kind": "timed-session-recording",
+            "status": "queued",
+            "progress": 0,
+            "createdAt": "2000-01-01T00:00:00Z",
+            "updatedAt": "2000-01-01T00:00:00Z",
+            "correlationId": "00000000-0000-4000-8000-000000000099",
+            "causationId": "00000000-0000-4000-8000-000000000099",
+            "traceId": "00000000-0000-4000-8000-000000000099"
+          }
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001066",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden special_devices.export_looper failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "special_devices.inspect_wavetable": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001067",
+        "command": "special_devices.inspect_wavetable",
+        "params": {
+          "action": "inspect-wavetable",
+          "target": {
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "deviceIndex": 0,
+            "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+            "expectedDeviceName": "x",
+            "expectedClassName": "x"
+          }
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001067",
+        "ok": true,
+        "result": { "action": "inspect-wavetable", "state": {} },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001067",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden special_devices.inspect_wavetable failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "special_devices.set_wavetable_modulation": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001068",
+        "command": "special_devices.set_wavetable_modulation",
+        "params": {
+          "action": "set-wavetable-modulation",
+          "target": {
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "deviceIndex": 0,
+            "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+            "expectedDeviceName": "x",
+            "expectedClassName": "x"
+          },
+          "sourceIndex": 0,
+          "targetIndex": 0,
+          "amount": -1
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001068",
+        "ok": true,
+        "result": {
+          "action": "set-wavetable-modulation",
+          "before": {},
+          "after": {},
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001068",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden special_devices.set_wavetable_modulation failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "workflow_jobs.get": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001069",
+        "command": "workflow_jobs.get",
+        "params": {
+          "action": "get",
+          "jobId": "00000000-0000-4000-8000-000000000099"
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001069",
+        "ok": true,
+        "result": {
+          "action": "get",
+          "job": {
+            "jobId": "00000000-0000-4000-8000-000000000099",
+            "kind": "timed-session-recording",
+            "status": "queued",
+            "progress": 0,
+            "createdAt": "2000-01-01T00:00:00Z",
+            "updatedAt": "2000-01-01T00:00:00Z",
+            "correlationId": "00000000-0000-4000-8000-000000000099",
+            "causationId": "00000000-0000-4000-8000-000000000099",
+            "traceId": "00000000-0000-4000-8000-000000000099"
+          }
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001069",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden workflow_jobs.get failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "workflow_jobs.list": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001070",
+        "command": "workflow_jobs.list",
+        "params": { "action": "list", "offset": 0, "limit": 64 }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001070",
+        "ok": true,
+        "result": {
+          "action": "list",
+          "jobs": [],
+          "total": 0,
+          "offset": 0,
+          "limit": 1
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001070",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden workflow_jobs.list failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "workflow_jobs.cancel": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001071",
+        "command": "workflow_jobs.cancel",
+        "params": {
+          "action": "cancel",
+          "jobId": "00000000-0000-4000-8000-000000000099"
+        }
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001071",
+        "ok": true,
+        "result": {
+          "action": "cancel",
+          "job": {
+            "jobId": "00000000-0000-4000-8000-000000000099",
+            "kind": "timed-session-recording",
+            "status": "queued",
+            "progress": 0,
+            "createdAt": "2000-01-01T00:00:00Z",
+            "updatedAt": "2000-01-01T00:00:00Z",
+            "correlationId": "00000000-0000-4000-8000-000000000099",
+            "causationId": "00000000-0000-4000-8000-000000000099",
+            "traceId": "00000000-0000-4000-8000-000000000099"
+          },
+          "cancelled": false
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001071",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden workflow_jobs.cancel failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "events.inspect_selection": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001072",
         "command": "events.inspect_selection",
         "params": {}
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001016",
+        "requestId": "00000000-0000-4000-8000-000000001072",
         "ok": true,
         "result": {
           "track": {
@@ -839,9 +3752,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001016",
+        "requestId": "00000000-0000-4000-8000-000000001072",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -851,11 +3764,40 @@
         }
       }
     },
+    "events.inspect_curated_state": {
+      "request": {
+        "protocolVersion": 4,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001073",
+        "command": "events.inspect_curated_state",
+        "params": {}
+      },
+      "success": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001073",
+        "ok": true,
+        "result": { "states": [] },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 4,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001073",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden events.inspect_curated_state failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
     "events.subscribe": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001017",
+        "requestId": "00000000-0000-4000-8000-000000001074",
         "command": "events.subscribe",
         "params": {
           "index": 0,
@@ -874,9 +3816,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001017",
+        "requestId": "00000000-0000-4000-8000-000000001074",
         "ok": true,
         "result": {
           "eventId": "live-event.00000000-0000-4000-8000-000000000099",
@@ -904,9 +3846,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001017",
+        "requestId": "00000000-0000-4000-8000-000000001074",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -918,18 +3860,18 @@
     },
     "events.unsubscribe": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001018",
+        "requestId": "00000000-0000-4000-8000-000000001075",
         "command": "events.unsubscribe",
         "params": {
           "eventId": "live-event.00000000-0000-4000-8000-000000000099"
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001018",
+        "requestId": "00000000-0000-4000-8000-000000001075",
         "ok": true,
         "result": {
           "eventId": "live-event.00000000-0000-4000-8000-000000000099",
@@ -938,9 +3880,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001018",
+        "requestId": "00000000-0000-4000-8000-000000001075",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -952,24 +3894,24 @@
     },
     "events.list_subscriptions": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001019",
+        "requestId": "00000000-0000-4000-8000-000000001076",
         "command": "events.list_subscriptions",
         "params": {}
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001019",
+        "requestId": "00000000-0000-4000-8000-000000001076",
         "ok": true,
         "result": { "subscriptions": [] },
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001019",
+        "requestId": "00000000-0000-4000-8000-000000001076",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -981,24 +3923,24 @@
     },
     "events.clear_subscriptions": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001020",
+        "requestId": "00000000-0000-4000-8000-000000001077",
         "command": "events.clear_subscriptions",
         "params": {}
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001020",
+        "requestId": "00000000-0000-4000-8000-000000001077",
         "ok": true,
         "result": { "clearedEventIds": [] },
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001020",
+        "requestId": "00000000-0000-4000-8000-000000001077",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -1010,24 +3952,24 @@
     },
     "transport.set_tempo": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001021",
+        "requestId": "00000000-0000-4000-8000-000000001078",
         "command": "transport.set_tempo",
         "params": { "tempo": 20 }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001021",
+        "requestId": "00000000-0000-4000-8000-000000001078",
         "ok": true,
         "result": { "beforeTempo": 1, "afterTempo": 1, "verified": false },
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001021",
+        "requestId": "00000000-0000-4000-8000-000000001078",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -1039,16 +3981,16 @@
     },
     "transport.set_playing": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001022",
+        "requestId": "00000000-0000-4000-8000-000000001079",
         "command": "transport.set_playing",
         "params": { "isPlaying": false }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001022",
+        "requestId": "00000000-0000-4000-8000-000000001079",
         "ok": true,
         "result": {
           "beforeIsPlaying": false,
@@ -1058,9 +4000,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001022",
+        "requestId": "00000000-0000-4000-8000-000000001079",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -1072,16 +4014,16 @@
     },
     "transport.inspect_arrangement": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001023",
+        "requestId": "00000000-0000-4000-8000-000000001080",
         "command": "transport.inspect_arrangement",
         "params": { "offset": 0, "limit": 100 }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001023",
+        "requestId": "00000000-0000-4000-8000-000000001080",
         "ok": true,
         "result": {
           "loop": { "enabled": false, "start": 0, "length": 1 },
@@ -1093,9 +4035,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001023",
+        "requestId": "00000000-0000-4000-8000-000000001080",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -1107,16 +4049,16 @@
     },
     "transport.set_arrangement_loop": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001024",
+        "requestId": "00000000-0000-4000-8000-000000001081",
         "command": "transport.set_arrangement_loop",
         "params": { "enabled": false }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001024",
+        "requestId": "00000000-0000-4000-8000-000000001081",
         "ok": true,
         "result": {
           "before": { "enabled": false, "start": 0, "length": 1 },
@@ -1126,9 +4068,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001024",
+        "requestId": "00000000-0000-4000-8000-000000001081",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -1140,16 +4082,16 @@
     },
     "transport.create_cue_point": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001025",
+        "requestId": "00000000-0000-4000-8000-000000001082",
         "command": "transport.create_cue_point",
         "params": { "time": 0, "name": "x" }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001025",
+        "requestId": "00000000-0000-4000-8000-000000001082",
         "ok": true,
         "result": {
           "cuePoint": {
@@ -1164,9 +4106,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001025",
+        "requestId": "00000000-0000-4000-8000-000000001082",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -1178,9 +4120,9 @@
     },
     "transport.delete_cue_point": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001026",
+        "requestId": "00000000-0000-4000-8000-000000001083",
         "command": "transport.delete_cue_point",
         "params": {
           "expectedReference": "00000000-0000-4000-8000-000000000099",
@@ -1189,9 +4131,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001026",
+        "requestId": "00000000-0000-4000-8000-000000001083",
         "ok": true,
         "result": {
           "cuePoint": {
@@ -1206,9 +4148,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001026",
+        "requestId": "00000000-0000-4000-8000-000000001083",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -1220,16 +4162,16 @@
     },
     "tracks.create": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001027",
+        "requestId": "00000000-0000-4000-8000-000000001084",
         "command": "tracks.create",
         "params": { "kind": "midi", "name": "x" }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001027",
+        "requestId": "00000000-0000-4000-8000-000000001084",
         "ok": true,
         "result": {
           "beforeTrackCount": 0,
@@ -1245,9 +4187,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001027",
+        "requestId": "00000000-0000-4000-8000-000000001084",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -1259,9 +4201,9 @@
     },
     "tracks.delete": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001028",
+        "requestId": "00000000-0000-4000-8000-000000001085",
         "command": "tracks.delete",
         "params": {
           "index": 0,
@@ -1271,9 +4213,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001028",
+        "requestId": "00000000-0000-4000-8000-000000001085",
         "ok": true,
         "result": {
           "beforeTrackCount": 0,
@@ -1289,9 +4231,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001028",
+        "requestId": "00000000-0000-4000-8000-000000001085",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -1303,9 +4245,9 @@
     },
     "tracks.rename": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001029",
+        "requestId": "00000000-0000-4000-8000-000000001086",
         "command": "tracks.rename",
         "params": {
           "index": 0,
@@ -1315,9 +4257,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001029",
+        "requestId": "00000000-0000-4000-8000-000000001086",
         "ok": true,
         "result": {
           "reference": "00000000-0000-4000-8000-000000000099",
@@ -1329,9 +4271,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001029",
+        "requestId": "00000000-0000-4000-8000-000000001086",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -1343,9 +4285,9 @@
     },
     "tracks.set_mixer": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001030",
+        "requestId": "00000000-0000-4000-8000-000000001087",
         "command": "tracks.set_mixer",
         "params": {
           "index": 0,
@@ -1355,9 +4297,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001030",
+        "requestId": "00000000-0000-4000-8000-000000001087",
         "ok": true,
         "result": {
           "reference": "00000000-0000-4000-8000-000000000099",
@@ -1381,9 +4323,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001030",
+        "requestId": "00000000-0000-4000-8000-000000001087",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -1395,9 +4337,9 @@
     },
     "devices.inspect": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001031",
+        "requestId": "00000000-0000-4000-8000-000000001088",
         "command": "devices.inspect",
         "params": {
           "index": 0,
@@ -1408,17 +4350,17 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001031",
+        "requestId": "00000000-0000-4000-8000-000000001088",
         "ok": true,
         "result": { "devices": [], "total": 0, "offset": 0, "limit": 1 },
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001031",
+        "requestId": "00000000-0000-4000-8000-000000001088",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -1430,9 +4372,9 @@
     },
     "devices.inspect_parameters": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001032",
+        "requestId": "00000000-0000-4000-8000-000000001089",
         "command": "devices.inspect_parameters",
         "params": {
           "index": 0,
@@ -1446,9 +4388,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001032",
+        "requestId": "00000000-0000-4000-8000-000000001089",
         "ok": true,
         "result": {
           "device": {
@@ -1472,9 +4414,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001032",
+        "requestId": "00000000-0000-4000-8000-000000001089",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -1486,9 +4428,9 @@
     },
     "devices.inspect_rack_chains": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001033",
+        "requestId": "00000000-0000-4000-8000-000000001090",
         "command": "devices.inspect_rack_chains",
         "params": {
           "index": 0,
@@ -1502,9 +4444,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001033",
+        "requestId": "00000000-0000-4000-8000-000000001090",
         "ok": true,
         "result": {
           "rack": {
@@ -1528,9 +4470,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001033",
+        "requestId": "00000000-0000-4000-8000-000000001090",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -1542,9 +4484,9 @@
     },
     "devices.inspect_rack_chain_devices": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001034",
+        "requestId": "00000000-0000-4000-8000-000000001091",
         "command": "devices.inspect_rack_chain_devices",
         "params": {
           "index": 0,
@@ -1561,9 +4503,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001034",
+        "requestId": "00000000-0000-4000-8000-000000001091",
         "ok": true,
         "result": {
           "rack": {
@@ -1595,9 +4537,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001034",
+        "requestId": "00000000-0000-4000-8000-000000001091",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -1609,9 +4551,9 @@
     },
     "devices.inspect_drum_rack_pads": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001035",
+        "requestId": "00000000-0000-4000-8000-000000001092",
         "command": "devices.inspect_drum_rack_pads",
         "params": {
           "index": 0,
@@ -1625,9 +4567,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001035",
+        "requestId": "00000000-0000-4000-8000-000000001092",
         "ok": true,
         "result": {
           "rack": {
@@ -1651,9 +4593,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001035",
+        "requestId": "00000000-0000-4000-8000-000000001092",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -1665,9 +4607,9 @@
     },
     "devices.inspect_drum_pad_chains": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001036",
+        "requestId": "00000000-0000-4000-8000-000000001093",
         "command": "devices.inspect_drum_pad_chains",
         "params": {
           "index": 0,
@@ -1685,9 +4627,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001036",
+        "requestId": "00000000-0000-4000-8000-000000001093",
         "ok": true,
         "result": {
           "rack": {
@@ -1721,9 +4663,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001036",
+        "requestId": "00000000-0000-4000-8000-000000001093",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -1735,9 +4677,9 @@
     },
     "devices.inspect_drum_pad_chain_devices": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001037",
+        "requestId": "00000000-0000-4000-8000-000000001094",
         "command": "devices.inspect_drum_pad_chain_devices",
         "params": {
           "index": 0,
@@ -1758,9 +4700,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001037",
+        "requestId": "00000000-0000-4000-8000-000000001094",
         "ok": true,
         "result": {
           "rack": {
@@ -1804,9 +4746,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001037",
+        "requestId": "00000000-0000-4000-8000-000000001094",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -1818,9 +4760,9 @@
     },
     "devices.find_position": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001038",
+        "requestId": "00000000-0000-4000-8000-000000001095",
         "command": "devices.find_position",
         "params": {
           "source": {
@@ -1848,9 +4790,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001038",
+        "requestId": "00000000-0000-4000-8000-000000001095",
         "ok": true,
         "result": {
           "source": {
@@ -1884,9 +4826,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001038",
+        "requestId": "00000000-0000-4000-8000-000000001095",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -1898,9 +4840,9 @@
     },
     "devices.move": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001039",
+        "requestId": "00000000-0000-4000-8000-000000001096",
         "command": "devices.move",
         "params": {
           "source": {
@@ -1928,9 +4870,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001039",
+        "requestId": "00000000-0000-4000-8000-000000001096",
         "ok": true,
         "result": {
           "deviceReference": "00000000-0000-4000-8000-000000000099",
@@ -1969,9 +4911,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001039",
+        "requestId": "00000000-0000-4000-8000-000000001096",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -1983,9 +4925,9 @@
     },
     "devices.set_chain_properties": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001040",
+        "requestId": "00000000-0000-4000-8000-000000001097",
         "command": "devices.set_chain_properties",
         "params": {
           "target": {
@@ -2010,9 +4952,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001040",
+        "requestId": "00000000-0000-4000-8000-000000001097",
         "ok": true,
         "result": {
           "chainReference": "00000000-0000-4000-8000-000000000099",
@@ -2023,9 +4965,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001040",
+        "requestId": "00000000-0000-4000-8000-000000001097",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -2037,9 +4979,9 @@
     },
     "devices.set_chain_mixer": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001041",
+        "requestId": "00000000-0000-4000-8000-000000001098",
         "command": "devices.set_chain_mixer",
         "params": {
           "target": {
@@ -2064,9 +5006,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001041",
+        "requestId": "00000000-0000-4000-8000-000000001098",
         "ok": true,
         "result": {
           "chainReference": "00000000-0000-4000-8000-000000000099",
@@ -2121,9 +5063,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001041",
+        "requestId": "00000000-0000-4000-8000-000000001098",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -2135,9 +5077,9 @@
     },
     "devices.inspect_chain_mixer": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001042",
+        "requestId": "00000000-0000-4000-8000-000000001099",
         "command": "devices.inspect_chain_mixer",
         "params": {
           "target": {
@@ -2161,9 +5103,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001042",
+        "requestId": "00000000-0000-4000-8000-000000001099",
         "ok": true,
         "result": {
           "chainReference": "00000000-0000-4000-8000-000000000099",
@@ -2194,9 +5136,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001042",
+        "requestId": "00000000-0000-4000-8000-000000001099",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -2208,9 +5150,9 @@
     },
     "devices.set_enabled": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001043",
+        "requestId": "00000000-0000-4000-8000-000000001100",
         "command": "devices.set_enabled",
         "params": {
           "index": 0,
@@ -2223,9 +5165,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001043",
+        "requestId": "00000000-0000-4000-8000-000000001100",
         "ok": true,
         "result": {
           "device": {
@@ -2248,9 +5190,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001043",
+        "requestId": "00000000-0000-4000-8000-000000001100",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -2262,9 +5204,9 @@
     },
     "devices.set_parameter": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001044",
+        "requestId": "00000000-0000-4000-8000-000000001101",
         "command": "devices.set_parameter",
         "params": {
           "index": 0,
@@ -2280,9 +5222,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001044",
+        "requestId": "00000000-0000-4000-8000-000000001101",
         "ok": true,
         "result": {
           "device": {
@@ -2330,9 +5272,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001044",
+        "requestId": "00000000-0000-4000-8000-000000001101",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -2344,24 +5286,24 @@
     },
     "browser.inspect_roots": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001045",
+        "requestId": "00000000-0000-4000-8000-000000001102",
         "command": "browser.inspect_roots",
         "params": {}
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001045",
+        "requestId": "00000000-0000-4000-8000-000000001102",
         "ok": true,
         "result": { "roots": [], "cacheLimit": 1 },
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001045",
+        "requestId": "00000000-0000-4000-8000-000000001102",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -2373,9 +5315,9 @@
     },
     "browser.inspect_children": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001046",
+        "requestId": "00000000-0000-4000-8000-000000001103",
         "command": "browser.inspect_children",
         "params": {
           "expectedItemReference": "00000000-0000-4000-8000-000000000099",
@@ -2388,9 +5330,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001046",
+        "requestId": "00000000-0000-4000-8000-000000001103",
         "ok": true,
         "result": {
           "parent": {
@@ -2415,9 +5357,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001046",
+        "requestId": "00000000-0000-4000-8000-000000001103",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -2429,9 +5371,9 @@
     },
     "browser.search": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001047",
+        "requestId": "00000000-0000-4000-8000-000000001104",
         "command": "browser.search",
         "params": {
           "query": "x",
@@ -2443,9 +5385,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001047",
+        "requestId": "00000000-0000-4000-8000-000000001104",
         "ok": true,
         "result": {
           "query": "x",
@@ -2463,9 +5405,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001047",
+        "requestId": "00000000-0000-4000-8000-000000001104",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -2477,9 +5419,9 @@
     },
     "browser.load_item": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001048",
+        "requestId": "00000000-0000-4000-8000-000000001105",
         "command": "browser.load_item",
         "params": {
           "index": 0,
@@ -2493,9 +5435,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001048",
+        "requestId": "00000000-0000-4000-8000-000000001105",
         "ok": true,
         "result": {
           "track": {
@@ -2545,9 +5487,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001048",
+        "requestId": "00000000-0000-4000-8000-000000001105",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -2559,9 +5501,9 @@
     },
     "clips.create_midi": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001049",
+        "requestId": "00000000-0000-4000-8000-000000001106",
         "command": "clips.create_midi",
         "params": {
           "index": 0,
@@ -2573,9 +5515,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001049",
+        "requestId": "00000000-0000-4000-8000-000000001106",
         "ok": true,
         "result": {
           "clip": {
@@ -2592,9 +5534,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001049",
+        "requestId": "00000000-0000-4000-8000-000000001106",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -2606,9 +5548,9 @@
     },
     "clips.inspect_notes": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001050",
+        "requestId": "00000000-0000-4000-8000-000000001107",
         "command": "clips.inspect_notes",
         "params": {
           "index": 0,
@@ -2621,9 +5563,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001050",
+        "requestId": "00000000-0000-4000-8000-000000001107",
         "ok": true,
         "result": {
           "clip": {
@@ -2644,9 +5586,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001050",
+        "requestId": "00000000-0000-4000-8000-000000001107",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -2658,9 +5600,9 @@
     },
     "clips.replace_notes": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001051",
+        "requestId": "00000000-0000-4000-8000-000000001108",
         "command": "clips.replace_notes",
         "params": {
           "index": 0,
@@ -2673,9 +5615,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001051",
+        "requestId": "00000000-0000-4000-8000-000000001108",
         "ok": true,
         "result": {
           "clip": {
@@ -2694,9 +5636,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001051",
+        "requestId": "00000000-0000-4000-8000-000000001108",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -2708,9 +5650,9 @@
     },
     "clips.launch": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001052",
+        "requestId": "00000000-0000-4000-8000-000000001109",
         "command": "clips.launch",
         "params": {
           "index": 0,
@@ -2721,9 +5663,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001052",
+        "requestId": "00000000-0000-4000-8000-000000001109",
         "ok": true,
         "result": {
           "clip": {
@@ -2754,9 +5696,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001052",
+        "requestId": "00000000-0000-4000-8000-000000001109",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -2768,9 +5710,9 @@
     },
     "clips.duplicate": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001053",
+        "requestId": "00000000-0000-4000-8000-000000001110",
         "command": "clips.duplicate",
         "params": {
           "index": 0,
@@ -2785,9 +5727,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001053",
+        "requestId": "00000000-0000-4000-8000-000000001110",
         "ok": true,
         "result": {
           "sourceClip": {
@@ -2817,9 +5759,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001053",
+        "requestId": "00000000-0000-4000-8000-000000001110",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -2831,9 +5773,9 @@
     },
     "clips.delete": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001054",
+        "requestId": "00000000-0000-4000-8000-000000001111",
         "command": "clips.delete",
         "params": {
           "index": 0,
@@ -2844,9 +5786,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001054",
+        "requestId": "00000000-0000-4000-8000-000000001111",
         "ok": true,
         "result": {
           "clip": {
@@ -2867,9 +5809,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001054",
+        "requestId": "00000000-0000-4000-8000-000000001111",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -2881,9 +5823,9 @@
     },
     "clips.set_properties": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001055",
+        "requestId": "00000000-0000-4000-8000-000000001112",
         "command": "clips.set_properties",
         "params": {
           "index": 0,
@@ -2895,9 +5837,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001055",
+        "requestId": "00000000-0000-4000-8000-000000001112",
         "ok": true,
         "result": {
           "clip": {
@@ -2918,9 +5860,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001055",
+        "requestId": "00000000-0000-4000-8000-000000001112",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -2932,9 +5874,9 @@
     },
     "arrangement.create_midi_clip": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001056",
+        "requestId": "00000000-0000-4000-8000-000000001113",
         "command": "arrangement.create_midi_clip",
         "params": {
           "index": 0,
@@ -2946,9 +5888,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001056",
+        "requestId": "00000000-0000-4000-8000-000000001113",
         "ok": true,
         "result": {
           "clip": {
@@ -2968,9 +5910,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001056",
+        "requestId": "00000000-0000-4000-8000-000000001113",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -2982,24 +5924,24 @@
     },
     "arrangement.inspect": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001057",
+        "requestId": "00000000-0000-4000-8000-000000001114",
         "command": "arrangement.inspect",
         "params": { "offset": 0, "limit": 100 }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001057",
+        "requestId": "00000000-0000-4000-8000-000000001114",
         "ok": true,
         "result": { "clips": [], "total": 0, "offset": 0, "limit": 1 },
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001057",
+        "requestId": "00000000-0000-4000-8000-000000001114",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -3011,9 +5953,9 @@
     },
     "arrangement.inspect_notes": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001058",
+        "requestId": "00000000-0000-4000-8000-000000001115",
         "command": "arrangement.inspect_notes",
         "params": {
           "index": 0,
@@ -3026,9 +5968,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001058",
+        "requestId": "00000000-0000-4000-8000-000000001115",
         "ok": true,
         "result": {
           "clip": {
@@ -3052,9 +5994,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001058",
+        "requestId": "00000000-0000-4000-8000-000000001115",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -3066,9 +6008,9 @@
     },
     "arrangement.delete_clip": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001059",
+        "requestId": "00000000-0000-4000-8000-000000001116",
         "command": "arrangement.delete_clip",
         "params": {
           "index": 0,
@@ -3079,9 +6021,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001059",
+        "requestId": "00000000-0000-4000-8000-000000001116",
         "ok": true,
         "result": {
           "clip": {
@@ -3103,9 +6045,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001059",
+        "requestId": "00000000-0000-4000-8000-000000001116",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -3117,9 +6059,9 @@
     },
     "arrangement.replace_notes": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001060",
+        "requestId": "00000000-0000-4000-8000-000000001117",
         "command": "arrangement.replace_notes",
         "params": {
           "index": 0,
@@ -3132,9 +6074,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001060",
+        "requestId": "00000000-0000-4000-8000-000000001117",
         "ok": true,
         "result": {
           "clip": {
@@ -3156,9 +6098,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001060",
+        "requestId": "00000000-0000-4000-8000-000000001117",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -3170,9 +6112,9 @@
     },
     "arrangement.duplicate_clip": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001061",
+        "requestId": "00000000-0000-4000-8000-000000001118",
         "command": "arrangement.duplicate_clip",
         "params": {
           "index": 0,
@@ -3184,9 +6126,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001061",
+        "requestId": "00000000-0000-4000-8000-000000001118",
         "ok": true,
         "result": {
           "sourceClip": {
@@ -3219,9 +6161,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001061",
+        "requestId": "00000000-0000-4000-8000-000000001118",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -3233,9 +6175,9 @@
     },
     "arrangement.set_clip_properties": {
       "request": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001062",
+        "requestId": "00000000-0000-4000-8000-000000001119",
         "command": "arrangement.set_clip_properties",
         "params": {
           "index": 0,
@@ -3247,9 +6189,9 @@
         }
       },
       "success": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001062",
+        "requestId": "00000000-0000-4000-8000-000000001119",
         "ok": true,
         "result": {
           "clip": {
@@ -3271,9 +6213,9 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001062",
+        "requestId": "00000000-0000-4000-8000-000000001119",
         "ok": false,
         "error": {
           "code": "lom_error",

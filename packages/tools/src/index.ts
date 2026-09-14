@@ -1,9 +1,13 @@
 import type {
   AudioClipsOperationParams,
   AudioClipsOperationResult,
+  BrowserAdapterOperationParams,
+  BrowserAdapterOperationResult,
   CreateTrackParams,
   CreateMidiClipParams,
   CreateMidiClipResult,
+  ClipAutomationOperationParams,
+  ClipAutomationOperationResult,
   CreateArrangementMidiClipParams,
   CreateArrangementMidiClipResult,
   CreateCuePointParams,
@@ -38,6 +42,10 @@ import type {
   SearchBrowserResult,
   LoadBrowserItemParams,
   LoadBrowserItemResult,
+  GrooveOperationParams,
+  GrooveOperationResult,
+  LiveHistoryOperationParams,
+  LiveHistoryOperationResult,
   MidiNotesOperationParams,
   MidiNotesOperationResult,
   MixerRoutingOperationParams,
@@ -78,6 +86,12 @@ import type {
   SetPlayingResult,
   SetTempoParams,
   SetTempoResult,
+  RecordingOperationParams,
+  RecordingOperationResult,
+  SelectionViewOperationParams,
+  SelectionViewOperationResult,
+  SpecializedDeviceOperationParams,
+  SpecializedDeviceOperationResult,
   SetTrackMixerParams,
   SetTrackMixerResult,
   SetDeviceEnabledParams,
@@ -89,10 +103,22 @@ import type {
   TracksOperationResult,
   TransportOperationParams,
   TransportOperationResult,
+  WarpMarkerOperationParams,
+  WarpMarkerOperationResult,
+  WorkflowJobOperationParams,
+  WorkflowJobOperationResult,
 } from "@ableton-agent/protocol";
 import {
   audioClipsOperationParamsSchema,
   audioClipsOperationResultSchema,
+  browserAdapterOperationParamsSchema,
+  browserAdapterOperationResultSchema,
+  clipAutomationOperationParamsSchema,
+  clipAutomationOperationResultSchema,
+  grooveOperationParamsSchema,
+  grooveOperationResultSchema,
+  liveHistoryOperationParamsSchema,
+  liveHistoryOperationResultSchema,
   midiNotesOperationParamsSchema,
   midiNotesOperationResultSchema,
   mixerRoutingOperationParamsSchema,
@@ -103,6 +129,16 @@ import {
   tracksOperationResultSchema,
   transportOperationParamsSchema,
   transportOperationResultSchema,
+  recordingOperationParamsSchema,
+  recordingOperationResultSchema,
+  selectionViewOperationParamsSchema,
+  selectionViewOperationResultSchema,
+  specializedDeviceOperationParamsSchema,
+  specializedDeviceOperationResultSchema,
+  warpMarkerOperationParamsSchema,
+  warpMarkerOperationResultSchema,
+  workflowJobOperationParamsSchema,
+  workflowJobOperationResultSchema,
 } from "@ableton-agent/protocol";
 import type { ConnectionStatus } from "@ableton-agent/shared";
 import { withCorrelation } from "@ableton-agent/correlation";
@@ -112,7 +148,7 @@ import {
   type Tool,
   type ToolResultObject,
 } from "@github/copilot-sdk";
-import { z } from "zod";
+import { z, type ZodType } from "zod";
 import type { MutationTarget } from "./mutation-policy.js";
 import {
   abletonOperationDescriptors,
@@ -158,6 +194,33 @@ export interface AbletonToolServices {
   executeAudioClipsOperation?(
     params: AudioClipsOperationParams,
   ): Promise<AudioClipsOperationResult>;
+  executeRecordingOperation?(
+    params: RecordingOperationParams,
+  ): Promise<RecordingOperationResult>;
+  executeGrooveOperation?(
+    params: GrooveOperationParams,
+  ): Promise<GrooveOperationResult>;
+  executeSelectionViewOperation?(
+    params: SelectionViewOperationParams,
+  ): Promise<SelectionViewOperationResult>;
+  executeLiveHistoryOperation?(
+    params: LiveHistoryOperationParams,
+  ): Promise<LiveHistoryOperationResult>;
+  executeBrowserAdapterOperation?(
+    params: BrowserAdapterOperationParams,
+  ): Promise<BrowserAdapterOperationResult>;
+  executeClipAutomationOperation?(
+    params: ClipAutomationOperationParams,
+  ): Promise<ClipAutomationOperationResult>;
+  executeWarpMarkerOperation?(
+    params: WarpMarkerOperationParams,
+  ): Promise<WarpMarkerOperationResult>;
+  executeSpecializedDeviceOperation?(
+    params: SpecializedDeviceOperationParams,
+  ): Promise<SpecializedDeviceOperationResult>;
+  executeWorkflowJobOperation?(
+    params: WorkflowJobOperationParams,
+  ): Promise<WorkflowJobOperationResult>;
   setTempo(tempo: number): Promise<SetTempoResult>;
   setPlaying(isPlaying: boolean): Promise<SetPlayingResult>;
   inspectArrangementTransport(
@@ -700,6 +763,15 @@ export interface AbletonToolSet {
     Tool<TransportOperationParams>,
     Tool<MidiNotesOperationParams>,
     Tool<AudioClipsOperationParams>,
+    Tool<RecordingOperationParams>,
+    Tool<GrooveOperationParams>,
+    Tool<SelectionViewOperationParams>,
+    Tool<LiveHistoryOperationParams>,
+    Tool<BrowserAdapterOperationParams>,
+    Tool<ClipAutomationOperationParams>,
+    Tool<WarpMarkerOperationParams>,
+    Tool<SpecializedDeviceOperationParams>,
+    Tool<WorkflowJobOperationParams>,
   ];
   availableTools: string[];
 }
@@ -708,6 +780,15 @@ export const toolCatalogPolicy = {
   mode: "eager",
   maximumEagerTools: 64,
 } as const;
+
+/**
+ * Exact-name compatibility aliases are intentionally explicit. A name belongs
+ * here only after its handler has been migrated to the same canonical
+ * operation descriptor and protocol route.
+ */
+export const abletonCompatibilityAliases = {
+  ableton_tracks_delete: "tracks.delete",
+} as const satisfies Readonly<Record<string, string>>;
 
 export class AbletonToolPreconditionError extends Error {
   public readonly code: string;
@@ -1045,6 +1126,114 @@ export function createAbletonTools(
         params.action,
         audioClipsOperationResultSchema.parse(
           await services.executeAudioClipsOperation!(params),
+        ),
+      ),
+  });
+  const recordingTool = defineTool("ableton_recording", {
+    description:
+      "Inspects and controls explicit Live 11 recording state, Capture MIDI to selected armed tracks, and exact empty-slot timed Session recording jobs. Launch and recording intent are distinct.",
+    parameters: recordingOperationParamsSchema,
+    handler: async (params) =>
+      verifyOperationResultAction(
+        params.action,
+        recordingOperationResultSchema.parse(
+          await services.executeRecordingOperation!(params),
+        ),
+      ),
+  });
+  const groovesTool = defineTool("ableton_grooves", {
+    description:
+      "Inspects Live 11 Groove Pool entries with revision-bound runtime handles, assigns or clears clip grooves, edits supported groove properties, and sets global groove amount. Groove creation, import, and removal are unavailable.",
+    parameters: grooveOperationParamsSchema,
+    handler: async (params) =>
+      verifyOperationResultAction(
+        params.action,
+        grooveOperationResultSchema.parse(
+          await services.executeGrooveOperation!(params),
+        ),
+      ),
+  });
+  const selectionViewTool = defineTool("ableton_selection_view", {
+    description:
+      "Reads and semantically updates exact Live selection and major view state without arbitrary property access.",
+    parameters: selectionViewOperationParamsSchema,
+    handler: async (params) =>
+      verifyOperationResultAction(
+        params.action,
+        selectionViewOperationResultSchema.parse(
+          await services.executeSelectionViewOperation!(params),
+        ),
+      ),
+  });
+  const liveHistoryTool = defineTool("ableton_live_history", {
+    description:
+      "Inspects or invokes Live's global undo/redo history. Undo and redo require the exact global-history confirmation because they can affect changes made outside Ableton Agent.",
+    parameters: liveHistoryOperationParamsSchema,
+    handler: async (params) =>
+      verifyOperationResultAction(
+        params.action,
+        liveHistoryOperationResultSchema.parse(
+          await services.executeLiveHistoryOperation!(params),
+        ),
+      ),
+  });
+  const browserAdaptersTool = defineTool("ableton_browser_adapters", {
+    description:
+      "Uses capability-detected Live 11 Browser preview and tested private Hot-Swap/insertion adapters while restoring selection and Browser state. No deterministic direct native insertion or empty-chain creation is claimed.",
+    parameters: browserAdapterOperationParamsSchema,
+    handler: async (params) =>
+      verifyOperationResultAction(
+        params.action,
+        browserAdapterOperationResultSchema.parse(
+          await services.executeBrowserAdapterOperation!(params),
+        ),
+      ),
+  });
+  const clipAutomationTool = defineTool("ableton_clip_automation", {
+    description:
+      "Discovers, samples, inserts bounded steps into, or explicitly clears Session clip automation envelopes. Arrangement automation is unavailable.",
+    parameters: clipAutomationOperationParamsSchema,
+    handler: async (params) =>
+      verifyOperationResultAction(
+        params.action,
+        clipAutomationOperationResultSchema.parse(
+          await services.executeClipAutomationOperation!(params),
+        ),
+      ),
+  });
+  const warpMarkersTool = defineTool("ableton_warp_markers", {
+    description:
+      "Inspects or mutates identity-bound audio clip warp markers using an exact marker snapshot revision, ordered coordinates, bounded BPM, verified readback, and safe compensation when possible.",
+    parameters: warpMarkerOperationParamsSchema,
+    handler: async (params) =>
+      verifyOperationResultAction(
+        params.action,
+        warpMarkerOperationResultSchema.parse(
+          await services.executeWarpMarkerOperation!(params),
+        ),
+      ),
+  });
+  const specializedDevicesTool = defineTool("ableton_special_devices", {
+    description:
+      "Provides only capability-detected Live 11 Simpler marker/slice, Looper control/export, and Wavetable modulation operations for exact devices.",
+    parameters: specializedDeviceOperationParamsSchema,
+    handler: async (params) =>
+      verifyOperationResultAction(
+        params.action,
+        specializedDeviceOperationResultSchema.parse(
+          await services.executeSpecializedDeviceOperation!(params),
+        ),
+      ),
+  });
+  const workflowJobsTool = defineTool("ableton_workflow_jobs", {
+    description:
+      "Lists, inspects, or cancels bounded asynchronous Live workflow jobs with lifecycle, progress, result, failure, and indeterminate reconnect state.",
+    parameters: workflowJobOperationParamsSchema,
+    handler: async (params) =>
+      verifyOperationResultAction(
+        params.action,
+        workflowJobOperationResultSchema.parse(
+          await services.executeWorkflowJobOperation!(params),
         ),
       ),
   });
@@ -1839,6 +2028,15 @@ export function createAbletonTools(
       requireConnectedTool(transportTool, services),
       requireConnectedTool(midiNotesTool, services),
       requireConnectedTool(audioClipsTool, services),
+      requireConnectedTool(recordingTool, services),
+      requireConnectedTool(groovesTool, services),
+      requireConnectedTool(selectionViewTool, services),
+      requireConnectedTool(liveHistoryTool, services),
+      requireConnectedTool(browserAdaptersTool, services),
+      requireConnectedTool(clipAutomationTool, services),
+      requireConnectedTool(warpMarkersTool, services),
+      requireConnectedTool(specializedDevicesTool, services),
+      requireConnectedTool(workflowJobsTool, services),
     ],
     availableTools: [
       ...new Set(
@@ -1846,6 +2044,50 @@ export function createAbletonTools(
       ),
     ],
   };
+}
+
+export interface ScopeAbletonToolsOptions {
+  readonly allowedToolNames: readonly string[];
+  readonly allowedOperationIds?: readonly string[];
+  readonly capabilities?: Readonly<Record<string, boolean>>;
+}
+
+export function scopeAbletonTools(
+  toolSet: AbletonToolSet,
+  options: ScopeAbletonToolsOptions,
+): Tool[] {
+  const allowedTools = new Set(options.allowedToolNames);
+  const allowedOperations =
+    options.allowedOperationIds === undefined
+      ? undefined
+      : new Set(options.allowedOperationIds);
+  return (toolSet.tools as unknown as Tool[]).flatMap((tool) => {
+    if (!allowedTools.has(tool.name)) return [];
+    const descriptors = abletonOperationDescriptors.filter(
+      (descriptor) => descriptor.toolName === tool.name,
+    );
+    if (descriptors.length === 0) return [tool];
+    const selected = descriptors.filter(
+      (descriptor) =>
+        (allowedOperations === undefined ||
+          allowedOperations.has(descriptor.operationId)) &&
+        (options.capabilities === undefined ||
+          options.capabilities[descriptor.requiredCapability] === true),
+    );
+    if (selected.length === 0) return [];
+    if (selected.length === descriptors.length) return [tool];
+    const parameters =
+      selected.length === 1
+        ? selected[0]!.inputSchema
+        : z.union(
+            selected.map((descriptor) => descriptor.inputSchema) as [
+              ZodType,
+              ZodType,
+              ...ZodType[],
+            ],
+          );
+    return [{ ...tool, parameters }];
+  });
 }
 
 export * from "./mutation-policy.js";

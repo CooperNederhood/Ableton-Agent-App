@@ -3,6 +3,7 @@ import { basename } from "node:path";
 import {
   loadAgentCatalog,
   type AgentCatalog,
+  type ToolOperationPatternEntry,
 } from "@ableton-agent/agent-config";
 import type { AgentSkillDescriptor } from "@ableton-agent/application";
 
@@ -15,6 +16,8 @@ export interface AgentCatalogOptions {
   readonly agentsDirectory: string;
   readonly skillsDirectory: string;
   readonly availableTools: readonly string[];
+  readonly availableOperations?: readonly ToolOperationPatternEntry[];
+  readonly compatibilityAliases?: Readonly<Record<string, string>>;
 }
 
 function toDesktopCatalog(catalog: AgentCatalog): DesktopAgentCatalog {
@@ -25,6 +28,8 @@ function toDesktopCatalog(catalog: AgentCatalog): DesktopAgentCatalog {
       systemPrompt: agent.definition.systemPrompt,
       tools: agent.definition.tools,
       resolvedTools: agent.resolvedTools,
+      resolvedOperations: agent.resolvedOperations,
+      explicitCompatibilityAliases: agent.explicitCompatibilityAliases,
       editScope: agent.definition.editScope,
       skills: agent.definition.skills,
       inputChannels: agent.definition.inputChannels,
@@ -64,6 +69,12 @@ export class AgentCatalogService {
       agentsDirectory: this.options.agentsDirectory,
       skillsDirectory: this.options.skillsDirectory,
       availableTools: this.options.availableTools,
+      ...(this.options.availableOperations === undefined
+        ? {}
+        : { availableOperations: this.options.availableOperations }),
+      ...(this.options.compatibilityAliases === undefined
+        ? {}
+        : { compatibilityAliases: this.options.compatibilityAliases }),
     });
     this.#runtimeSkills = loaded.skills.map((skill) => ({
       name: skill.metadata.name,

@@ -47,6 +47,12 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 
 ## Contract automation
 
+- [x] Add action-discriminated contracts for the final Live 11 workflow
+  adapters and asynchronous jobs.
+- [x] Add a typed curated-state snapshot and event envelope.
+- [x] Regenerate the committed JSON Schema fixtures without changing the
+  protocol version.
+
 - [x] Generate a command catalog from canonical schemas.
 - [x] Validate that each command has request, success, and failure fixtures.
 - [x] Validate that every bridge command has a Remote Script registry entry.

@@ -4,6 +4,7 @@ from __future__ import absolute_import, print_function, unicode_literals
 
 import argparse
 import copy
+import hashlib
 import json
 import math
 import socket
@@ -27,6 +28,18 @@ from AbletonAgent.core_domain_commands import (
     validate_tracks_mutate,
     validate_transport_inspect,
     validate_transport_mutate,
+)
+from AbletonAgent.workflow_adapter_commands import (
+    GLOBAL_HISTORY_WARNING,
+    validate_browser_adapters,
+    validate_clip_automation,
+    validate_grooves,
+    validate_history,
+    validate_jobs,
+    validate_recording,
+    validate_selection_view,
+    validate_special_devices,
+    validate_warp_markers,
 )
 
 from AbletonAgent.version import PROTOCOL_VERSION, REMOTE_SCRIPT_VERSION
@@ -158,6 +171,37 @@ class SimulatorState(object):
         self.live_event_messages = deque()
         self.live_event_sequence = 0
         self.browser_roots = self.create_browser_roots()
+        self.recording_state = {
+            "arrangementRecord": False,
+            "sessionRecord": False,
+            "overdub": False,
+            "sessionAutomationRecord": False,
+            "punchIn": False,
+            "punchOut": False,
+        }
+        self.groove_amount = 1.0
+        self.grooves = [
+            {
+                "index": 0,
+                "reference": str(uuid.uuid4()),
+                "name": "Swing 16-66",
+                "base": 0.25,
+                "quantizationAmount": 1.0,
+                "timingAmount": 1.0,
+                "randomAmount": 0.0,
+                "velocityAmount": 1.0,
+            }
+        ]
+        self.selected_track_reference = self.tracks[0]["reference"]
+        self.selected_scene_reference = self.scenes[0]["reference"]
+        self.selected_slot = None
+        self.visible_views = ["Session", "Detail", "Browser"]
+        self.focused_view = "Session"
+        self.follow = False
+        self.draw_mode = False
+        self.can_undo = True
+        self.can_redo = False
+        self.workflow_jobs = {}
 
     def initialize_core_track(self, track):
         track.setdefault("colorIndex", track.get("color"))
@@ -321,6 +365,29 @@ class SimulatorState(object):
                 "projectRevision": 0,
                 "reason": reason,
             },
+        })
+
+    def publish_workflow_job_event(self, stage, job):
+        sequence = self.live_event_sequence
+        self.live_event_sequence += 1
+        payload = {
+            "jobId": job["jobId"],
+            "kind": job["kind"],
+            "status": job["status"],
+            "progress": job["progress"],
+            "updatedAt": job["updatedAt"],
+            "correlationId": job["correlationId"],
+            "traceId": job["traceId"],
+        }
+        if job.get("causationId") is not None:
+            payload["causationId"] = job["causationId"]
+        self.live_event_messages.append({
+            "protocolVersion": PROTOCOL_VERSION,
+            "kind": "event",
+            "event": "workflow_job.{0}".format(stage),
+            "sequence": sequence,
+            "projectRevision": 0,
+            "payload": payload,
         })
 
     def browser_item(
@@ -1030,6 +1097,40 @@ def _sim_resolve_track(state, target):
     ):
         return None, "stale_reference"
     return track, None
+
+
+def _sim_resolve_scene(state, target):
+    index = target["sceneIndex"]
+    if index >= len(state.scenes):
+        return None, "not_found"
+    scene = state.scenes[index]
+    if (
+        scene["reference"] != target["expectedSceneReference"]
+        or scene["name"] != target["expectedSceneName"]
+    ):
+        return None, "stale_reference"
+    return scene, None
+
+
+def _sim_resolve_session_slot(state, target):
+    track, error = _sim_resolve_track(state, target["track"])
+    if error:
+        return None, None, error
+    _scene, error = _sim_resolve_scene(state, target)
+    if error:
+        return None, None, error
+    index = target["sceneIndex"]
+    if index >= len(track["clips"]):
+        return None, None, "not_found"
+    clip = track["clips"][index]
+    if (clip is not None) != target["expectedHasClip"]:
+        return None, None, "stale_reference"
+    if clip is not None and (
+        clip["reference"] != target.get("expectedClipReference")
+        or clip["name"] != target.get("expectedClipName")
+    ):
+        return None, None, "stale_reference"
+    return track, clip, None
 
 
 def _sim_resolve_clip(state, target):
@@ -2051,6 +2152,394 @@ def _handle_core_domain(request, command, params, state):
     return entry[1](request, params, state)
 
 
+def _sim_groove_revision(state):
+    payload = [
+        (groove["reference"], groove["name"]) for groove in state.grooves
+    ]
+    return hashlib.sha256(
+        json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _public_sim_job(job):
+    return dict((key, value) for key, value in job.items() if not key.startswith("_"))
+
+
+def _sim_job(state, kind, params, result):
+    job_id = str(uuid.uuid4())
+    job = {
+        "jobId": job_id,
+        "kind": kind,
+        "status": "queued",
+        "progress": 0.0,
+        "createdAt": "2000-01-01T00:00:00Z",
+        "updatedAt": "2000-01-01T00:00:00Z",
+        "correlationId": params["correlationId"],
+        "traceId": params["traceId"],
+        "_completionResult": result,
+    }
+    if params.get("causationId") is not None:
+        job["causationId"] = params["causationId"]
+    state.workflow_jobs[job_id] = job
+    state.publish_workflow_job_event("queued", job)
+    job["status"] = "started"
+    job["updatedAt"] = "2000-01-01T00:00:01Z"
+    state.publish_workflow_job_event("started", job)
+    job["status"] = "running"
+    job["progress"] = 0.5
+    job["updatedAt"] = "2000-01-01T00:00:02Z"
+    state.publish_workflow_job_event("progress", job)
+    return _public_sim_job(job)
+
+
+def _complete_sim_job(state, job):
+    if job["status"] != "running":
+        return
+    job["status"] = "completed"
+    job["progress"] = 1.0
+    job["updatedAt"] = "2000-01-01T00:00:03Z"
+    job["result"] = job.pop("_completionResult")
+    state.publish_workflow_job_event("completed", job)
+
+
+def _handle_sim_recording(request, params, state):
+    action = params["action"]
+    if action == "inspect":
+        return response(request, {"action": action, "state": state.recording_state})
+    if action == "record-session-slot":
+        track, _clip, slot_error = _sim_resolve_session_slot(
+            state, params["target"]
+        )
+        if slot_error:
+            return failure(request, slot_error, "Session slot identity changed")
+        index = params["target"]["sceneIndex"]
+        if not track.get("isArmed", False):
+            return failure(request, "conflict", "Target track must be armed")
+        clip = {
+            "reference": str(uuid.uuid4()),
+            "name": "Recorded Clip",
+            "kind": "midi" if track["kind"] == "midi" else "audio",
+            "length": params["durationBeats"],
+            "notes": [],
+            "warpMarkers": [],
+        }
+        track["clips"][index] = clip
+        job = _sim_job(
+            state,
+            "timed-session-recording",
+            params,
+            {
+                "trackReference": track["reference"],
+                "clipReference": clip["reference"],
+                "sceneIndex": index,
+            },
+        )
+        return response(request, {
+            "action": action,
+            "job": job,
+            "recordingIntent": "record",
+        })
+    if action == "capture-midi":
+        return response(request, {
+            "action": action,
+            "destination": "selected-armed-tracks",
+            "captured": True,
+            "verified": True,
+            "warnings": [
+                "Capture MIDI uses Live's selected armed-track destination semantics."
+            ],
+        })
+    before = dict(state.recording_state)
+    if action == "set-arrangement-record":
+        state.recording_state["arrangementRecord"] = params["enabled"]
+    elif action == "set-session-record":
+        state.recording_state["sessionRecord"] = params["enabled"]
+    elif action == "set-overdub":
+        state.recording_state["overdub"] = params["enabled"]
+    elif action == "set-session-automation-record":
+        state.recording_state["sessionAutomationRecord"] = params["enabled"]
+    else:
+        if "punchIn" in params:
+            state.recording_state["punchIn"] = params["punchIn"]
+        if "punchOut" in params:
+            state.recording_state["punchOut"] = params["punchOut"]
+    return response(request, {
+        "action": action,
+        "result": {
+            "before": before,
+            "after": dict(state.recording_state),
+            "verified": True,
+            "warnings": [],
+        },
+    })
+
+
+def _handle_sim_grooves(request, params, state):
+    action = params["action"]
+    revision = _sim_groove_revision(state)
+    if action == "list":
+        offset, limit = params.get("offset", 0), params.get("limit", 64)
+        return response(request, {
+            "action": action,
+            "grooves": state.grooves[offset : offset + limit],
+            "total": len(state.grooves),
+            "offset": offset,
+            "limit": limit,
+            "poolRevision": revision,
+            "globalAmount": state.groove_amount,
+        })
+    if action == "set-global-amount":
+        before = state.groove_amount
+        state.groove_amount = params["amount"]
+        return response(request, {
+            "action": action,
+            "before": before,
+            "after": state.groove_amount,
+            "verified": True,
+        })
+    if action in ("get", "set-properties"):
+        target = params["target"]
+        if target["poolRevision"] != revision:
+            return failure(request, "stale_reference", "Groove Pool changed")
+        if target["index"] >= len(state.grooves):
+            return failure(request, "not_found", "Groove not found")
+        groove = state.grooves[target["index"]]
+        if (
+            groove["reference"] != target["expectedReference"]
+            or groove["name"] != target["expectedName"]
+        ):
+            return failure(request, "stale_reference", "Groove identity changed")
+        if action == "get":
+            return response(request, {
+                "action": action,
+                "groove": groove,
+                "poolRevision": revision,
+            })
+        before = dict(groove)
+        for key in (
+            "quantizationAmount",
+            "timingAmount",
+            "randomAmount",
+            "velocityAmount",
+        ):
+            if key in params:
+                groove[key] = params[key]
+        return response(request, {
+            "action": action,
+            "before": before,
+            "after": dict(groove),
+            "poolRevision": revision,
+            "verified": True,
+        })
+    clip, error = _sim_resolve_clip(state, params["target"])
+    if error:
+        return failure(request, error, "Clip identity changed")
+    before = {
+        "clipReference": clip["reference"],
+        "groove": clip.get("groove"),
+    }
+    if action == "inspect-clip":
+        return response(request, {"action": action, "state": before})
+    if action == "clear-clip-groove":
+        clip["groove"] = None
+    else:
+        groove_target = params["groove"]
+        if groove_target["poolRevision"] != revision:
+            return failure(request, "stale_reference", "Groove Pool changed")
+        clip["groove"] = dict(state.grooves[groove_target["index"]])
+    return response(request, {
+        "action": action,
+        "before": before,
+        "after": {
+            "clipReference": clip["reference"],
+            "groove": clip.get("groove"),
+        },
+        "verified": True,
+    })
+
+
+def _sim_selection(state):
+    return {
+        "trackReference": state.selected_track_reference,
+        "sceneReference": state.selected_scene_reference,
+        "clipReference": None,
+        "slot": state.selected_slot,
+        "deviceReference": None,
+        "chainReference": None,
+    }
+
+
+def _sim_view(state):
+    return {
+        "visibleViews": list(state.visible_views),
+        "focusedView": state.focused_view,
+        "follow": state.follow,
+        "drawMode": state.draw_mode,
+    }
+
+
+def _handle_sim_selection(request, params, state):
+    action = params["action"]
+    if action == "inspect-selection":
+        return response(request, {"action": action, "selection": _sim_selection(state)})
+    if action == "inspect-view":
+        return response(request, {"action": action, "view": _sim_view(state)})
+    selection_action = action.startswith("select-")
+    before = _sim_selection(state) if selection_action else _sim_view(state)
+    if action == "select-track":
+        track, track_error = _sim_resolve_track(state, params["target"])
+        if track_error:
+            return failure(request, track_error, "Track identity changed")
+        state.selected_track_reference = track["reference"]
+    elif action == "select-scene":
+        scene, scene_error = _sim_resolve_scene(
+            state,
+            {
+                "sceneIndex": params["sceneIndex"],
+                "expectedSceneReference": params["expectedSceneReference"],
+                "expectedSceneName": params["expectedSceneName"],
+            },
+        )
+        if scene_error:
+            return failure(request, scene_error, "Scene identity changed")
+        state.selected_scene_reference = scene["reference"]
+    elif action == "select-slot":
+        track, _clip, slot_error = _sim_resolve_session_slot(
+            state, params["target"]
+        )
+        if slot_error:
+            return failure(request, slot_error, "Session slot identity changed")
+        state.selected_track_reference = track["reference"]
+        state.selected_scene_reference = params["target"]["expectedSceneReference"]
+        state.selected_slot = {
+            "trackReference": track["reference"],
+            "sceneIndex": params["target"]["sceneIndex"],
+        }
+    elif action == "set-view":
+        view = params["view"]
+        if params["state"] == "hide":
+            state.visible_views = [item for item in state.visible_views if item != view]
+        else:
+            if view not in state.visible_views:
+                state.visible_views.append(view)
+            if params["state"] == "focus":
+                state.focused_view = view
+    elif action == "set-follow":
+        state.follow = params["enabled"]
+    elif action == "set-draw-mode":
+        state.draw_mode = params["enabled"]
+    after = _sim_selection(state) if selection_action else _sim_view(state)
+    return response(request, {
+        "action": action,
+        "before": before,
+        "after": after,
+        "verified": True,
+    })
+
+
+def _handle_sim_history(request, params, state):
+    action = params["action"]
+    before = {"canUndo": state.can_undo, "canRedo": state.can_redo}
+    if action == "inspect":
+        return response(request, {
+            "action": action,
+            "state": before,
+            "warnings": [GLOBAL_HISTORY_WARNING],
+        })
+    if params.get("confirmation") != "global-live-history":
+        return failure(request, "invalid_params", "Global history confirmation required")
+    if action == "undo" and not state.can_undo:
+        return failure(request, "conflict", "No undo step")
+    if action == "redo" and not state.can_redo:
+        return failure(request, "conflict", "No redo step")
+    state.can_undo, state.can_redo = action == "redo", action == "undo"
+    return response(request, {
+        "action": action,
+        "before": before,
+        "after": {"canUndo": state.can_undo, "canRedo": state.can_redo},
+        "verified": True,
+        "warnings": [GLOBAL_HISTORY_WARNING],
+    })
+
+
+def _handle_sim_workflow(request, command, params, state):
+    handlers = {
+        "recording": (validate_recording, _handle_sim_recording),
+        "grooves": (validate_grooves, _handle_sim_grooves),
+        "selection_view": (validate_selection_view, _handle_sim_selection),
+        "live_history": (validate_history, _handle_sim_history),
+    }
+    domain = command.split(".", 1)[0] if isinstance(command, str) else ""
+    action = params.get("action")
+    expected_command = (
+        "{0}.{1}".format(domain, action.replace("-", "_"))
+        if isinstance(action, str)
+        else None
+    )
+    if domain == "workflow_jobs":
+        if command != expected_command:
+            return failure(request, "invalid_params", "Command/action mismatch")
+        error = validate_jobs(params)
+        if error:
+            return failure(request, "invalid_params", error)
+        if action == "list":
+            jobs = [
+                _public_sim_job(job) for job in state.workflow_jobs.values()
+            ]
+            offset, limit = params.get("offset", 0), params.get("limit", 64)
+            return response(request, {
+                "action": action,
+                "jobs": jobs[offset : offset + limit],
+                "total": len(jobs),
+                "offset": offset,
+                "limit": limit,
+            })
+        job = state.workflow_jobs.get(params["jobId"])
+        if job is None:
+            return failure(request, "not_found", "Workflow job not found")
+        if action == "cancel":
+            cancelled = job["status"] not in ("completed", "failed", "cancelled")
+            if cancelled:
+                job["status"] = "cancelled"
+                job["updatedAt"] = "2000-01-01T00:00:03Z"
+                job.pop("_completionResult", None)
+                state.publish_workflow_job_event("cancelled", job)
+            return response(request, {
+                "action": action,
+                "job": _public_sim_job(job),
+                "cancelled": cancelled,
+            })
+        _complete_sim_job(state, job)
+        return response(request, {"action": action, "job": _public_sim_job(job)})
+    entry = handlers.get(domain)
+    if entry is None:
+        validators = {
+            "browser_adapters": validate_browser_adapters,
+            "clip_automation": validate_clip_automation,
+            "warp_markers": validate_warp_markers,
+            "special_devices": validate_special_devices,
+        }
+        validator = validators.get(domain)
+        if validator is None:
+            return None
+        if command != expected_command:
+            return failure(request, "invalid_params", "Command/action mismatch")
+        error = validator(params)
+        if error:
+            return failure(request, "invalid_params", error)
+        return failure(
+            request,
+            "unsupported_capability",
+            "Simulator does not model this capability-dependent Live 11 adapter",
+        )
+    if command != expected_command:
+        return failure(request, "invalid_params", "Command/action mismatch")
+    error = entry[0](params)
+    if error:
+        return failure(request, "invalid_params", error)
+    return entry[1](request, params, state)
+
+
 def handle(request, token, state):
     if request.get("kind") != "request":
         return None
@@ -2059,6 +2548,9 @@ def handle(request, token, state):
     core_response = _handle_core_domain(request, command, params, state)
     if core_response is not None:
         return core_response
+    workflow_response = _handle_sim_workflow(request, command, params, state)
+    if workflow_response is not None:
+        return workflow_response
     if command == "system.hello":
         if params.get("authenticationToken") != token:
             return failure(
@@ -2072,14 +2564,7 @@ def handle(request, token, state):
                 "protocol_version_unsupported",
                 "No supported protocol version",
             )
-        return response(
-            request,
-            {
-                "selectedProtocolVersion": PROTOCOL_VERSION,
-                "liveVersion": "12.1-simulator",
-                "remoteScriptVersion": REMOTE_SCRIPT_VERSION,
-                "projectId": "simulated-project",
-                "capabilities": {
+        capabilities = {
                     "system.ping": True,
                     "session.inspect": True,
                     "transport.set_tempo": True,
@@ -2125,6 +2610,7 @@ def handle(request, token, state):
                     "arrangement.duplicate_clip": True,
                     "arrangement.set_clip_properties": True,
                     "events.inspect_selection": True,
+                    "events.inspect_curated_state": True,
                     "events.subscribe": True,
                     "events.unsubscribe": True,
                     "events.list_subscriptions": True,
@@ -2188,7 +2674,82 @@ def handle(request, token, state):
                     "audio_clips.set_markers": True,
                     "audio_clips.set_ram_mode": True,
                     "audio_clips.warp_markers": True,
-                },
+                    "recording.inspect": True,
+                    "recording.set_arrangement_record": True,
+                    "recording.set_session_record": True,
+                    "recording.set_overdub": True,
+                    "recording.set_session_automation_record": True,
+                    "recording.set_punch": True,
+                    "recording.capture_midi": True,
+                    "recording.record_session_slot": True,
+                    "grooves.list": True,
+                    "grooves.get": True,
+                    "grooves.inspect_clip": True,
+                    "grooves.set_clip_groove": True,
+                    "grooves.clear_clip_groove": True,
+                    "grooves.set_properties": True,
+                    "grooves.set_global_amount": True,
+                    "selection_view.inspect_selection": True,
+                    "selection_view.inspect_view": True,
+                    "selection_view.select_track": True,
+                    "selection_view.select_scene": True,
+                    "selection_view.select_slot": False,
+                    "selection_view.select_clip": False,
+                    "selection_view.select_device": False,
+                    "selection_view.select_chain": False,
+                    "selection_view.set_view": True,
+                    "selection_view.set_follow": True,
+                    "selection_view.set_draw_mode": True,
+                    "selection_view.set_track_fold": False,
+                    "selection_view.set_device_collapsed": False,
+                    "live_history.inspect": True,
+                    "live_history.undo": True,
+                    "live_history.redo": True,
+                    "browser_adapters.preview": False,
+                    "browser_adapters.stop_preview": False,
+                    "browser_adapters.hot_swap": False,
+                    "browser_adapters.insert_adjacent": False,
+                    "browser_adapters.load_empty_drum_pad": False,
+                    "clip_automation.list_envelopes": False,
+                    "clip_automation.sample": False,
+                    "clip_automation.insert_step": False,
+                    "clip_automation.clear_envelope": False,
+                    "clip_automation.clear_all": False,
+                    "warp_markers.inspect": False,
+                    "warp_markers.add": False,
+                    "warp_markers.move": False,
+                    "warp_markers.remove": False,
+                    "special_devices.inspect_simpler": False,
+                    "special_devices.set_simpler_markers": False,
+                    "special_devices.set_simpler_slices": False,
+                    "special_devices.inspect_looper": False,
+                    "special_devices.control_looper": False,
+                    "special_devices.export_looper": False,
+                    "special_devices.inspect_wavetable": False,
+                    "special_devices.set_wavetable_modulation": False,
+                    "workflow_jobs.get": True,
+                    "workflow_jobs.list": True,
+                    "workflow_jobs.cancel": True,
+                }
+        capability_details = {
+            name: {
+                "supported": supported,
+                "evidence": "public" if supported else "unavailable",
+                "minimumLiveVersion": "11.0",
+                "testedLiveVersions": ["simulator"] if supported else [],
+                "limitations": [],
+            }
+            for name, supported in capabilities.items()
+        }
+        return response(
+            request,
+            {
+                "selectedProtocolVersion": PROTOCOL_VERSION,
+                "liveVersion": "11.3-simulator",
+                "remoteScriptVersion": REMOTE_SCRIPT_VERSION,
+                "projectId": "simulated-project",
+                "capabilities": capabilities,
+                "capabilityDetails": capability_details,
                 "limits": {
                     "maxFrameBytes": 4 * 1024 * 1024,
                     "maxBatchItems": 128,
@@ -2197,6 +2758,109 @@ def handle(request, token, state):
         )
     if command == "system.ping":
         return response(request, {"pong": True})
+    if command == "events.inspect_curated_state":
+        if params:
+            return failure(
+                request, "invalid_params", "Command does not accept parameters"
+            )
+        return response(
+            request,
+            {
+                "states": [
+                    {
+                        "topic": "transport",
+                        "state": {
+                            "isPlaying": state.is_playing,
+                            "arrangementRecord": state.recording_state[
+                                "arrangementRecord"
+                            ],
+                            "sessionRecord": state.recording_state[
+                                "sessionRecord"
+                            ],
+                        },
+                    },
+                    {
+                        "topic": "tempo-signature",
+                        "state": {
+                            "tempo": state.tempo,
+                            "numerator": state.signature_numerator,
+                            "denominator": state.signature_denominator,
+                        },
+                    },
+                    {
+                        "topic": "selection",
+                        "state": {
+                            "trackReference": state.selected_track_reference,
+                            "sceneReference": state.selected_scene_reference,
+                            "clipReference": None,
+                            "deviceReference": None,
+                        },
+                    },
+                    {
+                        "topic": "track-topology",
+                        "state": {
+                            "references": [
+                                track["reference"] for track in state.tracks
+                            ]
+                        },
+                    },
+                    {
+                        "topic": "scene-topology",
+                        "state": {
+                            "references": [
+                                scene["reference"] for scene in state.scenes
+                            ]
+                        },
+                    },
+                    {
+                        "topic": "clip-topology",
+                        "state": {
+                            "trackReferences": [
+                                track["reference"] for track in state.tracks
+                            ],
+                            "clipCount": sum(
+                                1
+                                for track in state.tracks
+                                for clip in track["clips"]
+                                if clip is not None
+                            ),
+                        },
+                    },
+                    {
+                        "topic": "device-topology",
+                        "state": {
+                            "trackReferences": [
+                                track["reference"] for track in state.tracks
+                            ],
+                            "deviceCount": sum(
+                                len(track["devices"]) for track in state.tracks
+                            ),
+                        },
+                    },
+                    {
+                        "topic": "routing",
+                        "state": {
+                            "trackReferences": [
+                                track["reference"] for track in state.tracks
+                            ]
+                        },
+                    },
+                    {
+                        "topic": "meters",
+                        "state": {
+                            "samples": [
+                                {
+                                    "trackReference": track["reference"],
+                                    "left": 0.0,
+                                    "right": 0.0,
+                                }
+                                for track in state.tracks
+                            ]
+                        },
+                    },
+                ]
+            },
+        )
     if command == "events.inspect_selection":
         if params:
             return failure(

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { commandCatalog } from "./catalog.js";
+import { PROTOCOL_VERSION } from "./constants.js";
 import {
   inspectBrowserChildrenParamsSchema,
   inspectChainMixerParamsSchema,
@@ -160,7 +161,7 @@ describe("project identity schema", () => {
       it("parses typed occurred and invalidated event envelopes", () => {
         expect(
           liveEventEnvelopeSchema.parse({
-            protocolVersion: 3,
+            protocolVersion: PROTOCOL_VERSION,
             kind: "event",
             event: "live_event.invalidated",
             sequence: 2,

@@ -1,9 +1,17 @@
 import {
   audioClipsOperationParamsSchema,
   audioClipsOperationResultSchema,
+  browserAdapterOperationParamsSchema,
+  browserAdapterOperationResultSchema,
   chainLocationTargetSchema,
   findDevicePositionParamsSchema,
   findDevicePositionResultSchema,
+  clipAutomationOperationParamsSchema,
+  clipAutomationOperationResultSchema,
+  grooveOperationParamsSchema,
+  grooveOperationResultSchema,
+  liveHistoryOperationParamsSchema,
+  liveHistoryOperationResultSchema,
   inspectChainMixerParamsSchema,
   inspectChainMixerResultSchema,
   midiNotesOperationParamsSchema,
@@ -14,6 +22,12 @@ import {
   moveDeviceResultSchema,
   scenesOperationParamsSchema,
   scenesOperationResultSchema,
+  recordingOperationParamsSchema,
+  recordingOperationResultSchema,
+  selectionViewOperationParamsSchema,
+  selectionViewOperationResultSchema,
+  specializedDeviceOperationParamsSchema,
+  specializedDeviceOperationResultSchema,
   setChainMixerParamsSchema,
   setChainMixerResultSchema,
   setChainPropertiesParamsSchema,
@@ -22,6 +36,11 @@ import {
   tracksOperationResultSchema,
   transportOperationParamsSchema,
   transportOperationResultSchema,
+  warpMarkerOperationParamsSchema,
+  warpMarkerOperationResultSchema,
+  workflowJobOperationParamsSchema,
+  workflowJobOperationResultSchema,
+  type CommandName,
   type ChainLocationTarget,
   type DeviceDestinationTarget,
   type DeviceLocationTarget,
@@ -52,6 +71,18 @@ export interface AbletonOperationDescriptor {
   readonly mutationTarget: MutationTarget;
   readonly editScope: AbletonOperationEditScope;
   readonly requiredCapability: string;
+  readonly protocolCommand: CommandName;
+  readonly lifecycleEvents: {
+    readonly requested: "agent.operation.requested";
+    readonly policyEvaluated: "agent.operation.policy";
+    readonly queued: "agent.operation.queued";
+    readonly started: "agent.operation.started";
+    readonly progress: "workflow_job.progress";
+    readonly verification: "agent.operation.verification";
+    readonly completed: "agent.operation.completed";
+    readonly failed: "agent.operation.failed";
+    readonly cancelled: "agent.operation.cancelled";
+  };
   readonly handlerBinding:
     | "findDevicePosition"
     | "inspectChainMixer"
@@ -63,7 +94,16 @@ export interface AbletonOperationDescriptor {
     | "executeMixerRoutingOperation"
     | "executeTransportOperation"
     | "executeMidiNotesOperation"
-    | "executeAudioClipsOperation";
+    | "executeAudioClipsOperation"
+    | "executeRecordingOperation"
+    | "executeGrooveOperation"
+    | "executeSelectionViewOperation"
+    | "executeLiveHistoryOperation"
+    | "executeBrowserAdapterOperation"
+    | "executeClipAutomationOperation"
+    | "executeWarpMarkerOperation"
+    | "executeSpecializedDeviceOperation"
+    | "executeWorkflowJobOperation";
   readonly affectedTrackReferences: (input: unknown) => readonly string[];
   readonly lifecycleIdentity: (
     input: unknown,
@@ -157,8 +197,21 @@ interface CoreOperationDefinition {
   readonly mutationTarget: MutationTarget;
   readonly editScope: AbletonOperationEditScope;
   readonly requiredCapability: string;
+  readonly protocolCommand?: CommandName;
   readonly handlerBinding: AbletonOperationDescriptor["handlerBinding"];
 }
+
+const operationLifecycleEvents = {
+  requested: "agent.operation.requested",
+  policyEvaluated: "agent.operation.policy",
+  queued: "agent.operation.queued",
+  started: "agent.operation.started",
+  progress: "workflow_job.progress",
+  verification: "agent.operation.verification",
+  completed: "agent.operation.completed",
+  failed: "agent.operation.failed",
+  cancelled: "agent.operation.cancelled",
+} as const;
 
 function coreOperationDescriptor(
   definition: CoreOperationDefinition,
@@ -166,6 +219,9 @@ function coreOperationDescriptor(
   return {
     ...definition,
     duration: "short",
+    protocolCommand:
+      definition.protocolCommand ?? (definition.operationId as CommandName),
+    lifecycleEvents: operationLifecycleEvents,
     affectedTrackReferences: (input) =>
       normalizeReferences(collectTrackReferences(input)),
     lifecycleIdentity: (input) => ({
@@ -192,7 +248,10 @@ function domainOperationDescriptors(
     readonly actions: readonly string[];
     readonly readActions: ReadonlySet<string>;
     readonly destructiveActions?: ReadonlySet<string>;
+    readonly broadActions?: ReadonlySet<string>;
+    readonly longActions?: ReadonlySet<string>;
     readonly trackActions?: ReadonlySet<string>;
+    readonly granularProtocol?: boolean;
   },
 ): readonly AbletonOperationDescriptor[] {
   if (
@@ -203,32 +262,48 @@ function domainOperationDescriptors(
       `Operation action/schema mismatch for ${configuration.domain}`,
     );
   }
-  return options.map((inputSchema, index) => {
-    const action = configuration.actions[index]!;
-    const isRead = configuration.readActions.has(action);
-    const isTrackMutation = configuration.trackActions?.has(action) ?? false;
-    return coreOperationDescriptor({
-      operationId: `${configuration.domain}.${action.replaceAll("-", "_")}`,
-      action,
-      toolName: configuration.toolName,
-      title: `${configuration.title}: ${action}`,
-      inputSchema,
-      resultSchema: configuration.resultSchemas[index]!,
-      risk: isRead
-        ? "read"
-        : configuration.destructiveActions?.has(action)
-          ? "destructive"
-          : "reversible",
-      mutationTarget: isRead ? "read" : isTrackMutation ? "tracks" : "session",
-      editScope: isRead
-        ? "none"
-        : isTrackMutation
-          ? "affected-tracks"
-          : "session",
-      requiredCapability: operationCapability(configuration.domain, action),
-      handlerBinding: configuration.handlerBinding,
-    });
-  });
+  return options
+    .map((inputSchema, index) => {
+      const action = configuration.actions[index]!;
+      const isRead = configuration.readActions.has(action);
+      const isTrackMutation = configuration.trackActions?.has(action) ?? false;
+      return coreOperationDescriptor({
+        operationId: `${configuration.domain}.${action.replaceAll("-", "_")}`,
+        action,
+        toolName: configuration.toolName,
+        title: `${configuration.title}: ${action}`,
+        inputSchema,
+        resultSchema: configuration.resultSchemas[index]!,
+        risk: isRead
+          ? "read"
+          : configuration.broadActions?.has(action)
+            ? "broad"
+            : configuration.destructiveActions?.has(action)
+              ? "destructive"
+              : "reversible",
+        mutationTarget: isRead
+          ? "read"
+          : isTrackMutation
+            ? "tracks"
+            : "session",
+        editScope: isRead
+          ? "none"
+          : isTrackMutation
+            ? "affected-tracks"
+            : "session",
+        requiredCapability: operationCapability(configuration.domain, action),
+        protocolCommand: (configuration.granularProtocol
+          ? operationCapability(configuration.domain, action)
+          : `${configuration.domain}.${isRead ? "inspect" : "mutate"}`) as CommandName,
+        handlerBinding: configuration.handlerBinding,
+      });
+    })
+    .map((descriptor) => ({
+      ...descriptor,
+      duration: configuration.longActions?.has(descriptor.action)
+        ? "long"
+        : descriptor.duration,
+    }));
 }
 
 function deviceTrackReferences(input: unknown): readonly string[] {
@@ -320,6 +395,8 @@ export const abletonOperationDescriptors = [
     mutationTarget: "read",
     editScope: "none",
     requiredCapability: "devices.inspect_chain_mixer",
+    protocolCommand: "devices.inspect_chain_mixer",
+    lifecycleEvents: operationLifecycleEvents,
     handlerBinding: "inspectChainMixer",
     affectedTrackReferences: chainTrackReferences,
     lifecycleIdentity: (input: unknown) => {
@@ -344,6 +421,8 @@ export const abletonOperationDescriptors = [
     mutationTarget: "read",
     editScope: "none",
     requiredCapability: "devices.find_position",
+    protocolCommand: "devices.find_position",
+    lifecycleEvents: operationLifecycleEvents,
     handlerBinding: "findDevicePosition",
     affectedTrackReferences: deviceTrackReferences,
     lifecycleIdentity: (input: unknown) => {
@@ -371,6 +450,8 @@ export const abletonOperationDescriptors = [
     mutationTarget: "tracks",
     editScope: "affected-tracks",
     requiredCapability: "devices.move",
+    protocolCommand: "devices.move",
+    lifecycleEvents: operationLifecycleEvents,
     handlerBinding: "moveDevice",
     affectedTrackReferences: deviceTrackReferences,
     lifecycleIdentity: (input: unknown) => {
@@ -398,6 +479,8 @@ export const abletonOperationDescriptors = [
     mutationTarget: "track",
     editScope: "affected-tracks",
     requiredCapability: "devices.set_chain_properties",
+    protocolCommand: "devices.set_chain_properties",
+    lifecycleEvents: operationLifecycleEvents,
     handlerBinding: "setChainProperties",
     affectedTrackReferences: chainTrackReferences,
     lifecycleIdentity: (input: unknown) => {
@@ -422,6 +505,8 @@ export const abletonOperationDescriptors = [
     mutationTarget: "track",
     editScope: "affected-tracks",
     requiredCapability: "devices.set_chain_mixer",
+    protocolCommand: "devices.set_chain_mixer",
+    lifecycleEvents: operationLifecycleEvents,
     handlerBinding: "setChainMixer",
     affectedTrackReferences: chainTrackReferences,
     lifecycleIdentity: (input: unknown) => {
@@ -573,7 +658,204 @@ export const abletonOperationDescriptors = [
       "set-ram-mode",
     ]),
   }),
+  ...domainOperationDescriptors(recordingOperationParamsSchema.options, {
+    domain: "recording",
+    toolName: "ableton_recording",
+    title: "Recording and capture operation",
+    resultSchemas: recordingOperationResultSchema.options,
+    handlerBinding: "executeRecordingOperation",
+    actions: [
+      "inspect",
+      "set-arrangement-record",
+      "set-session-record",
+      "set-overdub",
+      "set-session-automation-record",
+      "set-punch",
+      "capture-midi",
+      "record-session-slot",
+    ],
+    readActions: new Set(["inspect"]),
+    broadActions: new Set([
+      "set-arrangement-record",
+      "set-session-record",
+      "set-overdub",
+      "set-session-automation-record",
+      "set-punch",
+      "capture-midi",
+    ]),
+    trackActions: new Set(["record-session-slot"]),
+    longActions: new Set(["record-session-slot"]),
+    granularProtocol: true,
+  }),
+  ...domainOperationDescriptors(grooveOperationParamsSchema.options, {
+    domain: "grooves",
+    toolName: "ableton_grooves",
+    title: "Groove operation",
+    resultSchemas: grooveOperationResultSchema.options,
+    handlerBinding: "executeGrooveOperation",
+    actions: [
+      "list",
+      "get",
+      "inspect-clip",
+      "set-clip-groove",
+      "clear-clip-groove",
+      "set-properties",
+      "set-global-amount",
+    ],
+    readActions: new Set(["list", "get", "inspect-clip"]),
+    trackActions: new Set(["set-clip-groove", "clear-clip-groove"]),
+    granularProtocol: true,
+  }),
+  ...domainOperationDescriptors(selectionViewOperationParamsSchema.options, {
+    domain: "selection_view",
+    toolName: "ableton_selection_view",
+    title: "Selection and view operation",
+    resultSchemas: selectionViewOperationResultSchema.options,
+    handlerBinding: "executeSelectionViewOperation",
+    actions: [
+      "inspect-selection",
+      "inspect-view",
+      "select-track",
+      "select-scene",
+      "select-slot",
+      "select-clip",
+      "select-device",
+      "select-chain",
+      "set-view",
+      "set-follow",
+      "set-draw-mode",
+      "set-track-fold",
+      "set-device-collapsed",
+    ],
+    readActions: new Set(["inspect-selection", "inspect-view"]),
+    trackActions: new Set([
+      "select-track",
+      "select-slot",
+      "select-clip",
+      "select-device",
+      "select-chain",
+      "set-track-fold",
+      "set-device-collapsed",
+    ]),
+    granularProtocol: true,
+  }),
+  ...domainOperationDescriptors(liveHistoryOperationParamsSchema.options, {
+    domain: "live_history",
+    toolName: "ableton_live_history",
+    title: "Global Live history operation",
+    resultSchemas: liveHistoryOperationResultSchema.options,
+    handlerBinding: "executeLiveHistoryOperation",
+    actions: ["inspect", "undo", "redo"],
+    readActions: new Set(["inspect"]),
+    broadActions: new Set(["undo", "redo"]),
+    granularProtocol: true,
+  }),
+  ...domainOperationDescriptors(browserAdapterOperationParamsSchema.options, {
+    domain: "browser_adapters",
+    toolName: "ableton_browser_adapters",
+    title: "Tested private Browser adapter",
+    resultSchemas: browserAdapterOperationResultSchema.options,
+    handlerBinding: "executeBrowserAdapterOperation",
+    actions: [
+      "preview",
+      "stop-preview",
+      "hot-swap",
+      "insert-adjacent",
+      "load-empty-drum-pad",
+    ],
+    readActions: new Set(),
+    trackActions: new Set([
+      "hot-swap",
+      "insert-adjacent",
+      "load-empty-drum-pad",
+    ]),
+    longActions: new Set([
+      "hot-swap",
+      "insert-adjacent",
+      "load-empty-drum-pad",
+    ]),
+    granularProtocol: true,
+  }),
+  ...domainOperationDescriptors(clipAutomationOperationParamsSchema.options, {
+    domain: "clip_automation",
+    toolName: "ableton_clip_automation",
+    title: "Session clip automation operation",
+    resultSchemas: clipAutomationOperationResultSchema.options,
+    handlerBinding: "executeClipAutomationOperation",
+    actions: [
+      "list-envelopes",
+      "sample",
+      "insert-step",
+      "clear-envelope",
+      "clear-all",
+    ],
+    readActions: new Set(["list-envelopes", "sample"]),
+    destructiveActions: new Set(["clear-envelope", "clear-all"]),
+    trackActions: new Set(["insert-step", "clear-envelope", "clear-all"]),
+    granularProtocol: true,
+  }),
+  ...domainOperationDescriptors(warpMarkerOperationParamsSchema.options, {
+    domain: "warp_markers",
+    toolName: "ableton_warp_markers",
+    title: "Warp marker operation",
+    resultSchemas: warpMarkerOperationResultSchema.options,
+    handlerBinding: "executeWarpMarkerOperation",
+    actions: ["inspect", "add", "move", "remove"],
+    readActions: new Set(["inspect"]),
+    destructiveActions: new Set(["remove"]),
+    trackActions: new Set(["add", "move", "remove"]),
+    granularProtocol: true,
+  }),
+  ...domainOperationDescriptors(
+    specializedDeviceOperationParamsSchema.options,
+    {
+      domain: "special_devices",
+      toolName: "ableton_special_devices",
+      title: "Live 11 specialized device operation",
+      resultSchemas: specializedDeviceOperationResultSchema.options,
+      handlerBinding: "executeSpecializedDeviceOperation",
+      actions: [
+        "inspect-simpler",
+        "set-simpler-markers",
+        "set-simpler-slices",
+        "inspect-looper",
+        "control-looper",
+        "export-looper",
+        "inspect-wavetable",
+        "set-wavetable-modulation",
+      ],
+      readActions: new Set([
+        "inspect-simpler",
+        "inspect-looper",
+        "inspect-wavetable",
+      ]),
+      destructiveActions: new Set(["control-looper"]),
+      trackActions: new Set([
+        "set-simpler-markers",
+        "set-simpler-slices",
+        "control-looper",
+        "export-looper",
+        "set-wavetable-modulation",
+      ]),
+      longActions: new Set(["export-looper"]),
+      granularProtocol: true,
+    },
+  ),
+  ...domainOperationDescriptors(workflowJobOperationParamsSchema.options, {
+    domain: "workflow_jobs",
+    toolName: "ableton_workflow_jobs",
+    title: "Workflow job operation",
+    resultSchemas: workflowJobOperationResultSchema.options,
+    handlerBinding: "executeWorkflowJobOperation",
+    actions: ["get", "list", "cancel"],
+    readActions: new Set(["get", "list"]),
+    granularProtocol: true,
+  }),
 ] as const satisfies readonly AbletonOperationDescriptor[];
+
+export const abletonToolOperationPatterns = abletonOperationDescriptors.map(
+  ({ operationId, toolName }) => ({ operationId, toolName }),
+);
 
 const operationsByToolName = new Map<string, AbletonOperationDescriptor[]>();
 for (const descriptor of abletonOperationDescriptors) {

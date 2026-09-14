@@ -4,11 +4,12 @@ Companion specification: [Custom Agents](custom-agents.md)
 
 ## Definitions
 
-- [~] Add runtime schemas for definitions, selectors, bindings, active
+- [x] Add runtime schemas for definitions, selectors, bindings, active
   instances, diagnostics, and tool patterns.
 - [~] Add root `agents/` resources and packaged-resource copying.
-- [~] Implement safe YAML discovery, validation, fingerprints, duplicate
-  detection, wildcard expansion, and refresh.
+- [x] Implement safe YAML discovery, validation, fingerprints, duplicate
+  detection, canonical wildcard/operation expansion, schema pruning, and
+  refresh.
 - [~] Add Default, Compose, Arrange, Sound, and Mix definitions.
   - [x] Define Default as a general-purpose editing-capable agent.
 
@@ -20,13 +21,14 @@ Companion specification: [Custom Agents](custom-agents.md)
 - [ ] Restore transcript history with SDK `getEvents()`.
 - [ ] Support cold-resume reconfiguration and per-agent cancellation.
 - [ ] Keep a one-Default-agent compatibility facade for the CLI.
-- [ ] Emit sanitized effective-configuration snapshots on active-instance
+- [x] Emit sanitized effective-configuration snapshots on active-instance
   create, resume, reset, and change, linked to subsequent SDK/tool traces.
 
 ## Safety
 
 - [ ] Classify every mutation as global, one-track, or multi-track.
-- [ ] Register only tools resolved by an agent's allowlist.
+- [x] Register only tools resolved by an agent's tool and operation allowlists,
+  with connected-capability pruning and exact-only compatibility aliases.
 - [ ] Bind track selectors to current project identities.
 - [ ] Deny stale, ambiguous, cross-project, or unclassified mutations.
 - [ ] Implement global and ordered track-reference mutation locks.

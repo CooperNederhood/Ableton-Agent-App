@@ -13,6 +13,7 @@ import {
   telemetryEventEnvelopeSchema,
   type TelemetryEventEnvelope,
 } from "@ableton-agent/observability";
+import { PROTOCOL_VERSION } from "@ableton-agent/protocol";
 
 import { AbletonBridgeService, type AbletonLiveEvent } from "./index.js";
 
@@ -103,12 +104,12 @@ describe("AbletonBridgeService", () => {
 
     expect(await service.getStatus()).toEqual({
       state: "connected",
-      liveVersion: "12.1-simulator",
+      liveVersion: "11.3-simulator",
       remoteScriptVersion: "0.5.0",
       projectId: "simulated-project",
     });
     await expect(service.getCapabilities()).resolves.toMatchObject({
-      selectedProtocolVersion: 3,
+      selectedProtocolVersion: PROTOCOL_VERSION,
       capabilities: {
         "system.ping": true,
         "transport.set_tempo": true,
@@ -1069,6 +1070,15 @@ describe("AbletonBridgeService", () => {
       "audio_clips.inspect": true,
       "audio_clips.warp_markers": true,
     });
+    expect(
+      (await service.getCapabilities()).capabilityDetails?.[
+        "recording.inspect"
+      ],
+    ).toMatchObject({
+      supported: true,
+      evidence: "public",
+      minimumLiveVersion: "11.0",
+    });
 
     const scenes = await service.executeScenesOperation({
       action: "list",
@@ -1346,6 +1356,236 @@ describe("AbletonBridgeService", () => {
         command: "scenes.mutate",
       }),
     );
+    await service.stop();
+  });
+
+  it("executes final Live 11 workflow reads against the simulator", async () => {
+    const port = await startSimulator();
+    const events = new InMemoryEventPublisher();
+    const appEvents: AppEvent[] = [];
+    const telemetry: TelemetryEventEnvelope[] = [];
+    events.subscribe((event) => appEvents.push(event));
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events,
+      port,
+      telemetry: {
+        enqueue: (event) => {
+          telemetry.push(telemetryEventEnvelopeSchema.parse(event));
+        },
+      },
+    });
+
+    await service.start();
+    await expect(
+      service.executeRecordingOperation({ action: "inspect" }),
+    ).resolves.toMatchObject({
+      action: "inspect",
+      state: {
+        arrangementRecord: false,
+        sessionRecord: false,
+      },
+    });
+    await expect(
+      service.executeGrooveOperation({ action: "list", offset: 0, limit: 16 }),
+    ).resolves.toMatchObject({ action: "list" });
+    await expect(
+      service.executeSelectionViewOperation({ action: "inspect-selection" }),
+    ).resolves.toMatchObject({ action: "inspect-selection" });
+    await expect(
+      service.executeLiveHistoryOperation({ action: "inspect" }),
+    ).resolves.toMatchObject({
+      action: "inspect",
+      warnings: [expect.stringContaining("global")],
+    });
+    const curatedState = await service.inspectCuratedLiveState();
+    expect(curatedState.states.map(({ topic }) => topic)).toEqual(
+      expect.arrayContaining(["transport", "meters"]),
+    );
+    await expect(
+      service.executeWorkflowJobOperation({
+        action: "list",
+        offset: 0,
+        limit: 16,
+      }),
+    ).resolves.toMatchObject({ action: "list", jobs: [] });
+    const tracks = await service.executeTracksOperation({
+      action: "list",
+      trackKind: "regular",
+      offset: 0,
+      limit: 16,
+    });
+    if (tracks.action !== "list" || tracks.tracks[0] === undefined) {
+      throw new Error("Expected a regular track");
+    }
+    const track = tracks.tracks[0];
+    const scenes = await service.executeScenesOperation({
+      action: "list",
+      offset: 0,
+      limit: 16,
+    });
+    if (scenes.action !== "list" || scenes.scenes[0] === undefined) {
+      throw new Error("Expected a scene");
+    }
+    const scene = scenes.scenes[0];
+    await service.setTrackMixer({
+      index: track.index ?? 0,
+      expectedReference: track.reference,
+      expectedName: track.name,
+      isArmed: true,
+    });
+    await expect(
+      service.executeRecordingOperation({
+        action: "record-session-slot",
+        target: {
+          track: {
+            kind: "regular",
+            index: track.index ?? 0,
+            expectedReference: track.reference,
+            expectedName: track.name,
+          },
+          sceneIndex: 0,
+          expectedSceneReference: "99999999-9999-4999-8999-999999999999",
+          expectedSceneName: scene.name,
+          expectedHasClip: false,
+        },
+        durationBeats: 4,
+        correlationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        traceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      }),
+    ).rejects.toMatchObject({ code: "stale_reference" });
+    const correlationId = "11111111-1111-4111-8111-111111111111";
+    const traceId = "22222222-2222-4222-8222-222222222222";
+    await expect(
+      service.executeRecordingOperation({
+        action: "record-session-slot",
+        target: {
+          track: {
+            kind: "regular",
+            index: track.index ?? 0,
+            expectedReference: track.reference,
+            expectedName: track.name,
+          },
+          sceneIndex: 0,
+          expectedSceneReference: scene.reference,
+          expectedSceneName: scene.name,
+          expectedHasClip: false,
+        },
+        durationBeats: 4,
+        correlationId,
+        traceId,
+      }),
+    ).resolves.toMatchObject({
+      action: "record-session-slot",
+      job: { status: "running", correlationId, traceId },
+    });
+    await waitFor(
+      () =>
+        appEvents.filter(
+          (event) =>
+            event.type === "ableton.event_received" &&
+            event.event.startsWith("workflow_job."),
+        ).length === 3,
+    );
+    const jobs = await service.executeWorkflowJobOperation({
+      action: "list",
+      offset: 0,
+      limit: 16,
+    });
+    if (jobs.action !== "list" || jobs.jobs[0] === undefined) {
+      throw new Error("Expected a running workflow job");
+    }
+    await expect(
+      service.executeWorkflowJobOperation({
+        action: "get",
+        jobId: jobs.jobs[0].jobId,
+      }),
+    ).resolves.toMatchObject({
+      action: "get",
+      job: { status: "completed" },
+    });
+    await waitFor(
+      () =>
+        appEvents.filter(
+          (event) =>
+            event.type === "ableton.event_received" &&
+            event.event.startsWith("workflow_job."),
+        ).length === 4,
+    );
+    const secondScene = scenes.scenes[1];
+    if (secondScene === undefined) {
+      throw new Error("Expected a second scene");
+    }
+    const secondRecording = await service.executeRecordingOperation({
+      action: "record-session-slot",
+      target: {
+        track: {
+          kind: "regular",
+          index: track.index ?? 0,
+          expectedReference: track.reference,
+          expectedName: track.name,
+        },
+        sceneIndex: 1,
+        expectedSceneReference: secondScene.reference,
+        expectedSceneName: secondScene.name,
+        expectedHasClip: false,
+      },
+      durationBeats: 4,
+      correlationId: "33333333-3333-4333-8333-333333333333",
+      traceId: "44444444-4444-4444-8444-444444444444",
+    });
+    if (secondRecording.action !== "record-session-slot") {
+      throw new Error("Expected a second recording job");
+    }
+    await expect(
+      service.executeWorkflowJobOperation({
+        action: "cancel",
+        jobId: secondRecording.job.jobId,
+      }),
+    ).resolves.toMatchObject({
+      action: "cancel",
+      cancelled: true,
+      job: { status: "cancelled" },
+    });
+    await expect(
+      service.executeWorkflowJobOperation({
+        action: "get",
+        jobId: secondRecording.job.jobId,
+      }),
+    ).resolves.toMatchObject({
+      action: "get",
+      job: { status: "cancelled" },
+    });
+    expect(
+      appEvents
+        .filter(
+          (event) =>
+            event.type === "ableton.event_received" &&
+            event.event.startsWith("workflow_job."),
+        )
+        .map((event) => ("event" in event ? event.event : ""))
+        .slice(0, 4),
+    ).toEqual([
+      "workflow_job.queued",
+      "workflow_job.started",
+      "workflow_job.progress",
+      "workflow_job.completed",
+    ]);
+    const completedTelemetry = telemetry.find(
+      (event) =>
+        event.name === "bridge.event.received" &&
+        event.attributes.eventName === "workflow_job.completed",
+    );
+    expect(completedTelemetry?.correlationId).toBe(correlationId);
+    expect(completedTelemetry?.trace?.traceId).toBe(traceId);
+    expect(completedTelemetry?.attributes.jobStatus).toBe("completed");
+    expect(
+      appEvents.some(
+        (event) =>
+          event.type === "ableton.event_received" &&
+          event.event === "workflow_job.cancelled",
+      ),
+    ).toBe(true);
     await service.stop();
   });
 

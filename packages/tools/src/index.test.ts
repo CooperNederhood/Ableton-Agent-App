@@ -7,6 +7,7 @@ import {
   createAbletonTools,
   parseAbletonToolFailure,
   resolveAbletonOperation,
+  scopeAbletonTools,
   toolCatalogPolicy,
   type AbletonToolServices,
   type ToolApprovalRequest,
@@ -1144,6 +1145,15 @@ describe("Ableton tools", () => {
       "custom:ableton_transport",
       "custom:ableton_midi_notes",
       "custom:ableton_audio_clips",
+      "custom:ableton_recording",
+      "custom:ableton_grooves",
+      "custom:ableton_selection_view",
+      "custom:ableton_live_history",
+      "custom:ableton_browser_adapters",
+      "custom:ableton_clip_automation",
+      "custom:ableton_warp_markers",
+      "custom:ableton_special_devices",
+      "custom:ableton_workflow_jobs",
     ]);
     expect(toolSet.tools.length).toBeLessThanOrEqual(
       toolCatalogPolicy.maximumEagerTools,
@@ -1170,6 +1180,15 @@ describe("Ableton tools", () => {
             "ableton_transport",
             "ableton_midi_notes",
             "ableton_audio_clips",
+            "ableton_recording",
+            "ableton_grooves",
+            "ableton_selection_view",
+            "ableton_live_history",
+            "ableton_browser_adapters",
+            "ableton_clip_automation",
+            "ableton_warp_markers",
+            "ableton_special_devices",
+            "ableton_workflow_jobs",
           ].includes(metadata.name),
         )
         .map(({ name }) => name),
@@ -1180,7 +1199,69 @@ describe("Ableton tools", () => {
       "ableton_transport",
       "ableton_midi_notes",
       "ableton_audio_clips",
+      "ableton_recording",
+      "ableton_grooves",
+      "ableton_selection_view",
+      "ableton_live_history",
+      "ableton_browser_adapters",
+      "ableton_clip_automation",
+      "ableton_warp_markers",
+      "ableton_special_devices",
+      "ableton_workflow_jobs",
     ]);
+  });
+
+  it("prunes grouped tool actions by operation allowlist and capabilities", () => {
+    const scoped = scopeAbletonTools(createAbletonTools(services()), {
+      allowedToolNames: ["ableton_recording", "ableton_tracks_delete"],
+      allowedOperationIds: [
+        "recording.inspect",
+        "recording.set_arrangement_record",
+      ],
+      capabilities: {
+        "recording.inspect": true,
+        "recording.set_arrangement_record": false,
+      },
+    });
+
+    expect(scoped.map((tool) => tool.name)).toEqual([
+      "ableton_tracks_delete",
+      "ableton_recording",
+    ]);
+    const recording = scoped.find((tool) => tool.name === "ableton_recording");
+    const parameters = recording?.parameters as {
+      safeParse(value: unknown): { success: boolean };
+    };
+    expect(parameters.safeParse({ action: "inspect" }).success).toBe(true);
+    expect(
+      parameters.safeParse({
+        action: "set-arrangement-record",
+        enabled: true,
+        confirmation: {
+          expectedProjectId: "00000000-0000-4000-8000-000000000001",
+          expectedValue: false,
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("fails closed when a connected capability document omits an action", () => {
+    const scoped = scopeAbletonTools(createAbletonTools(services()), {
+      allowedToolNames: ["ableton_recording"],
+      allowedOperationIds: ["recording.inspect", "recording.set_overdub"],
+      capabilities: {
+        "recording.inspect": true,
+      },
+    });
+    const recording = scoped[0];
+    const parameters = recording?.parameters as {
+      safeParse(value: unknown): { success: boolean };
+    };
+
+    expect(parameters.safeParse({ action: "inspect" }).success).toBe(true);
+    expect(
+      parameters.safeParse({ action: "set-overdub", enabled: true }).success,
+    ).toBe(false);
   });
 
   it("resolves action-aware metadata and exact affected tracks from arguments", () => {
@@ -1226,6 +1307,66 @@ describe("Ableton tools", () => {
         targetKind: "track-device-to-track",
       },
     });
+  });
+
+  it("classifies recording and global history actions with exact approval scope", () => {
+    const globalRecord = resolveAbletonOperation("ableton_recording", {
+      action: "set-arrangement-record",
+      enabled: true,
+    });
+    expect(globalRecord?.metadata).toMatchObject({
+      operationId: "recording.set_arrangement_record",
+      risk: "broad",
+      editScope: "session",
+    });
+    expect(globalRecord?.descriptor).toMatchObject({
+      protocolCommand: "recording.set_arrangement_record",
+      lifecycleEvents: {
+        requested: "agent.operation.requested",
+        policyEvaluated: "agent.operation.policy",
+        queued: "agent.operation.queued",
+        started: "agent.operation.started",
+        progress: "workflow_job.progress",
+        verification: "agent.operation.verification",
+        completed: "agent.operation.completed",
+        failed: "agent.operation.failed",
+        cancelled: "agent.operation.cancelled",
+      },
+    });
+
+    const timed = resolveAbletonOperation("ableton_recording", {
+      action: "record-session-slot",
+      target: {
+        track: {
+          kind: "regular",
+          index: 0,
+          expectedReference: "00000000-0000-4000-8000-000000000001",
+          expectedName: "Drums",
+        },
+        sceneIndex: 2,
+        expectedSceneReference: "00000000-0000-4000-8000-000000000020",
+        expectedSceneName: "Verse",
+        expectedHasClip: false,
+      },
+      durationBeats: 4,
+      correlationId: "00000000-0000-4000-8000-000000000010",
+      traceId: "00000000-0000-4000-8000-000000000011",
+    });
+    expect(timed?.affectedTrackReferences).toEqual([
+      "00000000-0000-4000-8000-000000000001",
+    ]);
+    expect(timed?.metadata).toMatchObject({
+      duration: "long",
+      editScope: "affected-tracks",
+      mutationTarget: "tracks",
+    });
+
+    expect(
+      resolveAbletonOperation("ableton_live_history", {
+        action: "undo",
+        confirmation: "global-live-history",
+      })?.metadata,
+    ).toMatchObject({ risk: "broad", editScope: "session" });
   });
 
   it("invokes application service ports instead of transport code", async () => {
@@ -1610,7 +1751,7 @@ describe("Ableton tools", () => {
     );
 
     expect(ports.getConnectionStatus).toHaveBeenCalledTimes(
-      toolSet.tools.length - 6,
+      toolSet.tools.length - 15,
     );
     expect(ports.inspectSession).toHaveBeenCalledOnce();
     expect(ports.setTempo).toHaveBeenCalledWith(132);

@@ -555,6 +555,14 @@ export function createAbletonService(
           "project.changed",
           "live_event.occurred",
           "live_event.invalidated",
+          "live_state.changed",
+          "workflow_job.queued",
+          "workflow_job.started",
+          "workflow_job.progress",
+          "workflow_job.completed",
+          "workflow_job.failed",
+          "workflow_job.cancelled",
+          "workflow_job.indeterminate",
         ],
         onRequest: ({ requestId, correlationId, command, params }) =>
           logger.debug("Ableton bridge request", {
@@ -651,6 +659,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       : { requestToolApproval: options.requestToolApproval }),
     askForReadApproval: options.askForReadApproval ?? false,
     getAbletonStatus: () => ableton.getStatus(),
+    getAbletonCapabilities: () => ableton.getCapabilities(),
     inspectSession: () => ableton.inspectSession(),
     executeScenesOperation: (params) => ableton.executeScenesOperation!(params),
     executeTracksOperation: (params) => ableton.executeTracksOperation!(params),
@@ -662,6 +671,23 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       ableton.executeMidiNotesOperation!(params),
     executeAudioClipsOperation: (params) =>
       ableton.executeAudioClipsOperation!(params),
+    executeRecordingOperation: (params) =>
+      ableton.executeRecordingOperation!(params),
+    executeGrooveOperation: (params) => ableton.executeGrooveOperation!(params),
+    executeSelectionViewOperation: (params) =>
+      ableton.executeSelectionViewOperation!(params),
+    executeLiveHistoryOperation: (params) =>
+      ableton.executeLiveHistoryOperation!(params),
+    executeBrowserAdapterOperation: (params) =>
+      ableton.executeBrowserAdapterOperation!(params),
+    executeClipAutomationOperation: (params) =>
+      ableton.executeClipAutomationOperation!(params),
+    executeWarpMarkerOperation: (params) =>
+      ableton.executeWarpMarkerOperation!(params),
+    executeSpecializedDeviceOperation: (params) =>
+      ableton.executeSpecializedDeviceOperation!(params),
+    executeWorkflowJobOperation: (params) =>
+      ableton.executeWorkflowJobOperation!(params),
     preparedContextProvider: preparedContext,
     setTempo: (tempo) => ableton.setTempo(tempo),
     setPlaying: (isPlaying) => ableton.setPlaying(isPlaying),

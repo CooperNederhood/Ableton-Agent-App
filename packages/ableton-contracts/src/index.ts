@@ -9,6 +9,7 @@ export interface AbletonService {
   getProjectIdentity(): Promise<Protocol.ProjectIdentity>;
   ping(): Promise<Protocol.PingResult>;
   inspectSession(): Promise<Protocol.SessionSnapshot>;
+  inspectCuratedLiveState?(): Promise<Protocol.InspectCuratedLiveStateResult>;
   executeScenesOperation?(
     params: Protocol.ScenesOperationParams,
   ): Promise<Protocol.ScenesOperationResult>;
@@ -27,6 +28,33 @@ export interface AbletonService {
   executeAudioClipsOperation?(
     params: Protocol.AudioClipsOperationParams,
   ): Promise<Protocol.AudioClipsOperationResult>;
+  executeRecordingOperation?(
+    params: Protocol.RecordingOperationParams,
+  ): Promise<Protocol.RecordingOperationResult>;
+  executeGrooveOperation?(
+    params: Protocol.GrooveOperationParams,
+  ): Promise<Protocol.GrooveOperationResult>;
+  executeSelectionViewOperation?(
+    params: Protocol.SelectionViewOperationParams,
+  ): Promise<Protocol.SelectionViewOperationResult>;
+  executeLiveHistoryOperation?(
+    params: Protocol.LiveHistoryOperationParams,
+  ): Promise<Protocol.LiveHistoryOperationResult>;
+  executeBrowserAdapterOperation?(
+    params: Protocol.BrowserAdapterOperationParams,
+  ): Promise<Protocol.BrowserAdapterOperationResult>;
+  executeClipAutomationOperation?(
+    params: Protocol.ClipAutomationOperationParams,
+  ): Promise<Protocol.ClipAutomationOperationResult>;
+  executeWarpMarkerOperation?(
+    params: Protocol.WarpMarkerOperationParams,
+  ): Promise<Protocol.WarpMarkerOperationResult>;
+  executeSpecializedDeviceOperation?(
+    params: Protocol.SpecializedDeviceOperationParams,
+  ): Promise<Protocol.SpecializedDeviceOperationResult>;
+  executeWorkflowJobOperation?(
+    params: Protocol.WorkflowJobOperationParams,
+  ): Promise<Protocol.WorkflowJobOperationResult>;
   setTempo(tempo: number): Promise<Protocol.SetTempoResult>;
   setPlaying(isPlaying: boolean): Promise<Protocol.SetPlayingResult>;
   inspectArrangementTransport(

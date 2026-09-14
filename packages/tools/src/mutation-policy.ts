@@ -16,6 +16,7 @@ export interface AbletonToolMutationDescriptor {
 
 export interface AbletonMutationAgentConfig {
   readonly resolvedTools: readonly string[];
+  readonly resolvedOperations?: readonly string[];
   readonly editScope: readonly ActiveAgentConfig["editScope"][number][];
 }
 
@@ -110,6 +111,7 @@ export interface RunAuthorizedMutationOptions<T> {
   readonly getContext: () => Promise<AbletonMutationAuthorizationContext>;
   readonly invocation: AbletonToolInvocation;
   readonly handler: () => Promise<T>;
+  readonly deferCompletion?: (result: T) => Promise<T> | undefined;
   readonly onLifecycle?: (event: {
     readonly stage:
       | "requested"
@@ -297,9 +299,26 @@ export function createAbletonMutationAuthorizer(
 
       let mutationTarget = catalogDescriptor.mutationTarget;
       try {
-        mutationTarget =
-          resolveAbletonOperation(invocation.toolName, invocation.args)
-            ?.metadata.mutationTarget ?? mutationTarget;
+        const operation = resolveAbletonOperation(
+          invocation.toolName,
+          invocation.args,
+        );
+        if (
+          operation !== undefined &&
+          context.activeAgentConfig.resolvedOperations !== undefined &&
+          !context.activeAgentConfig.resolvedOperations.includes(
+            operation.descriptor.operationId,
+          )
+        ) {
+          return deny(
+            "tool_not_allowed",
+            `Ableton operation ${operation.descriptor.operationId} is not present in the agent's resolvedOperations allowlist`,
+          );
+        }
+        if (operation?.descriptor.operationId === "workflow_jobs.cancel") {
+          return allow(invocation.toolName, "read", [], undefined);
+        }
+        mutationTarget = operation?.metadata.mutationTarget ?? mutationTarget;
       } catch {
         return deny(
           "track_reference_missing",
@@ -541,6 +560,7 @@ export async function runAuthorizedAbletonMutation<T>(
 
   options.onLifecycle?.({ stage: "queued" });
   let handle: AbletonMutationLockHandle;
+  let releaseDeferred = false;
   try {
     handle = await options.lockManager.acquire(initialAuthorization.lockScope);
   } catch (error) {
@@ -585,6 +605,31 @@ export async function runAuthorizedAbletonMutation<T>(
 
     options.onLifecycle?.({ stage: "started" });
     const result = await options.handler();
+    const deferredCompletion = options.deferCompletion?.(result);
+    if (deferredCompletion !== undefined) {
+      releaseDeferred = true;
+      void deferredCompletion
+        .then((terminalResult) => {
+          options.onLifecycle?.({
+            stage: "verification",
+            result: terminalResult,
+          });
+          options.onLifecycle?.({ stage: "completed", result: terminalResult });
+        })
+        .catch((error: unknown) => {
+          options.onLifecycle?.({
+            stage:
+              error instanceof Error && error.name === "AbortError"
+                ? "cancelled"
+                : "failed",
+            error,
+          });
+        })
+        .finally(() => {
+          handle.release();
+        });
+      return result;
+    }
     options.onLifecycle?.({ stage: "verification", result });
     options.onLifecycle?.({ stage: "completed", result });
     return result;
@@ -598,6 +643,6 @@ export async function runAuthorizedAbletonMutation<T>(
     });
     throw error;
   } finally {
-    handle.release();
+    if (!releaseDeferred) handle.release();
   }
 }

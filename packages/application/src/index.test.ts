@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionConfig, SessionEvent } from "@github/copilot-sdk";
 import type { SkillInvocation } from "@ableton-agent/agent-config";
+import { PROTOCOL_VERSION } from "@ableton-agent/protocol";
 import { serializeAbletonToolFailure } from "@ableton-agent/tools";
 
 import {
@@ -11,6 +12,7 @@ import {
 
 import {
   CopilotAgentService,
+  type CopilotAgentServiceOptions,
   HeadlessApplication,
   type AbletonService,
   type AgentRuntimeEvent,
@@ -556,7 +558,7 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
     stop: vi.fn(async () => undefined),
     getStatus: vi.fn(async () => status),
     getCapabilities: vi.fn(async () => ({
-      selectedProtocolVersion: 3 as const,
+      selectedProtocolVersion: PROTOCOL_VERSION,
       liveVersion: "12.1",
       remoteScriptVersion: "0.2.0",
       projectId: "project",
@@ -913,6 +915,31 @@ describe("CopilotAgentService", () => {
     );
     const requestToolApproval = vi.fn(() => Promise.resolve(true));
     const runtimeEvents: AgentRuntimeEvent[] = [];
+    const jobId = "00000000-0000-4000-8000-000000000070";
+    const correlationId = "00000000-0000-4000-8000-000000000071";
+    const traceId = "00000000-0000-4000-8000-000000000072";
+    let jobStatus: "running" | "completed" = "running";
+    const workflowJob = () => ({
+      jobId,
+      kind: "timed-session-recording" as const,
+      status: jobStatus,
+      progress: jobStatus === "completed" ? 1 : 0.25,
+      createdAt: "2026-09-14T00:00:00.000Z",
+      updatedAt: "2026-09-14T00:00:01.000Z",
+      correlationId,
+      traceId,
+      ...(jobStatus === "completed" ? { result: { verified: true } } : {}),
+    });
+    const renameTrack = vi.fn(
+      (params: Parameters<CopilotAgentServiceOptions["renameTrack"]>[0]) =>
+        Promise.resolve({
+          reference: params.expectedReference,
+          index: params.index,
+          beforeName: params.expectedName,
+          afterName: params.name,
+          verified: true as const,
+        }),
+    );
     const service = new CopilotAgentService({
       events: new InMemoryEventPublisher(),
       runtimeObserver: {
@@ -972,14 +999,7 @@ describe("CopilotAgentService", () => {
           },
           verified: true,
         }),
-      renameTrack: (params) =>
-        Promise.resolve({
-          reference: params.expectedReference,
-          index: params.index,
-          beforeName: params.expectedName,
-          afterName: params.name,
-          verified: true,
-        }),
+      renameTrack,
       setTrackMixer: (params) =>
         Promise.resolve({
           reference: params.expectedReference,
@@ -1134,6 +1154,17 @@ describe("CopilotAgentService", () => {
           },
           verified: true as const,
         }),
+      executeRecordingOperation: (params) =>
+        Promise.resolve({
+          action: params.action as "record-session-slot",
+          job: workflowJob(),
+          recordingIntent: "record" as const,
+        }),
+      executeWorkflowJobOperation: (params) =>
+        Promise.resolve({
+          action: params.action as "get",
+          job: workflowJob(),
+        }),
       requestToolApproval,
       clientFactory: () => ({
         createSession: (received) => {
@@ -1160,6 +1191,72 @@ describe("CopilotAgentService", () => {
       name: "AgentTurnTimeoutError",
       timeoutMs: 180_000,
     });
+    type TestTool = {
+      name: string;
+      handler: (
+        args: unknown,
+        invocation: { toolCallId: string },
+      ) => Promise<unknown>;
+    };
+    const configuredTools = config?.tools as unknown as TestTool[];
+    const recordingTool = configuredTools.find(
+      (tool) => tool.name === "ableton_recording",
+    );
+    const renameTool = configuredTools.find(
+      (tool) => tool.name === "ableton_tracks_rename",
+    );
+    if (recordingTool === undefined || renameTool === undefined) {
+      throw new Error("Expected recording and rename tools");
+    }
+    await recordingTool.handler(
+      {
+        action: "record-session-slot",
+        target: {
+          track: {
+            kind: "regular",
+            index: 0,
+            expectedReference: "00000000-0000-4000-8000-000000000001",
+            expectedName: "Drums",
+          },
+          sceneIndex: 0,
+          expectedSceneReference: "00000000-0000-4000-8000-000000000002",
+          expectedSceneName: "Verse",
+          expectedHasClip: false,
+        },
+        durationBeats: 4,
+        correlationId,
+        traceId,
+      },
+      { toolCallId: "recording-1" },
+    );
+    const renamePromise = renameTool.handler(
+      {
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Drums",
+        name: "Drums 2",
+      },
+      { toolCallId: "rename-1" },
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    expect(renameTrack).not.toHaveBeenCalled();
+    expect(
+      runtimeEvents.some(
+        (event) =>
+          event.type === "agent.operation.completed" &&
+          event.data.toolCallId === "recording-1",
+      ),
+    ).toBe(false);
+    jobStatus = "completed";
+    await renamePromise;
+    expect(renameTrack).toHaveBeenCalledOnce();
+    expect(
+      runtimeEvents.some(
+        (event) =>
+          event.type === "agent.operation.completed" &&
+          event.data.toolCallId === "recording-1",
+      ),
+    ).toBe(true);
     await service.stop();
 
     expect(response).toBe("Ableton is connected.");
@@ -1173,7 +1270,6 @@ describe("CopilotAgentService", () => {
       "custom:ableton_transport_create_cue_point",
       "custom:ableton_transport_delete_cue_point",
       "custom:ableton_tracks_create",
-      "custom:ableton_tracks_delete",
       "custom:ableton_tracks_rename",
       "custom:ableton_tracks_set_mixer",
       "custom:ableton_clips_create_midi",
@@ -1213,8 +1309,17 @@ describe("CopilotAgentService", () => {
       "custom:ableton_transport",
       "custom:ableton_midi_notes",
       "custom:ableton_audio_clips",
+      "custom:ableton_recording",
+      "custom:ableton_grooves",
+      "custom:ableton_selection_view",
+      "custom:ableton_live_history",
+      "custom:ableton_browser_adapters",
+      "custom:ableton_clip_automation",
+      "custom:ableton_warp_markers",
+      "custom:ableton_special_devices",
+      "custom:ableton_workflow_jobs",
     ]);
-    expect(config?.tools).toHaveLength(49);
+    expect(config?.tools).toHaveLength(57);
     expect(config?.customAgents).toEqual([
       {
         name: "default-agent",
@@ -1233,7 +1338,6 @@ describe("CopilotAgentService", () => {
           "ableton_transport_create_cue_point",
           "ableton_transport_delete_cue_point",
           "ableton_tracks_create",
-          "ableton_tracks_delete",
           "ableton_tracks_rename",
           "ableton_tracks_set_mixer",
           "ableton_clips_create_midi",
@@ -1273,6 +1377,15 @@ describe("CopilotAgentService", () => {
           "ableton_transport",
           "ableton_midi_notes",
           "ableton_audio_clips",
+          "ableton_recording",
+          "ableton_grooves",
+          "ableton_selection_view",
+          "ableton_live_history",
+          "ableton_browser_adapters",
+          "ableton_clip_automation",
+          "ableton_warp_markers",
+          "ableton_special_devices",
+          "ableton_workflow_jobs",
         ],
         infer: false,
       },

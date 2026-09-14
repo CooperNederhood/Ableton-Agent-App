@@ -48,6 +48,8 @@ import {
   inspectDrumRackPadsResultSchema,
   inspectEventSelectionParamsSchema,
   inspectEventSelectionResultSchema,
+  inspectCuratedLiveStateParamsSchema,
+  inspectCuratedLiveStateResultSchema,
   inspectMidiNotesParamsSchema,
   inspectMidiNotesResultSchema,
   inspectRackChainDevicesParamsSchema,
@@ -119,6 +121,26 @@ import {
   transportMutationParamsSchema,
   transportOperationResultSchema,
 } from "./core-domain-schemas.js";
+import {
+  browserAdapterOperationParamsSchema,
+  browserAdapterOperationResultSchema,
+  clipAutomationOperationParamsSchema,
+  clipAutomationOperationResultSchema,
+  grooveOperationParamsSchema,
+  grooveOperationResultSchema,
+  liveHistoryOperationParamsSchema,
+  liveHistoryOperationResultSchema,
+  recordingOperationParamsSchema,
+  recordingOperationResultSchema,
+  selectionViewOperationParamsSchema,
+  selectionViewOperationResultSchema,
+  specializedDeviceOperationParamsSchema,
+  specializedDeviceOperationResultSchema,
+  warpMarkerOperationParamsSchema,
+  warpMarkerOperationResultSchema,
+  workflowJobOperationParamsSchema,
+  workflowJobOperationResultSchema,
+} from "./workflow-adapter-schemas.js";
 
 export const timeoutClassSchema = z.enum(["normal", "long"]);
 export type TimeoutClass = z.infer<typeof timeoutClassSchema>;
@@ -204,9 +226,278 @@ export const commandCatalog = {
     audioClipsOperationResultSchema,
     { mutates: true },
   ),
+  "recording.inspect": command(
+    recordingOperationParamsSchema.options[0],
+    recordingOperationResultSchema.options[0],
+  ),
+  "recording.set_arrangement_record": command(
+    recordingOperationParamsSchema.options[1],
+    recordingOperationResultSchema.options[1],
+    { mutates: true },
+  ),
+  "recording.set_session_record": command(
+    recordingOperationParamsSchema.options[2],
+    recordingOperationResultSchema.options[2],
+    { mutates: true },
+  ),
+  "recording.set_overdub": command(
+    recordingOperationParamsSchema.options[3],
+    recordingOperationResultSchema.options[3],
+    { mutates: true },
+  ),
+  "recording.set_session_automation_record": command(
+    recordingOperationParamsSchema.options[4],
+    recordingOperationResultSchema.options[4],
+    { mutates: true },
+  ),
+  "recording.set_punch": command(
+    recordingOperationParamsSchema.options[5],
+    recordingOperationResultSchema.options[5],
+    { mutates: true },
+  ),
+  "recording.capture_midi": command(
+    recordingOperationParamsSchema.options[6],
+    recordingOperationResultSchema.options[6],
+    { mutates: true },
+  ),
+  "recording.record_session_slot": command(
+    recordingOperationParamsSchema.options[7],
+    recordingOperationResultSchema.options[7],
+    { mutates: true, timeoutClass: "long" },
+  ),
+  "grooves.list": command(
+    grooveOperationParamsSchema.options[0],
+    grooveOperationResultSchema.options[0],
+  ),
+  "grooves.get": command(
+    grooveOperationParamsSchema.options[1],
+    grooveOperationResultSchema.options[1],
+  ),
+  "grooves.inspect_clip": command(
+    grooveOperationParamsSchema.options[2],
+    grooveOperationResultSchema.options[2],
+  ),
+  "grooves.set_clip_groove": command(
+    grooveOperationParamsSchema.options[3],
+    grooveOperationResultSchema.options[3],
+    { mutates: true },
+  ),
+  "grooves.clear_clip_groove": command(
+    grooveOperationParamsSchema.options[4],
+    grooveOperationResultSchema.options[4],
+    { mutates: true },
+  ),
+  "grooves.set_properties": command(
+    grooveOperationParamsSchema.options[5],
+    grooveOperationResultSchema.options[5],
+    { mutates: true },
+  ),
+  "grooves.set_global_amount": command(
+    grooveOperationParamsSchema.options[6],
+    grooveOperationResultSchema.options[6],
+    { mutates: true },
+  ),
+  "selection_view.inspect_selection": command(
+    selectionViewOperationParamsSchema.options[0],
+    selectionViewOperationResultSchema.options[0],
+  ),
+  "selection_view.inspect_view": command(
+    selectionViewOperationParamsSchema.options[1],
+    selectionViewOperationResultSchema.options[1],
+  ),
+  "selection_view.select_track": command(
+    selectionViewOperationParamsSchema.options[2],
+    selectionViewOperationResultSchema.options[2],
+    { mutates: true },
+  ),
+  "selection_view.select_scene": command(
+    selectionViewOperationParamsSchema.options[3],
+    selectionViewOperationResultSchema.options[3],
+    { mutates: true },
+  ),
+  "selection_view.select_slot": command(
+    selectionViewOperationParamsSchema.options[4],
+    selectionViewOperationResultSchema.options[4],
+    { mutates: true },
+  ),
+  "selection_view.select_clip": command(
+    selectionViewOperationParamsSchema.options[5],
+    selectionViewOperationResultSchema.options[5],
+    { mutates: true },
+  ),
+  "selection_view.select_device": command(
+    selectionViewOperationParamsSchema.options[6],
+    selectionViewOperationResultSchema.options[6],
+    { mutates: true },
+  ),
+  "selection_view.select_chain": command(
+    selectionViewOperationParamsSchema.options[7],
+    selectionViewOperationResultSchema.options[7],
+    { mutates: true },
+  ),
+  "selection_view.set_view": command(
+    selectionViewOperationParamsSchema.options[8],
+    selectionViewOperationResultSchema.options[8],
+    { mutates: true },
+  ),
+  "selection_view.set_follow": command(
+    selectionViewOperationParamsSchema.options[9],
+    selectionViewOperationResultSchema.options[9],
+    { mutates: true },
+  ),
+  "selection_view.set_draw_mode": command(
+    selectionViewOperationParamsSchema.options[10],
+    selectionViewOperationResultSchema.options[10],
+    { mutates: true },
+  ),
+  "selection_view.set_track_fold": command(
+    selectionViewOperationParamsSchema.options[11],
+    selectionViewOperationResultSchema.options[11],
+    { mutates: true },
+  ),
+  "selection_view.set_device_collapsed": command(
+    selectionViewOperationParamsSchema.options[12],
+    selectionViewOperationResultSchema.options[12],
+    { mutates: true },
+  ),
+  "live_history.inspect": command(
+    liveHistoryOperationParamsSchema.options[0],
+    liveHistoryOperationResultSchema.options[0],
+  ),
+  "live_history.undo": command(
+    liveHistoryOperationParamsSchema.options[1],
+    liveHistoryOperationResultSchema.options[1],
+    { mutates: true },
+  ),
+  "live_history.redo": command(
+    liveHistoryOperationParamsSchema.options[2],
+    liveHistoryOperationResultSchema.options[2],
+    { mutates: true },
+  ),
+  "browser_adapters.preview": command(
+    browserAdapterOperationParamsSchema.options[0],
+    browserAdapterOperationResultSchema.options[0],
+    { mutates: true },
+  ),
+  "browser_adapters.stop_preview": command(
+    browserAdapterOperationParamsSchema.options[1],
+    browserAdapterOperationResultSchema.options[1],
+    { mutates: true },
+  ),
+  "browser_adapters.hot_swap": command(
+    browserAdapterOperationParamsSchema.options[2],
+    browserAdapterOperationResultSchema.options[2],
+    { mutates: true, timeoutClass: "long" },
+  ),
+  "browser_adapters.insert_adjacent": command(
+    browserAdapterOperationParamsSchema.options[3],
+    browserAdapterOperationResultSchema.options[3],
+    { mutates: true, timeoutClass: "long" },
+  ),
+  "browser_adapters.load_empty_drum_pad": command(
+    browserAdapterOperationParamsSchema.options[4],
+    browserAdapterOperationResultSchema.options[4],
+    { mutates: true, timeoutClass: "long" },
+  ),
+  "clip_automation.list_envelopes": command(
+    clipAutomationOperationParamsSchema.options[0],
+    clipAutomationOperationResultSchema.options[0],
+  ),
+  "clip_automation.sample": command(
+    clipAutomationOperationParamsSchema.options[1],
+    clipAutomationOperationResultSchema.options[1],
+  ),
+  "clip_automation.insert_step": command(
+    clipAutomationOperationParamsSchema.options[2],
+    clipAutomationOperationResultSchema.options[2],
+    { mutates: true },
+  ),
+  "clip_automation.clear_envelope": command(
+    clipAutomationOperationParamsSchema.options[3],
+    clipAutomationOperationResultSchema.options[3],
+    { mutates: true },
+  ),
+  "clip_automation.clear_all": command(
+    clipAutomationOperationParamsSchema.options[4],
+    clipAutomationOperationResultSchema.options[4],
+    { mutates: true },
+  ),
+  "warp_markers.inspect": command(
+    warpMarkerOperationParamsSchema.options[0],
+    warpMarkerOperationResultSchema.options[0],
+  ),
+  "warp_markers.add": command(
+    warpMarkerOperationParamsSchema.options[1],
+    warpMarkerOperationResultSchema.options[1],
+    { mutates: true },
+  ),
+  "warp_markers.move": command(
+    warpMarkerOperationParamsSchema.options[2],
+    warpMarkerOperationResultSchema.options[2],
+    { mutates: true },
+  ),
+  "warp_markers.remove": command(
+    warpMarkerOperationParamsSchema.options[3],
+    warpMarkerOperationResultSchema.options[3],
+    { mutates: true },
+  ),
+  "special_devices.inspect_simpler": command(
+    specializedDeviceOperationParamsSchema.options[0],
+    specializedDeviceOperationResultSchema.options[0],
+  ),
+  "special_devices.set_simpler_markers": command(
+    specializedDeviceOperationParamsSchema.options[1],
+    specializedDeviceOperationResultSchema.options[1],
+    { mutates: true },
+  ),
+  "special_devices.set_simpler_slices": command(
+    specializedDeviceOperationParamsSchema.options[2],
+    specializedDeviceOperationResultSchema.options[2],
+    { mutates: true },
+  ),
+  "special_devices.inspect_looper": command(
+    specializedDeviceOperationParamsSchema.options[3],
+    specializedDeviceOperationResultSchema.options[3],
+  ),
+  "special_devices.control_looper": command(
+    specializedDeviceOperationParamsSchema.options[4],
+    specializedDeviceOperationResultSchema.options[4],
+    { mutates: true },
+  ),
+  "special_devices.export_looper": command(
+    specializedDeviceOperationParamsSchema.options[5],
+    specializedDeviceOperationResultSchema.options[5],
+    { mutates: true, timeoutClass: "long" },
+  ),
+  "special_devices.inspect_wavetable": command(
+    specializedDeviceOperationParamsSchema.options[6],
+    specializedDeviceOperationResultSchema.options[6],
+  ),
+  "special_devices.set_wavetable_modulation": command(
+    specializedDeviceOperationParamsSchema.options[7],
+    specializedDeviceOperationResultSchema.options[7],
+    { mutates: true },
+  ),
+  "workflow_jobs.get": command(
+    workflowJobOperationParamsSchema.options[0],
+    workflowJobOperationResultSchema.options[0],
+  ),
+  "workflow_jobs.list": command(
+    workflowJobOperationParamsSchema.options[1],
+    workflowJobOperationResultSchema.options[1],
+  ),
+  "workflow_jobs.cancel": command(
+    workflowJobOperationParamsSchema.options[2],
+    workflowJobOperationResultSchema.options[2],
+    { mutates: true },
+  ),
   "events.inspect_selection": command(
     inspectEventSelectionParamsSchema,
     inspectEventSelectionResultSchema,
+  ),
+  "events.inspect_curated_state": command(
+    inspectCuratedLiveStateParamsSchema,
+    inspectCuratedLiveStateResultSchema,
   ),
   "events.subscribe": command(
     subscribeEventParamsSchema,

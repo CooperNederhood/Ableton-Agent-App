@@ -7,8 +7,13 @@ import {
   PROTOCOL_VERSION,
   audioClipsOperationParamsSchema,
   audioClipsOperationResultSchema,
+  browserAdapterOperationParamsSchema,
+  browserAdapterOperationResultSchema,
   capabilityDocumentSchema,
   commandCatalog,
+  curatedLiveStateChangedEnvelopeSchema,
+  grooveOperationParamsSchema,
+  grooveOperationResultSchema,
   createCuePointParamsSchema,
   cuePointMutationResultSchema,
   createArrangementMidiClipParamsSchema,
@@ -52,6 +57,7 @@ import {
   inspectDrumRackPadsResultSchema,
   inspectEventSelectionParamsSchema,
   inspectEventSelectionResultSchema,
+  inspectCuratedLiveStateResultSchema,
   inspectMidiNotesParamsSchema,
   inspectMidiNotesResultSchema,
   inspectRackChainDevicesParamsSchema,
@@ -79,6 +85,8 @@ import {
   listEventSubscriptionsParamsSchema,
   listEventSubscriptionsResultSchema,
   liveEventEnvelopeSchema,
+  liveHistoryOperationParamsSchema,
+  liveHistoryOperationResultSchema,
   midiNotesOperationParamsSchema,
   midiNotesOperationResultSchema,
   mixerRoutingOperationParamsSchema,
@@ -107,18 +115,33 @@ import {
   setDeviceParameterResultSchema,
   setTempoParamsSchema,
   setTempoResultSchema,
+  recordingOperationParamsSchema,
+  recordingOperationResultSchema,
+  selectionViewOperationParamsSchema,
+  selectionViewOperationResultSchema,
+  specializedDeviceOperationParamsSchema,
+  specializedDeviceOperationResultSchema,
   tracksOperationParamsSchema,
   tracksOperationResultSchema,
   transportOperationParamsSchema,
   transportOperationResultSchema,
+  warpMarkerOperationParamsSchema,
+  warpMarkerOperationResultSchema,
+  workflowJobOperationParamsSchema,
+  workflowJobOperationResultSchema,
+  workflowJobLifecyclePayloadSchema,
   trackMutationResultSchema,
   unsubscribeEventParamsSchema,
   unsubscribeEventResultSchema,
   clearEventSubscriptionsParamsSchema,
   clearEventSubscriptionsResultSchema,
+  clipAutomationOperationParamsSchema,
+  clipAutomationOperationResultSchema,
   type CapabilityDocument,
   type AudioClipsOperationParams,
   type AudioClipsOperationResult,
+  type BrowserAdapterOperationParams,
+  type BrowserAdapterOperationResult,
   type CreateCuePointParams,
   type CuePointMutationResult,
   type CreateArrangementMidiClipParams,
@@ -168,6 +191,7 @@ import {
   type InspectDrumRackPadsParams,
   type InspectDrumRackPadsResult,
   type InspectEventSelectionResult,
+  type InspectCuratedLiveStateResult,
   type InspectMidiNotesParams,
   type InspectMidiNotesResult,
   type InspectRackChainDevicesParams,
@@ -224,6 +248,22 @@ import {
   type TransportOperationResult,
   type UnsubscribeEventResult,
   type ClearEventSubscriptionsResult,
+  type ClipAutomationOperationParams,
+  type ClipAutomationOperationResult,
+  type GrooveOperationParams,
+  type GrooveOperationResult,
+  type LiveHistoryOperationParams,
+  type LiveHistoryOperationResult,
+  type RecordingOperationParams,
+  type RecordingOperationResult,
+  type SelectionViewOperationParams,
+  type SelectionViewOperationResult,
+  type SpecializedDeviceOperationParams,
+  type SpecializedDeviceOperationResult,
+  type WarpMarkerOperationParams,
+  type WarpMarkerOperationResult,
+  type WorkflowJobOperationParams,
+  type WorkflowJobOperationResult,
   type EventSubscriptionDescriptor,
   type TimeoutClass,
 } from "@ableton-agent/protocol";
@@ -246,6 +286,103 @@ function stableTelemetryId(value: string): string {
 
 function operationCapability(domain: string, action: string): string {
   return `${domain}.${action.replaceAll("-", "_")}`;
+}
+
+const workflowOperationCommands = {
+  recording: {
+    inspect: "recording.inspect",
+    "set-arrangement-record": "recording.set_arrangement_record",
+    "set-session-record": "recording.set_session_record",
+    "set-overdub": "recording.set_overdub",
+    "set-session-automation-record": "recording.set_session_automation_record",
+    "set-punch": "recording.set_punch",
+    "capture-midi": "recording.capture_midi",
+    "record-session-slot": "recording.record_session_slot",
+  },
+  grooves: {
+    list: "grooves.list",
+    get: "grooves.get",
+    "inspect-clip": "grooves.inspect_clip",
+    "set-clip-groove": "grooves.set_clip_groove",
+    "clear-clip-groove": "grooves.clear_clip_groove",
+    "set-properties": "grooves.set_properties",
+    "set-global-amount": "grooves.set_global_amount",
+  },
+  selection_view: {
+    "inspect-selection": "selection_view.inspect_selection",
+    "inspect-view": "selection_view.inspect_view",
+    "select-track": "selection_view.select_track",
+    "select-scene": "selection_view.select_scene",
+    "select-slot": "selection_view.select_slot",
+    "select-clip": "selection_view.select_clip",
+    "select-device": "selection_view.select_device",
+    "select-chain": "selection_view.select_chain",
+    "set-view": "selection_view.set_view",
+    "set-follow": "selection_view.set_follow",
+    "set-draw-mode": "selection_view.set_draw_mode",
+    "set-track-fold": "selection_view.set_track_fold",
+    "set-device-collapsed": "selection_view.set_device_collapsed",
+  },
+  live_history: {
+    inspect: "live_history.inspect",
+    undo: "live_history.undo",
+    redo: "live_history.redo",
+  },
+  browser_adapters: {
+    preview: "browser_adapters.preview",
+    "stop-preview": "browser_adapters.stop_preview",
+    "hot-swap": "browser_adapters.hot_swap",
+    "insert-adjacent": "browser_adapters.insert_adjacent",
+    "load-empty-drum-pad": "browser_adapters.load_empty_drum_pad",
+  },
+  clip_automation: {
+    "list-envelopes": "clip_automation.list_envelopes",
+    sample: "clip_automation.sample",
+    "insert-step": "clip_automation.insert_step",
+    "clear-envelope": "clip_automation.clear_envelope",
+    "clear-all": "clip_automation.clear_all",
+  },
+  warp_markers: {
+    inspect: "warp_markers.inspect",
+    add: "warp_markers.add",
+    move: "warp_markers.move",
+    remove: "warp_markers.remove",
+  },
+  special_devices: {
+    "inspect-simpler": "special_devices.inspect_simpler",
+    "set-simpler-markers": "special_devices.set_simpler_markers",
+    "set-simpler-slices": "special_devices.set_simpler_slices",
+    "inspect-looper": "special_devices.inspect_looper",
+    "control-looper": "special_devices.control_looper",
+    "export-looper": "special_devices.export_looper",
+    "inspect-wavetable": "special_devices.inspect_wavetable",
+    "set-wavetable-modulation": "special_devices.set_wavetable_modulation",
+  },
+  workflow_jobs: {
+    get: "workflow_jobs.get",
+    list: "workflow_jobs.list",
+    cancel: "workflow_jobs.cancel",
+  },
+} as const satisfies Record<
+  string,
+  Record<string, keyof typeof commandCatalog>
+>;
+
+function operationCommand(
+  domain: keyof typeof workflowOperationCommands,
+  action: string,
+): keyof typeof commandCatalog {
+  const commands = workflowOperationCommands[domain] as Record<
+    string,
+    keyof typeof commandCatalog
+  >;
+  const command = commands[action];
+  if (command === undefined) {
+    throw new Error(
+      `Missing protocol command for operation '${domain}.${action}'`,
+    );
+  }
+  return command;
 }
 
 function verifyOperationResultAction<T extends { action: string }>(
@@ -741,6 +878,13 @@ export class AbletonBridgeService implements AbletonService {
     );
   }
 
+  public async inspectCuratedLiveState(): Promise<InspectCuratedLiveStateResult> {
+    this.#requireCapability("events.inspect_curated_state");
+    return inspectCuratedLiveStateResultSchema.parse(
+      await this.#request("events.inspect_curated_state", {}),
+    );
+  }
+
   public async executeScenesOperation(
     params: ScenesOperationParams,
   ): Promise<ScenesOperationResult> {
@@ -846,6 +990,158 @@ export class AbletonBridgeService implements AbletonService {
         validated.action === "inspect" || validated.action === "warp-markers"
           ? await this.#request("audio_clips.inspect", validated)
           : await this.#mutationRequest("audio_clips.mutate", validated),
+      ),
+    );
+  }
+
+  public async executeRecordingOperation(
+    params: RecordingOperationParams,
+  ): Promise<RecordingOperationResult> {
+    const validated = recordingOperationParamsSchema.parse(params);
+    const command = operationCommand("recording", validated.action);
+    this.#requireCapability(command);
+    return verifyOperationResultAction(
+      validated.action,
+      recordingOperationResultSchema.parse(
+        validated.action === "inspect"
+          ? await this.#request(command, validated)
+          : await this.#mutationRequest(command, validated),
+      ),
+    );
+  }
+
+  public async executeGrooveOperation(
+    params: GrooveOperationParams,
+  ): Promise<GrooveOperationResult> {
+    const validated = grooveOperationParamsSchema.parse(params);
+    const command = operationCommand("grooves", validated.action);
+    this.#requireCapability(command);
+    const read = ["list", "get", "inspect-clip"].includes(validated.action);
+    return verifyOperationResultAction(
+      validated.action,
+      grooveOperationResultSchema.parse(
+        read
+          ? await this.#request(command, validated)
+          : await this.#mutationRequest(command, validated),
+      ),
+    );
+  }
+
+  public async executeSelectionViewOperation(
+    params: SelectionViewOperationParams,
+  ): Promise<SelectionViewOperationResult> {
+    const validated = selectionViewOperationParamsSchema.parse(params);
+    const command = operationCommand("selection_view", validated.action);
+    this.#requireCapability(command);
+    const read = ["inspect-selection", "inspect-view"].includes(
+      validated.action,
+    );
+    return verifyOperationResultAction(
+      validated.action,
+      selectionViewOperationResultSchema.parse(
+        read
+          ? await this.#request(command, validated)
+          : await this.#mutationRequest(command, validated),
+      ),
+    );
+  }
+
+  public async executeLiveHistoryOperation(
+    params: LiveHistoryOperationParams,
+  ): Promise<LiveHistoryOperationResult> {
+    const validated = liveHistoryOperationParamsSchema.parse(params);
+    const command = operationCommand("live_history", validated.action);
+    this.#requireCapability(command);
+    return verifyOperationResultAction(
+      validated.action,
+      liveHistoryOperationResultSchema.parse(
+        validated.action === "inspect"
+          ? await this.#request(command, validated)
+          : await this.#mutationRequest(command, validated),
+      ),
+    );
+  }
+
+  public async executeBrowserAdapterOperation(
+    params: BrowserAdapterOperationParams,
+  ): Promise<BrowserAdapterOperationResult> {
+    const validated = browserAdapterOperationParamsSchema.parse(params);
+    const command = operationCommand("browser_adapters", validated.action);
+    this.#requireCapability(command);
+    return verifyOperationResultAction(
+      validated.action,
+      browserAdapterOperationResultSchema.parse(
+        await this.#mutationRequest(command, validated),
+      ),
+    );
+  }
+
+  public async executeClipAutomationOperation(
+    params: ClipAutomationOperationParams,
+  ): Promise<ClipAutomationOperationResult> {
+    const validated = clipAutomationOperationParamsSchema.parse(params);
+    const command = operationCommand("clip_automation", validated.action);
+    this.#requireCapability(command);
+    const read = ["list-envelopes", "sample"].includes(validated.action);
+    return verifyOperationResultAction(
+      validated.action,
+      clipAutomationOperationResultSchema.parse(
+        read
+          ? await this.#request(command, validated)
+          : await this.#mutationRequest(command, validated),
+      ),
+    );
+  }
+
+  public async executeWarpMarkerOperation(
+    params: WarpMarkerOperationParams,
+  ): Promise<WarpMarkerOperationResult> {
+    const validated = warpMarkerOperationParamsSchema.parse(params);
+    const command = operationCommand("warp_markers", validated.action);
+    this.#requireCapability(command);
+    return verifyOperationResultAction(
+      validated.action,
+      warpMarkerOperationResultSchema.parse(
+        validated.action === "inspect"
+          ? await this.#request(command, validated)
+          : await this.#mutationRequest(command, validated),
+      ),
+    );
+  }
+
+  public async executeSpecializedDeviceOperation(
+    params: SpecializedDeviceOperationParams,
+  ): Promise<SpecializedDeviceOperationResult> {
+    const validated = specializedDeviceOperationParamsSchema.parse(params);
+    const command = operationCommand("special_devices", validated.action);
+    this.#requireCapability(command);
+    const read = [
+      "inspect-simpler",
+      "inspect-looper",
+      "inspect-wavetable",
+    ].includes(validated.action);
+    return verifyOperationResultAction(
+      validated.action,
+      specializedDeviceOperationResultSchema.parse(
+        read
+          ? await this.#request(command, validated)
+          : await this.#mutationRequest(command, validated),
+      ),
+    );
+  }
+
+  public async executeWorkflowJobOperation(
+    params: WorkflowJobOperationParams,
+  ): Promise<WorkflowJobOperationResult> {
+    const validated = workflowJobOperationParamsSchema.parse(params);
+    const command = operationCommand("workflow_jobs", validated.action);
+    this.#requireCapability(command);
+    return verifyOperationResultAction(
+      validated.action,
+      workflowJobOperationResultSchema.parse(
+        validated.action === "cancel"
+          ? await this.#mutationRequest(command, validated)
+          : await this.#request(command, validated),
       ),
     );
   }
@@ -1928,6 +2224,16 @@ export class AbletonBridgeService implements AbletonService {
       this.#projectRevision = message.projectRevision;
     }
     let liveEvent: AbletonLiveEvent | undefined;
+    let jobLinkage:
+      | {
+          correlationId: string;
+          causationId?: string;
+          traceId: string;
+          jobId: string;
+          status: string;
+          progress: number;
+        }
+      | undefined;
     if (
       message.event === "live_event.occurred" ||
       message.event === "live_event.invalidated"
@@ -1950,6 +2256,22 @@ export class AbletonBridgeService implements AbletonService {
         });
       }
     }
+    if (message.event === "live_state.changed") {
+      curatedLiveStateChangedEnvelopeSchema.parse(message);
+    }
+    if (message.event.startsWith("workflow_job.")) {
+      const payload = workflowJobLifecyclePayloadSchema.parse(message.payload);
+      jobLinkage = {
+        correlationId: payload.correlationId,
+        ...(payload.causationId === undefined
+          ? {}
+          : { causationId: payload.causationId }),
+        traceId: payload.traceId,
+        jobId: payload.jobId,
+        status: payload.status,
+        progress: payload.progress,
+      };
+    }
     const event: AbletonBridgeEvent = {
       event: message.event,
       sequence: message.sequence,
@@ -1964,20 +2286,28 @@ export class AbletonBridgeService implements AbletonService {
       ...event,
     });
     const traceId =
-      liveEvent?.event === "live_event.occurred"
+      jobLinkage?.traceId ??
+      (liveEvent?.event === "live_event.occurred"
         ? liveEvent.payload.occurrenceId
         : stableTelemetryId(
             `bridge-event:${message.event}:${message.sequence}`,
-          );
+          ));
     this.#record({
       name: "bridge.event.received",
       source: "ableton-bridge",
       ...(this.#capabilities?.projectId === undefined
         ? {}
         : { projectId: this.#capabilities.projectId }),
-      ...(liveEvent?.event === "live_event.occurred"
-        ? { correlationId: liveEvent.payload.occurrenceId }
-        : {}),
+      ...(jobLinkage !== undefined
+        ? {
+            correlationId: jobLinkage.correlationId,
+            ...(jobLinkage.causationId === undefined
+              ? {}
+              : { causationId: jobLinkage.causationId }),
+          }
+        : liveEvent?.event === "live_event.occurred"
+          ? { correlationId: liveEvent.payload.occurrenceId }
+          : {}),
       ...(liveEvent === undefined
         ? {}
         : { liveEventId: liveEvent.payload.eventId }),
@@ -1987,6 +2317,13 @@ export class AbletonBridgeService implements AbletonService {
       attributes: {
         eventName: message.event,
         sequence: message.sequence,
+        ...(jobLinkage === undefined
+          ? {}
+          : {
+              jobId: jobLinkage.jobId,
+              jobStatus: jobLinkage.status,
+              jobProgress: jobLinkage.progress,
+            }),
         ...(message.projectRevision === undefined
           ? {}
           : { projectRevision: message.projectRevision }),

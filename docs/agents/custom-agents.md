@@ -57,17 +57,24 @@ The SDK owns conversation persistence. The application uses SDK session IDs and
 
 ## Tool sets
 
-YAML tool entries support exact names and `*` wildcards:
+YAML tool entries support exact tool names, canonical operation IDs, and `*`
+wildcards:
 
 ```yaml
 tools:
-  - ableton_devices_*
+  - recording.inspect
+  - recording.set_*
   - ableton_browser_search
 ```
 
-Patterns are expanded against the application tool catalog before creating the
-SDK session. Unmatched patterns invalidate the definition. Only resolved tools
-are registered, and permission policy checks the same allowlist again. The
+Operation patterns compile to their canonical grouped domain tool with a
+pruned strict action schema. Connected capability flags remove unsupported
+actions before the SDK session is created; bridge execution remains
+fail-closed if capabilities later change. Tool-name wildcards omit deprecated
+compatibility aliases and route any matching migrated alias to its canonical
+operation. An exact legacy alias remains available only when the definition
+names it exactly. Unmatched patterns invalidate the definition. Permission
+policy rechecks both the resolved tool and operation allowlists. The
 application-owned `skill` tool is added independently when the definition
 enables at least one skill.
 

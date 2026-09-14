@@ -69,6 +69,15 @@ identity.
 | `ableton_transport` | `get`, `seek`, relative `jump`, time signature, metronome, launch/record quantization, Link when exposed, cue rename/jump, and Back to Arrangement |
 | `ableton_midi_notes` | Modern note-ID `query`, `add`, `update`, exact destructive `remove`, `duplicate`, and `quantize`, preserving probability, velocity deviation, and release velocity |
 | `ableton_audio_clips` | Metadata `inspect`, including currently available warp modes; gain, pitch, warp state/mode, start/end/loop markers, and RAM mode updates; bounded warp-marker reads |
+| `ableton_recording` | Recording-state inspection and verified Arrangement/Session record, overdub, automation record, punch, Capture MIDI, and timed empty-slot recording jobs |
+| `ableton_grooves` | Revision-bound Groove Pool inspection, clip assignment/clear, supported property edits, and global amount |
+| `ableton_selection_view` | Exact selection reads/setters and supported major view, follow, draw, fold, and collapse controls |
+| `ableton_live_history` | Global `canUndo`/`canRedo`, undo, and redo with explicit warning/confirmation |
+| `ableton_browser_adapters` | Preview/stop preview and capability-detected Hot-Swap, adjacent insertion, and empty Drum Rack pad loading with state restoration |
+| `ableton_clip_automation` | Session envelope discovery/sampling, bounded step insertion, and explicit clear-one/clear-all |
+| `ableton_warp_markers` | Revision-bound add/move/remove with ordering, BPM validation, verification, and compensation |
+| `ableton_special_devices` | Capability-detected Live 11 Simpler, Looper, and Wavetable operations |
+| `ableton_workflow_jobs` | Get/list/cancel bounded asynchronous workflow jobs |
 
 Routing assignments require a recent option snapshot, exact option token, exact
 display name, target identity, and routing direction. Results surface warnings
@@ -81,8 +90,8 @@ Live 11 launch quantization is bounded to `0..13`, record quantization to
 `0..8`, pitch fine to `-50..49`, and warp-mode identifiers to `0..6`.
 
 The compatibility note-replacement tools remain destructive. The core-domain
-layer does not expose scene-scoped stop, arbitrary track reordering, recording
-controls, per-note expression editing, warp-marker mutation, or unrestricted
+layer does not expose scene-scoped stop, arbitrary track reordering,
+per-note expression editing, or unrestricted
 file import.
 
 ## Session View clips and MIDI notes
@@ -161,15 +170,23 @@ unknown load types, arbitrary paths, incompatible tracks, and active hotswap.
 
 ## Tool selection in custom agents
 
-Agent definitions select tools with exact names or wildcard patterns:
+Agent definitions select tools with exact names, operation IDs, or wildcard
+patterns:
 
 ```yaml
 tools:
   - ableton_session_inspect
-  - ableton_tracks_*
-  - ableton_clips_*
+  - recording.inspect
+  - grooves.set_*
 ```
 
-`"*"` enables the complete catalog. Patterns are expanded against the
-registered tool names when definitions load; unmatched patterns are reported
-as definition diagnostics.
+`"*"` enables the canonical catalog. Operation patterns select only matching
+actions and prune the grouped tool's strict schema. Connected capability flags
+prune unsupported actions as the session is configured. Legacy aliases are
+excluded from wildcard expansion and remain available only by exact name;
+non-equivalent exact tools remain canonical until a descriptor-backed
+replacement exists. Unmatched patterns are reported as definition
+diagnostics.
+
+The currently migrated alias is `ableton_tracks_delete`, whose canonical
+operation is `tracks.delete` on `ableton_tracks`.

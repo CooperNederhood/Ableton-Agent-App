@@ -108,6 +108,34 @@ describe("Ableton mutation policy", () => {
     });
   });
 
+  it("denies grouped actions outside the resolved operation allowlist", () => {
+    const authorizer = createAbletonMutationAuthorizer(abletonToolMetadata);
+    const result = authorizer.authorize(
+      {
+        activeAgentConfig: {
+          resolvedTools: ["ableton_recording"],
+          resolvedOperations: ["recording.inspect"],
+          editScope: ["session"],
+        },
+        editScopeBindings: [],
+      },
+      {
+        toolName: "ableton_recording",
+        args: {
+          action: "set-overdub",
+          enabled: true,
+        },
+      },
+    );
+
+    expect(result).toEqual({
+      kind: "deny",
+      code: "tool_not_allowed",
+      message:
+        "Ableton operation recording.set_overdub is not present in the agent's resolvedOperations allowlist",
+    });
+  });
+
   it("requires session scope for global mutations", () => {
     const authorizer = createAbletonMutationAuthorizer(abletonToolMetadata);
     const trackScoped = trackContext(
@@ -390,6 +418,107 @@ describe("Ableton mutation policy", () => {
       "duplicate",
       "rename",
     ]);
+  });
+
+  it("retains a mutation lock and terminal lifecycle until deferred completion", async () => {
+    const authorizer = createAbletonMutationAuthorizer(abletonToolMetadata);
+    const lockManager = createAbletonMutationLockManager();
+    const context = trackContext(
+      ["ableton_tracks_rename"],
+      [trackBinding("Drums", 0, drumsReference, 0)],
+    );
+    const invocation = {
+      toolName: "ableton_tracks_rename",
+      args: {
+        index: 0,
+        expectedReference: drumsReference,
+        expectedName: "Drums",
+        name: "Drums 2",
+      },
+    };
+    let finish!: (value: string) => void;
+    const terminal = new Promise<string>((resolve) => {
+      finish = resolve;
+    });
+    const lifecycle: string[] = [];
+    const secondHandler = vi.fn(() => Promise.resolve("second"));
+
+    await runAuthorizedAbletonMutation({
+      authorizer,
+      lockManager,
+      getContext: () => Promise.resolve(context),
+      invocation,
+      handler: () => Promise.resolve("running"),
+      deferCompletion: () => terminal,
+      onLifecycle: ({ stage }) => lifecycle.push(stage),
+    });
+    const second = runAuthorizedAbletonMutation({
+      authorizer,
+      lockManager,
+      getContext: () => Promise.resolve(context),
+      invocation,
+      handler: secondHandler,
+    });
+    await flushMicrotasks();
+    expect(secondHandler).not.toHaveBeenCalled();
+    expect(lifecycle).not.toContain("completed");
+
+    finish("completed");
+    await terminal;
+    await flushMicrotasks();
+    await second;
+    expect(secondHandler).toHaveBeenCalledOnce();
+    expect(lifecycle.slice(-2)).toEqual(["verification", "completed"]);
+  });
+
+  it("releases deferred locks with cancelled lifecycle on job cancellation", async () => {
+    const authorizer = createAbletonMutationAuthorizer(abletonToolMetadata);
+    const lockManager = createAbletonMutationLockManager();
+    const context = trackContext(
+      ["ableton_tracks_rename"],
+      [trackBinding("Drums", 0, drumsReference, 0)],
+    );
+    const invocation = {
+      toolName: "ableton_tracks_rename",
+      args: {
+        index: 0,
+        expectedReference: drumsReference,
+        expectedName: "Drums",
+        name: "Drums 2",
+      },
+    };
+    let cancel!: (error: Error) => void;
+    const terminal = new Promise<string>((_resolve, reject) => {
+      cancel = reject;
+    });
+    const lifecycle: string[] = [];
+    const secondHandler = vi.fn(() => Promise.resolve("second"));
+
+    await runAuthorizedAbletonMutation({
+      authorizer,
+      lockManager,
+      getContext: () => Promise.resolve(context),
+      invocation,
+      handler: () => Promise.resolve("running"),
+      deferCompletion: () => terminal,
+      onLifecycle: ({ stage }) => lifecycle.push(stage),
+    });
+    const second = runAuthorizedAbletonMutation({
+      authorizer,
+      lockManager,
+      getContext: () => Promise.resolve(context),
+      invocation,
+      handler: secondHandler,
+    });
+    const cancellation = new Error("cancelled");
+    cancellation.name = "AbortError";
+    cancel(cancellation);
+    await flushMicrotasks();
+    await second;
+
+    expect(secondHandler).toHaveBeenCalledOnce();
+    expect(lifecycle).toContain("cancelled");
+    expect(lifecycle).not.toContain("completed");
   });
 
   it("serializes session locks against track mutations", async () => {

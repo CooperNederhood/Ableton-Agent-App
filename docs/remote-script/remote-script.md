@@ -139,6 +139,13 @@ entries while each agent-facing tool uses a strict action discriminator. This
 preserves mutation invalidation and queue semantics without multiplying
 read-only tools.
 
+The final workflow-adapter domains keep their model-facing action unions but
+register one internal command per action (for example,
+`recording.record_session_slot` and `live_history.undo`). Validators reject a
+valid action sent to the wrong command. The capability document includes
+evidence and tested-version details; detected-but-untested private adapters
+remain fail-closed.
+
 Runtime references are cached for scenes, regular/return/master tracks, clips,
 cue points, mixer parameters, MIDI note IDs, and routing options. Mutations
 revalidate every supplied identity immediately before touching the LOM.
@@ -156,8 +163,8 @@ outside that exact inspected list or a list that has since changed.
 
 This layer intentionally omits APIs that are not safely available in Live 11:
 scene-scoped stop, arbitrary track reordering, per-note expression mutation,
-warp-marker mutation, unrestricted file import, take lanes, direct native
-device insertion, chain insertion, and Simpler replacement.
+unrestricted file import, take lanes, empty-chain creation, deterministic
+direct native device insertion, and later-version Simpler replacement APIs.
 
 Browser item identity remains exact across the search/load round trip. Runtime
 reference, root, path, and name must match, while URI comparison treats
@@ -194,7 +201,17 @@ The script has two listener layers:
 Dynamic subscriptions are installed and removed at runtime through validated
 protocol commands. They initially support parameter value changes, playing and
 triggered clip transitions, and recording-state transitions. The script
-normalizes raw LOM values into semantic occurrences before publishing them.
+also publishes typed curated `live_state.changed` events for transport,
+tempo/signature, selection, track/scene/clip/device topology, routing, and
+coalesced meters. `events.inspect_curated_state` supplies the initial state.
+
+The event layer normalizes raw LOM values into semantic occurrences before
+publishing them. Capability-detected workflow adapters additionally cover
+recording/capture, Groove Pool operations, selection/view state, Live global
+history, Browser preview and tested Hot-Swap/insertion, Session clip
+envelopes, warp-marker mutation, and Live 11-specific Simpler, Looper, and
+Wavetable operations. See
+[the capability ledger](../protocol/live-11-workflow-capability-ledger.md).
 
 Listeners must be removed during unsubscribe, client disconnect, Set
 replacement, and script shutdown. Continuous parameter changes are coalesced

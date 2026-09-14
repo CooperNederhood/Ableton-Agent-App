@@ -95,6 +95,15 @@ relevant validation pass.
   - [x] Add return/group/master inspection and supported return-track actions.
   - [ ] Add separately designed nested-rack traversal.
 - [ ] Complete unit, contract, simulator, and real-Live tests for each command.
+- [~] Add the final Live 11 workflow-adapter layer.
+  - [x] Add recording/capture, Groove Pool, selection/view, global history,
+    Session automation, warp-marker, tested Browser adapter, specialized-device,
+    and bounded job contracts and implementations.
+  - [x] Add action-aware approvals, edit scopes, capability detection, exact
+    identity checks, verified readback, compensation, and documented omissions.
+  - [x] Add typed curated state snapshots/events and coalesced meter listeners.
+  - [ ] Complete real-Live evidence runs for every capability-dependent private
+    Browser, Simpler, Looper, Wavetable, envelope, and warp-marker API shape.
 
 ### Stage 5: React product superset
 

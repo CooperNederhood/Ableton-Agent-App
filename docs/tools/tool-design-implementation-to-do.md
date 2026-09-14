@@ -19,12 +19,21 @@ Companion specification: [Tool Design](tool-design.md)
   payload summaries, trace propagation, and queue/execution timing.
   - [x] Add reusable action-aware operation descriptors and application-owned
     requested/policy/queued/started/verification/completed/failed/cancelled
+  - [x] Add action-aware descriptors, exact approval scope, lock targets, and
+    compatibility-preserving grouped tools for the final Live 11 workflow
+    adapters.
+  - [x] Add bounded workflow-job lifecycle events with
+    trace/correlation/causation IDs; lifecycle events omit result bodies and
+    rely on the redacting journal.
     events for the first Live 11 device/rack slice.
   - [x] Extend action-aware descriptors to Live 11 scenes, tracks,
     mixer/routing, transport, modern MIDI notes, and audio clips with bounded
     identities and timing.
-  - [ ] Migrate the remaining legacy tool aliases and add complete persisted
-    trace-continuity coverage.
+  - [x] Add operation-level custom-agent patterns, strict domain-schema
+    pruning, capability pruning, and exact-only compatibility-alias
+    resolution.
+  - [ ] Migrate remaining genuinely equivalent legacy tools onto canonical
+    descriptors and add complete persisted trace-continuity coverage.
 
 ## Inspection tools
 

@@ -28,7 +28,9 @@ operations. Undo/redo additionally require the literal
 made outside Ableton Agent. Timed recording and Looper export require exact
 empty-slot identities and run as cancellable jobs. Groove handles include a
 pool revision, while warp mutations include the exact clip and current marker
-snapshot revision.
+snapshot revision. Job ownership and trace linkage are application-injected;
+only the originating agent can cancel a job, and quantized recording remains
+active until Live reports that the exact created clip has stopped recording.
 
 ## Guardrails
 

@@ -1119,7 +1119,7 @@ export function createAbletonTools(
   });
   const audioClipsTool = defineTool("ableton_audio_clips", {
     description:
-      "Inspects and updates identity-bound Live 11 audio clip gain, pitch, warp, markers, and RAM state, and reads bounded warp markers. Warp-marker mutation and unrestricted file import are intentionally unavailable.",
+      "Inspects and updates identity-bound Live 11 audio clip gain, pitch, warp, markers, and RAM state, and reads bounded warp markers. Warp-marker edits are exposed separately through ableton_warp_markers; unrestricted file import is unavailable.",
     parameters: audioClipsOperationParamsSchema,
     handler: async (params) =>
       verifyOperationResultAction(

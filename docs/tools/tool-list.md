@@ -77,7 +77,7 @@ identity.
 | `ableton_clip_automation` | Session envelope discovery/sampling, bounded step insertion, and explicit clear-one/clear-all |
 | `ableton_warp_markers` | Revision-bound add/move/remove with ordering, BPM validation, verification, and compensation |
 | `ableton_special_devices` | Capability-detected Live 11 Simpler, Looper, and Wavetable operations |
-| `ableton_workflow_jobs` | Get/list/cancel bounded asynchronous workflow jobs |
+| `ableton_workflow_jobs` | Get/list bounded asynchronous workflow jobs and cancel only jobs owned by the active agent |
 
 Routing assignments require a recent option snapshot, exact option token, exact
 display name, target identity, and routing direction. Results surface warnings

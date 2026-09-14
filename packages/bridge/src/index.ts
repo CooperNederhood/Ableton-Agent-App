@@ -115,11 +115,11 @@ import {
   setDeviceParameterResultSchema,
   setTempoParamsSchema,
   setTempoResultSchema,
-  recordingOperationParamsSchema,
+  recordingCommandParamsSchema,
   recordingOperationResultSchema,
   selectionViewOperationParamsSchema,
   selectionViewOperationResultSchema,
-  specializedDeviceOperationParamsSchema,
+  specializedDeviceCommandParamsSchema,
   specializedDeviceOperationResultSchema,
   tracksOperationParamsSchema,
   tracksOperationResultSchema,
@@ -127,7 +127,7 @@ import {
   transportOperationResultSchema,
   warpMarkerOperationParamsSchema,
   warpMarkerOperationResultSchema,
-  workflowJobOperationParamsSchema,
+  workflowJobCommandParamsSchema,
   workflowJobOperationResultSchema,
   workflowJobLifecyclePayloadSchema,
   trackMutationResultSchema,
@@ -254,15 +254,15 @@ import {
   type GrooveOperationResult,
   type LiveHistoryOperationParams,
   type LiveHistoryOperationResult,
-  type RecordingOperationParams,
+  type RecordingCommandParams,
   type RecordingOperationResult,
   type SelectionViewOperationParams,
   type SelectionViewOperationResult,
-  type SpecializedDeviceOperationParams,
+  type SpecializedDeviceCommandParams,
   type SpecializedDeviceOperationResult,
   type WarpMarkerOperationParams,
   type WarpMarkerOperationResult,
-  type WorkflowJobOperationParams,
+  type WorkflowJobCommandParams,
   type WorkflowJobOperationResult,
   type EventSubscriptionDescriptor,
   type TimeoutClass,
@@ -995,9 +995,9 @@ export class AbletonBridgeService implements AbletonService {
   }
 
   public async executeRecordingOperation(
-    params: RecordingOperationParams,
+    params: RecordingCommandParams,
   ): Promise<RecordingOperationResult> {
-    const validated = recordingOperationParamsSchema.parse(params);
+    const validated = recordingCommandParamsSchema.parse(params);
     const command = operationCommand("recording", validated.action);
     this.#requireCapability(command);
     return verifyOperationResultAction(
@@ -1110,9 +1110,9 @@ export class AbletonBridgeService implements AbletonService {
   }
 
   public async executeSpecializedDeviceOperation(
-    params: SpecializedDeviceOperationParams,
+    params: SpecializedDeviceCommandParams,
   ): Promise<SpecializedDeviceOperationResult> {
-    const validated = specializedDeviceOperationParamsSchema.parse(params);
+    const validated = specializedDeviceCommandParamsSchema.parse(params);
     const command = operationCommand("special_devices", validated.action);
     this.#requireCapability(command);
     const read = [
@@ -1131,9 +1131,9 @@ export class AbletonBridgeService implements AbletonService {
   }
 
   public async executeWorkflowJobOperation(
-    params: WorkflowJobOperationParams,
+    params: WorkflowJobCommandParams,
   ): Promise<WorkflowJobOperationResult> {
-    const validated = workflowJobOperationParamsSchema.parse(params);
+    const validated = workflowJobCommandParamsSchema.parse(params);
     const command = operationCommand("workflow_jobs", validated.action);
     this.#requireCapability(command);
     return verifyOperationResultAction(

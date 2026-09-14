@@ -316,7 +316,10 @@ export function createAbletonMutationAuthorizer(
           );
         }
         if (operation?.descriptor.operationId === "workflow_jobs.cancel") {
-          return allow(invocation.toolName, "read", [], undefined);
+          // Cancellation must not wait on the lock held by the job it stops.
+          // The runtime injects the caller identity and the Remote Script
+          // rejects cancellation by any other owner.
+          return allow(invocation.toolName, "tracks", [], undefined);
         }
         mutationTarget = operation?.metadata.mutationTarget ?? mutationTarget;
       } catch {

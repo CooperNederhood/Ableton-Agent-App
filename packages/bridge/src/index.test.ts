@@ -105,7 +105,7 @@ describe("AbletonBridgeService", () => {
     expect(await service.getStatus()).toEqual({
       state: "connected",
       liveVersion: "11.3-simulator",
-      remoteScriptVersion: "0.5.0",
+      remoteScriptVersion: "0.6.0",
       projectId: "simulated-project",
     });
     await expect(service.getCapabilities()).resolves.toMatchObject({
@@ -1450,8 +1450,12 @@ describe("AbletonBridgeService", () => {
           expectedHasClip: false,
         },
         durationBeats: 4,
-        correlationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-        traceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        runtimeContext: {
+          ownerId: "agent-a",
+          correlationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          traceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          trackReferences: [track.reference],
+        },
       }),
     ).rejects.toMatchObject({ code: "stale_reference" });
     const correlationId = "11111111-1111-4111-8111-111111111111";
@@ -1472,8 +1476,12 @@ describe("AbletonBridgeService", () => {
           expectedHasClip: false,
         },
         durationBeats: 4,
-        correlationId,
-        traceId,
+        runtimeContext: {
+          ownerId: "agent-a",
+          correlationId,
+          traceId,
+          trackReferences: [track.reference],
+        },
       }),
     ).resolves.toMatchObject({
       action: "record-session-slot",
@@ -1531,8 +1539,12 @@ describe("AbletonBridgeService", () => {
         expectedHasClip: false,
       },
       durationBeats: 4,
-      correlationId: "33333333-3333-4333-8333-333333333333",
-      traceId: "44444444-4444-4444-8444-444444444444",
+      runtimeContext: {
+        ownerId: "agent-a",
+        correlationId: "33333333-3333-4333-8333-333333333333",
+        traceId: "44444444-4444-4444-8444-444444444444",
+        trackReferences: [track.reference],
+      },
     });
     if (secondRecording.action !== "record-session-slot") {
       throw new Error("Expected a second recording job");
@@ -1541,6 +1553,14 @@ describe("AbletonBridgeService", () => {
       service.executeWorkflowJobOperation({
         action: "cancel",
         jobId: secondRecording.job.jobId,
+        runtimeContext: { ownerId: "agent-b" },
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    await expect(
+      service.executeWorkflowJobOperation({
+        action: "cancel",
+        jobId: secondRecording.job.jobId,
+        runtimeContext: { ownerId: "agent-a" },
       }),
     ).resolves.toMatchObject({
       action: "cancel",

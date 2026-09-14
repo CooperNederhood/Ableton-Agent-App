@@ -241,13 +241,18 @@ has real-Live validation evidence.
 Protocol 4 adds the workflow-adapter commands and capability-detail handshake
 shape. The version bump preserves compatibility by preventing protocol 3 peers
 from accepting the extended `system.hello` contract without negotiation.
+Remote Script `0.6.0` is the minimum compatible installation for protocol 4,
+so a protocol-3 `0.5.0` installation is detected as outdated and reinstalled.
 
 `events.inspect_curated_state` returns bounded initial transport,
 tempo/signature, selection, topology, routing, and meter state.
 `live_state.changed` carries only these enumerated topics. Workflow jobs emit
 `workflow_job.queued|started|progress|completed|failed|cancelled|indeterminate`
 with bounded IDs and progress; result bodies are not copied into lifecycle
-events.
+events. Job linkage and ownership are injected from the active application
+turn rather than accepted from model-authored tool arguments. Cancellation is
+lock-free so it can stop the job holding that lock, but the Remote Script
+rejects callers other than the originating agent.
 
 See [the capability ledger](live-11-workflow-capability-ledger.md) for exact
 Live 11 support and deliberate omissions.

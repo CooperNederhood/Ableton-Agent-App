@@ -101,6 +101,15 @@ export const workflowChainTargetSchema = z
 
 const warningSchema = z.string().max(512);
 const jobKindSchema = z.enum(["timed-session-recording", "looper-export"]);
+export const workflowJobRuntimeContextSchema = z
+  .object({
+    ownerId: z.string().min(1).max(128),
+    correlationId: z.string().min(1).max(128),
+    causationId: z.string().min(1).max(128).optional(),
+    traceId: z.string().min(1).max(128),
+    trackReferences: z.array(referenceSchema).min(1).max(16),
+  })
+  .strict();
 export const workflowJobStatusSchema = z
   .object({
     jobId: z.string().uuid(),
@@ -117,9 +126,9 @@ export const workflowJobStatusSchema = z
     progress: z.number().min(0).max(1),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
-    correlationId: z.string().uuid(),
-    causationId: z.string().uuid().optional(),
-    traceId: z.string().uuid(),
+    correlationId: z.string().min(1).max(128),
+    causationId: z.string().min(1).max(128).optional(),
+    traceId: z.string().min(1).max(128),
     result: z.record(z.string(), z.unknown()).optional(),
     error: z
       .object({
@@ -198,11 +207,20 @@ export const recordingOperationParamsSchema = z.discriminatedUnion("action", [
       ),
       durationBeats: z.number().finite().positive().max(65_536),
       launchQuantization: z.number().int().min(0).max(13).optional(),
-      correlationId: z.string().uuid(),
-      causationId: z.string().uuid().optional(),
-      traceId: z.string().uuid(),
     })
     .strict(),
+]);
+export const recordingCommandParamsSchema = z.discriminatedUnion("action", [
+  recordingOperationParamsSchema.options[0],
+  recordingOperationParamsSchema.options[1],
+  recordingOperationParamsSchema.options[2],
+  recordingOperationParamsSchema.options[3],
+  recordingOperationParamsSchema.options[4],
+  recordingOperationParamsSchema.options[5],
+  recordingOperationParamsSchema.options[6],
+  recordingOperationParamsSchema.options[7].extend({
+    runtimeContext: workflowJobRuntimeContextSchema,
+  }),
 ]);
 
 const recordingMutationResultSchema = z
@@ -1000,9 +1018,6 @@ export const specializedDeviceOperationParamsSchema = z.discriminatedUnion(
           (slot) => !slot.expectedHasClip,
           "Looper export requires an empty audio slot",
         ),
-        correlationId: z.string().uuid(),
-        causationId: z.string().uuid().optional(),
-        traceId: z.string().uuid(),
       })
       .strict(),
     z
@@ -1020,6 +1035,21 @@ export const specializedDeviceOperationParamsSchema = z.discriminatedUnion(
         amount: z.number().finite().min(-1).max(1),
       })
       .strict(),
+  ],
+);
+export const specializedDeviceCommandParamsSchema = z.discriminatedUnion(
+  "action",
+  [
+    specializedDeviceOperationParamsSchema.options[0],
+    specializedDeviceOperationParamsSchema.options[1],
+    specializedDeviceOperationParamsSchema.options[2],
+    specializedDeviceOperationParamsSchema.options[3],
+    specializedDeviceOperationParamsSchema.options[4],
+    specializedDeviceOperationParamsSchema.options[5].extend({
+      runtimeContext: workflowJobRuntimeContextSchema,
+    }),
+    specializedDeviceOperationParamsSchema.options[6],
+    specializedDeviceOperationParamsSchema.options[7],
   ],
 );
 const specializedStateSchema = z.record(
@@ -1093,6 +1123,13 @@ export const workflowJobOperationParamsSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("list"), ...boundedPage }).strict(),
   z.object({ action: z.literal("cancel"), jobId: z.string().uuid() }).strict(),
 ]);
+export const workflowJobCommandParamsSchema = z.discriminatedUnion("action", [
+  workflowJobOperationParamsSchema.options[0],
+  workflowJobOperationParamsSchema.options[1],
+  workflowJobOperationParamsSchema.options[2].extend({
+    runtimeContext: workflowJobRuntimeContextSchema.pick({ ownerId: true }),
+  }),
+]);
 export const workflowJobOperationResultSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("get"), job: workflowJobStatusSchema }).strict(),
   z
@@ -1115,6 +1152,9 @@ export const workflowJobOperationResultSchema = z.discriminatedUnion("action", [
 
 export type RecordingOperationParams = z.infer<
   typeof recordingOperationParamsSchema
+>;
+export type RecordingCommandParams = z.infer<
+  typeof recordingCommandParamsSchema
 >;
 export type RecordingOperationResult = z.infer<
   typeof recordingOperationResultSchema
@@ -1154,11 +1194,17 @@ export type WarpMarkerOperationResult = z.infer<
 export type SpecializedDeviceOperationParams = z.infer<
   typeof specializedDeviceOperationParamsSchema
 >;
+export type SpecializedDeviceCommandParams = z.infer<
+  typeof specializedDeviceCommandParamsSchema
+>;
 export type SpecializedDeviceOperationResult = z.infer<
   typeof specializedDeviceOperationResultSchema
 >;
 export type WorkflowJobOperationParams = z.infer<
   typeof workflowJobOperationParamsSchema
+>;
+export type WorkflowJobCommandParams = z.infer<
+  typeof workflowJobCommandParamsSchema
 >;
 export type WorkflowJobOperationResult = z.infer<
   typeof workflowJobOperationResultSchema

@@ -14,6 +14,7 @@ except ImportError:  # pragma: no cover - available only inside Live
 
 from .errors import ProtocolFailure
 from .executor import DeferredResult
+from .identity import all_reachable_parameters
 from .system_commands import _safe_lom_getattr, _same_lom_object
 
 MAX_BEATS = 1576800
@@ -834,9 +835,7 @@ def _all_tracks(song):
 
 
 def _track_reference(context, track):
-    return _reference(
-        context, "_core_track_references", track, _all_tracks(context.song)
-    )
+    return _reference(context, "_track_references", track, _all_tracks(context.song))
 
 
 def _scene_reference(context, scene):
@@ -849,18 +848,11 @@ def _scene_reference(context, scene):
 
 
 def _parameter_reference(context, parameter):
-    parameters = []
-    for track in _all_tracks(context.song):
-        mixer = _safe_lom_getattr(track, "mixer_device")
-        if mixer is None:
-            continue
-        for name in ("volume", "panning", "crossfader", "cue_volume"):
-            candidate = _safe_lom_getattr(mixer, name)
-            if candidate is not None:
-                parameters.append(candidate)
-        parameters.extend(list(_safe_lom_getattr(mixer, "sends", ()) or ()))
     return _reference(
-        context, "_core_parameter_references", parameter, parameters
+        context,
+        "_parameter_references",
+        parameter,
+        all_reachable_parameters(context.song),
     )
 
 
@@ -873,7 +865,7 @@ def _clip_reference(context, clip):
         clips.extend(
             list(_safe_lom_getattr(track, "arrangement_clips", ()) or ())
         )
-    return _reference(context, "_core_clip_references", clip, clips)
+    return _reference(context, "_clip_references", clip, clips)
 
 
 def _cue_reference(context, cue):

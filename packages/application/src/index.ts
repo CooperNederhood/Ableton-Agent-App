@@ -110,10 +110,12 @@ import type {
   SetPlayingResult,
   SetTempoResult,
   RecordingOperationParams,
+  RecordingCommandParams,
   RecordingOperationResult,
   SelectionViewOperationParams,
   SelectionViewOperationResult,
   SpecializedDeviceOperationParams,
+  SpecializedDeviceCommandParams,
   SpecializedDeviceOperationResult,
   SetTrackMixerParams,
   SetTrackMixerResult,
@@ -129,7 +131,16 @@ import type {
   WarpMarkerOperationParams,
   WarpMarkerOperationResult,
   WorkflowJobOperationParams,
+  WorkflowJobCommandParams,
   WorkflowJobOperationResult,
+} from "@ableton-agent/protocol";
+import {
+  recordingCommandParamsSchema,
+  recordingOperationParamsSchema,
+  specializedDeviceCommandParamsSchema,
+  specializedDeviceOperationParamsSchema,
+  workflowJobCommandParamsSchema,
+  workflowJobOperationParamsSchema,
 } from "@ableton-agent/protocol";
 import type {
   AppEvent,
@@ -405,7 +416,7 @@ export interface CopilotAgentServiceOptions {
     params: AudioClipsOperationParams,
   ) => Promise<AudioClipsOperationResult>;
   executeRecordingOperation?: (
-    params: RecordingOperationParams,
+    params: RecordingCommandParams,
   ) => Promise<RecordingOperationResult>;
   executeGrooveOperation?: (
     params: GrooveOperationParams,
@@ -426,10 +437,10 @@ export interface CopilotAgentServiceOptions {
     params: WarpMarkerOperationParams,
   ) => Promise<WarpMarkerOperationResult>;
   executeSpecializedDeviceOperation?: (
-    params: SpecializedDeviceOperationParams,
+    params: SpecializedDeviceCommandParams,
   ) => Promise<SpecializedDeviceOperationResult>;
   executeWorkflowJobOperation?: (
-    params: WorkflowJobOperationParams,
+    params: WorkflowJobCommandParams,
   ) => Promise<WorkflowJobOperationResult>;
   preparedContextProvider?: PreparedContextProvider;
   setTempo: (tempo: number) => Promise<SetTempoResult>;
@@ -578,9 +589,9 @@ export interface AgentRuntimeObserver {
 }
 
 export const DEFAULT_AGENT_TURN_TIMEOUT_MS = 180_000;
-export const BASE_SYSTEM_MESSAGE_VERSION = 6;
+export const BASE_SYSTEM_MESSAGE_VERSION = 7;
 export const BASE_SYSTEM_MESSAGE =
-  "You are an Ableton Live production assistant. Use only the provided tools. Use supplied prepared project context and its exact identities directly when they are sufficient and the mutation is identity-guarded; do not inspect solely because cached mutable state is age-expired. Otherwise inspect current project state before making project-specific claims or mutations. Use the strict action variant matching the requested scene, track, mixer/routing, transport, MIDI-note, or audio-clip operation. Discover routing options immediately before assignment and reuse the exact snapshot ID, option token, display name, target, and direction; surface feedback and external-MIDI warnings. Never claim scene-scoped stop, arbitrary track reordering, recording controls in the transport tool, per-note expression editing, warp-marker mutation, or unrestricted file import. Clearly distinguish observed state from suggestions. For every requested instrument, kit, preset, or sound, search the Ableton Browser before creating its destination track. Search each distinct requested sound separately, choose roots deliberately, and resolve an exact supported loadable item. Prefer exact, loadable device or preset results over folders or loose substring matches. If search is truncated or the matches are weak, narrow the roots or try a literal musical synonym before choosing. Only after resolving the content should you create the destination track and load that exact item. Perform dependent mutations sequentially. Never retry a mutation that may already have applied; re-inspect state first and continue from the verified result.";
+  "You are an Ableton Live production assistant. Use only the provided tools. Use supplied prepared project context and its exact identities directly when they are sufficient and the mutation is identity-guarded; do not inspect solely because cached mutable state is age-expired. Otherwise inspect current project state before making project-specific claims or mutations. Use the strict action variant matching the requested scene, track, mixer/routing, transport, MIDI-note, audio-clip, or workflow operation. Discover routing options immediately before assignment and reuse the exact snapshot ID, option token, display name, target, and direction; surface feedback and external-MIDI warnings. Never claim scene-scoped stop, arbitrary track reordering, recording controls in the transport tool, per-note expression editing, empty rack-chain creation, deterministic direct native-device insertion, or unrestricted file import. Clearly distinguish observed state from suggestions. For every requested instrument, kit, preset, or sound, search the Ableton Browser before creating its destination track. Search each distinct requested sound separately, choose roots deliberately, and resolve an exact supported loadable item. Prefer exact, loadable device or preset results over folders or loose substring matches. If search is truncated or the matches are weak, narrow the roots or try a literal musical synonym before choosing. Only after resolving the content should you create the destination track and load that exact item. Perform dependent mutations sequentially. Never retry a mutation that may already have applied; re-inspect state first and continue from the verified result.";
 export const SKILL_TOOL_NAME = "skill";
 const directSkillHistoryPrefix = "<!-- ableton-agent:direct-skill ";
 
@@ -616,6 +627,79 @@ function workflowJobTerminalError(status: string, jobId: string): Error {
   const error = new Error(`Workflow job ${jobId} ended with status ${status}`);
   if (status === "cancelled") error.name = "AbortError";
   return error;
+}
+
+function workflowRuntimeContext(
+  ownerId: string,
+  trackReferences: readonly string[],
+  identifiers: {
+    readonly correlationId?: string;
+    readonly causationId?: string;
+    readonly traceId?: string;
+  } = {},
+) {
+  const correlationId = identifiers.correlationId ?? randomUUID();
+  return {
+    ownerId,
+    correlationId,
+    ...(identifiers.causationId === undefined
+      ? {}
+      : { causationId: identifiers.causationId }),
+    traceId: identifiers.traceId ?? correlationId,
+    trackReferences: [...new Set(trackReferences)],
+  };
+}
+
+function recordingCommandParams(
+  params: RecordingOperationParams,
+  ownerId: string,
+  identifiers?: {
+    readonly correlationId?: string;
+    readonly causationId?: string;
+    readonly traceId?: string;
+  },
+): RecordingCommandParams {
+  if (params.action !== "record-session-slot") return params;
+  return {
+    ...params,
+    runtimeContext: workflowRuntimeContext(
+      ownerId,
+      [params.target.track.expectedReference],
+      identifiers,
+    ),
+  };
+}
+
+function specializedDeviceCommandParams(
+  params: SpecializedDeviceOperationParams,
+  ownerId: string,
+  identifiers?: {
+    readonly correlationId?: string;
+    readonly causationId?: string;
+    readonly traceId?: string;
+  },
+): SpecializedDeviceCommandParams {
+  if (params.action !== "export-looper") return params;
+  return {
+    ...params,
+    runtimeContext: workflowRuntimeContext(
+      ownerId,
+      [
+        params.target.track.expectedReference,
+        params.destination.track.expectedReference,
+      ],
+      identifiers,
+    ),
+  };
+}
+
+function workflowJobCommandParams(
+  params: WorkflowJobOperationParams,
+  ownerId: string,
+): WorkflowJobCommandParams {
+  return params.action === "cancel"
+    ? { ...params, runtimeContext: { ownerId } }
+    : params;
 }
 
 export class AgentTurnTimeoutError extends Error {
@@ -1187,9 +1271,13 @@ export class CopilotAgentService implements AgentService {
         (() =>
           Promise.reject(new Error("Audio clip operations are unavailable"))),
       executeRecordingOperation:
-        this.options.executeRecordingOperation ??
-        (() =>
-          Promise.reject(new Error("Recording operations are unavailable"))),
+        this.options.executeRecordingOperation === undefined
+          ? () =>
+              Promise.reject(new Error("Recording operations are unavailable"))
+          : (params) =>
+              this.options.executeRecordingOperation!(
+                recordingCommandParamsSchema.parse(params),
+              ),
       executeGrooveOperation:
         this.options.executeGrooveOperation ??
         (() => Promise.reject(new Error("Groove operations are unavailable"))),
@@ -1220,15 +1308,25 @@ export class CopilotAgentService implements AgentService {
         (() =>
           Promise.reject(new Error("Warp marker operations are unavailable"))),
       executeSpecializedDeviceOperation:
-        this.options.executeSpecializedDeviceOperation ??
-        (() =>
-          Promise.reject(
-            new Error("Specialized device operations are unavailable"),
-          )),
+        this.options.executeSpecializedDeviceOperation === undefined
+          ? () =>
+              Promise.reject(
+                new Error("Specialized device operations are unavailable"),
+              )
+          : (params) =>
+              this.options.executeSpecializedDeviceOperation!(
+                specializedDeviceCommandParamsSchema.parse(params),
+              ),
       executeWorkflowJobOperation:
-        this.options.executeWorkflowJobOperation ??
-        (() =>
-          Promise.reject(new Error("Workflow job operations are unavailable"))),
+        this.options.executeWorkflowJobOperation === undefined
+          ? () =>
+              Promise.reject(
+                new Error("Workflow job operations are unavailable"),
+              )
+          : (params) =>
+              this.options.executeWorkflowJobOperation!(
+                workflowJobCommandParamsSchema.parse(params),
+              ),
       setTempo: this.options.setTempo,
       setPlaying: this.options.setPlaying,
       inspectArrangementTransport: this.options.inspectArrangementTransport,
@@ -1431,6 +1529,12 @@ export class CopilotAgentService implements AgentService {
       return {
         ...tool,
         handler: async (args: unknown, invocation: ToolInvocation) => {
+          const executionArgs = this.#workflowExecutionArgs(
+            state,
+            tool.name,
+            args,
+            invocation,
+          );
           const mutationTarget = this.#mutationAuthorizer.resolveMutationTarget(
             tool.name,
             args,
@@ -1443,7 +1547,7 @@ export class CopilotAgentService implements AgentService {
           }
           if (mutationTarget === "read") {
             return runOperation(args, invocation, () =>
-              Promise.resolve(handler(args, invocation)),
+              Promise.resolve(handler(executionArgs, invocation)),
             );
           }
           const requestedAt = Date.now();
@@ -1454,7 +1558,7 @@ export class CopilotAgentService implements AgentService {
             lockManager: this.#mutationLockManager,
             getContext: () => this.#mutationContext(state),
             invocation: { toolName: tool.name, args },
-            handler: () => Promise.resolve(handler(args, invocation)),
+            handler: () => Promise.resolve(handler(executionArgs, invocation)),
             deferCompletion: (result) => {
               const operation = resolveAbletonOperation(tool.name, args);
               return operation?.descriptor.duration === "long"
@@ -1525,6 +1629,41 @@ export class CopilotAgentService implements AgentService {
         },
       };
     });
+  }
+
+  #workflowExecutionArgs(
+    state: ManagedSessionState,
+    toolName: string,
+    args: unknown,
+    invocation: ToolInvocation,
+  ): unknown {
+    const ownerId = state.key;
+    const correlationId = state.activeTurn?.id ?? randomUUID();
+    const traceId = state.activeTurn?.trace.traceId ?? correlationId;
+    const identifiers = {
+      correlationId,
+      causationId: invocation.toolCallId,
+      traceId,
+    };
+    if (toolName === "ableton_recording") {
+      const parsed = recordingOperationParamsSchema.safeParse(args);
+      return parsed.success
+        ? recordingCommandParams(parsed.data, ownerId, identifiers)
+        : args;
+    }
+    if (toolName === "ableton_special_devices") {
+      const parsed = specializedDeviceOperationParamsSchema.safeParse(args);
+      return parsed.success
+        ? specializedDeviceCommandParams(parsed.data, ownerId, identifiers)
+        : args;
+    }
+    if (toolName === "ableton_workflow_jobs") {
+      const parsed = workflowJobOperationParamsSchema.safeParse(args);
+      return parsed.success
+        ? workflowJobCommandParams(parsed.data, ownerId)
+        : args;
+    }
+    return args;
   }
 
   #defaultSessionConfiguration(): AgentSessionConfiguration {
@@ -3611,7 +3750,9 @@ export class HeadlessApplication {
   public executeRecordingOperation(
     params: RecordingOperationParams,
   ): Promise<RecordingOperationResult> {
-    return this.services.ableton.executeRecordingOperation!(params);
+    return this.services.ableton.executeRecordingOperation!(
+      recordingCommandParams(params, "headless-application"),
+    );
   }
 
   public executeGrooveOperation(
@@ -3653,13 +3794,17 @@ export class HeadlessApplication {
   public executeSpecializedDeviceOperation(
     params: SpecializedDeviceOperationParams,
   ): Promise<SpecializedDeviceOperationResult> {
-    return this.services.ableton.executeSpecializedDeviceOperation!(params);
+    return this.services.ableton.executeSpecializedDeviceOperation!(
+      specializedDeviceCommandParams(params, "headless-application"),
+    );
   }
 
   public executeWorkflowJobOperation(
     params: WorkflowJobOperationParams,
   ): Promise<WorkflowJobOperationResult> {
-    return this.services.ableton.executeWorkflowJobOperation!(params);
+    return this.services.ableton.executeWorkflowJobOperation!(
+      workflowJobCommandParams(params, "headless-application"),
+    );
   }
 
   public setTempo(tempo: number): Promise<SetTempoResult> {

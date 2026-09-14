@@ -40,5 +40,8 @@
   cancellation, attribution, and redaction tests.
 - [x] Model running, completion, cancellation, and terminal job semantics in
   the simulator.
+- [x] Inject job ownership and trace linkage from the application runtime,
+  reject cross-agent cancellation, and wait for Live's verified recording
+  terminal state after quantized launch.
 - [x] Generate and compatibility-check protocol contracts.
 - [ ] Complete real-Live smoke validation for private Live 11 API shapes.

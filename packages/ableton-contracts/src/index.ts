@@ -29,7 +29,7 @@ export interface AbletonService {
     params: Protocol.AudioClipsOperationParams,
   ): Promise<Protocol.AudioClipsOperationResult>;
   executeRecordingOperation?(
-    params: Protocol.RecordingOperationParams,
+    params: Protocol.RecordingCommandParams,
   ): Promise<Protocol.RecordingOperationResult>;
   executeGrooveOperation?(
     params: Protocol.GrooveOperationParams,
@@ -50,10 +50,10 @@ export interface AbletonService {
     params: Protocol.WarpMarkerOperationParams,
   ): Promise<Protocol.WarpMarkerOperationResult>;
   executeSpecializedDeviceOperation?(
-    params: Protocol.SpecializedDeviceOperationParams,
+    params: Protocol.SpecializedDeviceCommandParams,
   ): Promise<Protocol.SpecializedDeviceOperationResult>;
   executeWorkflowJobOperation?(
-    params: Protocol.WorkflowJobOperationParams,
+    params: Protocol.WorkflowJobCommandParams,
   ): Promise<Protocol.WorkflowJobOperationResult>;
   setTempo(tempo: number): Promise<Protocol.SetTempoResult>;
   setPlaying(isPlaying: boolean): Promise<Protocol.SetPlayingResult>;

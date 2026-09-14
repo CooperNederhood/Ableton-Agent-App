@@ -1163,8 +1163,13 @@
           },
           "durationBeats": 1,
           "launchQuantization": 0,
-          "correlationId": "00000000-0000-4000-8000-000000000099",
-          "traceId": "00000000-0000-4000-8000-000000000099"
+          "runtimeContext": {
+            "ownerId": "x",
+            "correlationId": "x",
+            "causationId": "x",
+            "traceId": "x",
+            "trackReferences": ["00000000-0000-4000-8000-000000000099"]
+          }
         }
       },
       "success": {
@@ -1181,9 +1186,9 @@
             "progress": 0,
             "createdAt": "2000-01-01T00:00:00Z",
             "updatedAt": "2000-01-01T00:00:00Z",
-            "correlationId": "00000000-0000-4000-8000-000000000099",
-            "causationId": "00000000-0000-4000-8000-000000000099",
-            "traceId": "00000000-0000-4000-8000-000000000099"
+            "correlationId": "x",
+            "causationId": "x",
+            "traceId": "x"
           },
           "recordingIntent": "record"
         },
@@ -3459,9 +3464,13 @@
             "expectedHasClip": false,
             "expectedClipReference": "00000000-0000-4000-8000-000000000099"
           },
-          "correlationId": "00000000-0000-4000-8000-000000000099",
-          "causationId": "00000000-0000-4000-8000-000000000099",
-          "traceId": "00000000-0000-4000-8000-000000000099"
+          "runtimeContext": {
+            "ownerId": "x",
+            "correlationId": "x",
+            "causationId": "x",
+            "traceId": "x",
+            "trackReferences": ["00000000-0000-4000-8000-000000000099"]
+          }
         }
       },
       "success": {
@@ -3478,9 +3487,9 @@
             "progress": 0,
             "createdAt": "2000-01-01T00:00:00Z",
             "updatedAt": "2000-01-01T00:00:00Z",
-            "correlationId": "00000000-0000-4000-8000-000000000099",
-            "causationId": "00000000-0000-4000-8000-000000000099",
-            "traceId": "00000000-0000-4000-8000-000000000099"
+            "correlationId": "x",
+            "causationId": "x",
+            "traceId": "x"
           }
         },
         "warnings": []
@@ -3617,9 +3626,9 @@
             "progress": 0,
             "createdAt": "2000-01-01T00:00:00Z",
             "updatedAt": "2000-01-01T00:00:00Z",
-            "correlationId": "00000000-0000-4000-8000-000000000099",
-            "causationId": "00000000-0000-4000-8000-000000000099",
-            "traceId": "00000000-0000-4000-8000-000000000099"
+            "correlationId": "x",
+            "causationId": "x",
+            "traceId": "x"
           }
         },
         "warnings": []
@@ -3680,7 +3689,8 @@
         "command": "workflow_jobs.cancel",
         "params": {
           "action": "cancel",
-          "jobId": "00000000-0000-4000-8000-000000000099"
+          "jobId": "00000000-0000-4000-8000-000000000099",
+          "runtimeContext": { "ownerId": "x" }
         }
       },
       "success": {
@@ -3697,9 +3707,9 @@
             "progress": 0,
             "createdAt": "2000-01-01T00:00:00Z",
             "updatedAt": "2000-01-01T00:00:00Z",
-            "correlationId": "00000000-0000-4000-8000-000000000099",
-            "causationId": "00000000-0000-4000-8000-000000000099",
-            "traceId": "00000000-0000-4000-8000-000000000099"
+            "correlationId": "x",
+            "causationId": "x",
+            "traceId": "x"
           },
           "cancelled": false
         },

@@ -49,6 +49,12 @@ def _is_finite_number(value):
 
 def _track_reference(context, track):
     current_tracks = list(context.song.tracks)
+    current_tracks.extend(
+        list(_safe_lom_getattr(context.song, "return_tracks", ()) or ())
+    )
+    master = _safe_lom_getattr(context.song, "master_track")
+    if master is not None:
+        current_tracks.append(master)
     references = [
         (candidate, reference)
         for candidate, reference in getattr(context, "_track_references", [])

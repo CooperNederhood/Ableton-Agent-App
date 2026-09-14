@@ -167,6 +167,30 @@ describe("Ableton mutation policy", () => {
     });
   });
 
+  it("keeps workflow cancellation lock-free without classifying it as a read", () => {
+    const authorizer = createAbletonMutationAuthorizer(abletonToolMetadata);
+    const result = authorizer.authorize(
+      trackContext(
+        ["ableton_workflow_jobs"],
+        [trackBinding("Drums", 0, drumsReference, 0)],
+      ),
+      {
+        toolName: "ableton_workflow_jobs",
+        args: {
+          action: "cancel",
+          jobId: "00000000-0000-4000-8000-000000000099",
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      kind: "allow",
+      mutationTarget: "tracks",
+      trackReferences: [],
+      lockScope: undefined,
+    });
+  });
+
   it("authorizes both source and destination track references", () => {
     const authorizer = createAbletonMutationAuthorizer(abletonToolMetadata);
     const bindings = [

@@ -6,6 +6,7 @@ import math
 import uuid
 
 from .errors import ProtocolFailure
+from .identity import all_reachable_parameters
 from .system_commands import (
     _resolve_track,
     _same_lom_object,
@@ -109,22 +110,11 @@ def _chain_device_reference(context, device):
 
 
 def _parameter_reference(context, parameter):
-    reachable = [
-        candidate
-        for device in _reachable_devices(context)
-        for candidate in getattr(device, "parameters", ())
-    ]
-    for chain in _reachable_chains(context):
-        mixer = getattr(chain, "mixer_device", None)
-        if mixer is None:
-            continue
-        for name in ("volume", "panning"):
-            candidate = getattr(mixer, name, None)
-            if candidate is not None:
-                reachable.append(candidate)
-        reachable.extend(getattr(mixer, "sends", ()))
     return _runtime_reference(
-        context, "_parameter_references", parameter, reachable
+        context,
+        "_parameter_references",
+        parameter,
+        all_reachable_parameters(context.song),
     )
 
 

@@ -36,7 +36,7 @@ describe("agent safety evaluations", () => {
       "Never claim scene-scoped stop, arbitrary track reordering",
     );
     expect(BASE_SYSTEM_MESSAGE).toContain("per-note expression editing");
-    expect(BASE_SYSTEM_MESSAGE).toContain("warp-marker mutation");
+    expect(BASE_SYSTEM_MESSAGE).toContain("empty rack-chain creation");
   });
 
   it.each([

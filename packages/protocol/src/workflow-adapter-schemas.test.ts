@@ -5,6 +5,7 @@ import {
   browserAdapterOperationParamsSchema,
   clipAutomationOperationParamsSchema,
   liveHistoryOperationParamsSchema,
+  recordingCommandParamsSchema,
   recordingOperationParamsSchema,
   warpMarkerOperationParamsSchema,
   workflowJobLifecyclePayloadSchema,
@@ -41,8 +42,6 @@ describe("workflow adapter schemas", () => {
           expectedHasClip: false,
         },
         durationBeats: 8,
-        correlationId: "33333333-3333-4333-8333-333333333333",
-        traceId: "44444444-4444-4444-8444-444444444444",
       }).action,
     ).toBe("record-session-slot");
     expect(
@@ -56,10 +55,43 @@ describe("workflow adapter schemas", () => {
           expectedHasClip: true,
         },
         durationBeats: 8,
-        correlationId: "33333333-3333-4333-8333-333333333333",
-        traceId: "44444444-4444-4444-8444-444444444444",
       }).success,
     ).toBe(false);
+    expect(
+      recordingOperationParamsSchema.safeParse({
+        action: "record-session-slot",
+        target: {
+          track,
+          sceneIndex: 1,
+          expectedSceneReference: "55555555-5555-4555-8555-555555555555",
+          expectedSceneName: "Verse",
+          expectedHasClip: false,
+        },
+        durationBeats: 8,
+        correlationId: "model-controlled",
+        traceId: "model-controlled",
+      }).success,
+    ).toBe(false);
+    expect(
+      recordingCommandParamsSchema.safeParse({
+        action: "record-session-slot",
+        target: {
+          track,
+          sceneIndex: 1,
+          expectedSceneReference: "55555555-5555-4555-8555-555555555555",
+          expectedSceneName: "Verse",
+          expectedHasClip: false,
+        },
+        durationBeats: 8,
+        runtimeContext: {
+          ownerId: "agent-a",
+          correlationId: "turn-a",
+          causationId: "tool-a",
+          traceId: "trace-a",
+          trackReferences: [track.expectedReference],
+        },
+      }).success,
+    ).toBe(true);
   });
 
   it("requires explicit global-history confirmation", () => {

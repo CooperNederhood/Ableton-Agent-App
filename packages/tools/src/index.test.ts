@@ -1349,8 +1349,6 @@ describe("Ableton tools", () => {
         expectedHasClip: false,
       },
       durationBeats: 4,
-      correlationId: "00000000-0000-4000-8000-000000000010",
-      traceId: "00000000-0000-4000-8000-000000000011",
     });
     expect(timed?.affectedTrackReferences).toEqual([
       "00000000-0000-4000-8000-000000000001",

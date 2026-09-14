@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionConfig, SessionEvent } from "@github/copilot-sdk";
 import type { SkillInvocation } from "@ableton-agent/agent-config";
-import { PROTOCOL_VERSION } from "@ableton-agent/protocol";
+import {
+  PROTOCOL_VERSION,
+  recordingCommandParamsSchema,
+} from "@ableton-agent/protocol";
 import { serializeAbletonToolFailure } from "@ableton-agent/tools";
 
 import {
@@ -918,6 +921,7 @@ describe("CopilotAgentService", () => {
     const jobId = "00000000-0000-4000-8000-000000000070";
     const correlationId = "00000000-0000-4000-8000-000000000071";
     const traceId = "00000000-0000-4000-8000-000000000072";
+    let receivedRecordingParams: unknown;
     let jobStatus: "running" | "completed" = "running";
     const workflowJob = () => ({
       jobId,
@@ -1154,12 +1158,14 @@ describe("CopilotAgentService", () => {
           },
           verified: true as const,
         }),
-      executeRecordingOperation: (params) =>
-        Promise.resolve({
+      executeRecordingOperation: (params) => {
+        receivedRecordingParams = params;
+        return Promise.resolve({
           action: params.action as "record-session-slot",
           job: workflowJob(),
           recordingIntent: "record" as const,
-        }),
+        });
+      },
       executeWorkflowJobOperation: (params) =>
         Promise.resolve({
           action: params.action as "get",
@@ -1224,11 +1230,22 @@ describe("CopilotAgentService", () => {
           expectedHasClip: false,
         },
         durationBeats: 4,
-        correlationId,
-        traceId,
       },
       { toolCallId: "recording-1" },
     );
+    const receivedRecording = recordingCommandParamsSchema.parse(
+      receivedRecordingParams,
+    );
+    if (receivedRecording.action !== "record-session-slot") {
+      throw new Error("Expected runtime-enriched recording parameters");
+    }
+    expect(receivedRecording.runtimeContext.ownerId).not.toHaveLength(0);
+    expect(receivedRecording.runtimeContext.correlationId).not.toHaveLength(0);
+    expect(receivedRecording.runtimeContext.causationId).toBe("recording-1");
+    expect(receivedRecording.runtimeContext.traceId).not.toHaveLength(0);
+    expect(receivedRecording.runtimeContext.trackReferences).toEqual([
+      "00000000-0000-4000-8000-000000000001",
+    ]);
     const renamePromise = renameTool.handler(
       {
         index: 0,

@@ -64,8 +64,38 @@ def _strict_action(params, actions):
     return None
 
 
+def _runtime_context_error(params, require_tracks):
+    runtime_context = params.get("runtimeContext")
+    if not isinstance(runtime_context, dict):
+        return "Runtime job context is required"
+    for field in ("ownerId", "correlationId", "traceId"):
+        value = runtime_context.get(field)
+        if not isinstance(value, str) or not value or len(value) > 128:
+            return "Runtime job context field '{0}' is invalid".format(field)
+    causation_id = runtime_context.get("causationId")
+    if causation_id is not None and (
+        not isinstance(causation_id, str)
+        or not causation_id
+        or len(causation_id) > 128
+    ):
+        return "Runtime job context field 'causationId' is invalid"
+    if require_tracks:
+        track_references = runtime_context.get("trackReferences")
+        if (
+            not isinstance(track_references, list)
+            or not track_references
+            or len(track_references) > 16
+            or any(
+                not isinstance(reference, str) or not reference
+                for reference in track_references
+            )
+        ):
+            return "Runtime job track references are invalid"
+    return None
+
+
 def validate_recording(params):
-    return _strict_action(
+    error = _strict_action(
         params,
         (
             "inspect",
@@ -78,6 +108,11 @@ def validate_recording(params):
             "record-session-slot",
         ),
     )
+    if error is not None:
+        return error
+    if params.get("action") == "record-session-slot":
+        return _runtime_context_error(params, True)
+    return None
 
 
 def validate_grooves(params):
@@ -145,7 +180,7 @@ def validate_warp_markers(params):
 
 
 def validate_special_devices(params):
-    return _strict_action(
+    error = _strict_action(
         params,
         (
             "inspect-simpler",
@@ -158,10 +193,27 @@ def validate_special_devices(params):
             "set-wavetable-modulation",
         ),
     )
+    if error is not None:
+        return error
+    if params.get("action") == "export-looper":
+        return _runtime_context_error(params, True)
+    return None
 
 
 def validate_jobs(params):
-    return _strict_action(params, ("get", "list", "cancel"))
+    error = _strict_action(params, ("get", "list", "cancel"))
+    if error is not None:
+        return error
+    if params.get("action") == "cancel":
+        runtime_context = params.get("runtimeContext")
+        owner_id = (
+            runtime_context.get("ownerId")
+            if isinstance(runtime_context, dict)
+            else None
+        )
+        if not isinstance(owner_id, str) or not owner_id or len(owner_id) > 128:
+            return "Runtime job owner is invalid"
+    return None
 
 
 def _route_validator(validator, actions):
@@ -280,12 +332,23 @@ def _job_manager(context):
     return manager
 
 
+def _validate_job_track_context(runtime_context, expected_references):
+    actual = sorted(set(runtime_context["trackReferences"]))
+    expected = sorted(set(expected_references))
+    if actual != expected:
+        raise ProtocolFailure(
+            "invalid_params",
+            "Runtime job track scope does not match the exact operation targets",
+        )
+
+
 class WorkflowJobManager(object):
     def __init__(self, context):
         self._context = context
         self._jobs = {}
         self._order = []
         self._cancel_callbacks = {}
+        self._job_contexts = {}
 
     def _emit(self, stage, job):
         publish = getattr(self._context, "publish_event", None)
@@ -307,7 +370,7 @@ class WorkflowJobManager(object):
                 getattr(self._context, "project_revision", None),
             )
 
-    def create(self, kind, linkage, cancel_callback=None):
+    def create(self, kind, runtime_context, cancel_callback=None):
         timestamp = _now()
         job = {
             "jobId": str(uuid.uuid4()),
@@ -316,12 +379,16 @@ class WorkflowJobManager(object):
             "progress": 0.0,
             "createdAt": timestamp,
             "updatedAt": timestamp,
-            "correlationId": linkage["correlationId"],
-            "traceId": linkage["traceId"],
+            "correlationId": runtime_context["correlationId"],
+            "traceId": runtime_context["traceId"],
         }
-        if linkage.get("causationId") is not None:
-            job["causationId"] = linkage["causationId"]
+        if runtime_context.get("causationId") is not None:
+            job["causationId"] = runtime_context["causationId"]
         self._jobs[job["jobId"]] = job
+        self._job_contexts[job["jobId"]] = {
+            "ownerId": runtime_context["ownerId"],
+            "trackReferences": list(runtime_context["trackReferences"]),
+        }
         self._order.append(job["jobId"])
         if cancel_callback is not None:
             self._cancel_callbacks[job["jobId"]] = cancel_callback
@@ -329,6 +396,7 @@ class WorkflowJobManager(object):
             expired = self._order.pop(0)
             self._jobs.pop(expired, None)
             self._cancel_callbacks.pop(expired, None)
+            self._job_contexts.pop(expired, None)
         self._emit("queued", job)
         return job
 
@@ -370,10 +438,16 @@ class WorkflowJobManager(object):
     def list(self):
         return [dict(self._jobs[job_id]) for job_id in reversed(self._order)]
 
-    def cancel(self, job_id):
+    def cancel(self, job_id, owner_id):
         job = self._jobs.get(job_id)
         if job is None:
             raise ProtocolFailure("not_found", "Workflow job was not found")
+        job_context = self._job_contexts.get(job_id)
+        if job_context is None or job_context["ownerId"] != owner_id:
+            raise ProtocolFailure(
+                "conflict",
+                "Workflow job can only be cancelled by its originating agent",
+            )
         if job["status"] in ("completed", "failed", "cancelled", "indeterminate"):
             return dict(job), False
         callback = self._cancel_callbacks.get(job_id)
@@ -390,6 +464,10 @@ class WorkflowJobManager(object):
 
 def _start_timed_recording(context, params):
     track, slot = _resolve_session_slot(context, params["target"], require_empty=True)
+    _validate_job_track_context(
+        params["runtimeContext"],
+        [params["target"]["track"]["expectedReference"]],
+    )
     if not bool(_safe_lom_getattr(track, "can_be_armed", False)):
         raise ProtocolFailure("conflict", "Target track cannot be armed")
     if not bool(_safe_lom_getattr(track, "arm", False)):
@@ -402,7 +480,7 @@ def _start_timed_recording(context, params):
     manager = _job_manager(context)
     job = manager.create(
         "timed-session-recording",
-        params,
+        params["runtimeContext"],
         cancel_callback=lambda: (
             _safe_lom_getattr(slot, "stop")()
             if callable(_safe_lom_getattr(slot, "stop"))
@@ -433,38 +511,72 @@ def _start_timed_recording(context, params):
         )
         raise
     manager.update(job["jobId"], "running", 0.05)
-    tempo = float(_safe_lom_getattr(context.song, "tempo", 120.0) or 120.0)
-    ticks = max(1, int(math.ceil(params["durationBeats"] * 600.0 / tempo)))
+    poll_state = {"attempts": 0, "clipReference": None}
+    max_polls = max(
+        10,
+        int(math.ceil((params["durationBeats"] + 128.0) * 30.0)),
+    )
 
-    def complete():
+    def poll_until_complete():
         current = manager.get(job["jobId"])
         if current["status"] == "cancelled":
             return
+        poll_state["attempts"] += 1
         has_clip = bool(_safe_lom_getattr(slot, "has_clip", False))
-        if not has_clip:
+        if has_clip:
+            clip = _safe_lom_getattr(slot, "clip")
+            clip_reference = _clip_reference(context, clip)
+            if poll_state["clipReference"] is None:
+                poll_state["clipReference"] = clip_reference
+            elif poll_state["clipReference"] != clip_reference:
+                manager.update(
+                    job["jobId"],
+                    "failed",
+                    1.0,
+                    error={
+                        "code": "stale_reference",
+                        "message": "Timed recording destination clip changed",
+                    },
+                )
+                return
+            is_recording = _safe_lom_getattr(clip, "is_recording")
+            if is_recording is None:
+                manager.update(
+                    job["jobId"],
+                    "failed",
+                    1.0,
+                    error={
+                        "code": "unsupported_capability",
+                        "message": "Timed recording state cannot be verified",
+                    },
+                )
+                return
+            if not bool(is_recording):
+                manager.update(
+                    job["jobId"],
+                    "completed",
+                    1.0,
+                    result={
+                        "trackReference": _track_reference(context, track),
+                        "clipReference": clip_reference,
+                        "sceneIndex": params["target"]["sceneIndex"],
+                    },
+                )
+                return
+        if poll_state["attempts"] >= max_polls:
             manager.update(
                 job["jobId"],
                 "failed",
                 1.0,
                 error={
-                    "code": "verification_failed",
-                    "message": "Timed recording completed without a clip",
+                    "code": "operation_timeout",
+                    "message": "Timed recording did not reach a verified terminal state",
                 },
             )
             return
-        clip = _safe_lom_getattr(slot, "clip")
-        manager.update(
-            job["jobId"],
-            "completed",
-            1.0,
-            result={
-                "trackReference": _track_reference(context, track),
-                "clipReference": _clip_reference(context, clip),
-                "sceneIndex": params["target"]["sceneIndex"],
-            },
-        )
+        context.schedule_message(1, poll_until_complete)
 
-    context.schedule_message(ticks, complete)
+    context.schedule_message(1, poll_until_complete)
     return manager.get(job["jobId"])
 
 
@@ -1532,6 +1644,13 @@ def execute_special_devices(context, params):
             return {"action": action, "state": before}
         if action == "export-looper":
             _resolve_session_slot(context, params["destination"], require_empty=True)
+            _validate_job_track_context(
+                params["runtimeContext"],
+                [
+                    params["target"]["track"]["expectedReference"],
+                    params["destination"]["track"]["expectedReference"],
+                ],
+            )
             export = _safe_lom_getattr(device, "export_to_clip")
             if not callable(export):
                 _unsupported(
@@ -1544,7 +1663,9 @@ def execute_special_devices(context, params):
                 cancellation["requested"] = True
 
             job = manager.create(
-                "looper-export", params, cancel_callback=cancel_export
+                "looper-export",
+                params["runtimeContext"],
+                cancel_callback=cancel_export,
             )
             manager.update(job["jobId"], "started", 0.0)
 
@@ -1633,7 +1754,9 @@ def execute_jobs(context, params):
     if action == "get":
         return {"action": action, "job": manager.get(params["jobId"])}
     if action == "cancel":
-        job, cancelled = manager.cancel(params["jobId"])
+        job, cancelled = manager.cancel(
+            params["jobId"], params["runtimeContext"]["ownerId"]
+        )
         return {"action": action, "job": job, "cancelled": cancelled}
     jobs = manager.list()
     offset, limit = params.get("offset", 0), params.get("limit", 64)

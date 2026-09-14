@@ -4,8 +4,16 @@ import types
 import unittest
 import uuid
 
-from AbletonAgent.core_domain_commands import _scene_reference, _track_reference
+from AbletonAgent.core_domain_commands import (
+    _clip_reference as _core_clip_reference,
+    _scene_reference,
+    _track_reference,
+)
 from AbletonAgent.device_commands import _device_reference
+from AbletonAgent.system_commands import (
+    _clip_reference as _legacy_clip_reference,
+    _track_reference as _legacy_track_reference,
+)
 from AbletonAgent.workflow_adapter_commands import (
     GLOBAL_HISTORY_WARNING,
     WorkflowJobManager,
@@ -31,6 +39,7 @@ class FakeSlot(object):
             name="Recorded Clip",
             length=record_length,
             is_midi_clip=True,
+            is_recording=True,
         )
         self.has_clip = True
 
@@ -96,6 +105,22 @@ class FakeContext(object):
 
 
 class WorkflowAdapterCommandsTest(unittest.TestCase):
+    def test_core_and_legacy_commands_share_track_and_clip_references(self):
+        context = FakeContext()
+        track = context.song.tracks[0]
+        clip = types.SimpleNamespace(name="Clip")
+        track.clip_slots[0].clip = clip
+        track.clip_slots[0].has_clip = True
+
+        self.assertEqual(
+            _legacy_track_reference(context, track),
+            _track_reference(context, track),
+        )
+        self.assertEqual(
+            _legacy_clip_reference(context, clip),
+            _core_clip_reference(context, clip),
+        )
+
     def test_recording_mutation_verifies_complete_state(self):
         context = FakeContext()
         result = execute_recording(
@@ -139,8 +164,12 @@ class WorkflowAdapterCommandsTest(unittest.TestCase):
                     "expectedHasClip": False,
                 },
                 "durationBeats": 4.0,
-                "correlationId": correlation_id,
-                "traceId": trace_id,
+                "runtimeContext": {
+                    "ownerId": "agent-a",
+                    "correlationId": correlation_id,
+                    "traceId": trace_id,
+                    "trackReferences": [target["expectedReference"]],
+                },
             },
         )
         self.assertEqual("running", result["job"]["status"])
@@ -150,6 +179,12 @@ class WorkflowAdapterCommandsTest(unittest.TestCase):
             ["workflow_job.queued", "workflow_job.started", "workflow_job.progress"],
             [event[0] for event in context.events],
         )
+        context.callbacks.pop()()
+        self.assertEqual(
+            "running",
+            context._workflow_job_manager.get(result["job"]["jobId"])["status"],
+        )
+        context.song.tracks[0].clip_slots[0].clip.is_recording = False
         context.callbacks.pop()()
         self.assertEqual("workflow_job.completed", context.events[-1][0])
         self.assertNotIn("result", context.events[-1][1])
@@ -176,8 +211,14 @@ class WorkflowAdapterCommandsTest(unittest.TestCase):
                         "expectedHasClip": False,
                     },
                     "durationBeats": 4.0,
-                    "correlationId": str(uuid.uuid4()),
-                    "traceId": str(uuid.uuid4()),
+                    "runtimeContext": {
+                        "ownerId": "agent-a",
+                        "correlationId": str(uuid.uuid4()),
+                        "traceId": str(uuid.uuid4()),
+                        "trackReferences": [
+                            _track_reference(context, track)
+                        ],
+                    },
                 },
             )
 
@@ -187,12 +228,16 @@ class WorkflowAdapterCommandsTest(unittest.TestCase):
         job = manager.create(
             "timed-session-recording",
             {
+                "ownerId": "agent-a",
                 "correlationId": str(uuid.uuid4()),
                 "traceId": str(uuid.uuid4()),
+                "trackReferences": [str(uuid.uuid4())],
             },
         )
         manager.update(job["jobId"], "running", 0.5)
-        cancelled, changed = manager.cancel(job["jobId"])
+        with self.assertRaisesRegex(Exception, "originating agent"):
+            manager.cancel(job["jobId"], "agent-b")
+        cancelled, changed = manager.cancel(job["jobId"], "agent-a")
         self.assertTrue(changed)
         self.assertEqual("cancelled", cancelled["status"])
         self.assertEqual("workflow_job.cancelled", context.events[-1][0])
@@ -243,13 +288,35 @@ class WorkflowAdapterCommandsTest(unittest.TestCase):
                     "expectedSceneName": scene.name,
                     "expectedHasClip": False,
                 },
-                "correlationId": str(uuid.uuid4()),
-                "traceId": str(uuid.uuid4()),
+                "runtimeContext": {
+                    "ownerId": "agent-a",
+                    "correlationId": str(uuid.uuid4()),
+                    "traceId": str(uuid.uuid4()),
+                    "trackReferences": [
+                        _track_reference(context, track)
+                    ],
+                },
             },
         )
         job_id = result["job"]["jobId"]
 
-        cancelled = execute_jobs(context, {"action": "cancel", "jobId": job_id})
+        with self.assertRaisesRegex(Exception, "originating agent"):
+            execute_jobs(
+                context,
+                {
+                    "action": "cancel",
+                    "jobId": job_id,
+                    "runtimeContext": {"ownerId": "agent-b"},
+                },
+            )
+        cancelled = execute_jobs(
+            context,
+            {
+                "action": "cancel",
+                "jobId": job_id,
+                "runtimeContext": {"ownerId": "agent-a"},
+            },
+        )
         context.callbacks[0]()
 
         self.assertEqual("cancelled", cancelled["job"]["status"])

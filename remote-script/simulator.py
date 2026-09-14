@@ -2166,6 +2166,7 @@ def _public_sim_job(job):
 
 
 def _sim_job(state, kind, params, result):
+    runtime_context = params["runtimeContext"]
     job_id = str(uuid.uuid4())
     job = {
         "jobId": job_id,
@@ -2174,12 +2175,14 @@ def _sim_job(state, kind, params, result):
         "progress": 0.0,
         "createdAt": "2000-01-01T00:00:00Z",
         "updatedAt": "2000-01-01T00:00:00Z",
-        "correlationId": params["correlationId"],
-        "traceId": params["traceId"],
+        "correlationId": runtime_context["correlationId"],
+        "traceId": runtime_context["traceId"],
+        "_ownerId": runtime_context["ownerId"],
+        "_trackReferences": list(runtime_context["trackReferences"]),
         "_completionResult": result,
     }
-    if params.get("causationId") is not None:
-        job["causationId"] = params["causationId"]
+    if runtime_context.get("causationId") is not None:
+        job["causationId"] = runtime_context["causationId"]
     state.workflow_jobs[job_id] = job
     state.publish_workflow_job_event("queued", job)
     job["status"] = "started"
@@ -2498,6 +2501,12 @@ def _handle_sim_workflow(request, command, params, state):
         if job is None:
             return failure(request, "not_found", "Workflow job not found")
         if action == "cancel":
+            if job.get("_ownerId") != params["runtimeContext"]["ownerId"]:
+                return failure(
+                    request,
+                    "conflict",
+                    "Workflow job can only be cancelled by its originating agent",
+                )
             cancelled = job["status"] not in ("completed", "failed", "cancelled")
             if cancelled:
                 job["status"] = "cancelled"

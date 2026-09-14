@@ -18,6 +18,8 @@ import {
   duplicateClipToArrangementResultSchema,
   duplicateSessionClipParamsSchema,
   duplicateSessionClipResultSchema,
+  findDevicePositionParamsSchema,
+  findDevicePositionResultSchema,
   createMidiClipParamsSchema,
   createMidiClipResultSchema,
   createTrackParamsSchema,
@@ -32,10 +34,14 @@ import {
   inspectBrowserRootsResultSchema,
   inspectBrowserChildrenParamsSchema,
   inspectBrowserChildrenResultSchema,
+  inspectChainMixerParamsSchema,
+  inspectChainMixerResultSchema,
   searchBrowserParamsSchema,
   searchBrowserResultSchema,
   loadBrowserItemParamsSchema,
   loadBrowserItemResultSchema,
+  moveDeviceParamsSchema,
+  moveDeviceResultSchema,
   inspectDrumPadChainDevicesParamsSchema,
   inspectDrumPadChainDevicesResultSchema,
   inspectDrumPadChainsParamsSchema,
@@ -77,6 +83,10 @@ import {
   setArrangementClipPropertiesResultSchema,
   setArrangementLoopParamsSchema,
   setArrangementLoopResultSchema,
+  setChainMixerParamsSchema,
+  setChainMixerResultSchema,
+  setChainPropertiesParamsSchema,
+  setChainPropertiesResultSchema,
   setSessionClipPropertiesParamsSchema,
   setSessionClipPropertiesResultSchema,
   setTrackMixerParamsSchema,
@@ -106,6 +116,8 @@ import {
   type DuplicateClipToArrangementResult,
   type DuplicateSessionClipParams,
   type DuplicateSessionClipResult,
+  type FindDevicePositionParams,
+  type FindDevicePositionResult,
   type CreateMidiClipParams,
   type CreateMidiClipResult,
   type CreateTrackParams,
@@ -119,10 +131,14 @@ import {
   type InspectBrowserRootsResult,
   type InspectBrowserChildrenParams,
   type InspectBrowserChildrenResult,
+  type InspectChainMixerParams,
+  type InspectChainMixerResult,
   type SearchBrowserParams,
   type SearchBrowserResult,
   type LoadBrowserItemParams,
   type LoadBrowserItemResult,
+  type MoveDeviceParams,
+  type MoveDeviceResult,
   type ListEventSubscriptionsResult,
   type LiveEventInitialStatePayload,
   type LiveEventInvalidationPayload,
@@ -166,6 +182,10 @@ import {
   type SetArrangementClipPropertiesResult,
   type SetArrangementLoopParams,
   type SetArrangementLoopResult,
+  type SetChainMixerParams,
+  type SetChainMixerResult,
+  type SetChainPropertiesParams,
+  type SetChainPropertiesResult,
   type SetSessionClipPropertiesParams,
   type SetSessionClipPropertiesResult,
   type SetTrackMixerParams,
@@ -884,6 +904,54 @@ export class AbletonBridgeService implements AbletonService {
     const validated = inspectDrumPadChainDevicesParamsSchema.parse(params);
     return inspectDrumPadChainDevicesResultSchema.parse(
       await this.#request("devices.inspect_drum_pad_chain_devices", validated),
+    );
+  }
+
+  public async findDevicePosition(
+    params: FindDevicePositionParams,
+  ): Promise<FindDevicePositionResult> {
+    this.#requireCapability("devices.find_position");
+    const validated = findDevicePositionParamsSchema.parse(params);
+    return findDevicePositionResultSchema.parse(
+      await this.#request("devices.find_position", validated),
+    );
+  }
+
+  public async inspectChainMixer(
+    params: InspectChainMixerParams,
+  ): Promise<InspectChainMixerResult> {
+    this.#requireCapability("devices.inspect_chain_mixer");
+    const validated = inspectChainMixerParamsSchema.parse(params);
+    return inspectChainMixerResultSchema.parse(
+      await this.#request("devices.inspect_chain_mixer", validated),
+    );
+  }
+
+  public async moveDevice(params: MoveDeviceParams): Promise<MoveDeviceResult> {
+    this.#requireCapability("devices.move");
+    const validated = moveDeviceParamsSchema.parse(params);
+    return moveDeviceResultSchema.parse(
+      await this.#mutationRequest("devices.move", validated),
+    );
+  }
+
+  public async setChainProperties(
+    params: SetChainPropertiesParams,
+  ): Promise<SetChainPropertiesResult> {
+    this.#requireCapability("devices.set_chain_properties");
+    const validated = setChainPropertiesParamsSchema.parse(params);
+    return setChainPropertiesResultSchema.parse(
+      await this.#mutationRequest("devices.set_chain_properties", validated),
+    );
+  }
+
+  public async setChainMixer(
+    params: SetChainMixerParams,
+  ): Promise<SetChainMixerResult> {
+    this.#requireCapability("devices.set_chain_mixer");
+    const validated = setChainMixerParamsSchema.parse(params);
+    return setChainMixerResultSchema.parse(
+      await this.#mutationRequest("devices.set_chain_mixer", validated),
     );
   }
 

@@ -15,8 +15,13 @@ Companion specification: [Tool Design](tool-design.md)
   - The initial bounded catalog remains eagerly registered; expansion beyond
     the current catalog requires grouped/deferred registration.
 - [x] Ensure tools depend on application services, not raw sockets.
-- [ ] Require every tool/workflow to declare sanitized lifecycle events, safe
+- [~] Require every tool/workflow to declare sanitized lifecycle events, safe
   payload summaries, trace propagation, and queue/execution timing.
+  - [x] Add reusable action-aware operation descriptors and application-owned
+    requested/policy/queued/started/verification/completed/failed/cancelled
+    events for the first Live 11 device/rack slice.
+  - [ ] Migrate the older tool families and add complete persisted timing and
+    trace-continuity coverage.
 
 ## Inspection tools
 
@@ -58,8 +63,13 @@ Companion specification: [Tool Design](tool-design.md)
   - [x] Add reversible exact-item Browser device/device-preset loading across
     roots with track/item identity gates, semantic load classification,
     before/after state, and postcondition verification.
+  - [x] Add Live 11 destination preflight and verified movement/reordering for
+    existing devices across regular tracks and existing rack/Drum Rack chains.
+  - [x] Add verified, rollback-capable rename/color and exposed mixer edits for
+    existing rack and Drum Rack pad chains.
   - [ ] Add explicit sample, clip, and groove destination tools, device
-    deletion, and separately designed plug-in loading.
+    deletion, separately designed plug-in loading, empty-chain creation,
+    single-chain deletion, and chain reordering.
 - [x] Implement transport, loop, and cue-point operations.
   - [x] Auto-approve bounded loop/cue inspection, classify loop updates and cue
     creation as reversible, and classify identity-bound cue deletion as
@@ -84,6 +94,8 @@ Companion specification: [Tool Design](tool-design.md)
     recovery when the SDK reports the generic `failure` event code.
 - [ ] Test journal lifecycle completeness, redaction, trace continuity, timing,
   cancellation/failure, and Desktop History visibility for every tool family.
+- [x] Test descriptor-based argument resolution and affected-track
+  authorization/locking for cross-track device movement.
 - [ ] Validate every mutation against real Live before marking supported.
   - [ ] Validate Arrangement loop and cue-point LOM behavior in real Live.
 

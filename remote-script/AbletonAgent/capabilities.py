@@ -23,6 +23,15 @@ def _lom_hasattr(value, name):
     return _lom_getattr(value, name) is not None
 
 
+def _lom_callable(value, name):
+    return callable(_lom_getattr(value, name))
+
+
+def _lom_exposes(value, name):
+    marker = object()
+    return _lom_getattr(value, name, marker) is not marker
+
+
 def build_capability_document(
     application,
     song,
@@ -161,6 +170,17 @@ def build_capability_document(
     for name, supported in transport_support.items():
         if name in capabilities:
             capabilities[name] = supported
+    racks = [
+        device
+        for track in tracks
+        for device in _lom_getattr(track, "devices", [])
+        if bool(_lom_getattr(device, "can_have_chains", False))
+    ]
+    chains = [
+        chain
+        for rack in racks
+        for chain in _lom_getattr(rack, "chains", [])
+    ]
     rack_api_supported = True
     drum_rack_api_supported = True
     drum_pad_chain_api_supported = True
@@ -175,6 +195,33 @@ def build_capability_document(
         "devices.inspect_drum_pad_chains": drum_pad_chain_api_supported,
         "devices.inspect_drum_pad_chain_devices":
             drum_pad_chain_api_supported,
+        "devices.find_position": _lom_callable(
+            song, "find_device_position"
+        ),
+        "devices.inspect_chain_mixer": not chains
+        or any(
+            _lom_hasattr(chain, "mute")
+            and _lom_hasattr(chain, "solo")
+            and _lom_getattr(chain, "mixer_device") is not None
+            for chain in chains
+        ),
+        "devices.move": _lom_callable(song, "find_device_position")
+        and _lom_callable(song, "move_device"),
+        "devices.set_chain_properties": not chains
+        or any(
+            all(_lom_exposes(chain, attribute) for attribute in (
+                "name",
+                "color",
+            ))
+            for chain in chains
+        ),
+        "devices.set_chain_mixer": not chains
+        or any(
+            _lom_hasattr(chain, "mute")
+            and _lom_hasattr(chain, "solo")
+            and _lom_getattr(chain, "mixer_device") is not None
+            for chain in chains
+        ),
         "devices.set_enabled": not tracks
         or any(_lom_hasattr(track, "devices") for track in tracks),
         "devices.set_parameter": not tracks

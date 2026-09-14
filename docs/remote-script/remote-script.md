@@ -96,6 +96,42 @@ The script should:
 - Keep serializers stable across versions.
 - Maintain an explicit supported Live-version matrix.
 
+### Live 11 device and rack operations
+
+The first supported structural device slice uses only the Live 11
+`Song.find_device_position(device, target, target_position)` and
+`Song.move_device(device, target, target_position)` APIs. Targets are strict,
+discriminated paths to either a regular track device list, an existing rack
+chain, or an existing Drum Rack pad chain. Every segment is revalidated by
+index, runtime reference, and expected name (plus pad note where applicable).
+
+Movement preflights the destination, translates same-parent final indexes to
+the API's pre-removal index space, rejects nearest-but-not-exact positions,
+then verifies the same device's canonical parent and actual index. Verification
+failure attempts restoration to the original parent/index and still returns an
+explicit failure. Chain property and exposed mixer edits similarly capture
+before-state, verify, and restore on failure.
+
+The checked-in support ledger is:
+
+| Operation | Protocol capability | Live 11 basis | Status |
+| --- | --- | --- | --- |
+| Inspect an existing chain's exposed mixer state and parameter identities | `devices.inspect_chain_mixer` | Exposed `Chain` and `Chain.mixer_device` properties | Supported when exposed |
+| Validate a destination for an existing device | `devices.find_position` | Callable `Song.find_device_position` | Supported |
+| Reorder an existing device in a regular track or existing rack/Drum Rack pad chain | `devices.move` | Callable `Song.find_device_position` and `Song.move_device`; same-parent index translation | Supported |
+| Move an existing device between regular tracks and existing chains | `devices.move` | Same APIs | Supported |
+| Rename or recolor an existing chain | `devices.set_chain_properties` | Exposed writable `Chain.name` and `Chain.color` | Supported when exposed |
+| Set existing chain mute, solo, volume, pan, or sends | `devices.set_chain_mixer` | Exposed `Chain` and `Chain.mixer_device` properties | Supported when exposed and exact parameter identity matches |
+| Create an empty rack chain | None | No approved Live 11 operation in this slice | Unsupported |
+| Insert a native device directly without Browser loading | None | No approved Live 11 operation in this slice | Unsupported |
+| Delete one rack chain | None | No approved Live 11 operation in this slice | Unsupported |
+| Reorder rack chains | None | No approved Live 11 operation in this slice | Unsupported |
+
+Supported moves require an existing source device and destination parent. The
+implementation rejects stale identities, out-of-range or nearest-only
+positions, cross-kind aliases of the same chain, and unsupported or ambiguous
+topology.
+
 Browser item identity remains exact across the search/load round trip. Runtime
 reference, root, path, and name must match, while URI comparison treats
 equivalent percent-encoded and decoded spellings as the same identity. A

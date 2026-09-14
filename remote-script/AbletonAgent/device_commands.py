@@ -45,13 +45,8 @@ def _runtime_reference(context, attribute, target, reachable):
 
 
 def _device_reference(context, device):
-    reachable = [
-        candidate
-        for track in context.song.tracks
-        for candidate in getattr(track, "devices", ())
-    ]
     return _runtime_reference(
-        context, "_device_references", device, reachable
+        context, "_device_references", device, _reachable_devices(context)
     )
 
 
@@ -84,6 +79,13 @@ def _reachable_chains(context):
     return chains
 
 
+def _reachable_devices(context):
+    devices = list(_top_level_devices(context))
+    for chain in _reachable_chains(context):
+        devices.extend(getattr(chain, "devices", ()))
+    return devices
+
+
 def _chain_reference(context, chain):
     return _runtime_reference(
         context, "_chain_references", chain, _reachable_chains(context)
@@ -100,23 +102,26 @@ def _pad_reference(context, pad):
 
 
 def _chain_device_reference(context, device):
-    reachable = [
-        candidate
-        for chain in _reachable_chains(context)
-        for candidate in getattr(chain, "devices", ())
-    ]
-    return _runtime_reference(
-        context, "_chain_device_references", device, reachable
-    )
+    reference = _device_reference(context, device)
+    context._chain_device_references = context._device_references
+    return reference
 
 
 def _parameter_reference(context, parameter):
     reachable = [
         candidate
-        for track in context.song.tracks
-        for device in getattr(track, "devices", ())
+        for device in _reachable_devices(context)
         for candidate in getattr(device, "parameters", ())
     ]
+    for chain in _reachable_chains(context):
+        mixer = getattr(chain, "mixer_device", None)
+        if mixer is None:
+            continue
+        for name in ("volume", "panning"):
+            candidate = getattr(mixer, name, None)
+            if candidate is not None:
+                reachable.append(candidate)
+        reachable.extend(getattr(mixer, "sends", ()))
     return _runtime_reference(
         context, "_parameter_references", parameter, reachable
     )
@@ -795,6 +800,923 @@ def inspect_drum_pad_chain_devices(context, params):
     }
 
 
+def _exact_keys(value, required, optional=()):
+    if not isinstance(value, dict):
+        return False
+    keys = set(value.keys())
+    required = set(required)
+    return required.issubset(keys) and not keys - required - set(optional)
+
+
+def _validate_track_identity(value):
+    if not _exact_keys(
+        value, ["index", "expectedReference", "expectedName"]
+    ):
+        return False
+    index = value.get("index")
+    if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+        return False
+    if _validate_uuid_field(value, "expectedReference"):
+        return False
+    return (
+        isinstance(value.get("expectedName"), str)
+        and len(value["expectedName"]) > 0
+    )
+
+
+def _validate_device_identity(value):
+    if not _exact_keys(
+        value, ["index", "expectedReference", "expectedName"]
+    ):
+        return False
+    index = value.get("index")
+    return (
+        not isinstance(index, bool)
+        and isinstance(index, int)
+        and index >= 0
+        and _validate_uuid_field(value, "expectedReference") is None
+        and isinstance(value.get("expectedName"), str)
+    )
+
+
+def _validate_chain_identity(value):
+    return _validate_device_identity(value)
+
+
+def _validate_pad_identity(value):
+    if not _exact_keys(
+        value,
+        [
+            "index",
+            "expectedReference",
+            "expectedNote",
+            "expectedName",
+        ],
+    ):
+        return False
+    index = value.get("index")
+    note = value.get("expectedNote")
+    return (
+        not isinstance(index, bool)
+        and isinstance(index, int)
+        and index >= 0
+        and _validate_uuid_field(value, "expectedReference") is None
+        and not isinstance(note, bool)
+        and isinstance(note, int)
+        and 0 <= note <= 127
+        and isinstance(value.get("expectedName"), str)
+    )
+
+
+def _validate_device_location(value):
+    if not isinstance(value, dict):
+        return False
+    kind = value.get("kind")
+    if kind == "track-device":
+        return (
+            _exact_keys(value, ["kind", "track", "device"])
+            and _validate_track_identity(value.get("track"))
+            and _validate_device_identity(value.get("device"))
+        )
+    if kind == "rack-chain-device":
+        return (
+            _exact_keys(value, ["kind", "track", "rack", "chain", "device"])
+            and _validate_track_identity(value.get("track"))
+            and _validate_device_identity(value.get("rack"))
+            and _validate_chain_identity(value.get("chain"))
+            and _validate_device_identity(value.get("device"))
+        )
+    if kind == "drum-pad-chain-device":
+        return (
+            _exact_keys(
+                value,
+                ["kind", "track", "rack", "pad", "chain", "device"],
+            )
+            and _validate_track_identity(value.get("track"))
+            and _validate_device_identity(value.get("rack"))
+            and _validate_pad_identity(value.get("pad"))
+            and _validate_chain_identity(value.get("chain"))
+            and _validate_device_identity(value.get("device"))
+        )
+    return False
+
+
+def _validate_device_destination(value):
+    if not isinstance(value, dict):
+        return False
+    kind = value.get("kind")
+    required = ["kind", "track", "deviceIndex"]
+    if kind == "rack-chain":
+        required.extend(["rack", "chain"])
+    elif kind == "drum-pad-chain":
+        required.extend(["rack", "pad", "chain"])
+    elif kind != "track":
+        return False
+    index = value.get("deviceIndex")
+    return (
+        _exact_keys(value, required)
+        and _validate_track_identity(value.get("track"))
+        and (
+            kind == "track"
+            or (
+                _validate_device_identity(value.get("rack"))
+                and _validate_chain_identity(value.get("chain"))
+                and (
+                    kind != "drum-pad-chain"
+                    or _validate_pad_identity(value.get("pad"))
+                )
+            )
+        )
+        and not isinstance(index, bool)
+        and isinstance(index, int)
+        and index >= 0
+    )
+
+
+def _validate_find_device_position_params(params):
+    if not _exact_keys(params, ["source", "destination"]):
+        return "source and destination are required"
+    if not _validate_device_location(params.get("source")):
+        return "source must be an exact supported device location"
+    if not _validate_device_destination(params.get("destination")):
+        return "destination must be an exact supported device parent"
+    return None
+
+
+def _actual_track_identity(context, track, index):
+    return {
+        "index": index,
+        "reference": _track_reference(context, track),
+        "name": getattr(track, "name", "") or "",
+    }
+
+
+def _actual_device_identity(context, device, index):
+    return {
+        "index": index,
+        "reference": _device_reference(context, device),
+        "name": getattr(device, "name", "") or "",
+    }
+
+
+def _actual_chain_identity(context, chain, index):
+    return {
+        "index": index,
+        "reference": _chain_reference(context, chain),
+        "name": getattr(chain, "name", "") or "",
+    }
+
+
+def _actual_pad_identity(context, pad, index):
+    return {
+        "index": index,
+        "reference": _pad_reference(context, pad),
+        "note": getattr(pad, "note", None),
+        "name": getattr(pad, "name", "") or "",
+    }
+
+
+def _resolve_identity(collection, identity, reference, label):
+    index = identity["index"]
+    if index >= len(collection):
+        raise ProtocolFailure("not_found", "{0} index is out of range".format(label))
+    target = collection[index]
+    actual_reference = reference(target)
+    actual_name = getattr(target, "name", "") or ""
+    if (
+        actual_reference != identity["expectedReference"]
+        or actual_name != identity["expectedName"]
+    ):
+        raise ProtocolFailure(
+            "stale_reference",
+            "{0} identity changed before operation".format(label),
+            details={
+                "index": index,
+                "expectedReference": identity["expectedReference"],
+                "actualReference": actual_reference,
+                "expectedName": identity["expectedName"],
+                "actualName": actual_name,
+            },
+        )
+    return target
+
+
+def _resolve_location_track(context, identity):
+    return _resolve_track(
+        context,
+        {
+            "index": identity["index"],
+            "expectedReference": identity["expectedReference"],
+            "expectedName": identity["expectedName"],
+        },
+    )
+
+
+def _resolve_location_rack(context, track, identity):
+    return _resolve_identity(
+        getattr(track, "devices", ()),
+        identity,
+        lambda value: _device_reference(context, value),
+        "Rack device",
+    )
+
+
+def _require_rack_collection(rack, attribute, label):
+    capability = (
+        "can_have_drum_pads" if attribute == "drum_pads" else "can_have_chains"
+    )
+    if not bool(getattr(rack, capability, False)):
+        raise ProtocolFailure("conflict", "Target device is not a {0}".format(label))
+    collection = getattr(rack, attribute, None)
+    if collection is None:
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "Live does not expose the required {0} collection".format(label),
+        )
+    return collection
+
+
+def _resolve_chain_parent(context, target):
+    track = _resolve_location_track(context, target["track"])
+    rack = _resolve_location_rack(context, track, target["rack"])
+    if target["kind"] in ("rack-chain", "rack-chain-device"):
+        chains = _require_rack_collection(rack, "chains", "rack")
+        chain = _resolve_identity(
+            chains,
+            target["chain"],
+            lambda value: _chain_reference(context, value),
+            "Chain",
+        )
+        return track, rack, None, chain
+    pads = _require_rack_collection(rack, "drum_pads", "Drum Rack")
+    pad = _resolve_identity(
+        pads,
+        target["pad"],
+        lambda value: _pad_reference(context, value),
+        "Drum pad",
+    )
+    if getattr(pad, "note", None) != target["pad"]["expectedNote"]:
+        raise ProtocolFailure(
+            "stale_reference", "Drum pad note changed before operation"
+        )
+    chains = getattr(pad, "chains", None)
+    if chains is None:
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "Live does not expose Drum Rack pad chains",
+        )
+    chain = _resolve_identity(
+        chains,
+        target["chain"],
+        lambda value: _chain_reference(context, value),
+        "Drum pad chain",
+    )
+    return track, rack, pad, chain
+
+
+def _resolve_device_location(context, target):
+    track = _resolve_location_track(context, target["track"])
+    if target["kind"] == "track-device":
+        parent = track
+        devices = getattr(track, "devices", ())
+        device = _resolve_identity(
+            devices,
+            target["device"],
+            lambda value: _device_reference(context, value),
+            "Device",
+        )
+        return track, None, None, None, parent, devices, device
+    track, rack, pad, chain = _resolve_chain_parent(context, target)
+    devices = getattr(chain, "devices", ())
+    device = _resolve_identity(
+        devices,
+        target["device"],
+        lambda value: _device_reference(context, value),
+        "Chain device",
+    )
+    return track, rack, pad, chain, chain, devices, device
+
+
+def _resolve_device_destination(context, target):
+    track = _resolve_location_track(context, target["track"])
+    if target["kind"] == "track":
+        return track, None, None, None, track, getattr(track, "devices", ())
+    track, rack, pad, chain = _resolve_chain_parent(context, target)
+    return track, rack, pad, chain, chain, getattr(chain, "devices", ())
+
+
+def _location_summary(context, kind, track, rack, pad, chain, device, index):
+    result = {
+        "kind": kind,
+        "track": _actual_track_identity(
+            context, track, list(context.song.tracks).index(track)
+        ),
+        "device": _actual_device_identity(context, device, index),
+    }
+    if rack is not None:
+        result["rack"] = _actual_device_identity(
+            context, rack, list(getattr(track, "devices", ())).index(rack)
+        )
+    if chain is not None:
+        chains = (
+            getattr(pad, "chains", ())
+            if pad is not None
+            else getattr(rack, "chains", ())
+        )
+        result["chain"] = _actual_chain_identity(
+            context, chain, list(chains).index(chain)
+        )
+    if pad is not None:
+        result["pad"] = _actual_pad_identity(
+            context, pad, list(getattr(rack, "drum_pads", ())).index(pad)
+        )
+    return result
+
+
+def _destination_summary(
+    context, kind, track, rack, pad, chain, device_index
+):
+    result = {
+        "kind": kind,
+        "track": _actual_track_identity(
+            context, track, list(context.song.tracks).index(track)
+        ),
+        "deviceIndex": device_index,
+    }
+    if rack is not None:
+        result["rack"] = _actual_device_identity(
+            context, rack, list(getattr(track, "devices", ())).index(rack)
+        )
+    if chain is not None:
+        chains = (
+            getattr(pad, "chains", ())
+            if pad is not None
+            else getattr(rack, "chains", ())
+        )
+        result["chain"] = _actual_chain_identity(
+            context, chain, list(chains).index(chain)
+        )
+    if pad is not None:
+        result["pad"] = _actual_pad_identity(
+            context, pad, list(getattr(rack, "drum_pads", ())).index(pad)
+        )
+    return result
+
+
+def _same_parent_kind(source_kind, destination_kind):
+    return {
+        "track-device": "track",
+        "rack-chain-device": "rack-chain",
+        "drum-pad-chain-device": "drum-pad-chain",
+    }.get(source_kind) == destination_kind
+
+
+def _preflight_device_position(context, params):
+    song = context.song
+    finder = getattr(song, "find_device_position", None)
+    if not callable(finder):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "Live 11 Song.find_device_position is unavailable",
+        )
+    source = params["source"]
+    destination = params["destination"]
+    (
+        source_track,
+        source_rack,
+        source_pad,
+        source_chain,
+        source_parent,
+        source_devices,
+        device,
+    ) = _resolve_device_location(context, source)
+    (
+        destination_track,
+        destination_rack,
+        destination_pad,
+        destination_chain,
+        destination_parent,
+        destination_devices,
+    ) = _resolve_device_destination(context, destination)
+    same_parent = _same_lom_object(source_parent, destination_parent)
+    if same_parent and not _same_parent_kind(source["kind"], destination["kind"]):
+        raise ProtocolFailure(
+            "ambiguous_reference",
+            "The same Live chain was addressed through different target kinds",
+        )
+    source_index = source["device"]["index"]
+    requested_index = destination["deviceIndex"]
+    maximum = len(destination_devices) - (1 if same_parent else 0)
+    if requested_index > maximum:
+        raise ProtocolFailure(
+            "not_found",
+            "Destination device index is out of range",
+            details={"requestedIndex": requested_index, "maximumIndex": maximum},
+        )
+    api_target = (
+        requested_index + 1
+        if same_parent and source_index < requested_index
+        else requested_index
+    )
+    try:
+        found = finder(device, destination_parent, api_target)
+    except Exception as exc:
+        raise ProtocolFailure(
+            "lom_error",
+            "Live could not validate the device destination",
+            details={"operationError": str(exc)},
+        )
+    if isinstance(found, bool) or not isinstance(found, int) or found < 0:
+        raise ProtocolFailure(
+            "conflict", "Live returned an invalid device position"
+        )
+    resolved_index = (
+        found - 1 if same_parent and source_index < found else found
+    )
+    source_summary = _location_summary(
+        context,
+        source["kind"],
+        source_track,
+        source_rack,
+        source_pad,
+        source_chain,
+        device,
+        source_index,
+    )
+    destination_summary = _destination_summary(
+        context,
+        destination["kind"],
+        destination_track,
+        destination_rack,
+        destination_pad,
+        destination_chain,
+        requested_index,
+    )
+    return {
+        "source": source_summary,
+        "destination": destination_summary,
+        "requestedIndex": requested_index,
+        "resolvedIndex": resolved_index,
+        "apiTargetPosition": found,
+        "sameParent": same_parent,
+        "exact": resolved_index == requested_index,
+    }, (
+        device,
+        source_parent,
+        destination_parent,
+        source_index,
+        destination_track,
+        destination_rack,
+        destination_pad,
+        destination_chain,
+    )
+
+
+def find_device_position(context, params):
+    result, _resolved = _preflight_device_position(context, params)
+    return result
+
+
+def move_device(context, params):
+    song = context.song
+    mover = getattr(song, "move_device", None)
+    if not callable(mover):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "Live 11 Song.move_device is unavailable",
+        )
+    preflight, resolved = _preflight_device_position(context, params)
+    if not preflight["exact"]:
+        raise ProtocolFailure(
+            "conflict",
+            "Requested destination is not an exact valid Live device position",
+            details={
+                "requestedIndex": preflight["requestedIndex"],
+                "resolvedIndex": preflight["resolvedIndex"],
+            },
+        )
+    (
+        device,
+        source_parent,
+        destination_parent,
+        source_index,
+        destination_track,
+        destination_rack,
+        destination_pad,
+        destination_chain,
+    ) = resolved
+    try:
+        returned = mover(
+            device, destination_parent, preflight["apiTargetPosition"]
+        )
+        if isinstance(returned, bool) or not isinstance(returned, int):
+            raise RuntimeError("move_device returned an invalid index")
+        destination_devices = list(getattr(destination_parent, "devices", ()))
+        actual_indexes = [
+            index
+            for index, candidate in enumerate(destination_devices)
+            if _same_lom_object(candidate, device)
+        ]
+        if actual_indexes != [preflight["requestedIndex"]]:
+            raise RuntimeError("device move verification failed")
+    except Exception as exc:
+        rollback_error = None
+        try:
+            current_parent = (
+                destination_parent
+                if any(
+                    _same_lom_object(candidate, device)
+                    for candidate in getattr(destination_parent, "devices", ())
+                )
+                else source_parent
+            )
+            rollback_position = song.find_device_position(
+                device, source_parent, source_index
+            )
+            if not _same_lom_object(current_parent, source_parent) or list(
+                getattr(source_parent, "devices", ())
+            ).index(device) != source_index:
+                song.move_device(device, source_parent, rollback_position)
+            if list(getattr(source_parent, "devices", ())).index(device) != source_index:
+                raise RuntimeError("device rollback verification failed")
+        except Exception as rollback_exc:
+            rollback_error = str(rollback_exc)
+        raise ProtocolFailure(
+            "lom_error",
+            "Device move failed"
+            if rollback_error is not None
+            else "Device move failed; original position was restored",
+            details={
+                "operationError": str(exc),
+                "rollbackError": rollback_error,
+            },
+        )
+    destination_kind = params["destination"]["kind"] + "-device"
+    after = _location_summary(
+        context,
+        destination_kind,
+        destination_track,
+        destination_rack,
+        destination_pad,
+        destination_chain,
+        device,
+        preflight["requestedIndex"],
+    )
+    return {
+        "deviceReference": _device_reference(context, device),
+        "before": preflight["source"],
+        "after": after,
+        "requestedDestinationIndex": preflight["requestedIndex"],
+        "preflightIndex": preflight["resolvedIndex"],
+        "moveReturnedIndex": returned,
+        "sameParent": preflight["sameParent"],
+        "verified": True,
+    }
+
+
+def _validate_chain_location_target(value):
+    if not isinstance(value, dict):
+        return False
+    kind = value.get("kind")
+    required = ["kind", "track", "rack", "chain"]
+    if kind == "drum-pad-chain":
+        required.append("pad")
+    elif kind != "rack-chain":
+        return False
+    return (
+        _exact_keys(value, required)
+        and _validate_track_identity(value.get("track"))
+        and _validate_device_identity(value.get("rack"))
+        and _validate_chain_identity(value.get("chain"))
+        and (
+            kind != "drum-pad-chain"
+            or _validate_pad_identity(value.get("pad"))
+        )
+    )
+
+
+def _validate_set_chain_properties_params(params):
+    if not _exact_keys(params, ["target"], ["name", "color"]):
+        return "target and at least one supported chain property are required"
+    if not _validate_chain_location_target(params.get("target")):
+        return "target must identify one exact existing chain"
+    if "name" in params and (
+        not isinstance(params["name"], str)
+        or not params["name"]
+        or len(params["name"]) > 128
+    ):
+        return "name must contain 1 to 128 characters"
+    if "color" in params and (
+        isinstance(params["color"], bool)
+        or not isinstance(params["color"], int)
+        or params["color"] < 0
+        or params["color"] > 0xFFFFFF
+    ):
+        return "color must be an RGB integer"
+    if "name" not in params and "color" not in params:
+        return "At least one chain property is required"
+    return None
+
+
+def _chain_properties_state(chain):
+    return {
+        "name": getattr(chain, "name", "") or "",
+        "color": getattr(chain, "color", None),
+    }
+
+
+def set_chain_properties(context, params):
+    _track, _rack, _pad, chain = _resolve_chain_parent(
+        context, params["target"]
+    )
+    before = _chain_properties_state(chain)
+    try:
+        if "name" in params:
+            chain.name = params["name"]
+        if "color" in params:
+            chain.color = params["color"]
+        after = _chain_properties_state(chain)
+        if (
+            ("name" in params and after["name"] != params["name"])
+            or ("color" in params and after["color"] != params["color"])
+        ):
+            raise RuntimeError("chain property verification failed")
+    except Exception as exc:
+        try:
+            if "name" in params:
+                chain.name = before["name"]
+            if "color" in params:
+                chain.color = before["color"]
+            restored = _chain_properties_state(chain)
+            if restored != before:
+                raise RuntimeError("chain property rollback verification failed")
+        except Exception as rollback_exc:
+            raise ProtocolFailure(
+                "lom_error",
+                "Chain property update and rollback failed",
+                details={
+                    "operationError": str(exc),
+                    "rollbackError": str(rollback_exc),
+                },
+            )
+        raise ProtocolFailure(
+            "lom_error",
+            "Chain property update failed; prior values were restored",
+            details={"operationError": str(exc)},
+        )
+    return {
+        "chainReference": _chain_reference(context, chain),
+        "before": before,
+        "after": after,
+        "verified": True,
+    }
+
+
+def _mixer_parameter_state(context, parameter):
+    minimum, maximum, value = _parameter_bounds(parameter)
+    return {
+        "reference": _parameter_reference(context, parameter),
+        "name": getattr(parameter, "name", "") or "",
+        "value": value,
+        "normalizedValue": _normalized_value(minimum, maximum, value),
+        "min": minimum,
+        "max": maximum,
+        "isEnabled": bool(getattr(parameter, "is_enabled", True)),
+    }
+
+
+def _chain_mixer_state(context, chain):
+    mixer = getattr(chain, "mixer_device", None)
+    volume = getattr(mixer, "volume", None) if mixer is not None else None
+    panning = getattr(mixer, "panning", None) if mixer is not None else None
+    sends = getattr(mixer, "sends", ()) if mixer is not None else ()
+    return {
+        "mute": bool(getattr(chain, "mute", False)),
+        "solo": bool(getattr(chain, "solo", False)),
+        "volume": (
+            _mixer_parameter_state(context, volume)
+            if volume is not None
+            else None
+        ),
+        "pan": (
+            _mixer_parameter_state(context, panning)
+            if panning is not None
+            else None
+        ),
+        "sends": [
+            _mixer_parameter_state(context, parameter)
+            for parameter in list(sends)[:64]
+        ],
+    }
+
+
+def _validate_inspect_chain_mixer_params(params):
+    if not _exact_keys(params, ["target"]):
+        return "target is required"
+    if not _validate_chain_location_target(params.get("target")):
+        return "target must identify one exact existing chain"
+    return None
+
+
+def inspect_chain_mixer(context, params):
+    _track, _rack, _pad, chain = _resolve_chain_parent(
+        context, params["target"]
+    )
+    return {
+        "chainReference": _chain_reference(context, chain),
+        "mixer": _chain_mixer_state(context, chain),
+    }
+
+
+def _validate_parameter_change(value, send=False):
+    required = [
+        "expectedParameterReference",
+        "expectedParameterName",
+        "normalizedValue",
+    ]
+    if send:
+        required.append("index")
+    if not _exact_keys(value, required):
+        return False
+    normalized = value.get("normalizedValue")
+    if (
+        isinstance(normalized, bool)
+        or not isinstance(normalized, (int, float))
+        or not math.isfinite(normalized)
+        or normalized < 0
+        or normalized > 1
+    ):
+        return False
+    if _validate_uuid_field(value, "expectedParameterReference"):
+        return False
+    if not isinstance(value.get("expectedParameterName"), str):
+        return False
+    if send:
+        index = value.get("index")
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or index < 0
+            or index > 63
+        ):
+            return False
+    return True
+
+
+def _validate_set_chain_mixer_params(params):
+    if not _exact_keys(
+        params,
+        ["target"],
+        ["mute", "solo", "volume", "pan", "sends"],
+    ):
+        return "target and supported chain mixer properties are required"
+    if not _validate_chain_location_target(params.get("target")):
+        return "target must identify one exact existing chain"
+    if "mute" in params and not isinstance(params["mute"], bool):
+        return "mute must be a boolean"
+    if "solo" in params and not isinstance(params["solo"], bool):
+        return "solo must be a boolean"
+    for name in ("volume", "pan"):
+        if name in params and not _validate_parameter_change(params[name]):
+            return "{0} must be an exact normalized parameter change".format(name)
+    sends = params.get("sends", [])
+    if not isinstance(sends, list) or len(sends) > 64:
+        return "sends must be a bounded list"
+    if any(not _validate_parameter_change(send, send=True) for send in sends):
+        return "Each send must be an exact normalized parameter change"
+    indexes = [send["index"] for send in sends]
+    if len(indexes) != len(set(indexes)):
+        return "Send indexes must be unique"
+    if not any(
+        name in params for name in ("mute", "solo", "volume", "pan")
+    ) and not sends:
+        return "At least one chain mixer property is required"
+    return None
+
+
+def _resolve_mixer_parameter(context, parameter, change, label):
+    if parameter is None:
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "{0} is not exposed for this chain".format(label),
+        )
+    reference = _parameter_reference(context, parameter)
+    name = getattr(parameter, "name", "") or ""
+    if (
+        reference != change["expectedParameterReference"]
+        or name != change["expectedParameterName"]
+    ):
+        raise ProtocolFailure(
+            "stale_reference",
+            "{0} identity changed before operation".format(label),
+            details={
+                "expectedReference": change["expectedParameterReference"],
+                "actualReference": reference,
+                "expectedName": change["expectedParameterName"],
+                "actualName": name,
+            },
+        )
+    _ensure_parameter_writable(parameter)
+    return parameter
+
+
+def set_chain_mixer(context, params):
+    _track, _rack, _pad, chain = _resolve_chain_parent(
+        context, params["target"]
+    )
+    mixer = getattr(chain, "mixer_device", None)
+    changes = []
+    if "volume" in params:
+        changes.append(
+            (
+                _resolve_mixer_parameter(
+                    context,
+                    getattr(mixer, "volume", None) if mixer else None,
+                    params["volume"],
+                    "Chain volume",
+                ),
+                params["volume"],
+            )
+        )
+    if "pan" in params:
+        changes.append(
+            (
+                _resolve_mixer_parameter(
+                    context,
+                    getattr(mixer, "panning", None) if mixer else None,
+                    params["pan"],
+                    "Chain pan",
+                ),
+                params["pan"],
+            )
+        )
+    sends = list(getattr(mixer, "sends", ())) if mixer is not None else []
+    for send in params.get("sends", []):
+        if send["index"] >= len(sends):
+            raise ProtocolFailure("not_found", "Chain send index is out of range")
+        changes.append(
+            (
+                _resolve_mixer_parameter(
+                    context,
+                    sends[send["index"]],
+                    send,
+                    "Chain send",
+                ),
+                send,
+            )
+        )
+    before = _chain_mixer_state(context, chain)
+    original_values = [(parameter, parameter.value) for parameter, _ in changes]
+    try:
+        if "mute" in params:
+            chain.mute = params["mute"]
+        if "solo" in params:
+            chain.solo = params["solo"]
+        for parameter, change in changes:
+            parameter.value = _target_value(
+                parameter, change["normalizedValue"]
+            )
+        after = _chain_mixer_state(context, chain)
+        if "mute" in params and after["mute"] != params["mute"]:
+            raise RuntimeError("chain mute verification failed")
+        if "solo" in params and after["solo"] != params["solo"]:
+            raise RuntimeError("chain solo verification failed")
+        for parameter, change in changes:
+            target = _target_value(parameter, change["normalizedValue"])
+            _minimum, _maximum, actual = _parameter_bounds(parameter)
+            if not _values_match(parameter, actual, target):
+                raise RuntimeError("chain mixer verification failed")
+    except Exception as exc:
+        try:
+            chain.mute = before["mute"]
+            chain.solo = before["solo"]
+            for parameter, value in original_values:
+                parameter.value = value
+            restored = _chain_mixer_state(context, chain)
+            if restored != before:
+                raise RuntimeError("chain mixer rollback verification failed")
+        except Exception as rollback_exc:
+            raise ProtocolFailure(
+                "lom_error",
+                "Chain mixer update and rollback failed",
+                details={
+                    "operationError": str(exc),
+                    "rollbackError": str(rollback_exc),
+                },
+            )
+        raise ProtocolFailure(
+            "lom_error",
+            "Chain mixer update failed; prior values were restored",
+            details={"operationError": str(exc)},
+        )
+    return {
+        "chainReference": _chain_reference(context, chain),
+        "before": before,
+        "after": after,
+        "verified": True,
+    }
+
+
 def _set_device_enabled_params(params):
     message = _validate_device_target(params, ["enabled"])
     if message:
@@ -1061,6 +1983,39 @@ def register_device_commands(registry):
         inspect_drum_pad_chain_devices,
         capability="devices.inspect_drum_pad_chain_devices",
         validator=_inspect_drum_pad_chain_devices_params,
+    )
+    registry.register(
+        "devices.inspect_chain_mixer",
+        inspect_chain_mixer,
+        capability="devices.inspect_chain_mixer",
+        validator=_validate_inspect_chain_mixer_params,
+    )
+    registry.register(
+        "devices.find_position",
+        find_device_position,
+        capability="devices.find_position",
+        validator=_validate_find_device_position_params,
+    )
+    registry.register(
+        "devices.move",
+        move_device,
+        mutates=True,
+        capability="devices.move",
+        validator=_validate_find_device_position_params,
+    )
+    registry.register(
+        "devices.set_chain_properties",
+        set_chain_properties,
+        mutates=True,
+        capability="devices.set_chain_properties",
+        validator=_validate_set_chain_properties_params,
+    )
+    registry.register(
+        "devices.set_chain_mixer",
+        set_chain_mixer,
+        mutates=True,
+        capability="devices.set_chain_mixer",
+        validator=_validate_set_chain_mixer_params,
     )
     registry.register(
         "devices.set_enabled",

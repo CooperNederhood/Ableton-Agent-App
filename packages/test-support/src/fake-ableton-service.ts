@@ -276,6 +276,21 @@ export class FakeAbletonService implements AbletonService {
       new UnsupportedByFakeError("inspectDrumPadChainDevices"),
     );
   }
+  public inspectChainMixer(): Promise<Protocol.InspectChainMixerResult> {
+    return Promise.reject(new UnsupportedByFakeError("inspectChainMixer"));
+  }
+  public findDevicePosition(): Promise<Protocol.FindDevicePositionResult> {
+    return Promise.reject(new UnsupportedByFakeError("findDevicePosition"));
+  }
+  public moveDevice(): Promise<Protocol.MoveDeviceResult> {
+    return Promise.reject(new UnsupportedByFakeError("moveDevice"));
+  }
+  public setChainProperties(): Promise<Protocol.SetChainPropertiesResult> {
+    return Promise.reject(new UnsupportedByFakeError("setChainProperties"));
+  }
+  public setChainMixer(): Promise<Protocol.SetChainMixerResult> {
+    return Promise.reject(new UnsupportedByFakeError("setChainMixer"));
+  }
   public setDeviceEnabled(): Promise<Protocol.SetDeviceEnabledResult> {
     return Promise.reject(new UnsupportedByFakeError("setDeviceEnabled"));
   }

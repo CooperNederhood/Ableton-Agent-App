@@ -849,6 +849,148 @@ describe("CopilotAgentService managed sessions", () => {
     await service.stop();
   });
 
+  it("records target-aware lifecycle for descriptor-backed operations", async () => {
+    const deviceReference = "00000000-0000-4000-8000-000000000040";
+    const configs: SessionConfig[] = [];
+    const runtimeEvents: AgentRuntimeEvent[] = [];
+    const moveDevice = vi.fn(async () => ({
+      deviceReference,
+      before: {
+        kind: "track-device" as const,
+        track: {
+          index: 0,
+          reference: trackAReference,
+          name: "Track A",
+        },
+        device: {
+          index: 0,
+          reference: deviceReference,
+          name: "Operator",
+        },
+      },
+      after: {
+        kind: "track-device" as const,
+        track: {
+          index: 1,
+          reference: trackBReference,
+          name: "Track B",
+        },
+        device: {
+          index: 0,
+          reference: deviceReference,
+          name: "Operator",
+        },
+      },
+      requestedDestinationIndex: 0,
+      preflightIndex: 0,
+      moveReturnedIndex: 0,
+      sameParent: false,
+      verified: true as const,
+    }));
+    const service = new CopilotAgentService(
+      baseOptions({
+        moveDevice,
+        getAbletonStatus: async () =>
+          ({
+            state: "connected",
+            projectId: "project-1",
+          }) as never,
+        runtimeObserver: {
+          enqueue: (event) => runtimeEvents.push(event),
+        },
+        clientFactory: () => ({
+          createSession: vi.fn(async (config: SessionConfig) => {
+            configs.push(config);
+            return createFakeSession(`session-${configs.length}`);
+          }),
+          resumeSession: vi.fn(async () => {
+            throw new Error("resume not expected");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+
+    await service.start();
+    await service.createManagedAgent(
+      configuration("device-editor", {
+        resolvedTools: ["ableton_device_move"],
+        editScope: ["session"],
+      }),
+    );
+    const move = configs[1]?.tools?.find(
+      ({ name }) => name === "ableton_device_move",
+    )?.handler;
+    const args = {
+      source: {
+        kind: "track-device" as const,
+        track: {
+          index: 0,
+          expectedReference: trackAReference,
+          expectedName: "Track A",
+        },
+        device: {
+          index: 0,
+          expectedReference: deviceReference,
+          expectedName: "Operator",
+        },
+      },
+      destination: {
+        kind: "track" as const,
+        track: {
+          index: 1,
+          expectedReference: trackBReference,
+          expectedName: "Track B",
+        },
+        deviceIndex: 0,
+      },
+    };
+
+    await expect(
+      move?.(args, {
+        sessionId: "session-2",
+        toolCallId: "move-tool-call",
+        toolName: "ableton_device_move",
+        arguments: args,
+      }),
+    ).resolves.toMatchObject({ verified: true });
+
+    const operationEvents = runtimeEvents.filter((event) =>
+      event.type.startsWith("agent.operation."),
+    );
+    expect(operationEvents.map(({ type }) => type)).toEqual([
+      "agent.operation.requested",
+      "agent.operation.policy",
+      "agent.operation.queued",
+      "agent.operation.started",
+      "agent.operation.verification",
+      "agent.operation.completed",
+    ]);
+    expect(operationEvents[0]).toMatchObject({
+      sessionId: "session-2",
+      agentInstanceId: "device-editor",
+      data: {
+        toolCallId: "move-tool-call",
+        operationDescriptorId: "devices.move",
+        action: "move",
+        targetIdentity: {
+          domain: "devices",
+          action: "move",
+          targetKind: "track-device-to-track",
+          targetReferences: [trackAReference, deviceReference, trackBReference],
+        },
+      },
+    });
+    expect(operationEvents.at(-2)?.data.verified).toBe(true);
+    expect(typeof operationEvents.at(-2)?.data.durationMs).toBe("number");
+    expect(typeof operationEvents.at(-2)?.data.executionDurationMs).toBe(
+      "number",
+    );
+    expect(typeof operationEvents.at(-1)?.data.durationMs).toBe("number");
+    expect(moveDevice).toHaveBeenCalledWith(args);
+    await service.stop();
+  });
+
   it("shares overlap-aware mutation locks across active agent instances", async () => {
     const snapshot = {
       ...emptySnapshot,

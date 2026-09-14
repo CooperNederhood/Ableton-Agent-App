@@ -495,10 +495,27 @@ class SimulatorState(object):
         }
 
     def simulated_chain(self, name, devices):
+        def parameter(parameter_name, value):
+            return {
+                "reference": str(uuid.uuid4()),
+                "name": parameter_name,
+                "value": value,
+                "min": 0.0,
+                "max": 1.0,
+                "isEnabled": True,
+            }
+
         return {
             "reference": str(uuid.uuid4()),
             "name": name,
             "color": None,
+            "mute": False,
+            "solo": False,
+            "mixer": {
+                "volume": parameter("Chain Volume", 0.8),
+                "pan": parameter("Chain Pan", 0.5),
+                "sends": [parameter("Send A", 0.0)],
+            },
             "devices": devices,
         }
 
@@ -601,6 +618,27 @@ class SimulatorState(object):
             "deviceCount": len(chain["devices"]),
         }
 
+    def chain_mixer_summary(self, chain):
+        def parameter_summary(parameter):
+            span = parameter["max"] - parameter["min"]
+            normalized = (
+                0.0
+                if span == 0
+                else (parameter["value"] - parameter["min"]) / span
+            )
+            return dict(parameter, normalizedValue=normalized)
+
+        return {
+            "mute": chain["mute"],
+            "solo": chain["solo"],
+            "volume": parameter_summary(chain["mixer"]["volume"]),
+            "pan": parameter_summary(chain["mixer"]["pan"]),
+            "sends": [
+                parameter_summary(parameter)
+                for parameter in chain["mixer"]["sends"]
+            ],
+        }
+
     def pad_summary(self, rack, index, pad):
         return {
             "reference": pad["reference"],
@@ -641,6 +679,137 @@ class SimulatorState(object):
             "canHaveChains": device["canHaveChains"],
             "canHaveDrumPads": device["canHaveDrumPads"],
         }
+
+    def resolve_track_identity(self, identity):
+        index = identity.get("index")
+        if not isinstance(index, int) or index < 0 or index >= len(self.tracks):
+            return None
+        track = self.tracks[index]
+        if (
+            track["reference"] != identity.get("expectedReference")
+            or track["name"] != identity.get("expectedName")
+        ):
+            return None
+        return track
+
+    def resolve_indexed_identity(self, values, identity):
+        index = identity.get("index")
+        if not isinstance(index, int) or index < 0 or index >= len(values):
+            return None
+        value = values[index]
+        if (
+            value["reference"] != identity.get("expectedReference")
+            or value["name"] != identity.get("expectedName")
+        ):
+            return None
+        return value
+
+    def resolve_chain_target(self, target):
+        track = self.resolve_track_identity(target.get("track", {}))
+        if track is None:
+            return None
+        rack = self.resolve_indexed_identity(
+            track["devices"], target.get("rack", {})
+        )
+        if rack is None:
+            return None
+        pad = None
+        chains = rack["chains"]
+        if target.get("kind") in (
+            "drum-pad-chain",
+            "drum-pad-chain-device",
+        ):
+            pad = self.resolve_indexed_identity(
+                rack["drumPads"], target.get("pad", {})
+            )
+            if (
+                pad is None
+                or pad["note"] != target["pad"].get("expectedNote")
+            ):
+                return None
+            chains = pad["chains"]
+        chain = self.resolve_indexed_identity(
+            chains, target.get("chain", {})
+        )
+        if chain is None:
+            return None
+        return track, rack, pad, chain
+
+    def resolve_device_location(self, target):
+        track = self.resolve_track_identity(target.get("track", {}))
+        if track is None:
+            return None
+        if target.get("kind") == "track-device":
+            device = self.resolve_indexed_identity(
+                track["devices"], target.get("device", {})
+            )
+            return (
+                None
+                if device is None
+                else (track, None, None, None, track["devices"], device)
+            )
+        resolved = self.resolve_chain_target(target)
+        if resolved is None:
+            return None
+        track, rack, pad, chain = resolved
+        device = self.resolve_indexed_identity(
+            chain["devices"], target.get("device", {})
+        )
+        return (
+            None
+            if device is None
+            else (track, rack, pad, chain, chain["devices"], device)
+        )
+
+    def resolve_device_destination(self, target):
+        track = self.resolve_track_identity(target.get("track", {}))
+        if track is None:
+            return None
+        if target.get("kind") == "track":
+            return track, None, None, None, track["devices"]
+        resolved = self.resolve_chain_target(target)
+        if resolved is None:
+            return None
+        track, rack, pad, chain = resolved
+        return track, rack, pad, chain, chain["devices"]
+
+    def device_location_summary(
+        self, kind, track, rack, pad, chain, devices, device
+    ):
+        result = {
+            "kind": kind,
+            "track": {
+                "index": self.tracks.index(track),
+                "reference": track["reference"],
+                "name": track["name"],
+            },
+            "device": {
+                "index": devices.index(device),
+                "reference": device["reference"],
+                "name": device["name"],
+            },
+        }
+        if rack is not None:
+            result["rack"] = {
+                "index": track["devices"].index(rack),
+                "reference": rack["reference"],
+                "name": rack["name"],
+            }
+        if chain is not None:
+            chains = pad["chains"] if pad is not None else rack["chains"]
+            result["chain"] = {
+                "index": chains.index(chain),
+                "reference": chain["reference"],
+                "name": chain["name"],
+            }
+        if pad is not None:
+            result["pad"] = {
+                "index": rack["drumPads"].index(pad),
+                "reference": pad["reference"],
+                "note": pad["note"],
+                "name": pad["name"],
+            }
+        return result
 
     def parameter_summary(self, device, index, parameter):
         span = parameter["max"] - parameter["min"]
@@ -735,6 +904,11 @@ def handle(request, token, state):
                     "devices.inspect_drum_rack_pads": True,
                     "devices.inspect_drum_pad_chains": True,
                     "devices.inspect_drum_pad_chain_devices": True,
+                    "devices.find_position": True,
+                    "devices.inspect_chain_mixer": True,
+                    "devices.move": True,
+                    "devices.set_chain_properties": True,
+                    "devices.set_chain_mixer": True,
                     "devices.set_enabled": True,
                     "devices.set_parameter": True,
                     "browser.inspect_roots": True,
@@ -1609,6 +1783,219 @@ def handle(request, token, state):
             {
                 "reference": track["reference"],
                 "index": index,
+                "before": before,
+                "after": after,
+                "verified": True,
+            },
+        )
+    if command in ("devices.find_position", "devices.move"):
+        source_target = params.get("source", {})
+        destination_target = params.get("destination", {})
+        source = state.resolve_device_location(source_target)
+        destination = state.resolve_device_destination(destination_target)
+        if source is None or destination is None:
+            return failure(
+                request,
+                "stale_reference",
+                "Device or parent identity changed before operation",
+            )
+        (
+            source_track,
+            source_rack,
+            source_pad,
+            source_chain,
+            source_devices,
+            device,
+        ) = source
+        (
+            destination_track,
+            destination_rack,
+            destination_pad,
+            destination_chain,
+            destination_devices,
+        ) = destination
+        source_index = source_devices.index(device)
+        requested_index = destination_target.get("deviceIndex")
+        same_parent = source_devices is destination_devices
+        maximum = len(destination_devices) - (1 if same_parent else 0)
+        if (
+            isinstance(requested_index, bool)
+            or not isinstance(requested_index, int)
+            or requested_index < 0
+            or requested_index > maximum
+        ):
+            return failure(
+                request, "not_found", "Destination device index is out of range"
+            )
+        api_position = (
+            requested_index + 1
+            if same_parent and source_index < requested_index
+            else requested_index
+        )
+        source_summary = state.device_location_summary(
+            source_target["kind"],
+            source_track,
+            source_rack,
+            source_pad,
+            source_chain,
+            source_devices,
+            device,
+        )
+        destination_summary = {
+            "kind": destination_target["kind"],
+            "track": {
+                "index": state.tracks.index(destination_track),
+                "reference": destination_track["reference"],
+                "name": destination_track["name"],
+            },
+            "deviceIndex": requested_index,
+        }
+        if destination_rack is not None:
+            destination_summary["rack"] = {
+                "index": destination_track["devices"].index(destination_rack),
+                "reference": destination_rack["reference"],
+                "name": destination_rack["name"],
+            }
+        if destination_chain is not None:
+            chains = (
+                destination_pad["chains"]
+                if destination_pad is not None
+                else destination_rack["chains"]
+            )
+            destination_summary["chain"] = {
+                "index": chains.index(destination_chain),
+                "reference": destination_chain["reference"],
+                "name": destination_chain["name"],
+            }
+        if destination_pad is not None:
+            destination_summary["pad"] = {
+                "index": destination_rack["drumPads"].index(destination_pad),
+                "reference": destination_pad["reference"],
+                "note": destination_pad["note"],
+                "name": destination_pad["name"],
+            }
+        if command == "devices.find_position":
+            return response(
+                request,
+                {
+                    "source": source_summary,
+                    "destination": destination_summary,
+                    "requestedIndex": requested_index,
+                    "resolvedIndex": requested_index,
+                    "apiTargetPosition": api_position,
+                    "sameParent": same_parent,
+                    "exact": True,
+                },
+            )
+        source_devices.remove(device)
+        destination_devices.insert(requested_index, device)
+        after_kind = destination_target["kind"] + "-device"
+        after = state.device_location_summary(
+            after_kind,
+            destination_track,
+            destination_rack,
+            destination_pad,
+            destination_chain,
+            destination_devices,
+            device,
+        )
+        return response(
+            request,
+            {
+                "deviceReference": device["reference"],
+                "before": source_summary,
+                "after": after,
+                "requestedDestinationIndex": requested_index,
+                "preflightIndex": requested_index,
+                "moveReturnedIndex": requested_index,
+                "sameParent": same_parent,
+                "verified": True,
+            },
+        )
+    if command in (
+        "devices.inspect_chain_mixer",
+        "devices.set_chain_properties",
+        "devices.set_chain_mixer",
+    ):
+        resolved = state.resolve_chain_target(params.get("target", {}))
+        if resolved is None:
+            return failure(
+                request,
+                "stale_reference",
+                "Chain identity changed before operation",
+            )
+        _track, rack, _pad, chain = resolved
+        if command == "devices.inspect_chain_mixer":
+            return response(
+                request,
+                {
+                    "chainReference": chain["reference"],
+                    "mixer": state.chain_mixer_summary(chain),
+                },
+            )
+        if command == "devices.set_chain_properties":
+            before = {"name": chain["name"], "color": chain["color"]}
+            if "name" in params:
+                chain["name"] = params["name"]
+            if "color" in params:
+                chain["color"] = params["color"]
+            return response(
+                request,
+                {
+                    "chainReference": chain["reference"],
+                    "before": before,
+                    "after": {
+                        "name": chain["name"],
+                        "color": chain["color"],
+                    },
+                    "verified": True,
+                },
+            )
+        before = state.chain_mixer_summary(chain)
+        if "mute" in params:
+            chain["mute"] = params["mute"]
+        if "solo" in params:
+            chain["solo"] = params["solo"]
+        for name in ("volume", "pan"):
+            if name in params:
+                parameter = chain["mixer"][name]
+                change = params[name]
+                if (
+                    parameter["reference"]
+                    != change["expectedParameterReference"]
+                    or parameter["name"] != change["expectedParameterName"]
+                ):
+                    return failure(
+                        request,
+                        "stale_reference",
+                        "Chain mixer parameter identity changed",
+                    )
+                parameter["value"] = (
+                    parameter["min"]
+                    + (parameter["max"] - parameter["min"])
+                    * change["normalizedValue"]
+                )
+        for change in params.get("sends", []):
+            if change["index"] >= len(chain["mixer"]["sends"]):
+                return failure(
+                    request, "not_found", "Chain send index is out of range"
+                )
+            parameter = chain["mixer"]["sends"][change["index"]]
+            if (
+                parameter["reference"] != change["expectedParameterReference"]
+                or parameter["name"] != change["expectedParameterName"]
+            ):
+                return failure(
+                    request,
+                    "stale_reference",
+                    "Chain send identity changed",
+                )
+            parameter["value"] = change["normalizedValue"]
+        after = state.chain_mixer_summary(chain)
+        return response(
+            request,
+            {
+                "chainReference": chain["reference"],
                 "before": before,
                 "after": after,
                 "verified": True,

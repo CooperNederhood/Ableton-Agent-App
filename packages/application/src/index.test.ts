@@ -405,6 +405,113 @@ function deviceServices() {
       offset: params.offset,
       limit: params.limit,
     }),
+    inspectChainMixer: async (
+      params: Parameters<AbletonService["inspectChainMixer"]>[0],
+    ) => ({
+      chainReference: params.target.chain.expectedReference,
+      mixer: {
+        mute: false,
+        solo: false,
+        volume: null,
+        pan: null,
+        sends: [],
+      },
+    }),
+    findDevicePosition: async (
+      params: Parameters<AbletonService["findDevicePosition"]>[0],
+    ) => ({
+      source: {
+        kind: "track-device" as const,
+        track: {
+          index: params.source.track.index,
+          reference: params.source.track.expectedReference,
+          name: params.source.track.expectedName,
+        },
+        device: {
+          index: params.source.device.index,
+          reference: params.source.device.expectedReference,
+          name: params.source.device.expectedName,
+        },
+      },
+      destination: {
+        kind: "track" as const,
+        track: {
+          index: params.destination.track.index,
+          reference: params.destination.track.expectedReference,
+          name: params.destination.track.expectedName,
+        },
+        deviceIndex: params.destination.deviceIndex,
+      },
+      requestedIndex: params.destination.deviceIndex,
+      resolvedIndex: params.destination.deviceIndex,
+      apiTargetPosition: params.destination.deviceIndex,
+      sameParent: false,
+      exact: true,
+    }),
+    moveDevice: async (
+      params: Parameters<AbletonService["moveDevice"]>[0],
+    ) => ({
+      deviceReference: params.source.device.expectedReference,
+      before: {
+        kind: "track-device" as const,
+        track: {
+          index: params.source.track.index,
+          reference: params.source.track.expectedReference,
+          name: params.source.track.expectedName,
+        },
+        device: {
+          index: params.source.device.index,
+          reference: params.source.device.expectedReference,
+          name: params.source.device.expectedName,
+        },
+      },
+      after: {
+        kind: "track-device" as const,
+        track: {
+          index: params.destination.track.index,
+          reference: params.destination.track.expectedReference,
+          name: params.destination.track.expectedName,
+        },
+        device: {
+          index: params.destination.deviceIndex,
+          reference: params.source.device.expectedReference,
+          name: params.source.device.expectedName,
+        },
+      },
+      requestedDestinationIndex: params.destination.deviceIndex,
+      preflightIndex: params.destination.deviceIndex,
+      moveReturnedIndex: params.destination.deviceIndex,
+      sameParent: false,
+      verified: true as const,
+    }),
+    setChainProperties: async (
+      params: Parameters<AbletonService["setChainProperties"]>[0],
+    ) => ({
+      chainReference: params.target.chain.expectedReference,
+      before: { name: params.target.chain.expectedName, color: null },
+      after: {
+        name: params.name ?? params.target.chain.expectedName,
+        color: params.color ?? null,
+      },
+      verified: true as const,
+    }),
+    setChainMixer: async (
+      params: Parameters<AbletonService["setChainMixer"]>[0],
+    ) => {
+      const state = {
+        mute: false,
+        solo: false,
+        volume: null,
+        pan: null,
+        sends: [],
+      };
+      return {
+        chainReference: params.target.chain.expectedReference,
+        before: state,
+        after: { ...state, mute: params.mute ?? false },
+        verified: true as const,
+      };
+    },
     setDeviceEnabled: async (
       params: Parameters<AbletonService["setDeviceEnabled"]>[0],
     ) => ({
@@ -1072,8 +1179,13 @@ describe("CopilotAgentService", () => {
       "custom:ableton_browser_search",
       "custom:ableton_browser_search_external_plugins",
       "custom:ableton_browser_load_item",
+      "custom:ableton_rack_chain_mixer_inspect",
+      "custom:ableton_device_find_position",
+      "custom:ableton_device_move",
+      "custom:ableton_rack_chain_set_properties",
+      "custom:ableton_rack_chain_set_mixer",
     ]);
-    expect(config?.tools).toHaveLength(38);
+    expect(config?.tools).toHaveLength(43);
     expect(config?.customAgents).toEqual([
       {
         name: "default-agent",
@@ -1121,6 +1233,11 @@ describe("CopilotAgentService", () => {
           "ableton_browser_search",
           "ableton_browser_search_external_plugins",
           "ableton_browser_load_item",
+          "ableton_rack_chain_mixer_inspect",
+          "ableton_device_find_position",
+          "ableton_device_move",
+          "ableton_rack_chain_set_properties",
+          "ableton_rack_chain_set_mixer",
         ],
         infer: false,
       },

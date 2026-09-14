@@ -92,12 +92,24 @@ when replacing notes in a non-empty clip.
 | `ableton_drum_rack_pads_inspect` | Inspect a bounded page of pads on an exact top-level Drum Rack. | `read` | `read` | `short` | Track/Drum Rack identity, `offset`, `limit` |
 | `ableton_drum_pad_chains_inspect` | Inspect direct chains for an exact Drum Rack pad. | `read` | `read` | `short` | Track/rack/pad identity, `offset`, `limit` |
 | `ableton_drum_pad_chain_devices_inspect` | Inspect direct devices in an exact Drum Rack pad chain. | `read` | `read` | `short` | Track/rack/pad/chain identity, `offset`, `limit` |
+| `ableton_rack_chain_mixer_inspect` | Inspect an exact existing chain's mute, solo, volume, pan, sends, and mixer parameter identities. | `read` | `read` | `short` | Exact rack or Drum Rack pad chain topology |
+| `ableton_device_find_position` | Validate the exact Live 11 destination position for an existing device without moving it. | `read` | `read` | `short` | Strict source location and destination parent identities plus destination index |
+| `ableton_device_move` | Move or reorder an existing device between a track and existing rack/Drum Rack chains using Live 11 `Song.move_device`. | `reversible` | `tracks` | `short` | Exact source device/parent identities and exact destination parent/index |
+| `ableton_rack_chain_set_properties` | Rename and/or recolor an exact existing rack or Drum Rack pad chain. | `reversible` | `track` | `short` | Exact chain topology and one or more properties |
+| `ableton_rack_chain_set_mixer` | Set mute, solo, volume, pan, and/or exposed sends on an exact existing chain. | `reversible` | `track` | `short` | Exact chain topology and exact mixer parameter identities |
 | `ableton_device_set_enabled` | Enable or disable an exact top-level device through its Device On parameter. | `reversible` | `track` | `short` | Track/device identity, `enabled` |
 | `ableton_device_set_parameter` | Set an exact writable parameter using normalized `0..1` input, with quantization support and rollback. | `reversible` | `track` | `short` | Track/device/parameter identity, `normalizedValue` |
 
 Device inspection is intentionally bounded and non-recursive. Nested rack
 contents are reached through the rack-, chain-, pad-, and device-specific
-inspection tools.
+inspection tools. Device movement and chain editing are Live 11 operations:
+they preflight with `Song.find_device_position`, account for same-parent index
+shifts, verify the canonical parent and final index, and fail closed on stale
+or ambiguous topology.
+
+This slice does **not** support creating empty rack chains, direct native
+device insertion, deleting one chain, or reordering chains. Those operations
+are not registered as tools or advertised as capabilities.
 
 ## Ableton Browser and content loading
 

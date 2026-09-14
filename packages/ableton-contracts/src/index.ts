@@ -66,6 +66,21 @@ export interface AbletonService {
   inspectDrumPadChainDevices(
     params: Protocol.InspectDrumPadChainDevicesParams,
   ): Promise<Protocol.InspectDrumPadChainDevicesResult>;
+  inspectChainMixer(
+    params: Protocol.InspectChainMixerParams,
+  ): Promise<Protocol.InspectChainMixerResult>;
+  findDevicePosition(
+    params: Protocol.FindDevicePositionParams,
+  ): Promise<Protocol.FindDevicePositionResult>;
+  moveDevice(
+    params: Protocol.MoveDeviceParams,
+  ): Promise<Protocol.MoveDeviceResult>;
+  setChainProperties(
+    params: Protocol.SetChainPropertiesParams,
+  ): Promise<Protocol.SetChainPropertiesResult>;
+  setChainMixer(
+    params: Protocol.SetChainMixerParams,
+  ): Promise<Protocol.SetChainMixerResult>;
   setDeviceEnabled(
     params: Protocol.SetDeviceEnabledParams,
   ): Promise<Protocol.SetDeviceEnabledResult>;

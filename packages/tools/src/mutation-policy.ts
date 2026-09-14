@@ -2,6 +2,10 @@ import type {
   ActiveAgentConfig,
   BoundTrackScope,
 } from "@ableton-agent/agent-config";
+import {
+  getAbletonOperationDescriptor,
+  resolveAbletonOperation,
+} from "./operation-descriptor.js";
 
 export type MutationTarget = "read" | "session" | "track" | "tracks";
 
@@ -90,7 +94,10 @@ export type AbletonMutationAuthorizationResult =
   AbletonMutationAllowResult | AbletonMutationDenyResult;
 
 export interface AbletonMutationAuthorizer {
-  resolveMutationTarget(toolName: string): MutationTarget | undefined;
+  resolveMutationTarget(
+    toolName: string,
+    args?: unknown,
+  ): MutationTarget | undefined;
   authorize(
     context: AbletonMutationAuthorizationContext,
     invocation: AbletonToolInvocation,
@@ -103,6 +110,20 @@ export interface RunAuthorizedMutationOptions<T> {
   readonly getContext: () => Promise<AbletonMutationAuthorizationContext>;
   readonly invocation: AbletonToolInvocation;
   readonly handler: () => Promise<T>;
+  readonly onLifecycle?: (event: {
+    readonly stage:
+      | "requested"
+      | "policy"
+      | "queued"
+      | "started"
+      | "verification"
+      | "completed"
+      | "failed"
+      | "cancelled";
+    readonly authorization?: AbletonMutationAuthorizationResult;
+    readonly result?: T;
+    readonly error?: unknown;
+  }) => void;
 }
 
 const abletonTrackReferenceArgumentsByToolName: Record<
@@ -168,6 +189,19 @@ function resolveTrackReferences(
   return normalizeTrackReferences(trackReferences);
 }
 
+function resolveInvocationTrackReferences(
+  toolName: string,
+  args: unknown,
+): readonly string[] | undefined {
+  try {
+    const operation = resolveAbletonOperation(toolName, args);
+    if (operation !== undefined) return operation.affectedTrackReferences;
+  } catch {
+    return undefined;
+  }
+  return resolveTrackReferences(toolName, args);
+}
+
 function deny(
   code: AbletonMutationAuthorizationCode,
   message: string,
@@ -222,8 +256,22 @@ export function createAbletonMutationAuthorizer(
   );
 
   return {
-    resolveMutationTarget(toolName: string): MutationTarget | undefined {
-      return descriptorsByName.get(toolName)?.mutationTarget;
+    resolveMutationTarget(
+      toolName: string,
+      args?: unknown,
+    ): MutationTarget | undefined {
+      if (args !== undefined) {
+        try {
+          const operation = resolveAbletonOperation(toolName, args);
+          if (operation !== undefined) return operation.metadata.mutationTarget;
+        } catch {
+          return undefined;
+        }
+      }
+      return (
+        getAbletonOperationDescriptor(toolName)?.mutationTarget ??
+        descriptorsByName.get(toolName)?.mutationTarget
+      );
     },
 
     authorize(
@@ -260,7 +308,7 @@ export function createAbletonMutationAuthorizer(
           return allow(invocation.toolName, "session", [], { kind: "session" });
         case "track":
         case "tracks": {
-          const trackReferences = resolveTrackReferences(
+          const trackReferences = resolveInvocationTrackReferences(
             invocation.toolName,
             invocation.args,
           );
@@ -436,26 +484,65 @@ export function createAbletonMutationLockManager(): AbletonMutationLockManager {
 export async function runAuthorizedAbletonMutation<T>(
   options: RunAuthorizedMutationOptions<T>,
 ): Promise<T> {
-  const initialContext = await options.getContext();
-  const initialAuthorization = options.authorizer.authorize(
-    initialContext,
-    options.invocation,
-  );
+  options.onLifecycle?.({ stage: "requested" });
+  let initialAuthorization: AbletonMutationAuthorizationResult;
+  try {
+    const initialContext = await options.getContext();
+    initialAuthorization = options.authorizer.authorize(
+      initialContext,
+      options.invocation,
+    );
+    options.onLifecycle?.({
+      stage: "policy",
+      authorization: initialAuthorization,
+    });
+  } catch (error) {
+    options.onLifecycle?.({ stage: "failed", error });
+    throw error;
+  }
 
   if (initialAuthorization.kind === "deny") {
-    throw new AbletonMutationAuthorizationError(
+    const error = new AbletonMutationAuthorizationError(
       initialAuthorization.code,
       initialAuthorization.message,
     );
+    options.onLifecycle?.({ stage: "failed", error });
+    throw error;
   }
 
   if (initialAuthorization.lockScope === undefined) {
-    return options.handler();
+    options.onLifecycle?.({ stage: "started" });
+    try {
+      const result = await options.handler();
+      options.onLifecycle?.({ stage: "verification", result });
+      options.onLifecycle?.({ stage: "completed", result });
+      return result;
+    } catch (error) {
+      options.onLifecycle?.({
+        stage:
+          error instanceof Error && error.name === "AbortError"
+            ? "cancelled"
+            : "failed",
+        error,
+      });
+      throw error;
+    }
   }
 
-  const handle = await options.lockManager.acquire(
-    initialAuthorization.lockScope,
-  );
+  options.onLifecycle?.({ stage: "queued" });
+  let handle: AbletonMutationLockHandle;
+  try {
+    handle = await options.lockManager.acquire(initialAuthorization.lockScope);
+  } catch (error) {
+    options.onLifecycle?.({
+      stage:
+        error instanceof Error && error.name === "AbortError"
+          ? "cancelled"
+          : "failed",
+      error,
+    });
+    throw error;
+  }
   try {
     const refreshedContext = await options.getContext();
     const refreshedAuthorization = options.authorizer.authorize(
@@ -464,10 +551,11 @@ export async function runAuthorizedAbletonMutation<T>(
     );
 
     if (refreshedAuthorization.kind === "deny") {
-      throw new AbletonMutationAuthorizationError(
+      const error = new AbletonMutationAuthorizationError(
         "scope_changed",
         refreshedAuthorization.message,
       );
+      throw error;
     }
 
     if (
@@ -478,13 +566,27 @@ export async function runAuthorizedAbletonMutation<T>(
         initialAuthorization.trackReferences,
       )
     ) {
-      throw new AbletonMutationAuthorizationError(
+      const error = new AbletonMutationAuthorizationError(
         "scope_changed",
         "Ableton edit scope changed before mutation execution",
       );
+      throw error;
     }
 
-    return await options.handler();
+    options.onLifecycle?.({ stage: "started" });
+    const result = await options.handler();
+    options.onLifecycle?.({ stage: "verification", result });
+    options.onLifecycle?.({ stage: "completed", result });
+    return result;
+  } catch (error) {
+    options.onLifecycle?.({
+      stage:
+        error instanceof Error && error.name === "AbortError"
+          ? "cancelled"
+          : "failed",
+      error,
+    });
+    throw error;
   } finally {
     handle.release();
   }

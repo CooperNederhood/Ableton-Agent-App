@@ -75,6 +75,20 @@ interface AbletonToolMetadata {
 
 Hooks use this metadata for permissions and UI presentation.
 
+New domain operations may define this metadata through an internal operation
+descriptor. A descriptor binds a stable operation ID and action to strict
+input/result schemas, risk, duration, mutation target/edit scope, required
+capability, affected-track extraction, service handler, and target-specific
+lifecycle identity. Permission checks and mutation locks resolve the descriptor
+from the invocation arguments, so cross-track operations authorize and lock
+both exact track references rather than relying on a static tool name.
+
+The first device/rack slice exposes explicit public tool names backed by these
+descriptors. A grouped public tool remains follow-up work: grouping it now
+would require broader changes to custom-agent allowlist matching, approval
+presentation, and deferred catalog loading. Explicit names preserve current
+allowlists and approval behavior.
+
 The tool factory must also define sanitized observability events for request,
 policy/approval, queued, started, progress, child workflow/bridge operations,
 verification, completed, failed, and cancelled stages. Each stage propagates

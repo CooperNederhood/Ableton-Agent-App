@@ -131,7 +131,9 @@ function createRuntimeObserver(
       const toolName =
         observedToolName ??
         (toolCallId === undefined ? undefined : toolNames.get(toolCallId));
-      const isToolEvent = event.type.startsWith("agent.tool.");
+      const isToolEvent =
+        event.type.startsWith("agent.tool.") ||
+        event.type.startsWith("agent.operation.");
       const isTurnEvent = event.type.startsWith("agent.turn.");
       const isAssistantEvent = event.type.startsWith("agent.assistant.");
       const spanId = isToolEvent
@@ -676,6 +678,11 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     inspectDrumPadChains: (params) => ableton.inspectDrumPadChains(params),
     inspectDrumPadChainDevices: (params) =>
       ableton.inspectDrumPadChainDevices(params),
+    inspectChainMixer: (params) => ableton.inspectChainMixer(params),
+    findDevicePosition: (params) => ableton.findDevicePosition(params),
+    moveDevice: (params) => ableton.moveDevice(params),
+    setChainProperties: (params) => ableton.setChainProperties(params),
+    setChainMixer: (params) => ableton.setChainMixer(params),
     setDeviceEnabled: (params) => ableton.setDeviceEnabled(params),
     setDeviceParameter: (params) => ableton.setDeviceParameter(params),
     createMidiClip: (params) => ableton.createMidiClip(params),

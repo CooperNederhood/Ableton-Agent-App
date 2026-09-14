@@ -6,6 +6,7 @@ import {
   createAbletonPermissionHandler,
   createAbletonTools,
   parseAbletonToolFailure,
+  resolveAbletonOperation,
   toolCatalogPolicy,
   type AbletonToolServices,
   type ToolApprovalRequest,
@@ -823,6 +824,122 @@ function services() {
           limit: params.limit,
         }),
     ),
+    inspectChainMixer: vi.fn(
+      async (
+        params: Parameters<AbletonToolServices["inspectChainMixer"]>[0],
+      ) => ({
+        chainReference: params.target.chain.expectedReference,
+        mixer: {
+          mute: false,
+          solo: false,
+          volume: null,
+          pan: null,
+          sends: [],
+        },
+      }),
+    ),
+    findDevicePosition: vi.fn(
+      async (
+        params: Parameters<AbletonToolServices["findDevicePosition"]>[0],
+      ) => ({
+        source: {
+          kind: "track-device" as const,
+          track: {
+            index: params.source.track.index,
+            reference: params.source.track.expectedReference,
+            name: params.source.track.expectedName,
+          },
+          device: {
+            index: params.source.device.index,
+            reference: params.source.device.expectedReference,
+            name: params.source.device.expectedName,
+          },
+        },
+        destination: {
+          kind: "track" as const,
+          track: {
+            index: params.destination.track.index,
+            reference: params.destination.track.expectedReference,
+            name: params.destination.track.expectedName,
+          },
+          deviceIndex: params.destination.deviceIndex,
+        },
+        requestedIndex: params.destination.deviceIndex,
+        resolvedIndex: params.destination.deviceIndex,
+        apiTargetPosition: params.destination.deviceIndex,
+        sameParent: false,
+        exact: true,
+      }),
+    ),
+    moveDevice: vi.fn(
+      async (params: Parameters<AbletonToolServices["moveDevice"]>[0]) => ({
+        deviceReference: params.source.device.expectedReference,
+        before: {
+          kind: "track-device" as const,
+          track: {
+            index: params.source.track.index,
+            reference: params.source.track.expectedReference,
+            name: params.source.track.expectedName,
+          },
+          device: {
+            index: params.source.device.index,
+            reference: params.source.device.expectedReference,
+            name: params.source.device.expectedName,
+          },
+        },
+        after: {
+          kind: "track-device" as const,
+          track: {
+            index: params.destination.track.index,
+            reference: params.destination.track.expectedReference,
+            name: params.destination.track.expectedName,
+          },
+          device: {
+            index: params.destination.deviceIndex,
+            reference: params.source.device.expectedReference,
+            name: params.source.device.expectedName,
+          },
+        },
+        requestedDestinationIndex: params.destination.deviceIndex,
+        preflightIndex: params.destination.deviceIndex,
+        moveReturnedIndex: params.destination.deviceIndex,
+        sameParent: false,
+        verified: true as const,
+      }),
+    ),
+    setChainProperties: vi.fn(
+      async (
+        params: Parameters<AbletonToolServices["setChainProperties"]>[0],
+      ) => ({
+        chainReference: params.target.chain.expectedReference,
+        before: { name: params.target.chain.expectedName, color: null },
+        after: {
+          name: params.name ?? params.target.chain.expectedName,
+          color: params.color ?? null,
+        },
+        verified: true as const,
+      }),
+    ),
+    setChainMixer: vi.fn(
+      async (params: Parameters<AbletonToolServices["setChainMixer"]>[0]) => ({
+        chainReference: params.target.chain.expectedReference,
+        before: {
+          mute: false,
+          solo: false,
+          volume: null,
+          pan: null,
+          sends: [],
+        },
+        after: {
+          mute: params.mute ?? false,
+          solo: params.solo ?? false,
+          volume: null,
+          pan: null,
+          sends: [],
+        },
+        verified: true as const,
+      }),
+    ),
     setDeviceEnabled: vi.fn(
       (params: Parameters<AbletonToolServices["setDeviceEnabled"]>[0]) =>
         Promise.resolve({
@@ -1011,6 +1128,11 @@ describe("Ableton tools", () => {
       "custom:ableton_browser_search",
       "custom:ableton_browser_search_external_plugins",
       "custom:ableton_browser_load_item",
+      "custom:ableton_rack_chain_mixer_inspect",
+      "custom:ableton_device_find_position",
+      "custom:ableton_device_move",
+      "custom:ableton_rack_chain_set_properties",
+      "custom:ableton_rack_chain_set_mixer",
     ]);
     expect(toolSet.tools.length).toBeLessThanOrEqual(
       toolCatalogPolicy.maximumEagerTools,
@@ -1054,6 +1176,11 @@ describe("Ableton tools", () => {
       "read",
       "read",
       "reversible",
+      "read",
+      "read",
+      "reversible",
+      "reversible",
+      "reversible",
     ]);
     expect(
       abletonToolMetadata.map((metadata) => metadata.mutationTarget),
@@ -1096,7 +1223,57 @@ describe("Ableton tools", () => {
       "read",
       "read",
       "track",
+      "read",
+      "read",
+      "tracks",
+      "track",
+      "track",
     ]);
+  });
+
+  it("resolves action-aware metadata and exact affected tracks from arguments", () => {
+    const operation = resolveAbletonOperation("ableton_device_move", {
+      source: {
+        kind: "track-device",
+        track: {
+          index: 0,
+          expectedReference: "00000000-0000-4000-8000-000000000001",
+          expectedName: "Drums",
+        },
+        device: {
+          index: 0,
+          expectedReference: "00000000-0000-4000-8000-000000000010",
+          expectedName: "Drum Rack",
+        },
+      },
+      destination: {
+        kind: "track",
+        track: {
+          index: 1,
+          expectedReference: "00000000-0000-4000-8000-000000000002",
+          expectedName: "Bass",
+        },
+        deviceIndex: 0,
+      },
+    });
+
+    expect(operation).toMatchObject({
+      descriptor: {
+        operationId: "devices.move",
+        action: "move",
+        handlerBinding: "moveDevice",
+        editScope: "affected-tracks",
+      },
+      affectedTrackReferences: [
+        "00000000-0000-4000-8000-000000000001",
+        "00000000-0000-4000-8000-000000000002",
+      ],
+      lifecycleIdentity: {
+        domain: "devices",
+        action: "move",
+        targetKind: "track-device-to-track",
+      },
+    });
   });
 
   it("invokes application service ports instead of transport code", async () => {
@@ -1424,6 +1601,57 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
+    const operationTrack = {
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000001",
+      expectedName: "Drums",
+    };
+    const operationDevice = {
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000040",
+      expectedName: "Operator",
+    };
+    const operationChain = {
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000042",
+      expectedName: "Main",
+    };
+    const operationSource = {
+      kind: "track-device" as const,
+      track: operationTrack,
+      device: operationDevice,
+    };
+    const operationDestination = {
+      kind: "track" as const,
+      track: operationTrack,
+      deviceIndex: 0,
+    };
+    const operationChainTarget = {
+      kind: "rack-chain" as const,
+      track: operationTrack,
+      rack: operationDevice,
+      chain: operationChain,
+    };
+    await toolSet.tools[38].handler?.(
+      { target: operationChainTarget },
+      invocation,
+    );
+    await toolSet.tools[39].handler?.(
+      { source: operationSource, destination: operationDestination },
+      invocation,
+    );
+    await toolSet.tools[40].handler?.(
+      { source: operationSource, destination: operationDestination },
+      invocation,
+    );
+    await toolSet.tools[41].handler?.(
+      { target: operationChainTarget, name: "Parallel" },
+      invocation,
+    );
+    await toolSet.tools[42].handler?.(
+      { target: operationChainTarget, mute: true },
+      invocation,
+    );
 
     expect(ports.getConnectionStatus).toHaveBeenCalledTimes(
       toolSet.tools.length,
@@ -1619,6 +1847,9 @@ describe("Ableton tools", () => {
       expectedChainName: "Kick",
       offset: 0,
       limit: 10,
+    });
+    expect(ports.inspectChainMixer).toHaveBeenCalledWith({
+      target: operationChainTarget,
     });
     expect(ports.inspectDeviceParameters).toHaveBeenCalledWith({
       ...deviceTarget,

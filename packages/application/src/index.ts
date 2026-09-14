@@ -28,6 +28,8 @@ import type {
   DuplicateClipToArrangementResult,
   DuplicateSessionClipParams,
   DuplicateSessionClipResult,
+  FindDevicePositionParams,
+  FindDevicePositionResult,
   CreateMidiClipParams,
   CreateMidiClipResult,
   CreateTrackParams,
@@ -46,6 +48,10 @@ import type {
   SetArrangementClipPropertiesResult,
   SetArrangementLoopParams,
   SetArrangementLoopResult,
+  SetChainMixerParams,
+  SetChainMixerResult,
+  SetChainPropertiesParams,
+  SetChainPropertiesResult,
   SetSessionClipPropertiesParams,
   SetSessionClipPropertiesResult,
   PingResult,
@@ -67,8 +73,12 @@ import type {
   SearchBrowserResult,
   LoadBrowserItemParams,
   LoadBrowserItemResult,
+  MoveDeviceParams,
+  MoveDeviceResult,
   InspectDrumPadChainDevicesParams,
   InspectDrumPadChainDevicesResult,
+  InspectChainMixerParams,
+  InspectChainMixerResult,
   InspectDrumPadChainsParams,
   InspectDrumPadChainsResult,
   InspectDrumRackPadsParams,
@@ -108,7 +118,10 @@ import {
   createAbletonPermissionHandler,
   createAbletonTools,
   parseAbletonToolFailure,
+  resolveAbletonOperation,
+  resolveAbletonToolMetadata,
   runAuthorizedAbletonMutation,
+  type AbletonOperationLifecycleIdentity,
   type AbletonMutationAuthorizationContext,
   type ToolApprovalRequester,
 } from "@ableton-agent/tools";
@@ -385,12 +398,23 @@ export interface CopilotAgentServiceOptions {
   inspectDrumPadChainDevices: (
     params: InspectDrumPadChainDevicesParams,
   ) => Promise<InspectDrumPadChainDevicesResult>;
+  inspectChainMixer: (
+    params: InspectChainMixerParams,
+  ) => Promise<InspectChainMixerResult>;
   setDeviceEnabled: (
     params: SetDeviceEnabledParams,
   ) => Promise<SetDeviceEnabledResult>;
   setDeviceParameter: (
     params: SetDeviceParameterParams,
   ) => Promise<SetDeviceParameterResult>;
+  findDevicePosition: (
+    params: FindDevicePositionParams,
+  ) => Promise<FindDevicePositionResult>;
+  moveDevice: (params: MoveDeviceParams) => Promise<MoveDeviceResult>;
+  setChainProperties: (
+    params: SetChainPropertiesParams,
+  ) => Promise<SetChainPropertiesResult>;
+  setChainMixer: (params: SetChainMixerParams) => Promise<SetChainMixerResult>;
   createMidiClip: (
     params: CreateMidiClipParams,
   ) => Promise<CreateMidiClipResult>;
@@ -527,6 +551,9 @@ interface ObservedOperation {
   toolName: string;
   arguments: Readonly<Record<string, unknown>>;
   startedAt: number;
+  operationDescriptorId?: string;
+  action?: string;
+  targetIdentity?: AbletonOperationLifecycleIdentity;
 }
 
 interface MutableRuntimeTrace {
@@ -994,6 +1021,11 @@ export class CopilotAgentService implements AgentService {
       inspectDrumRackPads: this.options.inspectDrumRackPads,
       inspectDrumPadChains: this.options.inspectDrumPadChains,
       inspectDrumPadChainDevices: this.options.inspectDrumPadChainDevices,
+      inspectChainMixer: this.options.inspectChainMixer,
+      findDevicePosition: this.options.findDevicePosition,
+      moveDevice: this.options.moveDevice,
+      setChainProperties: this.options.setChainProperties,
+      setChainMixer: this.options.setChainMixer,
       setDeviceEnabled: this.options.setDeviceEnabled,
       setDeviceParameter: this.options.setDeviceParameter,
       createMidiClip: this.options.createMidiClip,
@@ -1084,18 +1116,140 @@ export class CopilotAgentService implements AgentService {
           `Ableton tool ${tool.name} has no mutation classification`,
         );
       }
-      if (mutationTarget === "read" || tool.handler === undefined) return tool;
+      if (tool.handler === undefined) return tool;
       const handler = tool.handler;
+      const runOperation = async (
+        args: unknown,
+        invocation: ToolInvocation,
+        execute: () => Promise<unknown>,
+      ): Promise<unknown> => {
+        const requestedAt = Date.now();
+        let operation;
+        try {
+          operation = resolveAbletonOperation(tool.name, args);
+        } catch (error) {
+          this.#recordRuntime(state, "agent.operation.failed", {
+            toolCallId: invocation.toolCallId,
+            toolName: tool.name,
+            stage: "requested",
+            error: error instanceof Error ? error.message : String(error),
+          });
+          throw error;
+        }
+        if (operation === undefined) return execute();
+        const base = {
+          toolCallId: invocation.toolCallId,
+          toolName: tool.name,
+          operationDescriptorId: operation.descriptor.operationId,
+          action: operation.descriptor.action,
+          targetIdentity: operation.lifecycleIdentity,
+        };
+        this.#recordRuntime(state, "agent.operation.requested", base);
+        try {
+          this.#recordRuntime(state, "agent.operation.started", base);
+          const result = await execute();
+          this.#recordRuntime(state, "agent.operation.verification", {
+            ...base,
+            durationMs: Math.max(0, Date.now() - requestedAt),
+            verified:
+              result !== null &&
+              typeof result === "object" &&
+              Reflect.get(result, "verified") === true,
+          });
+          this.#recordRuntime(state, "agent.operation.completed", {
+            ...base,
+            durationMs: Math.max(0, Date.now() - requestedAt),
+          });
+          return result;
+        } catch (error) {
+          this.#recordRuntime(
+            state,
+            error instanceof Error && error.name === "AbortError"
+              ? "agent.operation.cancelled"
+              : "agent.operation.failed",
+            {
+              ...base,
+              durationMs: Math.max(0, Date.now() - requestedAt),
+              error: error instanceof Error ? error.message : String(error),
+            },
+          );
+          throw error;
+        }
+      };
+      if (mutationTarget === "read") {
+        return {
+          ...tool,
+          handler: async (args: unknown, invocation: ToolInvocation) =>
+            runOperation(args, invocation, () =>
+              Promise.resolve(handler(args, invocation)),
+            ),
+        };
+      }
       return {
         ...tool,
-        handler: async (args: unknown, invocation: ToolInvocation) =>
-          runAuthorizedAbletonMutation({
+        handler: async (args: unknown, invocation: ToolInvocation) => {
+          const requestedAt = Date.now();
+          let queuedAt: number | undefined;
+          let startedAt: number | undefined;
+          return runAuthorizedAbletonMutation({
             authorizer: this.#mutationAuthorizer,
             lockManager: this.#mutationLockManager,
             getContext: () => this.#mutationContext(state),
             invocation: { toolName: tool.name, args },
             handler: () => Promise.resolve(handler(args, invocation)),
-          }),
+            onLifecycle: (event) => {
+              const now = Date.now();
+              if (event.stage === "queued") queuedAt = now;
+              if (event.stage === "started") startedAt = now;
+              const operation = resolveAbletonOperation(tool.name, args);
+              if (operation === undefined) return;
+              this.#recordRuntime(state, `agent.operation.${event.stage}`, {
+                toolCallId: invocation.toolCallId,
+                toolName: tool.name,
+                operationDescriptorId: operation.descriptor.operationId,
+                action: operation.descriptor.action,
+                targetIdentity: operation.lifecycleIdentity,
+                ...([
+                  "verification",
+                  "completed",
+                  "failed",
+                  "cancelled",
+                ].includes(event.stage)
+                  ? { durationMs: Math.max(0, now - requestedAt) }
+                  : {}),
+                ...(event.stage === "started" && queuedAt !== undefined
+                  ? { queueDurationMs: Math.max(0, now - queuedAt) }
+                  : {}),
+                ...(event.stage === "verification" && startedAt !== undefined
+                  ? {
+                      executionDurationMs: Math.max(0, now - startedAt),
+                    }
+                  : {}),
+                ...(event.authorization === undefined
+                  ? {}
+                  : { authorization: event.authorization }),
+                ...(event.error === undefined
+                  ? {}
+                  : {
+                      error:
+                        event.error instanceof Error
+                          ? event.error.message
+                          : typeof event.error === "string"
+                            ? event.error
+                            : "Unknown operation failure",
+                    }),
+                ...(event.stage === "verification"
+                  ? {
+                      verified:
+                        event.result !== null &&
+                        typeof event.result === "object" &&
+                        Reflect.get(event.result, "verified") === true,
+                    }
+                  : {}),
+              });
+            },
+          });
+        },
       };
     });
   }
@@ -1499,10 +1653,26 @@ export class CopilotAgentService implements AgentService {
         const permissionId =
           ("toolCallId" in request ? request.toolCallId : undefined) ??
           randomUUID();
+        const resolvedMetadata =
+          request.kind === "custom-tool"
+            ? (() => {
+                try {
+                  return resolveAbletonToolMetadata(
+                    request.toolName,
+                    request.args ?? {},
+                  );
+                } catch {
+                  return undefined;
+                }
+              })()
+            : undefined;
         this.#recordRuntime(state, "agent.permission.requested", {
           permissionId,
           request,
           invocation,
+          ...(resolvedMetadata === undefined
+            ? {}
+            : { operationMetadata: resolvedMetadata }),
         });
         let result;
         if (
@@ -1533,6 +1703,9 @@ export class CopilotAgentService implements AgentService {
           permissionId,
           request,
           result,
+          ...(resolvedMetadata === undefined
+            ? {}
+            : { operationMetadata: resolvedMetadata }),
         });
         return result;
       },
@@ -1646,6 +1819,9 @@ export class CopilotAgentService implements AgentService {
           {
             ...sdkData,
             arguments: operation?.arguments,
+            operationDescriptorId: operation?.operationDescriptorId,
+            action: operation?.action,
+            targetIdentity: operation?.targetIdentity,
             durationMs:
               operation === undefined
                 ? undefined
@@ -1681,15 +1857,30 @@ export class CopilotAgentService implements AgentService {
           ...this.#eventAttribution(state),
         });
       } else if (event.type === "tool.execution_start") {
-        const metadata = abletonToolMetadata.find(
-          (candidate) => candidate.name === event.data.toolName,
-        );
+        let metadata;
+        try {
+          metadata = resolveAbletonToolMetadata(
+            event.data.toolName,
+            event.data.arguments ?? {},
+          );
+        } catch {
+          metadata = undefined;
+        }
         const label = metadata?.title ?? event.data.toolName;
         state.operations.set(event.data.toolCallId, {
           label,
           toolName: event.data.toolName,
           arguments: event.data.arguments ?? {},
           startedAt: Date.parse(event.timestamp),
+          ...(metadata?.operationId === undefined
+            ? {}
+            : { operationDescriptorId: metadata.operationId }),
+          ...(metadata?.action === undefined
+            ? {}
+            : { action: metadata.action }),
+          ...(metadata?.lifecycleIdentity === undefined
+            ? {}
+            : { targetIdentity: metadata.lifecycleIdentity }),
         });
         this.#logger.debug("Agent tool started", {
           sessionId: session.sessionId,
@@ -1699,6 +1890,9 @@ export class CopilotAgentService implements AgentService {
           operationId: event.data.toolCallId,
           toolName: event.data.toolName,
           arguments: event.data.arguments ?? {},
+          operationDescriptorId: metadata?.operationId,
+          action: metadata?.action,
+          targetIdentity: metadata?.lifecycleIdentity,
         });
         this.options.events.publish({
           type: "operation.started",
@@ -1706,6 +1900,15 @@ export class CopilotAgentService implements AgentService {
           label,
           toolName: event.data.toolName,
           arguments: event.data.arguments ?? {},
+          ...(metadata?.operationId === undefined
+            ? {}
+            : { operationDescriptorId: metadata.operationId }),
+          ...(metadata?.action === undefined
+            ? {}
+            : { action: metadata.action }),
+          ...(metadata?.lifecycleIdentity === undefined
+            ? {}
+            : { targetIdentity: metadata.lifecycleIdentity }),
           ...this.#eventAttribution(state),
         });
       } else if (event.type === "tool.execution_complete") {

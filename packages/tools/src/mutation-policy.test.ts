@@ -116,6 +116,11 @@ describe("Ableton mutation policy", () => {
       "read",
       "read",
       "track",
+      "read",
+      "read",
+      "tracks",
+      "track",
+      "track",
     ]);
 
     const authorizer = createAbletonMutationAuthorizer(abletonToolMetadata);
@@ -226,6 +231,56 @@ describe("Ableton mutation policy", () => {
         code: "track_scope_required",
       }),
     );
+  });
+
+  it("resolves operation metadata and locks from discriminated targets", () => {
+    const authorizer = createAbletonMutationAuthorizer(abletonToolMetadata);
+    const bindings = [
+      trackBinding("Drums", 0, drumsReference, 0),
+      trackBinding("Bass", 0, bassReference, 1),
+    ];
+    const invocation = {
+      toolName: "ableton_device_move",
+      args: {
+        source: {
+          kind: "track-device",
+          track: {
+            index: 0,
+            expectedReference: drumsReference,
+            expectedName: "Drums",
+          },
+          device: {
+            index: 0,
+            expectedReference: "00000000-0000-4000-8000-000000000010",
+            expectedName: "Drum Rack",
+          },
+        },
+        destination: {
+          kind: "track",
+          track: {
+            index: 1,
+            expectedReference: bassReference,
+            expectedName: "Bass",
+          },
+          deviceIndex: 0,
+        },
+      },
+    };
+
+    expect(
+      authorizer.authorize(
+        trackContext([invocation.toolName], bindings),
+        invocation,
+      ),
+    ).toMatchObject({
+      kind: "allow",
+      mutationTarget: "tracks",
+      trackReferences: [drumsReference, bassReference],
+      lockScope: {
+        kind: "tracks",
+        trackReferences: [drumsReference, bassReference],
+      },
+    });
   });
 
   it("denies unknown mutations by default", () => {
@@ -435,6 +490,7 @@ describe("Ableton mutation policy", () => {
     const authorizer = createAbletonMutationAuthorizer(abletonToolMetadata);
     const lockManager = createAbletonMutationLockManager();
     const handler = vi.fn(async () => "ok");
+    const lifecycle: string[] = [];
     const getContext = vi
       .fn<() => Promise<AbletonMutationAuthorizationContext>>()
       .mockResolvedValueOnce(
@@ -462,6 +518,7 @@ describe("Ableton mutation policy", () => {
           },
         },
         handler,
+        onLifecycle: (event) => lifecycle.push(event.stage),
       }),
     ).rejects.toMatchObject({
       code: "scope_changed",
@@ -470,6 +527,61 @@ describe("Ableton mutation policy", () => {
 
     expect(handler).not.toHaveBeenCalled();
     expect(getContext).toHaveBeenCalledTimes(2);
+    expect(lifecycle).toEqual(["requested", "policy", "queued", "failed"]);
+  });
+
+  it("records cancellation without reporting completion", async () => {
+    const authorizer = createAbletonMutationAuthorizer(abletonToolMetadata);
+    const lifecycle: string[] = [];
+    const aborted = new Error("cancelled");
+    aborted.name = "AbortError";
+
+    await expect(
+      runAuthorizedAbletonMutation({
+        authorizer,
+        lockManager: createAbletonMutationLockManager(),
+        getContext: async () => sessionContext(["ableton_device_move"]),
+        invocation: {
+          toolName: "ableton_device_move",
+          args: {
+            source: {
+              kind: "track-device",
+              track: {
+                index: 0,
+                expectedReference: drumsReference,
+                expectedName: "Drums",
+              },
+              device: {
+                index: 0,
+                expectedReference: "00000000-0000-4000-8000-000000000040",
+                expectedName: "Operator",
+              },
+            },
+            destination: {
+              kind: "track",
+              track: {
+                index: 1,
+                expectedReference: bassReference,
+                expectedName: "Bass",
+              },
+              deviceIndex: 0,
+            },
+          },
+        },
+        handler: async () => {
+          throw aborted;
+        },
+        onLifecycle: (event) => lifecycle.push(event.stage),
+      }),
+    ).rejects.toBe(aborted);
+
+    expect(lifecycle).toEqual([
+      "requested",
+      "policy",
+      "queued",
+      "started",
+      "cancelled",
+    ]);
   });
 
   it("keeps disjoint track locks concurrent", async () => {

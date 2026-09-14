@@ -575,6 +575,21 @@ function application(
         limit: params.limit,
       }),
     ),
+    inspectChainMixer: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    findDevicePosition: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    moveDevice: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    setChainProperties: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    setChainMixer: vi.fn(async () => {
+      throw new Error("not used");
+    }),
     setDeviceEnabled: vi.fn(async () => {
       throw new Error("not used");
     }),

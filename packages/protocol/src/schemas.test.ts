@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { commandCatalog } from "./catalog.js";
 import {
   inspectBrowserChildrenParamsSchema,
+  inspectChainMixerParamsSchema,
   loadBrowserItemParamsSchema,
   searchBrowserParamsSchema,
   sessionSnapshotSchema,
@@ -12,6 +13,7 @@ import {
   deviceSummarySchema,
   duplicateClipToArrangementParamsSchema,
   duplicateSessionClipParamsSchema,
+  findDevicePositionParamsSchema,
   inspectDeviceParametersParamsSchema,
   inspectDevicesParamsSchema,
   inspectDrumPadChainDevicesParamsSchema,
@@ -22,6 +24,8 @@ import {
   inspectRackChainsParamsSchema,
   launchSessionClipParamsSchema,
   projectIdentitySchema,
+  setChainMixerParamsSchema,
+  setChainPropertiesParamsSchema,
   setDeviceEnabledParamsSchema,
   setDeviceParameterParamsSchema,
   setArrangementLoopParamsSchema,
@@ -173,6 +177,93 @@ describe("project identity schema", () => {
       projectIdentitySchema.safeParse({
         projectId: "project-1",
         projectName: "My Set",
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("Live 11 device operation schemas", () => {
+  const device = {
+    index: 0,
+    expectedReference: "00000000-0000-4000-8000-000000000010",
+    expectedName: "Operator",
+  };
+  const rack = {
+    index: 1,
+    expectedReference: "00000000-0000-4000-8000-000000000011",
+    expectedName: "Instrument Rack",
+  };
+  const chain = {
+    index: 0,
+    expectedReference: "00000000-0000-4000-8000-000000000012",
+    expectedName: "Main",
+  };
+
+  it("accepts strict discriminated device and parent targets", () => {
+    expect(
+      findDevicePositionParamsSchema.parse({
+        source: { kind: "track-device", track: identity, device },
+        destination: {
+          kind: "rack-chain",
+          track: identity,
+          rack,
+          chain,
+          deviceIndex: 1,
+        },
+      }).destination.kind,
+    ).toBe("rack-chain");
+    expect(
+      findDevicePositionParamsSchema.safeParse({
+        source: {
+          kind: "track-device",
+          track: identity,
+          device,
+          nestedPath: [],
+        },
+        destination: {
+          kind: "track",
+          track: identity,
+          deviceIndex: 0,
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires a bounded explicit chain edit", () => {
+    const target = {
+      kind: "rack-chain" as const,
+      track: identity,
+      rack,
+      chain,
+    };
+    expect(inspectChainMixerParamsSchema.parse({ target })).toEqual({ target });
+    expect(
+      setChainPropertiesParamsSchema.parse({
+        target,
+        name: "Parallel",
+        color: 0x12_34_56,
+      }),
+    ).toMatchObject({ name: "Parallel" });
+    expect(setChainPropertiesParamsSchema.safeParse({ target }).success).toBe(
+      false,
+    );
+    expect(
+      setChainMixerParamsSchema.safeParse({
+        target,
+        sends: [
+          {
+            index: 0,
+            expectedParameterReference: "00000000-0000-4000-8000-000000000013",
+            expectedParameterName: "Send A",
+            normalizedValue: 0.25,
+          },
+          {
+            index: 0,
+            expectedParameterReference: "00000000-0000-4000-8000-000000000014",
+            expectedParameterName: "Send B",
+            normalizedValue: 0.5,
+          },
+        ],
       }).success,
     ).toBe(false);
   });

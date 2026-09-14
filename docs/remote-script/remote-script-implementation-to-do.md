@@ -62,6 +62,14 @@ Companion specification: [Remote Script](remote-script.md)
   - [x] Inspect one exact top-level rack through independently bounded direct
     chain, chain-device, Drum Rack pad, pad-chain, and pad-chain-device pages
     with runtime-stable pruned references and no recursive traversal.
+  - [x] Add Live 11 `find_device_position` preflight and verified
+    `move_device` support within/between regular tracks and existing rack or
+    Drum Rack pad chains, including same-parent index translation and recovery.
+  - [x] Add exact existing-chain name/color and exposed mute/solo/volume/pan/
+    send mutation with verification and rollback.
+  - [ ] Keep empty-chain creation, direct native insertion, single-chain
+    deletion, and chain reordering unsupported until separately approved APIs
+    and semantics exist.
   - [ ] Add return/group tracks and separately designed nested-rack traversal.
 - [x] Implement bounded Browser root/category pages, deterministic
   breadth-first search with node/result/depth/time limits, a 512-entry
@@ -90,6 +98,8 @@ Companion specification: [Remote Script](remote-script.md)
   - [ ] Validate rack/Drum Rack capability properties, chain/pad ordering and
     object identity, empty pads, pad-chain exposure, and chain device access in
     supported Live versions.
+  - [ ] Validate Live 11 device movement and chain mixer/property behavior
+    against real Live using the checked-in capability matrix.
   - [ ] Validate Browser roots and BrowserItem properties, URI/object
     stability, child ordering and latency, selected-track targeting,
     `Browser.load_item` timing, hotswap state, track compatibility,

@@ -13,6 +13,8 @@ import type {
   DuplicateClipToArrangementResult,
   DuplicateSessionClipParams,
   DuplicateSessionClipResult,
+  FindDevicePositionParams,
+  FindDevicePositionResult,
   DeleteTrackParams,
   DeleteSessionClipParams,
   DeleteSessionClipResult,
@@ -28,10 +30,14 @@ import type {
   InspectBrowserRootsResult,
   InspectBrowserChildrenParams,
   InspectBrowserChildrenResult,
+  InspectChainMixerParams,
+  InspectChainMixerResult,
   SearchBrowserParams,
   SearchBrowserResult,
   LoadBrowserItemParams,
   LoadBrowserItemResult,
+  MoveDeviceParams,
+  MoveDeviceResult,
   InspectDrumPadChainDevicesParams,
   InspectDrumPadChainDevicesResult,
   InspectDrumPadChainsParams,
@@ -53,6 +59,10 @@ import type {
   SetArrangementClipPropertiesResult,
   SetArrangementLoopParams,
   SetArrangementLoopResult,
+  SetChainMixerParams,
+  SetChainMixerResult,
+  SetChainPropertiesParams,
+  SetChainPropertiesResult,
   SetSessionClipPropertiesParams,
   SetSessionClipPropertiesResult,
   SessionSnapshot,
@@ -78,6 +88,12 @@ import {
 } from "@github/copilot-sdk";
 import { z } from "zod";
 import type { MutationTarget } from "./mutation-policy.js";
+import {
+  abletonOperationDescriptors,
+  resolveAbletonOperation,
+  type AbletonOperationEditScope,
+  type AbletonOperationLifecycleIdentity,
+} from "./operation-descriptor.js";
 
 export type ToolRisk = "read" | "reversible" | "destructive" | "broad";
 export type ToolDuration = "instant" | "short" | "long";
@@ -89,6 +105,10 @@ export interface AbletonToolMetadata {
   duration: ToolDuration;
   mutationTarget: MutationTarget;
   requiredCapability?: string;
+  operationId?: string;
+  action?: string;
+  editScope?: AbletonOperationEditScope;
+  lifecycleIdentity?: AbletonOperationLifecycleIdentity;
 }
 
 export interface AbletonToolServices {
@@ -135,6 +155,17 @@ export interface AbletonToolServices {
   inspectDrumPadChainDevices(
     params: InspectDrumPadChainDevicesParams,
   ): Promise<InspectDrumPadChainDevicesResult>;
+  inspectChainMixer(
+    params: InspectChainMixerParams,
+  ): Promise<InspectChainMixerResult>;
+  findDevicePosition(
+    params: FindDevicePositionParams,
+  ): Promise<FindDevicePositionResult>;
+  moveDevice(params: MoveDeviceParams): Promise<MoveDeviceResult>;
+  setChainProperties(
+    params: SetChainPropertiesParams,
+  ): Promise<SetChainPropertiesResult>;
+  setChainMixer(params: SetChainMixerParams): Promise<SetChainMixerResult>;
   setDeviceEnabled(
     params: SetDeviceEnabledParams,
   ): Promise<SetDeviceEnabledResult>;
@@ -483,7 +514,27 @@ export const abletonToolMetadata = [
     mutationTarget: "track",
     requiredCapability: "browser.load_item",
   },
+  ...abletonOperationDescriptors.map((descriptor) => ({
+    name: descriptor.toolName,
+    title: descriptor.title,
+    risk: descriptor.risk,
+    duration: descriptor.duration,
+    mutationTarget: descriptor.mutationTarget,
+    requiredCapability: descriptor.requiredCapability,
+    operationId: descriptor.operationId,
+    action: descriptor.action,
+    editScope: descriptor.editScope,
+  })),
 ] as const satisfies readonly AbletonToolMetadata[];
+
+export function resolveAbletonToolMetadata(
+  toolName: string,
+  args: unknown,
+): AbletonToolMetadata | undefined {
+  const operation = resolveAbletonOperation(toolName, args);
+  if (operation !== undefined) return operation.metadata;
+  return abletonToolMetadata.find((candidate) => candidate.name === toolName);
+}
 
 export interface ToolApprovalRequest {
   metadata: AbletonToolMetadata;
@@ -510,8 +561,9 @@ export function createAbletonPermissionHandler(
     if (invocation.managedSettingsEnabled || request.kind !== "custom-tool") {
       return { kind: "no-result" };
     }
-    const metadata = abletonToolMetadata.find(
-      (candidate) => candidate.name === request.toolName,
+    const metadata = resolveAbletonToolMetadata(
+      request.toolName,
+      request.args ?? {},
     );
     if (!metadata) {
       return { kind: "reject", feedback: "Unknown Ableton tool" };
@@ -588,6 +640,11 @@ export interface AbletonToolSet {
     Tool<SearchBrowserParams>,
     Tool<ExternalPluginSearchParams>,
     Tool<LoadBrowserItemParams>,
+    Tool<InspectChainMixerParams>,
+    Tool<FindDevicePositionParams>,
+    Tool<MoveDeviceParams>,
+    Tool<SetChainPropertiesParams>,
+    Tool<SetChainMixerParams>,
   ];
   availableTools: string[];
 }
@@ -1386,6 +1443,57 @@ export function createAbletonTools(
       handler: async (params) => services.inspectDrumPadChainDevices(params),
     },
   );
+  const inspectChainMixerDescriptor = abletonOperationDescriptors[0];
+  const inspectChainMixerTool = defineTool("ableton_rack_chain_mixer_inspect", {
+    description:
+      "Inspects mute, solo, volume, pan, and exposed sends for one exact existing rack or Drum Rack pad chain, including runtime parameter identities required for safe mixer edits.",
+    parameters: inspectChainMixerDescriptor.inputSchema,
+    handler: async (params) =>
+      inspectChainMixerDescriptor.resultSchema.parse(
+        await services.inspectChainMixer(params),
+      ),
+  });
+  const findPositionDescriptor = abletonOperationDescriptors[1];
+  const findDevicePositionTool = defineTool("ableton_device_find_position", {
+    description:
+      "Preflights the exact Live 11 destination position for an existing top-level or existing rack/Drum Rack chain device using Song.find_device_position. It does not mutate, create chains, or traverse unsupported nested topology.",
+    parameters: findPositionDescriptor.inputSchema,
+    handler: async (params) =>
+      findPositionDescriptor.resultSchema.parse(
+        await services.findDevicePosition(params),
+      ),
+  });
+  const moveDescriptor = abletonOperationDescriptors[2];
+  const moveDeviceTool = defineTool("ableton_device_move", {
+    description:
+      "Moves or reorders one exact existing device within a track, within an existing rack or Drum Rack pad chain, or between those existing parents using Live 11 Song.find_device_position and Song.move_device. It verifies the canonical parent and final index; it never creates a chain or inserts a new device.",
+    parameters: moveDescriptor.inputSchema,
+    handler: async (params) =>
+      moveDescriptor.resultSchema.parse(await services.moveDevice(params)),
+  });
+  const chainPropertiesDescriptor = abletonOperationDescriptors[3];
+  const setChainPropertiesTool = defineTool(
+    "ableton_rack_chain_set_properties",
+    {
+      description:
+        "Renames and/or recolors one exact existing rack or Drum Rack pad chain, with verified before/after state and rollback on failure. It cannot create, delete, or reorder chains.",
+      parameters: chainPropertiesDescriptor.inputSchema,
+      handler: async (params) =>
+        chainPropertiesDescriptor.resultSchema.parse(
+          await services.setChainProperties(params),
+        ),
+    },
+  );
+  const chainMixerDescriptor = abletonOperationDescriptors[4];
+  const setChainMixerTool = defineTool("ableton_rack_chain_set_mixer", {
+    description:
+      "Sets mute, solo, and exposed chain mixer volume, pan, or sends on one exact existing rack or Drum Rack pad chain. Parameter changes use normalized values plus exact runtime parameter identities, and the full update is verified and rolled back on failure.",
+    parameters: chainMixerDescriptor.inputSchema,
+    handler: async (params) =>
+      chainMixerDescriptor.resultSchema.parse(
+        await services.setChainMixer(params),
+      ),
+  });
   const setDeviceEnabledTool = defineTool("ableton_device_set_enabled", {
     description:
       "Enables or disables an exact top-level device through its documented Device On parameter, with before/after verification and rollback.",
@@ -1581,6 +1689,11 @@ export function createAbletonTools(
       requireConnectedTool(searchBrowserTool, services),
       requireConnectedTool(searchExternalPluginsTool, services),
       requireConnectedTool(loadBrowserItemTool, services),
+      requireConnectedTool(inspectChainMixerTool, services),
+      requireConnectedTool(findDevicePositionTool, services),
+      requireConnectedTool(moveDeviceTool, services),
+      requireConnectedTool(setChainPropertiesTool, services),
+      requireConnectedTool(setChainMixerTool, services),
     ],
     availableTools: abletonToolMetadata.map(
       (metadata) => `custom:${metadata.name}`,
@@ -1589,3 +1702,4 @@ export function createAbletonTools(
 }
 
 export * from "./mutation-policy.js";
+export * from "./operation-descriptor.js";

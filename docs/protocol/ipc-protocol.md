@@ -165,6 +165,29 @@ TypeScript schemas are canonical for the application packages. Export JSON
 Schema fixtures and validate them against Python-side parsing in contract tests.
 Do not rely on manually synchronized interfaces.
 
+### Live 11 device/rack commands
+
+The device/rack slice adds:
+
+```text
+devices.inspect_chain_mixer
+devices.find_position
+devices.move
+devices.set_chain_properties
+devices.set_chain_mixer
+```
+
+Device sources are strict discriminated `track-device`,
+`rack-chain-device`, or `drum-pad-chain-device` targets. Destinations are
+strict `track`, `rack-chain`, or `drum-pad-chain` parents with a requested
+device index. Requests carry exact track, rack, pad, chain, device, and mixer
+parameter identities as applicable. Results return canonical before/after
+locations or states and explicit verification. Unknown fields and ambiguous
+topologies are rejected rather than normalized heuristically.
+
+These commands do not imply support for empty-chain creation, native device
+insertion, single-chain deletion, or chain reordering.
+
 ## Compatibility rules
 
 - `system.hello` selects the highest version present in both the client's

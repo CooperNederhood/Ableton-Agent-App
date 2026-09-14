@@ -128,6 +128,11 @@ describe("AbletonBridgeService", () => {
         "devices.inspect_drum_rack_pads": true,
         "devices.inspect_drum_pad_chains": true,
         "devices.inspect_drum_pad_chain_devices": true,
+        "devices.inspect_chain_mixer": true,
+        "devices.find_position": true,
+        "devices.move": true,
+        "devices.set_chain_properties": true,
+        "devices.set_chain_mixer": true,
         "devices.set_enabled": true,
         "devices.set_parameter": true,
         "browser.inspect_roots": true,
@@ -414,16 +419,15 @@ describe("AbletonBridgeService", () => {
       chains: [{ name: "Kick", deviceCount: 1 }],
     });
     const chain = chains.chains[0];
-    await expect(
-      service.inspectRackChainDevices({
-        ...rackTarget,
-        chainIndex: chain?.index ?? 0,
-        expectedChainReference: chain?.reference ?? "",
-        expectedChainName: chain?.name ?? "",
-        offset: 0,
-        limit: 1,
-      }),
-    ).resolves.toMatchObject({
+    const chainDevices = await service.inspectRackChainDevices({
+      ...rackTarget,
+      chainIndex: chain?.index ?? 0,
+      expectedChainReference: chain?.reference ?? "",
+      expectedChainName: chain?.name ?? "",
+      offset: 0,
+      limit: 1,
+    });
+    expect(chainDevices).toMatchObject({
       total: 1,
       devices: [{ name: "Simpler" }],
     });
@@ -463,6 +467,106 @@ describe("AbletonBridgeService", () => {
     ).resolves.toMatchObject({
       total: 1,
       devices: [{ name: "Simpler" }],
+    });
+    const chainDevice = chainDevices.devices[0];
+    const moveParams = {
+      source: {
+        kind: "rack-chain-device" as const,
+        track: {
+          index: drums?.index ?? 0,
+          expectedReference: drums?.reference ?? "",
+          expectedName: "Main Drums",
+        },
+        rack: {
+          index: device?.index ?? 0,
+          expectedReference: device?.reference ?? "",
+          expectedName: device?.name ?? "",
+        },
+        chain: {
+          index: chain?.index ?? 0,
+          expectedReference: chain?.reference ?? "",
+          expectedName: chain?.name ?? "",
+        },
+        device: {
+          index: chainDevice?.index ?? 0,
+          expectedReference: chainDevice?.reference ?? "",
+          expectedName: chainDevice?.name ?? "",
+        },
+      },
+      destination: {
+        kind: "track" as const,
+        track: {
+          index: drums?.index ?? 0,
+          expectedReference: drums?.reference ?? "",
+          expectedName: "Main Drums",
+        },
+        deviceIndex: 1,
+      },
+    };
+    await expect(service.findDevicePosition(moveParams)).resolves.toMatchObject(
+      {
+        requestedIndex: 1,
+        resolvedIndex: 1,
+        exact: true,
+      },
+    );
+    await expect(service.moveDevice(moveParams)).resolves.toMatchObject({
+      deviceReference: chainDevice?.reference,
+      after: {
+        kind: "track-device",
+        device: { index: 1 },
+      },
+      verified: true,
+    });
+    await expect(
+      service.setChainProperties({
+        target: {
+          kind: "rack-chain",
+          track: moveParams.source.track,
+          rack: moveParams.source.rack,
+          chain: moveParams.source.chain,
+        },
+        name: "Layer",
+        color: 0x11_22_33,
+      }),
+    ).resolves.toMatchObject({
+      before: { name: "Kick" },
+      after: { name: "Layer", color: 0x11_22_33 },
+      verified: true,
+    });
+    const inspectedMixer = await service.inspectChainMixer({
+      target: {
+        kind: "rack-chain",
+        track: moveParams.source.track,
+        rack: moveParams.source.rack,
+        chain: {
+          ...moveParams.source.chain,
+          expectedName: "Layer",
+        },
+      },
+    });
+    const mixer = inspectedMixer.mixer;
+    await expect(
+      service.setChainMixer({
+        target: {
+          kind: "rack-chain",
+          track: moveParams.source.track,
+          rack: moveParams.source.rack,
+          chain: {
+            ...moveParams.source.chain,
+            expectedName: "Layer",
+          },
+        },
+        mute: true,
+        volume: {
+          expectedParameterReference: mixer?.volume?.reference ?? "",
+          expectedParameterName: mixer?.volume?.name ?? "",
+          normalizedValue: 0.5,
+        },
+      }),
+    ).resolves.toMatchObject({
+      after: { mute: true, volume: { normalizedValue: 0.5 } },
+      verified: true,
     });
     const mode = parameters.parameters[1];
     await expect(
@@ -612,8 +716,8 @@ describe("AbletonBridgeService", () => {
       }),
     ).resolves.toMatchObject({
       item: { name: "Operator" },
-      before: { deviceCount: 1, sessionClipCount: 1 },
-      after: { deviceCount: 2, sessionClipCount: 1 },
+      before: { deviceCount: 2, sessionClipCount: 1 },
+      after: { deviceCount: 3, sessionClipCount: 1 },
       addedDevices: [{ name: "Operator" }],
       verified: true,
     });

@@ -9,6 +9,8 @@ import type {
   DeleteSessionClipResult,
   DuplicateClipToArrangementResult,
   DuplicateSessionClipResult,
+  FindDevicePositionResult,
+  InspectChainMixerResult,
   InspectArrangementResult,
   InspectArrangementMidiNotesResult,
   InspectArrangementTransportResult,
@@ -23,6 +25,7 @@ import type {
   InspectRackChainsResult,
   LaunchSessionClipResult,
   LoadBrowserItemResult,
+  MoveDeviceResult,
   PingResult,
   ProjectIdentity,
   RenameTrackResult,
@@ -32,6 +35,8 @@ import type {
   SessionSnapshot,
   SetArrangementClipPropertiesResult,
   SetArrangementLoopResult,
+  SetChainMixerResult,
+  SetChainPropertiesResult,
   SetDeviceEnabledResult,
   SetDeviceParameterResult,
   SetPlayingResult,
@@ -146,6 +151,21 @@ export class UnconfiguredAbletonService implements AbletonService {
     this.#unavailable();
   }
   public async inspectDrumPadChainDevices(): Promise<InspectDrumPadChainDevicesResult> {
+    this.#unavailable();
+  }
+  public async inspectChainMixer(): Promise<InspectChainMixerResult> {
+    this.#unavailable();
+  }
+  public async findDevicePosition(): Promise<FindDevicePositionResult> {
+    this.#unavailable();
+  }
+  public async moveDevice(): Promise<MoveDeviceResult> {
+    this.#unavailable();
+  }
+  public async setChainProperties(): Promise<SetChainPropertiesResult> {
+    this.#unavailable();
+  }
+  public async setChainMixer(): Promise<SetChainMixerResult> {
     this.#unavailable();
   }
   public async setDeviceEnabled(): Promise<SetDeviceEnabledResult> {

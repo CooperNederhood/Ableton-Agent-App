@@ -66,6 +66,13 @@ Documents/OneDrive User Library locations. `ABLETON_USER_LIBRARY` overrides
 detection. Installation is staged, keeps the bridge token, and moves the prior
 installation into `.ableton-agent-backups` before replacement. Unmanaged
 installations are never overwritten without the explicit `--confirm` action.
+A fresh managed installation generates a cryptographically random token with
+owner-only permissions before the staged directory is promoted. At Desktop
+startup, the app reads only the exact token file under the configured or
+auto-detected `AbletonAgent` installation and copies a valid token into
+OS-backed secure storage. An existing vault token or explicit
+`ABLETON_AGENT_TOKEN` override takes precedence. Distinct tokens found in
+multiple installations require an explicit location selection.
 
 ## Versioning
 
@@ -200,9 +207,10 @@ must not claim a Live/platform combination without a passing evidence file.
 4. Restart the desktop app, open Diagnostics, and confirm the bridge,
    compatibility, and agent-session checks.
 
-The Remote Script token remains in the installed `AbletonAgent` directory and
-is preserved across managed updates. Do not paste it into issues or support
-bundles.
+The Remote Script token remains in the installed `AbletonAgent` directory, is
+preserved across managed updates, and is automatically provisioned into the
+desktop credential vault. CLI users still provide it through
+`ABLETON_AGENT_TOKEN`. Do not paste it into issues or support bundles.
 
 ## Troubleshooting
 

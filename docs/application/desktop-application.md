@@ -157,12 +157,16 @@ cancelled state with relevant timing.
 Startup order:
 
 1. Initialize logging and configuration.
-2. Load preferences, production sessions, and saved Live Set associations.
-3. Start the Ableton bridge and read the current dynamic project identity.
-4. Resume the canonical production session for that saved Live Set, or create
+2. Load preferences and resolve the Remote Script credential from the OS vault,
+   an explicit environment override, or the configured/detected installation.
+3. Persist a discovered installation token in OS-backed storage and compose the
+   Ableton bridge and Signal ingress with the same credential.
+4. Load production sessions and saved Live Set associations.
+5. Start the Ableton bridge and read the current dynamic project identity.
+6. Resume the canonical production session for that saved Live Set, or create
    one clean Default agent for an unmatched or unsaved set.
-5. Start or resume only the selected agents' Copilot SDK conversations.
-6. Open the main window and read the project snapshot.
+7. Start or resume only the selected agents' Copilot SDK conversations.
+8. Open the main window and read the project snapshot.
 
 Desktop stores production sessions in `sessions.json`, saved Live Set
 associations in `project-sessions.json`, and Copilot SDK conversation data
@@ -211,7 +215,13 @@ Store non-secret preferences separately from credentials. Important settings:
 - Project-specific workflow preferences.
 
 Credentials must use OS-backed secure storage where application-managed secrets
-are necessary.
+are necessary. Desktop resolves the bridge token in this order: an existing
+vault entry, `ABLETON_AGENT_TOKEN`, then the exact
+`AbletonAgent/.ableton-agent-token` file under the selected or auto-detected
+Remote Scripts directory. A discovered token is copied into the vault without
+being exposed to renderer state or IPC. Multiple discovered installations with
+different tokens are an explicit configuration error rather than an
+auto-selection.
 
 ### Scoped automatic approval
 

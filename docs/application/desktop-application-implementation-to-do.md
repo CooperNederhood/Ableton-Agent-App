@@ -20,10 +20,13 @@ Companion specification: [Desktop Application](desktop-application.md)
 Electron main now composes `createAgentRuntime` from `packages/runtime`, the
 same composition root the CLI uses, and adapts it through
 `HeadlessDesktopService`. The bridge port, model, and reasoning effort come
-from persisted preferences; the bridge token comes from the OS-backed
-credential vault or `ABLETON_AGENT_TOKEN`. Because both are read while the
-composition is built, changing them takes effect on the next launch, which the
-app states explicitly when those preferences are saved.
+from persisted preferences. The bridge token resolves from the OS-backed
+credential vault, `ABLETON_AGENT_TOKEN`, or the configured/auto-detected Remote
+Script installation. A discovered installation token is persisted to the vault
+and shared with Signal ingress without entering renderer state. Because bridge
+credentials and locations are read while the composition is built, changing
+the location takes effect on the next launch, which the app states explicitly
+when that preference is saved.
 
 Actual startup order differs from the specification's sketch: logging and the
 composition are prepared first, then preferences, stored sessions, and saved
@@ -32,7 +35,9 @@ and reads the current LOM project identity before Desktop selects a production
 session. A saved Live Set resumes only its own canonical session; an unmatched
 or unsaved set starts with a clean Default agent. The app no longer resumes the
 newest global conversation merely because it was updated most recently.
-Remote Script detection and installation are still not implemented.
+Remote Script location detection, managed installation, and automatic
+credential provisioning are implemented. One-click installation and update
+controls are still not exposed in the renderer.
 
 The shared application gained only the ports the desktop contract needs:
 `cancel`, `createAgentSession`, `resumeAgentSession`, `agentSessionId`, and

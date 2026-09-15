@@ -104,15 +104,21 @@ The Remote Script listens only on `127.0.0.1`, using port `8765` by default.
 
 ### 4. Configure the bridge token
 
-The Remote Script creates this file inside its installed directory:
+Managed installation creates this file inside the installed directory:
 
 ```text
 AbletonAgent/.ableton-agent-token
 ```
 
-Load its contents into the shell that will launch the CLI or desktop app. Using
-command substitution avoids accidentally copying zsh's trailing `%` marker,
-which is not part of the token:
+The desktop app automatically discovers this token from the configured or
+standard User Library location and stores it in the OS-backed credential vault.
+No manual token copying is required for normal desktop use. If multiple
+installations contain different tokens, select the intended Remote Script
+location in Desktop Settings and restart the app.
+
+The CLI still uses `ABLETON_AGENT_TOKEN`. Load the installed token into the
+shell that will launch the CLI. Using command substitution avoids accidentally
+copying zsh's trailing `%` marker, which is not part of the token:
 
 ```bash
 export ABLETON_AGENT_TOKEN="$(
@@ -126,8 +132,10 @@ On Windows PowerShell:
 $env:ABLETON_AGENT_TOKEN = "<contents of .ableton-agent-token>"
 ```
 
-Do not commit or share this token. Set `ABLETON_AGENT_PORT` only if you have
-also configured the Remote Script to use a non-default port.
+Do not commit or share this token. `ABLETON_AGENT_TOKEN` also remains an
+explicit override for Desktop development or credential recovery. Set
+`ABLETON_AGENT_PORT` only if you have also configured the Remote Script to use a
+non-default port.
 
 After installing or updating the Remote Script, fully quit and reopen Ableton
 Live. Toggling the Control Surface off and on does not reliably reload Python

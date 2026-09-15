@@ -2050,9 +2050,9 @@ export class HeadlessDesktopService implements DesktopService {
           preferences.eventHistoryEnabled,
         );
       }
-      const restartRequired = (["abletonPort", "signalPort"] as const).filter(
-        (key) => previous[key] !== preferences[key],
-      );
+      const restartRequired = (
+        ["abletonPort", "signalPort", "remoteScriptLocation"] as const
+      ).filter((key) => previous[key] !== preferences[key]);
       if (restartRequired.length > 0) {
         this.emit({
           type: "diagnostic",

@@ -1,5 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
+  chmod,
   cp,
   mkdir,
   readFile,
@@ -13,6 +14,14 @@ import { join, posix, win32 } from "node:path";
 const scriptDirectoryName = "AbletonAgent";
 const installMetadataName = ".ableton-agent-install.json";
 const tokenName = ".ableton-agent-token";
+
+export function remoteScriptTokenPath(
+  remoteScriptsPathValue: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const pathApi = platform === "win32" ? win32 : posix;
+  return pathApi.join(remoteScriptsPathValue, scriptDirectoryName, tokenName);
+}
 
 export interface RemoteScriptLocation {
   readonly path: string;
@@ -217,9 +226,16 @@ export async function installRemoteScript(options: {
         );
       },
     });
+    const stagedTokenPath = join(staging, tokenName);
     if (hadExisting && (await exists(join(destination, tokenName)))) {
-      await cp(join(destination, tokenName), join(staging, tokenName));
+      await cp(join(destination, tokenName), stagedTokenPath);
+    } else {
+      await writeFile(stagedTokenPath, randomBytes(32).toString("hex"), {
+        encoding: "utf8",
+        mode: 0o600,
+      });
     }
+    await chmod(stagedTokenPath, 0o600);
     const metadata: InstallMetadata = {
       formatVersion: 1,
       remoteScriptVersion: options.version,

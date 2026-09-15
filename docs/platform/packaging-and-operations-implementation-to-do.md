@@ -11,6 +11,8 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 - [x] Detect supported Ableton/User Library locations.
 - [x] Implement Remote Script install, update, backup, and manual-path flow.
 - [x] Generate/store per-installation authentication credentials securely.
+- [x] Auto-provision the installed Remote Script token into the Desktop
+      OS-backed credential vault with conflict and invalid-file diagnostics.
 
 ## Version and update management
 
@@ -46,6 +48,8 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 - [x] Build installers in CI for macOS and Windows.
 - [ ] Test clean install, upgrade, repair, and uninstall in fresh environments.
 - [x] Test Remote Script detection and all install-path variants.
+- [x] Test clean-install credential auto-provisioning, precedence, invalid
+      tokens, and conflicting installations.
 - [x] Test incompatible/outdated script flows.
 - [x] Test log and support-bundle redaction.
 - [ ] Test journal redaction, local-only behavior, default-on migration,

@@ -1,6 +1,6 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -11,7 +11,9 @@ import {
 
 import { preferencesSchema } from "../contracts.js";
 import { ApprovalCoordinator, ApprovalPolicyController } from "./approvals.js";
+import { bridgeTokenKey } from "./bridge-credentials.js";
 import { createDesktopComposition, DesktopJournalHost } from "./composition.js";
+import { installRemoteScript } from "./remote-script-install.js";
 
 const directories: string[] = [];
 
@@ -248,6 +250,65 @@ describe("desktop composition", () => {
     await expect(runtime.ableton.getStatus()).resolves.toEqual({
       state: "disconnected",
     });
+  });
+
+  it("regresses fresh install startup without a vault or environment token", async () => {
+    const location = await paths();
+    const source = join(location.directory, "remote-script-source");
+    const userLibrary = join(location.directory, "User Library");
+    const remoteScriptsPath = join(userLibrary, "Remote Scripts");
+    await mkdir(source, { recursive: true });
+    await writeFile(join(source, "__init__.py"), "# remote script\n", "utf8");
+    const installation = await installRemoteScript({
+      sourcePath: source,
+      remoteScriptsPath,
+      version: "1.0.0",
+    });
+    const installedToken = await readFile(
+      join(installation.destination, ".ableton-agent-token"),
+      "utf8",
+    );
+    await writeFile(
+      location.preferencesPath,
+      JSON.stringify(
+        preferencesSchema.parse({ remoteScriptLocation: userLibrary }),
+      ),
+      "utf8",
+    );
+    const vault = new Map<string, string>();
+
+    const { runtime, service, bridgeToken } = await createDesktopComposition({
+      ...location,
+      agentsDirectory: resolve("agents"),
+      skillsDirectory: resolve("skills"),
+      environment: {},
+      platform: "darwin",
+      credentialVault: {
+        get: async (key) => vault.get(key),
+        set: async (key, value) => {
+          vault.set(key, value);
+        },
+      },
+    });
+
+    expect(runtime.abletonConfigured).toBe(true);
+    expect(bridgeToken).toBe(installedToken);
+    expect(vault.get(bridgeTokenKey)).toBe(installedToken);
+    expect(
+      (await service.getDiagnostics()).filter(
+        ({ label, status }) =>
+          label === "Bridge credentials" && status !== "pass",
+      ),
+    ).toEqual([]);
+    const provisioned = (await service.getDiagnostics()).find(
+      ({ label }) => label === "Bridge credentials",
+    );
+    expect(provisioned?.status).toBe("pass");
+    expect(provisioned?.detail).toContain("discovered and stored");
+    expect(JSON.stringify(await service.getDiagnostics())).not.toContain(
+      installedToken,
+    );
+    await service.stop();
   });
 
   function deferred<T>() {

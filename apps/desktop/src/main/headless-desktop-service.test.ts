@@ -4879,6 +4879,7 @@ describe("desktop adapter over the shared application", () => {
       preferencesSchema.parse({
         loggingLevel: "error",
         abletonPort: 9000,
+        remoteScriptLocation: "/custom/Remote Scripts",
         approvalPolicy: "never",
       }),
     );
@@ -4896,6 +4897,14 @@ describe("desktop adapter over the shared application", () => {
         (event) =>
           event.type === "diagnostic" &&
           event.message.includes("abletonPort") &&
+          event.message.includes("next time the app starts"),
+      ),
+    ).toBe(true);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "diagnostic" &&
+          event.message.includes("remoteScriptLocation") &&
           event.message.includes("next time the app starts"),
       ),
     ).toBe(true);

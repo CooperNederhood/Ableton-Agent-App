@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -71,20 +72,6 @@ export const credentialVault = new OsCredentialVault(
   join(app.getPath("userData"), "credentials"),
   safeStorage,
 );
-/** Key holding the Remote Script shared secret in the OS-backed vault. */
-const bridgeTokenKey = "ableton-bridge-token";
-
-async function readStoredToken(): Promise<string | undefined> {
-  try {
-    return await credentialVault.get(bridgeTokenKey);
-  } catch (error) {
-    await logger.write("warn", "Stored bridge token could not be read", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return undefined;
-  }
-}
-
 // Composed after `app.whenReady()` because preferences and credentials come
 // from Electron-managed paths; every handler below runs after that point.
 function requireService(): DesktopComposition["service"] {
@@ -234,11 +221,6 @@ async function bootstrap(): Promise<void> {
     loggingLevel: activeLoggingLevel,
     environmentOverride: environmentLoggingLevel !== undefined,
   });
-  const storedToken = await readStoredToken();
-  const signalSecret = storedToken ?? process.env.ABLETON_AGENT_TOKEN;
-  if (signalSecret !== undefined) {
-    removeSignalSecret = await writeSignalSecret(signalSecret);
-  }
   composition = await createDesktopComposition({
     preferencesPath: join(app.getPath("userData"), "preferences.json"),
     sessionsPath: join(app.getPath("userData"), "sessions.json"),
@@ -251,7 +233,9 @@ async function bootstrap(): Promise<void> {
       : fileURLToPath(new URL("../../../../skills", import.meta.url)),
     agentBaseDirectory: join(app.getPath("userData"), "copilot"),
     signalDescriptorPath,
-    storedToken,
+    credentialVault,
+    homeDirectory: homedir(),
+    platform: process.platform,
     environment: process.env,
     logger: {
       debug: (message, context) => void logger.write("debug", message, context),
@@ -265,6 +249,9 @@ async function bootstrap(): Promise<void> {
       logger.setLevel(activeLoggingLevel);
     },
   });
+  if (composition.bridgeToken !== undefined) {
+    removeSignalSecret = await writeSignalSecret(composition.bridgeToken);
+  }
   activeLoggingLevel =
     environmentLoggingLevel ?? composition.preferences.loggingLevel;
   logger.setLevel(activeLoggingLevel);

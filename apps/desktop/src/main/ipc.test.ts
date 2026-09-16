@@ -12,11 +12,15 @@ describe("desktop IPC", () => {
     const invokeActiveAgentSkill = vi
       .fn()
       .mockResolvedValue({ accepted: true, messageId: "message-2" });
+    const setActiveAgentMode = vi.fn().mockResolvedValue({ id: "updated" });
+    const resolveActiveAgentPlan = vi.fn().mockResolvedValue(true);
     const cancelActiveAgent = vi.fn().mockResolvedValue({ cancelled: true });
     const handlers = createIpcHandlers(
       {
         sendToActiveAgent,
         invokeActiveAgentSkill,
+        setActiveAgentMode,
+        resolveActiveAgentPlan,
         cancelActiveAgent,
       } as unknown as DesktopService,
       {} as DiagnosticsActions,
@@ -34,7 +38,17 @@ describe("desktop IPC", () => {
       skillName: "analyze",
       request: "the drums",
       context,
+      agentMode: "plan",
     });
+    await handlers["agents:set-mode"]({ instanceId, mode: "plan" });
+    await expect(
+      handlers["agents:resolve-plan"]({
+        instanceId,
+        requestId: "plan-request",
+        approved: false,
+        feedback: "Use fewer tracks",
+      }),
+    ).resolves.toEqual({ resolved: true });
 
     await handlers["agents:cancel"]({ instanceId });
 
@@ -42,13 +56,21 @@ describe("desktop IPC", () => {
       instanceId,
       "hello",
       context,
+      "interactive",
     );
     expect(invokeActiveAgentSkill).toHaveBeenCalledWith(
       instanceId,
       "analyze",
       "the drums",
       context,
+      "plan",
     );
+    expect(setActiveAgentMode).toHaveBeenCalledWith(instanceId, "plan");
+    expect(resolveActiveAgentPlan).toHaveBeenCalledWith(instanceId, {
+      requestId: "plan-request",
+      approved: false,
+      feedback: "Use fewer tracks",
+    });
     expect(cancelActiveAgent).toHaveBeenCalledWith(instanceId);
   });
 

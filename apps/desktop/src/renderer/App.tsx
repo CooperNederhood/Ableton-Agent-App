@@ -68,6 +68,12 @@ export type SlashCompletionEntry = {
 
 const builtInSlashCompletions: readonly SlashCompletionEntry[] = [
   {
+    name: "plan",
+    description: "Enter plan mode for the selected agent.",
+    source: "built-in",
+    usage: "/plan",
+  },
+  {
     name: "yolo",
     description: "Configure automatic approval for agent actions.",
     source: "built-in",
@@ -494,6 +500,20 @@ export async function sendComposerMessage(
   message: string,
   dispatch: DesktopDispatch,
 ): Promise<void> {
+  if (message === "/plan") {
+    const agent = selectedAgentInstance(state);
+    if (agent === undefined) throw new Error("No active agent is selected");
+    const updated = await desktop.agents.setMode(agent.id, "plan");
+    dispatch({
+      type: "event",
+      event: {
+        type: "agent.instance_changed",
+        instance: updated,
+        change: "mode-changed",
+      },
+    });
+    return;
+  }
   const yolo = parseYoloCommand(message);
   if (yolo !== undefined) {
     const session = activeSession(state);
@@ -514,6 +534,7 @@ export async function sendComposerMessage(
   }
   const agent = selectedAgentInstance(state);
   if (agent === undefined) throw new Error("No active agent is selected");
+  const agentMode = agent.mode ?? "interactive";
   if (agent.lifecycle !== "ready") {
     throw new Error(
       agent.lifecycle === "busy"
@@ -545,12 +566,14 @@ export async function sendComposerMessage(
       invocation.skillName,
       invocation.request,
       context,
+      agentMode,
     );
     dispatch({
       type: "user-message",
       id: crypto.randomUUID(),
       content: message,
       agentInstanceId: agent.id,
+      agentMode,
     });
     return;
   }
@@ -559,8 +582,34 @@ export async function sendComposerMessage(
     id: crypto.randomUUID(),
     content: message,
     agentInstanceId: agent.id,
+    agentMode,
   });
-  await desktop.agents.send(agent.id, message, contextForSelection(state));
+  await desktop.agents.send(
+    agent.id,
+    message,
+    contextForSelection(state),
+    agentMode,
+  );
+}
+
+export async function setSelectedAgentMode(
+  desktop: DesktopApi,
+  state: DesktopState,
+  mode: "interactive" | "plan",
+  dispatch: DesktopDispatch,
+): Promise<void> {
+  const agent = selectedAgentInstance(state);
+  if (agent === undefined) throw new Error("No active agent is selected");
+  if (agent.mode === mode) return;
+  const updated = await desktop.agents.setMode(agent.id, mode);
+  dispatch({
+    type: "event",
+    event: {
+      type: "agent.instance_changed",
+      instance: updated,
+      change: "mode-changed",
+    },
+  });
 }
 
 export async function selectWorkspaceAgent(
@@ -652,6 +701,7 @@ export function App(): React.JSX.Element {
   const selectedInstanceId = selectedInstance?.id;
   const selectedSdkSessionId = selectedInstance?.sdkSessionId;
   const activeSessionId = activeSession(state)?.id;
+  const selectedPlanApproval = selectedAgentWorkspace(state).planApproval;
   useEffect(() => {
     if (activeSessionId === undefined) return;
     void loadLiveEvents(dispatch, () => window.desktop.events.list());
@@ -699,7 +749,39 @@ export function App(): React.JSX.Element {
     state.lifecycle,
   ]);
   useEffect(() => {
+    if (selectedPlanApproval !== undefined) setRightSidebarVisible(true);
+  }, [selectedPlanApproval]);
+  useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (
+        event.key === "Tab" &&
+        event.shiftKey &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        selectedInstance !== undefined
+      ) {
+        event.preventDefault();
+        void setSelectedAgentMode(
+          window.desktop,
+          state,
+          selectedInstance.mode === "plan" ? "interactive" : "plan",
+          dispatch,
+        ).catch((error: unknown) =>
+          dispatch({
+            type: "event",
+            event: {
+              type: "diagnostic",
+              level: "error",
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Agent mode could not be changed",
+            },
+          }),
+        );
+        return;
+      }
       if ((event.metaKey || event.ctrlKey) && event.key === "k") {
         event.preventDefault();
         composerRef.current?.focus();
@@ -4579,6 +4661,7 @@ export function Timeline({
           <article
             key={`message-${item.id}`}
             className={`message ${item.role}`}
+            data-agent-mode={item.agentMode}
           >
             <span className="sr-only">
               {item.role === "user" ? "You" : "Assistant"}:
@@ -4591,7 +4674,12 @@ export function Timeline({
             {item.role === "assistant" ? (
               <AssistantMarkdown content={item.content} />
             ) : (
-              <p className="message-plain-text">{item.content}</p>
+              <>
+                {item.agentMode === "plan" && (
+                  <small className="message-mode">plan</small>
+                )}
+                <p className="message-plain-text">{item.content}</p>
+              </>
             )}
           </article>
         ) : item.itemType === "operation" ? (
@@ -4806,8 +4894,130 @@ export function Inspector({
       ) : (
         <TrackInspector track={track} dispatch={dispatch} />
       )}
+      <PlanApprovalPanel state={state} dispatch={dispatch} />
       <ApprovalPanel state={state} dispatch={dispatch} />
     </aside>
+  );
+}
+
+export function PlanApprovalPanel({
+  state,
+  dispatch,
+}: {
+  state: DesktopState;
+  dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+}): React.JSX.Element | null {
+  const agent = selectedAgentInstance(state);
+  const request = selectedAgentWorkspace(state).planApproval;
+  const [feedback, setFeedback] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setFeedback("");
+    setError("");
+    setSubmitting(false);
+  }, [request?.requestId]);
+
+  if (agent === undefined || request === undefined) return null;
+
+  const resolve = async (response: {
+    approved: boolean;
+    selectedAction?: "exit_only" | "interactive";
+    feedback?: string;
+  }): Promise<void> => {
+    setSubmitting(true);
+    setError("");
+    try {
+      const resolved = await window.desktop.agents.resolvePlan(agent.id, {
+        requestId: request.requestId,
+        ...response,
+      });
+      if (!resolved) {
+        dispatch({
+          type: "event",
+          event: {
+            type: "agent.plan_approval_completed",
+            requestId: request.requestId,
+            approved: false,
+            agentInstanceId: agent.id,
+            ...(agent.sdkSessionId === undefined
+              ? {}
+              : { sdkSessionId: agent.sdkSessionId }),
+          },
+        });
+        throw new Error("This plan request is no longer pending.");
+      }
+    } catch (resolveError) {
+      setError(
+        resolveError instanceof Error
+          ? resolveError.message
+          : "The plan response could not be submitted.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <section className="plan-approval-panel" aria-label="Plan approval">
+      <div className="plan-approval-heading">
+        <h3>Plan ready</h3>
+        <span className="agent-mode-badge plan">plan</span>
+      </div>
+      {request.summary && <p>{request.summary}</p>}
+      <div className="plan-approval-content">
+        <AssistantMarkdown content={request.planContent} />
+      </div>
+      <label>
+        Request changes
+        <textarea
+          rows={3}
+          maxLength={8_192}
+          value={feedback}
+          disabled={submitting}
+          onChange={(event) => setFeedback(event.target.value)}
+          placeholder="Describe what the plan should change…"
+        />
+      </label>
+      {error && <p className="composer-error">{error}</p>}
+      <div className="approval-actions">
+        <button
+          className="primary"
+          disabled={submitting}
+          onClick={() =>
+            void resolve({
+              approved: true,
+              selectedAction: "interactive",
+            })
+          }
+        >
+          Approve and continue
+        </button>
+        <button
+          disabled={submitting || feedback.trim().length === 0}
+          onClick={() =>
+            void resolve({
+              approved: false,
+              feedback: feedback.trim(),
+            })
+          }
+        >
+          Request changes
+        </button>
+        <button
+          disabled={submitting}
+          onClick={() =>
+            void resolve({
+              approved: true,
+              selectedAction: "exit_only",
+            })
+          }
+        >
+          Exit plan mode
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -5682,6 +5892,14 @@ export function Composer({
         )}
       </div>
       <form onSubmit={(event) => void onSubmit(event)}>
+        {activeAgent !== undefined && (
+          <div className="composer-mode" aria-live="polite">
+            <span className={`agent-mode-badge ${activeAgent.mode}`}>
+              {activeAgent.mode}
+            </span>
+            <small>Shift+Tab toggles mode</small>
+          </div>
+        )}
         <SlashCompletionSuggestions
           entries={slashSuggestions}
           selected={selectedSuggestion}

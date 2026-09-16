@@ -4,7 +4,11 @@ import type {
   AgentService,
   AgentSessionConfiguration,
 } from "@ableton-agent/application";
-import type { EventPublisher } from "@ableton-agent/shared";
+import type {
+  AgentMode,
+  AgentPlanExitAction,
+  EventPublisher,
+} from "@ableton-agent/shared";
 
 export interface FakeAgentBehavior {
   /** Streams these deltas before completing a turn. */
@@ -25,6 +29,7 @@ export class FakeAgentService implements AgentService {
   public started = false;
   public cancelCalls = 0;
   public readonly managedPrompts = new Map<string, string[]>();
+  public readonly managedPromptModes = new Map<string, AgentMode[]>();
   public readonly managedConfigurations = new Map<
     string,
     AgentSessionConfiguration
@@ -143,6 +148,7 @@ export class FakeAgentService implements AgentService {
     this.managedConfigurations.set(configuration.instanceId, configuration);
     this.#managedSessionIds.set(configuration.instanceId, sessionId);
     this.managedPrompts.set(configuration.instanceId, []);
+    this.managedPromptModes.set(configuration.instanceId, []);
     this.#managedHistory.set(configuration.instanceId, []);
     return sessionId;
   }
@@ -156,6 +162,9 @@ export class FakeAgentService implements AgentService {
     this.#managedSessionIds.set(configuration.instanceId, sdkSessionId);
     if (!this.managedPrompts.has(configuration.instanceId)) {
       this.managedPrompts.set(configuration.instanceId, []);
+    }
+    if (!this.managedPromptModes.has(configuration.instanceId)) {
+      this.managedPromptModes.set(configuration.instanceId, []);
     }
     if (!this.#managedHistory.has(configuration.instanceId)) {
       this.#managedHistory.set(configuration.instanceId, []);
@@ -176,6 +185,7 @@ export class FakeAgentService implements AgentService {
   public async deactivateManagedAgent(instanceId: string): Promise<void> {
     this.managedConfigurations.delete(instanceId);
     this.#managedSessionIds.delete(instanceId);
+    this.managedPromptModes.delete(instanceId);
   }
 
   public getManagedAgentSessionId(instanceId: string): string | undefined {
@@ -185,19 +195,37 @@ export class FakeAgentService implements AgentService {
   public sendToManagedAgent(
     instanceId: string,
     prompt: string,
+    agentMode: AgentMode = "interactive",
   ): Promise<string> {
+    this.managedPromptModes.get(instanceId)?.push(agentMode);
     return this.#sendManaged(instanceId, prompt);
+  }
+
+  public async resolveManagedAgentPlan(
+    instanceId: string,
+    request: {
+      requestId: string;
+      approved: boolean;
+      selectedAction?: AgentPlanExitAction;
+      feedback?: string;
+    },
+  ): Promise<boolean> {
+    void instanceId;
+    void request;
+    return true;
   }
 
   public invokeManagedAgentSkill(
     instanceId: string,
     invocation:
       string | { readonly skillName: string; readonly request: string },
+    agentMode: AgentMode = "interactive",
   ): Promise<string> {
     const prompt =
       typeof invocation === "string"
         ? invocation
         : `/${invocation.skillName}${invocation.request ? ` ${invocation.request}` : ""}`;
+    this.managedPromptModes.get(instanceId)?.push(agentMode);
     return this.#sendManaged(instanceId, prompt);
   }
 

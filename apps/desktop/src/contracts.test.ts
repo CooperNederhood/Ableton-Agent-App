@@ -427,11 +427,26 @@ describe("desktop IPC contracts", () => {
         instanceId: "00000000-0000-4000-8000-000000000001",
         message: "Inspect it",
         context: [{ id: "track:1", kind: "track", label: "Bass" }],
+        agentMode: "plan",
       }),
     ).toEqual({
       instanceId: "00000000-0000-4000-8000-000000000001",
       message: "Inspect it",
       context: [{ id: "track:1", kind: "track", label: "Bass" }],
+      agentMode: "plan",
+    });
+    expect(
+      ipcSchemas["agents:resolve-plan"].request.parse({
+        instanceId: "00000000-0000-4000-8000-000000000001",
+        requestId: "request-1",
+        approved: true,
+        selectedAction: "interactive",
+      }),
+    ).toEqual({
+      instanceId: "00000000-0000-4000-8000-000000000001",
+      requestId: "request-1",
+      approved: true,
+      selectedAction: "interactive",
     });
     expect(() =>
       ipcSchemas["agents:invoke-skill"].request.parse({

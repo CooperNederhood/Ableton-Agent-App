@@ -6,6 +6,8 @@ import type {
   DesktopDiagnosticsReport,
   DesktopEventsState,
   DesktopAgentCatalog,
+  DesktopAgentMode,
+  DesktopAgentPlanApproval,
   DesktopActiveAgent,
   DesktopAgentHistoryMessage,
   DesktopPreferences,
@@ -38,6 +40,7 @@ export interface MessageView {
   content: string;
   streaming: boolean;
   timestamp: number;
+  agentMode?: DesktopAgentMode;
 }
 
 export interface AgentWorkspaceState {
@@ -45,6 +48,7 @@ export interface AgentWorkspaceState {
   operations: OperationView[];
   triggers: LiveEventTrigger[];
   approval?: ApprovalRequest | undefined;
+  planApproval?: DesktopAgentPlanApproval | undefined;
 }
 
 export type ProjectRefreshState =
@@ -174,6 +178,7 @@ export type DesktopAction =
       id: string;
       content: string;
       agentInstanceId?: string;
+      agentMode?: DesktopAgentMode;
     }
   | { type: "toggle-context"; chip: ContextChip }
   | { type: "remove-context"; chip: ContextChip }
@@ -238,6 +243,9 @@ export function desktopReducer(
         content: action.content,
         streaming: false,
         timestamp: Date.now(),
+        ...(action.agentMode === undefined
+          ? {}
+          : { agentMode: action.agentMode }),
       };
       if (action.agentInstanceId !== undefined) {
         return updateAgentWorkspace(
@@ -492,6 +500,38 @@ function reduceEvent(
       return { ...state, agentCatalog: event.catalog };
     case "agent.instance_changed":
       return reduceAgentInstanceChanged(state, event.instance, event.change);
+    case "agent.mode_changed":
+      if (event.agentInstanceId === undefined) return state;
+      return {
+        ...state,
+        sessions: state.sessions.map((session) => ({
+          ...session,
+          activeAgents: session.activeAgents.map((agent) =>
+            agent.id === event.agentInstanceId
+              ? { ...agent, mode: event.mode }
+              : agent,
+          ),
+        })),
+      };
+    case "agent.plan_changed":
+      return state;
+    case "agent.plan_approval_requested":
+      if (event.agentInstanceId === undefined) return state;
+      return updateAgentWorkspace(
+        state,
+        event.agentInstanceId,
+        (workspace) => ({
+          ...workspace,
+          planApproval: event.request,
+        }),
+      );
+    case "agent.plan_approval_completed":
+      if (event.agentInstanceId === undefined) return state;
+      return updateAgentWorkspace(state, event.agentInstanceId, (workspace) =>
+        workspace.planApproval?.requestId === event.requestId
+          ? { ...workspace, planApproval: undefined }
+          : workspace,
+      );
     case "agent.history_hydrated":
       if (
         activeSession(state)?.activeAgents.find(
@@ -656,6 +696,7 @@ const emptyAgentWorkspace = (): AgentWorkspaceState => ({
   messages: [],
   operations: [],
   triggers: [],
+  planApproval: undefined,
 });
 
 function updateAgentWorkspace(
@@ -782,6 +823,9 @@ function mergeHydratedMessages(
     content: message.content,
     streaming: false,
     timestamp: Date.parse(message.timestamp) || 0,
+    ...(message.agentMode === undefined
+      ? {}
+      : { agentMode: message.agentMode }),
   }));
   const hydratedIds = new Set(hydrated.map(({ id }) => id));
   const latestHydratedTimestamp = Math.max(
@@ -813,7 +857,8 @@ function reduceAgentInstanceChanged(
     | "deactivated"
     | "lifecycle"
     | "session-rotated"
-    | "conversation-settings-changed",
+    | "conversation-settings-changed"
+    | "mode-changed",
 ): DesktopState {
   const session = activeSession(state);
   if (session === undefined) return state;

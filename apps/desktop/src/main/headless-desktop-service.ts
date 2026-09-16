@@ -79,6 +79,7 @@ import {
   type DesktopAgentHistoryMessage,
   type DesktopActiveAgent,
   type DesktopAgentModel,
+  type DesktopAgentMode,
   type DesktopPreferences,
   type DesktopProjectSnapshot,
   type DesktopProjectIdentity,
@@ -1077,6 +1078,7 @@ export class HeadlessDesktopService implements DesktopService {
     instanceId: string,
     message: string,
     context: ContextChip[] = [],
+    agentMode: DesktopAgentMode = "interactive",
   ): Promise<{ accepted: true; messageId: string }> {
     const prompt = composeAgentPrompt(
       message,
@@ -1084,8 +1086,46 @@ export class HeadlessDesktopService implements DesktopService {
     );
     return this.#beginManagedTurn(
       this.#captureActiveAgentTarget(instanceId),
-      () => this.#application.sendToManagedAgent(instanceId, prompt),
+      () => this.#application.sendToManagedAgent(instanceId, prompt, agentMode),
     );
+  }
+
+  public setActiveAgentMode(
+    instanceId: string,
+    mode: DesktopAgentMode,
+  ): Promise<DesktopActiveAgent> {
+    const target = this.#captureActiveAgentTarget(instanceId);
+    return this.#queueActiveAgentAction(
+      target,
+      async ({ session, instance }) => {
+        const updated = { ...instance, mode };
+        await this.#replaceActiveProductionSession({
+          ...session,
+          activeAgents: session.activeAgents.map((candidate) =>
+            candidate.id === instanceId ? updated : candidate,
+          ),
+        });
+        this.emit({
+          type: "agent.instance_changed",
+          instance: updated,
+          change: "mode-changed",
+        });
+        return updated;
+      },
+    );
+  }
+
+  public resolveActiveAgentPlan(
+    instanceId: string,
+    request: {
+      requestId: string;
+      approved: boolean;
+      selectedAction?: "exit_only" | "interactive";
+      feedback?: string;
+    },
+  ): Promise<boolean> {
+    this.#captureActiveAgentTarget(instanceId);
+    return this.#application.resolveManagedAgentPlan(instanceId, request);
   }
 
   public invokeActiveAgentSkill(
@@ -1093,6 +1133,7 @@ export class HeadlessDesktopService implements DesktopService {
     skillName: string,
     argumentsText: string,
     context: ContextChip[] = [],
+    agentMode: DesktopAgentMode = "interactive",
   ): Promise<{ accepted: true; messageId: string }> {
     skillNameSchema.parse(skillName);
     const request = composeAgentPrompt(
@@ -1102,10 +1143,14 @@ export class HeadlessDesktopService implements DesktopService {
     return this.#beginManagedTurn(
       this.#captureActiveAgentTarget(instanceId),
       () =>
-        this.#application.invokeManagedAgentSkill(instanceId, {
-          skillName,
-          request,
-        }),
+        this.#application.invokeManagedAgentSkill(
+          instanceId,
+          {
+            skillName,
+            request,
+          },
+          agentMode,
+        ),
       () => {
         if (!(
           this.options.agentCatalog?.current.skills.some(
@@ -2292,6 +2337,12 @@ export class HeadlessDesktopService implements DesktopService {
       void this.#persistRuntimeSessionRotation(event);
       return;
     }
+    if (
+      event.type === "agent.mode_changed" &&
+      event.agentInstanceId !== undefined
+    ) {
+      void this.#persistRuntimeAgentMode(event.agentInstanceId, event.mode);
+    }
     if (event.type === "lifecycle.changed") {
       if (
         !this.#acceptingActions &&
@@ -2300,6 +2351,7 @@ export class HeadlessDesktopService implements DesktopService {
         this.#pendingActionableLifecycle = event.state;
         return;
       }
+
       this.#pendingActionableLifecycle = undefined;
       this.#lifecycle = event.state;
     }
@@ -2317,6 +2369,31 @@ export class HeadlessDesktopService implements DesktopService {
     ) {
       this.#clearAutomaticStreamMessageId(event);
     }
+  }
+
+  async #persistRuntimeAgentMode(
+    instanceId: string,
+    mode: DesktopAgentMode,
+  ): Promise<void> {
+    await this.#queueAgentAction(instanceId, async () => {
+      const session = this.#activeSession();
+      const instance = session?.activeAgents.find(
+        ({ id }) => id === instanceId,
+      );
+      if (
+        session === undefined ||
+        instance === undefined ||
+        instance.mode === mode
+      ) {
+        return;
+      }
+      await this.#replaceActiveProductionSession({
+        ...session,
+        activeAgents: session.activeAgents.map((candidate) =>
+          candidate.id === instanceId ? { ...candidate, mode } : candidate,
+        ),
+      });
+    });
   }
 
   async #persistRuntimeSessionRotation(
@@ -2995,6 +3072,7 @@ export class HeadlessDesktopService implements DesktopService {
       },
       ...(sdkSessionId === undefined ? {} : { sdkSessionId }),
       lifecycle: "ready",
+      mode: "interactive",
       boundTracks: [],
       modified: false,
       eventListeners: [],

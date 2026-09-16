@@ -11,6 +11,10 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [x] Configure a restricted tool environment with explicit allowlists.
 - [x] Define model and reasoning configuration with validated defaults.
 - [x] Normalize SDK events into application-owned `AppEvent` values.
+- [x] Forward per-agent interactive/plan mode to SDK turns and normalize
+  attributed mode, plan, and completed-plan approval lifecycle.
+- [x] Resolve completed-plan requests through the owning SDK session while
+  hiding autopilot/fleet actions and recording bounded resolution lifecycle.
 - [ ] Journal sanitized configuration snapshots on session create/resume and
   effective configuration changes.
 - [ ] Journal the complete unsampled SDK/session/turn/stream/hook/tool lifecycle
@@ -45,12 +49,16 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 
 - [x] Persist application session metadata and Copilot session IDs.
 - [x] Restore project association, mode, and production plan on resume.
+- [x] Persist SDK interaction mode independently for each active-agent
+  instance.
 - [x] Handle project switches without leaking stale context.
 - [x] Implement context compaction/refresh strategy for long sessions.
 
 ## Tests
 
 - [~] Unit-test event normalization and context generation.
+- [x] Test plan-mode forwarding, action filtering, request ownership, and
+  renderer-safe plan approval contracts.
 - [x] Regression-test managed message and skill prompt composition, selection
   disabling, deduplication, and replacement between turns.
 - [ ] Test configuration snapshot revisions, SDK event coverage, redaction,

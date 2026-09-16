@@ -61,6 +61,12 @@ compact right-aligned cards. Neither role needs a repeated textual label in
 every turn; streaming state remains announced. This distinction must remain
 semantic and must not rely on color alone.
 
+Each active agent also owns an interaction mode. `/plan` enters plan mode
+without creating a chat turn, and Shift+Tab toggles between plan and
+interactive modes for the selected agent. The composer shows the current mode.
+User turns submitted in plan mode use a distinct card treatment and a compact
+textual `plan` label so the distinction does not depend on color.
+
 ## Events
 
 The top-level **Events** view manages user-defined observations of Live. Event
@@ -166,6 +172,14 @@ a visual plan before execution:
 - Potential destructive changes.
 
 Users can approve, edit, or narrow the plan.
+
+SDK completed plans appear in the right Inspector for the selected active
+agent. The panel presents the bounded plan content and only three product
+actions: approve and continue interactively, request changes with feedback, or
+exit plan mode without implementation. Autopilot and fleet actions advertised
+by the SDK remain hidden. Opening a completed plan reveals the Inspector
+automatically, while plan state and responses remain isolated by active-agent
+instance.
 
 ## Recovery UX
 

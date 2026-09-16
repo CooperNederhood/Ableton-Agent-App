@@ -23,6 +23,10 @@
       "scenarios": ["four-on-floor", "session-clip-lifecycle"]
     },
     {
+      "id": "arrangement-and-cues",
+      "scenarios": ["arrangement-clip-lifecycle", "cue-point-lifecycle"]
+    },
+    {
       "id": "instruments",
       "scenarios": ["piano-and-string-bass"]
     },

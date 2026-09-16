@@ -54,7 +54,8 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
   - [x] Restore prior Session playback after failed launch where safe, remove
     failed Session duplicates, and restore applied Session clip properties.
   - [x] Restore the complete Arrangement loop state after partial updates and
-    remove cue points created by failed creation.
+    remove cue points created by failed creation, reporting verified rollback
+    as retryable and unverified recovery as applied-indeterminate.
   - [x] Restore prior device-enable and parameter values after failed mutation
     or verification.
 - [x] Define non-reversible operation metadata.

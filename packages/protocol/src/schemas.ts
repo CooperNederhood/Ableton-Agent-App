@@ -138,6 +138,7 @@ export const protocolErrorCodeSchema = z.enum([
   "operation_timeout",
   "queue_full",
   "lom_error",
+  "applied_indeterminate",
   "internal_error",
 ]);
 

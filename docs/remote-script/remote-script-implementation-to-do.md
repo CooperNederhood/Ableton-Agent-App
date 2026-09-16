@@ -30,6 +30,15 @@ Companion specification: [Remote Script](remote-script.md)
     enable/start/length with finite validation, verification, and rollback.
   - [x] Create reversible cue points and destructively delete identity-bound
     cue points using runtime-stable references where Live exposes no IDs.
+  - [x] Verify Arrangement duplication and cue-point creation with proxy-safe
+    before/after collection deltas, stage-specific failures, and explicit
+    rolled-back versus applied-indeterminate outcomes.
+  - [x] Match cue proxies by their unique Arrangement time when Live returns
+    fresh wrappers, and report read-only cue naming on Live 11.3.43 as an
+    unsupported naming stage after verified rollback.
+  - [x] Bound each main-thread executor drain so queued LOM work yields between
+    batches instead of monopolizing one Live callback, and log bounded queued,
+    started, completed, failed, cancelled, queue-depth, and duration fields.
 - [~] Implement track and mixer handlers.
   - [x] Create MIDI/audio tracks with optional names and verified postconditions.
   - [x] Delete identity-bound non-group tracks with last-track protection.

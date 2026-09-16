@@ -15,6 +15,7 @@ from .errors import ProtocolFailure
 from .identity import build_project_identity
 
 ARRANGEMENT_MAX_BEATS = 1576800
+LOM_TIME_TOLERANCE = 0.0001
 SESSION_TRACK_DEVICE_LIMIT = 32
 DEVICE_ON_NAMES = ("Device On", "Device Activator")
 
@@ -35,8 +36,50 @@ def _same_lom_object(left, right):
         return True
     try:
         return bool(left == right)
-    except (AttributeError, RuntimeError, TypeError):
+    except Exception:
         return False
+
+
+def _lom_collection_delta(before, after):
+    return [
+        candidate
+        for candidate in after
+        if not any(_same_lom_object(candidate, previous) for previous in before)
+    ]
+
+
+def _lom_collection_matches(left, right):
+    return len(left) == len(right) and all(
+        any(_same_lom_object(candidate, current) for current in right)
+        for candidate in left
+    )
+
+
+def _same_cue_point(left, right):
+    if left is right:
+        return True
+    left_time = _safe_lom_getattr(left, "time")
+    right_time = _safe_lom_getattr(right, "time")
+    return (
+        _is_finite_number(left_time)
+        and _is_finite_number(right_time)
+        and abs(left_time - right_time) < LOM_TIME_TOLERANCE
+    )
+
+
+def _cue_point_collection_delta(before, after):
+    return [
+        candidate
+        for candidate in after
+        if not any(_same_cue_point(candidate, previous) for previous in before)
+    ]
+
+
+def _cue_point_collection_matches(left, right):
+    return len(left) == len(right) and all(
+        any(_same_cue_point(candidate, current) for current in right)
+        for candidate in left
+    )
 
 
 def _is_finite_number(value):
@@ -153,12 +196,12 @@ def _cue_point_reference(context, cue_point):
             context, "_cue_point_references", []
         )
         if any(
-            _same_lom_object(candidate, current)
+            _same_cue_point(candidate, current)
             for current in current_cue_points
         )
     ]
     for candidate, reference in references:
-        if _same_lom_object(candidate, cue_point):
+        if _same_cue_point(candidate, cue_point):
             context._cue_point_references = references
             return reference
     reference = str(uuid.uuid4())
@@ -606,15 +649,6 @@ def _create_cue_point_params(params):
     return None
 
 
-def _set_or_delete_cue_at_time(song, time):
-    previous_time = song.current_song_time
-    try:
-        song.current_song_time = time
-        return song.set_or_delete_cue()
-    finally:
-        song.current_song_time = previous_time
-
-
 def create_cue_point(context, params):
     song = context.song
     if (
@@ -633,7 +667,7 @@ def create_cue_point(context, params):
         )
     before = list(song.cue_points)
     for cue_point in before:
-        if abs(cue_point.time - params["time"]) < 0.000001:
+        if abs(cue_point.time - params["time"]) < LOM_TIME_TOLERANCE:
             raise ProtocolFailure(
                 "conflict",
                 "A cue point already exists at the requested time",
@@ -643,87 +677,243 @@ def create_cue_point(context, params):
                     "time": cue_point.time,
                 },
             )
-    try:
-        created_result = _set_or_delete_cue_at_time(song, params["time"])
-        created = [
-            candidate
-            for candidate in song.cue_points
-            if not any(candidate is previous for previous in before)
-        ]
-        if len(created) != 1:
-            raise ProtocolFailure(
-                "conflict",
-                "Cue-point creation produced an unexpected number of objects",
-            )
-        cue_point = created[0]
-        if created_result is not None and created_result is not cue_point:
-            raise ProtocolFailure(
-                "conflict",
-                "Cue-point creation returned an unexpected object",
-            )
-        if "name" in params:
-            if not hasattr(cue_point, "name"):
-                raise ProtocolFailure(
+    previous_time = song.current_song_time
+
+    def start_creation(on_success, on_failure):
+        state = {"stage": "position", "cue_point": None}
+
+        def rolled_back_failure(exc):
+            operation_stage = state["stage"]
+            if (
+                operation_stage == "name"
+                and isinstance(exc, AttributeError)
+            ):
+                return ProtocolFailure(
                     "unsupported_capability",
                     "This Live version does not support cue-point naming",
+                    details={
+                        "stage": operation_stage,
+                        "outcome": "rolled_back",
+                    },
                 )
-            cue_point.name = params["name"].strip()
-        current = list(song.cue_points)
-        if (
-            len(current) != len(before) + 1
-            or not any(candidate is cue_point for candidate in current)
-            or any(
-                not any(candidate is previous for candidate in current)
-                for previous in before
-            )
-            or abs(cue_point.time - params["time"]) >= 0.000001
-            or (
-                "name" in params
-                and cue_point.name != params["name"].strip()
-            )
-        ):
-            raise ProtocolFailure(
-                "conflict",
-                "Cue-point creation completed but verification failed",
-            )
-        result = {
-            "cuePoint": _cue_point_summary(context, cue_point),
-            "beforeCuePointCount": len(before),
-            "afterCuePointCount": len(current),
-            "verified": True,
-        }
-    except Exception as exc:
-        try:
-            created = [
-                candidate
-                for candidate in song.cue_points
-                if not any(candidate is previous for previous in before)
-            ]
-            for candidate in created:
-                _set_or_delete_cue_at_time(song, candidate.time)
-            current = list(song.cue_points)
-            if len(current) != len(before) or any(
-                not any(candidate is previous for candidate in current)
-                for previous in before
-            ):
-                raise RuntimeError("Cue-point before-state was not restored")
-        except Exception as recovery_exc:
-            raise ProtocolFailure(
+            if isinstance(exc, ProtocolFailure):
+                return ProtocolFailure(
+                    exc.code,
+                    exc.message,
+                    retryable=True,
+                    details=dict(
+                        exc.details,
+                        stage=exc.details.get("stage", operation_stage),
+                        outcome="rolled_back",
+                    ),
+                )
+            return ProtocolFailure(
                 "lom_error",
-                "Cue-point creation and recovery both failed",
+                "Cue-point creation failed; the new cue point was removed",
+                retryable=True,
                 details={
+                    "stage": operation_stage,
+                    "outcome": "rolled_back",
                     "operationError": str(exc),
-                    "recoveryError": str(recovery_exc),
                 },
             )
-        if isinstance(exc, ProtocolFailure):
-            raise exc
-        raise ProtocolFailure(
-            "lom_error",
-            "Cue-point creation failed; the new cue point was removed",
-            details={"operationError": str(exc)},
-        )
-    return result
+
+        def recovery_failed(exc, recovery_exc):
+            on_failure(
+                ProtocolFailure(
+                    "applied_indeterminate",
+                    "Cue-point creation and recovery both failed",
+                    details={
+                        "stage": state["stage"],
+                        "outcome": "applied_indeterminate",
+                        "operationError": str(exc),
+                        "recoveryError": str(recovery_exc),
+                    },
+                )
+            )
+
+        def verify_recovery(exc):
+            try:
+                current = list(song.cue_points)
+                if (
+                    not _cue_point_collection_matches(before, current)
+                    or abs(song.current_song_time - previous_time)
+                    >= LOM_TIME_TOLERANCE
+                ):
+                    raise RuntimeError(
+                        "Cue-point before-state was not restored"
+                    )
+                on_failure(rolled_back_failure(exc))
+            except Exception as recovery_exc:
+                recovery_failed(exc, recovery_exc)
+
+        def restore_after_recovery(exc):
+            try:
+                song.current_song_time = previous_time
+                context.schedule_message(
+                    1, lambda: verify_recovery(exc)
+                )
+            except Exception as recovery_exc:
+                recovery_failed(exc, recovery_exc)
+
+        def remove_created(exc, cue_point):
+            try:
+                song.set_or_delete_cue()
+                context.schedule_message(
+                    1, lambda: restore_after_recovery(exc)
+                )
+            except Exception as recovery_exc:
+                recovery_failed(exc, recovery_exc)
+
+        def begin_recovery(exc):
+            try:
+                created = _cue_point_collection_delta(
+                    before, list(song.cue_points)
+                )
+                if len(created) > 1:
+                    raise RuntimeError(
+                        "Cue-point recovery found multiple new objects"
+                    )
+                if len(created) == 1:
+                    song.current_song_time = created[0].time
+                    context.schedule_message(
+                        1,
+                        lambda: remove_created(exc, created[0]),
+                    )
+                    return
+                restore_after_recovery(exc)
+            except Exception as recovery_exc:
+                recovery_failed(exc, recovery_exc)
+
+        def verify():
+            try:
+                state["stage"] = "verify"
+                cue_point = state["cue_point"]
+                current = list(song.cue_points)
+                created_present = any(
+                    _same_cue_point(candidate, cue_point)
+                    for candidate in current
+                )
+                before_preserved = all(
+                    any(
+                        _same_cue_point(candidate, previous)
+                        for candidate in current
+                    )
+                    for previous in before
+                )
+                time_delta = abs(cue_point.time - params["time"])
+                name_matches = (
+                    "name" not in params
+                    or cue_point.name == params["name"].strip()
+                )
+                position_restored = (
+                    abs(song.current_song_time - previous_time)
+                    < LOM_TIME_TOLERANCE
+                )
+                if (
+                    len(current) != len(before) + 1
+                    or not created_present
+                    or not before_preserved
+                    or time_delta >= LOM_TIME_TOLERANCE
+                    or not name_matches
+                    or not position_restored
+                ):
+                    raise ProtocolFailure(
+                        "conflict",
+                        "Cue-point creation completed but verification failed",
+                        details={
+                            "stage": state["stage"],
+                            "beforeCount": len(before),
+                            "currentCount": len(current),
+                            "createdPresent": created_present,
+                            "beforePreserved": before_preserved,
+                            "actualTime": cue_point.time,
+                            "requestedTime": params["time"],
+                            "timeDelta": time_delta,
+                            "nameMatches": name_matches,
+                            "positionRestored": position_restored,
+                        },
+                    )
+                on_success(
+                    {
+                        "cuePoint": _cue_point_summary(
+                            context, cue_point
+                        ),
+                        "beforeCuePointCount": len(before),
+                        "afterCuePointCount": len(current),
+                        "verified": True,
+                    }
+                )
+            except Exception as exc:
+                begin_recovery(exc)
+
+        def restore_position():
+            try:
+                state["stage"] = "restore_position"
+                song.current_song_time = previous_time
+                context.schedule_message(1, verify)
+            except Exception as exc:
+                begin_recovery(exc)
+
+        def finish_creation():
+            try:
+                state["stage"] = "calculate_delta"
+                created = _cue_point_collection_delta(
+                    before, list(song.cue_points)
+                )
+                if len(created) != 1:
+                    raise ProtocolFailure(
+                        "conflict",
+                        "Cue-point creation produced an unexpected number of objects",
+                        details={
+                            "stage": state["stage"],
+                            "beforeCount": len(before),
+                            "currentCount": len(song.cue_points),
+                        },
+                    )
+                cue_point = created[0]
+                state["cue_point"] = cue_point
+                if "name" in params:
+                    state["stage"] = "name"
+                    if not hasattr(cue_point, "name"):
+                        raise ProtocolFailure(
+                            "unsupported_capability",
+                            "This Live version does not support cue-point naming",
+                            details={"stage": state["stage"]},
+                        )
+                    cue_point.name = params["name"].strip()
+                restore_position()
+            except Exception as exc:
+                begin_recovery(exc)
+
+        def invoke_creation():
+            try:
+                state["stage"] = "create"
+                if (
+                    abs(song.current_song_time - params["time"])
+                    >= LOM_TIME_TOLERANCE
+                ):
+                    raise ProtocolFailure(
+                        "conflict",
+                        "Cue-point position did not settle before creation",
+                        details={
+                            "stage": "position",
+                            "actualTime": song.current_song_time,
+                            "requestedTime": params["time"],
+                        },
+                    )
+                song.set_or_delete_cue()
+                context.schedule_message(1, finish_creation)
+            except Exception as exc:
+                begin_recovery(exc)
+
+        try:
+            song.current_song_time = params["time"]
+            context.schedule_message(1, invoke_creation)
+        except Exception as exc:
+            begin_recovery(exc)
+
+    return DeferredResult(start_creation)
 
 
 def _delete_cue_point_params(params):
@@ -776,7 +966,7 @@ def delete_cue_point(context, params):
         not _is_finite_number(target.time)
         or target.time < 0
         or target.name != params["expectedName"]
-        or abs(target.time - params["expectedTime"]) >= 0.000001
+        or abs(target.time - params["expectedTime"]) >= LOM_TIME_TOLERANCE
     ):
         raise ProtocolFailure(
             "stale_reference",
@@ -790,27 +980,159 @@ def delete_cue_point(context, params):
         )
     before = list(song.cue_points)
     summary = _cue_point_summary(context, target)
-    _set_or_delete_cue_at_time(song, target.time)
-    after = list(song.cue_points)
-    if (
-        len(after) != len(before) - 1
-        or any(candidate is target for candidate in after)
-        or any(
-            previous is not target
-            and not any(candidate is previous for candidate in after)
-            for previous in before
-        )
-    ):
-        raise ProtocolFailure(
-            "conflict",
-            "Cue-point deletion completed but verification failed",
-        )
-    return {
-        "cuePoint": summary,
-        "beforeCuePointCount": len(before),
-        "afterCuePointCount": len(after),
-        "verified": True,
-    }
+    target_time = summary["time"]
+    expected_remaining_times = [
+        cue_point.time
+        for cue_point in before
+        if abs(cue_point.time - target_time) >= LOM_TIME_TOLERANCE
+    ]
+    previous_time = song.current_song_time
+
+    def start_deletion(on_success, on_failure):
+        state = {"stage": "position", "mutated": False}
+
+        def fail(exc):
+            try:
+                song.current_song_time = previous_time
+            except Exception as restore_exc:
+                on_failure(
+                    ProtocolFailure(
+                        "applied_indeterminate",
+                        "Cue-point deletion position recovery failed",
+                        details={
+                            "stage": state["stage"],
+                            "outcome": "applied_indeterminate",
+                            "operationError": str(exc),
+                            "recoveryError": str(restore_exc),
+                        },
+                    )
+                )
+                return
+            if state["mutated"]:
+                on_failure(
+                    ProtocolFailure(
+                        "applied_indeterminate",
+                        "Cue-point deletion could not be fully verified",
+                        details={
+                            "stage": state["stage"],
+                            "outcome": "applied_indeterminate",
+                            "operationError": str(exc),
+                        },
+                    )
+                )
+                return
+            if isinstance(exc, ProtocolFailure):
+                on_failure(
+                    ProtocolFailure(
+                        exc.code,
+                        exc.message,
+                        retryable=True,
+                        details=dict(
+                            exc.details,
+                            stage=exc.details.get(
+                                "stage", state["stage"]
+                            ),
+                            outcome="not_applied",
+                        ),
+                    )
+                )
+                return
+            on_failure(
+                ProtocolFailure(
+                    "lom_error",
+                    "Cue-point deletion failed before mutation",
+                    retryable=True,
+                    details={
+                        "stage": state["stage"],
+                        "outcome": "not_applied",
+                        "operationError": str(exc),
+                    },
+                )
+            )
+
+        def verify():
+            try:
+                state["stage"] = "verify"
+                after = list(song.cue_points)
+                position_restored = (
+                    abs(song.current_song_time - previous_time)
+                    < LOM_TIME_TOLERANCE
+                )
+                if (
+                    len(after) != len(before) - 1
+                    or any(
+                        abs(candidate.time - target_time)
+                        < LOM_TIME_TOLERANCE
+                        for candidate in after
+                    )
+                    or not all(
+                        any(
+                            abs(candidate.time - expected_time)
+                            < LOM_TIME_TOLERANCE
+                            for candidate in after
+                        )
+                        for expected_time in expected_remaining_times
+                    )
+                    or not position_restored
+                ):
+                    raise ProtocolFailure(
+                        "conflict",
+                        "Cue-point deletion completed but verification failed",
+                        details={
+                            "stage": state["stage"],
+                            "beforeCount": len(before),
+                            "afterCount": len(after),
+                            "positionRestored": position_restored,
+                        },
+                    )
+                on_success(
+                    {
+                        "cuePoint": summary,
+                        "beforeCuePointCount": len(before),
+                        "afterCuePointCount": len(after),
+                        "verified": True,
+                    }
+                )
+            except Exception as exc:
+                fail(exc)
+
+        def restore_position():
+            try:
+                state["stage"] = "restore_position"
+                song.current_song_time = previous_time
+                context.schedule_message(1, verify)
+            except Exception as exc:
+                fail(exc)
+
+        def invoke_deletion():
+            try:
+                state["stage"] = "delete"
+                if (
+                    abs(song.current_song_time - target_time)
+                    >= LOM_TIME_TOLERANCE
+                ):
+                    raise ProtocolFailure(
+                        "conflict",
+                        "Cue-point position did not settle before deletion",
+                        details={
+                            "stage": "position",
+                            "actualTime": song.current_song_time,
+                            "requestedTime": target_time,
+                        },
+                    )
+                song.set_or_delete_cue()
+                state["mutated"] = True
+                context.schedule_message(1, restore_position)
+            except Exception as exc:
+                fail(exc)
+
+        try:
+            song.current_song_time = target_time
+            context.schedule_message(1, invoke_deletion)
+        except Exception as exc:
+            fail(exc)
+
+    return DeferredResult(start_deletion)
 
 
 def _create_track_params(params):
@@ -2498,11 +2820,6 @@ def duplicate_clip_to_arrangement(context, params):
             "stale_reference",
             "Source clip identity changed before duplication",
         )
-    if not bool(getattr(source, "is_midi_clip", False)):
-        raise ProtocolFailure(
-            "unsupported_capability",
-            "Safe Session-to-Arrangement duplication currently requires a MIDI clip",
-        )
     source_length = source.length
     if not _is_finite_number(source_length) or source_length <= 0:
         raise ProtocolFailure(
@@ -2528,35 +2845,29 @@ def duplicate_clip_to_arrangement(context, params):
             },
         )
     before_clips = list(track.arrangement_clips)
-    duplicated = None
+    stage = "invoke"
     try:
-        duplicated = track.duplicate_clip_to_arrangement(
-            source, destination_time
+        track.duplicate_clip_to_arrangement(source, destination_time)
+        stage = "calculate_delta"
+        created_clips = _lom_collection_delta(
+            before_clips, list(track.arrangement_clips)
         )
-        created_clips = [
-            candidate
-            for candidate in track.arrangement_clips
-            if not any(candidate is before for before in before_clips)
-        ]
         if len(created_clips) != 1:
             raise ProtocolFailure(
                 "conflict",
                 "Arrangement duplication created an unexpected number of clips",
+                details={"stage": stage},
             )
         created = created_clips[0]
-        if duplicated is not None and duplicated is not created:
-            raise ProtocolFailure(
-                "conflict",
-                "Arrangement duplication returned an unexpected clip",
-            )
+        stage = "verify"
         if (
-            slot.clip is not source
+            not _same_lom_object(slot.clip, source)
             or _clip_reference(context, source)
             != params["expectedClipReference"]
             or len(track.arrangement_clips) != len(before_clips) + 1
-            or any(
-                not any(
-                    candidate is current
+            or not all(
+                any(
+                    _same_lom_object(candidate, current)
                     for current in track.arrangement_clips
                 )
                 for candidate in before_clips
@@ -2570,6 +2881,7 @@ def duplicate_clip_to_arrangement(context, params):
             raise ProtocolFailure(
                 "conflict",
                 "Arrangement duplication completed but verification failed",
+                details={"stage": stage},
             )
         result = {
             "sourceClip": _session_view_clip_summary(
@@ -2583,37 +2895,49 @@ def duplicate_clip_to_arrangement(context, params):
             "verified": True,
         }
     except Exception as exc:
+        operation_stage = stage
         try:
-            created_clips = [
-                candidate
-                for candidate in track.arrangement_clips
-                if not any(candidate is before for before in before_clips)
-            ]
+            stage = "rollback"
+            created_clips = _lom_collection_delta(
+                before_clips, list(track.arrangement_clips)
+            )
             for created in created_clips:
                 track.delete_clip(created)
-            if len(track.arrangement_clips) != len(before_clips) or any(
-                not any(
-                    candidate is current
-                    for current in track.arrangement_clips
-                )
-                for candidate in before_clips
+            if not _lom_collection_matches(
+                before_clips, list(track.arrangement_clips)
             ):
                 raise RuntimeError("Arrangement before-state was not restored")
         except Exception as recovery_exc:
             raise ProtocolFailure(
-                "lom_error",
+                "applied_indeterminate",
                 "Arrangement duplication and recovery both failed",
                 details={
+                    "stage": operation_stage,
+                    "outcome": "applied_indeterminate",
                     "operationError": str(exc),
                     "recoveryError": str(recovery_exc),
                 },
             )
         if isinstance(exc, ProtocolFailure):
-            raise exc
+            raise ProtocolFailure(
+                exc.code,
+                exc.message,
+                retryable=True,
+                details=dict(
+                    exc.details,
+                    stage=exc.details.get("stage", operation_stage),
+                    outcome="rolled_back",
+                ),
+            )
         raise ProtocolFailure(
             "lom_error",
             "Arrangement duplication failed; the destination clip was removed",
-            details={"operationError": str(exc)},
+            retryable=True,
+            details={
+                "stage": operation_stage,
+                "outcome": "rolled_back",
+                "operationError": str(exc),
+            },
         )
     return result
 

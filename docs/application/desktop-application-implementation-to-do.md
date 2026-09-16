@@ -56,6 +56,8 @@ never left pending, when no renderer is listening or the app is shutting down.
   instances.
 - [x] Implement chat send, cancel, create session, and resume session APIs.
 - [x] Implement connection, status, capability, snapshot, and diagnostic APIs.
+- [x] Keep automatic startup snapshots to bounded core Session state; publish
+  device and parameter enrichment only for explicit coalesced refreshes.
 - [x] Implement approval resolution APIs.
 - [x] Forward shared `AppEvent` values to the renderer with runtime validation.
 - [x] Ensure every essential CLI interaction has a desktop equivalent.

@@ -87,6 +87,18 @@ const sessionClipLifecycleAssertionSchema = z.object({
     })
     .strict(),
 });
+const arrangementClipLifecycleAssertionSchema = z.object({
+  type: z.literal("arrangement-clip-lifecycle"),
+  trackNameSuffix: z.string().min(1),
+  clipNameSuffix: z.string().min(1),
+  sourceSceneIndex: z.number().int().nonnegative(),
+  length: z.number().positive(),
+  destinationTime: z.number().nonnegative(),
+});
+const cuePointLifecycleAssertionSchema = z.object({
+  type: z.literal("cue-point-lifecycle"),
+  time: z.number().nonnegative(),
+});
 
 export const scenarioManifestSchema = z
   .object({
@@ -131,6 +143,8 @@ export const scenarioManifestSchema = z
           toolCallsAssertionSchema,
           trackLifecycleAssertionSchema,
           sessionClipLifecycleAssertionSchema,
+          arrangementClipLifecycleAssertionSchema,
+          cuePointLifecycleAssertionSchema,
         ]),
       )
       .min(1),
@@ -244,7 +258,9 @@ export function scenarioPrompt(
         assertion.type !== "session-midi-pattern" &&
         assertion.type !== "arrangement-midi-pattern" &&
         assertion.type !== "track-lifecycle" &&
-        assertion.type !== "session-clip-lifecycle"
+        assertion.type !== "session-clip-lifecycle" &&
+        assertion.type !== "arrangement-clip-lifecycle" &&
+        assertion.type !== "cue-point-lifecycle"
       ) {
         return [];
       }
@@ -265,6 +281,22 @@ export function scenarioPrompt(
           `Launch the active source clip once, verify it triggered or started, stop transport with ableton_transport_set_playing, then rename it to "${finalClipName}", set muted ${assertion.properties.muted} and looping ${assertion.properties.looping}, duplicate it on the same track to zero-based destinationSceneIndex ${assertion.destinationSceneIndex} (Session scene ${assertion.destinationSceneIndex + 1}), then delete both generated clips and the generated track.`,
           `For every clip operation, including duplicate and delete, expectedName remains the track name "${trackName}"; expectedClipReference identifies the source or destination clip even after the clip is renamed.`,
           "Use the returned identity references for every dependent operation and inspect when needed; do not touch pre-existing clips or tracks.",
+        ];
+      }
+      if (assertion.type === "arrangement-clip-lifecycle") {
+        const trackName = `${context.artifactPrefix}${assertion.trackNameSuffix}`;
+        const clipName = `${context.artifactPrefix}${assertion.clipNameSuffix}`;
+        return [
+          `Create exactly one MIDI track "${trackName}" and one ${assertion.length}-beat Session MIDI clip "${clipName}" at zero-based sceneIndex ${assertion.sourceSceneIndex} (Session scene ${assertion.sourceSceneIndex + 1}).`,
+          `Duplicate that exact Session clip into Arrangement at beat ${assertion.destinationTime}, inspect the Arrangement to verify the created clip, then delete the exact Arrangement clip, Session clip, and generated track.`,
+          `For Arrangement deletion, expectedName is the track name "${trackName}", while expectedClipReference identifies Arrangement clip "${clipName}".`,
+          "Use returned references for every dependent mutation and leave all pre-existing tracks, clips, and cue points unchanged.",
+        ];
+      }
+      if (assertion.type === "cue-point-lifecycle") {
+        return [
+          `Stop transport, create one unnamed cue point at beat ${assertion.time}, wait for creation to complete, and inspect the Arrangement transport to verify it.`,
+          "Delete the generated cue point using its returned exact reference, name, and time, then inspect again to verify the original cue-point collection and transport position are restored. Never issue cue mutations in parallel.",
         ];
       }
       const trackName = `${context.artifactPrefix}${assertion.trackNameSuffix}`;
@@ -467,6 +499,72 @@ export class ScenarioApprovalController {
         return false;
       }
     }
+    const arrangementLifecycle = this.context.manifest.assertions.find(
+      (assertion) => assertion.type === "arrangement-clip-lifecycle",
+    );
+    if (arrangementLifecycle) {
+      const trackName = `${this.context.artifactPrefix}${arrangementLifecycle.trackNameSuffix}`;
+      const clipName = `${this.context.artifactPrefix}${arrangementLifecycle.clipNameSuffix}`;
+      if (
+        toolName === "ableton_tracks_create" &&
+        (args.name !== trackName || args.kind !== "midi")
+      ) {
+        return false;
+      }
+      if (
+        toolName === "ableton_clips_create_midi" &&
+        (args.expectedName !== trackName ||
+          args.name !== clipName ||
+          args.sceneIndex !== arrangementLifecycle.sourceSceneIndex ||
+          args.length !== arrangementLifecycle.length)
+      ) {
+        return false;
+      }
+      if (
+        toolName === "ableton_arrangement_duplicate_clip" &&
+        (args.expectedName !== trackName ||
+          args.sceneIndex !== arrangementLifecycle.sourceSceneIndex ||
+          args.destinationTime !== arrangementLifecycle.destinationTime)
+      ) {
+        return false;
+      }
+      if (
+        toolName === "ableton_clips_delete" &&
+        (args.expectedName !== trackName ||
+          args.sceneIndex !== arrangementLifecycle.sourceSceneIndex)
+      ) {
+        return false;
+      }
+      if (
+        toolName === "ableton_tracks_delete" &&
+        (args.expectedName !== trackName || args.expectedKind !== "midi")
+      ) {
+        return false;
+      }
+    }
+    const cueLifecycle = this.context.manifest.assertions.find(
+      (assertion) => assertion.type === "cue-point-lifecycle",
+    );
+    if (cueLifecycle) {
+      if (
+        toolName === "ableton_transport_set_playing" &&
+        args.isPlaying !== false
+      ) {
+        return false;
+      }
+      if (
+        toolName === "ableton_transport_create_cue_point" &&
+        (args.time !== cueLifecycle.time || args.name !== undefined)
+      ) {
+        return false;
+      }
+      if (
+        toolName === "ableton_transport_delete_cue_point" &&
+        args.expectedTime !== cueLifecycle.time
+      ) {
+        return false;
+      }
+    }
     const exactName = args.name;
     if (
       toolName === "ableton_tracks_create" &&
@@ -484,6 +582,12 @@ export class ScenarioApprovalController {
       "expectedName",
       "expectedDestinationTrackName",
     ] as const) {
+      if (
+        key === "expectedName" &&
+        toolName === "ableton_transport_delete_cue_point"
+      ) {
+        continue;
+      }
       const value = args[key];
       if (
         value !== undefined &&
@@ -667,6 +771,91 @@ export async function verifyScenario(
         message: passed
           ? "Verified Session clip lifecycle and baseline restoration"
           : "Session clip lifecycle calls or final baseline restoration did not match",
+        evidence: sanitizeTraceValue({ restored, callEvidence }),
+      });
+      continue;
+    }
+    if (assertion.type === "arrangement-clip-lifecycle") {
+      const trackName = `${context.artifactPrefix}${assertion.trackNameSuffix}`;
+      const clipName = `${context.artifactPrefix}${assertion.clipNameSuffix}`;
+      const arrangement = await application.inspectArrangement({
+        offset: 0,
+        limit: 512,
+      });
+      const expectedCalls = [
+        ["ableton_tracks_create", 1],
+        ["ableton_clips_create_midi", 1],
+        ["ableton_arrangement_duplicate_clip", 1],
+        ["ableton_arrangement_inspect", 1],
+        ["ableton_arrangement_delete_clip", 1],
+        ["ableton_clips_delete", 1],
+        ["ableton_tracks_delete", 1],
+      ] as const;
+      const callEvidence = expectedCalls.map(([toolName, count]) => ({
+        toolName,
+        expected: count,
+        actual: context.approvals.decisions.filter(
+          (decision) => decision.approved && decision.toolName === toolName,
+        ).length,
+      }));
+      const restored =
+        JSON.stringify(snapshot) === JSON.stringify(baseline) &&
+        !snapshot.tracks.some((track) => track.name === trackName) &&
+        !(snapshot.clips ?? []).some((clip) => clip.name === clipName) &&
+        !arrangement.clips.some(
+          (clip) =>
+            clip.name === clipName ||
+            clip.startTime === assertion.destinationTime,
+        );
+      const passed =
+        restored &&
+        callEvidence.every((entry) => entry.actual === entry.expected);
+      results.push({
+        assertion: assertion.type,
+        passed,
+        message: passed
+          ? "Verified Arrangement duplication lifecycle and baseline restoration"
+          : "Arrangement lifecycle calls or final baseline restoration did not match",
+        evidence: sanitizeTraceValue({ restored, callEvidence }),
+      });
+      continue;
+    }
+    if (assertion.type === "cue-point-lifecycle") {
+      const transport = await application.inspectArrangementTransport({
+        offset: 0,
+        limit: 512,
+      });
+      const expectedCalls = [
+        ["ableton_transport_set_playing", 0, 1],
+        ["ableton_transport_create_cue_point", 1, 2],
+        ["ableton_transport_inspect_arrangement", 2, 3],
+        ["ableton_transport_delete_cue_point", 1, 1],
+      ] as const;
+      const callEvidence = expectedCalls.map(
+        ([toolName, minimum, maximum]) => ({
+          toolName,
+          minimum,
+          maximum,
+          actual: context.approvals.decisions.filter(
+            (decision) => decision.approved && decision.toolName === toolName,
+          ).length,
+        }),
+      );
+      const restored = !transport.cuePoints.some(
+        (cuePoint) => cuePoint.time === assertion.time,
+      );
+      const passed =
+        restored &&
+        callEvidence.every(
+          (entry) =>
+            entry.actual >= entry.minimum && entry.actual <= entry.maximum,
+        );
+      results.push({
+        assertion: assertion.type,
+        passed,
+        message: passed
+          ? "Verified cue-point lifecycle and cleanup"
+          : "Cue-point lifecycle calls or final cleanup did not match",
         evidence: sanitizeTraceValue({ restored, callEvidence }),
       });
       continue;

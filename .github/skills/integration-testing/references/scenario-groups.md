@@ -16,6 +16,16 @@
 - `four-on-floor`: create the namespaced 808 track and one-bar clip, write four
   pitch-36 notes at beats 0–3, and verify exact note content through
   `clips.inspect_notes`.
+- `session-clip-lifecycle`: create, update, duplicate, launch, and remove
+  namespaced Session clips, then restore the baseline Set.
+
+`arrangement-and-cues`
+
+- `arrangement-clip-lifecycle`: duplicate an identity-bound Session MIDI clip
+  into Arrangement, inspect it, remove it, and restore the baseline Set.
+- `cue-point-lifecycle`: create an unnamed cue point at an exact time, inspect
+  it, delete it by returned identity, and restore the cue state. Live 11.3.43
+  naming support is covered as an explicit unsupported-capability path.
 
 `instruments`
 
@@ -35,11 +45,10 @@
 
 ## Planned expansion
 
-- connection and bounded inspection;
-- Session clip duplicate, launch, properties, and delete;
-- Arrangement create, note write, duplicate, properties, and delete;
+- Arrangement create, note write, properties, and audio-source duplication;
 - rack, chain, and Drum Rack inspection;
-- transport mutation/restoration, cue points, denial, and retry safety.
+- transport loop mutation/restoration, denial, and retry safety;
+- startup, manual-refresh, and settled-idle performance profiling.
 
 Each group starts in a fresh runner-owned default Set. Copilot session context
 may continue, but Live artifacts never carry across group restarts.

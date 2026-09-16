@@ -326,7 +326,7 @@ export class HeadlessDesktopService implements DesktopService {
     this.#emitOutputs();
     if ((await this.#application.getStatus()).state === "connected") {
       try {
-        await this.getSnapshot();
+        await this.#beginSnapshotRefresh(false, "startup");
       } catch (error) {
         this.#report("Project snapshot could not be read", error);
       }
@@ -1591,14 +1591,28 @@ export class HeadlessDesktopService implements DesktopService {
    * while resolving callers with the final enriched snapshot on full success.
    */
   public getSnapshot(): Promise<DesktopProjectSnapshot> {
+    return this.#beginSnapshotRefresh(true, "manual");
+  }
+
+  #beginSnapshotRefresh(
+    includeEnrichment: boolean,
+    trigger: "startup" | "manual",
+  ): Promise<DesktopProjectSnapshot> {
     if (!this.#acceptingActions) {
       return Promise.reject(
         new Error("Desktop service is not accepting actions"),
       );
     }
-    if (this.#snapshotRefresh !== undefined) return this.#snapshotRefresh;
+    if (this.#snapshotRefresh !== undefined) {
+      this.#logger.debug("Project refresh coalesced", { trigger });
+      return this.#snapshotRefresh;
+    }
 
-    const refresh = this.#refreshSnapshot();
+    this.#logger.debug("Project refresh queued", {
+      trigger,
+      includeEnrichment,
+    });
+    const refresh = this.#refreshSnapshot(includeEnrichment, trigger);
     this.#snapshotRefresh = refresh;
     void refresh.then(
       () => {
@@ -1606,7 +1620,15 @@ export class HeadlessDesktopService implements DesktopService {
           this.#snapshotRefresh = undefined;
         }
       },
-      () => {
+      (error) => {
+        this.#logger.warn("Project refresh failed", {
+          trigger,
+          includeEnrichment,
+          error: (error instanceof Error ? error.message : String(error)).slice(
+            0,
+            diagnosticMessageLimit,
+          ),
+        });
         if (this.#snapshotRefresh === refresh) {
           this.#snapshotRefresh = undefined;
         }
@@ -1625,15 +1647,23 @@ export class HeadlessDesktopService implements DesktopService {
     }
   }
 
-  async #refreshSnapshot(): Promise<DesktopProjectSnapshot> {
+  async #refreshSnapshot(
+    includeEnrichment: boolean,
+    trigger: "startup" | "manual",
+  ): Promise<DesktopProjectSnapshot> {
     const refreshId = randomUUID();
     const startedAt = Date.now();
-    this.#logger.debug("Project refresh started", { refreshId });
+    this.#logger.debug("Project refresh started", {
+      refreshId,
+      trigger,
+      includeEnrichment,
+    });
     await this.#projectIdentityRefresh;
     const status = await this.#application.getStatus();
     if (status.state !== "connected") {
       this.#logger.warn("Project refresh rejected", {
         refreshId,
+        trigger,
         status,
         durationMs: Date.now() - startedAt,
       });
@@ -1642,6 +1672,7 @@ export class HeadlessDesktopService implements DesktopService {
         { code: "not_connected" },
       );
     }
+    const coreStartedAt = Date.now();
     const snapshot = await this.#application.inspectSession();
     const identity = await this.#readProjectIdentity();
     this.#projectIdentityPollFailures = 0;
@@ -1657,12 +1688,31 @@ export class HeadlessDesktopService implements DesktopService {
           };
     this.#logger.debug("Project core snapshot read", {
       refreshId,
-      snapshot,
-      durationMs: Date.now() - startedAt,
+      trigger,
+      trackCount: snapshot.trackCount,
+      sessionClipCount: snapshot.clips?.length ?? 0,
+      durationMs: Date.now() - coreStartedAt,
+      totalDurationMs: Date.now() - startedAt,
     });
     this.emit({
       type: "project.snapshot_changed",
       snapshot: coreSnapshot,
+    });
+    if (!includeEnrichment) {
+      this.#logger.debug("Project refresh completed", {
+        refreshId,
+        trigger,
+        phase: "core",
+        durationMs: Date.now() - startedAt,
+      });
+      return coreSnapshot;
+    }
+
+    const enrichmentStartedAt = Date.now();
+    this.#logger.debug("Project enrichment started", {
+      refreshId,
+      trigger,
+      durationMs: Date.now() - startedAt,
     });
 
     const enrichmentGeneration = this.#snapshotEnrichmentGeneration;
@@ -1673,6 +1723,9 @@ export class HeadlessDesktopService implements DesktopService {
     if (enrichmentGeneration !== this.#snapshotEnrichmentGeneration) {
       this.#logger.debug("Project enrichment interrupted", {
         refreshId,
+        trigger,
+        phase: "enrichment",
+        enrichmentDurationMs: Date.now() - enrichmentStartedAt,
         durationMs: Date.now() - startedAt,
       });
       return coreSnapshot;
@@ -1692,7 +1745,10 @@ export class HeadlessDesktopService implements DesktopService {
           };
     this.#logger.debug("Project refresh completed", {
       refreshId,
-      snapshot: enrichedSnapshot,
+      trigger,
+      phase: "enriched",
+      trackCount: snapshot.trackCount,
+      enrichmentDurationMs: Date.now() - enrichmentStartedAt,
       durationMs: Date.now() - startedAt,
     });
     this.emit({

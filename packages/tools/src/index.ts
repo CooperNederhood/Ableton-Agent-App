@@ -1155,7 +1155,7 @@ export function createAbletonTools(
     "ableton_arrangement_delete_clip",
     {
       description:
-        "Destructively deletes an identity-bound Arrangement clip after revalidating its track and start time.",
+        "Destructively deletes an identity-bound Arrangement clip after revalidating its track and start time. expectedName is the track name; expectedClipReference identifies the clip.",
       parameters: z
         .object({
           index: z.number().int().nonnegative(),

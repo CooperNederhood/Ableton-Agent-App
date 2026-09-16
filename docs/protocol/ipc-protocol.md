@@ -157,6 +157,7 @@ Initial stable error codes:
 - `operation_timeout`
 - `queue_full`
 - `lom_error`
+- `applied_indeterminate`
 - `internal_error`
 
 ## Schema ownership

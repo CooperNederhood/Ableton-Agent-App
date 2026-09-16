@@ -4170,6 +4170,29 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
+  it("limits the automatic startup snapshot to core session state", async () => {
+    const { service, application, events } = await harness();
+    const inspectSession = vi.spyOn(application, "inspectSession");
+    const inspectDevices = vi.spyOn(application, "inspectDevices");
+    const inspectParameters = vi.spyOn(application, "inspectDeviceParameters");
+
+    await service.start();
+
+    expect(inspectSession).toHaveBeenCalledOnce();
+    expect(inspectDevices).not.toHaveBeenCalled();
+    expect(inspectParameters).not.toHaveBeenCalled();
+    const snapshots = events.filter(
+      (event) => event.type === "project.snapshot_changed",
+    );
+    expect(snapshots).toHaveLength(1);
+    expect(
+      snapshots[0]?.snapshot.tracks.every(
+        (track) => track.devices.length === 0,
+      ),
+    ).toBe(true);
+    await service.stop();
+  });
+
   it("publishes the core snapshot before device reads finish", async () => {
     const { service, application, events } = await harness();
     await service.start();

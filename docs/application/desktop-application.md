@@ -166,7 +166,9 @@ Startup order:
 6. Resume the canonical production session for that saved Live Set, or create
    one clean Default agent for an unmatched or unsaved set.
 7. Start or resume only the selected agents' Copilot SDK conversations.
-8. Open the main window and read the project snapshot.
+8. Open the main window and read the bounded core project snapshot. Device and
+   parameter enrichment is reserved for an explicit refresh so startup does not
+   issue a project-wide parameter scan against Live's main thread.
 
 Desktop stores production sessions in `sessions.json`, saved Live Set
 associations in `project-sessions.json`, and Copilot SDK conversation data

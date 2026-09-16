@@ -306,6 +306,38 @@ describe("agent policy", () => {
     expect(retry).toMatchObject({ permissionDecision: "deny" });
   });
 
+  it("allows an unchanged retry after a verified rollback", async () => {
+    const hooks = createAgentHooks({
+      getAbletonStatus: async () => connected,
+      inspectSession: async () => snapshot,
+    });
+    const hookInput = {
+      sessionId: "session-1",
+      timestamp: new Date(),
+      workingDirectory: "/tmp",
+      toolName: "ableton_arrangement_duplicate_clip",
+      toolArgs: { destinationTime: 8 },
+    };
+    const error = serializeAbletonToolFailure(
+      Object.assign(new Error("Arrangement duplication failed"), {
+        code: "lom_error",
+        retryable: true,
+        details: { stage: "invoke", outcome: "rolled_back" },
+      }),
+    );
+
+    const failure = await hooks.onPostToolUseFailure?.(
+      { ...hookInput, error },
+      { sessionId: "session-1" },
+    );
+    const retry = await hooks.onPreToolUse?.(hookInput, {
+      sessionId: "session-1",
+    });
+
+    expect(failure?.additionalContext).toContain("Retry at most once");
+    expect(retry).toBeUndefined();
+  });
+
   it("allows permission denial to block the same tool attempt", async () => {
     const policy = createAgentPolicy({
       getAbletonStatus: async () => connected,

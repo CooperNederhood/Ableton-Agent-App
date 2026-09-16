@@ -2506,12 +2506,6 @@ def handle(request, token, state):
                 "stale_reference",
                 "Source clip identity changed before duplication",
             )
-        if source["kind"] != "midi":
-            return failure(
-                request,
-                "unsupported_capability",
-                "Safe Session-to-Arrangement duplication currently requires a MIDI clip",
-            )
         destination_time = params.get("destinationTime")
         if (
             isinstance(destination_time, bool)

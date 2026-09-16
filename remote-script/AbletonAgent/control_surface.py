@@ -44,7 +44,10 @@ class AbletonAgentControlSurface(ControlSurface):
         register_system_commands(registry)
         register_event_commands(registry, self._subscription_manager)
         self._executor = MainThreadExecutor(
-            self.schedule_message, registry, context
+            self.schedule_message,
+            registry,
+            context,
+            logger=self.log_message,
         )
         token = load_or_create_token(os.path.dirname(__file__))
         capabilities = build_capability_document(

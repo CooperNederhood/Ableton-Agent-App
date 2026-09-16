@@ -42,7 +42,7 @@ if the target changed.
 | `ableton_transport_set_playing` | Start or stop transport and verify playback state. | `reversible` | `session` | `instant` | `isPlaying` |
 | `ableton_transport_inspect_arrangement` | Inspect Arrangement loop state and a bounded page of cue points. | `read` | `read` | `short` | `offset`, `limit` |
 | `ableton_transport_set_arrangement_loop` | Update loop enablement, start, and/or length with verification and rollback. | `reversible` | `session` | `instant` | At least one of `enabled`, `start`, `length` |
-| `ableton_transport_create_cue_point` | Create and verify a cue point at an unoccupied Arrangement time. | `reversible` | `session` | `short` | `time`, optional `name` |
+| `ableton_transport_create_cue_point` | Create and verify a cue point at an unoccupied Arrangement time; an optional name is applied when the connected Live Remote Script surface permits it. | `reversible` | `session` | `short` | `time`, optional `name` |
 | `ableton_transport_delete_cue_point` | Delete an exact cue point after identity, name, and time revalidation. | `destructive` | `session` | `short` | `expectedReference`, `expectedName`, `expectedTime` |
 
 ## Tracks and mixer
@@ -78,7 +78,7 @@ when replacing notes in a non-empty clip.
 | `ableton_arrangement_inspect` | Return a bounded page of Arrangement clips ordered by time and track. | `read` | `read` | `short` | `offset`, `limit` |
 | `ableton_arrangement_delete_clip` | Delete an exact Arrangement clip after track and start-time revalidation. | `destructive` | `track` | `short` | Track/clip identity, `expectedStartTime` |
 | `ableton_arrangement_replace_notes` | Replace every note in an exact Arrangement MIDI clip. | `destructive` | `track` | `short` | Track/clip identity, start time, notes, expression-loss opt-in |
-| `ableton_arrangement_duplicate_clip` | Duplicate a Session MIDI clip into a verified, non-overlapping Arrangement destination. | `reversible` | `track` | `short` | Track/Session clip identity, `destinationTime` |
+| `ableton_arrangement_duplicate_clip` | Duplicate a Session MIDI or audio clip into a verified, non-overlapping Arrangement destination. | `reversible` | `track` | `short` | Track/Session clip identity, `destinationTime` |
 | `ableton_arrangement_set_clip_properties` | Update an Arrangement clip's name, mute state, and/or loop state. | `reversible` | `track` | `short` | Track/clip identity, start time, one or more properties |
 
 ## Devices, racks, Drum Racks, and parameters

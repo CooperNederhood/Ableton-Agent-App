@@ -196,23 +196,44 @@ function createFakeSession(
     history?: readonly SessionEvent[];
     getEvents?: () => Promise<readonly SessionEvent[]>;
     abort?: () => Promise<void>;
+    rpc?: {
+      ui: {
+        handlePendingExitPlanMode: (request: {
+          requestId: string;
+          response: {
+            approved: boolean;
+            selectedAction?: "interactive" | "exit_only";
+            feedback?: string;
+          };
+        }) => Promise<{ success: boolean }>;
+      };
+    };
   } = {},
 ) {
   let listener: ((event: SessionEvent) => void) | undefined;
   const prompts: string[] = [];
+  const messages: Array<{
+    prompt: string;
+    agentMode?: "interactive" | "plan";
+  }> = [];
   const disconnect = vi.fn(async () => undefined);
   const abort = vi.fn(options.abort ?? (async () => undefined));
-  const sendAndWait = vi.fn(async (prompt: string) => {
-    prompts.push(prompt);
-    if (options.onSend !== undefined) {
-      return await options.onSend(prompt, (event) => listener?.(event));
-    }
+  const sendAndWait = vi.fn(
+    async (message: { prompt: string; agentMode?: "interactive" | "plan" }) => {
+      const prompt = message.prompt;
+      prompts.push(prompt);
+      messages.push(message);
+      if (options.onSend !== undefined) {
+        return await options.onSend(prompt, (event) => listener?.(event));
+      }
 
-    return { data: { content: `reply:${sessionId}:${prompt}` } };
-  });
+      return { data: { content: `reply:${sessionId}:${prompt}` } };
+    },
+  );
   return {
     sessionId,
     prompts,
+    messages,
     emit: (event: SessionEvent) => listener?.(event),
     sendAndWait,
     abort,
@@ -223,6 +244,7 @@ function createFakeSession(
         if (listener === receivedListener) listener = undefined;
       };
     },
+    ...(options.rpc === undefined ? {} : { rpc: options.rpc }),
     ...(options.getEvents === undefined && options.history === undefined
       ? {}
       : {
@@ -1687,6 +1709,103 @@ describe("CopilotAgentService managed sessions", () => {
     await service.stop();
     expect(stop).toHaveBeenCalledOnce();
   });
+});
+
+it("forwards plan mode and resolves only the owning pending plan request", async () => {
+  const events = new InMemoryEventPublisher();
+  const received: AppEvent[] = [];
+  events.subscribe((event) => received.push(event));
+  const handlePendingExitPlanMode = vi
+    .fn()
+    .mockResolvedValue({ success: true });
+  const defaultSession = createFakeSession("default-session");
+  const managedSession = createFakeSession("managed-session", {
+    rpc: { ui: { handlePendingExitPlanMode } },
+  });
+  const createSession = vi
+    .fn()
+    .mockResolvedValueOnce(defaultSession)
+    .mockResolvedValueOnce(managedSession);
+  const service = new CopilotAgentService(
+    baseOptions({
+      events,
+      clientFactory: () => ({
+        createSession,
+        resumeSession: vi.fn(async () => {
+          throw new Error("resume not expected");
+        }),
+        stop: vi.fn(async () => undefined),
+      }),
+    }),
+  );
+
+  await service.start();
+  await service.createManagedAgent(configuration("managed"));
+  await service.sendToManagedAgent("managed", "Draft an arrangement", "plan");
+
+  expect(managedSession.messages).toContainEqual({
+    prompt: "Draft an arrangement",
+    agentMode: "plan",
+  });
+
+  managedSession.emit({
+    type: "session.mode_changed",
+    id: "mode-event",
+    parentId: null,
+    timestamp: "2026-08-08T00:00:00.000Z",
+    data: { previousMode: "interactive", newMode: "plan" },
+  } as unknown as SessionEvent);
+  managedSession.emit({
+    type: "exit_plan_mode.requested",
+    id: "plan-event",
+    parentId: null,
+    timestamp: "2026-08-08T00:00:01.000Z",
+    data: {
+      requestId: "request-1",
+      summary: "Arrangement plan",
+      planContent: "# Plan\n\nBuild an intro.",
+      recommendedAction: "autopilot",
+      actions: ["interactive", "autopilot", "autopilot_fleet", "exit_only"],
+    },
+  } as unknown as SessionEvent);
+
+  expect(received).toContainEqual({
+    type: "agent.mode_changed",
+    previousMode: "interactive",
+    mode: "plan",
+    agentInstanceId: "managed",
+    sdkSessionId: "managed-session",
+  });
+  expect(received).toContainEqual({
+    type: "agent.plan_approval_requested",
+    request: {
+      requestId: "request-1",
+      summary: "Arrangement plan",
+      planContent: "# Plan\n\nBuild an intro.",
+      recommendedAction: "interactive",
+      actions: ["interactive", "exit_only"],
+    },
+    agentInstanceId: "managed",
+    sdkSessionId: "managed-session",
+  });
+
+  await expect(
+    service.resolveManagedAgentPlan("managed", {
+      requestId: "request-1",
+      approved: true,
+      selectedAction: "interactive",
+    }),
+  ).resolves.toBe(true);
+  expect(handlePendingExitPlanMode).toHaveBeenCalledWith({
+    requestId: "request-1",
+    response: { approved: true, selectedAction: "interactive" },
+  });
+  await expect(
+    service.resolveManagedAgentPlan("managed", {
+      requestId: "unknown-request",
+      approved: false,
+    }),
+  ).resolves.toBe(false);
 });
 
 function automaticLiveEvent(

@@ -36,6 +36,7 @@ import {
   saveAgentEventListeners,
   selectWorkspaceAgent,
   sendComposerMessage,
+  setSelectedAgentMode,
   SettingsView,
   setOutputSubscription,
   matchingSlashCompletions,
@@ -419,17 +420,17 @@ describe("desktop components", () => {
 
     expect(
       slashCompletionsForState("/", state).map(({ name }) => name),
-    ).toEqual(["mix-review", "sound-design", "yolo"]);
+    ).toEqual(["mix-review", "plan", "sound-design", "yolo"]);
     state.sessions[0]!.selectedAgentInstanceId = secondAgentId;
     expect(
       slashCompletionsForState("/", state).map(({ name }) => name),
-    ).toEqual(["mix-review", "sound-design", "yolo"]);
+    ).toEqual(["mix-review", "plan", "sound-design", "yolo"]);
   });
 
   it("keeps built-ins without an agent and reserves their names", () => {
     expect(
       slashCompletionsForState("/", initialState).map(({ name }) => name),
-    ).toEqual(["yolo"]);
+    ).toEqual(["plan", "yolo"]);
 
     const entries = matchingSlashCompletions("/", [
       {
@@ -624,6 +625,7 @@ describe("desktop components", () => {
       secondAgentId,
       "Inspect the drums",
       state.context,
+      "interactive",
     );
     expect(setContext).not.toHaveBeenCalled();
     expect(cancel).toHaveBeenCalledWith(secondAgentId);
@@ -657,11 +659,13 @@ describe("desktop components", () => {
         secondAgentId,
         "First",
         [{ id: "track:1", kind: "track", label: "Drums" }],
+        "interactive",
       ],
       [
         secondAgentId,
         "Second",
         [{ id: "track:2", kind: "track", label: "Bass" }],
+        "interactive",
       ],
     ]);
   });
@@ -705,6 +709,7 @@ describe("desktop components", () => {
       "mix-review",
       "preserve the vocal dynamics",
       state.context,
+      "interactive",
     );
     expect(send).not.toHaveBeenCalled();
     expect(dispatch).toHaveBeenCalledWith(
@@ -713,6 +718,80 @@ describe("desktop components", () => {
         content: "/mix-review preserve the vocal dynamics",
       }),
     );
+  });
+
+  it("enters plan mode locally without adding a chat turn", async () => {
+    const state = workspaceState(secondAgentId);
+    const updated = {
+      ...state.sessions[0]!.activeAgents[1]!,
+      mode: "plan" as const,
+    };
+    const setMode = vi.fn().mockResolvedValue(updated);
+    const send = vi.fn();
+    const desktop = {
+      agents: { setMode, send },
+    } as unknown as DesktopApi;
+    const dispatch = vi.fn();
+
+    await sendComposerMessage(desktop, state, "/plan", dispatch);
+
+    expect(setMode).toHaveBeenCalledWith(secondAgentId, "plan");
+    expect(send).not.toHaveBeenCalled();
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "event",
+      event: {
+        type: "agent.instance_changed",
+        instance: updated,
+        change: "mode-changed",
+      },
+    });
+  });
+
+  it("toggles the selected agent mode independently", async () => {
+    const state = workspaceState(secondAgentId);
+    const updated = {
+      ...state.sessions[0]!.activeAgents[1]!,
+      mode: "plan" as const,
+    };
+    const setMode = vi.fn().mockResolvedValue(updated);
+    const dispatch = vi.fn();
+
+    await setSelectedAgentMode(
+      { agents: { setMode } } as unknown as DesktopApi,
+      state,
+      "plan",
+      dispatch,
+    );
+
+    expect(setMode).toHaveBeenCalledWith(secondAgentId, "plan");
+    expect(state.sessions[0]!.activeAgents[0]!.mode ?? "interactive").toBe(
+      "interactive",
+    );
+  });
+
+  it("labels plan-mode user messages without relying on color", () => {
+    const state = workspaceState(firstAgentId);
+    state.agentWorkspaces[firstAgentId] = {
+      messages: [
+        {
+          id: "plan-message",
+          role: "user",
+          content: "Draft a plan",
+          agentMode: "plan",
+          streaming: false,
+          timestamp: 1,
+        },
+      ],
+      operations: [],
+      triggers: [],
+    };
+
+    const html = renderToStaticMarkup(<Timeline state={state} />);
+
+    expect(html).toContain('data-agent-mode="plan"');
+    expect(html).toContain('class="message-mode">plan</small>');
+    expect(html).toContain("Draft a plan");
   });
 
   it.each([

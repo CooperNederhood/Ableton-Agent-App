@@ -13,6 +13,7 @@ import type {
   DesktopAgentHistoryMessage,
   DesktopAgentCatalog,
   DesktopAgentModel,
+  DesktopAgentMode,
   DesktopAutoApprovalUpdate,
   DesktopConnectionStatus,
   DiagnosticCheck,
@@ -90,12 +91,27 @@ export interface DesktopService {
     instanceId: string,
     message: string,
     context?: ContextChip[],
+    agentMode?: DesktopAgentMode,
   ): Promise<{ accepted: true; messageId: string }>;
+  setActiveAgentMode(
+    instanceId: string,
+    mode: DesktopAgentMode,
+  ): Promise<DesktopActiveAgent>;
+  resolveActiveAgentPlan(
+    instanceId: string,
+    request: {
+      requestId: string;
+      approved: boolean;
+      selectedAction?: "exit_only" | "interactive";
+      feedback?: string;
+    },
+  ): Promise<boolean>;
   invokeActiveAgentSkill(
     instanceId: string,
     skillName: string,
     argumentsText: string,
     context?: ContextChip[],
+    agentMode?: DesktopAgentMode,
   ): Promise<{ accepted: true; messageId: string }>;
   cancelActiveAgent(instanceId: string): Promise<{ cancelled: boolean }>;
   connect(): Promise<DesktopConnectionStatus>;
@@ -252,6 +268,7 @@ export class JsonSessionStore {
               liveEvents: [],
               activeAgents: versionTwo.activeAgents.map((agent) => ({
                 ...agent,
+                mode: agent.mode ?? "interactive",
                 eventListeners: [],
                 triggerHistory: [],
               })),
@@ -262,6 +279,7 @@ export class JsonSessionStore {
             ...session,
             activeAgents: session.activeAgents.map((agent) => ({
               ...agent,
+              mode: agent.mode ?? "interactive",
               triggerHistory: agent.triggerHistory ?? [],
             })),
           };

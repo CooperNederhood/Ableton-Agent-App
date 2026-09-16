@@ -205,6 +205,8 @@ describe("preload API", () => {
     const transport = transportFor({
       "agents:send": { accepted: true, messageId: "message-1" },
       "agents:invoke-skill": { accepted: true, messageId: "message-2" },
+      "agents:set-mode": { id: instanceId },
+      "agents:resolve-plan": { resolved: true },
       "agents:cancel": { cancelled: true },
     });
 
@@ -212,14 +214,31 @@ describe("preload API", () => {
 
     const context = [{ id: "track:1", kind: "track" as const, label: "Drums" }];
     await api.agents.send(instanceId, "hello", context);
-    await api.agents.invokeSkill(instanceId, "analyze", "the drums", context);
+    await api.agents.invokeSkill(
+      instanceId,
+      "analyze",
+      "the drums",
+      context,
+      "plan",
+    );
+    await api.agents.setMode(instanceId, "plan");
+    await expect(
+      api.agents.resolvePlan(instanceId, {
+        requestId: "plan-request",
+        approved: true,
+        selectedAction: "interactive",
+      }),
+    ).resolves.toBe(true);
     await expect(api.agents.cancel(instanceId)).resolves.toEqual({
       cancelled: true,
     });
     await expect(api.agents.send("invalid", "hello", [])).rejects.toThrow();
 
     expect(vi.mocked(transport).invoke.mock.calls).toEqual([
-      ["agents:send", { instanceId, message: "hello", context }],
+      [
+        "agents:send",
+        { instanceId, message: "hello", context, agentMode: "interactive" },
+      ],
       [
         "agents:invoke-skill",
         {
@@ -227,6 +246,17 @@ describe("preload API", () => {
           skillName: "analyze",
           request: "the drums",
           context,
+          agentMode: "plan",
+        },
+      ],
+      ["agents:set-mode", { instanceId, mode: "plan" }],
+      [
+        "agents:resolve-plan",
+        {
+          instanceId,
+          requestId: "plan-request",
+          approved: true,
+          selectedAction: "interactive",
         },
       ],
       ["agents:cancel", { instanceId }],

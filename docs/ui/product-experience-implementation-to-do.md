@@ -28,6 +28,8 @@ typed service calls, and sessions use explicit create/resume operations.
   top-chrome controls, with the composer aligned to the expanding conversation
   column.
 - [x] Build chat composer with explicit context chips.
+- [x] Add per-active-agent plan mode with `/plan`, Shift+Tab toggling, composer
+  mode status, and mode-attributed sends.
 - [x] Send bounded, deduplicated context chips atomically with managed-agent
   messages and explicit skill invocations.
 - [x] Build streaming assistant and operation timeline.
@@ -36,6 +38,8 @@ typed service calls, and sessions use explicit create/resume operations.
 - [x] Build project outline and selection model.
 - [x] Build inspector for tracks, clips, devices, and parameters.
 - [x] Build approval and change-preview panel.
+- [x] Present completed SDK plans in the Inspector with interactive approval,
+  change feedback, and exit-only controls.
 - [x] Build diagnostics, sessions, and settings views.
 - [ ] Build the queryable History surface with filters, cursor pagination,
   virtualized results, redacted trace details, and explicit paused, retained,
@@ -58,6 +62,7 @@ typed service calls, and sessions use explicit create/resume operations.
 
 - [x] Implement keyboard navigation and focus management.
 - [x] Add semantic labels and non-color status indicators.
+- [x] Label plan-mode user turns textually in addition to distinct color.
 - [x] Add accessible expanded-state labels and controls for all collapsible
   workspace regions.
 - [x] Virtualize large lists and throttle streaming updates.
@@ -69,6 +74,8 @@ typed service calls, and sessions use explicit create/resume operations.
 - [x] Test selection-context enablement, deduplication, per-turn replacement,
   and managed message/skill delivery.
 - [x] Component-test operation, approval, inspector, and plan views.
+- [x] Component-test `/plan`, per-agent mode changes, plan-mode sends, and
+  textual plan-message attribution.
 - [~] Test accessibility with automated checks and keyboard scenarios.
   - [x] Verify landmarks, labels, focus shortcuts, and sandboxed preload in
     Electron.

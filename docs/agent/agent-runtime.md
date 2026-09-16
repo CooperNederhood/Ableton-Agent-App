@@ -38,6 +38,21 @@ results, paths, structured musical/MIDI data, and event payloads are preserved.
 Sanitization redacts credentials embedded in every string and replaces
 binary/audio bodies with visible omission markers before persistence.
 
+Managed desktop turns select an explicit SDK agent mode. Interactive is the
+compatibility default; plan mode is persisted per active-agent instance and is
+forwarded on normal messages and explicit skill invocations. SDK mode changes,
+plan changes, completed-plan approval requests, and approval completions are
+normalized into application-owned, attributed events. Plan summaries, content,
+and feedback are bounded and sanitized before journaling or renderer delivery.
+
+When the SDK requests a completed-plan decision, the application retains
+request ownership on the originating active-agent instance. The desktop may
+approve and continue interactively, request changes with bounded feedback, or
+exit plan mode without implementation. SDK autopilot and fleet actions are not
+exposed by this product surface. Plan response lifecycle records queued,
+started, completed, failed, and stale/cancelled outcomes with timing and the
+original session attribution.
+
 ## System behavior
 
 The base system message should teach the agent:

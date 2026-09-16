@@ -1274,8 +1274,14 @@ describe("CopilotAgentService", () => {
         { sessionId: "session" },
       ),
     ).toMatchObject({ permissionDecision: "deny" });
-    expect(sendAndWait).toHaveBeenCalledWith("Check the connection", 180_000);
-    expect(sendAndWait).toHaveBeenCalledWith("Take too long", 180_000);
+    expect(sendAndWait).toHaveBeenCalledWith(
+      { prompt: "Check the connection" },
+      180_000,
+    );
+    expect(sendAndWait).toHaveBeenCalledWith(
+      { prompt: "Take too long" },
+      180_000,
+    );
     expect(abort).toHaveBeenCalledOnce();
     expect(disconnect).toHaveBeenCalledOnce();
     expect(stop).toHaveBeenCalledOnce();
@@ -1928,10 +1934,15 @@ describe("HeadlessApplication agent and connection ports", () => {
     );
     expect(reconfigureManagedAgent).toHaveBeenCalledWith(configuration);
     expect(deactivateManagedAgent).toHaveBeenCalledWith("agent-a");
-    expect(sendToManagedAgent).toHaveBeenCalledWith("agent-a", "Follow up");
+    expect(sendToManagedAgent).toHaveBeenCalledWith(
+      "agent-a",
+      "Follow up",
+      undefined,
+    );
     expect(invokeManagedAgentSkill).toHaveBeenCalledWith(
       "agent-a",
       "/midi keep the original rhythm",
+      undefined,
     );
     expect(cancelManagedAgent).toHaveBeenCalledWith("agent-a");
     expect(getManagedAgentHistory).toHaveBeenCalledWith("agent-a");

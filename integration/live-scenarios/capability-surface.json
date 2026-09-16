@@ -29,6 +29,7 @@
         "arrangement.inspect_notes",
         "arrangement.replace_notes",
         "arrangement.duplicate_clip",
+        "arrangement.fill_region",
         "arrangement.delete_clip",
         "arrangement.set_clip_properties",
         "devices.inspect",

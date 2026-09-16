@@ -260,11 +260,32 @@ Report:
 5. **Next-level target:** a short definition of what must become true for the
    arrangement to earn the next level.
 
-If the user asks for edits, present the intended section map first, preserve
-existing material unless replacement is requested, apply dependent clip
-placements sequentially, and avoid overlaps unless intentional. After editing,
-verify final clip positions, section boundaries, total length, transition
-coverage, and that the observed changes support the claimed level.
+If the user asks for edits, present and preflight the complete section map
+first. Preserve existing material unless replacement is requested and avoid
+overlaps unless intentional.
+
+For repeated contiguous copies of one Session clip on one track, use
+`ableton_arrangement_fill_region` once for the whole half-open region instead
+of calling `ableton_arrangement_duplicate_clip` for every tile. Obtain the
+source length from Session inspection; never create a probe duplicate merely
+to discover length. Group work into one region-fill call per
+source/track/contiguous region, apply dependent regions sequentially, and use
+single-clip duplication only for isolated placements.
+
+Region filling places every complete source-length copy that fits and reports
+any uncovered tail. Report progress by region, not by tile. After each
+region-level mutation, verify final positions and boundaries. If a mutation
+times out or returns `applied_indeterminate`, inspect the Arrangement before
+any dependent mutation or retry.
+
+The requested half-open `regionEnd` is a hard boundary. Never compensate for
+an uncovered tail by duplicating a full-length clip that extends past
+`regionEnd`. If the user requires exact coverage and a tail remains, use a
+shorter source clip whose length fits the boundary or explain that the tail
+requires a manual edit. Do not substitute one-off duplication.
+
+After editing, verify final clip positions, section boundaries, total length,
+transition coverage, and that the observed changes support the claimed level.
 
 ## Research basis
 

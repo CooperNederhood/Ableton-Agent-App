@@ -142,6 +142,7 @@ describe("AbletonBridgeService", () => {
         "clips.set_properties": true,
         "arrangement.create_midi_clip": true,
         "arrangement.duplicate_clip": true,
+        "arrangement.fill_region": true,
         "arrangement.set_clip_properties": true,
       },
     });
@@ -845,6 +846,26 @@ describe("AbletonBridgeService", () => {
       ],
     });
     await expect(
+      service.fillArrangementRegion({
+        index: 0,
+        expectedReference: drums?.reference ?? "",
+        expectedName: "Main Drums",
+        sceneIndex: 0,
+        expectedClipReference: createdClip.clip.reference,
+        regionStart: 24,
+        regionEnd: 34,
+      }),
+    ).resolves.toMatchObject({
+      fullTileCount: 2,
+      coveredEnd: 32,
+      unusedRemainder: 2,
+      clips: [
+        { startTime: 24, endTime: 28 },
+        { startTime: 28, endTime: 32 },
+      ],
+      verified: true,
+    });
+    await expect(
       service.replaceArrangementMidiNotes({
         index: 0,
         expectedReference: drums?.reference ?? "",
@@ -903,8 +924,8 @@ describe("AbletonBridgeService", () => {
         expectedStartTime: 8,
       }),
     ).resolves.toMatchObject({
-      beforeClipCount: 2,
-      afterClipCount: 1,
+      beforeClipCount: 4,
+      afterClipCount: 3,
       verified: true,
     });
     const vocals = afterDelete.tracks.find((track) => track.name === "Vocals");

@@ -23,6 +23,9 @@
 
 - `arrangement-clip-lifecycle`: duplicate an identity-bound Session MIDI clip
   into Arrangement, inspect it, remove it, and restore the baseline Set.
+- `arrangement-region-fill-lifecycle`: fill a non-divisible Arrangement region
+  with one bulk tool call, verify complete-tile placement and the reported
+  remainder, remove every created tile, and restore the baseline Set.
 - `cue-point-lifecycle`: create an unnamed cue point at an exact time, inspect
   it, delete it by returned identity, and restore the cue state. Live 11.3.43
   naming support is covered as an explicit unsupported-capability path.

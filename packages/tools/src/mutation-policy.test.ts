@@ -116,6 +116,7 @@ describe("Ableton mutation policy", () => {
       "read",
       "read",
       "track",
+      "track",
     ]);
 
     const authorizer = createAbletonMutationAuthorizer(abletonToolMetadata);

@@ -95,6 +95,17 @@ const arrangementClipLifecycleAssertionSchema = z.object({
   length: z.number().positive(),
   destinationTime: z.number().nonnegative(),
 });
+const arrangementRegionFillLifecycleAssertionSchema = z.object({
+  type: z.literal("arrangement-region-fill-lifecycle"),
+  trackNameSuffix: z.string().min(1),
+  clipNameSuffix: z.string().min(1),
+  sourceSceneIndex: z.number().int().nonnegative(),
+  sourceLength: z.number().positive(),
+  regionStart: z.number().nonnegative(),
+  regionEnd: z.number().positive(),
+  expectedTileCount: z.number().int().min(1).max(128),
+  expectedUnusedRemainder: z.number().nonnegative(),
+});
 const cuePointLifecycleAssertionSchema = z.object({
   type: z.literal("cue-point-lifecycle"),
   time: z.number().nonnegative(),
@@ -144,6 +155,7 @@ export const scenarioManifestSchema = z
           trackLifecycleAssertionSchema,
           sessionClipLifecycleAssertionSchema,
           arrangementClipLifecycleAssertionSchema,
+          arrangementRegionFillLifecycleAssertionSchema,
           cuePointLifecycleAssertionSchema,
         ]),
       )
@@ -260,6 +272,7 @@ export function scenarioPrompt(
         assertion.type !== "track-lifecycle" &&
         assertion.type !== "session-clip-lifecycle" &&
         assertion.type !== "arrangement-clip-lifecycle" &&
+        assertion.type !== "arrangement-region-fill-lifecycle" &&
         assertion.type !== "cue-point-lifecycle"
       ) {
         return [];
@@ -291,6 +304,16 @@ export function scenarioPrompt(
           `Duplicate that exact Session clip into Arrangement at beat ${assertion.destinationTime}, inspect the Arrangement to verify the created clip, then delete the exact Arrangement clip, Session clip, and generated track.`,
           `For Arrangement deletion, expectedName is the track name "${trackName}", while expectedClipReference identifies Arrangement clip "${clipName}".`,
           "Use returned references for every dependent mutation and leave all pre-existing tracks, clips, and cue points unchanged.",
+        ];
+      }
+      if (assertion.type === "arrangement-region-fill-lifecycle") {
+        const trackName = `${context.artifactPrefix}${assertion.trackNameSuffix}`;
+        const clipName = `${context.artifactPrefix}${assertion.clipNameSuffix}`;
+        return [
+          `Create exactly one MIDI track "${trackName}" and one ${assertion.sourceLength}-beat Session MIDI clip "${clipName}" at zero-based sceneIndex ${assertion.sourceSceneIndex} (Session scene ${assertion.sourceSceneIndex + 1}).`,
+          `Use ableton_arrangement_fill_region exactly once to fill the half-open Arrangement region [${assertion.regionStart}, ${assertion.regionEnd}). Verify that it created exactly ${assertion.expectedTileCount} full tiles and reported ${assertion.expectedUnusedRemainder} uncovered beats.`,
+          `Inspect the Arrangement, delete every Arrangement clip created by the fill using its returned identity and start time, then delete the Session source clip and generated track.`,
+          "Do not substitute repeated ableton_arrangement_duplicate_clip calls and do not touch pre-existing clips or tracks.",
         ];
       }
       if (assertion.type === "cue-point-lifecycle") {
@@ -510,6 +533,51 @@ export class ScenarioApprovalController {
         (args.name !== trackName || args.kind !== "midi")
       ) {
         return false;
+      }
+      const arrangementRegionFillLifecycle =
+        this.context.manifest.assertions.find(
+          (assertion) => assertion.type === "arrangement-region-fill-lifecycle",
+        );
+      if (arrangementRegionFillLifecycle) {
+        const trackName = `${this.context.artifactPrefix}${arrangementRegionFillLifecycle.trackNameSuffix}`;
+        const clipName = `${this.context.artifactPrefix}${arrangementRegionFillLifecycle.clipNameSuffix}`;
+        if (
+          toolName === "ableton_tracks_create" &&
+          (args.name !== trackName || args.kind !== "midi")
+        ) {
+          return false;
+        }
+        if (
+          toolName === "ableton_clips_create_midi" &&
+          (args.expectedName !== trackName ||
+            args.name !== clipName ||
+            args.sceneIndex !==
+              arrangementRegionFillLifecycle.sourceSceneIndex ||
+            args.length !== arrangementRegionFillLifecycle.sourceLength)
+        ) {
+          return false;
+        }
+        if (
+          toolName === "ableton_arrangement_fill_region" &&
+          (args.expectedName !== trackName ||
+            args.sceneIndex !==
+              arrangementRegionFillLifecycle.sourceSceneIndex ||
+            args.regionStart !== arrangementRegionFillLifecycle.regionStart ||
+            args.regionEnd !== arrangementRegionFillLifecycle.regionEnd)
+        ) {
+          return false;
+        }
+        if (
+          toolName === "ableton_arrangement_duplicate_clip" ||
+          (toolName === "ableton_clips_delete" &&
+            (args.expectedName !== trackName ||
+              args.sceneIndex !==
+                arrangementRegionFillLifecycle.sourceSceneIndex)) ||
+          (toolName === "ableton_tracks_delete" &&
+            (args.expectedName !== trackName || args.expectedKind !== "midi"))
+        ) {
+          return false;
+        }
       }
       if (
         toolName === "ableton_clips_create_midi" &&
@@ -816,6 +884,52 @@ export async function verifyScenario(
         message: passed
           ? "Verified Arrangement duplication lifecycle and baseline restoration"
           : "Arrangement lifecycle calls or final baseline restoration did not match",
+        evidence: sanitizeTraceValue({ restored, callEvidence }),
+      });
+      continue;
+    }
+    if (assertion.type === "arrangement-region-fill-lifecycle") {
+      const trackName = `${context.artifactPrefix}${assertion.trackNameSuffix}`;
+      const clipName = `${context.artifactPrefix}${assertion.clipNameSuffix}`;
+      const arrangement = await application.inspectArrangement({
+        offset: 0,
+        limit: 512,
+      });
+      const expectedCalls = [
+        ["ableton_tracks_create", 1],
+        ["ableton_clips_create_midi", 1],
+        ["ableton_arrangement_fill_region", 1],
+        ["ableton_arrangement_inspect", 1],
+        ["ableton_arrangement_delete_clip", assertion.expectedTileCount],
+        ["ableton_clips_delete", 1],
+        ["ableton_tracks_delete", 1],
+      ] as const;
+      const callEvidence = expectedCalls.map(([toolName, count]) => ({
+        toolName,
+        expected: count,
+        actual: context.approvals.decisions.filter(
+          (decision) => decision.approved && decision.toolName === toolName,
+        ).length,
+      }));
+      const restored =
+        JSON.stringify(snapshot) === JSON.stringify(baseline) &&
+        !snapshot.tracks.some((track) => track.name === trackName) &&
+        !(snapshot.clips ?? []).some((clip) => clip.name === clipName) &&
+        !arrangement.clips.some(
+          (clip) =>
+            clip.name === clipName ||
+            (clip.startTime >= assertion.regionStart &&
+              clip.startTime < assertion.regionEnd),
+        );
+      const passed =
+        restored &&
+        callEvidence.every((entry) => entry.actual === entry.expected);
+      results.push({
+        assertion: assertion.type,
+        passed,
+        message: passed
+          ? "Verified Arrangement region fill and baseline restoration"
+          : "Arrangement region fill calls or final baseline restoration did not match",
         evidence: sanitizeTraceValue({ restored, callEvidence }),
       });
       continue;

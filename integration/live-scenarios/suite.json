@@ -24,7 +24,11 @@
     },
     {
       "id": "arrangement-and-cues",
-      "scenarios": ["arrangement-clip-lifecycle", "cue-point-lifecycle"]
+      "scenarios": [
+        "arrangement-clip-lifecycle",
+        "arrangement-region-fill-lifecycle",
+        "cue-point-lifecycle"
+      ]
     },
     {
       "id": "instruments",

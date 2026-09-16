@@ -19,6 +19,8 @@ import {
   deleteTrackParamsSchema,
   duplicateClipToArrangementParamsSchema,
   duplicateClipToArrangementResultSchema,
+  fillArrangementRegionParamsSchema,
+  fillArrangementRegionResultSchema,
   duplicateSessionClipParamsSchema,
   duplicateSessionClipResultSchema,
   helloParamsSchema,
@@ -301,6 +303,11 @@ export const commandCatalog = {
     duplicateClipToArrangementParamsSchema,
     duplicateClipToArrangementResultSchema,
     { mutates: true },
+  ),
+  "arrangement.fill_region": command(
+    fillArrangementRegionParamsSchema,
+    fillArrangementRegionResultSchema,
+    { mutates: true, timeoutClass: "long" },
   ),
   "arrangement.set_clip_properties": command(
     setArrangementClipPropertiesParamsSchema,

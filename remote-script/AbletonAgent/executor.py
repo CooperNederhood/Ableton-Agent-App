@@ -15,11 +15,15 @@ from .messages import failure, success
 
 
 class DeferredResult(object):
-    def __init__(self, start):
+    def __init__(self, start, supports_progress=False):
         self._start = start
+        self._supports_progress = supports_progress
 
-    def start(self, on_success, on_failure):
-        self._start(on_success, on_failure)
+    def start(self, on_success, on_failure, on_progress=None):
+        if self._supports_progress:
+            self._start(on_success, on_failure, on_progress)
+        else:
+            self._start(on_success, on_failure)
 
 
 class MainThreadExecutor(object):
@@ -149,9 +153,26 @@ class MainThreadExecutor(object):
                         )
                         cb(_failure_from_exception(req, exc))
 
+                    def deferred_progress(
+                        details,
+                        req=request,
+                        started_at=command_started,
+                    ):
+                        bounded = details if isinstance(details, dict) else {}
+                        self._log(
+                            "progress",
+                            req,
+                            duration_ms=int(
+                                (time.monotonic() - started_at) * 1000
+                            ),
+                            queue_depth=self._queue.qsize(),
+                            **bounded
+                        )
+
                     result.start(
                         deferred_success,
                         deferred_failure,
+                        deferred_progress,
                     )
                 else:
                     callback(
@@ -225,7 +246,14 @@ class MainThreadExecutor(object):
             )
             self._queue.task_done()
 
-    def _log(self, lifecycle, request, duration_ms=None, queue_depth=None):
+    def _log(
+        self,
+        lifecycle,
+        request,
+        duration_ms=None,
+        queue_depth=None,
+        **details
+    ):
         fields = [
             "AbletonAgent executor",
             lifecycle,
@@ -236,6 +264,14 @@ class MainThreadExecutor(object):
             fields.append("queueDepth={0}".format(queue_depth))
         if duration_ms is not None:
             fields.append("durationMs={0}".format(duration_ms))
+        for key in (
+            "phase",
+            "plannedClipCount",
+            "completedClipCount",
+            "currentDestination",
+        ):
+            if key in details:
+                fields.append("{0}={1}".format(key, details[key]))
         self._log_message(" ".join(fields))
 
     def _log_message(self, message):

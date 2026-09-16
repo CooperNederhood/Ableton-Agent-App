@@ -15,6 +15,8 @@ from .errors import ProtocolFailure
 from .identity import build_project_identity
 
 ARRANGEMENT_MAX_BEATS = 1576800
+ARRANGEMENT_FILL_MAX_CLIPS = 128
+ARRANGEMENT_FILL_TILES_PER_TICK = 4
 LOM_TIME_TOLERANCE = 0.0001
 SESSION_TRACK_DEVICE_LIMIT = 32
 DEVICE_ON_NAMES = ("Device On", "Device Activator")
@@ -2942,6 +2944,370 @@ def duplicate_clip_to_arrangement(context, params):
     return result
 
 
+def _fill_arrangement_region_params(params):
+    error = _validate_track_target(
+        params,
+        [
+            "sceneIndex",
+            "expectedClipReference",
+            "regionStart",
+            "regionEnd",
+        ],
+    )
+    if error:
+        return error
+    scene_index = params.get("sceneIndex")
+    if (
+        isinstance(scene_index, bool)
+        or not isinstance(scene_index, int)
+        or scene_index < 0
+    ):
+        return "sceneIndex must be a non-negative integer"
+    try:
+        uuid.UUID(params.get("expectedClipReference"))
+    except (AttributeError, TypeError, ValueError):
+        return "expectedClipReference must be a UUID"
+    region_start = params.get("regionStart")
+    region_end = params.get("regionEnd")
+    if (
+        not _is_finite_number(region_start)
+        or region_start < 0
+        or region_start > ARRANGEMENT_MAX_BEATS
+    ):
+        return "regionStart must be between 0 and 1576800 beats"
+    if (
+        not _is_finite_number(region_end)
+        or region_end <= region_start
+        or region_end > ARRANGEMENT_MAX_BEATS
+    ):
+        return "regionEnd must be greater than regionStart and at most 1576800 beats"
+    return None
+
+
+def _verify_arrangement_duplicate(
+    context,
+    track,
+    source,
+    source_reference,
+    slot,
+    created,
+    destination_time,
+    expected_length,
+):
+    return (
+        _same_lom_object(slot.clip, source)
+        and _clip_reference(context, source) == source_reference
+        and abs(created.start_time - destination_time) < LOM_TIME_TOLERANCE
+        and abs(created.end_time - (destination_time + expected_length))
+        < LOM_TIME_TOLERANCE
+        and abs(created.length - expected_length) < LOM_TIME_TOLERANCE
+        and bool(getattr(created, "is_midi_clip", False))
+        == bool(getattr(source, "is_midi_clip", False))
+        and any(
+            _same_lom_object(created, candidate)
+            for candidate in track.arrangement_clips
+        )
+    )
+
+
+def fill_arrangement_region(context, params):
+    track = _resolve_track(context, params)
+    if (
+        not hasattr(track, "arrangement_clips")
+        or not hasattr(track, "duplicate_clip_to_arrangement")
+        or not hasattr(track, "delete_clip")
+    ):
+        raise ProtocolFailure(
+            "unsupported_capability",
+            "This Live version does not support Arrangement region filling",
+        )
+    scene_index = params["sceneIndex"]
+    if scene_index >= len(track.clip_slots):
+        raise ProtocolFailure("not_found", "Scene index is out of range")
+    slot = track.clip_slots[scene_index]
+    if not slot.has_clip:
+        raise ProtocolFailure("not_found", "Clip slot is empty")
+    source = slot.clip
+    source_reference = params["expectedClipReference"]
+    if _clip_reference(context, source) != source_reference:
+        raise ProtocolFailure(
+            "stale_reference",
+            "Source clip identity changed before region fill",
+        )
+    source_length = source.length
+    if not _is_finite_number(source_length) or source_length <= 0:
+        raise ProtocolFailure("conflict", "Source clip has an invalid length")
+
+    region_start = params["regionStart"]
+    region_end = params["regionEnd"]
+    region_length = region_end - region_start
+    full_tile_count = int(math.floor(region_length / source_length))
+    covered_by_full_tiles = full_tile_count * source_length
+    unused_remainder = max(0.0, region_length - covered_by_full_tiles)
+    if unused_remainder < LOM_TIME_TOLERANCE:
+        unused_remainder = 0.0
+    total_tile_count = full_tile_count
+    if total_tile_count == 0:
+        raise ProtocolFailure(
+            "invalid_params",
+            (
+                "The region is shorter than one source clip and no complete "
+                "tile fits; use a shorter source clip or a larger region."
+            ),
+        )
+    if total_tile_count > ARRANGEMENT_FILL_MAX_CLIPS:
+        raise ProtocolFailure(
+            "invalid_params",
+            "Arrangement region fill exceeds the 128 clip limit",
+            details={"plannedClipCount": total_tile_count},
+        )
+
+    plan = []
+    for tile_index in range(full_tile_count):
+        start_time = region_start + (tile_index * source_length)
+        length = source_length
+        end_time = start_time + length
+        existing = _arrangement_overlap(track, start_time, end_time)
+        if existing is not None:
+            raise ProtocolFailure(
+                "conflict",
+                "Arrangement region fill overlaps an existing clip",
+                details={
+                    "tileIndex": tile_index,
+                    "existingStartTime": existing.start_time,
+                    "existingEndTime": existing.end_time,
+                },
+            )
+        plan.append((start_time, length))
+
+    before_clips = list(track.arrangement_clips)
+    created_clips = []
+    state = {"nextIndex": 0, "failure": None}
+
+    def start_fill(on_success, on_failure, on_progress):
+        def progress(phase):
+            if on_progress is not None:
+                on_progress(
+                    {
+                        "phase": phase,
+                        "plannedClipCount": total_tile_count,
+                        "completedClipCount": len(created_clips),
+                        "currentDestination": (
+                            plan[state["nextIndex"]][0]
+                            if state["nextIndex"] < len(plan)
+                            else region_end
+                        ),
+                    }
+                )
+
+        def fail_with_rollback(exc):
+            state["failure"] = exc
+            progress("rollback")
+            context.schedule_message(1, rollback_chunk)
+
+        def rollback_chunk():
+            try:
+                for _unused in range(ARRANGEMENT_FILL_TILES_PER_TICK):
+                    if not created_clips:
+                        break
+                    track.delete_clip(created_clips.pop())
+                if created_clips:
+                    progress("rollback")
+                    context.schedule_message(1, rollback_chunk)
+                    return
+                if not _lom_collection_matches(
+                    before_clips, list(track.arrangement_clips)
+                ):
+                    raise RuntimeError(
+                        "Arrangement before-state was not restored"
+                    )
+            except Exception as recovery_exc:
+                on_failure(
+                    ProtocolFailure(
+                        "applied_indeterminate",
+                        "Arrangement region fill and recovery both failed",
+                        details={
+                            "stage": "rollback",
+                            "outcome": "applied_indeterminate",
+                            "operationError": str(state["failure"]),
+                            "recoveryError": str(recovery_exc),
+                        },
+                    )
+                )
+                return
+            exc = state["failure"]
+            if isinstance(exc, ProtocolFailure):
+                on_failure(
+                    ProtocolFailure(
+                        exc.code,
+                        exc.message,
+                        retryable=exc.retryable,
+                        details=dict(
+                            exc.details,
+                            outcome="rolled_back",
+                        ),
+                    )
+                )
+                return
+            on_failure(
+                ProtocolFailure(
+                    "lom_error",
+                    "Arrangement region fill failed; every created clip was removed",
+                    retryable=True,
+                    details={
+                        "stage": "place_tiles",
+                        "outcome": "rolled_back",
+                        "operationError": str(exc),
+                    },
+                )
+            )
+
+        def verify_final():
+            try:
+                if (
+                    not _same_lom_object(slot.clip, source)
+                    or _clip_reference(context, source) != source_reference
+                    or len(track.arrangement_clips)
+                    != len(before_clips) + total_tile_count
+                    or not all(
+                        any(
+                            _same_lom_object(previous, current)
+                            for current in track.arrangement_clips
+                        )
+                        for previous in before_clips
+                    )
+                ):
+                    raise ProtocolFailure(
+                        "conflict",
+                        "Arrangement region fill completed but collection verification failed",
+                        details={"stage": "verify"},
+                    )
+                for tile_index, created in enumerate(created_clips):
+                    start_time, expected_length = plan[tile_index]
+                    if not _verify_arrangement_duplicate(
+                        context,
+                        track,
+                        source,
+                        source_reference,
+                        slot,
+                        created,
+                        start_time,
+                        expected_length,
+                    ):
+                        raise ProtocolFailure(
+                            "conflict",
+                            "Arrangement region fill completed but clip verification failed",
+                            details={
+                                "stage": "verify",
+                                "tileIndex": tile_index,
+                            },
+                        )
+                covered_end = region_start + covered_by_full_tiles
+                progress("completed")
+                on_success(
+                    {
+                        "sourceClip": _session_view_clip_summary(
+                            context,
+                            track,
+                            params["index"],
+                            scene_index,
+                            source,
+                        ),
+                        "clips": [
+                            _arrangement_clip_summary(
+                                context, track, params["index"], clip
+                            )
+                            for clip in created_clips
+                        ],
+                        "regionStart": region_start,
+                        "regionEnd": region_end,
+                        "sourceLength": source_length,
+                        "fullTileCount": full_tile_count,
+                        "coveredEnd": covered_end,
+                        "unusedRemainder": unused_remainder,
+                        "beforeClipCount": len(before_clips),
+                        "afterClipCount": len(track.arrangement_clips),
+                        "verified": True,
+                    }
+                )
+            except Exception as exc:
+                fail_with_rollback(exc)
+
+        def place_chunk():
+            try:
+                chunk_end = min(
+                    state["nextIndex"] + ARRANGEMENT_FILL_TILES_PER_TICK,
+                    total_tile_count,
+                )
+                while state["nextIndex"] < chunk_end:
+                    tile_index = state["nextIndex"]
+                    destination_time, expected_length = plan[tile_index]
+                    before_tile = list(track.arrangement_clips)
+                    try:
+                        track.duplicate_clip_to_arrangement(
+                            source, destination_time
+                        )
+                    except Exception:
+                        mutation_delta = _lom_collection_delta(
+                            before_tile, list(track.arrangement_clips)
+                        )
+                        for candidate in mutation_delta:
+                            if not any(
+                                _same_lom_object(candidate, tracked)
+                                for tracked in created_clips
+                            ):
+                                created_clips.append(candidate)
+                        raise
+                    delta = _lom_collection_delta(
+                        before_tile, list(track.arrangement_clips)
+                    )
+                    if len(delta) != 1:
+                        raise ProtocolFailure(
+                            "conflict",
+                            "Arrangement region fill created an unexpected number of clips",
+                            details={
+                                "stage": "calculate_delta",
+                                "tileIndex": tile_index,
+                            },
+                        )
+                    created = delta[0]
+                    created_clips.append(created)
+                    if (
+                        tile_index < full_tile_count
+                        and not _verify_arrangement_duplicate(
+                            context,
+                            track,
+                            source,
+                            source_reference,
+                            slot,
+                            created,
+                            destination_time,
+                            expected_length,
+                        )
+                    ):
+                        raise ProtocolFailure(
+                            "conflict",
+                            "Arrangement region tile verification failed",
+                            details={
+                                "stage": "place_tiles",
+                                "tileIndex": tile_index,
+                            },
+                        )
+                    state["nextIndex"] += 1
+                progress("placing")
+                if state["nextIndex"] < total_tile_count:
+                    context.schedule_message(1, place_chunk)
+                else:
+                    context.schedule_message(1, verify_final)
+            except Exception as exc:
+                fail_with_rollback(exc)
+
+        progress("started")
+        context.schedule_message(1, place_chunk)
+
+    return DeferredResult(start_fill, supports_progress=True)
+
+
 def _set_arrangement_clip_properties_params(params):
     error = _validate_track_target(
         params,
@@ -3231,6 +3597,14 @@ def register_system_commands(registry):
         mutates=True,
         capability="arrangement.duplicate_clip",
         validator=_duplicate_clip_to_arrangement_params,
+    )
+    registry.register(
+        "arrangement.fill_region",
+        fill_arrangement_region,
+        mutates=True,
+        capability="arrangement.fill_region",
+        timeout_class="long",
+        validator=_fill_arrangement_region_params,
     )
     registry.register(
         "arrangement.set_clip_properties",

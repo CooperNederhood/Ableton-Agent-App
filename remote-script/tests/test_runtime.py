@@ -63,6 +63,9 @@ class FakeTrack(object):
         self.arrangement_clips = []
         self.fail_arrangement_create_after_mutation = False
         self.fail_arrangement_duplicate_after_mutation = False
+        self.fail_arrangement_duplicate_on_call = None
+        self.fail_arrangement_delete = False
+        self.arrangement_duplicate_calls = 0
         self.arrangement_duplicate_return = "clip"
 
     def create_midi_clip(self, start_time, length):
@@ -73,20 +76,28 @@ class FakeTrack(object):
         return clip
 
     def delete_clip(self, clip):
+        if self.fail_arrangement_delete:
+            raise RuntimeError("simulated arrangement delete failure")
         self.arrangement_clips.remove(clip)
 
     def duplicate_clip_to_arrangement(self, source, destination_time):
+        self.arrangement_duplicate_calls += 1
         clip = FakeClip(
             source.length,
             start_time=destination_time,
             midi=source.is_midi_clip,
+            warping=source.warping,
         )
         clip.name = source.name
         clip.notes = list(source.notes)
         clip.muted = source.muted
         clip.looping = source.looping
         self.arrangement_clips.append(clip)
-        if self.fail_arrangement_duplicate_after_mutation:
+        if self.fail_arrangement_duplicate_after_mutation or (
+            self.fail_arrangement_duplicate_on_call
+            == self.arrangement_duplicate_calls
+        ):
+            self.fail_arrangement_duplicate_after_mutation = False
             raise RuntimeError("simulated arrangement duplicate failure")
         if self.arrangement_duplicate_return == "none":
             return None
@@ -208,11 +219,16 @@ class FakeMixerDevice(object):
 
 
 class FakeClip(object):
-    def __init__(self, length, start_time=0.0, midi=True):
+    def __init__(self, length, start_time=0.0, midi=True, warping=None):
         self.length = length
         self.is_midi_clip = midi
+        self.warping = midi if warping is None else warping
         self.start_time = start_time
         self.end_time = start_time + length
+        self.start_marker = 0.0
+        self.loop_start = 0.0
+        self._end_marker = length
+        self._loop_end = length
         self.name = ""
         self.muted = False
         self.looping = True
@@ -223,6 +239,24 @@ class FakeClip(object):
         self.is_playing = False
         self.is_triggered = False
         self._slot = None
+
+    @property
+    def end_marker(self):
+        return self._end_marker
+
+    @end_marker.setter
+    def end_marker(self, value):
+        self._end_marker = value
+        self.length = value - self.start_marker
+        self.end_time = self.start_time + self.length
+
+    @property
+    def loop_end(self):
+        return self._loop_end
+
+    @loop_end.setter
+    def loop_end(self, value):
+        self._loop_end = value
 
     def get_all_notes_extended(self):
         self.get_notes_calls += 1
@@ -1902,6 +1936,9 @@ class ExecutorTests(unittest.TestCase):
         scheduled = []
         responses = []
         context = FakeContext()
+        context.schedule_message = (
+            lambda _delay, callback: scheduled.append(callback)
+        )
         track = context.song.tracks[0]
         track_reference = "00000000-0000-4000-8000-000000000001"
         device_reference = "00000000-0000-4000-8000-000000000040"
@@ -2941,6 +2978,202 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(
             responses[0]["error"]["details"]["outcome"], "rolled_back"
         )
+
+    def test_arrangement_region_fill_places_full_tiles_in_bounded_ticks(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        context.schedule_message = (
+            lambda _delay, callback: scheduled.append(callback)
+        )
+        track = context.song.tracks[0]
+        source = FakeClip(4.0)
+        source.name = "Hihat"
+        track.clip_slots[0].clip = source
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        clip_reference = "00000000-0000-4000-8000-000000000010"
+        context._track_references = [(track, track_reference)]
+        context._clip_references = [(source, clip_reference)]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "arrangement.fill_region",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "sceneIndex": 0,
+                    "expectedClipReference": clip_reference,
+                    "regionStart": 0.0,
+                    "regionEnd": 40.0,
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop(0)()
+        self.assertEqual(len(track.arrangement_clips), 0)
+        scheduled.pop(0)()
+        self.assertEqual(len(track.arrangement_clips), 4)
+        scheduled.pop(0)()
+        self.assertEqual(len(track.arrangement_clips), 8)
+        while scheduled:
+            scheduled.pop(0)()
+
+        self.assertEqual(len(track.arrangement_clips), 10)
+        self.assertEqual(len(responses), 1)
+        self.assertEqual(responses[0]["result"]["fullTileCount"], 10)
+        self.assertEqual(responses[0]["result"]["unusedRemainder"], 0.0)
+        self.assertTrue(responses[0]["result"]["verified"])
+
+    def test_arrangement_region_fill_reports_remainder(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        context.schedule_message = (
+            lambda _delay, callback: scheduled.append(callback)
+        )
+        track = context.song.tracks[0]
+        source = FakeClip(4.0)
+        track.clip_slots[0].clip = source
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        clip_reference = "00000000-0000-4000-8000-000000000010"
+        context._track_references = [(track, track_reference)]
+        context._clip_references = [(source, clip_reference)]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "arrangement.fill_region",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "sceneIndex": 0,
+                    "expectedClipReference": clip_reference,
+                    "regionStart": 8.0,
+                    "regionEnd": 18.0,
+                },
+            ),
+            responses.append,
+        )
+        while scheduled:
+            scheduled.pop(0)()
+
+        result = responses[0]["result"]
+        self.assertEqual(len(track.arrangement_clips), 2)
+        self.assertEqual(result["coveredEnd"], 16.0)
+        self.assertEqual(result["unusedRemainder"], 2.0)
+
+    def test_arrangement_region_fill_rolls_back_every_created_clip(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        context.schedule_message = (
+            lambda _delay, callback: scheduled.append(callback)
+        )
+        track = context.song.tracks[0]
+        source = FakeClip(4.0)
+        track.clip_slots[0].clip = source
+        track.fail_arrangement_duplicate_on_call = 3
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        clip_reference = "00000000-0000-4000-8000-000000000010"
+        context._track_references = [(track, track_reference)]
+        context._clip_references = [(source, clip_reference)]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "arrangement.fill_region",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "sceneIndex": 0,
+                    "expectedClipReference": clip_reference,
+                    "regionStart": 0.0,
+                    "regionEnd": 20.0,
+                },
+            ),
+            responses.append,
+        )
+        while scheduled:
+            scheduled.pop(0)()
+
+        self.assertEqual(track.arrangement_clips, [])
+        self.assertEqual(responses[0]["error"]["code"], "lom_error")
+        self.assertEqual(
+            responses[0]["error"]["details"]["outcome"], "rolled_back"
+        )
+
+    def test_arrangement_region_fill_reports_indeterminate_rollback(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        context.schedule_message = (
+            lambda _delay, callback: scheduled.append(callback)
+        )
+        track = context.song.tracks[0]
+        source = FakeClip(4.0)
+        track.clip_slots[0].clip = source
+        track.fail_arrangement_duplicate_on_call = 2
+        track.fail_arrangement_delete = True
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        clip_reference = "00000000-0000-4000-8000-000000000010"
+        context._track_references = [(track, track_reference)]
+        context._clip_references = [(source, clip_reference)]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        executor.submit(
+            request(
+                "arrangement.fill_region",
+                {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                    "sceneIndex": 0,
+                    "expectedClipReference": clip_reference,
+                    "regionStart": 0.0,
+                    "regionEnd": 12.0,
+                },
+            ),
+            responses.append,
+        )
+        while scheduled:
+            scheduled.pop(0)()
+
+        self.assertEqual(
+            responses[0]["error"]["code"], "applied_indeterminate"
+        )
+        self.assertEqual(
+            responses[0]["error"]["details"]["outcome"],
+            "applied_indeterminate",
+        )
+        self.assertGreater(len(track.arrangement_clips), 0)
 
     def test_arrangement_clip_properties_verify_and_restore_on_failure(self):
         scheduled = []

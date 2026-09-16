@@ -2174,11 +2174,83 @@
         }
       }
     },
-    "arrangement.set_clip_properties": {
+    "arrangement.fill_region": {
       "request": {
         "protocolVersion": 3,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001045",
+        "command": "arrangement.fill_region",
+        "params": {
+          "index": 0,
+          "expectedReference": "00000000-0000-4000-8000-000000000099",
+          "expectedName": "x",
+          "sceneIndex": 0,
+          "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+          "regionStart": 0,
+          "regionEnd": 1
+        }
+      },
+      "success": {
+        "protocolVersion": 3,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001045",
+        "ok": true,
+        "result": {
+          "sourceClip": {
+            "reference": "00000000-0000-4000-8000-000000000099",
+            "trackReference": "00000000-0000-4000-8000-000000000099",
+            "trackIndex": 0,
+            "sceneIndex": 0,
+            "name": "x",
+            "kind": "midi",
+            "length": 1,
+            "noteCount": 0,
+            "muted": false
+          },
+          "clips": [
+            {
+              "reference": "00000000-0000-4000-8000-000000000099",
+              "trackReference": "00000000-0000-4000-8000-000000000099",
+              "trackIndex": 0,
+              "name": "x",
+              "kind": "midi",
+              "startTime": 0,
+              "endTime": 1,
+              "length": 1,
+              "noteCount": 0,
+              "muted": false
+            }
+          ],
+          "regionStart": 0,
+          "regionEnd": 1,
+          "sourceLength": 1,
+          "fullTileCount": 1,
+          "coveredEnd": 1,
+          "unusedRemainder": 0,
+          "beforeClipCount": 0,
+          "afterClipCount": 1,
+          "verified": true
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 3,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001045",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden arrangement.fill_region failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "arrangement.set_clip_properties": {
+      "request": {
+        "protocolVersion": 3,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001046",
         "command": "arrangement.set_clip_properties",
         "params": {
           "index": 0,
@@ -2192,7 +2264,7 @@
       "success": {
         "protocolVersion": 3,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001045",
+        "requestId": "00000000-0000-4000-8000-000000001046",
         "ok": true,
         "result": {
           "clip": {
@@ -2216,7 +2288,7 @@
       "failure": {
         "protocolVersion": 3,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001045",
+        "requestId": "00000000-0000-4000-8000-000000001046",
         "ok": false,
         "error": {
           "code": "lom_error",

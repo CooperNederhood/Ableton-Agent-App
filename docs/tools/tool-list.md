@@ -78,8 +78,17 @@ when replacing notes in a non-empty clip.
 | `ableton_arrangement_inspect` | Return a bounded page of Arrangement clips ordered by time and track. | `read` | `read` | `short` | `offset`, `limit` |
 | `ableton_arrangement_delete_clip` | Delete an exact Arrangement clip after track and start-time revalidation. | `destructive` | `track` | `short` | Track/clip identity, `expectedStartTime` |
 | `ableton_arrangement_replace_notes` | Replace every note in an exact Arrangement MIDI clip. | `destructive` | `track` | `short` | Track/clip identity, start time, notes, expression-loss opt-in |
-| `ableton_arrangement_duplicate_clip` | Duplicate a Session MIDI or audio clip into a verified, non-overlapping Arrangement destination. | `reversible` | `track` | `short` | Track/Session clip identity, `destinationTime` |
+| `ableton_arrangement_duplicate_clip` | Duplicate a Session MIDI or audio clip into a verified, non-overlapping Arrangement destination. This is for isolated placements, not overhanging region-fill fallbacks. | `reversible` | `track` | `short` | Track/Session clip identity, `destinationTime` |
+| `ableton_arrangement_fill_region` | Fill a half-open Arrangement region with up to 128 complete copies of one Session MIDI or audio clip in one transactional call. Any uncovered tail is reported and never overhung. | `reversible` | `track` | `long` | Track/Session clip identity, `regionStart`, `regionEnd` |
 | `ableton_arrangement_set_clip_properties` | Update an Arrangement clip's name, mute state, and/or loop state. | `reversible` | `track` | `short` | Track/clip identity, start time, one or more properties |
+
+Region filling preflights every destination before mutation and applies at most
+four tiles per scheduled Live tick. Any placement failure removes all clips
+created by that call and verifies the original collection. An unverified
+rollback returns `applied_indeterminate`. Live 11.3.43 exposes Arrangement
+`end_time` as a read-only edge, so region filling intentionally supports only
+complete tiles. Callers must use a shorter source clip when exact coverage is
+required and must never place a full tile past `regionEnd`.
 
 ## Devices, racks, Drum Racks, and parameters
 

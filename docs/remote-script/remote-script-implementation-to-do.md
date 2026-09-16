@@ -61,6 +61,11 @@ Companion specification: [Remote Script](remote-script.md)
   - [x] Replace bounded Arrangement MIDI notes with verification and recovery.
   - [x] Duplicate identity-bound Session clips to non-overlapping Arrangement
     destinations with verification and rollback.
+  - [x] Fill a bounded Arrangement region transactionally through one deferred
+    command, yielding after four tiles per Live tick and rolling back the whole
+    batch after any failure.
+  - [x] Keep region fill complete-tile-only because Live 11.3.43 marker
+    boundaries do not change the read-only Arrangement `end_time`.
   - [x] Update supported Arrangement clip properties with full rollback.
 - [~] Implement device, rack, Drum Rack, and parameter handlers.
   - [x] Inspect top-level regular-track devices and exact-device parameters

@@ -754,6 +754,7 @@ def handle(request, token, state):
                     "arrangement.delete_clip": True,
                     "arrangement.replace_notes": True,
                     "arrangement.duplicate_clip": True,
+                    "arrangement.fill_region": True,
                     "arrangement.set_clip_properties": True,
                     "events.inspect_selection": True,
                     "events.subscribe": True,
@@ -2574,6 +2575,149 @@ def handle(request, token, state):
                 "clip": {
                     key: value for key, value in clip.items() if key != "notes"
                 },
+                "beforeClipCount": before_count,
+                "afterClipCount": len(track["arrangementClips"]),
+                "verified": True,
+            },
+        )
+    if command == "arrangement.fill_region":
+        index = params.get("index")
+        scene_index = params.get("sceneIndex")
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or index < 0
+            or index >= len(state.tracks)
+            or isinstance(scene_index, bool)
+            or not isinstance(scene_index, int)
+            or scene_index < 0
+            or scene_index >= 2
+        ):
+            return failure(request, "not_found", "Track or scene is out of range")
+        track = state.tracks[index]
+        if (
+            track["reference"] != params.get("expectedReference")
+            or track["name"] != params.get("expectedName")
+        ):
+            return failure(
+                request,
+                "stale_reference",
+                "Track identity changed before mutation",
+            )
+        source = track["clips"][scene_index]
+        if source is None:
+            return failure(request, "not_found", "Clip slot is empty")
+        if source["reference"] != params.get("expectedClipReference"):
+            return failure(
+                request,
+                "stale_reference",
+                "Source clip identity changed before region fill",
+            )
+        region_start = params.get("regionStart")
+        region_end = params.get("regionEnd")
+        if (
+            isinstance(region_start, bool)
+            or not isinstance(region_start, (int, float))
+            or isinstance(region_end, bool)
+            or not isinstance(region_end, (int, float))
+            or region_start < 0
+            or region_end <= region_start
+            or region_end > 1576800
+        ):
+            return failure(
+                request,
+                "invalid_params",
+                "Arrangement region fill parameters are invalid",
+            )
+        source_length = source["length"]
+        region_length = region_end - region_start
+        full_tile_count = int(region_length // source_length)
+        unused_remainder = region_length - (full_tile_count * source_length)
+        if unused_remainder < 0.0001:
+            unused_remainder = 0.0
+        total_tile_count = full_tile_count
+        if total_tile_count == 0:
+            return failure(
+                request,
+                "invalid_params",
+                (
+                    "The region is shorter than one source clip and no "
+                    "complete tile fits; use a shorter source clip or a larger "
+                    "region."
+                ),
+            )
+        if total_tile_count > 128:
+            return failure(
+                request,
+                "invalid_params",
+                "Arrangement region fill exceeds the 128 clip limit",
+            )
+        plan = []
+        for tile_index in range(full_tile_count):
+            start_time = region_start + (tile_index * source_length)
+            length = source_length
+            end_time = start_time + length
+            if any(
+                start_time < existing["endTime"]
+                and end_time > existing["startTime"]
+                for existing in track["arrangementClips"]
+            ):
+                return failure(
+                    request,
+                    "conflict",
+                    "Arrangement region fill overlaps an existing clip",
+                )
+            plan.append((start_time, length))
+        before_count = len(track["arrangementClips"])
+        created = []
+        for start_time, length in plan:
+            clip = {
+                "reference": str(uuid.uuid4()),
+                "trackReference": track["reference"],
+                "trackIndex": index,
+                "name": source["name"],
+                "kind": source["kind"],
+                "startTime": start_time,
+                "endTime": start_time + length,
+                "length": length,
+                "notes": list(source.get("notes", [])),
+                "noteCount": (
+                    len(source.get("notes", []))
+                    if source["kind"] == "midi"
+                    else None
+                ),
+                "muted": False,
+                "looping": True,
+            }
+            track["arrangementClips"].append(clip)
+            created.append(clip)
+        return response(
+            request,
+            {
+                "sourceClip": {
+                    "reference": source["reference"],
+                    "trackReference": track["reference"],
+                    "trackIndex": index,
+                    "sceneIndex": scene_index,
+                    "name": source["name"],
+                    "kind": source["kind"],
+                    "length": source["length"],
+                    "noteCount": (
+                        len(source.get("notes", []))
+                        if source["kind"] == "midi"
+                        else None
+                    ),
+                },
+                "clips": [
+                    {key: value for key, value in clip.items() if key != "notes"}
+                    for clip in created
+                ],
+                "regionStart": region_start,
+                "regionEnd": region_end,
+                "sourceLength": source_length,
+                "fullTileCount": full_tile_count,
+                "coveredEnd": region_start + (full_tile_count * source_length),
+                "unusedRemainder": unused_remainder,
                 "beforeClipCount": before_count,
                 "afterClipCount": len(track["arrangementClips"]),
                 "verified": True,

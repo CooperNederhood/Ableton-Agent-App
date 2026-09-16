@@ -139,6 +139,9 @@ Electron itself is the only untested layer of those flows.
 - [x] Desktop chat matches the CLI reference contract.
 - [x] Renderer has no direct Copilot, filesystem, credential, or socket access.
 - [x] App exits without orphaning Copilot or bridge processes.
+- [x] Keep the application-owned Copilot turn deadline at 180 seconds and
+  classify any still-running Ableton mutation as applied-indeterminate on
+  timeout so the UI requires reinspection instead of claiming cancellation.
 - [x] Packaged development builds pass Electron smoke tests.
 
 Packaging metadata and a packaged-app smoke harness are not yet present in the

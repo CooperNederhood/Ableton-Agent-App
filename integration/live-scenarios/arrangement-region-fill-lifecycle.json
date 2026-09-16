@@ -1,0 +1,62 @@
+{
+  "formatVersion": 1,
+  "id": "arrangement-region-fill-lifecycle",
+  "group": "arrangement-and-cues",
+  "prompt": "Create a temporary Session MIDI clip, fill a multi-tile Arrangement region with one bulk call, verify the exact result, and remove every generated artifact.",
+  "artifactPrefix": "AA_SMOKE_FILL_",
+  "allowedTools": [
+    "ableton_session_inspect",
+    "ableton_tracks_create",
+    "ableton_clips_create_midi",
+    "ableton_arrangement_fill_region",
+    "ableton_arrangement_inspect",
+    "ableton_arrangement_delete_clip",
+    "ableton_clips_delete",
+    "ableton_tracks_delete"
+  ],
+  "allowedRisks": ["read", "reversible", "destructive"],
+  "maxToolCalls": 14,
+  "maxMutations": 8,
+  "timeoutMs": 240000,
+  "ordering": [
+    {
+      "before": "ableton_tracks_create",
+      "after": "ableton_clips_create_midi"
+    },
+    {
+      "before": "ableton_clips_create_midi",
+      "after": "ableton_arrangement_fill_region"
+    },
+    {
+      "before": "ableton_arrangement_fill_region",
+      "after": "ableton_arrangement_inspect"
+    },
+    {
+      "before": "ableton_arrangement_inspect",
+      "after": "ableton_arrangement_delete_clip"
+    },
+    {
+      "before": "ableton_arrangement_delete_clip",
+      "after": "ableton_clips_delete"
+    },
+    {
+      "before": "ableton_clips_delete",
+      "after": "ableton_tracks_delete"
+    }
+  ],
+  "trackNameSuffixes": ["Track"],
+  "clipNameSuffixes": ["Source"],
+  "assertions": [
+    {
+      "type": "arrangement-region-fill-lifecycle",
+      "trackNameSuffix": "Track",
+      "clipNameSuffix": "Source",
+      "sourceSceneIndex": 5,
+      "sourceLength": 4,
+      "regionStart": 32,
+      "regionEnd": 42,
+      "expectedTileCount": 2,
+      "expectedUnusedRemainder": 2
+    }
+  ]
+}

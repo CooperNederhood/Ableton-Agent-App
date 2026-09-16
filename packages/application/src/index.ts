@@ -26,6 +26,8 @@ import type {
   DeleteCuePointParams,
   DuplicateClipToArrangementParams,
   DuplicateClipToArrangementResult,
+  FillArrangementRegionParams,
+  FillArrangementRegionResult,
   DuplicateSessionClipParams,
   DuplicateSessionClipResult,
   CreateMidiClipParams,
@@ -465,6 +467,9 @@ export interface CopilotAgentServiceOptions {
   duplicateClipToArrangement: (
     params: DuplicateClipToArrangementParams,
   ) => Promise<DuplicateClipToArrangementResult>;
+  fillArrangementRegion: (
+    params: FillArrangementRegionParams,
+  ) => Promise<FillArrangementRegionResult>;
   setArrangementClipProperties: (
     params: SetArrangementClipPropertiesParams,
   ) => Promise<SetArrangementClipPropertiesResult>;
@@ -566,6 +571,7 @@ interface PendingAutomaticTurn {
 interface ObservedOperation {
   label: string;
   toolName: string;
+  mutates: boolean;
   arguments: Readonly<Record<string, unknown>>;
   startedAt: number;
 }
@@ -1053,6 +1059,7 @@ export class CopilotAgentService implements AgentService {
       deleteArrangementClip: this.options.deleteArrangementClip,
       replaceArrangementMidiNotes: this.options.replaceArrangementMidiNotes,
       duplicateClipToArrangement: this.options.duplicateClipToArrangement,
+      fillArrangementRegion: this.options.fillArrangementRegion,
       setArrangementClipProperties: this.options.setArrangementClipProperties,
     });
     return this.#toolSet;
@@ -1750,6 +1757,7 @@ export class CopilotAgentService implements AgentService {
         state.operations.set(event.data.toolCallId, {
           label,
           toolName: event.data.toolName,
+          mutates: metadata !== undefined && metadata.mutationTarget !== "read",
           arguments: event.data.arguments ?? {},
           startedAt: Date.parse(event.timestamp),
         });
@@ -2091,6 +2099,12 @@ export class CopilotAgentService implements AgentService {
     state.unsubscribe?.();
     state.unsubscribe = undefined;
     for (const [operationId, operation] of state.operations) {
+      const code = operation.mutates
+        ? "applied_indeterminate"
+        : "operation_timeout";
+      const message = operation.mutates
+        ? `${operation.label} may have changed Ableton before the Copilot turn timed out; inspect the affected state before retrying`
+        : `${operation.label} cancelled because the Copilot turn timed out`;
       this.#recordRuntime(
         state,
         "agent.tool.failed",
@@ -2098,8 +2112,10 @@ export class CopilotAgentService implements AgentService {
           toolCallId: operationId,
           toolName: operation.toolName,
           arguments: operation.arguments,
-          code: "operation_timeout",
-          message: `${operation.label} cancelled because the Copilot turn timed out`,
+          code,
+          message,
+          outcome: operation.mutates ? "applied_indeterminate" : "timed_out",
+          requiresReinspection: operation.mutates,
           durationMs: Date.now() - operation.startedAt,
         },
         { trace: turn?.trace, sessionId: session.sessionId },
@@ -2107,8 +2123,8 @@ export class CopilotAgentService implements AgentService {
       this.options.events.publish({
         type: "operation.failed",
         operationId,
-        code: "operation_timeout",
-        message: `${operation.label} cancelled because the Copilot turn timed out`,
+        code,
+        message,
         toolName: operation.toolName,
         ...this.#eventAttribution(state),
       });
@@ -3548,6 +3564,12 @@ export class HeadlessApplication {
     params: DuplicateClipToArrangementParams,
   ): Promise<DuplicateClipToArrangementResult> {
     return this.services.ableton.duplicateClipToArrangement(params);
+  }
+
+  public fillArrangementRegion(
+    params: FillArrangementRegionParams,
+  ): Promise<FillArrangementRegionResult> {
+    return this.services.ableton.fillArrangementRegion(params);
   }
 
   public setArrangementClipProperties(

@@ -125,6 +125,7 @@ const abletonTrackReferenceArgumentsByToolName: Record<
   ableton_arrangement_delete_clip: ["expectedReference"],
   ableton_arrangement_replace_notes: ["expectedReference"],
   ableton_arrangement_duplicate_clip: ["expectedReference"],
+  ableton_arrangement_fill_region: ["expectedReference"],
   ableton_arrangement_set_clip_properties: ["expectedReference"],
   ableton_device_set_enabled: ["expectedReference"],
   ableton_device_set_parameter: ["expectedReference"],

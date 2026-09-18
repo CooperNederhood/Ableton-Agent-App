@@ -516,6 +516,7 @@ describe("desktop persistence stores", () => {
         ...session,
         activeAgents: session.activeAgents.map((agent) => ({
           ...agent,
+          mode: "interactive" as const,
           triggerHistory: [],
         })),
       })),
@@ -948,6 +949,22 @@ describe("desktop adapter over the shared application", () => {
         ({ definitionName }) => definitionName === "default",
       ),
     ).toHaveLength(3);
+    await service.setActiveAgentMode(second.id, "plan");
+    expect(
+      (await service.listActiveAgents()).find(({ id }) => id === second.id)
+        ?.mode,
+    ).toBe("plan");
+    await expect(
+      service.resolveActiveAgentPlan(second.id, {
+        requestId: "plan-request",
+        approved: true,
+        selectedAction: "interactive",
+      }),
+    ).resolves.toBe(true);
+    expect(
+      (await service.listActiveAgents()).find(({ id }) => id === second.id)
+        ?.mode,
+    ).toBe("interactive");
 
     await service.sendToActiveAgent(first.id, "first history", []);
     await settle();

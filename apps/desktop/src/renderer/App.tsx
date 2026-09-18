@@ -20,6 +20,7 @@ import {
   type CSSProperties,
   type FormEvent,
   type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 
 import type {
@@ -43,7 +44,10 @@ import type {
   LiveEventSelection,
   PlanSection,
 } from "../contracts";
-import { AssistantMarkdown } from "./AssistantMarkdown";
+import {
+  AssistantMarkdown,
+  formatPlanMarkdownForDisplay,
+} from "./AssistantMarkdown";
 import {
   contextForSelection,
   activeSession,
@@ -84,6 +88,59 @@ const builtInSlashCompletions: readonly SlashCompletionEntry[] = [
 const reservedSlashCompletionNames = new Set(
   builtInSlashCompletions.map(({ name }) => name),
 );
+
+export const PROJECT_SIDEBAR_MIN_WIDTH = 180;
+export const PROJECT_SIDEBAR_MAX_WIDTH = 480;
+export const INSPECTOR_SIDEBAR_MIN_WIDTH = 220;
+export const INSPECTOR_SIDEBAR_MAX_WIDTH = 560;
+export const WORKSPACE_MIN_CONVERSATION_WIDTH = 320;
+
+export interface WorkspaceSidebarWidths {
+  left: number;
+  right: number;
+}
+
+export function initialWorkspaceSidebarWidths(
+  viewportWidth: number,
+): WorkspaceSidebarWidths {
+  return viewportWidth <= 1_180
+    ? { left: 220, right: 250 }
+    : { left: 250, right: 290 };
+}
+
+export function resizedSidebarWidth({
+  side,
+  startWidth,
+  startClientX,
+  clientX,
+  workspaceWidth,
+  otherSidebarWidth,
+  otherSidebarVisible,
+}: {
+  side: "left" | "right";
+  startWidth: number;
+  startClientX: number;
+  clientX: number;
+  workspaceWidth: number;
+  otherSidebarWidth: number;
+  otherSidebarVisible: boolean;
+}): number {
+  const minimum =
+    side === "left" ? PROJECT_SIDEBAR_MIN_WIDTH : INSPECTOR_SIDEBAR_MIN_WIDTH;
+  const configuredMaximum =
+    side === "left" ? PROJECT_SIDEBAR_MAX_WIDTH : INSPECTOR_SIDEBAR_MAX_WIDTH;
+  const availableMaximum =
+    workspaceWidth -
+    WORKSPACE_MIN_CONVERSATION_WIDTH -
+    (otherSidebarVisible ? otherSidebarWidth : 0);
+  const maximum = Math.max(
+    minimum,
+    Math.min(configuredMaximum, availableMaximum),
+  );
+  const delta = clientX - startClientX;
+  const requested = startWidth + (side === "left" ? delta : -delta);
+  return Math.min(maximum, Math.max(minimum, requested));
+}
 
 type AgentReasoningEffort = NonNullable<DesktopActiveAgent["reasoningEffort"]>;
 const writableReasoningEfforts = [
@@ -637,6 +694,9 @@ export function App(): React.JSX.Element {
   const [state, dispatch] = useReducer(desktopReducer, initialState);
   const [leftSidebarVisible, setLeftSidebarVisible] = useState(true);
   const [rightSidebarVisible, setRightSidebarVisible] = useState(true);
+  const [sidebarWidths, setSidebarWidths] = useState(() =>
+    initialWorkspaceSidebarWidths(window.innerWidth),
+  );
   const [topChromeVisible, setTopChromeVisible] = useState(true);
   const [composerValue, setComposerValue] = useState("");
   const [composerError, setComposerError] = useState("");
@@ -673,6 +733,9 @@ export function App(): React.JSX.Element {
       if (event.type !== "agent.message_delta") {
         if (frame !== undefined) cancelAnimationFrame(frame);
         if (pendingDeltas.size > 0) flush();
+        if (event.type === "agent.plan_approval_requested") {
+          setRightSidebarVisible(true);
+        }
         dispatch({ type: "event", event });
         return;
       }
@@ -880,6 +943,13 @@ export function App(): React.JSX.Element {
             }
             leftSidebarVisible={leftSidebarVisible}
             rightSidebarVisible={rightSidebarVisible}
+            sidebarWidths={sidebarWidths}
+            onSidebarWidthChange={(side, width) =>
+              setSidebarWidths((current) => ({
+                ...current,
+                [side]: width,
+              }))
+            }
             onToggleLeftSidebar={() =>
               setLeftSidebarVisible((visible) => !visible)
             }
@@ -2917,6 +2987,8 @@ export function Workspace({
   composer,
   leftSidebarVisible = true,
   rightSidebarVisible = true,
+  sidebarWidths,
+  onSidebarWidthChange,
   onToggleLeftSidebar,
   onToggleRightSidebar,
 }: {
@@ -2926,16 +2998,93 @@ export function Workspace({
   composer?: React.ReactNode;
   leftSidebarVisible?: boolean;
   rightSidebarVisible?: boolean;
+  sidebarWidths?: WorkspaceSidebarWidths | undefined;
+  onSidebarWidthChange?:
+    ((side: keyof WorkspaceSidebarWidths, width: number) => void) | undefined;
   onToggleLeftSidebar?: (() => void) | undefined;
   onToggleRightSidebar?: (() => void) | undefined;
 }): React.JSX.Element {
   const activeAgent = selectedAgentInstance(state);
+  const drag = useRef<
+    | {
+        side: keyof WorkspaceSidebarWidths;
+        pointerId: number;
+        startWidth: number;
+        startClientX: number;
+        workspaceWidth: number;
+      }
+    | undefined
+  >(undefined);
+  const widths =
+    sidebarWidths ?? initialWorkspaceSidebarWidths(Number.POSITIVE_INFINITY);
+  const resize = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    side: keyof WorkspaceSidebarWidths,
+  ): void => {
+    if (onSidebarWidthChange === undefined) return;
+    const workspace = event.currentTarget.parentElement;
+    if (workspace === null) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    drag.current = {
+      side,
+      pointerId: event.pointerId,
+      startWidth: widths[side],
+      startClientX: event.clientX,
+      workspaceWidth: workspace.getBoundingClientRect().width,
+    };
+  };
+  const moveResize = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const active = drag.current;
+    if (
+      active === undefined ||
+      active.pointerId !== event.pointerId ||
+      onSidebarWidthChange === undefined
+    ) {
+      return;
+    }
+    event.preventDefault();
+    const otherSide = active.side === "left" ? "right" : "left";
+    onSidebarWidthChange(
+      active.side,
+      resizedSidebarWidth({
+        side: active.side,
+        startWidth: active.startWidth,
+        startClientX: active.startClientX,
+        clientX: event.clientX,
+        workspaceWidth: active.workspaceWidth,
+        otherSidebarWidth: widths[otherSide],
+        otherSidebarVisible:
+          otherSide === "left" ? leftSidebarVisible : rightSidebarVisible,
+      }),
+    );
+  };
+  const endResize = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (drag.current?.pointerId !== event.pointerId) return;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    drag.current = undefined;
+  };
+  const workspaceStyle = {
+    "--project-sidebar-width": `${widths.left}px`,
+    "--inspector-sidebar-width": `${widths.right}px`,
+  } as CSSProperties;
   return (
     <div
       className={`workspace ${leftSidebarVisible ? "" : "left-sidebar-hidden"} ${rightSidebarVisible ? "" : "right-sidebar-hidden"}`}
+      style={workspaceStyle}
     >
       {leftSidebarVisible && (
         <ProjectOutline state={state} dispatch={dispatch} />
+      )}
+      {leftSidebarVisible && onSidebarWidthChange !== undefined && (
+        <div
+          className="sidebar-resize-handle sidebar-resize-handle-left"
+          aria-hidden="true"
+          onPointerDown={(event) => resize(event, "left")}
+          onPointerMove={moveResize}
+          onPointerUp={endResize}
+          onPointerCancel={endResize}
+        />
       )}
       <section
         className="conversation"
@@ -2989,6 +3138,16 @@ export function Workspace({
         <Timeline state={state} scrollPositions={timelineScrollPositions} />
         {composer}
       </section>
+      {rightSidebarVisible && onSidebarWidthChange !== undefined && (
+        <div
+          className="sidebar-resize-handle sidebar-resize-handle-right"
+          aria-hidden="true"
+          onPointerDown={(event) => resize(event, "right")}
+          onPointerMove={moveResize}
+          onPointerUp={endResize}
+          onPointerCancel={endResize}
+        />
+      )}
       {rightSidebarVisible && <Inspector state={state} dispatch={dispatch} />}
     </div>
   );
@@ -4894,7 +5053,7 @@ export function Inspector({
       ) : (
         <TrackInspector track={track} dispatch={dispatch} />
       )}
-      <PlanApprovalPanel state={state} dispatch={dispatch} />
+      <PlanApprovalPanel state={state} />
       <ApprovalPanel state={state} dispatch={dispatch} />
     </aside>
   );
@@ -4902,21 +5061,21 @@ export function Inspector({
 
 export function PlanApprovalPanel({
   state,
-  dispatch,
 }: {
   state: DesktopState;
-  dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
 }): React.JSX.Element | null {
   const agent = selectedAgentInstance(state);
   const request = selectedAgentWorkspace(state).planApproval;
   const [feedback, setFeedback] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     setFeedback("");
     setError("");
     setSubmitting(false);
+    submittingRef.current = false;
   }, [request?.requestId]);
 
   if (agent === undefined || request === undefined) return null;
@@ -4926,6 +5085,8 @@ export function PlanApprovalPanel({
     selectedAction?: "exit_only" | "interactive";
     feedback?: string;
   }): Promise<void> => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setError("");
     try {
@@ -4934,18 +5095,6 @@ export function PlanApprovalPanel({
         ...response,
       });
       if (!resolved) {
-        dispatch({
-          type: "event",
-          event: {
-            type: "agent.plan_approval_completed",
-            requestId: request.requestId,
-            approved: false,
-            agentInstanceId: agent.id,
-            ...(agent.sdkSessionId === undefined
-              ? {}
-              : { sdkSessionId: agent.sdkSessionId }),
-          },
-        });
         throw new Error("This plan request is no longer pending.");
       }
     } catch (resolveError) {
@@ -4955,6 +5104,7 @@ export function PlanApprovalPanel({
           : "The plan response could not be submitted.",
       );
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -4965,9 +5115,13 @@ export function PlanApprovalPanel({
         <h3>Plan ready</h3>
         <span className="agent-mode-badge plan">plan</span>
       </div>
-      {request.summary && <p>{request.summary}</p>}
+      {request.summary && (
+        <p className="plan-approval-summary">{request.summary}</p>
+      )}
       <div className="plan-approval-content">
-        <AssistantMarkdown content={request.planContent} />
+        <AssistantMarkdown
+          content={formatPlanMarkdownForDisplay(request.planContent)}
+        />
       </div>
       <label>
         Request changes
@@ -4982,18 +5136,20 @@ export function PlanApprovalPanel({
       </label>
       {error && <p className="composer-error">{error}</p>}
       <div className="approval-actions">
-        <button
-          className="primary"
-          disabled={submitting}
-          onClick={() =>
-            void resolve({
-              approved: true,
-              selectedAction: "interactive",
-            })
-          }
-        >
-          Approve and continue
-        </button>
+        {request.actions.includes("interactive") && (
+          <button
+            className="primary"
+            disabled={submitting}
+            onClick={() =>
+              void resolve({
+                approved: true,
+                selectedAction: "interactive",
+              })
+            }
+          >
+            Approve and continue
+          </button>
+        )}
         <button
           disabled={submitting || feedback.trim().length === 0}
           onClick={() =>
@@ -5005,17 +5161,19 @@ export function PlanApprovalPanel({
         >
           Request changes
         </button>
-        <button
-          disabled={submitting}
-          onClick={() =>
-            void resolve({
-              approved: true,
-              selectedAction: "exit_only",
-            })
-          }
-        >
-          Exit plan mode
-        </button>
+        {request.actions.includes("exit_only") && (
+          <button
+            disabled={submitting}
+            onClick={() =>
+              void resolve({
+                approved: true,
+                selectedAction: "exit_only",
+              })
+            }
+          >
+            Exit plan mode
+          </button>
+        )}
       </div>
     </section>
   );

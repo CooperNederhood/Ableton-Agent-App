@@ -30,6 +30,7 @@ export interface AbletonToolInvocation {
 export type AbletonMutationAuthorizationCode =
   | "unknown_tool"
   | "tool_not_allowed"
+  | "plan_mode_read_only"
   | "session_scope_required"
   | "track_scope_required"
   | "track_reference_missing"

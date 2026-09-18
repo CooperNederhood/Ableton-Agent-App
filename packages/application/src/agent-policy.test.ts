@@ -278,6 +278,60 @@ describe("agent policy", () => {
     });
   });
 
+  it("blocks mutation tools with the caller-provided plan-mode reason", async () => {
+    const hooks = createAgentHooks({
+      getAbletonStatus: async () => connected,
+      inspectSession: async () => snapshot,
+      mutationBlocked: () => true,
+      mutationBlockReason: () =>
+        "Plan mode is read-only. Finish the plan before changing Ableton.",
+    });
+
+    const mutation = await hooks.onPreToolUse?.(
+      {
+        sessionId: "session-1",
+        timestamp: new Date(),
+        workingDirectory: "/tmp",
+        toolName: "ableton_tracks_create",
+        toolArgs: { kind: "midi", name: "Planned track" },
+      },
+      { sessionId: "session-1" },
+    );
+    const inspection = await hooks.onPreToolUse?.(
+      {
+        sessionId: "session-1",
+        timestamp: new Date(),
+        workingDirectory: "/tmp",
+        toolName: "ableton_session_inspect",
+        toolArgs: {},
+      },
+      { sessionId: "session-1" },
+    );
+    const exitPlanMode = await hooks.onPreToolUse?.(
+      {
+        sessionId: "session-1",
+        timestamp: new Date(),
+        workingDirectory: "/tmp",
+        toolName: "exit_plan_mode",
+        toolArgs: {
+          summary: "Arrangement plan",
+          planContent: "Build the arrangement.",
+        },
+      },
+      { sessionId: "session-1" },
+    );
+
+    expect(mutation).toEqual({
+      permissionDecision: "deny",
+      permissionDecisionReason:
+        "Plan mode is read-only. Finish the plan before changing Ableton.",
+      additionalContext:
+        "Plan mode is read-only. Finish the plan before changing Ableton.",
+    });
+    expect(inspection).toBeUndefined();
+    expect(exitPlanMode).toBeUndefined();
+  });
+
   it("blocks an unchanged retry after an indeterminate mutation", async () => {
     const hooks = createAgentHooks({
       getAbletonStatus: async () => connected,

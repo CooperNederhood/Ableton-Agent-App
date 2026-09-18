@@ -15,6 +15,13 @@ Companion specification: [Agent Runtime](agent-runtime.md)
   attributed mode, plan, and completed-plan approval lifecycle.
 - [x] Resolve completed-plan requests through the owning SDK session while
   hiding autopilot/fleet actions and recording bounded resolution lifecycle.
+- [x] Enforce plan mode as read-only at both hook and mutation-handler
+  boundaries, then permit same-turn implementation only after interactive
+  approval.
+- [x] Keep `exit_plan_mode` reachable through both exclusive SDK session and
+  custom-agent allowlists without enabling unrelated built-ins.
+- [x] Scope the plan-mode pre-tool denial to classified Ableton mutations so it
+  cannot block the SDK `exit_plan_mode` control tool.
 - [ ] Journal sanitized configuration snapshots on session create/resume and
   effective configuration changes.
 - [ ] Journal the complete unsampled SDK/session/turn/stream/hook/tool lifecycle
@@ -31,6 +38,15 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 ## Agent behavior
 
 - [x] Write and version the base Ableton system message.
+- [x] Keep shared agent guidance in the canonical editable
+  `packages/application/prompts/base-system-message.md`, copy it into the
+  compiled package, and fail explicitly when it is missing or empty.
+- [x] Keep the active plan-turn suffix independently editable in
+  `packages/application/prompts/plan-reminder.md`, copy it into the compiled
+  package, and append it after expanded skill/user prompts only in plan mode.
+- [x] Require every custom agent to finish adequate plan-mode work with valid
+  multiline GFM and `exit_plan_mode`, without duplicating guidance in agent
+  YAML definitions.
 - [x] Define compact project-context injection, including bounded top-level
   device summaries and mutation-driven invalidation.
 - [x] Attach bounded UI selection context atomically to managed-agent messages
@@ -59,8 +75,15 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [~] Unit-test event normalization and context generation.
 - [x] Test plan-mode forwarding, action filtering, request ownership, and
   renderer-safe plan approval contracts.
+- [x] Regression-test plan-mode read access, mutation denial, and post-approval
+  interactive continuation.
+- [x] Regression-test exact exit-plan allowlists across create, resume, empty,
+  skill-enabled, and deduplicated tool configurations, including managed
+  cancellation and bounded approval payloads.
 - [x] Regression-test managed message and skill prompt composition, selection
   disabling, deduplication, and replacement between turns.
+- [x] Regression-test final plan-reminder ordering after direct skill expansion,
+  interactive exclusion, source/dist prompt copying, and reminder attribution.
 - [ ] Test configuration snapshot revisions, SDK event coverage, redaction,
   lifecycle ordering, cancellation/failure timing, and trace propagation.
 - [x] Unit-test hook decisions for every risk and error class.

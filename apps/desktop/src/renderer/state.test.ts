@@ -60,6 +60,110 @@ function stateWithAgents(): DesktopState {
 }
 
 describe("desktop reducer", () => {
+  it("stores and clears a plan approval for its owning agent", () => {
+    const state = stateWithAgents();
+    const requested = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.plan_approval_requested",
+        agentInstanceId: firstAgentId,
+        sdkSessionId: "sdk-1",
+        request: {
+          requestId: "plan-1",
+          summary: "Arrangement plan",
+          planContent: "# Plan\n\nBuild an intro.",
+          recommendedAction: "interactive",
+          actions: ["interactive", "exit_only"],
+        },
+      },
+    });
+
+    expect(selectedAgentWorkspace(requested).planApproval).toMatchObject({
+      requestId: "plan-1",
+      summary: "Arrangement plan",
+    });
+    const completed = desktopReducer(requested, {
+      type: "event",
+      event: {
+        type: "agent.plan_approval_completed",
+        agentInstanceId: firstAgentId,
+        sdkSessionId: "sdk-1",
+        requestId: "plan-1",
+        approved: true,
+        selectedAction: "interactive",
+      },
+    });
+    expect(selectedAgentWorkspace(completed).planApproval).toBeUndefined();
+  });
+
+  it("keeps plan approvals isolated from stale completions and other agents", () => {
+    const state = stateWithAgents();
+    const requested = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.plan_approval_requested",
+        agentInstanceId: firstAgentId,
+        sdkSessionId: "sdk-1",
+        request: {
+          requestId: "plan-1",
+          summary: "First plan",
+          planContent: "First content",
+          recommendedAction: "interactive",
+          actions: ["interactive", "exit_only"],
+        },
+      },
+    });
+    const secondRequested = desktopReducer(requested, {
+      type: "event",
+      event: {
+        type: "agent.plan_approval_requested",
+        agentInstanceId: secondAgentId,
+        sdkSessionId: "sdk-2",
+        request: {
+          requestId: "plan-2",
+          summary: "Second plan",
+          planContent: "Second content",
+          recommendedAction: "exit_only",
+          actions: ["exit_only"],
+        },
+      },
+    });
+    const staleCompletion = desktopReducer(secondRequested, {
+      type: "event",
+      event: {
+        type: "agent.plan_approval_completed",
+        agentInstanceId: firstAgentId,
+        sdkSessionId: "sdk-1",
+        requestId: "stale-plan",
+        approved: false,
+      },
+    });
+
+    expect(
+      staleCompletion.agentWorkspaces[firstAgentId]?.planApproval?.requestId,
+    ).toBe("plan-1");
+    expect(
+      staleCompletion.agentWorkspaces[secondAgentId]?.planApproval?.requestId,
+    ).toBe("plan-2");
+    const firstCompleted = desktopReducer(staleCompletion, {
+      type: "event",
+      event: {
+        type: "agent.plan_approval_completed",
+        agentInstanceId: firstAgentId,
+        sdkSessionId: "sdk-1",
+        requestId: "plan-1",
+        approved: true,
+        selectedAction: "interactive",
+      },
+    });
+    expect(
+      firstCompleted.agentWorkspaces[firstAgentId]?.planApproval,
+    ).toBeUndefined();
+    expect(
+      firstCompleted.agentWorkspaces[secondAgentId]?.planApproval?.requestId,
+    ).toBe("plan-2");
+  });
+
   it("does not infer an active session from stored session order", () => {
     const state = stateWithAgents();
     state.activeSessionId = undefined;

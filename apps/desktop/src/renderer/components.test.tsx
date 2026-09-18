@@ -31,6 +31,7 @@ import {
   ResolvedToolsDisclosure,
   refreshOutputs,
   refreshProjectSnapshot,
+  resizedSidebarWidth,
   reasoningEffortForDraftModel,
   reasoningOptionsForModel,
   saveAgentEventListeners,
@@ -49,7 +50,10 @@ import {
   Workspace,
 } from "./App";
 import type { DesktopAgentModel, DesktopApi } from "../contracts";
-import { AssistantMarkdown } from "./AssistantMarkdown";
+import {
+  AssistantMarkdown,
+  formatPlanMarkdownForDisplay,
+} from "./AssistantMarkdown";
 import { desktopReducer, initialState, type DesktopState } from "./state";
 
 describe("desktop components", () => {
@@ -440,8 +444,13 @@ describe("desktop components", () => {
         fingerprint: "d".repeat(64),
       },
     ]);
-    expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({ name: "yolo", source: "built-in" });
+    expect(entries).toHaveLength(2);
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "plan", source: "built-in" }),
+        expect.objectContaining({ name: "yolo", source: "built-in" }),
+      ]),
+    );
   });
 
   it("renders mouse-compatible completion buttons with accessible usage", () => {
@@ -547,6 +556,81 @@ describe("desktop components", () => {
     expect(hidden).toContain('aria-label="Show inspector sidebar"');
     expect(hidden).not.toContain('aria-label="Project outline"');
     expect(hidden).not.toContain('aria-label="Selection inspector"');
+  });
+
+  it("renders pointer resize handles and session widths only when sidebars are visible", () => {
+    const visible = renderToStaticMarkup(
+      <Workspace
+        state={workspaceState()}
+        dispatch={vi.fn()}
+        sidebarWidths={{ left: 310, right: 360 }}
+        onSidebarWidthChange={vi.fn()}
+      />,
+    );
+    const leftHidden = renderToStaticMarkup(
+      <Workspace
+        state={workspaceState()}
+        dispatch={vi.fn()}
+        leftSidebarVisible={false}
+        sidebarWidths={{ left: 310, right: 360 }}
+        onSidebarWidthChange={vi.fn()}
+      />,
+    );
+
+    expect(visible).toContain("--project-sidebar-width:310px");
+    expect(visible).toContain("--inspector-sidebar-width:360px");
+    expect(visible).toContain("sidebar-resize-handle-left");
+    expect(visible).toContain("sidebar-resize-handle-right");
+    expect(visible).toContain('aria-hidden="true"');
+    expect(leftHidden).not.toContain("sidebar-resize-handle-left");
+    expect(leftHidden).toContain("sidebar-resize-handle-right");
+  });
+
+  it("calculates sidebar drag direction and clamps around the conversation", () => {
+    expect(
+      resizedSidebarWidth({
+        side: "left",
+        startWidth: 250,
+        startClientX: 250,
+        clientX: 330,
+        workspaceWidth: 1_200,
+        otherSidebarWidth: 290,
+        otherSidebarVisible: true,
+      }),
+    ).toBe(330);
+    expect(
+      resizedSidebarWidth({
+        side: "right",
+        startWidth: 290,
+        startClientX: 910,
+        clientX: 830,
+        workspaceWidth: 1_200,
+        otherSidebarWidth: 250,
+        otherSidebarVisible: true,
+      }),
+    ).toBe(370);
+    expect(
+      resizedSidebarWidth({
+        side: "left",
+        startWidth: 250,
+        startClientX: 250,
+        clientX: -500,
+        workspaceWidth: 1_200,
+        otherSidebarWidth: 290,
+        otherSidebarVisible: true,
+      }),
+    ).toBe(180);
+    expect(
+      resizedSidebarWidth({
+        side: "right",
+        startWidth: 290,
+        startClientX: 910,
+        clientX: 0,
+        workspaceWidth: 900,
+        otherSidebarWidth: 250,
+        otherSidebarVisible: true,
+      }),
+    ).toBe(330);
   });
 
   it("renders a compact top-chrome control when requested", () => {
@@ -792,6 +876,111 @@ describe("desktop components", () => {
     expect(html).toContain('data-agent-mode="plan"');
     expect(html).toContain('class="message-mode">plan</small>');
     expect(html).toContain("Draft a plan");
+  });
+
+  it("renders a completed plan in the selected agent Inspector", () => {
+    const state = workspaceState(firstAgentId);
+    state.agentWorkspaces[firstAgentId] = {
+      messages: [],
+      operations: [],
+      triggers: [],
+      planApproval: {
+        requestId: "plan-1",
+        summary: "Arrangement plan",
+        planContent: "# Plan\n\nBuild an intro.",
+        recommendedAction: "interactive",
+        actions: ["interactive", "exit_only"],
+      },
+    };
+
+    const html = renderToStaticMarkup(
+      <Inspector state={state} dispatch={vi.fn()} />,
+    );
+
+    expect(html).toContain("Plan ready");
+    expect(html).toContain("Arrangement plan");
+    expect(html).toContain("Build an intro.");
+    expect(html).toContain("Approve and continue");
+    expect(html).toContain("Request changes");
+    expect(html).toContain("Exit plan mode");
+  });
+
+  it("renders structured plans and conservatively formats compact plan lists", () => {
+    const structured = workspaceState(firstAgentId);
+    structured.agentWorkspaces[firstAgentId] = {
+      messages: [],
+      operations: [],
+      triggers: [],
+      planApproval: {
+        requestId: "plan-structured",
+        summary: "Structured arrangement plan",
+        planContent:
+          "# Arrangement\n\n## Intro\n\n- Kick\n- Hats\n\n1. Build\n2. Verify\n\n| Bars | Role |\n| --- | --- |\n| 1-16 | Intro |",
+        recommendedAction: "interactive",
+        actions: ["interactive"],
+      },
+    };
+    const structuredHtml = renderToStaticMarkup(
+      <Inspector state={structured} dispatch={vi.fn()} />,
+    );
+    const malformed = workspaceState(firstAgentId);
+    malformed.agentWorkspaces[firstAgentId] = {
+      messages: [],
+      operations: [],
+      triggers: [],
+      planApproval: {
+        requestId: "plan-malformed",
+        summary: "Malformed arrangement plan",
+        planContent: "Plan: - Kick - Hats",
+        recommendedAction: "exit_only",
+        actions: ["exit_only"],
+      },
+    };
+
+    const malformedHtml = renderToStaticMarkup(
+      <Inspector state={malformed} dispatch={vi.fn()} />,
+    );
+    const compactPlan =
+      "**Techno Arrangement Plan** Using existing clips: - **Intro:** kick only - **Build:** add hats - **Peak:** add synth Implementation: use `ableton_arrangement_fill_region` and verify.";
+    const compact = workspaceState(firstAgentId);
+    compact.agentWorkspaces[firstAgentId] = {
+      messages: [],
+      operations: [],
+      triggers: [],
+      planApproval: {
+        requestId: "plan-compact",
+        summary: "Compact arrangement plan",
+        planContent: compactPlan,
+        recommendedAction: "interactive",
+        actions: ["interactive"],
+      },
+    };
+    const compactHtml = renderToStaticMarkup(
+      <Inspector state={compact} dispatch={vi.fn()} />,
+    );
+
+    expect(structuredHtml).toContain("<h1>Arrangement</h1>");
+    expect(structuredHtml).toContain("<h2>Intro</h2>");
+    expect(structuredHtml).toContain("<ul>");
+    expect(structuredHtml).toContain("<ol>");
+    expect(structuredHtml).toContain("<table>");
+    expect(malformedHtml).toContain("<p>Plan: - Kick - Hats</p>");
+    expect(malformedHtml).not.toContain("<ul>");
+    expect(compactHtml).toContain("<ul>");
+    expect(compactHtml).toContain("<li><strong>Intro:</strong> kick only</li>");
+    expect(compactHtml).toContain("<li><strong>Build:</strong> add hats</li>");
+    expect(compactHtml).toContain("<h2>Implementation:</h2>");
+    expect(
+      compact.agentWorkspaces[firstAgentId]?.planApproval?.planContent,
+    ).toBe(compactPlan);
+    expect(
+      formatPlanMarkdownForDisplay(
+        "# Existing plan\n\n- Keep\n- These\n- Lines",
+      ),
+    ).toBe("# Existing plan\n\n- Keep\n- These\n- Lines");
+    expect(
+      formatPlanMarkdownForDisplay("Ordinary one-line prose - intact."),
+    ).toBe("Ordinary one-line prose - intact.");
   });
 
   it.each([

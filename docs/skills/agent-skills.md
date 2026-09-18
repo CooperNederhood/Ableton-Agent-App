@@ -51,6 +51,12 @@ The two authorization paths are intentionally different: agent-driven
 `skill(...)` calls use the agent definition's allowlist, while user-driven slash
 commands use the complete validated catalog.
 
+When either path runs in plan mode, the application appends the canonical
+`packages/application/prompts/plan-reminder.md` content after the expanded skill
+body and user request. Edit-oriented skill instructions therefore describe
+post-approval implementation and do not supersede the active read-only mode.
+Interactive skill turns are sent without this suffix.
+
 ## Built-in skills
 
 The initial resource set includes:

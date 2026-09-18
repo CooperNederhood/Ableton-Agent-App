@@ -197,63 +197,69 @@ describe("automatic signal delivery", () => {
     const events = new InMemoryEventPublisher();
     const received: AppEvent[] = [];
     events.subscribe((event) => received.push(event));
-    const sendAndWait = vi.fn(async (prompt: string) => {
-      prompts.push(prompt);
-      active += 1;
-      maximumActive = Math.max(maximumActive, active);
-      if (prompt === "user turn") {
-        await new Promise<void>((resolve) => {
-          releaseUser = resolve;
-        });
-      } else if (prompt.includes("automatic analysis")) {
-        policyDecisions.push(
-          await config?.hooks?.onPreToolUse?.(
-            {
-              sessionId: "session",
-              timestamp: new Date(),
-              workingDirectory: ".",
-              toolName: "ableton_tracks_create",
-              toolArgs: {},
-            },
-            { sessionId: "session" },
-          ),
-          await config?.hooks?.onPreToolUse?.(
-            {
-              sessionId: "session",
-              timestamp: new Date(),
-              workingDirectory: ".",
-              toolName: "ableton_session_inspect",
-              toolArgs: {},
-            },
-            { sessionId: "session" },
-          ),
-        );
-      } else if (prompt.includes("automatic action")) {
-        policyDecisions.push(
-          await config?.hooks?.onPreToolUse?.(
-            {
-              sessionId: "session",
-              timestamp: new Date(),
-              workingDirectory: ".",
-              toolName: "ableton_tracks_create",
-              toolArgs: {},
-            },
-            { sessionId: "session" },
-          ),
-          await config?.onPermissionRequest?.(
-            {
-              kind: "custom-tool",
-              toolName: "ableton_tracks_create",
-              toolDescription: "Create track",
-              args: {},
-            },
-            { sessionId: "session" },
-          ),
-        );
-      }
-      active -= 1;
-      return { data: { content: "complete" } };
-    });
+    const sendAndWait = vi.fn(
+      async (message: {
+        prompt: string;
+        agentMode?: "interactive" | "plan";
+      }) => {
+        const { prompt } = message;
+        prompts.push(prompt);
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        if (prompt === "user turn") {
+          await new Promise<void>((resolve) => {
+            releaseUser = resolve;
+          });
+        } else if (prompt.includes("automatic analysis")) {
+          policyDecisions.push(
+            await config?.hooks?.onPreToolUse?.(
+              {
+                sessionId: "session",
+                timestamp: new Date(),
+                workingDirectory: ".",
+                toolName: "ableton_tracks_create",
+                toolArgs: {},
+              },
+              { sessionId: "session" },
+            ),
+            await config?.hooks?.onPreToolUse?.(
+              {
+                sessionId: "session",
+                timestamp: new Date(),
+                workingDirectory: ".",
+                toolName: "ableton_session_inspect",
+                toolArgs: {},
+              },
+              { sessionId: "session" },
+            ),
+          );
+        } else if (prompt.includes("automatic action")) {
+          policyDecisions.push(
+            await config?.hooks?.onPreToolUse?.(
+              {
+                sessionId: "session",
+                timestamp: new Date(),
+                workingDirectory: ".",
+                toolName: "ableton_tracks_create",
+                toolArgs: {},
+              },
+              { sessionId: "session" },
+            ),
+            await config?.onPermissionRequest?.(
+              {
+                kind: "custom-tool",
+                toolName: "ableton_tracks_create",
+                toolDescription: "Create track",
+                args: {},
+              },
+              { sessionId: "session" },
+            ),
+          );
+        }
+        active -= 1;
+        return { data: { content: "complete" } };
+      },
+    );
     const options = {
       events,
       getAbletonStatus: async () => disconnected,

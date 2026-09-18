@@ -1115,7 +1115,7 @@ export class HeadlessDesktopService implements DesktopService {
     );
   }
 
-  public resolveActiveAgentPlan(
+  public async resolveActiveAgentPlan(
     instanceId: string,
     request: {
       requestId: string;
@@ -1125,7 +1125,19 @@ export class HeadlessDesktopService implements DesktopService {
     },
   ): Promise<boolean> {
     this.#captureActiveAgentTarget(instanceId);
-    return this.#application.resolveManagedAgentPlan(instanceId, request);
+    const resolved = await this.#application.resolveManagedAgentPlan(
+      instanceId,
+      request,
+    );
+    if (
+      resolved &&
+      request.approved &&
+      (request.selectedAction === "interactive" ||
+        request.selectedAction === "exit_only")
+    ) {
+      await this.setActiveAgentMode(instanceId, "interactive");
+    }
+    return resolved;
   }
 
   public invokeActiveAgentSkill(

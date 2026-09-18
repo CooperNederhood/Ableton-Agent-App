@@ -27,6 +27,8 @@ typed service calls, and sessions use explicit create/resume operations.
 - [x] Add transient independent Project/Inspector sidebars and combined
   top-chrome controls, with the composer aligned to the expanding conversation
   column.
+- [x] Add bounded pointer dragging for session-only Project and Inspector
+  widths, preserving the conversation minimum and hide/reopen width.
 - [x] Build chat composer with explicit context chips.
 - [x] Add per-active-agent plan mode with `/plan`, Shift+Tab toggling, composer
   mode status, and mode-attributed sends.
@@ -40,6 +42,13 @@ typed service calls, and sessions use explicit create/resume operations.
 - [x] Build approval and change-preview panel.
 - [x] Present completed SDK plans in the Inspector with interactive approval,
   change feedback, and exit-only controls.
+- [x] Enforce read-only plan execution and cover the SDK request through
+  Inspector rendering and resolution with regression tests.
+- [x] Prevent duplicate plan responses, retain stale failures for retry, and
+  render only normalized actions offered by the pending request.
+- [x] Render model-authored GFM while applying narrow presentation-only cleanup
+  to recognized compact labeled plans, preserving raw plan state, History, and
+  approval IPC.
 - [x] Build diagnostics, sessions, and settings views.
 - [ ] Build the queryable History surface with filters, cursor pagination,
   virtualized results, redacted trace details, and explicit paused, retained,
@@ -83,6 +92,12 @@ typed service calls, and sessions use explicit create/resume operations.
 - [~] Playwright-test chat parity with CLI, selections, approvals, recovery,
   sessions, and project switches.
   - [x] Cover launch and navigation in the real Electron shell.
+  - [x] Cover main-process plan event delivery, automatic Inspector opening,
+    and typed response IPC in the real Electron shell.
+  - [x] Cover compact one-line plan formatting in the Inspector while retaining
+    the original event and response payload.
+  - [x] Cover Project and Inspector drag geometry and hide/reopen width
+    restoration in the real Electron shell.
   - [ ] Cover all shared runtime workflows with deterministic injected fakes.
 - [x] Performance-test long event histories and browser lists.
 - [ ] Performance-test History queries/details at the 250 MiB cap, stale-query

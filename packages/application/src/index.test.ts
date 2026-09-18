@@ -1177,6 +1177,7 @@ describe("CopilotAgentService", () => {
       "custom:ableton_browser_search_external_plugins",
       "custom:ableton_browser_load_item",
       "custom:ableton_arrangement_fill_region",
+      "builtin:exit_plan_mode",
     ]);
     expect(config?.tools).toHaveLength(39);
     expect(config?.customAgents).toEqual([
@@ -1227,16 +1228,21 @@ describe("CopilotAgentService", () => {
           "ableton_browser_search_external_plugins",
           "ableton_browser_load_item",
           "ableton_arrangement_fill_region",
+          "exit_plan_mode",
         ],
         infer: false,
       },
     ]);
     expect(config?.agent).toBe("default-agent");
     expect(config).not.toHaveProperty("skillDirectories");
-    expect(config?.systemMessage?.mode).toBe("replace");
+    expect(config?.systemMessage?.mode).toBeUndefined();
     expect(config?.systemMessage?.content).toContain(
       "Ableton Live production assistant",
     );
+    expect(config?.systemMessage?.content).not.toContain(
+      "Active plan-mode reminder",
+    );
+    expect(config?.onExitPlanModeRequest).toBeTypeOf("function");
     await expect(
       config?.onPermissionRequest?.(
         {

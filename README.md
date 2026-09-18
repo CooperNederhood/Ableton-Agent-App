@@ -4,10 +4,12 @@ An Ableton-specific AI agent built with the GitHub Copilot SDK. It can inspect
 and safely modify an open Ableton Live Set through a reference CLI or a
 sandboxed Electron desktop app.
 
-The project does **not** use MCP. The Node.js application exposes typed Copilot
-tools, sends validated requests over an authenticated local TCP connection, and
-a dependency-free Python Remote Script performs the actual Live Object Model
-(LOM) operations inside Ableton.
+The production agent/Live path does **not** use MCP. The Node.js application
+exposes typed Copilot tools, sends validated requests over an authenticated
+local TCP connection, and a dependency-free Python Remote Script performs the
+actual Live Object Model (LOM) operations inside Ableton. Development builds
+also provide an opt-in local MCP adapter for driving the visible desktop app
+during end-to-end UX testing.
 
 Custom production agents are defined in root `agents/*.yaml` files. Reusable
 Agent Skills use canonical `skills/<name>/SKILL.md` directories. The Desktop app
@@ -208,6 +210,35 @@ Close your normal Live session first. The harness refuses any pre-existing Live
 process, launches a disposable instance, records and revalidates its exact PID
 identity, and stops only that process. A failed runner-owned Set may be closed
 without saving.
+
+### Agent-driven desktop UX testing
+
+Launch the real Electron app with a separate automation profile, a selected
+agent definition, and optional YOLO:
+
+```bash
+PROFILE="$PWD/.test-artifacts/desktop-automation-profile"
+pnpm desktop:dev -- \
+  --automation \
+  --automation-profile "$PROFILE" \
+  --automation-agent default \
+  --automation-yolo
+```
+
+Configure a local stdio MCP server in Copilot CLI or the GitHub app using:
+
+```bash
+pnpm --filter @ableton-agent/debug-mcp dev -- \
+  --descriptor "$PROFILE/automation-endpoint.json"
+```
+
+The adapter exposes only `send_user_message`. It submits a bounded user message
+to the currently selected agent in that visible desktop process and returns the
+accepted message ID. Use Copilot computer-use separately to inspect and capture
+screenshots of Ableton Agent and Ableton Live. Automation mode binds only to
+loopback, uses a per-launch secret in owner-only files, and is absent from
+ordinary launches. The isolated profile prevents test startup choices and
+conversations from modifying the normal desktop profile.
 
 ## Quickstart
 

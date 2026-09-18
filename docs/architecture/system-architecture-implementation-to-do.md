@@ -15,6 +15,8 @@ Companion specification: [System Architecture](system-architecture.md)
   storage, and event publishing.
 - [x] Add architecture decision records for Electron, TCP framing, SQLite, and
   TypeScript/Python schema ownership.
+- [x] Add the debug-only desktop automation boundary and local stdio MCP
+  adapter without exposing renderer IPC or creating another app composition.
 
 ## Runtime composition
 

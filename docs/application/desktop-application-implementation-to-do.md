@@ -67,6 +67,10 @@ never left pending, when no renderer is listening or the app is shutting down.
   controls while keeping the composer aligned with the conversation column.
 - [x] Preserve optional tool identity in desktop operation view models and
   render compact typed activity rows without removing recovery details.
+- [x] Add opt-in isolated desktop automation launch flags, selected-agent
+  startup, scoped YOLO startup, and visible external user-turn attribution.
+- [x] Host a debug-only authenticated loopback endpoint that sends through the
+  running visible desktop service rather than a second headless composition.
 
 Project snapshots are read through the shared application (`inspectSession`,
 `inspectDevices`, `inspectDeviceParameters`) and mapped into desktop view
@@ -126,6 +130,8 @@ presentation state and say so; they are not applied to Live.
     keyboard shortcuts, and clean shutdown.
   - [ ] Cover live Copilot chat/tool streaming and approval flows in packaged
     builds.
+  - [x] Cover isolated automation launch and an externally submitted visible
+    user message.
 
 Playwright was not already configured. It remains unchecked because a reliable
 Electron packaging/launch harness would add substantial setup beyond the

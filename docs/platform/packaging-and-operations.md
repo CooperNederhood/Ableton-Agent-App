@@ -61,6 +61,19 @@ package changes require restarting `pnpm desktop:dev`, but do not require a
 Remote Script update unless files under `remote-script/AbletonAgent/**` also
 changed.
 
+## Desktop automation operations
+
+Developer UX testing may launch Desktop with `--automation` and an absolute
+isolated `--automation-profile`. The profile owns its sessions, Copilot data,
+logs, event journal, endpoint descriptor, and per-launch secret; it must never
+be the normal Electron user-data path.
+
+The endpoint binds to `127.0.0.1` on an ephemeral port, limits requests and
+frames, accepts only authenticated `send_user_message` operations, and removes
+only descriptor/secret files whose content still matches the current process.
+The MCP adapter reads those owner-only files locally. Secrets and raw frames
+must not enter logs, Desktop History, support bundles, or screenshots.
+
 Detection covers the standard macOS Music/Documents and Windows
 Documents/OneDrive User Library locations. `ABLETON_USER_LIBRARY` overrides
 detection. Installation is staged, keeps the bridge token, and moves the prior

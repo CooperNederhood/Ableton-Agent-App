@@ -50,6 +50,7 @@ import {
   type RootTraceQuery,
   type LocalObservabilityJournal,
 } from "@ableton-agent/observability";
+import type { AutomationTrace } from "@ableton-agent/debug-control";
 
 import {
   desktopActiveAgentSchema,
@@ -393,6 +394,11 @@ export class HeadlessDesktopService implements DesktopService {
   public async send(
     message: string,
     context: ContextChip[],
+    options?: {
+      origin: "automation";
+      trace: AutomationTrace;
+      requestId: string;
+    },
   ): Promise<{ accepted: true; messageId: string }> {
     this.#assertAccepting();
     if (this.#turn) {
@@ -437,12 +443,27 @@ export class HeadlessDesktopService implements DesktopService {
     });
     if (this.options.agentCatalog !== undefined) {
       if (managedTarget !== undefined) {
-        return this.#beginManagedTurn(managedTarget, () =>
+        const accepted = await this.#beginManagedTurn(managedTarget, () =>
           this.#application.sendToManagedAgent(
             managedTarget.agentInstanceId,
             composeAgentPrompt(message, selection),
           ),
         );
+        if (options?.origin === "automation") {
+          this.emit({
+            type: "agent.user_message_submitted",
+            messageId: accepted.messageId,
+            content: message,
+            agentInstanceId: managedTarget.agentInstanceId,
+            agentMode: "interactive",
+            origin: "automation",
+            timestamp: Date.now(),
+            traceId: options.trace.traceId,
+            correlationId: options.trace.correlationId,
+            causationId: options.requestId,
+          });
+        }
+        return accepted;
       }
     }
     this.#turn = turn;
@@ -465,6 +486,19 @@ export class HeadlessDesktopService implements DesktopService {
       },
     });
     void this.#runTurn(turn, composeAgentPrompt(message, selection));
+    if (options?.origin === "automation") {
+      this.emit({
+        type: "agent.user_message_submitted",
+        messageId,
+        content: message,
+        agentMode: "interactive",
+        origin: "automation",
+        timestamp: Date.now(),
+        traceId: options.trace.traceId,
+        correlationId: options.trace.correlationId,
+        causationId: options.requestId,
+      });
+    }
     return { accepted: true, messageId };
   }
 

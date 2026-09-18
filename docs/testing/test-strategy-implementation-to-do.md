@@ -45,6 +45,9 @@ Companion specification: [Test Strategy](test-strategy.md)
     scenario.
 - [x] Implement CLI transcript tests.
 - [x] Implement Playwright Electron harness.
+- [x] Cover the debug-control contract, automation launch parsing, selected
+  agent/YOLO startup, visible external user-turn attribution, and stdio MCP
+  adapter arguments.
 - [ ] Add deterministic local-journal fixtures for clocks, IDs, sensitive
   payloads, concurrent appends, size accounting, and persistence failures.
 - [ ] Cover agent configuration snapshots and complete SDK, tool/workflow,

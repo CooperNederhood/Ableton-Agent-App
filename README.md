@@ -211,34 +211,84 @@ process, launches a disposable instance, records and revalidates its exact PID
 identity, and stops only that process. A failed runner-owned Set may be closed
 without saving.
 
-### Agent-driven desktop UX testing
+## Agent-driven desktop UX testing
 
-Launch the real Electron app with a separate automation profile, a selected
-agent definition, and optional YOLO:
+This workflow lets a Copilot coding agent send a user message to the real,
+visible Ableton Agent desktop app. Copilot can then use computer-use to inspect
+and capture screenshots of both Ableton Agent and Ableton Live.
 
-```bash
-PROFILE="$PWD/.test-artifacts/desktop-automation-profile"
-pnpm desktop:dev -- \
-  --automation \
-  --automation-profile "$PROFILE" \
-  --automation-agent default \
-  --automation-yolo
-```
+The automation profile is a dedicated Electron data directory. It does not need
+to exist before the first launch; Desktop creates it automatically. Keeping it
+separate prevents test settings, sessions, and conversations from modifying the
+normal desktop profile.
 
-Configure a local stdio MCP server in Copilot CLI or the GitHub app using:
+### Quickstart
 
-```bash
-pnpm --filter @ableton-agent/debug-mcp dev -- \
-  --descriptor "$PROFILE/automation-endpoint.json"
-```
+Run these commands from the repository root.
 
-The adapter exposes only `send_user_message`. It submits a bounded user message
-to the currently selected agent in that visible desktop process and returns the
-accepted message ID. Use Copilot computer-use separately to inspect and capture
-screenshots of Ableton Agent and Ableton Live. Automation mode binds only to
+1. Build the desktop app and MCP adapter:
+
+   ```bash
+   pnpm build
+   ```
+
+2. Register the local MCP adapter with Copilot. This is a one-time command for
+   this repository path:
+
+   ```bash
+   REPO="$PWD"
+   PROFILE="$HOME/.ableton-agent/ux-test-profile"
+
+   copilot mcp add ableton-agent-desktop -- \
+     node "$REPO/apps/debug-mcp/dist/main.js" \
+     --descriptor "$PROFILE/automation-endpoint.json"
+   ```
+
+   Confirm that it is registered:
+
+   ```bash
+   copilot mcp list
+   ```
+
+3. Start Ableton Live with the `AbletonAgent` Control Surface enabled.
+
+4. Launch the visible desktop app in automation mode:
+
+   ```bash
+   PROFILE="$HOME/.ableton-agent/ux-test-profile"
+
+   pnpm desktop:dev -- \
+     --automation \
+     --automation-profile "$PROFILE" \
+     --automation-agent default \
+     --automation-yolo
+   ```
+
+   Replace `default` with another definition such as `mix`, `sound`, `compose`,
+   or `arrange`. The launch creates the profile and
+   `$PROFILE/automation-endpoint.json`.
+
+5. In another terminal, start Copilot from the repository:
+
+   ```bash
+   copilot
+   ```
+
+6. Ask Copilot to drive and inspect the workflow:
+
+   ```text
+   Use send_user_message to tell the running Ableton Agent app:
+   "Create a MIDI track with a simple four-on-the-floor drum pattern."
+   Then use computer-use to inspect Ableton Agent and Ableton Live,
+   capture screenshots, and verify the result end to end.
+   ```
+
+The adapter exposes only `send_user_message`. It sends a bounded message to the
+currently selected agent and returns the accepted message ID. Acceptance does
+not mean that the agent turn or Ableton mutation succeeded, so Copilot must
+verify the final state in both applications. Automation mode binds only to
 loopback, uses a per-launch secret in owner-only files, and is absent from
-ordinary launches. The isolated profile prevents test startup choices and
-conversations from modifying the normal desktop profile.
+ordinary launches.
 
 ## Quickstart
 

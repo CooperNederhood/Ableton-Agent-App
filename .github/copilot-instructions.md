@@ -16,3 +16,6 @@
   failure/cancellation, and trace propagation.
 - Update the relevant specifications and implementation to-do files with every
   behavior or lifecycle change.
+
+# Background About Ableton
+- This project supports Ableton 11 **only** and we have no current plan to support 12. Project uses Ableton Suite 11.3.42 on Apple Silicon.

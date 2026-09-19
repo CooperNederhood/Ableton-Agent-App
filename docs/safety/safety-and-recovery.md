@@ -22,6 +22,16 @@ action through a direct UI control.
 
 Large multi-track or arrangement changes. Requires preview and approval.
 
+Recording mode changes, Capture MIDI, and Live undo/redo are broad global
+operations. Undo/redo additionally require the literal
+`global-live-history` confirmation because Live's history may contain changes
+made outside Ableton Agent. Timed recording and Looper export require exact
+empty-slot identities and run as cancellable jobs. Groove handles include a
+pool revision, while warp mutations include the exact clip and current marker
+snapshot revision. Job ownership and trace linkage are application-injected;
+only the originating agent can cancel a job, and quantized recording remains
+active until Live reports that the exact created clip has stopped recording.
+
 ## Guardrails
 
 - Agent tool allowlists and edit scopes are enforced by application policy, not

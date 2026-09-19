@@ -2310,6 +2310,7 @@ export class HeadlessDesktopService implements DesktopService {
           instructions: instance.config.systemPrompt,
           tools: instance.config.tools,
           resolved_tools: instance.config.resolvedTools,
+          resolved_operations: instance.config.resolvedOperations ?? [],
           edit_scope: instance.config.editScope,
           skills: instance.config.skills,
           input_channels: instance.config.inputChannels,
@@ -3068,6 +3069,9 @@ export class HeadlessDesktopService implements DesktopService {
           ? instance.config.systemPrompt
           : `${instance.config.systemPrompt}\n\n${inheritedContext}`,
       resolvedTools: instance.config.resolvedTools,
+      ...(instance.config.resolvedOperations === undefined
+        ? {}
+        : { resolvedOperations: instance.config.resolvedOperations }),
       editScope: instance.config.editScope,
       boundTracks: instance.boundTracks,
       skills: instance.config.skills,
@@ -3112,6 +3116,9 @@ export class HeadlessDesktopService implements DesktopService {
         systemPrompt: definition.systemPrompt,
         tools: definition.tools,
         resolvedTools: definition.resolvedTools,
+        ...(definition.resolvedOperations === undefined
+          ? {}
+          : { resolvedOperations: definition.resolvedOperations }),
         editScope: definition.editScope,
         skills: definition.skills,
         inputChannels: definition.inputChannels,

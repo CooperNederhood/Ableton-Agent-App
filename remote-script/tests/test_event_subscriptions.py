@@ -170,6 +170,7 @@ class DynamicSubscriptionTests(unittest.TestCase):
             sorted(registry.metadata().keys()),
             [
                 "events.clear_subscriptions",
+                "events.inspect_curated_state",
                 "events.inspect_selection",
                 "events.list_subscriptions",
                 "events.subscribe",

@@ -5,6 +5,7 @@ import type { SessionHooks } from "@github/copilot-sdk";
 import {
   abletonToolMetadata,
   parseAbletonToolFailure,
+  resolveAbletonToolMetadata,
 } from "@ableton-agent/tools";
 
 import {
@@ -48,6 +49,14 @@ export interface AgentPolicyServices {
 export interface AgentPolicy {
   readonly hooks: SessionHooks;
   blockAttempt(toolName: string, toolArgs: unknown, reason: string): void;
+}
+
+function resolveInvocationMetadata(toolName: string, toolArgs: unknown) {
+  try {
+    return resolveAbletonToolMetadata(toolName, toolArgs);
+  } catch {
+    return undefined;
+  }
 }
 
 export function browserIntentGuidance(prompt: string): string | undefined {
@@ -251,8 +260,9 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
       })(),
     }),
     onPreToolUse: (input) => {
-      const metadata = abletonToolMetadata.find(
-        ({ name }) => name === input.toolName,
+      const metadata = resolveInvocationMetadata(
+        input.toolName,
+        input.toolArgs,
       );
       if (
         services.mutationBlocked?.() &&

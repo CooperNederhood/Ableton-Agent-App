@@ -150,9 +150,30 @@ class FakeParameter(object):
 
 class FakeChain(object):
     def __init__(self, name, devices=None):
+        self.fail_next_color_index_set_after_mutation = False
         self.name = name
-        self.color = None
+        self.color_index = 5
         self.devices = list(devices or [])
+        self.mute = False
+        self.solo = False
+        self.mixer_device = FakeMixerDevice(chain=True)
+
+    def __setattr__(self, key, value):
+        if (
+            key == "color_index"
+            and getattr(
+                self, "fail_next_color_index_set_after_mutation", False
+            )
+        ):
+            object.__setattr__(self, key, value)
+            object.__setattr__(self, "color", (value + 1) * 0x010101)
+            object.__setattr__(
+                self, "fail_next_color_index_set_after_mutation", False
+            )
+            raise RuntimeError("simulated chain color index setter failure")
+        if key == "color_index":
+            object.__setattr__(self, "color", (value + 1) * 0x010101)
+        object.__setattr__(self, key, value)
 
 
 class FakeDrumPad(object):
@@ -213,9 +234,14 @@ class FakeDevice(object):
 
 
 class FakeMixerDevice(object):
-    def __init__(self):
-        self.volume = FakeParameter(0.8)
-        self.panning = FakeParameter(0.0)
+    def __init__(self, chain=False):
+        self.volume = FakeParameter(0.8, name="Chain Volume" if chain else "Volume")
+        self.panning = FakeParameter(0.0, name="Chain Pan" if chain else "Pan")
+        self.sends = (
+            [FakeParameter(0.0, name="Send A"), FakeParameter(0.0, name="Send B")]
+            if chain
+            else []
+        )
 
 
 class FakeClip(object):
@@ -456,6 +482,8 @@ class FakeSong(object):
         self.tracks = [FakeTrack("Drums"), FakeTrack("Bass")]
         self.view = FakeSongView()
         self.view.selected_track = self.tracks[0]
+        self.find_device_position_offset = 0
+        self.fail_move_verification = False
 
     @property
     def loop(self):
@@ -498,6 +526,48 @@ class FakeSong(object):
 
     def delete_track(self, index):
         del self.tracks[index]
+
+    def _device_parents(self):
+        parents = list(self.tracks)
+        for track in self.tracks:
+            for device in track.devices:
+                parents.extend(getattr(device, "chains", ()))
+                for pad in getattr(device, "drum_pads", ()):
+                    parents.extend(getattr(pad, "chains", ()))
+        return parents
+
+    def find_device_position(self, device, target, target_position):
+        if target not in self._device_parents():
+            raise RuntimeError("unsupported target")
+        if not any(
+            device in getattr(parent, "devices", ())
+            for parent in self._device_parents()
+        ):
+            raise RuntimeError("unknown device")
+        maximum = len(target.devices)
+        return max(
+            0,
+            min(maximum, target_position + self.find_device_position_offset),
+        )
+
+    def move_device(self, device, target, target_position):
+        source = next(
+            parent
+            for parent in self._device_parents()
+            if device in getattr(parent, "devices", ())
+        )
+        source_index = source.devices.index(device)
+        source.devices.remove(device)
+        final_index = (
+            target_position - 1
+            if source is target and source_index < target_position
+            else target_position
+        )
+        if self.fail_move_verification:
+            self.fail_move_verification = False
+            final_index = max(0, final_index - 1)
+        target.devices.insert(final_index, device)
+        return final_index
 
     def set_or_delete_cue(self):
         existing = next(
@@ -698,7 +768,7 @@ class FakeApplication(object):
         self.browser = FakeBrowser(song)
 
     def get_version_string(self):
-        return "12.1-test"
+        return "11.3-test"
 
 
 class FakeContext(object):
@@ -1978,6 +2048,465 @@ class ExecutorTests(unittest.TestCase):
 
         self.assertEqual(responses[0]["error"]["code"], "lom_error")
         self.assertEqual(parameter.value, 0.25)
+
+    def test_live_eleven_device_moves_and_chain_edits_are_exact_and_verified(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        context.song.tracks[0].devices[0] = FakeDevice("Drum Rack")
+        track_references = [
+            "00000000-0000-4000-8000-000000000001",
+            "00000000-0000-4000-8000-000000000002",
+        ]
+        context._track_references = list(
+            zip(context.song.tracks, track_references)
+        )
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        def execute(command, params):
+            executor.submit(request(command, params), responses.append)
+            scheduled.pop()()
+            return responses[-1]
+
+        drums = {
+            "index": 0,
+            "expectedReference": track_references[0],
+            "expectedName": "Drums",
+        }
+        bass = {
+            "index": 1,
+            "expectedReference": track_references[1],
+            "expectedName": "Bass",
+        }
+        rack = execute(
+            "devices.inspect", dict(drums, offset=0, limit=1)
+        )["result"]["devices"][0]
+        chain = execute(
+            "devices.inspect_rack_chains",
+            {
+                **drums,
+                "deviceIndex": 0,
+                "expectedDeviceReference": rack["reference"],
+                "expectedDeviceName": rack["name"],
+                "offset": 0,
+                "limit": 1,
+            },
+        )["result"]["chains"][0]
+        source_device = execute(
+            "devices.inspect", dict(bass, offset=0, limit=1)
+        )["result"]["devices"][0]
+        chain_device = execute(
+            "devices.inspect_rack_chain_devices",
+            {
+                **drums,
+                "deviceIndex": 0,
+                "expectedDeviceReference": rack["reference"],
+                "expectedDeviceName": rack["name"],
+                "chainIndex": 0,
+                "expectedChainReference": chain["reference"],
+                "expectedChainName": chain["name"],
+                "offset": 0,
+                "limit": 1,
+            },
+        )["result"]["devices"][0]
+        pad = execute(
+            "devices.inspect_drum_rack_pads",
+            {
+                **drums,
+                "deviceIndex": 0,
+                "expectedDeviceReference": rack["reference"],
+                "expectedDeviceName": rack["name"],
+                "offset": 36,
+                "limit": 1,
+            },
+        )["result"]["pads"][0]
+        pad_chain = execute(
+            "devices.inspect_drum_pad_chains",
+            {
+                **drums,
+                "deviceIndex": 0,
+                "expectedDeviceReference": rack["reference"],
+                "expectedDeviceName": rack["name"],
+                "padIndex": pad["index"],
+                "expectedPadReference": pad["reference"],
+                "expectedPadNote": pad["note"],
+                "expectedPadName": pad["name"],
+                "offset": 0,
+                "limit": 1,
+            },
+        )["result"]["chains"][0]
+        ambiguous = execute(
+            "devices.find_position",
+            {
+                "source": {
+                    "kind": "rack-chain-device",
+                    "track": drums,
+                    "rack": {
+                        "index": 0,
+                        "expectedReference": rack["reference"],
+                        "expectedName": rack["name"],
+                    },
+                    "chain": {
+                        "index": 0,
+                        "expectedReference": chain["reference"],
+                        "expectedName": chain["name"],
+                    },
+                    "device": {
+                        "index": 0,
+                        "expectedReference": chain_device["reference"],
+                        "expectedName": chain_device["name"],
+                    },
+                },
+                "destination": {
+                    "kind": "drum-pad-chain",
+                    "track": drums,
+                    "rack": {
+                        "index": 0,
+                        "expectedReference": rack["reference"],
+                        "expectedName": rack["name"],
+                    },
+                    "pad": {
+                        "index": pad["index"],
+                        "expectedReference": pad["reference"],
+                        "expectedNote": pad["note"],
+                        "expectedName": pad["name"],
+                    },
+                    "chain": {
+                        "index": 0,
+                        "expectedReference": pad_chain["reference"],
+                        "expectedName": pad_chain["name"],
+                    },
+                    "deviceIndex": 0,
+                },
+            },
+        )
+        self.assertEqual(ambiguous["error"]["code"], "ambiguous_reference")
+        source = {
+            "kind": "track-device",
+            "track": bass,
+            "device": {
+                "index": 0,
+                "expectedReference": source_device["reference"],
+                "expectedName": source_device["name"],
+            },
+        }
+        destination = {
+            "kind": "rack-chain",
+            "track": drums,
+            "rack": {
+                "index": 0,
+                "expectedReference": rack["reference"],
+                "expectedName": rack["name"],
+            },
+            "chain": {
+                "index": 0,
+                "expectedReference": chain["reference"],
+                "expectedName": chain["name"],
+            },
+            "deviceIndex": 1,
+        }
+        preflight = execute(
+            "devices.find_position",
+            {"source": source, "destination": destination},
+        )["result"]
+        self.assertTrue(preflight["exact"])
+        moved = execute(
+            "devices.move", {"source": source, "destination": destination}
+        )["result"]
+        self.assertTrue(moved["verified"])
+        self.assertEqual(moved["after"]["kind"], "rack-chain-device")
+        self.assertEqual(moved["after"]["device"]["index"], 1)
+        self.assertEqual(
+            moved["deviceReference"], source_device["reference"]
+        )
+
+        same_parent_source = {
+            "kind": "rack-chain-device",
+            "track": drums,
+            "rack": destination["rack"],
+            "chain": destination["chain"],
+            "device": {
+                "index": 0,
+                "expectedReference": execute(
+                    "devices.inspect_rack_chain_devices",
+                    {
+                        **drums,
+                        "deviceIndex": 0,
+                        "expectedDeviceReference": rack["reference"],
+                        "expectedDeviceName": rack["name"],
+                        "chainIndex": 0,
+                        "expectedChainReference": chain["reference"],
+                        "expectedChainName": chain["name"],
+                        "offset": 0,
+                        "limit": 2,
+                    },
+                )["result"]["devices"][0]["reference"],
+                "expectedName": "Simpler",
+            },
+        }
+        same_parent_destination = dict(destination, deviceIndex=1)
+        reordered = execute(
+            "devices.move",
+            {
+                "source": same_parent_source,
+                "destination": same_parent_destination,
+            },
+        )["result"]
+        self.assertTrue(reordered["sameParent"])
+        self.assertEqual(reordered["after"]["device"]["index"], 1)
+
+        properties = execute(
+            "devices.set_chain_properties",
+            {
+                "target": {
+                    "kind": "rack-chain",
+                    "track": drums,
+                    "rack": destination["rack"],
+                    "chain": destination["chain"],
+                },
+                "name": "Layer",
+                "colorIndex": 17,
+            },
+        )["result"]
+        self.assertEqual(properties["after"]["name"], "Layer")
+        self.assertEqual(properties["before"]["colorIndex"], 5)
+        self.assertEqual(properties["after"]["colorIndex"], 17)
+        self.assertEqual(properties["after"]["color"], 0x121212)
+
+        chain_target = {
+            "kind": "rack-chain",
+            "track": drums,
+            "rack": destination["rack"],
+            "chain": {
+                **destination["chain"],
+                "expectedName": "Layer",
+            },
+        }
+        target_chain = context.song.tracks[0].devices[0].chains[0]
+        target_chain.fail_next_color_index_set_after_mutation = True
+        failed_properties = execute(
+            "devices.set_chain_properties",
+            {
+                "target": chain_target,
+                "name": "Broken",
+                "colorIndex": 23,
+            },
+        )
+        self.assertEqual(failed_properties["error"]["code"], "lom_error")
+        self.assertEqual(target_chain.name, "Layer")
+        self.assertEqual(target_chain.color_index, 17)
+        self.assertEqual(target_chain.color, 0x121212)
+
+        for invalid_color_index in (-1, 70):
+            invalid_properties = execute(
+                "devices.set_chain_properties",
+                {
+                    "target": chain_target,
+                    "colorIndex": invalid_color_index,
+                },
+            )
+            self.assertEqual(
+                invalid_properties["error"]["code"], "invalid_params"
+            )
+
+        legacy_color = execute(
+            "devices.set_chain_properties",
+            {
+                "target": chain_target,
+                "color": 0x445566,
+            },
+        )
+        self.assertEqual(legacy_color["error"]["code"], "invalid_params")
+
+        mixer = execute(
+            "devices.inspect_chain_mixer",
+            {"target": chain_target},
+        )["result"]["mixer"]
+        changed = execute(
+            "devices.set_chain_mixer",
+            {
+                "target": chain_target,
+                "mute": True,
+                "volume": {
+                    "expectedParameterReference": mixer["volume"]["reference"],
+                    "expectedParameterName": mixer["volume"]["name"],
+                    "normalizedValue": 0.5,
+                },
+                "sends": [
+                    {
+                        "index": 0,
+                        "expectedParameterReference": mixer["sends"][0][
+                            "reference"
+                        ],
+                        "expectedParameterName": mixer["sends"][0]["name"],
+                        "normalizedValue": 0.25,
+                    }
+                ],
+            },
+        )["result"]
+        self.assertTrue(changed["after"]["mute"])
+        self.assertEqual(changed["after"]["volume"]["normalizedValue"], 0.5)
+
+        target_chain.mixer_device.volume.fail_next_set_after_mutation = True
+        failed = execute(
+            "devices.set_chain_mixer",
+            {
+                "target": chain_target,
+                "mute": False,
+                "volume": {
+                    "expectedParameterReference": mixer["volume"]["reference"],
+                    "expectedParameterName": mixer["volume"]["name"],
+                    "normalizedValue": 0.75,
+                },
+            },
+        )
+        self.assertEqual(failed["error"]["code"], "lom_error")
+        self.assertTrue(target_chain.mute)
+        self.assertAlmostEqual(target_chain.mixer_device.volume.value, 0.5)
+
+        stale = dict(same_parent_source)
+        stale["device"] = dict(
+            same_parent_source["device"],
+            index=1,
+            expectedName="Changed",
+        )
+        failed = execute(
+            "devices.find_position",
+            {
+                "source": stale,
+                "destination": same_parent_destination,
+            },
+        )
+        self.assertEqual(failed["error"]["code"], "stale_reference")
+
+    def test_device_move_rejects_nearest_position_and_restores_verification_failure(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        track = context.song.tracks[0]
+        track.devices.append(FakeDevice("Second"))
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        context._track_references = [(track, track_reference)]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        def target(index, device):
+            return {
+                "kind": "track-device",
+                "track": {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                },
+                "device": {
+                    "index": index,
+                    "expectedReference": device,
+                    "expectedName": track.devices[index].name,
+                },
+            }
+
+        from AbletonAgent.device_commands import _device_reference
+
+        first_reference = _device_reference(context, track.devices[0])
+        params = {
+            "source": target(0, first_reference),
+            "destination": {
+                "kind": "track",
+                "track": {
+                    "index": 0,
+                    "expectedReference": track_reference,
+                    "expectedName": "Drums",
+                },
+                "deviceIndex": 1,
+            },
+        }
+        context.song.find_device_position_offset = -1
+        executor.submit(
+            request("devices.move", params), responses.append
+        )
+        scheduled.pop()()
+        self.assertEqual(responses[-1]["error"]["code"], "conflict")
+
+        context.song.find_device_position_offset = 0
+        context.song.fail_move_verification = True
+        executor.submit(
+            request("devices.move", params), responses.append
+        )
+        scheduled.pop()()
+        self.assertEqual(responses[-1]["error"]["code"], "lom_error")
+        self.assertEqual(
+            _device_reference(context, track.devices[0]), first_reference
+        )
+
+    def test_device_move_rollback_restores_leftward_same_parent_move(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        track = context.song.tracks[0]
+        track.devices.extend([FakeDevice("Second"), FakeDevice("Third")])
+        original_devices = list(track.devices)
+        moved_device = track.devices[2]
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        context._track_references = [(track, track_reference)]
+
+        from AbletonAgent.device_commands import _device_reference
+
+        device_reference = _device_reference(context, moved_device)
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+        context.song.fail_move_verification = True
+        executor.submit(
+            request(
+                "devices.move",
+                {
+                    "source": {
+                        "kind": "track-device",
+                        "track": {
+                            "index": 0,
+                            "expectedReference": track_reference,
+                            "expectedName": "Drums",
+                        },
+                        "device": {
+                            "index": 2,
+                            "expectedReference": device_reference,
+                            "expectedName": moved_device.name,
+                        },
+                    },
+                    "destination": {
+                        "kind": "track",
+                        "track": {
+                            "index": 0,
+                            "expectedReference": track_reference,
+                            "expectedName": "Drums",
+                        },
+                        "deviceIndex": 1,
+                    },
+                },
+            ),
+            responses.append,
+        )
+        scheduled.pop()()
+
+        self.assertEqual(responses[0]["error"]["code"], "lom_error")
+        self.assertIsNone(responses[0]["error"]["details"]["rollbackError"])
+        self.assertEqual(track.devices, original_devices)
+        self.assertIs(track.devices[2], moved_device)
 
     def test_rack_chain_and_drum_pad_inspection_is_bounded_and_identity_safe(self):
         scheduled = []
@@ -4102,7 +4631,7 @@ class CapabilityAndTokenTests(unittest.TestCase):
             note_editing_supported=True,
         )
 
-        self.assertEqual(document["liveVersion"], "12.1-test")
+        self.assertEqual(document["liveVersion"], "11.3-test")
         self.assertEqual(document["projectName"], "Example")
         self.assertTrue(document["saved"])
         self.assertEqual(
@@ -4145,6 +4674,29 @@ class CapabilityAndTokenTests(unittest.TestCase):
             document["capabilities"][
                 "devices.inspect_drum_pad_chain_devices"
             ]
+        )
+        self.assertTrue(document["capabilities"]["devices.find_position"])
+        self.assertTrue(document["capabilities"]["devices.move"])
+        self.assertTrue(
+            document["capabilities"]["devices.inspect_chain_mixer"]
+        )
+        self.assertTrue(
+            document["capabilities"]["devices.set_chain_properties"]
+        )
+        self.assertTrue(
+            document["capabilities"]["devices.set_chain_mixer"]
+        )
+        self.assertNotIn(
+            "devices.create_chain", document["capabilities"]
+        )
+        self.assertNotIn(
+            "devices.insert_native", document["capabilities"]
+        )
+        self.assertNotIn(
+            "devices.delete_chain", document["capabilities"]
+        )
+        self.assertNotIn(
+            "devices.reorder_chain", document["capabilities"]
         )
         self.assertTrue(document["capabilities"]["browser.inspect_roots"])
         self.assertTrue(document["capabilities"]["browser.inspect_children"])
@@ -4215,6 +4767,47 @@ class CapabilityAndTokenTests(unittest.TestCase):
         self.assertFalse(legacy_document["capabilities"]["clips.delete"])
         self.assertFalse(
             legacy_document["capabilities"]["clips.set_properties"]
+        )
+        missing_move_document = build_capability_document(
+            FakeApplication(),
+            type("Song", (), {"tracks": [], "name": "Test"})(),
+            registry,
+            note_editing_supported=True,
+        )
+        self.assertFalse(
+            missing_move_document["capabilities"]["devices.find_position"]
+        )
+        self.assertFalse(
+            missing_move_document["capabilities"]["devices.move"]
+        )
+
+        limited_chain_song = FakeSong()
+        limited_chain_song.tracks[0].devices[0] = FakeDevice("Drum Rack")
+        for limited_track in limited_chain_song.tracks:
+            for limited_rack in limited_track.devices:
+                for limited_chain in limited_rack.chains:
+                    del limited_chain.color_index
+                    limited_chain.mixer_device = None
+        limited_chain_document = build_capability_document(
+            FakeApplication(),
+            limited_chain_song,
+            registry,
+            note_editing_supported=True,
+        )
+        self.assertFalse(
+            limited_chain_document["capabilities"][
+                "devices.inspect_chain_mixer"
+            ]
+        )
+        self.assertFalse(
+            limited_chain_document["capabilities"][
+                "devices.set_chain_properties"
+            ]
+        )
+        self.assertFalse(
+            limited_chain_document["capabilities"][
+                "devices.set_chain_mixer"
+            ]
         )
 
         class InspectOnlyTrack(object):

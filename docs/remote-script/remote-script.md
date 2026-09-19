@@ -96,6 +96,76 @@ The script should:
 - Keep serializers stable across versions.
 - Maintain an explicit supported Live-version matrix.
 
+### Live 11 device and rack operations
+
+The first supported structural device slice uses only the Live 11
+`Song.find_device_position(device, target, target_position)` and
+`Song.move_device(device, target, target_position)` APIs. Targets are strict,
+discriminated paths to either a regular track device list, an existing rack
+chain, or an existing Drum Rack pad chain. Every segment is revalidated by
+index, runtime reference, and expected name (plus pad note where applicable).
+
+Movement preflights the destination, translates same-parent final indexes to
+the API's pre-removal index space, rejects nearest-but-not-exact positions,
+then verifies the same device's canonical parent and actual index. Verification
+failure attempts restoration to the original parent/index and still returns an
+explicit failure. Chain property and exposed mixer edits similarly capture
+before-state, verify, and restore on failure.
+
+The checked-in support ledger is:
+
+| Operation | Protocol capability | Live 11 basis | Status |
+| --- | --- | --- | --- |
+| Inspect an existing chain's exposed mixer state and parameter identities | `devices.inspect_chain_mixer` | Exposed `Chain` and `Chain.mixer_device` properties | Supported when exposed |
+| Validate a destination for an existing device | `devices.find_position` | Callable `Song.find_device_position` | Supported |
+| Reorder an existing device in a regular track or existing rack/Drum Rack pad chain | `devices.move` | Callable `Song.find_device_position` and `Song.move_device`; same-parent index translation | Supported |
+| Move an existing device between regular tracks and existing chains | `devices.move` | Same APIs | Supported |
+| Rename or recolor an existing chain | `devices.set_chain_properties` | Exposed writable `Chain.name` and `Chain.color_index`, with observed `Chain.color` | Supported when exposed; color index is bounded to `0..69` |
+| Set existing chain mute, solo, volume, pan, or sends | `devices.set_chain_mixer` | Exposed `Chain` and `Chain.mixer_device` properties | Supported when exposed and exact parameter identity matches |
+| Create an empty rack chain | None | No approved Live 11 operation in this slice | Unsupported |
+| Insert a native device directly without Browser loading | None | No approved Live 11 operation in this slice | Unsupported |
+| Delete one rack chain | None | No approved Live 11 operation in this slice | Unsupported |
+| Reorder rack chains | None | No approved Live 11 operation in this slice | Unsupported |
+
+Supported moves require an existing source device and destination parent. The
+implementation rejects stale identities, out-of-range or nearest-only
+positions, cross-kind aliases of the same chain, and unsupported or ambiguous
+topology.
+
+### Live 11 core domains
+
+The core-domain commands are split into `*.inspect` and `*.mutate` protocol
+entries while each agent-facing tool uses a strict action discriminator. This
+preserves mutation invalidation and queue semantics without multiplying
+read-only tools.
+
+The final workflow-adapter domains keep their model-facing action unions but
+register one internal command per action (for example,
+`recording.record_session_slot` and `live_history.undo`). Validators reject a
+valid action sent to the wrong command. The capability document includes
+evidence and tested-version details; detected-but-untested private adapters
+remain fail-closed.
+
+Runtime references are cached for scenes, regular/return/master tracks, clips,
+cue points, mixer parameters, MIDI note IDs, and routing options. Mutations
+revalidate every supplied identity immediately before touching the LOM.
+Routing options are short-lived snapshots: assignment requires the exact
+snapshot ID, option token, display name, target, and direction, and returns
+warnings for feedback-prone or external-MIDI routes.
+
+Modern MIDI edits use Live 11 note IDs and the extended note API, retaining
+probability, velocity deviation, and release velocity. The existing
+full-replacement commands and note-ID removal are destructive operations.
+Removal failures that cannot be verified exactly are reported as
+non-retryable, applied-indeterminate outcomes. Audio clip inspection includes
+the current `available_warp_modes`; warp-mode mutation rejects a selection
+outside that exact inspected list or a list that has since changed.
+
+This layer intentionally omits APIs that are not safely available in Live 11:
+scene-scoped stop, arbitrary track reordering, per-note expression mutation,
+unrestricted file import, take lanes, empty-chain creation, deterministic
+direct native device insertion, and later-version Simpler replacement APIs.
+
 Browser item identity remains exact across the search/load round trip. Runtime
 reference, root, path, and name must match, while URI comparison treats
 equivalent percent-encoded and decoded spellings as the same identity. A
@@ -131,7 +201,17 @@ The script has two listener layers:
 Dynamic subscriptions are installed and removed at runtime through validated
 protocol commands. They initially support parameter value changes, playing and
 triggered clip transitions, and recording-state transitions. The script
-normalizes raw LOM values into semantic occurrences before publishing them.
+also publishes typed curated `live_state.changed` events for transport,
+tempo/signature, selection, track/scene/clip/device topology, routing, and
+coalesced meters. `events.inspect_curated_state` supplies the initial state.
+
+The event layer normalizes raw LOM values into semantic occurrences before
+publishing them. Capability-detected workflow adapters additionally cover
+recording/capture, Groove Pool operations, selection/view state, Live global
+history, Browser preview and tested Hot-Swap/insertion, Session clip
+envelopes, warp-marker mutation, and Live 11-specific Simpler, Looper, and
+Wavetable operations. See
+[the capability ledger](../protocol/live-11-workflow-capability-ledger.md).
 
 Listeners must be removed during unsubscribe, client disconnect, Set
 replacement, and script shutdown. Continuous parameter changes are coalesced

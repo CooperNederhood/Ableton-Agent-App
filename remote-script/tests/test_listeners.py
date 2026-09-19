@@ -61,11 +61,27 @@ class ListenerManagerTests(unittest.TestCase):
         song.view.emit("selected_track")
 
         self.assertEqual(
-            published,
+            [event for event in published if event[0] == "project.changed"],
             [
                 ("project.changed", {"reason": "tempo"}, 1),
                 ("project.changed", {"reason": "selection"}, 2),
             ],
+        )
+        curated = [event for event in published if event[0] == "live_state.changed"]
+        self.assertEqual(11, len(curated))
+        self.assertEqual(
+            [
+                "transport",
+                "tempo-signature",
+                "selection",
+                "track-topology",
+                "scene-topology",
+                "clip-topology",
+                "device-topology",
+                "routing",
+                "meters",
+            ],
+            [event[1]["entry"]["topic"] for event in curated[:9]],
         )
         self.assertEqual(context.project_revision, 2)
 
@@ -87,6 +103,49 @@ class ListenerManagerTests(unittest.TestCase):
         self.assertEqual(song.listener_count(), 1)
         manager.stop()
         self.assertEqual(song.listener_count(), 0)
+
+    def test_coalesces_meter_updates_without_project_mutation_events(self):
+        song = ListenerTarget(())
+        context = type(
+            "Context",
+            (),
+            {
+                "song": song,
+                "project_revision": 7,
+                "scheduled": [],
+                "schedule_message": lambda self, _ticks, callback: self.scheduled.append(
+                    callback
+                ),
+            },
+        )()
+        published = []
+        meter = ListenerTarget(("output_meter_left",))
+        manager = LomListenerManager(
+            context,
+            lambda name, payload, revision: published.append(
+                (name, payload, revision)
+            ),
+        )
+        flushed = []
+        manager._publish_state = lambda topic, phase="update": flushed.append(
+            (topic, phase)
+        )
+        manager._register(
+            meter,
+            "output_meter_left",
+            "meters",
+            "meters",
+            coalesced=True,
+        )
+
+        meter.emit("output_meter_left")
+        meter.emit("output_meter_left")
+
+        self.assertEqual(7, context.project_revision)
+        self.assertEqual([], published)
+        self.assertEqual(1, len(context.scheduled))
+        context.scheduled.pop()()
+        self.assertEqual([("meters", "update")], flushed)
 
 
 if __name__ == "__main__":

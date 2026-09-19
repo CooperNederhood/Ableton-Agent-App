@@ -1,5 +1,6 @@
 import type { AbletonService } from "@ableton-agent/ableton-contracts";
 import type {
+  AudioClipsOperationResult,
   CapabilityDocument,
   CreateArrangementMidiClipResult,
   CreateMidiClipResult,
@@ -10,6 +11,8 @@ import type {
   DuplicateClipToArrangementResult,
   FillArrangementRegionResult,
   DuplicateSessionClipResult,
+  FindDevicePositionResult,
+  InspectChainMixerResult,
   InspectArrangementResult,
   InspectArrangementMidiNotesResult,
   InspectArrangementTransportResult,
@@ -24,15 +27,21 @@ import type {
   InspectRackChainsResult,
   LaunchSessionClipResult,
   LoadBrowserItemResult,
+  MidiNotesOperationResult,
+  MixerRoutingOperationResult,
+  MoveDeviceResult,
   PingResult,
   ProjectIdentity,
   RenameTrackResult,
   ReplaceArrangementMidiNotesResult,
   ReplaceMidiNotesResult,
   SearchBrowserResult,
+  ScenesOperationResult,
   SessionSnapshot,
   SetArrangementClipPropertiesResult,
   SetArrangementLoopResult,
+  SetChainMixerResult,
+  SetChainPropertiesResult,
   SetDeviceEnabledResult,
   SetDeviceParameterResult,
   SetPlayingResult,
@@ -40,6 +49,8 @@ import type {
   SetTempoResult,
   SetTrackMixerResult,
   TrackMutationResult,
+  TracksOperationResult,
+  TransportOperationResult,
 } from "@ableton-agent/protocol";
 import type { ConnectionStatus } from "@ableton-agent/shared";
 
@@ -84,6 +95,24 @@ export class UnconfiguredAbletonService implements AbletonService {
     this.#unavailable();
   }
   public async inspectSession(): Promise<SessionSnapshot> {
+    this.#unavailable();
+  }
+  public async executeScenesOperation(): Promise<ScenesOperationResult> {
+    this.#unavailable();
+  }
+  public async executeTracksOperation(): Promise<TracksOperationResult> {
+    this.#unavailable();
+  }
+  public async executeMixerRoutingOperation(): Promise<MixerRoutingOperationResult> {
+    this.#unavailable();
+  }
+  public async executeTransportOperation(): Promise<TransportOperationResult> {
+    this.#unavailable();
+  }
+  public async executeMidiNotesOperation(): Promise<MidiNotesOperationResult> {
+    this.#unavailable();
+  }
+  public async executeAudioClipsOperation(): Promise<AudioClipsOperationResult> {
     this.#unavailable();
   }
   public async setTempo(): Promise<SetTempoResult> {
@@ -147,6 +176,21 @@ export class UnconfiguredAbletonService implements AbletonService {
     this.#unavailable();
   }
   public async inspectDrumPadChainDevices(): Promise<InspectDrumPadChainDevicesResult> {
+    this.#unavailable();
+  }
+  public async inspectChainMixer(): Promise<InspectChainMixerResult> {
+    this.#unavailable();
+  }
+  public async findDevicePosition(): Promise<FindDevicePositionResult> {
+    this.#unavailable();
+  }
+  public async moveDevice(): Promise<MoveDeviceResult> {
+    this.#unavailable();
+  }
+  public async setChainProperties(): Promise<SetChainPropertiesResult> {
+    this.#unavailable();
+  }
+  public async setChainMixer(): Promise<SetChainMixerResult> {
     this.#unavailable();
   }
   public async setDeviceEnabled(): Promise<SetDeviceEnabledResult> {

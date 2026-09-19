@@ -3759,7 +3759,10 @@ describe("desktop adapter over the shared application", () => {
         updatedAt: "2026-08-30T20:00:01.000Z",
       },
     });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await vi.waitFor(async () => {
+      const [persisted] = await firstService.getSessions();
+      expect(persisted!.activeAgents[0]!.triggerHistory).toHaveLength(1);
+    });
     const [before] = await firstService.getSessions();
     await firstService.stop();
 

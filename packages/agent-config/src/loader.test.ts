@@ -73,6 +73,45 @@ describe("agent catalog loading", () => {
     });
   });
 
+  it("persists canonical operation selections and exact aliases", async () => {
+    const catalog = await loadAgentCatalog({
+      agentsDirectory: resolve("agents"),
+      skillsDirectory: resolve("skills"),
+      availableTools: [
+        "ableton_recording",
+        "ableton_tracks",
+        "ableton_tracks_delete",
+      ],
+      availableOperations: [
+        {
+          operationId: "recording.inspect",
+          toolName: "ableton_recording",
+        },
+        {
+          operationId: "recording.set_overdub",
+          toolName: "ableton_recording",
+        },
+        { operationId: "tracks.delete", toolName: "ableton_tracks" },
+      ],
+      compatibilityAliases: {
+        ableton_tracks_delete: "tracks.delete",
+      },
+    });
+    const defaultAgent = catalog.agents.find(
+      ({ definition }) => definition.name === "default",
+    );
+
+    expect(defaultAgent).toMatchObject({
+      resolvedTools: ["ableton_recording", "ableton_tracks"],
+      resolvedOperations: [
+        "recording.inspect",
+        "recording.set_overdub",
+        "tracks.delete",
+      ],
+      explicitCompatibilityAliases: [],
+    });
+  });
+
   it("isolates invalid definitions as diagnostics", async () => {
     const root = await mkdtemp(join(tmpdir(), "ableton-agent-config-"));
     const agents = join(root, "agents");

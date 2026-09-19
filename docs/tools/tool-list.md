@@ -32,7 +32,7 @@ if the target changed.
 | Tool | Purpose | Risk | Scope | Duration | Key inputs |
 | --- | --- | --- | --- | --- | --- |
 | `ableton_connection_status` | Return the current Remote Script bridge connection status. | `read` | `read` | `instant` | None |
-| `ableton_session_inspect` | Inspect transport, tempo, time signature, project identity, tracks, scenes, clips, and capabilities. | `read` | `read` | `short` | None |
+| `ableton_session_inspect` | Inspect tempo, time signature, playback, regular tracks, and Session clips. | `read` | `read` | `short` | None |
 
 ## Transport, Arrangement loop, and cue points
 
@@ -53,6 +53,46 @@ if the target changed.
 | `ableton_tracks_delete` | Delete an exact track; refuses to delete the final remaining track. | `destructive` | `track` | `short` | Track `index`, identity, expected kind |
 | `ableton_tracks_rename` | Rename an exact inspected track. | `reversible` | `track` | `short` | Track identity, `name` |
 | `ableton_tracks_set_mixer` | Update mute, solo, arm, normalized volume, and/or pan. | `reversible` | `track` | `short` | Track identity plus one or more mixer properties |
+
+## Live 11 core-domain operations
+
+Six action-discriminated tools provide the broader Live 11 surface without
+creating one tool per property. Every action has its own operation descriptor,
+capability key, risk, edit scope, affected-track resolution, and lifecycle
+identity.
+
+| Tool | Supported actions |
+| --- | --- |
+| `ableton_scenes` | Bounded `list`/`get`; `create`, `duplicate`, `rename`, `set-color`, `set-tempo-time-signature`, `fire`, and exact destructive `delete` |
+| `ableton_tracks` | Bounded `list`/`get` across regular, group, return, and master tracks; `create-return`, regular-track `duplicate`, `set-color`, `set-monitoring`, `set-fold`, `stop-clips`, `back-to-arrangement`, and guarded regular/return `delete` |
+| `ableton_mixer_routing` | Mixer `inspect`; bounded `meters`; volume, pan, sends, activator, crossfade assignment, master crossfader, and cue volume updates; routing option discovery and exact snapshot-token assignment |
+| `ableton_transport` | `get`, `seek`, relative `jump`, time signature, metronome, launch/record quantization, Link when exposed, cue rename/jump, and Back to Arrangement |
+| `ableton_midi_notes` | Modern note-ID `query`, `add`, `update`, exact destructive `remove`, `duplicate`, and `quantize`, preserving probability, velocity deviation, and release velocity |
+| `ableton_audio_clips` | Metadata `inspect`, including currently available warp modes; gain, pitch, warp state/mode, start/end/loop markers, and RAM mode updates; bounded warp-marker reads |
+| `ableton_recording` | Recording-state inspection and verified Arrangement/Session record, overdub, automation record, punch, Capture MIDI, and timed empty-slot recording jobs |
+| `ableton_grooves` | Revision-bound Groove Pool inspection, clip assignment/clear, supported property edits, and global amount |
+| `ableton_selection_view` | Exact selection reads/setters and supported major view, follow, draw, fold, and collapse controls |
+| `ableton_live_history` | Global `canUndo`/`canRedo`, undo, and redo with explicit warning/confirmation |
+| `ableton_browser_adapters` | Preview/stop preview and capability-detected Hot-Swap, adjacent insertion, and empty Drum Rack pad loading with state restoration |
+| `ableton_clip_automation` | Session envelope discovery/sampling, bounded step insertion, and explicit clear-one/clear-all |
+| `ableton_warp_markers` | Revision-bound add/move/remove with ordering, BPM validation, verification, and compensation |
+| `ableton_special_devices` | Capability-detected Live 11 Simpler, Looper, and Wavetable operations |
+| `ableton_workflow_jobs` | Get/list bounded asynchronous workflow jobs and cancel only jobs owned by the active agent |
+
+Routing assignments require a recent option snapshot, exact option token, exact
+display name, target identity, and routing direction. Results surface warnings
+for feedback-prone routes and external MIDI destinations.
+
+MIDI note removal is destructive and requires destructive-operation approval.
+Warp-mode assignment must select a mode from the exact availability list
+returned by inspection; changed availability is rejected as stale.
+Live 11 launch quantization is bounded to `0..13`, record quantization to
+`0..8`, pitch fine to `-50..49`, and warp-mode identifiers to `0..6`.
+
+The compatibility note-replacement tools remain destructive. The core-domain
+layer does not expose scene-scoped stop, arbitrary track reordering,
+per-note expression editing, or unrestricted
+file import.
 
 ## Session View clips and MIDI notes
 
@@ -101,12 +141,26 @@ required and must never place a full tile past `regionEnd`.
 | `ableton_drum_rack_pads_inspect` | Inspect a bounded page of pads on an exact top-level Drum Rack. | `read` | `read` | `short` | Track/Drum Rack identity, `offset`, `limit` |
 | `ableton_drum_pad_chains_inspect` | Inspect direct chains for an exact Drum Rack pad. | `read` | `read` | `short` | Track/rack/pad identity, `offset`, `limit` |
 | `ableton_drum_pad_chain_devices_inspect` | Inspect direct devices in an exact Drum Rack pad chain. | `read` | `read` | `short` | Track/rack/pad/chain identity, `offset`, `limit` |
+| `ableton_rack_chain_mixer_inspect` | Inspect an exact existing chain's mute, solo, volume, pan, sends, and mixer parameter identities. | `read` | `read` | `short` | Exact rack or Drum Rack pad chain topology |
+| `ableton_device_find_position` | Validate the exact Live 11 destination position for an existing device without moving it. | `read` | `read` | `short` | Strict source location and destination parent identities plus destination index |
+| `ableton_device_move` | Move or reorder an existing device between a track and existing rack/Drum Rack chains using Live 11 `Song.move_device`. | `reversible` | `tracks` | `short` | Exact source device/parent identities and exact destination parent/index |
+| `ableton_rack_chain_set_properties` | Rename and/or recolor an exact existing rack or Drum Rack pad chain. | `reversible` | `track` | `short` | Exact chain topology plus `name` and/or Live 11 palette `colorIndex` (`0..69`) |
+| `ableton_rack_chain_set_mixer` | Set mute, solo, volume, pan, and/or exposed sends on an exact existing chain. | `reversible` | `track` | `short` | Exact chain topology and exact mixer parameter identities |
 | `ableton_device_set_enabled` | Enable or disable an exact top-level device through its Device On parameter. | `reversible` | `track` | `short` | Track/device identity, `enabled` |
 | `ableton_device_set_parameter` | Set an exact writable parameter using normalized `0..1` input, with quantization support and rollback. | `reversible` | `track` | `short` | Track/device/parameter identity, `normalizedValue` |
 
 Device inspection is intentionally bounded and non-recursive. Nested rack
 contents are reached through the rack-, chain-, pad-, and device-specific
-inspection tools.
+inspection tools. Device movement and chain editing are Live 11 operations:
+they preflight with `Song.find_device_position`, account for same-parent index
+shifts in both forward moves and rollback, mutate chain colors through the
+exact `Chain.color_index` palette index, verify the canonical state, and fail
+closed on stale or ambiguous topology. Chain-property results retain Live's
+observed RGB `color` alongside `colorIndex`.
+
+This slice does **not** support creating empty rack chains, direct native
+device insertion, deleting one chain, or reordering chains. Those operations
+are not registered as tools or advertised as capabilities.
 
 ## Ableton Browser and content loading
 
@@ -125,15 +179,23 @@ unknown load types, arbitrary paths, incompatible tracks, and active hotswap.
 
 ## Tool selection in custom agents
 
-Agent definitions select tools with exact names or wildcard patterns:
+Agent definitions select tools with exact names, operation IDs, or wildcard
+patterns:
 
 ```yaml
 tools:
   - ableton_session_inspect
-  - ableton_tracks_*
-  - ableton_clips_*
+  - recording.inspect
+  - grooves.set_*
 ```
 
-`"*"` enables the complete catalog. Patterns are expanded against the
-registered tool names when definitions load; unmatched patterns are reported
-as definition diagnostics.
+`"*"` enables the canonical catalog. Operation patterns select only matching
+actions and prune the grouped tool's strict schema. Connected capability flags
+prune unsupported actions as the session is configured. Legacy aliases are
+excluded from wildcard expansion and remain available only by exact name;
+non-equivalent exact tools remain canonical until a descriptor-backed
+replacement exists. Unmatched patterns are reported as definition
+diagnostics.
+
+The currently migrated alias is `ableton_tracks_delete`, whose canonical
+operation is `tracks.delete` on `ableton_tracks`.

@@ -34,6 +34,7 @@ class AbletonAgentControlSurface(ControlSurface):
         context = RuntimeContext(
             self.application(), self.song(), self.schedule_message
         )
+        self._runtime_context = context
         self._subscription_manager = LomSubscriptionManager(
             context,
             lambda name, payload, revision=None: self._server.publish_event(
@@ -62,6 +63,7 @@ class AbletonAgentControlSurface(ControlSurface):
                 0, self._subscription_manager.clear
             ),
         )
+        context.publish_event = self._server.publish_event
         self._server.start()
         self._listeners = LomListenerManager(
             context, self._server.publish_event, logger=self.log_message
@@ -69,6 +71,9 @@ class AbletonAgentControlSurface(ControlSurface):
         self._listeners.start()
 
     def disconnect(self):
+        manager = getattr(self._runtime_context, "_workflow_job_manager", None)
+        if manager is not None:
+            manager.mark_running_indeterminate()
         self._subscription_manager.stop()
         self._listeners.stop()
         self._server.stop()

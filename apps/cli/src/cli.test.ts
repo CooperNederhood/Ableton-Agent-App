@@ -5,6 +5,7 @@ import {
   type AbletonService,
   type AgentService,
 } from "@ableton-agent/application";
+import { PROTOCOL_VERSION } from "@ableton-agent/protocol";
 import {
   InMemoryEventPublisher,
   noopLogger,
@@ -31,6 +32,21 @@ const richTerminal: TerminalPresentation = {
   unicode: true,
   colors: createColorizer(false),
 };
+
+it("renders bounded workflow-job lifecycle progress", () => {
+  expect(
+    renderEvent({
+      type: "ableton.event_received",
+      event: "workflow_job.progress",
+      sequence: 7,
+      payload: {
+        jobId: "11111111-1111-4111-8111-111111111111",
+        status: "running",
+        progress: 0.5,
+      },
+    }),
+  ).toBe("• Live job 11111111-1111-4111-8111-111111111111: running (50%)");
+});
 
 function application(
   status: ConnectionStatus,
@@ -97,7 +113,7 @@ function application(
       saved: true,
     })),
     getCapabilities: vi.fn(async () => ({
-      selectedProtocolVersion: 3 as const,
+      selectedProtocolVersion: PROTOCOL_VERSION,
       liveVersion: "12.1",
       remoteScriptVersion: "0.2.0",
       projectId: "project",
@@ -575,6 +591,21 @@ function application(
         limit: params.limit,
       }),
     ),
+    inspectChainMixer: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    findDevicePosition: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    moveDevice: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    setChainProperties: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    setChainMixer: vi.fn(async () => {
+      throw new Error("not used");
+    }),
     setDeviceEnabled: vi.fn(async () => {
       throw new Error("not used");
     }),

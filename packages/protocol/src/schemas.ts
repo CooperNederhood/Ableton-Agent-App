@@ -3,6 +3,7 @@ import { z } from "zod";
 import { PROTOCOL_VERSION } from "./constants.js";
 
 export const MAX_LIVE_EVENT_OCCURRENCE_BYTES = 16_384;
+export const LIVE_11_MAX_COLOR_INDEX = 69;
 export const liveEventIdSchema = z
   .string()
   .regex(
@@ -202,6 +203,130 @@ export const liveEventEnvelopeSchema = z.discriminatedUnion("event", [
   liveEventInvalidatedEnvelopeSchema,
 ]);
 
+export const curatedLiveStateTopicSchema = z.enum([
+  "transport",
+  "tempo-signature",
+  "selection",
+  "track-topology",
+  "scene-topology",
+  "clip-topology",
+  "device-topology",
+  "routing",
+  "meters",
+]);
+const curatedReferenceListSchema = z.array(z.string().uuid()).max(256);
+const curatedMeterSchema = z
+  .object({
+    trackReference: z.string().uuid(),
+    left: z.number().finite().min(0).max(1),
+    right: z.number().finite().min(0).max(1),
+  })
+  .strict();
+export const curatedLiveStateEntrySchema = z.discriminatedUnion("topic", [
+  z
+    .object({
+      topic: z.literal("transport"),
+      state: z
+        .object({
+          isPlaying: z.boolean(),
+          arrangementRecord: z.boolean(),
+          sessionRecord: z.boolean(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      topic: z.literal("tempo-signature"),
+      state: z
+        .object({
+          tempo: z.number().finite().min(20).max(999),
+          numerator: z.number().int().min(1).max(99),
+          denominator: z.number().int().min(1).max(16),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      topic: z.literal("selection"),
+      state: z
+        .object({
+          trackReference: z.string().uuid().nullable(),
+          sceneReference: z.string().uuid().nullable(),
+          clipReference: z.string().uuid().nullable(),
+          deviceReference: z.string().uuid().nullable(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      topic: z.literal("track-topology"),
+      state: z.object({ references: curatedReferenceListSchema }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      topic: z.literal("scene-topology"),
+      state: z.object({ references: curatedReferenceListSchema }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      topic: z.literal("clip-topology"),
+      state: z
+        .object({
+          trackReferences: curatedReferenceListSchema,
+          clipCount: z.number().int().nonnegative(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      topic: z.literal("device-topology"),
+      state: z
+        .object({
+          trackReferences: curatedReferenceListSchema,
+          deviceCount: z.number().int().nonnegative(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      topic: z.literal("routing"),
+      state: z.object({ trackReferences: curatedReferenceListSchema }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      topic: z.literal("meters"),
+      state: z
+        .object({ samples: z.array(curatedMeterSchema).max(256) })
+        .strict(),
+    })
+    .strict(),
+]);
+export const inspectCuratedLiveStateParamsSchema = z.object({}).strict();
+export const inspectCuratedLiveStateResultSchema = z
+  .object({ states: z.array(curatedLiveStateEntrySchema).max(9) })
+  .strict();
+export const curatedLiveStateChangedEnvelopeSchema = eventEnvelopeSchema.extend(
+  {
+    event: z.literal("live_state.changed"),
+    payload: z
+      .object({
+        phase: z.enum(["initial", "update", "rebound"]),
+        observedAt: z.string().datetime(),
+        projectRevision: z.number().int().nonnegative(),
+        entry: curatedLiveStateEntrySchema,
+      })
+      .strict(),
+  },
+);
+
 export const messageEnvelopeSchema = z.union([
   requestEnvelopeSchema,
   successResponseEnvelopeSchema,
@@ -221,6 +346,13 @@ export type LiveEventInvalidatedEnvelope = z.infer<
   typeof liveEventInvalidatedEnvelopeSchema
 >;
 export type LiveEventEnvelope = z.infer<typeof liveEventEnvelopeSchema>;
+export type CuratedLiveStateEntry = z.infer<typeof curatedLiveStateEntrySchema>;
+export type CuratedLiveStateChangedEnvelope = z.infer<
+  typeof curatedLiveStateChangedEnvelopeSchema
+>;
+export type InspectCuratedLiveStateResult = z.infer<
+  typeof inspectCuratedLiveStateResultSchema
+>;
 export type LiveEventOccurrencePayload = LiveEventOccurredEnvelope["payload"];
 export type LiveEventInvalidationPayload =
   LiveEventInvalidatedEnvelope["payload"];
@@ -243,6 +375,24 @@ export const helloParamsSchema = z.object({
   eventSubscriptions: z.array(z.string()).default([]),
 });
 
+export const capabilityEvidenceSchema = z.enum([
+  "public",
+  "release_note_provisional",
+  "private_tested",
+  "private_detected_untested",
+  "unavailable",
+]);
+
+export const capabilityDetailSchema = z
+  .object({
+    supported: z.boolean(),
+    evidence: capabilityEvidenceSchema,
+    minimumLiveVersion: z.string().min(1).max(32).optional(),
+    testedLiveVersions: z.array(z.string().min(1).max(32)).max(16),
+    limitations: z.array(z.string().min(1).max(256)).max(16),
+  })
+  .strict();
+
 export const capabilityDocumentSchema = z.object({
   selectedProtocolVersion: z.literal(PROTOCOL_VERSION),
   liveVersion: z.string().min(1),
@@ -251,6 +401,7 @@ export const capabilityDocumentSchema = z.object({
   projectName: z.string().min(1).optional(),
   saved: z.boolean().optional(),
   capabilities: z.record(z.string(), z.boolean()),
+  capabilityDetails: z.record(z.string(), capabilityDetailSchema).optional(),
   limits: z.object({
     maxFrameBytes: z.number().int().positive(),
     maxBatchItems: z.number().int().positive(),
@@ -881,6 +1032,356 @@ export const inspectDrumPadChainDevicesResultSchema = z.object({
   limit: z.number().int().min(1).max(128),
 });
 
+const exactTrackIdentitySchema = z
+  .object({
+    index: z.number().int().nonnegative(),
+    expectedReference: z.string().uuid(),
+    expectedName: z.string().min(1),
+  })
+  .strict();
+
+const exactDeviceIdentitySchema = z
+  .object({
+    index: z.number().int().nonnegative(),
+    expectedReference: z.string().uuid(),
+    expectedName: z.string(),
+  })
+  .strict();
+
+const exactChainIdentitySchema = z
+  .object({
+    index: z.number().int().nonnegative(),
+    expectedReference: z.string().uuid(),
+    expectedName: z.string(),
+  })
+  .strict();
+
+const exactDrumPadIdentitySchema = z
+  .object({
+    index: z.number().int().nonnegative(),
+    expectedReference: z.string().uuid(),
+    expectedNote: z.number().int().min(0).max(127),
+    expectedName: z.string(),
+  })
+  .strict();
+
+export const deviceLocationTargetSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("track-device"),
+      track: exactTrackIdentitySchema,
+      device: exactDeviceIdentitySchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("rack-chain-device"),
+      track: exactTrackIdentitySchema,
+      rack: exactDeviceIdentitySchema,
+      chain: exactChainIdentitySchema,
+      device: exactDeviceIdentitySchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("drum-pad-chain-device"),
+      track: exactTrackIdentitySchema,
+      rack: exactDeviceIdentitySchema,
+      pad: exactDrumPadIdentitySchema,
+      chain: exactChainIdentitySchema,
+      device: exactDeviceIdentitySchema,
+    })
+    .strict(),
+]);
+
+export const deviceDestinationTargetSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("track"),
+      track: exactTrackIdentitySchema,
+      deviceIndex: z.number().int().nonnegative(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("rack-chain"),
+      track: exactTrackIdentitySchema,
+      rack: exactDeviceIdentitySchema,
+      chain: exactChainIdentitySchema,
+      deviceIndex: z.number().int().nonnegative(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("drum-pad-chain"),
+      track: exactTrackIdentitySchema,
+      rack: exactDeviceIdentitySchema,
+      pad: exactDrumPadIdentitySchema,
+      chain: exactChainIdentitySchema,
+      deviceIndex: z.number().int().nonnegative(),
+    })
+    .strict(),
+]);
+
+const actualTrackIdentitySchema = z
+  .object({
+    index: z.number().int().nonnegative(),
+    reference: z.string().uuid(),
+    name: z.string(),
+  })
+  .strict();
+
+const actualDeviceIdentitySchema = z
+  .object({
+    index: z.number().int().nonnegative(),
+    reference: z.string().uuid(),
+    name: z.string(),
+  })
+  .strict();
+
+const actualChainIdentitySchema = z
+  .object({
+    index: z.number().int().nonnegative(),
+    reference: z.string().uuid(),
+    name: z.string(),
+  })
+  .strict();
+
+const actualDrumPadIdentitySchema = z
+  .object({
+    index: z.number().int().nonnegative(),
+    reference: z.string().uuid(),
+    note: z.number().int().min(0).max(127),
+    name: z.string(),
+  })
+  .strict();
+
+export const deviceLocationSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("track-device"),
+      track: actualTrackIdentitySchema,
+      device: actualDeviceIdentitySchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("rack-chain-device"),
+      track: actualTrackIdentitySchema,
+      rack: actualDeviceIdentitySchema,
+      chain: actualChainIdentitySchema,
+      device: actualDeviceIdentitySchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("drum-pad-chain-device"),
+      track: actualTrackIdentitySchema,
+      rack: actualDeviceIdentitySchema,
+      pad: actualDrumPadIdentitySchema,
+      chain: actualChainIdentitySchema,
+      device: actualDeviceIdentitySchema,
+    })
+    .strict(),
+]);
+
+export const deviceDestinationSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("track"),
+      track: actualTrackIdentitySchema,
+      deviceIndex: z.number().int().nonnegative(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("rack-chain"),
+      track: actualTrackIdentitySchema,
+      rack: actualDeviceIdentitySchema,
+      chain: actualChainIdentitySchema,
+      deviceIndex: z.number().int().nonnegative(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("drum-pad-chain"),
+      track: actualTrackIdentitySchema,
+      rack: actualDeviceIdentitySchema,
+      pad: actualDrumPadIdentitySchema,
+      chain: actualChainIdentitySchema,
+      deviceIndex: z.number().int().nonnegative(),
+    })
+    .strict(),
+]);
+
+export const findDevicePositionParamsSchema = z
+  .object({
+    source: deviceLocationTargetSchema,
+    destination: deviceDestinationTargetSchema,
+  })
+  .strict();
+
+export const findDevicePositionResultSchema = z
+  .object({
+    source: deviceLocationSchema,
+    destination: deviceDestinationSchema,
+    requestedIndex: z.number().int().nonnegative(),
+    resolvedIndex: z.number().int().nonnegative(),
+    apiTargetPosition: z.number().int().nonnegative(),
+    sameParent: z.boolean(),
+    exact: z.boolean(),
+  })
+  .strict();
+
+export const moveDeviceParamsSchema = findDevicePositionParamsSchema;
+
+export const moveDeviceResultSchema = z
+  .object({
+    deviceReference: z.string().uuid(),
+    before: deviceLocationSchema,
+    after: deviceLocationSchema,
+    requestedDestinationIndex: z.number().int().nonnegative(),
+    preflightIndex: z.number().int().nonnegative(),
+    moveReturnedIndex: z.number().int().nonnegative(),
+    sameParent: z.boolean(),
+    verified: z.literal(true),
+  })
+  .strict();
+
+export const chainLocationTargetSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("rack-chain"),
+      track: exactTrackIdentitySchema,
+      rack: exactDeviceIdentitySchema,
+      chain: exactChainIdentitySchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("drum-pad-chain"),
+      track: exactTrackIdentitySchema,
+      rack: exactDeviceIdentitySchema,
+      pad: exactDrumPadIdentitySchema,
+      chain: exactChainIdentitySchema,
+    })
+    .strict(),
+]);
+
+export const chainPropertiesStateSchema = z
+  .object({
+    name: z.string(),
+    color: z.number().int().min(0).max(0xff_ff_ff).nullable(),
+    colorIndex: z.number().int().min(0).max(LIVE_11_MAX_COLOR_INDEX),
+  })
+  .strict();
+
+export const setChainPropertiesParamsSchema = z
+  .object({
+    target: chainLocationTargetSchema,
+    colorIndex: z.number().int().min(0).max(LIVE_11_MAX_COLOR_INDEX).optional(),
+    name: z.string().min(1).max(128).optional(),
+  })
+  .strict()
+  .refine(
+    (params) => params.name !== undefined || params.colorIndex !== undefined,
+    {
+      message: "At least one chain property is required",
+    },
+  );
+
+export const setChainPropertiesResultSchema = z
+  .object({
+    chainReference: z.string().uuid(),
+    before: chainPropertiesStateSchema,
+    after: chainPropertiesStateSchema,
+    verified: z.literal(true),
+  })
+  .strict();
+
+export const chainMixerParameterSchema = z
+  .object({
+    reference: z.string().uuid(),
+    name: z.string(),
+    value: z.number().finite(),
+    normalizedValue: z.number().min(0).max(1),
+    min: z.number().finite(),
+    max: z.number().finite(),
+    isEnabled: z.boolean(),
+  })
+  .strict();
+
+export const chainMixerStateSchema = z
+  .object({
+    mute: z.boolean(),
+    solo: z.boolean(),
+    volume: chainMixerParameterSchema.nullable(),
+    pan: chainMixerParameterSchema.nullable(),
+    sends: z.array(chainMixerParameterSchema).max(64),
+  })
+  .strict();
+
+export const inspectChainMixerParamsSchema = z
+  .object({
+    target: chainLocationTargetSchema,
+  })
+  .strict();
+
+export const inspectChainMixerResultSchema = z
+  .object({
+    chainReference: z.string().uuid(),
+    mixer: chainMixerStateSchema,
+  })
+  .strict();
+
+const chainMixerParameterChangeSchema = z
+  .object({
+    expectedParameterReference: z.string().uuid(),
+    expectedParameterName: z.string(),
+    normalizedValue: z.number().finite().min(0).max(1),
+  })
+  .strict();
+
+const chainSendChangeSchema = chainMixerParameterChangeSchema.extend({
+  index: z.number().int().nonnegative().max(63),
+});
+
+export const setChainMixerParamsSchema = z
+  .object({
+    target: chainLocationTargetSchema,
+    mute: z.boolean().optional(),
+    solo: z.boolean().optional(),
+    volume: chainMixerParameterChangeSchema.optional(),
+    pan: chainMixerParameterChangeSchema.optional(),
+    sends: z.array(chainSendChangeSchema).max(64).optional(),
+  })
+  .strict()
+  .refine(
+    (params) =>
+      params.mute !== undefined ||
+      params.solo !== undefined ||
+      params.volume !== undefined ||
+      params.pan !== undefined ||
+      (params.sends?.length ?? 0) > 0,
+    { message: "At least one chain mixer property is required" },
+  )
+  .refine(
+    (params) =>
+      params.sends === undefined ||
+      new Set(params.sends.map((send) => send.index)).size ===
+        params.sends.length,
+    { message: "Send indexes must be unique" },
+  );
+
+export const setChainMixerResultSchema = z
+  .object({
+    chainReference: z.string().uuid(),
+    before: chainMixerStateSchema,
+    after: chainMixerStateSchema,
+    verified: z.literal(true),
+  })
+  .strict();
+
 export const setDeviceEnabledParamsSchema = deviceTargetSchema.extend({
   enabled: z.boolean(),
 });
@@ -1445,6 +1946,38 @@ export type InspectDrumPadChainDevicesParams = z.infer<
 export type InspectDrumPadChainDevicesResult = z.infer<
   typeof inspectDrumPadChainDevicesResultSchema
 >;
+export type DeviceLocationTarget = z.infer<typeof deviceLocationTargetSchema>;
+export type DeviceDestinationTarget = z.infer<
+  typeof deviceDestinationTargetSchema
+>;
+export type DeviceLocation = z.infer<typeof deviceLocationSchema>;
+export type DeviceDestination = z.infer<typeof deviceDestinationSchema>;
+export type FindDevicePositionParams = z.infer<
+  typeof findDevicePositionParamsSchema
+>;
+export type FindDevicePositionResult = z.infer<
+  typeof findDevicePositionResultSchema
+>;
+export type MoveDeviceParams = z.infer<typeof moveDeviceParamsSchema>;
+export type MoveDeviceResult = z.infer<typeof moveDeviceResultSchema>;
+export type ChainLocationTarget = z.infer<typeof chainLocationTargetSchema>;
+export type ChainPropertiesState = z.infer<typeof chainPropertiesStateSchema>;
+export type SetChainPropertiesParams = z.infer<
+  typeof setChainPropertiesParamsSchema
+>;
+export type SetChainPropertiesResult = z.infer<
+  typeof setChainPropertiesResultSchema
+>;
+export type ChainMixerParameter = z.infer<typeof chainMixerParameterSchema>;
+export type ChainMixerState = z.infer<typeof chainMixerStateSchema>;
+export type InspectChainMixerParams = z.infer<
+  typeof inspectChainMixerParamsSchema
+>;
+export type InspectChainMixerResult = z.infer<
+  typeof inspectChainMixerResultSchema
+>;
+export type SetChainMixerParams = z.infer<typeof setChainMixerParamsSchema>;
+export type SetChainMixerResult = z.infer<typeof setChainMixerResultSchema>;
 export type SetDeviceEnabledParams = z.infer<
   typeof setDeviceEnabledParamsSchema
 >;

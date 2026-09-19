@@ -15,6 +15,7 @@ from .device_commands import (
     _resolve_device,
     _resolve_parameter,
 )
+from .core_domain_commands import _clip_reference, _scene_reference
 from .errors import ProtocolFailure
 from .identity import build_project_identity
 from .system_commands import _resolve_track, _same_lom_object, _track_reference
@@ -161,6 +162,131 @@ def parameter_value_state(parameter):
     }
 
 
+def curated_state_entries(context):
+    song = context.song
+    tracks = list(_safe_getattr(song, "tracks", ()) or ())
+    scenes = list(_safe_getattr(song, "scenes", ()) or ())
+    view = _safe_getattr(song, "view")
+    selected_track = _safe_getattr(view, "selected_track")
+    selected_scene = _safe_getattr(view, "selected_scene")
+    selected_clip = _safe_getattr(view, "detail_clip")
+    selected_device = _safe_getattr(view, "selected_device")
+    clip_count = sum(
+        1
+        for track in tracks
+        for slot in (_safe_getattr(track, "clip_slots", ()) or ())
+        if bool(_safe_getattr(slot, "has_clip", False))
+    )
+    device_count = sum(
+        len(_safe_getattr(track, "devices", ()) or ()) for track in tracks
+    )
+    samples = []
+    for track in tracks[:256]:
+        left = _safe_getattr(track, "output_meter_left", 0.0)
+        right = _safe_getattr(track, "output_meter_right", 0.0)
+        samples.append(
+            {
+                "trackReference": _track_reference(context, track),
+                "left": min(1.0, max(0.0, float(left or 0.0))),
+                "right": min(1.0, max(0.0, float(right or 0.0))),
+            }
+        )
+    return [
+        {
+            "topic": "transport",
+            "state": {
+                "isPlaying": bool(_safe_getattr(song, "is_playing", False)),
+                "arrangementRecord": bool(
+                    _safe_getattr(song, "record_mode", False)
+                ),
+                "sessionRecord": bool(
+                    _safe_getattr(song, "session_record", False)
+                ),
+            },
+        },
+        {
+            "topic": "tempo-signature",
+            "state": {
+                "tempo": float(_safe_getattr(song, "tempo", 120.0)),
+                "numerator": int(
+                    _safe_getattr(song, "signature_numerator", 4)
+                ),
+                "denominator": int(
+                    _safe_getattr(song, "signature_denominator", 4)
+                ),
+            },
+        },
+        {
+            "topic": "selection",
+            "state": {
+                "trackReference": (
+                    _track_reference(context, selected_track)
+                    if selected_track is not None
+                    else None
+                ),
+                "sceneReference": (
+                    _scene_reference(context, selected_scene)
+                    if selected_scene is not None
+                    else None
+                ),
+                "clipReference": (
+                    _clip_reference(context, selected_clip)
+                    if selected_clip is not None
+                    else None
+                ),
+                "deviceReference": (
+                    _device_reference(context, selected_device)
+                    if selected_device is not None
+                    else None
+                ),
+            },
+        },
+        {
+            "topic": "track-topology",
+            "state": {
+                "references": [
+                    _track_reference(context, track) for track in tracks[:256]
+                ]
+            },
+        },
+        {
+            "topic": "scene-topology",
+            "state": {
+                "references": [
+                    _scene_reference(context, scene) for scene in scenes[:256]
+                ]
+            },
+        },
+        {
+            "topic": "clip-topology",
+            "state": {
+                "trackReferences": [
+                    _track_reference(context, track) for track in tracks[:256]
+                ],
+                "clipCount": clip_count,
+            },
+        },
+        {
+            "topic": "device-topology",
+            "state": {
+                "trackReferences": [
+                    _track_reference(context, track) for track in tracks[:256]
+                ],
+                "deviceCount": device_count,
+            },
+        },
+        {
+            "topic": "routing",
+            "state": {
+                "trackReferences": [
+                    _track_reference(context, track) for track in tracks[:256]
+                ]
+            },
+        },
+        {"topic": "meters", "state": {"samples": samples}},
+    ]
+
+
 def _summary(kind, current):
     if kind == PARAMETER_VALUE_CHANGED:
         return "Parameter changed to {0}".format(current["displayValue"])
@@ -270,6 +396,9 @@ class LomSubscriptionManager(object):
             if parameter_target is not None:
                 break
         return {"track": track_target, "parameter": parameter_target}
+
+    def inspect_curated_state(self):
+        return {"states": curated_state_entries(self._context)}
 
     def subscribe(self, params):
         event_id = params["eventId"]
@@ -794,6 +923,12 @@ def register_event_commands(registry, manager):
         "events.inspect_selection",
         lambda _context, _params: manager.inspect_selection(),
         capability="events.inspect_selection",
+        validator=_no_params,
+    )
+    registry.register(
+        "events.inspect_curated_state",
+        lambda _context, _params: manager.inspect_curated_state(),
+        capability="events.inspect_curated_state",
         validator=_no_params,
     )
     registry.register(

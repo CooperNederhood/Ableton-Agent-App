@@ -74,10 +74,15 @@ relevant validation pass.
 
 ### Stage 4: core production features
 
-- [~] Implement tracks, transport, session clips, notes, and arrangement
+- [x] Implement the approved Live 11 scenes, tracks, mixer/routing, transport,
+  Session/Arrangement clips, modern note-ID editing, and arrangement
   primitives.
-- [ ] Add project snapshots, revisions, stable references, and change sets.
-- [ ] Add verification and recovery behavior.
+- [~] Add project snapshots, revisions, stable references, and change sets.
+  Runtime-stable scene, track, clip, note, mixer-parameter, cue, and routing
+  option identities are implemented; durable change sets remain.
+- [~] Add verification and recovery behavior.
+  Core-domain mutations verify postconditions and restore prior state where the
+  Live API permits safe compensation.
 - [~] Add device, rack, browser, and plug-in features.
   - [x] Add bounded top-level device/parameter inspection and verified
     enable/disable plus normalized parameter mutation for regular tracks.
@@ -87,8 +92,18 @@ relevant validation pass.
     search, runtime-stable item references, Live 11 virtual-container support,
     and verified device/device-preset loading from any Browser root onto exact
     compatible regular tracks.
-  - [ ] Add return/group tracks and separately designed nested-rack traversal.
+  - [x] Add return/group/master inspection and supported return-track actions.
+  - [ ] Add separately designed nested-rack traversal.
 - [ ] Complete unit, contract, simulator, and real-Live tests for each command.
+- [~] Add the final Live 11 workflow-adapter layer.
+  - [x] Add recording/capture, Groove Pool, selection/view, global history,
+    Session automation, warp-marker, tested Browser adapter, specialized-device,
+    and bounded job contracts and implementations.
+  - [x] Add action-aware approvals, edit scopes, capability detection, exact
+    identity checks, verified readback, compensation, and documented omissions.
+  - [x] Add typed curated state snapshots/events and coalesced meter listeners.
+  - [ ] Complete real-Live evidence runs for every capability-dependent private
+    Browser, Simpler, Looper, Wavetable, envelope, and warp-marker API shape.
 
 ### Stage 5: React product superset
 

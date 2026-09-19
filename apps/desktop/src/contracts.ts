@@ -895,6 +895,8 @@ export const desktopAgentDefinitionSchema = z.object({
   systemPrompt: z.string().min(1),
   tools: z.array(z.string().min(1)),
   resolvedTools: z.array(z.string().min(1)),
+  resolvedOperations: z.array(z.string().min(1)).optional(),
+  explicitCompatibilityAliases: z.array(z.string().min(1)).optional(),
   editScope: z.array(
     z.union([z.literal("session"), desktopTrackScopeSelectorSchema]),
   ),

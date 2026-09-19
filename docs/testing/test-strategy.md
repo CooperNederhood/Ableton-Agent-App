@@ -63,6 +63,9 @@ Python:
 - LOM serialization.
 - Capability detection.
 - Command handlers with fake LOM objects.
+- Live 11 device destination preflight, stale/ambiguous topology rejection,
+  same-parent index translation, verified movement/recovery, and existing-chain
+  property/mixer rollback.
 - Listener registration/removal.
 - Dynamic event subscription resolution, semantic transition translation,
   parameter coalescing, invalidation, and reconnect cleanup.
@@ -95,6 +98,7 @@ Test:
   transported, normalized, persisted, routed, and delivery stages.
 - Oversized and malformed frames.
 - Mutation serialization.
+- Live 11 device move and chain-edit protocol dispatch against the simulator.
 
 ### Workflow tests
 
@@ -112,6 +116,9 @@ Maintain a small manually triggered suite for supported Live versions:
 - Create a MIDI clip and add notes.
 - Place a clip in Arrangement.
 - Load a built-in device and set a parameter.
+- Validate the supported existing-device moves and existing-chain edits in the
+  Live 11 capability matrix; explicitly confirm unsupported structural
+  operations remain absent.
 - Exercise Browser lookup through Live virtual roots and load a device preset
   discovered under Drums, Packs, or User Library.
 - Load Auto Filter onto a generated audio track to cover loadable devices that

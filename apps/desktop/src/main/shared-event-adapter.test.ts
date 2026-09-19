@@ -43,4 +43,26 @@ describe("shared application event adapter", () => {
       operation: { toolName: `custom:${"x".repeat(121)}` },
     });
   });
+
+  it("maps workflow jobs to bounded diagnostics", () => {
+    expect(
+      normalizeSharedEvent(
+        {
+          type: "ableton.event_received",
+          event: "workflow_job.completed",
+          sequence: 8,
+          payload: {
+            jobId: "11111111-1111-4111-8111-111111111111",
+            status: "completed",
+          },
+        },
+        () => "message-3",
+      ),
+    ).toEqual({
+      type: "diagnostic",
+      level: "info",
+      message:
+        "Ableton workflow job 11111111-1111-4111-8111-111111111111: completed",
+    });
+  });
 });

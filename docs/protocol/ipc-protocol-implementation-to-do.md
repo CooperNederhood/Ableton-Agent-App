@@ -19,8 +19,16 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
     Session track summaries without embedding parameter bodies.
   - [x] Define bounded exact-rack chain, direct chain-device, Drum Rack pad,
     pad-chain, and pad-chain-device inspection schemas.
+  - [x] Define strict discriminated Live 11 device source/destination targets,
+    exact-position preflight, verified move results, and existing-chain
+    name/palette-index property and mixer mutation schemas.
   - [x] Define bounded Browser root/child/search schemas, exact runtime item
     targets, strict traversal limits, and verified built-in load results.
+  - [x] Define strict action-discriminated Live 11 scene, track,
+    mixer/routing, transport, modern MIDI-note, and audio-clip schemas with
+    bounded pages and exact runtime identities.
+  - [x] Bound Live 11 launch/record quantization and audio pitch-fine domains,
+    and require exact available-warp-mode state for warp-mode assignment.
 - [x] Export JSON Schema and representative fixtures for Python tests.
 
 ## Framing and negotiation
@@ -31,11 +39,19 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 - [x] Implement protocol-version selection and incompatibility errors.
 - [x] Define request ID, event sequence, and project revision semantics.
 - [x] Classify expensive device-parameter inspection as a long-running command.
+- [x] Keep core-domain inspection and mutation commands separate so read-only
+  actions do not trigger project mutation invalidation.
 - [ ] Propagate bounded opaque trace/correlation context through command,
   response, and unsolicited-event envelopes and contract fixtures.
 - [x] Document additive compatibility and version-bump rules.
 
 ## Contract automation
+
+- [x] Add action-discriminated contracts for the final Live 11 workflow
+  adapters and asynchronous jobs.
+- [x] Add a typed curated-state snapshot and event envelope.
+- [x] Regenerate the committed JSON Schema fixtures without changing the
+  protocol version.
 
 - [x] Generate a command catalog from canonical schemas.
 - [x] Validate that each command has request, success, and failure fixtures.

@@ -69,6 +69,13 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
   observability during saturation, gaps, cancellation, and reconnect.
   Queue/dispatch/completion timing and cancellation coverage are implemented;
   sustained non-blocking saturation coverage remains.
+- [x] Route final Live 11 workflow-adapter reads and mutations through the
+  all-request serialized queue with action-specific capabilities and mutation
+  invalidation.
+- [x] Validate curated state and workflow-job events and retain job
+  trace/correlation/causation IDs in observability records.
+- [x] Route final workflow actions to granular internal commands and retain
+  additive capability evidence/details from the Live 11 handshake.
 
 ## Exit criteria
 

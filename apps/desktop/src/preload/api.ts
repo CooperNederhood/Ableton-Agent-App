@@ -79,6 +79,26 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
             ...request,
           })
         ).resolved,
+      readPlan: (instanceId) => invoke("agents:read-plan", { instanceId }),
+      writePlan: (instanceId, input) =>
+        invoke("agents:write-plan", { instanceId, ...input }),
+      resolveElicitation: async (instanceId, request) =>
+        (
+          await invoke("agents:resolve-elicitation", {
+            instanceId,
+            ...request,
+            ...(request.content === undefined
+              ? {}
+              : {
+                  content: Object.fromEntries(
+                    Object.entries(request.content).map(([key, value]) => [
+                      key,
+                      Array.isArray(value) ? [...value] : value,
+                    ]),
+                  ),
+                }),
+          })
+        ).resolved,
       invokeSkill: (
         instanceId,
         skillName,

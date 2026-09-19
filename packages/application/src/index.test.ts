@@ -1177,9 +1177,12 @@ describe("CopilotAgentService", () => {
       "custom:ableton_browser_search_external_plugins",
       "custom:ableton_browser_load_item",
       "custom:ableton_arrangement_fill_region",
+      "custom:read_plan",
+      "custom:write_plan",
+      "builtin:ask_user",
       "builtin:exit_plan_mode",
     ]);
-    expect(config?.tools).toHaveLength(39);
+    expect(config?.tools).toHaveLength(41);
     expect(config?.customAgents).toEqual([
       {
         name: "default-agent",
@@ -1188,48 +1191,6 @@ describe("CopilotAgentService", () => {
           "Primary Ableton Live production assistant for the current session.",
         prompt:
           "Act as the general-purpose Ableton production agent for the current Live Set. Inspect when needed, then directly perform the user's requested supported edits with the available tools. Mutations are restricted by tool approval, edit scope, connection, and automatic-analysis policies. Follow the session system message and clearly report observed state, applied changes, and real limitations.",
-        tools: [
-          "ableton_connection_status",
-          "ableton_session_inspect",
-          "ableton_transport_set_tempo",
-          "ableton_transport_set_playing",
-          "ableton_transport_inspect_arrangement",
-          "ableton_transport_set_arrangement_loop",
-          "ableton_transport_create_cue_point",
-          "ableton_transport_delete_cue_point",
-          "ableton_tracks_create",
-          "ableton_tracks_delete",
-          "ableton_tracks_rename",
-          "ableton_tracks_set_mixer",
-          "ableton_clips_create_midi",
-          "ableton_clips_replace_notes",
-          "ableton_clips_launch",
-          "ableton_clips_duplicate",
-          "ableton_clips_delete",
-          "ableton_clips_set_properties",
-          "ableton_arrangement_create_midi_clip",
-          "ableton_arrangement_inspect",
-          "ableton_arrangement_delete_clip",
-          "ableton_arrangement_replace_notes",
-          "ableton_arrangement_duplicate_clip",
-          "ableton_arrangement_set_clip_properties",
-          "ableton_devices_inspect",
-          "ableton_device_parameters_inspect",
-          "ableton_rack_chains_inspect",
-          "ableton_rack_chain_devices_inspect",
-          "ableton_drum_rack_pads_inspect",
-          "ableton_drum_pad_chains_inspect",
-          "ableton_drum_pad_chain_devices_inspect",
-          "ableton_device_set_enabled",
-          "ableton_device_set_parameter",
-          "ableton_browser_roots_inspect",
-          "ableton_browser_children_inspect",
-          "ableton_browser_search",
-          "ableton_browser_search_external_plugins",
-          "ableton_browser_load_item",
-          "ableton_arrangement_fill_region",
-          "exit_plan_mode",
-        ],
         infer: false,
       },
     ]);
@@ -1243,6 +1204,40 @@ describe("CopilotAgentService", () => {
       "Active plan-mode reminder",
     );
     expect(config?.onExitPlanModeRequest).toBeTypeOf("function");
+    expect(config?.askUserVariant).toBe("elicitation");
+    expect(config?.toolSearch).toEqual({ enabled: false });
+    expect(config?.onUserInputRequest).toBeTypeOf("function");
+    expect(config?.onElicitationRequest).toBeTypeOf("function");
+    expect(
+      config?.tools?.find(({ name }) => name === "read_plan"),
+    ).toMatchObject({ skipPermission: true, defer: "never" });
+    expect(
+      config?.tools?.find(({ name }) => name === "write_plan"),
+    ).toMatchObject({ skipPermission: true, defer: "never" });
+    await expect(
+      config?.onPermissionRequest?.(
+        {
+          kind: "custom-tool",
+          toolName: "write_plan",
+          toolDescription: "Write plan",
+          args: { content: "# Plan" },
+        },
+        { sessionId: "session" },
+      ),
+    ).resolves.toEqual({ kind: "approve-once" });
+    expect(requestToolApproval).not.toHaveBeenCalled();
+    expect(
+      config?.hooks?.onPreToolUse?.(
+        {
+          sessionId: "session",
+          timestamp: new Date(),
+          workingDirectory: "/tmp",
+          toolName: "write_plan",
+          toolArgs: { content: "# Plan" },
+        },
+        { sessionId: "session" },
+      ),
+    ).toBeUndefined();
     await expect(
       config?.onPermissionRequest?.(
         {
@@ -1855,6 +1850,7 @@ describe("HeadlessApplication agent and connection ports", () => {
     const deps = services({ state: "disconnected" });
     const configuration: AgentSessionConfiguration = {
       instanceId: "agent-a",
+      productionSessionId: "production-test",
       definitionName: "compose",
       label: "Compose",
       description: "Compose MIDI phrases.",

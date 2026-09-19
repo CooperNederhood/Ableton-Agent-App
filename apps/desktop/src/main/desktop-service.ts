@@ -1,6 +1,8 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
+
+import { resolveProductionSessionStorage } from "@ableton-agent/storage";
 
 import type {
   ApprovalDecision,
@@ -14,6 +16,7 @@ import type {
   DesktopAgentCatalog,
   DesktopAgentModel,
   DesktopAgentMode,
+  DesktopPlanArtifactSnapshot,
   DesktopAutoApprovalUpdate,
   DesktopConnectionStatus,
   DiagnosticCheck,
@@ -108,8 +111,22 @@ export interface DesktopService {
     request: {
       requestId: string;
       approved: boolean;
+      planRevision?: string;
       selectedAction?: "exit_only" | "interactive";
       feedback?: string;
+    },
+  ): Promise<boolean>;
+  readActiveAgentPlan(instanceId: string): Promise<DesktopPlanArtifactSnapshot>;
+  writeActiveAgentPlan(
+    instanceId: string,
+    input: { content: string; expectedRevision?: string },
+  ): Promise<DesktopPlanArtifactSnapshot>;
+  resolveActiveAgentElicitation(
+    instanceId: string,
+    request: {
+      requestId: string;
+      action: "accept" | "decline" | "cancel";
+      content?: Readonly<Record<string, string | number | boolean | string[]>>;
     },
   ): Promise<boolean>;
   invokeActiveAgentSkill(
@@ -324,15 +341,15 @@ export class JsonSessionStore {
     if (this.sessionStateDirectory === undefined) return;
     await mkdir(this.sessionStateDirectory, { recursive: true, mode: 0o700 });
     for (const session of sessions) {
-      const directory = join(
+      const paths = resolveProductionSessionStorage(
         this.sessionStateDirectory,
-        sessionDirectoryName(session.id),
+        session.id,
       );
-      await mkdir(join(directory, "artifacts"), {
+      await mkdir(paths.artifactsDirectory, {
         recursive: true,
         mode: 0o700,
       });
-      const manifestPath = join(directory, "session.json");
+      const manifestPath = paths.manifestPath;
       const temporaryPath = `${manifestPath}.${randomUUID()}.tmp`;
       try {
         await writeFile(
@@ -364,14 +381,4 @@ export class JsonSessionStore {
       }
     }
   }
-}
-
-function sessionDirectoryName(sessionId: string): string {
-  if (
-    sessionId.length <= 200 &&
-    /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/u.test(sessionId)
-  ) {
-    return sessionId;
-  }
-  return `session-${createHash("sha256").update(sessionId).digest("hex")}`;
 }

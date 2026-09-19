@@ -70,15 +70,25 @@ Each active agent also owns an interaction mode. `/plan` enters plan mode
 without creating a chat turn, and Shift+Tab toggles between plan and
 interactive modes for the selected agent. The composer shows the current mode.
 User turns submitted in plan mode use a distinct card treatment and a compact
-textual `plan` label so the distinction does not depend on color.
+textual `plan` label so the distinction does not depend on color. Messages
+submitted through the isolated automation endpoint inherit and display the
+selected agent's effective mode rather than defaulting to interactive.
 
-When the agent finishes a plan, the selected agent's Inspector displays the
-bounded plan content and actions to approve and continue interactively, request
-changes, or exit without implementation. Until interactive approval is
-recorded, plan mode remains read-only even if ordinary mutation auto-approval is
-enabled. The panel disables duplicate submissions while a response is pending,
-keeps stale or failed requests visible with an actionable error, and renders
-only the actions offered by the normalized SDK request.
+Planning interaction replaces the ordinary composer in place while preserving
+the visible conversation timeline and the user's unsent message draft.
+Takeover priority is structured elicitation, pending plan approval/change
+feedback, manual Markdown editing, then the ordinary prompt composer. The
+controls use schema-driven text, choice, multi-choice, boolean, and numeric
+fields and remain a back-and-forth human-in-the-loop conversation.
+
+The Inspector is a read-only rendering of the production session's canonical
+`plan.md`. Its Edit Markdown action opens a large editor in the composer area
+and saves through the same revision-checked artifact API used by the agent.
+Approval, request-changes feedback, and exit-only controls also live in the
+composer. Until interactive approval is recorded, Ableton mutations remain
+blocked even when ordinary mutation auto-approval is enabled. Duplicate
+submissions are disabled, stale revisions remain visible with an actionable
+error, and only normalized actions offered by the SDK request are rendered.
 
 ## Events
 
@@ -186,18 +196,17 @@ a visual plan before execution:
 
 Users can approve, edit, or narrow the plan.
 
-SDK completed plans appear in the right Inspector for the selected active
-agent. The panel presents the bounded plan content and only three product
-actions: approve and continue interactively, request changes with feedback, or
-exit plan mode without implementation. Autopilot and fleet actions advertised
-by the SDK remain hidden. Opening a completed plan reveals the Inspector
-automatically, while plan state and responses remain isolated by active-agent
-instance. Main-process event delivery, preload validation, automatic Inspector
-opening, and typed response IPC are covered together in the Electron harness;
-application-owned success, failure, stale, duplicate, and isolation branches
-remain deterministically unit-tested.
+The production session owns one shared plan document, while pending approval
+and elicitation requests remain attributed to the active agent and SDK session
+that initiated them. Completing a plan reveals the Inspector automatically and
+replaces the composer with approve-and-continue, request-changes, or exit-only
+controls. Autopilot and fleet actions remain hidden. Main-process event
+delivery, preload validation, typed artifact/edit/elicitation IPC, and composer
+takeover are covered together in the Electron harness; application-owned
+success, failure, stale, duplicate, cancellation, and isolation branches remain
+deterministically unit-tested.
 
-Plan content remains stored, journaled, and transported as the model-authored
+Plan content remains stored and transported as sanitized model- or user-authored
 GitHub-Flavored Markdown. The Inspector applies one narrow presentation-only
 cleanup when a single-line plan contains multiple unmistakable bold labeled
 section markers such as ` - **Intro:**`: those markers become Markdown bullets,

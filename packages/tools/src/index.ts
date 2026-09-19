@@ -554,7 +554,12 @@ export function createAbletonPermissionHandler(
     }
     return (await requestApproval({
       metadata,
-      arguments: request.args ?? {},
+      arguments:
+        request.args !== null &&
+        typeof request.args === "object" &&
+        !Array.isArray(request.args)
+          ? request.args
+          : {},
     }))
       ? { kind: "approve-once" }
       : { kind: "reject", feedback: "User denied the Ableton mutation" };

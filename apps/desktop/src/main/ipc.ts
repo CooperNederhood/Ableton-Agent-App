@@ -82,14 +82,35 @@ export function createIpcHandlers(
       instanceId,
       requestId,
       approved,
+      planRevision,
       selectedAction,
       feedback,
     }) => ({
       resolved: await service.resolveActiveAgentPlan(instanceId, {
         requestId,
         approved,
+        ...(planRevision === undefined ? {} : { planRevision }),
         ...(selectedAction === undefined ? {} : { selectedAction }),
         ...(feedback === undefined ? {} : { feedback }),
+      }),
+    }),
+    "agents:read-plan": ({ instanceId }) =>
+      service.readActiveAgentPlan(instanceId),
+    "agents:write-plan": ({ instanceId, content, expectedRevision }) =>
+      service.writeActiveAgentPlan(instanceId, {
+        content,
+        ...(expectedRevision === undefined ? {} : { expectedRevision }),
+      }),
+    "agents:resolve-elicitation": async ({
+      instanceId,
+      requestId,
+      action,
+      content,
+    }) => ({
+      resolved: await service.resolveActiveAgentElicitation(instanceId, {
+        requestId,
+        action,
+        ...(content === undefined ? {} : { content }),
       }),
     }),
     "agents:invoke-skill": ({

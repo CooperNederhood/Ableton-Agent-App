@@ -20,6 +20,73 @@ describe("desktop IPC contracts", () => {
     ).toThrow();
   });
 
+  it("strictly validates plan artifacts and structured elicitation IPC", () => {
+    const instanceId = "00000000-0000-4000-8000-000000000001";
+    const revision = "a".repeat(64);
+    expect(
+      ipcSchemas["agents:write-plan"].request.parse({
+        instanceId,
+        content: "# Plan",
+        expectedRevision: revision,
+      }),
+    ).toEqual({
+      instanceId,
+      content: "# Plan",
+      expectedRevision: revision,
+    });
+    expect(() =>
+      ipcSchemas["agents:write-plan"].request.parse({
+        instanceId,
+        content: "# Plan",
+        expectedRevision: "stale",
+      }),
+    ).toThrow();
+    expect(
+      ipcSchemas["agents:resolve-elicitation"].request.parse({
+        instanceId,
+        requestId: "question-1",
+        action: "accept",
+        content: {
+          style: "compact",
+          stems: 4,
+          normalize: true,
+          groups: ["drums", "bass"],
+        },
+      }),
+    ).toMatchObject({
+      requestId: "question-1",
+      action: "accept",
+    });
+    expect(() =>
+      ipcSchemas["agents:resolve-elicitation"].request.parse({
+        instanceId,
+        requestId: "question-1",
+        action: "accept",
+        content: { nested: { unsafe: true } },
+      }),
+    ).toThrow();
+    expect(
+      appEventSchema.safeParse({
+        type: "agent.elicitation_requested",
+        agentInstanceId: instanceId,
+        request: {
+          requestId: "question-2",
+          message: "Choose the stems to export.",
+          properties: {
+            stems: {
+              type: "array",
+              items: {
+                type: "string",
+                enum: ["drums", "bass", "keys"],
+              },
+            },
+          },
+          required: ["stems"],
+        },
+      }).success,
+    ).toBe(true);
+  });
+
   it("validates event boundaries", () => {
     expect(
       appEventSchema.safeParse({

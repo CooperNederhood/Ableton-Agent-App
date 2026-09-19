@@ -446,6 +446,7 @@ describe("agent runtime composition", () => {
     });
     const configuration: AgentSessionConfiguration = {
       instanceId: "agent-a",
+      productionSessionId: "production-a",
       definitionName: "compose",
       label: "Compose",
       description: "Compose MIDI phrases.",
@@ -623,6 +624,7 @@ describe("composed agent session control", () => {
     const syncSignals = vi.spyOn(runtime.signals, "setActiveAgentInstances");
     const configuration: AgentSessionConfiguration = {
       instanceId: "agent-a",
+      productionSessionId: "production-a",
       definitionName: "compose",
       label: "Compose",
       description: "Compose MIDI phrases.",
@@ -670,6 +672,7 @@ describe("composed agent session control", () => {
     const syncSignals = vi.spyOn(runtime.signals, "setActiveAgentInstances");
     const initial: AgentSessionConfiguration = {
       instanceId: "agent-a",
+      productionSessionId: "production-a",
       definitionName: "compose",
       label: "Compose",
       description: "Compose MIDI phrases.",

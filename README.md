@@ -237,11 +237,11 @@ Run these commands from the repository root.
 
    ```bash
    REPO="$PWD"
-   PROFILE="$HOME/.ableton-agent/ux-test-profile"
+   DESCRIPTOR="$HOME/.ableton-agent/ux-test-profile/automation-endpoint.json"
 
    copilot mcp add ableton-agent-desktop -- \
      node "$REPO/apps/debug-mcp/dist/main.js" \
-     --descriptor "$PROFILE/automation-endpoint.json"
+     --descriptor "$DESCRIPTOR"
    ```
 
    Confirm that it is registered:
@@ -250,23 +250,35 @@ Run these commands from the repository root.
    copilot mcp list
    ```
 
-3. Start Ableton Live with the `AbletonAgent` Control Surface enabled.
+3. Start a runner-owned Ableton Live process with the `AbletonAgent` Control
+   Surface enabled:
+
+   ```bash
+   pnpm live:ux-host
+   ```
+
+   Wait for the JSON readiness line. This uses the same exact-PID ownership and
+   known startup-dialog handling as deterministic integration tests.
 
 4. Launch the visible desktop app in automation mode:
 
    ```bash
-   PROFILE="$HOME/.ableton-agent/ux-test-profile"
+   PROFILE="$(mktemp -d "${TMPDIR:-/tmp}/ableton-agent-ux-XXXXXX")"
+   DESCRIPTOR="$HOME/.ableton-agent/ux-test-profile/automation-endpoint.json"
+   mkdir -p "$(dirname "$DESCRIPTOR")"
 
    pnpm desktop:dev -- \
      --automation \
      --automation-profile "$PROFILE" \
+     --automation-descriptor "$DESCRIPTOR" \
      --automation-agent default \
      --automation-yolo
    ```
 
    Replace `default` with another definition such as `mix`, `sound`, `compose`,
-   or `arrange`. The launch creates the profile and
-   `$PROFILE/automation-endpoint.json`.
+   or `arrange`. The launch keeps application data in the fresh isolated
+   profile while publishing the transient automation descriptor at the stable
+   path registered in step 2.
 
 5. In another terminal, start Copilot from the repository:
 

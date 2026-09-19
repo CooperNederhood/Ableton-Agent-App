@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   access,
   chmod,
@@ -44,6 +44,45 @@ export interface ResolveLiveAgentStorageOptions {
   readonly environment?: Readonly<Partial<Record<string, string>>>;
   readonly profile?: string;
   readonly development?: boolean;
+}
+
+export interface ProductionSessionStoragePaths {
+  readonly sessionDirectory: string;
+  readonly manifestPath: string;
+  readonly artifactsDirectory: string;
+  readonly planPath: string;
+}
+
+function productionSessionDirectoryName(productionSessionId: string): string {
+  if (
+    productionSessionId.length <= 200 &&
+    /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/u.test(productionSessionId)
+  ) {
+    return productionSessionId;
+  }
+  return `session-${createHash("sha256").update(productionSessionId).digest("hex")}`;
+}
+
+export function resolveProductionSessionStorage(
+  sessionStateDirectory: string,
+  productionSessionId: string,
+): ProductionSessionStoragePaths {
+  if (productionSessionId.length === 0) {
+    throw new Error("Production session ID must not be empty");
+  }
+  const root = resolve(sessionStateDirectory);
+  const sessionDirectory = join(
+    root,
+    productionSessionDirectoryName(productionSessionId),
+  );
+  assertWithin(root, sessionDirectory);
+  const artifactsDirectory = join(sessionDirectory, "artifacts");
+  return {
+    sessionDirectory,
+    manifestPath: join(sessionDirectory, "session.json"),
+    artifactsDirectory,
+    planPath: join(artifactsDirectory, "plan.md"),
+  };
 }
 
 export function resolveLiveAgentStorage(

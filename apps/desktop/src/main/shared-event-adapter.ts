@@ -18,7 +18,7 @@ export function normalizeSharedEvent(
 ): DesktopAppEvent {
   const toolName =
     "toolName" in event ? desktopToolName(event.toolName) : undefined;
-  const normalized: DesktopAppEvent =
+  const normalized =
     event.type === "agent.message_delta"
       ? { ...event, messageId: messageId() }
       : event.type === "agent.message_complete"

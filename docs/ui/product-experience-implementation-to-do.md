@@ -32,6 +32,8 @@ typed service calls, and sessions use explicit create/resume operations.
 - [x] Build chat composer with explicit context chips.
 - [x] Add per-active-agent plan mode with `/plan`, Shift+Tab toggling, composer
   mode status, and mode-attributed sends.
+- [x] Propagate and attribute the selected mode for automation-originated
+  messages.
 - [x] Send bounded, deduplicated context chips atomically with managed-agent
   messages and explicit skill invocations.
 - [x] Build streaming assistant and operation timeline.
@@ -40,12 +42,15 @@ typed service calls, and sessions use explicit create/resume operations.
 - [x] Build project outline and selection model.
 - [x] Build inspector for tracks, clips, devices, and parameters.
 - [x] Build approval and change-preview panel.
-- [x] Present completed SDK plans in the Inspector with interactive approval,
-  change feedback, and exit-only controls.
+- [x] Present `plan.md` as a read-only Inspector preview while structured
+  questions, approval, change feedback, exit-only controls, and manual Markdown
+  editing replace the composer in place.
 - [x] Enforce read-only plan execution and cover the SDK request through
   Inspector rendering and resolution with regression tests.
 - [x] Prevent duplicate plan responses, retain stale failures for retry, and
   render only normalized actions offered by the pending request.
+- [x] Preserve ordinary message drafts during composer takeover and enforce
+  elicitation, approval, manual editor, then ordinary-composer priority.
 - [x] Render model-authored GFM while applying narrow presentation-only cleanup
   to recognized compact labeled plans, preserving raw plan state, History, and
   approval IPC.
@@ -83,6 +88,8 @@ typed service calls, and sessions use explicit create/resume operations.
 - [x] Test selection-context enablement, deduplication, per-turn replacement,
   and managed message/skill delivery.
 - [x] Component-test operation, approval, inspector, and plan views.
+- [x] Component-test structured elicitation, composer priority/draft
+  preservation, and revision-checked manual plan editing.
 - [x] Component-test `/plan`, per-agent mode changes, plan-mode sends, and
   textual plan-message attribution.
 - [~] Test accessibility with automated checks and keyboard scenarios.

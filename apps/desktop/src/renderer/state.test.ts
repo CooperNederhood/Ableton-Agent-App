@@ -72,6 +72,8 @@ describe("desktop reducer", () => {
           requestId: "plan-1",
           summary: "Arrangement plan",
           planContent: "# Plan\n\nBuild an intro.",
+          planRevision: "a".repeat(64),
+          planUpdatedAt: "2026-01-01T00:00:00.000Z",
           recommendedAction: "interactive",
           actions: ["interactive", "exit_only"],
         },
@@ -96,6 +98,61 @@ describe("desktop reducer", () => {
     expect(selectedAgentWorkspace(completed).planApproval).toBeUndefined();
   });
 
+  it("stores plan artifacts and structured elicitation per agent", () => {
+    const withPlan = desktopReducer(stateWithAgents(), {
+      type: "event",
+      event: {
+        type: "agent.plan_artifact_changed",
+        agentInstanceId: firstAgentId,
+        sdkSessionId: "sdk-1",
+        artifact: {
+          exists: true,
+          productionSessionId: "session",
+          content: "# Plan\n",
+          revision: "a".repeat(64),
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          bytes: 7,
+        },
+      },
+    });
+    const requested = desktopReducer(withPlan, {
+      type: "event",
+      event: {
+        type: "agent.elicitation_requested",
+        agentInstanceId: firstAgentId,
+        sdkSessionId: "sdk-1",
+        request: {
+          requestId: "question-1",
+          message: "Choose a length.",
+          properties: {
+            bars: { type: "integer", minimum: 8, maximum: 128 },
+          },
+          required: ["bars"],
+        },
+      },
+    });
+
+    expect(selectedAgentWorkspace(requested)).toMatchObject({
+      planArtifact: { exists: true, content: "# Plan\n" },
+      elicitation: { requestId: "question-1" },
+    });
+    const completed = desktopReducer(requested, {
+      type: "event",
+      event: {
+        type: "agent.elicitation_completed",
+        agentInstanceId: firstAgentId,
+        sdkSessionId: "sdk-1",
+        requestId: "question-1",
+        action: "accept",
+      },
+    });
+    expect(selectedAgentWorkspace(completed).elicitation).toBeUndefined();
+    expect(selectedAgentWorkspace(completed).planArtifact).toMatchObject({
+      exists: true,
+      content: "# Plan\n",
+    });
+  });
+
   it("keeps plan approvals isolated from stale completions and other agents", () => {
     const state = stateWithAgents();
     const requested = desktopReducer(state, {
@@ -108,6 +165,8 @@ describe("desktop reducer", () => {
           requestId: "plan-1",
           summary: "First plan",
           planContent: "First content",
+          planRevision: "a".repeat(64),
+          planUpdatedAt: "2026-01-01T00:00:00.000Z",
           recommendedAction: "interactive",
           actions: ["interactive", "exit_only"],
         },
@@ -123,6 +182,8 @@ describe("desktop reducer", () => {
           requestId: "plan-2",
           summary: "Second plan",
           planContent: "Second content",
+          planRevision: "b".repeat(64),
+          planUpdatedAt: "2026-01-01T00:01:00.000Z",
           recommendedAction: "exit_only",
           actions: ["exit_only"],
         },

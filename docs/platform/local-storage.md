@@ -57,6 +57,7 @@ must consume its typed paths rather than reconstructing them.
     │       └── {production-session-id}/
     │           ├── session.json
     │           └── artifacts/
+    │               └── plan.md
     ├── development/
     │   └── {same profile layout}
     └── automation/
@@ -78,7 +79,7 @@ up or recovered atomically.
 | `copilot/` | Copilot SDK adapter | SDK conversation/session data. Application code must not invent a parallel transcript store. |
 | `observability/` | Local observability journal | One profile-wide SQLite journal for cross-session queries, traces, retention, and health. Do not create one journal per production session. |
 | `logs/` | Structured diagnostic logger | Bounded, redacted newline-delimited JSON logs. |
-| `session-state/{production-session-id}/` | Production-session persistence | Bounded ownership manifest plus session-owned artifacts. It links project, active-agent, and SDK-session IDs without duplicating transcripts or journal rows. |
+| `session-state/{production-session-id}/` | Production-session persistence | Bounded ownership manifest plus session-owned artifacts. It links project, active-agent, and SDK-session IDs without duplicating transcripts or journal rows. `artifacts/plan.md` is the single shared planning document for the production session. |
 
 ## Data that intentionally remains outside the root
 
@@ -107,6 +108,9 @@ up or recovered atomically.
   an actionable diagnostic instead of forking or corrupting history.
 - Publish files atomically and preserve the prior valid state when validation,
   migration, or publication fails.
+- Plan artifact updates require the current SHA-256 revision once the file
+  exists. The application rejects stale or missing expected revisions rather
+  than silently overwriting concurrent agent or user edits.
 - Do not add a network upload path. Anonymous product telemetry is a separate,
   opt-in facility and is disabled unless explicitly implemented and consented.
 
@@ -145,4 +149,3 @@ Before adding a file, database, cache, or directory:
    failure/cancellation, trace propagation, cleanup, and restart behavior.
 7. Update this document and the relevant feature specification and
    implementation to-do file.
-

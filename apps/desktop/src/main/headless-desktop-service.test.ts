@@ -2569,8 +2569,11 @@ describe("desktop adapter over the shared application", () => {
   });
 
   it("publishes an attributed visible user turn for automation ingress", async () => {
-    const { service, events } = await harness();
+    const { service, events, agent } = await harness();
     await service.start();
+    const selected = (await service.listActiveAgents())[0];
+    if (selected === undefined) throw new Error("Expected an active agent");
+    await service.setActiveAgentMode(selected.id, "plan");
 
     const accepted = await service.send("Check the visible workflow", [], {
       origin: "automation",
@@ -2590,6 +2593,7 @@ describe("desktop adapter over the shared application", () => {
     expect(submitted).toMatchObject({
       type: "agent.user_message_submitted",
       content: "Check the visible workflow",
+      agentMode: "plan",
       origin: "automation",
       traceId: "00000000-0000-4000-8000-000000000102",
       correlationId: "00000000-0000-4000-8000-000000000104",
@@ -2598,7 +2602,8 @@ describe("desktop adapter over the shared application", () => {
     if (submitted?.type !== "agent.user_message_submitted") {
       throw new Error("Expected an automation user-message event");
     }
-    expect(submitted.agentInstanceId).toBeDefined();
+    expect(submitted.agentInstanceId).toBe(selected.id);
+    expect(agent.managedPromptModes.get(selected.id)).toEqual(["plan"]);
     await service.stop();
   });
 

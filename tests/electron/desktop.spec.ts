@@ -249,7 +249,7 @@ test("accepts an MCP-style user message in the visible desktop session", async (
   }
 });
 
-test("delivers a plan request to the Inspector and routes its response through IPC", async () => {
+test("renders plan.md in the Inspector and routes composer approval through IPC", async () => {
   const application = await electron.launch({
     args: [desktopPath],
     cwd: process.cwd(),
@@ -305,6 +305,10 @@ test("delivers a plan request to the Inspector and routes its response through I
     await expect(window.getByLabel("Active Agent")).toHaveValue(
       agentInstanceId,
     );
+    const composer = window.getByRole("textbox", {
+      name: "Message the Ableton agent",
+    });
+    await composer.fill("Preserve this ordinary draft");
     await window
       .getByRole("button", { name: "Hide inspector sidebar" })
       .click();
@@ -312,37 +316,52 @@ test("delivers a plan request to the Inspector and routes its response through I
       window.getByRole("complementary", { name: "Selection inspector" }),
     ).toHaveCount(0);
 
+    const revision = "a".repeat(64);
+    const updatedAt = new Date().toISOString();
     await application.evaluate(
       (
         { BrowserWindow },
-        request: {
-          type: "agent.plan_approval_requested";
+        payload: {
           agentInstanceId: string;
-          request: {
-            requestId: string;
-            summary: string;
-            planContent: string;
-            recommendedAction: "interactive";
-            actions: Array<"interactive" | "exit_only">;
-          };
+          revision: string;
+          updatedAt: string;
         },
       ) => {
         const desktopWindow = BrowserWindow.getAllWindows()[0];
         if (desktopWindow === undefined)
           throw new Error("Desktop window missing");
-        desktopWindow.webContents.send("app:event", request);
+        desktopWindow.webContents.send("app:event", {
+          type: "agent.plan_artifact_changed",
+          agentInstanceId: payload.agentInstanceId,
+          artifact: {
+            exists: true,
+            productionSessionId: "electron-production-session",
+            content:
+              "# Electron plan\n\n- Inspect the Arrangement\n- Place existing clips\n\n## Implementation\n\nPreserve the canonical plan artifact.",
+            revision: payload.revision,
+            updatedAt: payload.updatedAt,
+            bytes: 139,
+          },
+        });
+        desktopWindow.webContents.send("app:event", {
+          type: "agent.plan_approval_requested",
+          agentInstanceId: payload.agentInstanceId,
+          request: {
+            requestId: "electron-plan-request",
+            summary: "Electron approval plan",
+            planContent:
+              "# Electron plan\n\n- Inspect the Arrangement\n- Place existing clips\n\n## Implementation\n\nPreserve the canonical plan artifact.",
+            planRevision: payload.revision,
+            planUpdatedAt: payload.updatedAt,
+            recommendedAction: "interactive",
+            actions: ["interactive", "exit_only"],
+          },
+        });
       },
       {
-        type: "agent.plan_approval_requested",
         agentInstanceId,
-        request: {
-          requestId: "electron-plan-request",
-          summary: "Electron approval plan",
-          planContent:
-            "**Electron plan** Use the current project: - **Inspect:** verify the Arrangement - **Implement:** place existing clips Implementation: preserve the original plan payload.",
-          recommendedAction: "interactive",
-          actions: ["interactive", "exit_only"],
-        },
+        revision,
+        updatedAt,
       },
     );
 
@@ -352,13 +371,39 @@ test("delivers a plan request to the Inspector and routes its response through I
     await expect(window.getByText("Electron approval plan")).toBeVisible();
     await expect(window.locator(".plan-approval-content li")).toHaveCount(2);
     await expect(
-      window.getByRole("heading", { name: "Implementation:" }),
+      window.getByRole("heading", { name: "Implementation" }),
+    ).toBeVisible();
+    await expect(
+      window.getByRole("region", { name: "Session plan" }),
+    ).toBeVisible();
+    await expect(
+      window.getByRole("region", { name: "Plan approval" }),
     ).toBeVisible();
     await window.getByRole("button", { name: "Approve and continue" }).click();
     await expect(
       window.getByText("This plan request is no longer pending."),
     ).toBeVisible();
     await expect(window.getByText("Electron approval plan")).toBeVisible();
+    await application.evaluate(
+      ({ BrowserWindow }, selectedAgentInstanceId: string) => {
+        const desktopWindow = BrowserWindow.getAllWindows()[0];
+        if (desktopWindow === undefined)
+          throw new Error("Desktop window missing");
+        desktopWindow.webContents.send("app:event", {
+          type: "agent.plan_approval_completed",
+          requestId: "electron-plan-request",
+          approved: false,
+          agentInstanceId: selectedAgentInstanceId,
+        });
+      },
+      agentInstanceId,
+    );
+    await expect(composer).toHaveValue("Preserve this ordinary draft");
+    await window.getByRole("button", { name: "Edit Markdown" }).click();
+    const planEditor = window.getByRole("textbox", { name: "Plan Markdown" });
+    await expect(planEditor).toHaveValue(/# Electron plan/u);
+    await window.getByRole("button", { name: "Cancel" }).click();
+    await expect(composer).toHaveValue("Preserve this ordinary draft");
   } finally {
     await application.close();
   }

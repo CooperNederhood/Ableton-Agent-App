@@ -31,6 +31,11 @@ agent can call `skill(skill_name="skill-name")`. The tool returns the Markdown
 body only after verifying that the requested skill is enabled in that agent's
 definition. Unknown skills invalidate the definition.
 
+This is the application-owned `custom:skill` tool. The Copilot SDK's
+`builtin:skill` implementation is deliberately excluded even when a custom
+agent uses the global `*` tool pattern, so skill loading always follows the
+same validated progressive-disclosure path.
+
 ## Direct invocation
 
 The Desktop composer supports:

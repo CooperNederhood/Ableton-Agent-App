@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, useReducer, useState } from "react";
+import { act, createRef, useReducer, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -14,6 +14,7 @@ import {
   App,
   AgentsView,
   ConnectionHeader,
+  DesktopComposer,
   EventsView,
   Workspace,
   type WorkspaceSidebarWidths,
@@ -113,6 +114,12 @@ function desktopApi(overrides: Partial<DesktopApi["agents"]> = {}): DesktopApi {
   return {
     agents: {
       listModels: vi.fn().mockResolvedValue(models),
+      readPlan: vi.fn().mockResolvedValue({
+        exists: false,
+        productionSessionId: sessionId,
+      }),
+      writePlan: vi.fn(),
+      resolveElicitation: vi.fn(),
       ...overrides,
     },
   } as unknown as DesktopApi;
@@ -379,6 +386,10 @@ describe("desktop component interactions", () => {
       agents: {
         getCatalog: vi.fn().mockResolvedValue(state.agentCatalog),
         hydrateHistory,
+        readPlan: vi.fn().mockResolvedValue({
+          exists: false,
+          productionSessionId: sessionId,
+        }),
       },
       outputs: { list: vi.fn().mockResolvedValue(initialState.outputs) },
       events: {
@@ -412,6 +423,89 @@ describe("desktop component interactions", () => {
     expect(hydrateHistory).toHaveBeenCalledWith(agentId);
   });
 
+  it("reloads the shared plan when returning to a production session", async () => {
+    let publish!: (event: DesktopAppEvent) => void;
+    const secondAgentId = "00000000-0000-4000-8000-000000000002";
+    const state = rendererState(false);
+    const secondSession = {
+      ...state.sessions[0]!,
+      id: "second-production-session",
+      title: "Second session",
+      activeAgents: [activeAgent({ id: secondAgentId, label: "Second" })],
+      selectedAgentInstanceId: secondAgentId,
+    };
+    state.sessions.push(secondSession);
+    const readPlan = vi.fn().mockImplementation((instanceId: string) =>
+      Promise.resolve({
+        exists: true,
+        productionSessionId:
+          instanceId === agentId ? sessionId : secondSession.id,
+        content: instanceId === agentId ? "# First plan" : "# Second plan",
+        revision: instanceId === agentId ? "a".repeat(64) : "b".repeat(64),
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        bytes: 12,
+      }),
+    );
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: {
+        lifecycle: { get: vi.fn().mockResolvedValue("ready") },
+        ableton: {
+          getStatus: vi.fn().mockResolvedValue({ state: "disconnected" }),
+        },
+        preferences: {
+          get: vi.fn().mockResolvedValue(initialState.preferences),
+        },
+        agent: { getSessions: vi.fn().mockResolvedValue(state.sessions) },
+        agents: {
+          getCatalog: vi.fn().mockResolvedValue(state.agentCatalog),
+          hydrateHistory: vi.fn().mockResolvedValue([]),
+          readPlan,
+        },
+        outputs: { list: vi.fn().mockResolvedValue(initialState.outputs) },
+        events: {
+          list: vi.fn().mockResolvedValue(initialState.events),
+          subscribe: vi.fn((listener: (event: DesktopAppEvent) => void) => {
+            publish = listener;
+            return vi.fn();
+          }),
+        },
+      },
+    });
+
+    await act(async () => {
+      root.render(<App />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      publish({
+        type: "session.context_restored",
+        session: state.sessions[0]!,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      publish({ type: "session.context_restored", session: secondSession });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      publish({
+        type: "session.context_restored",
+        session: state.sessions[0]!,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(readPlan).toHaveBeenNthCalledWith(1, agentId);
+    expect(readPlan).toHaveBeenNthCalledWith(2, secondAgentId);
+    expect(readPlan).toHaveBeenNthCalledWith(3, agentId);
+    expect(container.textContent).toContain("First plan");
+  });
+
   it("opens the selected Agent Inspector for a plan event and submits feedback", async () => {
     let publish!: (event: DesktopAppEvent) => void;
     const resolvePlan = vi.fn().mockResolvedValue(true);
@@ -429,6 +523,10 @@ describe("desktop component interactions", () => {
         getCatalog: vi.fn().mockResolvedValue(state.agentCatalog),
         hydrateHistory: vi.fn().mockResolvedValue([]),
         resolvePlan,
+        readPlan: vi.fn().mockResolvedValue({
+          exists: false,
+          productionSessionId: sessionId,
+        }),
       },
       outputs: {
         list: vi.fn().mockResolvedValue({
@@ -466,6 +564,19 @@ describe("desktop component interactions", () => {
 
     await act(async () => {
       publish({
+        type: "agent.plan_artifact_changed",
+        agentInstanceId: agentId,
+        sdkSessionId: "sdk-1",
+        artifact: {
+          exists: true,
+          productionSessionId: sessionId,
+          content: "# Plan\n\nBuild an intro.",
+          revision: "a".repeat(64),
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          bytes: 31,
+        },
+      });
+      publish({
         type: "agent.plan_approval_requested",
         agentInstanceId: agentId,
         sdkSessionId: "sdk-1",
@@ -473,6 +584,8 @@ describe("desktop component interactions", () => {
           requestId: "plan-1",
           summary: "Arrangement plan",
           planContent: "# Plan\n\nBuild an intro.",
+          planRevision: "a".repeat(64),
+          planUpdatedAt: "2026-01-01T00:00:00.000Z",
           recommendedAction: "interactive",
           actions: ["interactive", "exit_only"],
         },
@@ -488,7 +601,7 @@ describe("desktop component interactions", () => {
     expect(button(container, "Exit plan mode").disabled).toBe(false);
 
     const feedback = container.querySelector<HTMLTextAreaElement>(
-      'textarea[placeholder^="Describe what the plan should change"]',
+      'textarea[placeholder^="Describe what should change"]',
     );
     if (feedback === null) throw new Error("Plan feedback field not found");
     await act(async () => {
@@ -506,6 +619,7 @@ describe("desktop component interactions", () => {
     expect(resolvePlan).toHaveBeenCalledWith(agentId, {
       requestId: "plan-1",
       approved: false,
+      planRevision: "a".repeat(64),
       feedback: "Use fewer tracks",
     });
 
@@ -529,6 +643,7 @@ describe("desktop component interactions", () => {
     const firstResolution = new Promise<boolean>((resolve) => {
       finishFirst = resolve;
     });
+
     const resolvePlan = vi
       .fn()
       .mockImplementationOnce(() => firstResolution)
@@ -547,6 +662,10 @@ describe("desktop component interactions", () => {
         getCatalog: vi.fn().mockResolvedValue(state.agentCatalog),
         hydrateHistory: vi.fn().mockResolvedValue([]),
         resolvePlan,
+        readPlan: vi.fn().mockResolvedValue({
+          exists: false,
+          productionSessionId: sessionId,
+        }),
       },
       outputs: {
         list: vi.fn().mockResolvedValue({
@@ -582,6 +701,8 @@ describe("desktop component interactions", () => {
           requestId: "plan-stale",
           summary: "Pending plan",
           planContent: "Wait for approval.",
+          planRevision: "a".repeat(64),
+          planUpdatedAt: "2026-01-01T00:00:00.000Z",
           recommendedAction: "interactive",
           actions: ["interactive"],
         },
@@ -610,6 +731,201 @@ describe("desktop component interactions", () => {
     expect(button(container, "Approve and continue").disabled).toBe(false);
     await click(container, "Approve and continue");
     expect(resolvePlan).toHaveBeenCalledTimes(2);
+  });
+
+  it("prioritizes structured questions and preserves the ordinary composer draft", async () => {
+    const resolveElicitation = vi.fn().mockResolvedValue(true);
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktopApi({ resolveElicitation }),
+    });
+    const state = rendererState();
+    state.agentWorkspaces[agentId] = {
+      messages: [],
+      operations: [],
+      triggers: [],
+      planApproval: {
+        requestId: "plan-1",
+        summary: "Plan ready",
+        planContent: "# Plan",
+        planRevision: "a".repeat(64),
+        planUpdatedAt: "2026-01-01T00:00:00.000Z",
+        recommendedAction: "interactive",
+        actions: ["interactive"],
+      },
+      elicitation: {
+        requestId: "question-1",
+        message: "Choose the arrangement style.",
+        properties: {
+          style: {
+            type: "string",
+            title: "Style",
+            enum: ["compact", "extended"],
+          },
+          normalize: {
+            type: "boolean",
+            title: "Normalize",
+          },
+        },
+        required: ["style", "normalize"],
+      },
+    };
+    const composerRef = createRef<HTMLTextAreaElement>();
+    await act(async () => {
+      root.render(
+        <DesktopComposer
+          state={state}
+          composerRef={composerRef}
+          dispatch={vi.fn()}
+          value="preserve this draft"
+          error=""
+          onValueChange={vi.fn()}
+          onErrorChange={vi.fn()}
+          planEditorOpen
+          onPlanEditorClose={vi.fn()}
+        />,
+      );
+    });
+    expect(container.textContent).toContain("Choose the arrangement style.");
+    expect(container.textContent).not.toContain("Review plan.md");
+    const select = container.querySelector("select");
+    if (select === null) throw new Error("Style selection not found");
+    await act(async () => {
+      select.value = "compact";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await click(container, "Submit response");
+    expect(resolveElicitation).toHaveBeenCalledWith(agentId, {
+      requestId: "question-1",
+      action: "accept",
+      content: { style: "compact", normalize: false },
+    });
+
+    const completed = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.elicitation_completed",
+        requestId: "question-1",
+        action: "accept",
+        agentInstanceId: agentId,
+        sdkSessionId: "sdk-1",
+      },
+    });
+    completed.agentWorkspaces[agentId] = {
+      ...completed.agentWorkspaces[agentId]!,
+      planApproval: undefined,
+    };
+    await act(async () => {
+      root.render(
+        <DesktopComposer
+          state={completed}
+          composerRef={composerRef}
+          dispatch={vi.fn()}
+          value="preserve this draft"
+          error=""
+          onValueChange={vi.fn()}
+          onErrorChange={vi.fn()}
+        />,
+      );
+    });
+    expect(container.querySelector<HTMLTextAreaElement>("#prompt")?.value).toBe(
+      "preserve this draft",
+    );
+  });
+
+  it("edits plan Markdown with optimistic revision checks in the composer", async () => {
+    const writePlan = vi.fn().mockResolvedValue({
+      exists: true,
+      productionSessionId: sessionId,
+      content: "# Revised plan",
+      revision: "b".repeat(64),
+      updatedAt: "2026-01-01T00:01:00.000Z",
+      bytes: 14,
+    });
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktopApi({ writePlan }),
+    });
+    const state = rendererState();
+    state.agentWorkspaces[agentId] = {
+      messages: [],
+      operations: [],
+      triggers: [],
+      planArtifact: {
+        exists: true,
+        productionSessionId: sessionId,
+        content: "# Original plan",
+        revision: "a".repeat(64),
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        bytes: 15,
+      },
+    };
+    const onClose = vi.fn();
+    await act(async () => {
+      root.render(
+        <DesktopComposer
+          state={state}
+          composerRef={createRef<HTMLTextAreaElement>()}
+          dispatch={vi.fn()}
+          value="ordinary draft"
+          error=""
+          onValueChange={vi.fn()}
+          onErrorChange={vi.fn()}
+          planEditorOpen
+          onPlanEditorClose={onClose}
+        />,
+      );
+    });
+    const editor = container.querySelector<HTMLTextAreaElement>(
+      "#plan-markdown-editor",
+    );
+    if (editor === null) throw new Error("Plan editor not found");
+    await act(async () => {
+      editor.setRangeText("# Revised plan", 0, editor.value.length, "end");
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const remotelyUpdatedState: DesktopState = {
+      ...state,
+      agentWorkspaces: {
+        ...state.agentWorkspaces,
+        [agentId]: {
+          ...state.agentWorkspaces[agentId],
+          planArtifact: {
+            exists: true,
+            productionSessionId: sessionId,
+            content: "# Remote plan",
+            revision: "b".repeat(64),
+            updatedAt: "2026-01-01T00:01:00.000Z",
+            bytes: 13,
+          },
+        },
+      },
+    };
+    await act(async () => {
+      root.render(
+        <DesktopComposer
+          state={remotelyUpdatedState}
+          composerRef={createRef<HTMLTextAreaElement>()}
+          dispatch={vi.fn()}
+          value="ordinary draft"
+          error=""
+          onValueChange={vi.fn()}
+          onErrorChange={vi.fn()}
+          planEditorOpen
+          onPlanEditorClose={onClose}
+        />,
+      );
+    });
+    expect(
+      container.querySelector<HTMLTextAreaElement>("#plan-markdown-editor")
+        ?.value,
+    ).toBe("# Revised plan");
+    await click(container, "Save plan.md");
+    expect(writePlan).toHaveBeenCalledWith(agentId, {
+      content: "# Revised plan",
+      expectedRevision: "a".repeat(64),
+    });
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it("drags each sidebar independently and restores the session width after hiding", async () => {

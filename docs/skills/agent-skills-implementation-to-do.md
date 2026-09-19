@@ -15,6 +15,8 @@ Companion specification: [Agent Skills](agent-skills.md)
 
 - [x] Add enabled skill frontmatter to each agent's system instructions.
 - [x] Register an application-owned `skill(skill_name)` tool.
+- [x] Exclude the SDK `builtin:skill` implementation from explicit and wildcard
+  tool grants.
 - [x] Restrict model-driven tool calls to skills enabled by the agent
   definition.
 - [x] Keep complete skill bodies out of SDK startup context.

@@ -1463,7 +1463,8 @@ small,
 }
 .inspection,
 .approval-panel,
-.plan-approval-panel {
+.plan-approval-panel,
+.plan-artifact-preview {
   padding: 14px;
   border-bottom: 1px solid var(--line);
 }
@@ -1514,6 +1515,9 @@ small,
 }
 .plan-approval-panel .approval-actions {
   flex-wrap: wrap;
+}
+.plan-artifact-preview > small {
+  color: var(--muted);
 }
 .inspection dl {
   display: grid;
@@ -1623,6 +1627,86 @@ progress {
   border-radius: 14px;
   padding: 8px;
   background: #111519;
+}
+.interaction-deck > section,
+.interaction-deck > form {
+  display: grid;
+  align-items: stretch;
+  gap: 12px;
+  max-width: 880px;
+  margin: 0 auto;
+  border: 1px solid #46506b;
+  border-radius: 14px;
+  padding: 14px;
+  background: #151923;
+}
+.interaction-deck-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.interaction-deck-heading > div {
+  display: grid;
+  gap: 6px;
+}
+.interaction-deck-heading h3,
+.interaction-deck p {
+  margin: 0;
+}
+.interaction-deck-heading small,
+.interaction-deck label small,
+.elicitation-fields fieldset > small {
+  color: var(--muted);
+}
+.interaction-deck label {
+  display: grid;
+  gap: 6px;
+}
+.interaction-deck textarea {
+  max-height: 240px;
+  min-height: 72px;
+  resize: vertical;
+  border: 1px solid #3b464d;
+  border-radius: 8px;
+  background: #0f1317;
+}
+.plan-editor-deck > form {
+  max-width: 1040px;
+}
+.plan-editor-deck textarea {
+  min-height: min(38vh, 420px);
+  max-height: min(55vh, 620px);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1.5;
+}
+.interaction-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.elicitation-fields {
+  display: grid;
+  gap: 12px;
+  max-height: min(42vh, 480px);
+  overflow: auto;
+}
+.elicitation-fields fieldset {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+}
+.elicitation-checkbox {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 8px;
+}
+.elicitation-checkbox > span {
+  display: grid;
+  gap: 3px;
 }
 .composer-mode {
   display: grid;

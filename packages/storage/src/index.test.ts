@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   ensureLiveAgentStorage,
   migrateLegacyStorage,
+  resolveProductionSessionStorage,
   resolveLiveAgentStorage,
 } from "./index.js";
 
@@ -25,6 +26,29 @@ afterEach(async () => {
 });
 
 describe("live agent storage", () => {
+  it("resolves bounded production-session artifacts under session-state", () => {
+    const root = join(process.cwd(), ".session-state");
+    const ordinary = resolveProductionSessionStorage(root, "session:123");
+    const unsafe = resolveProductionSessionStorage(root, "../outside");
+
+    expect(ordinary.planPath).toBe(
+      join(root, "session:123", "artifacts", "plan.md"),
+    );
+    expect(ordinary.manifestPath).toBe(
+      join(root, "session:123", "session.json"),
+    );
+    expect(unsafe.sessionDirectory).toMatch(
+      new RegExp(
+        `^${root.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}/session-[a-f0-9]{64}$`,
+        "u",
+      ),
+    );
+    expect(unsafe.planPath.startsWith(`${root}/`)).toBe(true);
+    expect(() => resolveProductionSessionStorage(root, "")).toThrow(
+      "must not be empty",
+    );
+  });
+
   it("resolves isolated production and development profiles", async () => {
     const home = await temporaryRoot();
     const production = resolveLiveAgentStorage({ homeDirectory: home });

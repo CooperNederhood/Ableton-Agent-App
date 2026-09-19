@@ -43,10 +43,14 @@ Each active instance uses one SDK session configured with:
 
 - one native `customAgents` entry;
 - that agent selected through the session `agent` option;
-- an exact resolved tool list;
+- an exact source-qualified session `availableTools` list;
 - metadata-only system instructions for configured skills;
 - an application-owned `skill` tool when the agent enables skills;
 - inference disabled so the runtime does not switch app-defined agents.
+
+The native custom-agent entry omits its optional `tools` field and inherits the
+already restricted session surface. Duplicating the allowlist there with bare
+names can hide source-qualified SDK built-ins such as `ask_user`.
 
 The application does not pass `skillDirectories` or native custom-agent skills
 to the SDK because those paths eagerly preload complete skill bodies. Instead,
@@ -66,10 +70,14 @@ tools:
 ```
 
 Patterns are expanded against the application tool catalog before creating the
-SDK session. Unmatched patterns invalidate the definition. Only resolved tools
-are registered, and permission policy checks the same allowlist again. The
-application-owned `skill` tool is added independently when the definition
-enables at least one skill.
+SDK session. The catalog contains Ableton tools, application-owned tools, and
+the approved session-isolated SDK built-ins, so `tools: ["*"]` grants all three
+groups. Unmatched patterns invalidate the definition. SDK built-ins are
+source-qualified when the session is configured; host-capable coding, shell,
+filesystem, and network tools are not in the catalog. The SDK `skill` built-in
+is always excluded, and SDK tool search is disabled rather than inserted as an
+implicit discovery tool. The application-owned `skill` tool is added
+independently only when the definition enables at least one skill.
 
 ## Edit scopes
 

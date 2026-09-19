@@ -81,6 +81,7 @@ import {
   type DesktopActiveAgent,
   type DesktopAgentModel,
   type DesktopAgentMode,
+  type DesktopPlanArtifactSnapshot,
   type DesktopPreferences,
   type DesktopProjectSnapshot,
   type DesktopProjectIdentity,
@@ -431,6 +432,7 @@ export class HeadlessDesktopService implements DesktopService {
           managedTarget: {
             productionSessionId: expectedSessionId,
             agentInstanceId: instance.id,
+            agentMode: instance.mode ?? "interactive",
           },
           selection,
         };
@@ -447,6 +449,7 @@ export class HeadlessDesktopService implements DesktopService {
           this.#application.sendToManagedAgent(
             managedTarget.agentInstanceId,
             composeAgentPrompt(message, selection),
+            managedTarget.agentMode,
           ),
         );
         if (options?.origin === "automation") {
@@ -455,7 +458,7 @@ export class HeadlessDesktopService implements DesktopService {
             messageId: accepted.messageId,
             content: message,
             agentInstanceId: managedTarget.agentInstanceId,
-            agentMode: "interactive",
+            agentMode: managedTarget.agentMode,
             origin: "automation",
             timestamp: Date.now(),
             traceId: options.trace.traceId,
@@ -1154,6 +1157,7 @@ export class HeadlessDesktopService implements DesktopService {
     request: {
       requestId: string;
       approved: boolean;
+      planRevision?: string;
       selectedAction?: "exit_only" | "interactive";
       feedback?: string;
     },
@@ -1172,6 +1176,36 @@ export class HeadlessDesktopService implements DesktopService {
       await this.setActiveAgentMode(instanceId, "interactive");
     }
     return resolved;
+  }
+
+  public readActiveAgentPlan(
+    instanceId: string,
+  ): Promise<DesktopPlanArtifactSnapshot> {
+    this.#captureActiveAgentTarget(instanceId);
+    return this.#application.readManagedAgentPlan(instanceId);
+  }
+
+  public writeActiveAgentPlan(
+    instanceId: string,
+    input: { content: string; expectedRevision?: string },
+  ): Promise<DesktopPlanArtifactSnapshot> {
+    this.#captureActiveAgentTarget(instanceId);
+    return this.#application.writeManagedAgentPlan(instanceId, input);
+  }
+
+  public resolveActiveAgentElicitation(
+    instanceId: string,
+    request: {
+      requestId: string;
+      action: "accept" | "decline" | "cancel";
+      content?: Readonly<Record<string, string | number | boolean | string[]>>;
+    },
+  ): Promise<boolean> {
+    this.#captureActiveAgentTarget(instanceId);
+    return this.#application.resolveManagedAgentElicitation(
+      instanceId,
+      request,
+    );
   }
 
   public invokeActiveAgentSkill(
@@ -2871,7 +2905,7 @@ export class HeadlessDesktopService implements DesktopService {
     const productionSessionId = randomUUID();
     const activeAgent = this.#activeAgentFromDefinition(definition);
     const sdkSessionId = await this.#application.createManagedAgent(
-      this.#managedConfiguration(activeAgent),
+      this.#managedConfiguration(activeAgent, productionSessionId),
     );
     const connected = { ...activeAgent, sdkSessionId };
     const session: DesktopSession = {
@@ -2930,7 +2964,7 @@ export class HeadlessDesktopService implements DesktopService {
         const resolved = await this.#resolveAgentBindings(instance);
         try {
           await this.#application.resumeManagedAgent(
-            this.#managedConfiguration(resolved),
+            this.#managedConfiguration(resolved, session.id),
             instance.sdkSessionId,
           );
           resumed.push(resolved);
@@ -2938,7 +2972,7 @@ export class HeadlessDesktopService implements DesktopService {
           if (!isMissingCopilotSessionError(error)) throw error;
           const oldSdkSessionId = instance.sdkSessionId;
           const sdkSessionId = await this.#application.createManagedAgent(
-            this.#managedConfiguration(resolved),
+            this.#managedConfiguration(resolved, session.id),
           );
           const rotated = { ...resolved, sdkSessionId };
           resumed.push(rotated);
@@ -3052,10 +3086,15 @@ export class HeadlessDesktopService implements DesktopService {
 
   #managedConfiguration(
     instance: DesktopActiveAgent,
+    productionSessionId = this.#activeProductionSessionId,
   ): AgentSessionConfiguration {
+    if (productionSessionId === undefined) {
+      throw new Error("No active production session");
+    }
     const inheritedContext = this.#forkedHistoryContext(instance);
     return {
       instanceId: instance.id,
+      productionSessionId,
       definitionName: instance.definitionName,
       label: instance.label,
       ...(instance.model === undefined ? {} : { model: instance.model }),

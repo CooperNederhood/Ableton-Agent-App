@@ -11,6 +11,8 @@ describe("desktop launch options", () => {
         "--automation",
         "--automation-profile",
         "/tmp/ableton-agent-profile",
+        "--automation-descriptor",
+        "/tmp/ableton-agent-control/automation-endpoint.json",
         "--automation-agent",
         "default",
         "--automation-yolo",
@@ -18,7 +20,7 @@ describe("desktop launch options", () => {
     ).toEqual({
       automation: {
         profilePath: "/tmp/ableton-agent-profile",
-        descriptorPath: "/tmp/ableton-agent-profile/automation-endpoint.json",
+        descriptorPath: "/tmp/ableton-agent-control/automation-endpoint.json",
         agentDefinition: "default",
         yolo: true,
       },

@@ -48,4 +48,44 @@ describe("desktop agent catalog", () => {
       "Updated description.",
     );
   });
+
+  it("resolves a wildcard across Ableton, application, and SDK tools", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ableton-agent-catalog-"));
+    const agentsDirectory = join(root, "agents");
+    const skillsDirectory = join(root, "skills");
+    await mkdir(agentsDirectory);
+    await mkdir(skillsDirectory);
+    await writeFile(
+      join(agentsDirectory, "default.yaml"),
+      [
+        "version: 1",
+        "name: default",
+        "description: General agent.",
+        "systemPrompt: Help with Ableton.",
+        "tools:",
+        '  - "*"',
+        "editScope:",
+        "  - session",
+        "skills: []",
+        "inputChannels: []",
+      ].join("\n"),
+    );
+    const service = new AgentCatalogService({
+      agentsDirectory,
+      skillsDirectory,
+      availableTools: [
+        "ableton_session_inspect",
+        "read_plan",
+        "ask_user",
+        "task",
+      ],
+    });
+
+    expect((await service.refresh()).definitions[0]?.resolvedTools).toEqual([
+      "ableton_session_inspect",
+      "ask_user",
+      "read_plan",
+      "task",
+    ]);
+  });
 });

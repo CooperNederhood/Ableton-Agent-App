@@ -9,6 +9,11 @@ Companion specification: [Custom Agents](custom-agents.md)
 - [~] Add root `agents/` resources and packaged-resource copying.
 - [~] Implement safe YAML discovery, validation, fingerprints, duplicate
   detection, wildcard expansion, and refresh.
+- [x] Resolve `*` against Ableton, application-owned, and approved
+  session-isolated SDK tools while always excluding `builtin:skill` and
+  disabling SDK tool search.
+- [x] Enforce the resolved surface through session `availableTools` and let the
+  selected native custom agent inherit it so SDK built-ins remain callable.
 - [~] Add Default, Compose, Arrange, Sound, and Mix definitions.
   - [x] Define Default as a general-purpose editing-capable agent.
 

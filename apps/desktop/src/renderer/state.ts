@@ -7,7 +7,9 @@ import type {
   DesktopEventsState,
   DesktopAgentCatalog,
   DesktopAgentMode,
+  DesktopAgentElicitationRequest,
   DesktopAgentPlanApproval,
+  DesktopPlanArtifactSnapshot,
   DesktopActiveAgent,
   DesktopAgentHistoryMessage,
   DesktopPreferences,
@@ -49,6 +51,8 @@ export interface AgentWorkspaceState {
   triggers: LiveEventTrigger[];
   approval?: ApprovalRequest | undefined;
   planApproval?: DesktopAgentPlanApproval | undefined;
+  planArtifact?: DesktopPlanArtifactSnapshot | undefined;
+  elicitation?: DesktopAgentElicitationRequest | undefined;
 }
 
 export type ProjectRefreshState =
@@ -525,11 +529,39 @@ function reduceEvent(
           planApproval: event.request,
         }),
       );
+    case "agent.plan_artifact_changed":
+      return {
+        ...state,
+        agentWorkspaces: Object.fromEntries(
+          (activeSession(state)?.activeAgents ?? []).map((agent) => {
+            const workspace =
+              state.agentWorkspaces[agent.id] ?? emptyAgentWorkspace();
+            return [agent.id, { ...workspace, planArtifact: event.artifact }];
+          }),
+        ),
+      };
     case "agent.plan_approval_completed":
       if (event.agentInstanceId === undefined) return state;
       return updateAgentWorkspace(state, event.agentInstanceId, (workspace) =>
         workspace.planApproval?.requestId === event.requestId
           ? { ...workspace, planApproval: undefined }
+          : workspace,
+      );
+    case "agent.elicitation_requested":
+      if (event.agentInstanceId === undefined) return state;
+      return updateAgentWorkspace(
+        state,
+        event.agentInstanceId,
+        (workspace) => ({
+          ...workspace,
+          elicitation: event.request,
+        }),
+      );
+    case "agent.elicitation_completed":
+      if (event.agentInstanceId === undefined) return state;
+      return updateAgentWorkspace(state, event.agentInstanceId, (workspace) =>
+        workspace.elicitation?.requestId === event.requestId
+          ? { ...workspace, elicitation: undefined }
           : workspace,
       );
     case "agent.history_hydrated":
@@ -727,6 +759,8 @@ const emptyAgentWorkspace = (): AgentWorkspaceState => ({
   operations: [],
   triggers: [],
   planApproval: undefined,
+  planArtifact: undefined,
+  elicitation: undefined,
 });
 
 function updateAgentWorkspace(

@@ -56,6 +56,7 @@ import {
   initialState,
   selectedAgentInstance,
   selectedAgentWorkspace,
+  type AgentWorkspaceState,
   type DesktopState,
   type WorkspaceView,
 } from "./state";
@@ -700,6 +701,7 @@ export function App(): React.JSX.Element {
   const [topChromeVisible, setTopChromeVisible] = useState(true);
   const [composerValue, setComposerValue] = useState("");
   const [composerError, setComposerError] = useState("");
+  const [planEditorOpen, setPlanEditorOpen] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const hydratedAgents = useRef(new Set<string>());
   const timelineScrollPositions = useRef(new Map<string, number>());
@@ -733,7 +735,10 @@ export function App(): React.JSX.Element {
       if (event.type !== "agent.message_delta") {
         if (frame !== undefined) cancelAnimationFrame(frame);
         if (pendingDeltas.size > 0) flush();
-        if (event.type === "agent.plan_approval_requested") {
+        if (
+          event.type === "agent.plan_approval_requested" ||
+          event.type === "agent.elicitation_requested"
+        ) {
           setRightSidebarVisible(true);
         }
         dispatch({ type: "event", event });
@@ -764,7 +769,10 @@ export function App(): React.JSX.Element {
   const selectedInstanceId = selectedInstance?.id;
   const selectedSdkSessionId = selectedInstance?.sdkSessionId;
   const activeSessionId = activeSession(state)?.id;
-  const selectedPlanApproval = selectedAgentWorkspace(state).planApproval;
+  const selectedWorkspace = selectedAgentWorkspace(state);
+  const selectedPlanApproval = selectedWorkspace.planApproval;
+  const selectedPlanArtifact = selectedWorkspace.planArtifact;
+  const selectedElicitation = selectedWorkspace.elicitation;
   useEffect(() => {
     if (activeSessionId === undefined) return;
     void loadLiveEvents(dispatch, () => window.desktop.events.list());
@@ -812,8 +820,46 @@ export function App(): React.JSX.Element {
     state.lifecycle,
   ]);
   useEffect(() => {
-    if (selectedPlanApproval !== undefined) setRightSidebarVisible(true);
-  }, [selectedPlanApproval]);
+    if (selectedInstanceId === undefined || activeSessionId === undefined)
+      return;
+    if (selectedPlanArtifact !== undefined) return;
+    void window.desktop.agents
+      .readPlan(selectedInstanceId)
+      .then((artifact) =>
+        dispatch({
+          type: "event",
+          event: {
+            type: "agent.plan_artifact_changed",
+            agentInstanceId: selectedInstanceId,
+            artifact,
+          },
+        }),
+      )
+      .catch((error: unknown) => {
+        dispatch({
+          type: "event",
+          event: {
+            type: "diagnostic",
+            level: "error",
+            message:
+              error instanceof Error
+                ? error.message
+                : "The session plan could not be loaded",
+          },
+        });
+      });
+  }, [activeSessionId, selectedInstanceId, selectedPlanArtifact]);
+  useEffect(() => {
+    setPlanEditorOpen(false);
+  }, [activeSessionId, selectedInstanceId]);
+  useEffect(() => {
+    if (
+      selectedPlanApproval !== undefined ||
+      selectedElicitation !== undefined
+    ) {
+      setRightSidebarVisible(true);
+    }
+  }, [selectedElicitation, selectedPlanApproval]);
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent): void => {
       if (
@@ -939,6 +985,8 @@ export function App(): React.JSX.Element {
                 error={composerError}
                 onValueChange={setComposerValue}
                 onErrorChange={setComposerError}
+                planEditorOpen={planEditorOpen}
+                onPlanEditorClose={() => setPlanEditorOpen(false)}
               />
             }
             leftSidebarVisible={leftSidebarVisible}
@@ -956,6 +1004,7 @@ export function App(): React.JSX.Element {
             onToggleRightSidebar={() =>
               setRightSidebarVisible((visible) => !visible)
             }
+            onEditPlan={() => setPlanEditorOpen(true)}
           />
         ) : state.activeView === "agents" ? (
           <AgentsView state={state} dispatch={dispatch} />
@@ -982,6 +1031,8 @@ export function App(): React.JSX.Element {
           error={composerError}
           onValueChange={setComposerValue}
           onErrorChange={setComposerError}
+          planEditorOpen={planEditorOpen}
+          onPlanEditorClose={() => setPlanEditorOpen(false)}
         />
       )}
     </div>
@@ -2991,6 +3042,7 @@ export function Workspace({
   onSidebarWidthChange,
   onToggleLeftSidebar,
   onToggleRightSidebar,
+  onEditPlan,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
@@ -3003,6 +3055,7 @@ export function Workspace({
     ((side: keyof WorkspaceSidebarWidths, width: number) => void) | undefined;
   onToggleLeftSidebar?: (() => void) | undefined;
   onToggleRightSidebar?: (() => void) | undefined;
+  onEditPlan?: (() => void) | undefined;
 }): React.JSX.Element {
   const activeAgent = selectedAgentInstance(state);
   const drag = useRef<
@@ -3148,7 +3201,9 @@ export function Workspace({
           onPointerCancel={endResize}
         />
       )}
-      {rightSidebarVisible && <Inspector state={state} dispatch={dispatch} />}
+      {rightSidebarVisible && (
+        <Inspector state={state} dispatch={dispatch} onEditPlan={onEditPlan} />
+      )}
     </div>
   );
 }
@@ -5016,9 +5071,11 @@ function ActivityIcon({
 export function Inspector({
   state,
   dispatch,
+  onEditPlan,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+  onEditPlan?: (() => void) | undefined;
 }): React.JSX.Element {
   const track = state.snapshot?.tracks.find(
     (candidate) => candidate.id === state.selectedTrackId,
@@ -5053,128 +5110,46 @@ export function Inspector({
       ) : (
         <TrackInspector track={track} dispatch={dispatch} />
       )}
-      <PlanApprovalPanel state={state} />
+      <PlanArtifactPreview state={state} onEditPlan={onEditPlan} />
       <ApprovalPanel state={state} dispatch={dispatch} />
     </aside>
   );
 }
 
-export function PlanApprovalPanel({
+export function PlanArtifactPreview({
   state,
+  onEditPlan,
 }: {
   state: DesktopState;
-}): React.JSX.Element | null {
+  onEditPlan?: (() => void) | undefined;
+}): React.JSX.Element {
   const agent = selectedAgentInstance(state);
-  const request = selectedAgentWorkspace(state).planApproval;
-  const [feedback, setFeedback] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const submittingRef = useRef(false);
-
-  useEffect(() => {
-    setFeedback("");
-    setError("");
-    setSubmitting(false);
-    submittingRef.current = false;
-  }, [request?.requestId]);
-
-  if (agent === undefined || request === undefined) return null;
-
-  const resolve = async (response: {
-    approved: boolean;
-    selectedAction?: "exit_only" | "interactive";
-    feedback?: string;
-  }): Promise<void> => {
-    if (submittingRef.current) return;
-    submittingRef.current = true;
-    setSubmitting(true);
-    setError("");
-    try {
-      const resolved = await window.desktop.agents.resolvePlan(agent.id, {
-        requestId: request.requestId,
-        ...response,
-      });
-      if (!resolved) {
-        throw new Error("This plan request is no longer pending.");
-      }
-    } catch (resolveError) {
-      setError(
-        resolveError instanceof Error
-          ? resolveError.message
-          : "The plan response could not be submitted.",
-      );
-    } finally {
-      submittingRef.current = false;
-      setSubmitting(false);
-    }
-  };
+  const artifact = selectedAgentWorkspace(state).planArtifact;
 
   return (
-    <section className="plan-approval-panel" aria-label="Plan approval">
+    <section className="plan-artifact-preview" aria-label="Session plan">
       <div className="plan-approval-heading">
-        <h3>Plan ready</h3>
-        <span className="agent-mode-badge plan">plan</span>
+        <h3>Plan</h3>
+        {agent !== undefined && onEditPlan !== undefined && (
+          <button type="button" onClick={onEditPlan}>
+            Edit Markdown
+          </button>
+        )}
       </div>
-      {request.summary && (
-        <p className="plan-approval-summary">{request.summary}</p>
+      {artifact?.exists ? (
+        <>
+          <div className="plan-approval-content">
+            <AssistantMarkdown
+              content={formatPlanMarkdownForDisplay(artifact.content)}
+            />
+          </div>
+          <small>Updated {new Date(artifact.updatedAt).toLocaleString()}</small>
+        </>
+      ) : (
+        <p className="muted">
+          No plan.md has been created for this production session.
+        </p>
       )}
-      <div className="plan-approval-content">
-        <AssistantMarkdown
-          content={formatPlanMarkdownForDisplay(request.planContent)}
-        />
-      </div>
-      <label>
-        Request changes
-        <textarea
-          rows={3}
-          maxLength={8_192}
-          value={feedback}
-          disabled={submitting}
-          onChange={(event) => setFeedback(event.target.value)}
-          placeholder="Describe what the plan should change…"
-        />
-      </label>
-      {error && <p className="composer-error">{error}</p>}
-      <div className="approval-actions">
-        {request.actions.includes("interactive") && (
-          <button
-            className="primary"
-            disabled={submitting}
-            onClick={() =>
-              void resolve({
-                approved: true,
-                selectedAction: "interactive",
-              })
-            }
-          >
-            Approve and continue
-          </button>
-        )}
-        <button
-          disabled={submitting || feedback.trim().length === 0}
-          onClick={() =>
-            void resolve({
-              approved: false,
-              feedback: feedback.trim(),
-            })
-          }
-        >
-          Request changes
-        </button>
-        {request.actions.includes("exit_only") && (
-          <button
-            disabled={submitting}
-            onClick={() =>
-              void resolve({
-                approved: true,
-                selectedAction: "exit_only",
-              })
-            }
-          >
-            Exit plan mode
-          </button>
-        )}
-      </div>
     </section>
   );
 }
@@ -5913,6 +5888,8 @@ export function DesktopComposer({
   error,
   onValueChange,
   onErrorChange,
+  planEditorOpen,
+  onPlanEditorClose,
 }: {
   state: DesktopState;
   composerRef: React.RefObject<HTMLTextAreaElement | null>;
@@ -5921,12 +5898,43 @@ export function DesktopComposer({
   error: string;
   onValueChange: (value: string) => void;
   onErrorChange: (error: string) => void;
+  planEditorOpen?: boolean;
+  onPlanEditorClose?: (() => void) | undefined;
 }): React.JSX.Element {
   const selectedInstanceId = selectedAgentInstance(state)?.id;
+  const workspace = selectedAgentWorkspace(state);
 
   useEffect(() => {
     onErrorChange("");
   }, [onErrorChange, selectedInstanceId]);
+
+  if (workspace.elicitation !== undefined) {
+    return (
+      <ElicitationComposer
+        key={workspace.elicitation.requestId}
+        state={state}
+        request={workspace.elicitation}
+      />
+    );
+  }
+  if (workspace.planApproval !== undefined) {
+    return (
+      <PlanApprovalComposer
+        key={workspace.planApproval.requestId}
+        state={state}
+        request={workspace.planApproval}
+      />
+    );
+  }
+  if (planEditorOpen && onPlanEditorClose !== undefined) {
+    return (
+      <PlanEditorComposer
+        key={selectedInstanceId ?? "none"}
+        state={state}
+        onClose={onPlanEditorClose}
+      />
+    );
+  }
 
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
@@ -5970,6 +5978,431 @@ export function DesktopComposer({
       onSubmit={submit}
       dispatch={dispatch}
     />
+  );
+}
+
+function PlanApprovalComposer({
+  state,
+  request,
+}: {
+  state: DesktopState;
+  request: NonNullable<AgentWorkspaceState["planApproval"]>;
+}): React.JSX.Element {
+  const agent = selectedAgentInstance(state);
+  const [feedback, setFeedback] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const submittingRef = useRef(false);
+
+  const resolve = async (response: {
+    approved: boolean;
+    selectedAction?: "exit_only" | "interactive";
+    feedback?: string;
+  }): Promise<void> => {
+    if (agent === undefined || submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    setError("");
+    try {
+      const resolved = await window.desktop.agents.resolvePlan(agent.id, {
+        requestId: request.requestId,
+        planRevision: request.planRevision,
+        ...response,
+      });
+      if (!resolved) throw new Error("This plan request is no longer pending.");
+    } catch (resolveError) {
+      setError(
+        resolveError instanceof Error
+          ? resolveError.message
+          : "The plan response could not be submitted.",
+      );
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <footer className="composer interaction-deck">
+      <section aria-label="Plan approval">
+        <div className="interaction-deck-heading">
+          <div>
+            <span className="agent-mode-badge plan">plan</span>
+            <h3>Review plan.md</h3>
+          </div>
+          <small>The full plan is visible in the Inspector.</small>
+        </div>
+        {request.summary && <p>{request.summary}</p>}
+        <label>
+          Request changes
+          <textarea
+            rows={3}
+            maxLength={8_192}
+            value={feedback}
+            disabled={submitting}
+            onChange={(event) => setFeedback(event.target.value)}
+            placeholder="Describe what should change in plan.md…"
+          />
+        </label>
+        {error && <p className="composer-error">{error}</p>}
+        <div className="interaction-actions">
+          {request.actions.includes("interactive") && (
+            <button
+              className="primary"
+              disabled={submitting}
+              onClick={() =>
+                void resolve({
+                  approved: true,
+                  selectedAction: "interactive",
+                })
+              }
+            >
+              Approve and continue
+            </button>
+          )}
+          <button
+            disabled={submitting || feedback.trim().length === 0}
+            onClick={() =>
+              void resolve({
+                approved: false,
+                feedback: feedback.trim(),
+              })
+            }
+          >
+            Request changes
+          </button>
+          {request.actions.includes("exit_only") && (
+            <button
+              disabled={submitting}
+              onClick={() =>
+                void resolve({
+                  approved: true,
+                  selectedAction: "exit_only",
+                })
+              }
+            >
+              Exit plan mode
+            </button>
+          )}
+        </div>
+      </section>
+    </footer>
+  );
+}
+
+function PlanEditorComposer({
+  state,
+  onClose,
+}: {
+  state: DesktopState;
+  onClose: () => void;
+}): React.JSX.Element {
+  const agent = selectedAgentInstance(state);
+  const artifact = selectedAgentWorkspace(state).planArtifact;
+  const [content, setContent] = useState(
+    artifact?.exists ? artifact.content : "# Plan\n",
+  );
+  const [expectedRevision] = useState(
+    artifact?.exists ? artifact.revision : undefined,
+  );
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const save = async (event: FormEvent): Promise<void> => {
+    event.preventDefault();
+    if (agent === undefined || content.trim().length === 0 || submitting)
+      return;
+    setSubmitting(true);
+    setError("");
+    try {
+      await window.desktop.agents.writePlan(agent.id, {
+        content,
+        ...(expectedRevision === undefined ? {} : { expectedRevision }),
+      });
+      onClose();
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "The plan could not be saved.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <footer className="composer interaction-deck plan-editor-deck">
+      <form onSubmit={(event) => void save(event)}>
+        <div className="interaction-deck-heading">
+          <div>
+            <span className="agent-mode-badge plan">plan.md</span>
+            <h3>Edit session plan</h3>
+          </div>
+          <small>Markdown · saved to this production session</small>
+        </div>
+        <label className="sr-only" htmlFor="plan-markdown-editor">
+          Plan Markdown
+        </label>
+        <textarea
+          id="plan-markdown-editor"
+          autoFocus
+          value={content}
+          disabled={submitting}
+          onChange={(event) => setContent(event.target.value)}
+          rows={14}
+          spellCheck
+        />
+        {error && <p className="composer-error">{error}</p>}
+        <div className="interaction-actions">
+          <button
+            className="primary"
+            type="submit"
+            disabled={submitting || content.trim().length === 0}
+          >
+            Save plan.md
+          </button>
+          <button type="button" disabled={submitting} onClick={onClose}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </footer>
+  );
+}
+
+function ElicitationComposer({
+  state,
+  request,
+}: {
+  state: DesktopState;
+  request: NonNullable<AgentWorkspaceState["elicitation"]>;
+}): React.JSX.Element {
+  const agent = selectedAgentInstance(state);
+  const initialValues = (): Record<
+    string,
+    string | number | boolean | string[]
+  > =>
+    Object.fromEntries(
+      Object.entries(request.properties).flatMap(([name, field]) => {
+        if (field.default !== undefined) return [[name, field.default]];
+        if (field.type === "boolean" && request.required.includes(name)) {
+          return [[name, false]];
+        }
+        return [];
+      }),
+    );
+  const [values, setValues] = useState(initialValues);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const resolve = async (
+    action: "accept" | "decline" | "cancel",
+  ): Promise<void> => {
+    if (agent === undefined || submitting) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      const resolved = await window.desktop.agents.resolveElicitation(
+        agent.id,
+        {
+          requestId: request.requestId,
+          action,
+          ...(action === "accept" ? { content: values } : {}),
+        },
+      );
+      if (!resolved) {
+        throw new Error("This question is no longer waiting for a response.");
+      }
+    } catch (resolveError) {
+      setError(
+        resolveError instanceof Error
+          ? resolveError.message
+          : "The response could not be submitted.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <footer className="composer interaction-deck">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void resolve("accept");
+        }}
+      >
+        <div className="interaction-deck-heading">
+          <div>
+            <span className="agent-mode-badge plan">question</span>
+            <h3>{request.message}</h3>
+          </div>
+        </div>
+        <div className="elicitation-fields">
+          {Object.entries(request.properties).map(([name, field]) => {
+            const label = field.title ?? name;
+            const required = request.required.includes(name);
+            if (field.type === "boolean") {
+              return (
+                <label className="elicitation-checkbox" key={name}>
+                  <input
+                    type="checkbox"
+                    checked={values[name] === true}
+                    onChange={(event) =>
+                      setValues((current) => ({
+                        ...current,
+                        [name]: event.target.checked,
+                      }))
+                    }
+                  />
+                  <span>
+                    {label}
+                    {field.description && <small>{field.description}</small>}
+                  </span>
+                </label>
+              );
+            }
+            if (field.type === "array") {
+              const choices =
+                "enum" in field.items
+                  ? field.items.enum.map((value) => ({
+                      value,
+                      title: value,
+                    }))
+                  : field.items.anyOf.map((choice) => ({
+                      value: choice.const,
+                      title: choice.title,
+                    }));
+              const selectedValue = values[name];
+              const selected = Array.isArray(selectedValue)
+                ? selectedValue
+                : [];
+              return (
+                <fieldset key={name}>
+                  <legend>
+                    {label}
+                    {required ? " *" : ""}
+                  </legend>
+                  {field.description && <small>{field.description}</small>}
+                  {choices.map((choice) => (
+                    <label className="elicitation-checkbox" key={choice.value}>
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(choice.value)}
+                        onChange={(event) =>
+                          setValues((current) => ({
+                            ...current,
+                            [name]: event.target.checked
+                              ? [...selected, choice.value]
+                              : selected.filter(
+                                  (value) => value !== choice.value,
+                                ),
+                          }))
+                        }
+                      />
+                      {choice.title}
+                    </label>
+                  ))}
+                </fieldset>
+              );
+            }
+            if (field.type === "string") {
+              const choices =
+                field.oneOf ??
+                field.enum?.map((value, index) => ({
+                  const: value,
+                  title: field.enumNames?.[index] ?? value,
+                }));
+              return (
+                <label key={name}>
+                  {label}
+                  {required ? " *" : ""}
+                  {field.description && <small>{field.description}</small>}
+                  {choices === undefined ? (
+                    <textarea
+                      required={required}
+                      minLength={field.minLength}
+                      maxLength={field.maxLength}
+                      value={
+                        typeof values[name] === "string" ? values[name] : ""
+                      }
+                      onChange={(event) =>
+                        setValues((current) => ({
+                          ...current,
+                          [name]: event.target.value,
+                        }))
+                      }
+                      rows={3}
+                    />
+                  ) : (
+                    <select
+                      required={required}
+                      value={
+                        typeof values[name] === "string" ? values[name] : ""
+                      }
+                      onChange={(event) =>
+                        setValues((current) => ({
+                          ...current,
+                          [name]: event.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Choose…</option>
+                      {choices.map((choice) => (
+                        <option key={choice.const} value={choice.const}>
+                          {choice.title}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </label>
+              );
+            }
+            return (
+              <label key={name}>
+                {label}
+                {required ? " *" : ""}
+                {field.description && <small>{field.description}</small>}
+                <input
+                  type="number"
+                  required={required}
+                  step={field.type === "integer" ? 1 : "any"}
+                  min={field.minimum}
+                  max={field.maximum}
+                  value={typeof values[name] === "number" ? values[name] : ""}
+                  onChange={(event) =>
+                    setValues((current) => ({
+                      ...current,
+                      [name]: Number(event.target.value),
+                    }))
+                  }
+                />
+              </label>
+            );
+          })}
+        </div>
+        {error && <p className="composer-error">{error}</p>}
+        <div className="interaction-actions">
+          <button className="primary" type="submit" disabled={submitting}>
+            Submit response
+          </button>
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={() => void resolve("decline")}
+          >
+            Decline
+          </button>
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={() => void resolve("cancel")}
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </footer>
   );
 }
 

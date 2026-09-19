@@ -1,9 +1,10 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import process from "node:process";
 
-import { CopilotClient } from "@github/copilot-sdk";
+import { CopilotClient, defineTool } from "@github/copilot-sdk";
+import { z } from "zod";
 
 if (process.env.RUN_COPILOT_PLAN_EXIT_SMOKE !== "1") {
   throw new Error(
@@ -17,26 +18,53 @@ const baseDirectory = await mkdtemp(
 const client = new CopilotClient({ mode: "empty", baseDirectory });
 let exitRequested = false;
 let session;
+const planPath = join(
+  baseDirectory,
+  "session-state",
+  "smoke-production",
+  "artifacts",
+  "plan.md",
+);
 
 try {
   session = await client.createSession({
     clientName: "ableton-agent-plan-exit-smoke",
-    availableTools: ["builtin:exit_plan_mode"],
+    tools: [
+      defineTool("write_plan", {
+        description: "Write the fixed smoke-test plan artifact.",
+        parameters: z.object({ content: z.string().min(1).max(10_000) }),
+        skipPermission: true,
+        handler: async ({ content }) => {
+          await mkdir(dirname(planPath), { recursive: true });
+          await writeFile(planPath, content, "utf8");
+          return { written: true };
+        },
+      }),
+    ],
+    availableTools: ["custom:write_plan", "builtin:exit_plan_mode"],
+    toolSearch: { enabled: false },
     customAgents: [
       {
         name: "plan-exit-smoke",
         prompt:
-          "Create a concise plan only. Do not edit files or call any tool except exit_plan_mode. When the plan is complete, call exit_plan_mode.",
-        tools: ["exit_plan_mode"],
+          "Create a concise one-step plan, save the complete Markdown with write_plan, then call exit_plan_mode with only a short summary.",
+        tools: ["write_plan", "exit_plan_mode"],
         infer: false,
       },
     ],
     agent: "plan-exit-smoke",
     systemMessage: {
       content:
-        "This is a read-only compatibility smoke. Produce a one-step plan, then invoke exit_plan_mode. No mutation or host tools are available.",
+        "This is a read-only compatibility smoke. The fixed write_plan tool is the only writable surface. Save plan.md before invoking exit_plan_mode.",
     },
     onExitPlanModeRequest: async () => {
+      const content = await readFile(planPath, "utf8");
+      if (!content.includes("Plan")) {
+        return {
+          approved: false,
+          feedback: "The canonical plan artifact was not written.",
+        };
+      }
       exitRequested = true;
       return { approved: true, selectedAction: "exit_only" };
     },

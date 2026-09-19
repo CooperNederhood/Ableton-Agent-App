@@ -32,4 +32,28 @@ describe("tool pattern resolution", () => {
       unmatchedPatterns: ["missing-*"],
     });
   });
+
+  it("expands a global wildcard across application and SDK tool sources", () => {
+    expect(
+      resolveToolPatterns(
+        ["*"],
+        [
+          "ableton_session_inspect",
+          "read_plan",
+          "write_plan",
+          "ask_user",
+          "task",
+        ],
+      ),
+    ).toEqual({
+      tools: [
+        "ableton_session_inspect",
+        "ask_user",
+        "read_plan",
+        "task",
+        "write_plan",
+      ],
+      unmatchedPatterns: [],
+    });
+  });
 });

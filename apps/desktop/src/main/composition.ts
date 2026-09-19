@@ -1,6 +1,10 @@
 import { dirname, join } from "node:path";
 
 import {
+  APPLICATION_TOOL_NAMES,
+  APPROVED_BUILTIN_TOOL_NAMES,
+} from "@ableton-agent/application";
+import {
   createNonBlockingObservabilityRecorder,
   LocalObservabilityJournal,
   type ConfigurationSnapshot,
@@ -420,7 +424,11 @@ export async function createDesktopComposition(
   const agentCatalog = new AgentCatalogService({
     agentsDirectory: options.agentsDirectory,
     skillsDirectory: options.skillsDirectory,
-    availableTools: abletonToolMetadata.map((tool) => tool.name),
+    availableTools: [
+      ...abletonToolMetadata.map((tool) => tool.name),
+      ...APPLICATION_TOOL_NAMES,
+      ...APPROVED_BUILTIN_TOOL_NAMES,
+    ],
   });
   const notices: Notice[] =
     options.storageMigrationFailure === undefined
@@ -534,6 +542,9 @@ export async function createDesktopComposition(
     },
     agent: {
       baseDirectory: options.agentBaseDirectory,
+      ...(options.sessionStateDirectory === undefined
+        ? {}
+        : { sessionStateDirectory: options.sessionStateDirectory }),
     },
     requestToolApproval: (request: ToolApprovalRequest) =>
       approvalPolicy.request(request),

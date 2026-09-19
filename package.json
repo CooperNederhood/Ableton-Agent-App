@@ -30,6 +30,7 @@
     "lint": "node --max-old-space-size=6144 ./node_modules/eslint/bin/eslint.js .",
     "live:validate": "pnpm build && node scripts/live-validation.mjs",
     "live:agent-smoke": "node scripts/agent-smoke.mjs",
+    "live:ux-host": "node scripts/live-ux-host.mjs",
     "live:copilot-plan-exit": "pnpm --filter @ableton-agent/application smoke:copilot-plan-exit",
     "midi-capture:check": "node scripts/midi-capture-device.mjs check",
     "midi-capture:install": "node scripts/midi-capture-device.mjs install",

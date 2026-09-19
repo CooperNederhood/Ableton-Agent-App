@@ -291,6 +291,7 @@ export interface AgentSettings {
   model?: string | undefined;
   reasoningEffort?: AgentReasoningEffort | undefined;
   baseDirectory?: string | undefined;
+  sessionStateDirectory?: string | undefined;
   turnTimeoutMs?: number | undefined;
   /** Replaces the Copilot client; used by tests and fakes. */
   clientFactory?: CopilotAgentServiceOptions["clientFactory"];
@@ -638,6 +639,9 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     ...(agentSettings.baseDirectory === undefined
       ? {}
       : { baseDirectory: agentSettings.baseDirectory }),
+    ...(agentSettings.sessionStateDirectory === undefined
+      ? {}
+      : { sessionStateDirectory: agentSettings.sessionStateDirectory }),
     ...(agentSettings.clientFactory === undefined
       ? {}
       : { clientFactory: agentSettings.clientFactory }),

@@ -644,11 +644,137 @@ export const agentPlanApprovalSchema = z
     requestId: z.string().min(1).max(256),
     summary: z.string().max(8_192),
     planContent: z.string().max(100_000),
+    planRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+    planUpdatedAt: z.string().datetime(),
     recommendedAction: agentPlanExitActionSchema,
     actions: z.array(agentPlanExitActionSchema).min(1).max(2),
   })
   .strict();
 export type DesktopAgentPlanApproval = z.infer<typeof agentPlanApprovalSchema>;
+
+export const planArtifactSnapshotSchema = z.discriminatedUnion("exists", [
+  z
+    .object({
+      exists: z.literal(false),
+      productionSessionId: z.string().min(1).max(4_096),
+    })
+    .strict(),
+  z
+    .object({
+      exists: z.literal(true),
+      productionSessionId: z.string().min(1).max(4_096),
+      content: z.string().max(100_000),
+      revision: z.string().regex(/^[a-f0-9]{64}$/u),
+      updatedAt: z.string().datetime(),
+      bytes: z
+        .number()
+        .int()
+        .nonnegative()
+        .max(256 * 1024),
+    })
+    .strict(),
+]);
+export type DesktopPlanArtifactSnapshot = z.infer<
+  typeof planArtifactSnapshotSchema
+>;
+
+const elicitationStringFieldSchema = z
+  .object({
+    type: z.literal("string"),
+    title: z.string().max(512).optional(),
+    description: z.string().max(2_048).optional(),
+    enum: z.array(z.string().max(4_096)).max(100).optional(),
+    enumNames: z.array(z.string().max(512)).max(100).optional(),
+    oneOf: z
+      .array(
+        z.object({
+          const: z.string().max(4_096),
+          title: z.string().max(512),
+        }),
+      )
+      .max(100)
+      .optional(),
+    minLength: z.number().int().nonnegative().optional(),
+    maxLength: z.number().int().nonnegative().max(100_000).optional(),
+    format: z.enum(["email", "uri", "date", "date-time"]).optional(),
+    default: z.string().max(100_000).optional(),
+  })
+  .strict();
+const elicitationArrayFieldSchema = z
+  .object({
+    type: z.literal("array"),
+    title: z.string().max(512).optional(),
+    description: z.string().max(2_048).optional(),
+    minItems: z.number().int().nonnegative().optional(),
+    maxItems: z.number().int().nonnegative().max(100).optional(),
+    items: z.union([
+      z
+        .object({
+          type: z.literal("string"),
+          enum: z.array(z.string().max(4_096)).max(100),
+        })
+        .strict(),
+      z
+        .object({
+          anyOf: z
+            .array(
+              z.object({
+                const: z.string().max(4_096),
+                title: z.string().max(512),
+              }),
+            )
+            .max(100),
+        })
+        .strict(),
+    ]),
+    default: z.array(z.string().max(4_096)).max(100).optional(),
+  })
+  .strict();
+const elicitationBooleanFieldSchema = z
+  .object({
+    type: z.literal("boolean"),
+    title: z.string().max(512).optional(),
+    description: z.string().max(2_048).optional(),
+    default: z.boolean().optional(),
+  })
+  .strict();
+const elicitationNumberFieldSchema = z
+  .object({
+    type: z.enum(["number", "integer"]),
+    title: z.string().max(512).optional(),
+    description: z.string().max(2_048).optional(),
+    minimum: z.number().finite().optional(),
+    maximum: z.number().finite().optional(),
+    default: z.number().finite().optional(),
+  })
+  .strict();
+export const agentElicitationRequestSchema = z
+  .object({
+    requestId: z.string().min(1).max(256),
+    message: z.string().min(1).max(8_192),
+    properties: z
+      .record(
+        z.string().min(1).max(256),
+        z.union([
+          elicitationStringFieldSchema,
+          elicitationArrayFieldSchema,
+          elicitationBooleanFieldSchema,
+          elicitationNumberFieldSchema,
+        ]),
+      )
+      .refine((properties) => Object.keys(properties).length <= 32),
+    required: z.array(z.string().min(1).max(256)).max(32),
+  })
+  .strict();
+export type DesktopAgentElicitationRequest = z.infer<
+  typeof agentElicitationRequestSchema
+>;
+export const agentElicitationValueSchema = z.union([
+  z.string().max(100_000),
+  z.number().finite(),
+  z.boolean(),
+  z.array(z.string().max(4_096)).max(100),
+]);
 
 const forkedAgentHistoryMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
@@ -993,11 +1119,30 @@ export const appEventSchema = z.discriminatedUnion("type", [
     sdkSessionId: z.string().min(1).optional(),
   }),
   z.object({
+    type: z.literal("agent.plan_artifact_changed"),
+    artifact: planArtifactSnapshotSchema,
+    agentInstanceId: z.string().uuid().optional(),
+    sdkSessionId: z.string().min(1).optional(),
+  }),
+  z.object({
     type: z.literal("agent.plan_approval_completed"),
     requestId: z.string().min(1).max(256),
     approved: z.boolean(),
     selectedAction: agentPlanExitActionSchema.optional(),
     feedback: z.string().max(8_192).optional(),
+    agentInstanceId: z.string().uuid().optional(),
+    sdkSessionId: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("agent.elicitation_requested"),
+    request: agentElicitationRequestSchema,
+    agentInstanceId: z.string().uuid().optional(),
+    sdkSessionId: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("agent.elicitation_completed"),
+    requestId: z.string().min(1).max(256),
+    action: z.enum(["accept", "decline", "cancel"]),
     agentInstanceId: z.string().uuid().optional(),
     sdkSessionId: z.string().min(1).optional(),
   }),
@@ -1212,8 +1357,42 @@ export const ipcSchemas = {
         instanceId: z.string().uuid(),
         requestId: z.string().min(1).max(256),
         approved: z.boolean(),
+        planRevision: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/u)
+          .optional(),
         selectedAction: agentPlanExitActionSchema.optional(),
         feedback: z.string().trim().max(8_192).optional(),
+      })
+      .strict(),
+    response: z.object({ resolved: z.boolean() }),
+  },
+  "agents:read-plan": {
+    request: z.object({ instanceId: z.string().uuid() }).strict(),
+    response: planArtifactSnapshotSchema,
+  },
+  "agents:write-plan": {
+    request: z
+      .object({
+        instanceId: z.string().uuid(),
+        content: z.string().min(1).max(100_000),
+        expectedRevision: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/u)
+          .optional(),
+      })
+      .strict(),
+    response: planArtifactSnapshotSchema,
+  },
+  "agents:resolve-elicitation": {
+    request: z
+      .object({
+        instanceId: z.string().uuid(),
+        requestId: z.string().min(1).max(256),
+        action: z.enum(["accept", "decline", "cancel"]),
+        content: z
+          .record(z.string().min(1).max(256), agentElicitationValueSchema)
+          .optional(),
       })
       .strict(),
     response: z.object({ resolved: z.boolean() }),
@@ -1550,8 +1729,24 @@ export interface DesktopApi {
       request: {
         requestId: string;
         approved: boolean;
+        planRevision?: string;
         selectedAction?: "exit_only" | "interactive";
         feedback?: string;
+      },
+    ): Promise<boolean>;
+    readPlan(instanceId: string): Promise<DesktopPlanArtifactSnapshot>;
+    writePlan(
+      instanceId: string,
+      input: { content: string; expectedRevision?: string },
+    ): Promise<DesktopPlanArtifactSnapshot>;
+    resolveElicitation(
+      instanceId: string,
+      request: {
+        requestId: string;
+        action: "accept" | "decline" | "cancel";
+        content?: Readonly<
+          Record<string, string | number | boolean | string[]>
+        >;
       },
     ): Promise<boolean>;
     invokeSkill(

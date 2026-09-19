@@ -12,8 +12,9 @@ The default session should:
 
 - Use the Node.js Copilot SDK.
 - Enable streaming.
-- Register only approved custom tools.
-- Exclude unrelated built-in coding and shell tools.
+- Register approved application tools plus the SDK's session-isolated built-ins.
+- Exclude host-capable coding, shell, unrestricted filesystem, and network
+  tools.
 - Provide a custom permission handler.
 - Register lifecycle and tool hooks.
 - Use a stable application-owned session ID.
@@ -40,44 +41,65 @@ binary/audio bodies with visible omission markers before persistence.
 
 Managed desktop turns select an explicit SDK agent mode. Interactive is the
 compatibility default; plan mode is persisted per active-agent instance and is
-forwarded on normal messages and explicit skill invocations. Plan mode is also
-an application-enforced read-only boundary: inspection tools remain available,
-but every Ableton mutation is rejected before approval, locking, or bridge
-dispatch. Because the SDK client runs with an empty built-in tool environment,
-the session allowlist must include exactly `builtin:exit_plan_mode` in addition
-to the qualified application tools, and the selected custom agent allowlist
-must include the bare `exit_plan_mode` name. Enabling the full isolated
-built-in set would exceed the application's least-authority contract. The
+forwarded on normal messages, automation-originated messages, and explicit
+skill invocations. Automation ingress records the same effective mode on its
+visible user-turn event. Plan mode is also an application-enforced read-only
+boundary: inspection tools remain available, but every Ableton mutation is
+rejected before approval, locking, or bridge dispatch. The SDK client still
+runs in `empty` mode. The application then
+source-qualifies the approved `BuiltInTools.Isolated` set, excluding the SDK
+`skill` implementation, disables SDK tool search so every allowed definition
+is loaded directly, and adds application-owned Ableton, `read_plan`,
+`write_plan`, and progressive-disclosure `skill` tools. Planning controls
+(`ask_user`, `read_plan`, `write_plan`, and `exit_plan_mode`) remain available
+even when an agent definition has an otherwise empty tool list. The
 plan-mode pre-tool hook applies mutation denial only to tools positively
 classified as Ableton mutations; SDK control tools such as `exit_plan_mode`
 must pass through. SDK mode changes, plan changes, completed-plan approval
-requests, and approval completions are normalized into application-owned,
-attributed events. Plan summaries, content, and feedback are bounded and
-sanitized before journaling or renderer delivery.
+requests, artifact changes, structured elicitation requests, and approval
+completions are normalized into application-owned, attributed events.
+Sessions register both the SDK elicitation and legacy user-input capabilities
+because some SDK/runtime combinations otherwise omit `ask_user` from native
+custom agents. The model-facing variant remains structured elicitation. If the
+runtime dispatches the compatibility callback, the application adapts it into
+the same attributed elicitation events and Desktop composer takeover rather
+than exposing terminal-style input.
 
 Immediately before a plan-mode turn is sent to the SDK, the application appends
 `packages/application/prompts/plan-reminder.md` after all prepared context,
 direct-skill content, and the user's request. This final prompt suffix reminds
 the model that skill editing instructions are post-approval work and that the
-current turn must finish through `exit_plan_mode`. Interactive turns do not
-receive the suffix. This is a compliance aid, not the safety boundary; the
+current turn must use `ask_user` for user-owned decisions, maintain the
+canonical file through `read_plan` and `write_plan`, and finish through
+`exit_plan_mode`. Interactive turns do not receive the suffix. This is a
+compliance aid, not the safety boundary; the
 pre-tool mutation denial and mutation-handler guard remain authoritative. Turn
 lifecycle records include whether the reminder was applied and its version.
 
-When the SDK requests a completed-plan decision, the application retains
-request ownership on the originating active-agent instance. The desktop may
-approve and continue interactively, request changes with bounded feedback, or
-exit plan mode without implementation. SDK autopilot and fleet actions are not
-exposed by this product surface. Plan response lifecycle records queued,
-started, completed, failed, and stale/cancelled outcomes with timing and the
-original session attribution. Interactive approval updates the effective mode
-before the paused turn resumes, so same-turn implementation is permitted only
-after that transition.
+Each production session owns one canonical
+`session-state/{production-session-id}/artifacts/plan.md`. The fixed-target
+`read_plan` and `write_plan` tools accept no path, bypass ordinary tool
+permission prompts, reject symbolic links, sanitize embedded credentials,
+enforce size limits, publish atomically, and use SHA-256 revisions for
+optimistic writes. They cannot access arbitrary host files.
+
+When the SDK requests a completed-plan decision, the application ignores the
+SDK-provided plan body and reads the canonical artifact. A missing or empty
+file declines immediately with actionable feedback. The application retains
+request ownership on the originating active-agent instance, revalidates the
+artifact revision before approval, and republishes an updated pending request
+when the file changes during review. The desktop may approve and continue
+interactively, request changes with bounded feedback, or exit plan mode without
+implementation. SDK autopilot and fleet actions are not exposed. Artifact,
+elicitation, and plan-response lifecycle records include queued, started,
+completed, failed, stale, and cancelled outcomes where applicable, with timing
+and original trace/session attribution.
 
 The deterministic unit and Electron suites enforce the application contract.
 SDK compatibility can additionally be checked with
 `RUN_COPILOT_PLAN_EXIT_SMOKE=1 pnpm live:copilot-plan-exit`; this authenticated,
-opt-in smoke exposes only `exit_plan_mode` and always resolves `exit_only`.
+opt-in smoke exposes only fixed-target `write_plan` and `exit_plan_mode`,
+requires the artifact before approval, and always resolves `exit_only`.
 
 ## System behavior
 
@@ -105,9 +127,10 @@ Detailed genre recipes and composition guidance belong in skills or reference
 content, not in an ever-growing base system message.
 
 The separate plan reminder should teach active plan turns to remain read-only,
-treat skill mutation instructions as future implementation, ask a concise chat
-question only when ambiguity blocks an actionable plan, produce multiline GFM,
-and call `exit_plan_mode`.
+treat skill mutation instructions as future implementation, use structured
+`ask_user` elicitation for user-owned decisions, read and revision-safely update
+the shared Markdown artifact, and call `exit_plan_mode` with only a concise
+review summary.
 
 ## Session context
 

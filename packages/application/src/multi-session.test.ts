@@ -1,4 +1,5 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -84,6 +85,7 @@ function configuration(
 ): AgentSessionConfiguration {
   return {
     instanceId,
+    productionSessionId: `production-${instanceId}`,
     definitionName: `${instanceId}-definition`,
     label: `Agent ${instanceId}`,
     description: `Description for ${instanceId}`,
@@ -102,6 +104,10 @@ function baseOptions(
 ): CopilotAgentServiceOptions {
   return {
     events: new InMemoryEventPublisher(),
+    sessionStateDirectory: join(
+      tmpdir(),
+      `ableton-agent-test-session-state-${randomUUID()}`,
+    ),
     getAbletonStatus: async () => disconnected,
     inspectSession: async () => emptySnapshot,
     signalContext: {
@@ -276,6 +282,255 @@ function modelInfo(id: string, overrides: Partial<ModelInfo> = {}): ModelInfo {
 }
 
 describe("CopilotAgentService managed sessions", () => {
+  it("uses plan.md as the approval source and rejects stale approvals", async () => {
+    const sessionStateDirectory = await mkdtemp(
+      join(tmpdir(), "ableton-plan-session-"),
+    );
+    const configs: SessionConfig[] = [];
+    const events = new InMemoryEventPublisher();
+    const received: AppEvent[] = [];
+    events.subscribe((event) => received.push(event));
+    const service = new CopilotAgentService(
+      baseOptions({
+        events,
+        sessionStateDirectory,
+        clientFactory: () => ({
+          createSession: vi.fn(async (config: SessionConfig) => {
+            configs.push(config);
+            return createFakeSession(`session-${configs.length}`);
+          }),
+          resumeSession: vi.fn(async () => {
+            throw new Error("resume not expected");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+
+    try {
+      await service.start();
+      await service.createManagedAgent(
+        configuration("planner", {
+          productionSessionId: "production-session",
+        }),
+      );
+      const config = configs[1];
+      if (config?.onExitPlanModeRequest === undefined) {
+        throw new Error("Expected exit-plan handler");
+      }
+
+      await expect(
+        config.onExitPlanModeRequest(
+          {
+            summary: "Ready for review",
+            planContent: "# Ignored SDK payload",
+            actions: ["interactive"],
+            recommendedAction: "interactive",
+          },
+          { sessionId: "session-2" },
+        ),
+      ).resolves.toMatchObject({ approved: false });
+
+      const first = await service.writeManagedAgentPlan("planner", {
+        content: "# Canonical plan\n\n1. Inspect the Live Set.\n",
+      });
+      if (!first.exists) throw new Error("Expected plan artifact");
+      const approval = config.onExitPlanModeRequest(
+        {
+          summary: "Ready for review",
+          planContent: "# Ignored SDK payload",
+          actions: ["interactive"],
+          recommendedAction: "interactive",
+        },
+        { sessionId: "session-2" },
+      );
+      await vi.waitFor(() =>
+        expect(
+          received.some(
+            (event) => event.type === "agent.plan_approval_requested",
+          ),
+        ).toBe(true),
+      );
+      const requested = [...received]
+        .reverse()
+        .find((event) => event.type === "agent.plan_approval_requested");
+      expect(requested).toMatchObject({
+        type: "agent.plan_approval_requested",
+        agentInstanceId: "planner",
+        request: {
+          planContent: first.content,
+          planRevision: first.revision,
+        },
+      });
+      if (requested?.type !== "agent.plan_approval_requested") {
+        throw new Error("Expected plan approval request");
+      }
+
+      const updated = await service.writeManagedAgentPlan("planner", {
+        content: "# Revised plan\n\n1. Inspect.\n2. Verify.\n",
+        expectedRevision: first.revision,
+      });
+      if (!updated.exists) throw new Error("Expected revised plan artifact");
+      await expect(
+        service.resolveManagedAgentPlan("planner", {
+          requestId: requested.request.requestId,
+          approved: true,
+          planRevision: first.revision,
+          selectedAction: "interactive",
+        }),
+      ).rejects.toThrow("changed while it was being reviewed");
+      await expect(
+        service.resolveManagedAgentPlan("planner", {
+          requestId: requested.request.requestId,
+          approved: true,
+          planRevision: updated.revision,
+          selectedAction: "interactive",
+        }),
+      ).resolves.toBe(true);
+      await expect(approval).resolves.toMatchObject({
+        approved: true,
+        selectedAction: "interactive",
+      });
+    } finally {
+      await service.stop();
+      await rm(sessionStateDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it("publishes and resolves structured elicitation requests", async () => {
+    const configs: SessionConfig[] = [];
+    const events = new InMemoryEventPublisher();
+    const received: AppEvent[] = [];
+    events.subscribe((event) => received.push(event));
+    const service = new CopilotAgentService(
+      baseOptions({
+        events,
+        clientFactory: () => ({
+          createSession: vi.fn(async (config: SessionConfig) => {
+            configs.push(config);
+            return createFakeSession(`session-${configs.length}`);
+          }),
+          resumeSession: vi.fn(async () => {
+            throw new Error("resume not expected");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+    await service.createManagedAgent(
+      configuration("planner", {
+        resolvedTools: ["task", "skill"],
+        skills: [],
+      }),
+    );
+    const handler = configs[1]?.onElicitationRequest;
+    if (handler === undefined) throw new Error("Expected elicitation handler");
+    const legacyHandler = configs[1]?.onUserInputRequest;
+    if (legacyHandler === undefined) {
+      throw new Error("Expected user-input compatibility handler");
+    }
+    expect(configs[1]?.availableTools).toContain("builtin:task");
+    expect(configs[1]?.availableTools).toContain("builtin:ask_user");
+    expect(configs[1]?.availableTools).not.toContain("builtin:skill");
+    expect(configs[1]?.availableTools).not.toContain("custom:skill");
+    expect(configs[1]?.toolSearch).toEqual({ enabled: false });
+
+    const result = handler({
+      sessionId: "session-2",
+      mode: "form",
+      message: "Choose the arrangement length.",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          bars: {
+            type: "integer",
+            title: "Bars",
+            minimum: 8,
+            maximum: 128,
+          },
+          style: {
+            type: "string",
+            title: "Style",
+            enum: ["compact", "extended"],
+          },
+        },
+        required: ["bars", "style"],
+      },
+    });
+    await flushMicrotasks();
+    const requested = [...received]
+      .reverse()
+      .find((event) => event.type === "agent.elicitation_requested");
+    expect(requested).toMatchObject({
+      type: "agent.elicitation_requested",
+      agentInstanceId: "planner",
+      request: {
+        message: "Choose the arrangement length.",
+        required: ["bars", "style"],
+      },
+    });
+    if (requested?.type !== "agent.elicitation_requested") {
+      throw new Error("Expected elicitation request");
+    }
+    await expect(
+      service.resolveManagedAgentElicitation("planner", {
+        requestId: requested.request.requestId,
+        action: "accept",
+        content: { bars: 32, style: "compact" },
+      }),
+    ).resolves.toBe(true);
+    await expect(result).resolves.toEqual({
+      action: "accept",
+      content: { bars: 32, style: "compact" },
+    });
+    expect(received.at(-1)).toMatchObject({
+      type: "agent.elicitation_completed",
+      action: "accept",
+    });
+
+    const legacyResult = legacyHandler(
+      {
+        question: "Choose the bass style.",
+        choices: ["Minimal", "Syncopated", "Melodic"],
+        allowFreeform: false,
+      },
+      { sessionId: "session-2" },
+    );
+    await flushMicrotasks();
+    const legacyRequested = [...received]
+      .reverse()
+      .find((event) => event.type === "agent.elicitation_requested");
+    expect(legacyRequested).toMatchObject({
+      type: "agent.elicitation_requested",
+      request: {
+        message: "Choose the bass style.",
+        properties: {
+          answer: {
+            type: "string",
+            enum: ["Minimal", "Syncopated", "Melodic"],
+          },
+        },
+        required: ["answer"],
+      },
+    });
+    if (legacyRequested?.type !== "agent.elicitation_requested") {
+      throw new Error("Expected compatibility elicitation request");
+    }
+    await expect(
+      service.resolveManagedAgentElicitation("planner", {
+        requestId: legacyRequested.request.requestId,
+        action: "accept",
+        content: { answer: "Syncopated" },
+      }),
+    ).resolves.toBe(true);
+    await expect(legacyResult).resolves.toEqual({
+      answer: "Syncopated",
+      wasFreeform: false,
+    });
+    await service.stop();
+  });
+
   it("validates resumed adapters and narrowly classifies missing SDK sessions", async () => {
     const defaultSession = createFakeSession("default");
     const missing = createFakeSession("missing", {
@@ -1710,7 +1965,10 @@ describe("CopilotAgentService managed sessions", () => {
     expect(latestResumeConfig?.availableTools).toEqual([
       "custom:ableton_session_inspect",
       "custom:ableton_tracks_create",
+      "custom:read_plan",
+      "custom:write_plan",
       "custom:skill",
+      "builtin:ask_user",
       "builtin:exit_plan_mode",
     ]);
     expect(latestResumeConfig?.customAgents).toEqual([
@@ -1719,12 +1977,6 @@ describe("CopilotAgentService managed sessions", () => {
         displayName: "Updated Managed Agent",
         description: "Updated managed session",
         prompt: "Updated managed prompt",
-        tools: [
-          "ableton_session_inspect",
-          "ableton_tracks_create",
-          "skill",
-          "exit_plan_mode",
-        ],
         infer: false,
       },
     ]);
@@ -1810,6 +2062,11 @@ it("forwards plan mode and resolves only the owning pending plan request", async
     }),
   ).resolves.toBe(false);
 
+  const plan = await service.writeManagedAgentPlan("managed", {
+    content: "# Plan\n\nInspect, then arrange.",
+  });
+  if (!plan.exists) throw new Error("Expected plan artifact");
+
   const directResult = managedConfig?.onExitPlanModeRequest?.(
     {
       summary: "Direct arrangement plan",
@@ -1841,6 +2098,7 @@ it("forwards plan mode and resolves only the owning pending plan request", async
     service.resolveManagedAgentPlan("managed", {
       requestId: directRequest.request.requestId,
       approved: true,
+      planRevision: plan.revision,
       selectedAction: "interactive",
     }),
   ).resolves.toBe(true);
@@ -1900,6 +2158,10 @@ it("bounds plan approval payloads and settles a pending managed request on cance
     "plan",
   );
   await vi.waitFor(() => expect(managedSession.sendAndWait).toHaveBeenCalled());
+  const plan = await service.writeManagedAgentPlan("managed", {
+    content: "p".repeat(100_000),
+  });
+  if (!plan.exists) throw new Error("Expected plan artifact");
   const exitRequest = managedConfig?.onExitPlanModeRequest?.(
     {
       summary: "s".repeat(9_000),
@@ -1958,7 +2220,7 @@ it("bounds plan approval payloads and settles a pending managed request on cance
   await service.stop();
 });
 
-it("exposes only the exit-plan built-in across empty and deduplicated agent tool lists", async () => {
+it("always exposes bounded planning controls across empty and deduplicated agent tool lists", async () => {
   const sessions = [
     createFakeSession("default-session"),
     createFakeSession("empty-session"),
@@ -1996,23 +2258,27 @@ it("exposes only the exit-plan built-in across empty and deduplicated agent tool
     }),
   );
 
-  expect(configs[1]?.availableTools).toEqual(["builtin:exit_plan_mode"]);
-  expect(configs[1]?.customAgents?.[0]?.tools).toEqual(["exit_plan_mode"]);
-  expect(configs[2]?.availableTools).toEqual([
-    "custom:ableton_session_inspect",
+  expect(configs[1]?.availableTools).toEqual([
+    "custom:read_plan",
+    "custom:write_plan",
+    "builtin:ask_user",
     "builtin:exit_plan_mode",
   ]);
-  expect(configs[2]?.customAgents?.[0]?.tools).toEqual([
-    "ableton_session_inspect",
-    "exit_plan_mode",
+  expect(configs[1]?.customAgents?.[0]).not.toHaveProperty("tools");
+  expect(configs[2]?.availableTools).toEqual([
+    "custom:ableton_session_inspect",
+    "custom:read_plan",
+    "custom:write_plan",
+    "builtin:ask_user",
+    "builtin:exit_plan_mode",
   ]);
+  expect(configs[2]?.customAgents?.[0]).not.toHaveProperty("tools");
   for (const config of configs) {
-    expect(config.availableTools).not.toContain("builtin:ask_user");
+    expect(config.availableTools).toContain("builtin:ask_user");
     expect(config.availableTools).not.toContain("builtin:task");
     expect(config.availableTools).not.toContain("builtin:task_complete");
-    expect(config.customAgents?.[0]?.tools).not.toContain("ask_user");
-    expect(config.customAgents?.[0]?.tools).not.toContain("task");
-    expect(config.customAgents?.[0]?.tools).not.toContain("task_complete");
+    expect(config.availableTools).not.toContain("builtin:skill");
+    expect(config.customAgents?.[0]).not.toHaveProperty("tools");
   }
 
   await service.stop();
@@ -2109,6 +2375,11 @@ it("blocks plan-mode mutations until interactive approval", async () => {
   ).rejects.toMatchObject({ code: "plan_mode_read_only" });
   expect(createTrack).not.toHaveBeenCalled();
 
+  const plan = await service.writeManagedAgentPlan("managed", {
+    content: "# Plan\n\nCreate one MIDI track.",
+  });
+  if (!plan.exists) throw new Error("Expected plan artifact");
+
   const exitRequest = managedConfig?.onExitPlanModeRequest?.(
     {
       summary: "Create the approved track",
@@ -2133,6 +2404,7 @@ it("blocks plan-mode mutations until interactive approval", async () => {
     service.resolveManagedAgentPlan("managed", {
       requestId: approval.request.requestId,
       approved: true,
+      planRevision: plan.revision,
       selectedAction: "interactive",
     }),
   ).resolves.toBe(true);

@@ -884,12 +884,13 @@ describe("desktop components", () => {
       messages: [],
       operations: [],
       triggers: [],
-      planApproval: {
-        requestId: "plan-1",
-        summary: "Arrangement plan",
-        planContent: "# Plan\n\nBuild an intro.",
-        recommendedAction: "interactive",
-        actions: ["interactive", "exit_only"],
+      planArtifact: {
+        exists: true,
+        productionSessionId: "session-1",
+        content: "# Plan\n\nBuild an intro.",
+        revision: "a".repeat(64),
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        bytes: 31,
       },
     };
 
@@ -897,12 +898,9 @@ describe("desktop components", () => {
       <Inspector state={state} dispatch={vi.fn()} />,
     );
 
-    expect(html).toContain("Plan ready");
-    expect(html).toContain("Arrangement plan");
+    expect(html).toContain("<h3>Plan</h3>");
     expect(html).toContain("Build an intro.");
-    expect(html).toContain("Approve and continue");
-    expect(html).toContain("Request changes");
-    expect(html).toContain("Exit plan mode");
+    expect(html).not.toContain("Approve and continue");
   });
 
   it("renders structured plans and conservatively formats compact plan lists", () => {
@@ -911,13 +909,14 @@ describe("desktop components", () => {
       messages: [],
       operations: [],
       triggers: [],
-      planApproval: {
-        requestId: "plan-structured",
-        summary: "Structured arrangement plan",
-        planContent:
+      planArtifact: {
+        exists: true,
+        productionSessionId: "session-1",
+        content:
           "# Arrangement\n\n## Intro\n\n- Kick\n- Hats\n\n1. Build\n2. Verify\n\n| Bars | Role |\n| --- | --- |\n| 1-16 | Intro |",
-        recommendedAction: "interactive",
-        actions: ["interactive"],
+        revision: "a".repeat(64),
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        bytes: 128,
       },
     };
     const structuredHtml = renderToStaticMarkup(
@@ -928,12 +927,13 @@ describe("desktop components", () => {
       messages: [],
       operations: [],
       triggers: [],
-      planApproval: {
-        requestId: "plan-malformed",
-        summary: "Malformed arrangement plan",
-        planContent: "Plan: - Kick - Hats",
-        recommendedAction: "exit_only",
-        actions: ["exit_only"],
+      planArtifact: {
+        exists: true,
+        productionSessionId: "session-1",
+        content: "Plan: - Kick - Hats",
+        revision: "a".repeat(64),
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        bytes: 19,
       },
     };
 
@@ -947,12 +947,13 @@ describe("desktop components", () => {
       messages: [],
       operations: [],
       triggers: [],
-      planApproval: {
-        requestId: "plan-compact",
-        summary: "Compact arrangement plan",
-        planContent: compactPlan,
-        recommendedAction: "interactive",
-        actions: ["interactive"],
+      planArtifact: {
+        exists: true,
+        productionSessionId: "session-1",
+        content: compactPlan,
+        revision: "a".repeat(64),
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        bytes: compactPlan.length,
       },
     };
     const compactHtml = renderToStaticMarkup(
@@ -971,7 +972,9 @@ describe("desktop components", () => {
     expect(compactHtml).toContain("<li><strong>Build:</strong> add hats</li>");
     expect(compactHtml).toContain("<h2>Implementation:</h2>");
     expect(
-      compact.agentWorkspaces[firstAgentId]?.planApproval?.planContent,
+      compact.agentWorkspaces[firstAgentId]?.planArtifact?.exists
+        ? compact.agentWorkspaces[firstAgentId]?.planArtifact.content
+        : undefined,
     ).toBe(compactPlan);
     expect(
       formatPlanMarkdownForDisplay(

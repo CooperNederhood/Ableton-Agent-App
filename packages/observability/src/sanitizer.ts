@@ -228,6 +228,10 @@ function redactSensitiveText(value: string): string {
   return redacted;
 }
 
+export function sanitizePersistedText(value: string): string {
+  return redactSensitiveText(value);
+}
+
 function truncateString(value: string, maximum: number): string {
   if (value.length <= maximum) return value;
   const marker = "…[truncated]";

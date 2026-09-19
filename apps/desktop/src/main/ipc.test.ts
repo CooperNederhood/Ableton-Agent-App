@@ -14,6 +14,19 @@ describe("desktop IPC", () => {
       .mockResolvedValue({ accepted: true, messageId: "message-2" });
     const setActiveAgentMode = vi.fn().mockResolvedValue({ id: "updated" });
     const resolveActiveAgentPlan = vi.fn().mockResolvedValue(true);
+    const readActiveAgentPlan = vi.fn().mockResolvedValue({
+      exists: false,
+      productionSessionId: "production-session",
+    });
+    const writeActiveAgentPlan = vi.fn().mockResolvedValue({
+      exists: true,
+      productionSessionId: "production-session",
+      content: "# Plan",
+      revision: "b".repeat(64),
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      bytes: 6,
+    });
+    const resolveActiveAgentElicitation = vi.fn().mockResolvedValue(true);
     const cancelActiveAgent = vi.fn().mockResolvedValue({ cancelled: true });
     const handlers = createIpcHandlers(
       {
@@ -21,6 +34,9 @@ describe("desktop IPC", () => {
         invokeActiveAgentSkill,
         setActiveAgentMode,
         resolveActiveAgentPlan,
+        readActiveAgentPlan,
+        writeActiveAgentPlan,
+        resolveActiveAgentElicitation,
         cancelActiveAgent,
       } as unknown as DesktopService,
       {} as DiagnosticsActions,
@@ -46,7 +62,22 @@ describe("desktop IPC", () => {
         instanceId,
         requestId: "plan-request",
         approved: false,
+        planRevision: "a".repeat(64),
         feedback: "Use fewer tracks",
+      }),
+    ).resolves.toEqual({ resolved: true });
+    await handlers["agents:read-plan"]({ instanceId });
+    await handlers["agents:write-plan"]({
+      instanceId,
+      content: "# Revised plan",
+      expectedRevision: "a".repeat(64),
+    });
+    await expect(
+      handlers["agents:resolve-elicitation"]({
+        instanceId,
+        requestId: "question-1",
+        action: "accept",
+        content: { style: "compact", stems: 4 },
       }),
     ).resolves.toEqual({ resolved: true });
 
@@ -69,7 +100,18 @@ describe("desktop IPC", () => {
     expect(resolveActiveAgentPlan).toHaveBeenCalledWith(instanceId, {
       requestId: "plan-request",
       approved: false,
+      planRevision: "a".repeat(64),
       feedback: "Use fewer tracks",
+    });
+    expect(readActiveAgentPlan).toHaveBeenCalledWith(instanceId);
+    expect(writeActiveAgentPlan).toHaveBeenCalledWith(instanceId, {
+      content: "# Revised plan",
+      expectedRevision: "a".repeat(64),
+    });
+    expect(resolveActiveAgentElicitation).toHaveBeenCalledWith(instanceId, {
+      requestId: "question-1",
+      action: "accept",
+      content: { style: "compact", stems: 4 },
     });
     expect(cancelActiveAgent).toHaveBeenCalledWith(instanceId);
   });

@@ -95,6 +95,9 @@ import type {
 import type {
   AppEvent,
   AgentMode,
+  AgentElicitationRequest,
+  AgentElicitationResolution,
+  AgentElicitationValue,
   AgentPlanExitAction,
   ConnectionStatus,
   EventPublisher,
@@ -102,6 +105,7 @@ import type {
   LiveEventTriggerView,
   LiveEventTypedState,
   Logger,
+  PlanArtifactSnapshot,
 } from "@ableton-agent/shared";
 import { noopLogger } from "@ableton-agent/shared";
 import {
@@ -118,8 +122,13 @@ import {
 } from "@ableton-agent/tools";
 import { resolveLiveAgentStorage } from "@ableton-agent/storage";
 import {
+  BuiltInTools,
   CopilotClient,
+  ToolSet,
   defineTool,
+  type ElicitationContext,
+  type ElicitationFieldValue,
+  type ElicitationResult,
   type ModelInfo,
   type ResumeSessionConfig,
   type SessionConfig,
@@ -143,6 +152,15 @@ import {
   type LiveEventTurnRequest,
   type PreparedContextProvider,
 } from "./live-event-delivery.js";
+import {
+  FilePlanArtifactStore,
+  PlanArtifactConflictError,
+  type PlanArtifactWrite,
+} from "./plan-artifact.js";
+
+type SdkUserInputHandler = NonNullable<SessionConfig["onUserInputRequest"]>;
+type SdkUserInputRequest = Parameters<SdkUserInputHandler>[0];
+type SdkUserInputResponse = Awaited<ReturnType<SdkUserInputHandler>>;
 
 export {
   compactProjectContext,
@@ -172,9 +190,17 @@ export {
   type PendingLiveEventContext,
   type PreparedContextProvider,
 } from "./live-event-delivery.js";
+export {
+  FilePlanArtifactStore,
+  MAX_PLAN_ARTIFACT_BYTES,
+  MAX_PLAN_ARTIFACT_CHARACTERS,
+  PlanArtifactConflictError,
+  type PlanArtifactWrite,
+} from "./plan-artifact.js";
 
 export interface AgentSessionConfiguration {
   readonly instanceId: string;
+  readonly productionSessionId: string;
   readonly definitionName: string;
   readonly label: string;
   readonly model?: string;
@@ -280,8 +306,22 @@ export interface AgentService
     request: {
       requestId: string;
       approved: boolean;
+      planRevision?: string;
       selectedAction?: AgentPlanExitAction;
       feedback?: string;
+    },
+  ): Promise<boolean>;
+  readManagedAgentPlan?(instanceId: string): Promise<PlanArtifactSnapshot>;
+  writeManagedAgentPlan?(
+    instanceId: string,
+    input: PlanArtifactWrite,
+  ): Promise<PlanArtifactSnapshot>;
+  resolveManagedAgentElicitation?(
+    instanceId: string,
+    request: {
+      requestId: string;
+      action: "accept" | "decline" | "cancel";
+      content?: Readonly<Record<string, AgentElicitationValue>>;
     },
   ): Promise<boolean>;
 }
@@ -319,6 +359,113 @@ const MAX_PLAN_FEEDBACK_LENGTH = 8_192;
 
 function boundedPlanText(value: string, maximum: number): string {
   return value.slice(0, maximum);
+}
+
+function recordValue(value: unknown): Readonly<Record<string, unknown>> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Readonly<Record<string, unknown>>)
+    : {};
+}
+
+function elicitationRequest(
+  requestId: string,
+  context: ElicitationContext,
+): AgentElicitationRequest {
+  const properties = Object.fromEntries(
+    Object.entries(context.requestedSchema?.properties ?? {}).slice(0, 32),
+  ) as AgentElicitationRequest["properties"];
+  return {
+    requestId,
+    message: boundedPlanText(context.message, MAX_PLAN_SUMMARY_LENGTH),
+    properties,
+    required: (context.requestedSchema?.required ?? [])
+      .filter((name) => Object.hasOwn(properties, name))
+      .slice(0, 32),
+  };
+}
+
+function validateElicitationContent(
+  request: AgentElicitationRequest,
+  content: Readonly<Record<string, AgentElicitationValue>>,
+): Record<string, ElicitationFieldValue> {
+  for (const required of request.required) {
+    if (content[required] === undefined) {
+      throw new Error(`Elicitation field '${required}' is required`);
+    }
+  }
+  const validated: Record<string, ElicitationFieldValue> = {};
+  for (const [name, value] of Object.entries(content)) {
+    const field = request.properties[name];
+    if (field === undefined) {
+      throw new Error(`Unknown elicitation field '${name}'`);
+    }
+    if (field.type === "string") {
+      if (typeof value !== "string") {
+        throw new Error(`Elicitation field '${name}' must be text`);
+      }
+      if (field.minLength !== undefined && value.length < field.minLength) {
+        throw new Error(
+          `Elicitation field '${name}' must contain at least ${field.minLength} characters`,
+        );
+      }
+      if (field.maxLength !== undefined && value.length > field.maxLength) {
+        throw new Error(
+          `Elicitation field '${name}' must contain at most ${field.maxLength} characters`,
+        );
+      }
+      const allowed = field.enum ?? field.oneOf?.map((choice) => choice.const);
+      if (allowed !== undefined && !allowed.includes(value)) {
+        throw new Error(`Elicitation field '${name}' has an invalid choice`);
+      }
+    } else if (field.type === "array") {
+      if (
+        !Array.isArray(value) ||
+        value.some((entry) => typeof entry !== "string")
+      ) {
+        throw new Error(`Elicitation field '${name}' must be a text list`);
+      }
+      if (field.minItems !== undefined && value.length < field.minItems) {
+        throw new Error(
+          `Elicitation field '${name}' requires at least ${field.minItems} choices`,
+        );
+      }
+      if (field.maxItems !== undefined && value.length > field.maxItems) {
+        throw new Error(
+          `Elicitation field '${name}' allows at most ${field.maxItems} choices`,
+        );
+      }
+      const allowed =
+        "enum" in field.items
+          ? field.items.enum
+          : field.items.anyOf.map((choice) => choice.const);
+      if (value.some((entry) => !allowed.includes(entry))) {
+        throw new Error(`Elicitation field '${name}' has an invalid choice`);
+      }
+    } else if (field.type === "boolean") {
+      if (typeof value !== "boolean") {
+        throw new Error(`Elicitation field '${name}' must be true or false`);
+      }
+    } else {
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        throw new Error(`Elicitation field '${name}' must be a number`);
+      }
+      if (field.type === "integer" && !Number.isInteger(value)) {
+        throw new Error(`Elicitation field '${name}' must be an integer`);
+      }
+      if (field.minimum !== undefined && value < field.minimum) {
+        throw new Error(
+          `Elicitation field '${name}' must be at least ${field.minimum}`,
+        );
+      }
+      if (field.maximum !== undefined && value > field.maximum) {
+        throw new Error(
+          `Elicitation field '${name}' must be at most ${field.maximum}`,
+        );
+      }
+    }
+    validated[name] = value;
+  }
+  return validated;
 }
 
 export type { AbletonService } from "@ableton-agent/ableton-contracts";
@@ -466,6 +613,7 @@ export interface CopilotAgentServiceOptions {
   askForReadApproval?: boolean | (() => boolean);
   clientFactory?: () => CopilotClientAdapter;
   baseDirectory?: string;
+  sessionStateDirectory?: string;
   model?: string;
   reasoningEffort?: AgentReasoningEffort;
   turnTimeoutMs?: number;
@@ -509,7 +657,7 @@ export interface AgentRuntimeObserver {
 
 export const DEFAULT_AGENT_TURN_TIMEOUT_MS = 180_000;
 export const BASE_SYSTEM_MESSAGE_VERSION = 7;
-export const PLAN_REMINDER_VERSION = 1;
+export const PLAN_REMINDER_VERSION = 2;
 const baseSystemMessageCandidates = [
   new URL("../prompts/base-system-message.md", import.meta.url),
   new URL("./prompts/base-system-message.md", import.meta.url),
@@ -562,7 +710,23 @@ export function composeAgentTurnPrompt(
 
 export const SKILL_TOOL_NAME = "skill";
 const EXIT_PLAN_MODE_TOOL_NAME = "exit_plan_mode";
-const QUALIFIED_EXIT_PLAN_MODE_TOOL_NAME = `builtin:${EXIT_PLAN_MODE_TOOL_NAME}`;
+const ASK_USER_TOOL_NAME = "ask_user";
+export const READ_PLAN_TOOL_NAME = "read_plan";
+export const WRITE_PLAN_TOOL_NAME = "write_plan";
+export const APPROVED_BUILTIN_TOOL_NAMES = BuiltInTools.Isolated.filter(
+  (name) => name !== SKILL_TOOL_NAME,
+);
+export const APPLICATION_TOOL_NAMES = [
+  SKILL_TOOL_NAME,
+  READ_PLAN_TOOL_NAME,
+  WRITE_PLAN_TOOL_NAME,
+] as const;
+const CORE_AGENT_TOOL_NAMES = [
+  ASK_USER_TOOL_NAME,
+  EXIT_PLAN_MODE_TOOL_NAME,
+  READ_PLAN_TOOL_NAME,
+  WRITE_PLAN_TOOL_NAME,
+] as const;
 const directSkillHistoryPrefix = "<!-- ableton-agent:direct-skill ";
 
 export class AgentTurnTimeoutError extends Error {
@@ -658,11 +822,25 @@ interface ManagedSessionState {
     string,
     {
       readonly sessionId: string;
+      readonly productionSessionId: string;
+      artifact: Extract<PlanArtifactSnapshot, { exists: true }>;
+      readonly summary: string;
+      readonly actions: readonly AgentPlanExitAction[];
+      readonly recommendedAction: AgentPlanExitAction;
       resolve: (response: {
         approved: boolean;
         selectedAction?: AgentPlanExitAction;
         feedback?: string;
       }) => void;
+    }
+  >;
+  readonly elicitationRequests: Map<
+    string,
+    {
+      readonly sessionId: string;
+      readonly startedAt: number;
+      readonly request: AgentElicitationRequest;
+      resolve: (result: ElicitationResult) => void;
     }
   >;
 }
@@ -789,15 +967,18 @@ function liveEventTypedState(
   }
 }
 
-function qualifyAvailableTools(toolNames: readonly string[]): string[] {
-  return [
-    ...bareToolNames(toolNames).map((toolName) => `custom:${toolName}`),
-    QUALIFIED_EXIT_PLAN_MODE_TOOL_NAME,
-  ];
-}
+const approvedBuiltinToolNames = new Set(APPROVED_BUILTIN_TOOL_NAMES);
 
-function customAgentToolNames(toolNames: readonly string[]): string[] {
-  return [...bareToolNames(toolNames), EXIT_PLAN_MODE_TOOL_NAME];
+function qualifyAvailableTools(toolNames: readonly string[]): string[] {
+  const tools = new ToolSet();
+  for (const toolName of dedupeStrings([
+    ...bareToolNames(toolNames),
+    ...CORE_AGENT_TOOL_NAMES,
+  ])) {
+    if (approvedBuiltinToolNames.has(toolName)) tools.addBuiltIn(toolName);
+    else tools.addCustom(toolName);
+  }
+  return tools.toArray();
 }
 
 function toolParameterSchema(tool: Tool): Readonly<Record<string, unknown>> {
@@ -945,6 +1126,7 @@ function normalizeSessionConfiguration(
   }
   return {
     instanceId: configuration.instanceId,
+    productionSessionId: configuration.productionSessionId,
     definitionName: configuration.definitionName,
     label: configuration.label,
     ...(configuration.model === undefined
@@ -1035,18 +1217,20 @@ export class CopilotAgentService implements AgentService {
   readonly #mutationLockManager = createAbletonMutationLockManager();
   readonly #states = new Map<string, ManagedSessionState>();
   readonly #lifecycleTails = new Map<string, Promise<void>>();
+  readonly #planArtifacts: FilePlanArtifactStore;
 
   public constructor(private readonly options: CopilotAgentServiceOptions) {
     this.#logger = options.logger ?? noopLogger;
+    const storage = resolveLiveAgentStorage({ homeDirectory: homedir() });
+    this.#planArtifacts = new FilePlanArtifactStore(
+      options.sessionStateDirectory ?? storage.sessionStateDirectory,
+    );
     this.#clientFactory =
       options.clientFactory ??
       (() =>
         new CopilotClient({
           mode: "empty",
-          baseDirectory:
-            options.baseDirectory ??
-            resolveLiveAgentStorage({ homeDirectory: homedir() })
-              .copilotDirectory,
+          baseDirectory: options.baseDirectory ?? storage.copilotDirectory,
         }));
   }
 
@@ -1227,6 +1411,7 @@ export class CopilotAgentService implements AgentService {
   #defaultSessionConfiguration(): AgentSessionConfiguration {
     return {
       instanceId: DEFAULT_AGENT_INSTANCE_KEY,
+      productionSessionId: DEFAULT_AGENT_INSTANCE_KEY,
       definitionName: DEFAULT_AGENT_DEFINITION_NAME,
       label: DEFAULT_AGENT_LABEL,
       description: DEFAULT_AGENT_DESCRIPTION,
@@ -1268,6 +1453,7 @@ export class CopilotAgentService implements AgentService {
       pendingAutomatic: new Map(),
       operations: new Map(),
       directPlanRequests: new Map(),
+      elicitationRequests: new Map(),
     };
   }
 
@@ -1546,16 +1732,265 @@ export class CopilotAgentService implements AgentService {
     }) as Tool;
   }
 
+  #publishPlanArtifact(
+    state: ManagedSessionState,
+    artifact: PlanArtifactSnapshot,
+  ): void {
+    this.options.events.publish({
+      type: "agent.plan_artifact_changed",
+      artifact,
+      ...this.#eventAttribution(state),
+    });
+  }
+
+  #publishPlanApproval(
+    state: ManagedSessionState,
+    requestId: string,
+    summary: string,
+    actions: readonly AgentPlanExitAction[],
+    recommendedAction: AgentPlanExitAction,
+    artifact: Extract<PlanArtifactSnapshot, { exists: true }>,
+  ): void {
+    this.options.events.publish({
+      type: "agent.plan_approval_requested",
+      request: {
+        requestId,
+        summary,
+        planContent: artifact.content,
+        planRevision: artifact.revision,
+        planUpdatedAt: artifact.updatedAt,
+        recommendedAction,
+        actions,
+      },
+      ...this.#eventAttribution(state),
+    });
+  }
+
+  async #readPlanArtifact(
+    state: ManagedSessionState,
+  ): Promise<PlanArtifactSnapshot> {
+    const startedAt = Date.now();
+    this.#recordRuntime(state, "agent.plan.artifact.read.queued", {
+      productionSessionId: state.configuration.productionSessionId,
+    });
+    this.#recordRuntime(state, "agent.plan.artifact.read.started", {
+      productionSessionId: state.configuration.productionSessionId,
+    });
+    try {
+      const artifact = await this.#planArtifacts.read(
+        state.configuration.productionSessionId,
+      );
+      this.#recordRuntime(state, "agent.plan.artifact.read.completed", {
+        productionSessionId: state.configuration.productionSessionId,
+        exists: artifact.exists,
+        ...(artifact.exists
+          ? { revision: artifact.revision, bytes: artifact.bytes }
+          : {}),
+        durationMs: Date.now() - startedAt,
+      });
+      this.#publishPlanArtifact(state, artifact);
+      return artifact;
+    } catch (error) {
+      this.#recordRuntime(state, "agent.plan.artifact.read.failed", {
+        productionSessionId: state.configuration.productionSessionId,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
+  async #writePlanArtifact(
+    state: ManagedSessionState,
+    input: PlanArtifactWrite,
+  ): Promise<PlanArtifactSnapshot> {
+    const startedAt = Date.now();
+    this.#recordRuntime(state, "agent.plan.artifact.write.queued", {
+      productionSessionId: state.configuration.productionSessionId,
+      expectedRevision: input.expectedRevision,
+    });
+    this.#recordRuntime(state, "agent.plan.artifact.write.started", {
+      productionSessionId: state.configuration.productionSessionId,
+      expectedRevision: input.expectedRevision,
+    });
+    try {
+      const artifact = await this.#planArtifacts.write(
+        state.configuration.productionSessionId,
+        input,
+      );
+      this.#recordRuntime(state, "agent.plan.artifact.write.completed", {
+        productionSessionId: state.configuration.productionSessionId,
+        ...(artifact.exists
+          ? { revision: artifact.revision, bytes: artifact.bytes }
+          : {}),
+        durationMs: Date.now() - startedAt,
+      });
+      this.#publishPlanArtifact(state, artifact);
+      if (artifact.exists) {
+        for (const candidate of this.#states.values()) {
+          if (
+            candidate.configuration.productionSessionId !==
+            state.configuration.productionSessionId
+          ) {
+            continue;
+          }
+          for (const [requestId, pending] of candidate.directPlanRequests) {
+            pending.artifact = artifact;
+            this.#publishPlanApproval(
+              candidate,
+              requestId,
+              pending.summary,
+              pending.actions,
+              pending.recommendedAction,
+              artifact,
+            );
+          }
+        }
+      }
+      return artifact;
+    } catch (error) {
+      this.#recordRuntime(state, "agent.plan.artifact.write.failed", {
+        productionSessionId: state.configuration.productionSessionId,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+        conflict: error instanceof PlanArtifactConflictError,
+      });
+      throw error;
+    }
+  }
+
+  #planTools(state: ManagedSessionState): Tool[] {
+    return [
+      defineTool(READ_PLAN_TOOL_NAME, {
+        description:
+          "Read the shared plan.md for the current Ableton production session, including its revision for safe updates.",
+        parameters: z.object({}).strict(),
+        skipPermission: true,
+        defer: "never",
+        handler: async () => this.#readPlanArtifact(state),
+      }) as Tool,
+      defineTool(WRITE_PLAN_TOOL_NAME, {
+        description:
+          "Create or replace the shared plan.md for the current Ableton production session. Read the existing plan first and pass expected_revision when updating it.",
+        parameters: z
+          .object({
+            content: z.string().min(1).max(MAX_PLAN_CONTENT_LENGTH),
+            expected_revision: z
+              .string()
+              .regex(/^[a-f0-9]{64}$/u)
+              .optional(),
+          })
+          .strict(),
+        skipPermission: true,
+        defer: "never",
+        handler: async ({ content, expected_revision }) =>
+          this.#writePlanArtifact(state, {
+            content,
+            ...(expected_revision === undefined
+              ? {}
+              : { expectedRevision: expected_revision }),
+          }),
+      }) as Tool,
+    ];
+  }
+
+  #requestElicitation(
+    state: ManagedSessionState,
+    context: ElicitationContext,
+  ): Promise<ElicitationResult> {
+    if (context.mode === "url") {
+      return Promise.resolve({ action: "cancel" });
+    }
+    const requestId = randomUUID();
+    const request = elicitationRequest(requestId, context);
+    const sessionId = state.session?.sessionId ?? context.sessionId;
+    const startedAt = Date.now();
+    this.#recordRuntime(
+      state,
+      "agent.elicitation.requested",
+      { requestId, request },
+      { sessionId },
+    );
+    this.options.events.publish({
+      type: "agent.elicitation_requested",
+      request,
+      ...this.#eventAttribution(state),
+    });
+    return new Promise<ElicitationResult>((resolve) => {
+      state.elicitationRequests.set(requestId, {
+        sessionId,
+        startedAt,
+        request,
+        resolve,
+      });
+    });
+  }
+
+  async #requestLegacyUserInput(
+    state: ManagedSessionState,
+    request: SdkUserInputRequest,
+    sessionId: string,
+  ): Promise<SdkUserInputResponse> {
+    const choices = [
+      ...new Set(
+        (request.choices ?? [])
+          .map((choice) =>
+            boundedPlanText(choice.trim(), MAX_PLAN_SUMMARY_LENGTH),
+          )
+          .filter((choice) => choice.length > 0),
+      ),
+    ].slice(0, 32);
+    const result = await this.#requestElicitation(state, {
+      sessionId,
+      mode: "form",
+      elicitationSource: "copilot-sdk:ask_user",
+      message: boundedPlanText(request.question, MAX_PLAN_SUMMARY_LENGTH),
+      requestedSchema: {
+        type: "object",
+        properties: {
+          answer: {
+            type: "string",
+            title: "Answer",
+            ...(choices.length === 0
+              ? { minLength: 1, maxLength: MAX_PLAN_FEEDBACK_LENGTH }
+              : { enum: choices }),
+          },
+        },
+        required: ["answer"],
+      },
+    });
+    if (result.action !== "accept") {
+      throw new Error(
+        result.action === "decline"
+          ? "User declined the ask_user request"
+          : "User cancelled the ask_user request",
+      );
+    }
+    const answer = result.content?.answer;
+    if (typeof answer !== "string") {
+      throw new Error("ask_user completed without a text answer");
+    }
+    return {
+      answer,
+      wasFreeform: choices.length === 0 || !choices.includes(answer),
+    };
+  }
+
   #sessionConfig(state: ManagedSessionState): SessionConfig {
     const skillTool = this.#skillTool(state);
     const tools = [
       ...this.#scopedAbletonTools(state),
+      ...this.#planTools(state),
       ...(skillTool === undefined ? [] : [skillTool]),
     ];
-    const configuredToolNames = [
-      ...bareToolNames(state.configuration.resolvedTools),
+    const configuredToolNames = dedupeStrings([
+      ...bareToolNames(state.configuration.resolvedTools).filter(
+        (name) => name !== SKILL_TOOL_NAME,
+      ),
+      READ_PLAN_TOOL_NAME,
+      WRITE_PLAN_TOOL_NAME,
       ...(skillTool === undefined ? [] : [SKILL_TOOL_NAME]),
-    ];
+    ]);
     const skillInstructions = formatSkillSystemInstructions(
       enabledSkillDescriptors(state.configuration),
     );
@@ -1622,13 +2057,13 @@ export class CopilotAgentService implements AgentService {
       ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
       tools,
       availableTools: qualifyAvailableTools(configuredToolNames),
+      toolSearch: { enabled: false },
       customAgents: [
         {
           name: state.configuration.definitionName,
           displayName: state.configuration.label,
           description: state.configuration.description,
           prompt: state.configuration.systemPrompt,
-          tools: customAgentToolNames(configuredToolNames),
           infer: false,
         },
       ],
@@ -1645,7 +2080,9 @@ export class CopilotAgentService implements AgentService {
         let result;
         if (
           request.kind === "custom-tool" &&
-          request.toolName === SKILL_TOOL_NAME
+          [SKILL_TOOL_NAME, READ_PLAN_TOOL_NAME, WRITE_PLAN_TOOL_NAME].includes(
+            request.toolName,
+          )
         ) {
           result = { kind: "approve-once" } as const;
         } else {
@@ -1674,8 +2111,25 @@ export class CopilotAgentService implements AgentService {
         });
         return result;
       },
+      askUserVariant: "elicitation",
+      onUserInputRequest: (request, invocation) =>
+        this.#requestLegacyUserInput(state, request, invocation.sessionId),
+      onElicitationRequest: (context) =>
+        this.#requestElicitation(state, context),
       hooks: agentPolicy.hooks,
       onExitPlanModeRequest: async (request) => {
+        const artifact = await this.#readPlanArtifact(state);
+        if (!artifact.exists || artifact.content.trim().length === 0) {
+          this.#recordRuntime(state, "agent.plan.approval.failed", {
+            reason: "plan_artifact_missing",
+            productionSessionId: state.configuration.productionSessionId,
+          });
+          return {
+            approved: false,
+            feedback:
+              "The shared plan.md is missing or empty. Write the complete plan with write_plan, then call exit_plan_mode again.",
+          };
+        }
         const requestId = randomUUID();
         const actions = request.actions.filter(
           (action): action is AgentPlanExitAction =>
@@ -1690,42 +2144,46 @@ export class CopilotAgentService implements AgentService {
             ? "interactive"
             : "exit_only";
         const sessionId = state.session?.sessionId ?? "";
+        const summary = boundedPlanText(
+          request.summary,
+          MAX_PLAN_SUMMARY_LENGTH,
+        );
         const response = new Promise<{
           approved: boolean;
           selectedAction?: AgentPlanExitAction;
           feedback?: string;
         }>((resolve) => {
-          state.directPlanRequests.set(requestId, { sessionId, resolve });
+          state.directPlanRequests.set(requestId, {
+            sessionId,
+            productionSessionId: state.configuration.productionSessionId,
+            artifact,
+            summary,
+            actions,
+            recommendedAction,
+            resolve,
+          });
         });
         this.#recordRuntime(
           state,
           "agent.plan.approval.requested",
           {
             requestId,
-            summary: boundedPlanText(request.summary, MAX_PLAN_SUMMARY_LENGTH),
-            planContent: boundedPlanText(
-              request.planContent ?? "",
-              MAX_PLAN_CONTENT_LENGTH,
-            ),
+            summary,
+            planRevision: artifact.revision,
+            planBytes: artifact.bytes,
             recommendedAction,
             actions,
           },
           { sessionId },
         );
-        this.options.events.publish({
-          type: "agent.plan_approval_requested",
-          request: {
-            requestId,
-            summary: boundedPlanText(request.summary, MAX_PLAN_SUMMARY_LENGTH),
-            planContent: boundedPlanText(
-              request.planContent ?? "",
-              MAX_PLAN_CONTENT_LENGTH,
-            ),
-            recommendedAction,
-            actions,
-          },
-          ...this.#eventAttribution(state),
-        });
+        this.#publishPlanApproval(
+          state,
+          requestId,
+          summary,
+          actions,
+          recommendedAction,
+          artifact,
+        );
         return await response;
       },
       systemMessage: {
@@ -1744,7 +2202,11 @@ export class CopilotAgentService implements AgentService {
     sessionId: string,
   ): void {
     const configuredToolNames = new Set([
-      ...bareToolNames(state.configuration.resolvedTools),
+      ...bareToolNames(state.configuration.resolvedTools).filter(
+        (name) => name !== SKILL_TOOL_NAME,
+      ),
+      READ_PLAN_TOOL_NAME,
+      WRITE_PLAN_TOOL_NAME,
       ...(state.configuration.skills.length === 0 ? [] : [SKILL_TOOL_NAME]),
     ]);
     const tools = config.tools as readonly Tool[];
@@ -1894,7 +2356,7 @@ export class CopilotAgentService implements AgentService {
           label,
           toolName: event.data.toolName,
           mutates: metadata !== undefined && metadata.mutationTarget !== "read",
-          arguments: event.data.arguments ?? {},
+          arguments: recordValue(event.data.arguments),
           startedAt: Date.parse(event.timestamp),
         });
         this.#logger.debug("Agent tool started", {
@@ -1904,14 +2366,14 @@ export class CopilotAgentService implements AgentService {
             : {}),
           operationId: event.data.toolCallId,
           toolName: event.data.toolName,
-          arguments: event.data.arguments ?? {},
+          arguments: recordValue(event.data.arguments),
         });
         this.options.events.publish({
           type: "operation.started",
           operationId: event.data.toolCallId,
           label,
           toolName: event.data.toolName,
-          arguments: event.data.arguments ?? {},
+          arguments: recordValue(event.data.arguments),
           ...this.#eventAttribution(state),
         });
       } else if (event.type === "tool.execution_complete") {
@@ -2023,6 +2485,29 @@ export class CopilotAgentService implements AgentService {
     state.directPlanRequests.clear();
   }
 
+  #cancelPendingElicitations(state: ManagedSessionState, reason: string): void {
+    for (const [requestId, pending] of state.elicitationRequests) {
+      pending.resolve({ action: "cancel" });
+      this.#recordRuntime(
+        state,
+        "agent.elicitation.cancelled",
+        {
+          requestId,
+          reason,
+          durationMs: Date.now() - pending.startedAt,
+        },
+        { sessionId: pending.sessionId },
+      );
+      this.options.events.publish({
+        type: "agent.elicitation_completed",
+        requestId,
+        action: "cancel",
+        ...this.#eventAttribution(state),
+      });
+    }
+    state.elicitationRequests.clear();
+  }
+
   async #disconnectState(
     state: ManagedSessionState,
     options: { removeFromRegistry?: boolean; reason?: unknown } = {},
@@ -2037,6 +2522,7 @@ export class CopilotAgentService implements AgentService {
     state.queuedTurns = 0;
     state.operations.clear();
     this.#cancelPendingPlans(state, "session_disconnected");
+    this.#cancelPendingElicitations(state, "session_disconnected");
     this.#rejectPendingAutomatic(
       state,
       options.reason ?? new Error("Copilot session disconnected"),
@@ -2499,6 +2985,7 @@ export class CopilotAgentService implements AgentService {
     });
     try {
       this.#cancelPendingPlans(state, "user_cancelled");
+      this.#cancelPendingElicitations(state, "user_cancelled");
       await session.abort();
       this.#recordRuntime(state, "agent.abort.completed", { reason: "user" });
       this.#recordRuntime(state, "agent.turn.cancelled", {
@@ -2529,6 +3016,7 @@ export class CopilotAgentService implements AgentService {
     });
     try {
       this.#cancelPendingPlans(state, "user_cancelled");
+      this.#cancelPendingElicitations(state, "user_cancelled");
       await session.abort();
       this.#recordRuntime(state, "agent.abort.completed", { reason: "user" });
       this.#recordRuntime(state, "agent.turn.cancelled", {
@@ -2930,6 +3418,7 @@ export class CopilotAgentService implements AgentService {
     request: {
       requestId: string;
       approved: boolean;
+      planRevision?: string;
       selectedAction?: AgentPlanExitAction;
       feedback?: string;
     },
@@ -2954,6 +3443,39 @@ export class CopilotAgentService implements AgentService {
         { requestId: request.requestId },
         { sessionId: direct.sessionId },
       );
+      const artifact = await this.#planArtifacts.read(
+        direct.productionSessionId,
+      );
+      const submittedRevision =
+        request.planRevision ?? direct.artifact.revision;
+      if (!artifact.exists || artifact.revision !== submittedRevision) {
+        this.#recordRuntime(
+          state,
+          "agent.plan.resolution.stale",
+          {
+            requestId: request.requestId,
+            submittedRevision,
+            currentRevision: artifact.exists ? artifact.revision : undefined,
+            durationMs: Date.now() - startedAt,
+          },
+          { sessionId: direct.sessionId },
+        );
+        this.#publishPlanArtifact(state, artifact);
+        if (artifact.exists) {
+          direct.artifact = artifact;
+          this.#publishPlanApproval(
+            state,
+            request.requestId,
+            "The plan changed while it was being reviewed. Review the latest plan.md before continuing.",
+            ["interactive", "exit_only"],
+            "interactive",
+            artifact,
+          );
+        }
+        throw new Error(
+          "The plan changed while it was being reviewed. Review the latest revision before approving it.",
+        );
+      }
       state.directPlanRequests.delete(request.requestId);
       const feedback =
         request.feedback === undefined
@@ -2980,6 +3502,7 @@ export class CopilotAgentService implements AgentService {
           requestId: request.requestId,
           approved: request.approved,
           selectedAction: request.selectedAction,
+          planRevision: artifact.revision,
           durationMs: Date.now() - startedAt,
         },
         { sessionId: direct.sessionId },
@@ -2997,6 +3520,57 @@ export class CopilotAgentService implements AgentService {
       return true;
     }
     return false;
+  }
+
+  public async readManagedAgentPlan(
+    instanceId: string,
+  ): Promise<PlanArtifactSnapshot> {
+    return await this.#readPlanArtifact(this.#requireManagedState(instanceId));
+  }
+
+  public async writeManagedAgentPlan(
+    instanceId: string,
+    input: PlanArtifactWrite,
+  ): Promise<PlanArtifactSnapshot> {
+    return await this.#writePlanArtifact(
+      this.#requireManagedState(instanceId),
+      input,
+    );
+  }
+
+  public async resolveManagedAgentElicitation(
+    instanceId: string,
+    request: AgentElicitationResolution,
+  ): Promise<boolean> {
+    const state = this.#requireManagedState(instanceId);
+    const pending = state.elicitationRequests.get(request.requestId);
+    if (pending === undefined) return false;
+    const content =
+      request.action === "accept"
+        ? validateElicitationContent(pending.request, request.content ?? {})
+        : undefined;
+    state.elicitationRequests.delete(request.requestId);
+    pending.resolve({
+      action: request.action,
+      ...(content === undefined ? {} : { content }),
+    });
+    this.#recordRuntime(
+      state,
+      "agent.elicitation.completed",
+      {
+        requestId: request.requestId,
+        action: request.action,
+        durationMs: Date.now() - pending.startedAt,
+      },
+      { sessionId: pending.sessionId },
+    );
+    this.options.events.publish({
+      type: "agent.elicitation_completed",
+      requestId: request.requestId,
+      action: request.action,
+      ...this.#eventAttribution(state),
+    });
+    return true;
   }
 
   public invokeManagedAgentSkill(
@@ -3235,6 +3809,9 @@ export class HeadlessApplication {
       | "getManagedAgentSessionId"
       | "getManagedAgentHistory"
       | "resolveManagedAgentPlan"
+      | "readManagedAgentPlan"
+      | "writeManagedAgentPlan"
+      | "resolveManagedAgentElicitation"
       | "listModels",
   >(name: K): NonNullable<AgentService[K]> {
     const method = this.services.agent[name];
@@ -3414,6 +3991,7 @@ export class HeadlessApplication {
     request: {
       requestId: string;
       approved: boolean;
+      planRevision?: string;
       selectedAction?: AgentPlanExitAction;
       feedback?: string;
     },
@@ -3424,6 +4002,32 @@ export class HeadlessApplication {
       );
     }
     return this.#requireManagedAgentMethod("resolveManagedAgentPlan")(
+      instanceId,
+      request,
+    );
+  }
+
+  public readManagedAgentPlan(
+    instanceId: string,
+  ): Promise<PlanArtifactSnapshot> {
+    return this.#requireManagedAgentMethod("readManagedAgentPlan")(instanceId);
+  }
+
+  public writeManagedAgentPlan(
+    instanceId: string,
+    input: PlanArtifactWrite,
+  ): Promise<PlanArtifactSnapshot> {
+    return this.#requireManagedAgentMethod("writeManagedAgentPlan")(
+      instanceId,
+      input,
+    );
+  }
+
+  public resolveManagedAgentElicitation(
+    instanceId: string,
+    request: AgentElicitationResolution,
+  ): Promise<boolean> {
+    return this.#requireManagedAgentMethod("resolveManagedAgentElicitation")(
       instanceId,
       request,
     );

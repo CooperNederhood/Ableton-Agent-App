@@ -139,7 +139,9 @@ development builds use `development`. `LIVE_AGENT_HOME` and
 local event journal under `observability/`, Copilot SDK state under `copilot/`,
 and production-session ownership manifests under `session-state/`. OS-encrypted
 credential blobs remain under the profile, while the Remote Script's token
-remains in its managed Ableton installation so Live can authenticate.
+remains in its managed Ableton installation so Live can authenticate. The
+complete contract is defined in
+[Local Storage Layout](local-storage.md).
 
 On first use, the app stages and validates data from prior Electron
 application-data/log directories and `~/.ableton-agent/copilot`, then atomically

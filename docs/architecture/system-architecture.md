@@ -79,6 +79,9 @@ Live's main thread, socket reads, SDK streaming, or tool execution.
 
 ### Local storage topology
 
+The canonical structure and ownership rules are specified in
+[Local Storage Layout](../platform/local-storage.md).
+
 Application-owned local data uses one shared, versioned root:
 `~/.live-agent`. `LIVE_AGENT_HOME` may override that absolute root for tests,
 portable environments, and recovery. Data is isolated by profile under

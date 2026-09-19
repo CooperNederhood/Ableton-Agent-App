@@ -16,6 +16,13 @@
   failure/cancellation, and trace propagation.
 - Update the relevant specifications and implementation to-do files with every
   behavior or lifecycle change.
+- Follow the canonical application-owned storage contract in
+  [`docs/platform/local-storage.md`](../docs/platform/local-storage.md). New
+  persisted data must use the shared `@ableton-agent/storage` resolver and the
+  documented `~/.live-agent/profiles/{profile}` ownership layout; do not invent
+  independent Electron, OS application-data, repository, or home-directory
+  paths. Update that document and its implementation to-do when the layout,
+  migration, retention, security, or ownership behavior changes.
 
 # Testing workflows
 

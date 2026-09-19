@@ -15,7 +15,8 @@ Repeat this loop until the observed behavior matches the expected user
 experience:
 
 1. **Implement** the feature and add the narrowest deterministic regression
-   coverage.
+   coverage. Add or update component interaction and Electron Playwright tests
+   when the behavior can be preserved as an automated UI regression.
 2. **Build** the workspace so Electron main, preload, renderer, shared packages,
    and the MCP adapter reflect the current source.
 3. **Launch Ableton** as a dedicated validation process. Never reuse or take

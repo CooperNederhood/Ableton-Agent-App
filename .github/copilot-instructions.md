@@ -21,6 +21,24 @@
 
 - Start with the smallest deterministic unit, component, contract, or Playwright
   test that owns the changed behavior.
+- Do not only run the existing suite. Every feature or bug fix must add or
+  expand regression coverage at each relevant application-owned boundary.
+- Add success, failure, denial/guard, cancellation where supported, and cleanup
+  coverage for every changed critical path.
+- Add or update React component interaction tests for renderer behavior. Add or
+  update Electron Playwright tests when behavior crosses renderer/preload/main
+  boundaries or changes a critical visible workflow, window state, IPC path,
+  startup mode, approval flow, progress/error presentation, or recovery path.
+- Add TypeScript and Python protocol/contract coverage when schemas, commands,
+  framing, capabilities, or Remote Script behavior change. Add simulator-backed
+  bridge tests for authentication, sequencing, timeout, reconnect, malformed
+  input, or mutation serialization behavior.
+- Add tool/workflow tests with controlled failures and exact postconditions when
+  agent tools, safety policy, workflows, rollback, or verification change.
+- Add or expand a reviewed `integration/live-scenarios/` manifest and its
+  deterministic verifier when a user-facing natural-language workflow changes
+  what the agent is allowed or expected to do in real Ableton Live. Do not add
+  a real-Live scenario for presentation-only changes with no Live behavior.
 - After changing Electron UI, desktop interactions, approvals, progress/error
   presentation, or visible Ableton Agent/Ableton workflows, invoke the
   `desktop-ux-testing` skill. Follow its full implement, build, launch, message,
@@ -37,6 +55,9 @@
 - Automation must use an isolated Desktop profile and dedicated processes.
   Track and close only processes started by the validation workflow; never
   terminate or discard work from a pre-existing user process.
+- A change is not complete until the new regression tests fail without the fix,
+  pass with the fix, and the smallest relevant suites have been escalated to
+  their broader owning suite.
 
 # Background About Ableton
 

@@ -641,6 +641,36 @@ function reduceEvent(
         operations: upsertOperation(state.operations, event.operation),
       };
     }
+    case "agent.user_message_submitted": {
+      const append = (messages: MessageView[]): MessageView[] => {
+        if (messages.some(({ id }) => id === event.messageId)) return messages;
+        return bounded(
+          [
+            ...messages,
+            {
+              id: event.messageId,
+              role: "user",
+              content: event.content,
+              streaming: false,
+              timestamp: event.timestamp,
+              agentMode: event.agentMode,
+            },
+          ],
+          maxMessages,
+        );
+      };
+      if (event.agentInstanceId !== undefined) {
+        return updateAgentWorkspace(
+          state,
+          event.agentInstanceId,
+          (workspace) => ({
+            ...workspace,
+            messages: append(workspace.messages),
+          }),
+        );
+      }
+      return { ...state, messages: append(state.messages) };
+    }
     case "agent.message_delta": {
       if (event.agentInstanceId !== undefined) {
         return updateAgentWorkspace(

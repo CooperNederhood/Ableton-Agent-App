@@ -64,6 +64,7 @@ export interface DesktopCompositionOptions {
 export interface DesktopComposition {
   service: HeadlessDesktopService;
   runtime: AgentRuntime;
+  telemetry: ReturnType<typeof createNonBlockingObservabilityRecorder>;
   preferences: DesktopPreferences;
   /** Main-process-only credential used by the bridge and Signal ingress. */
   bridgeToken?: string;
@@ -558,6 +559,7 @@ export async function createDesktopComposition(
   return {
     service,
     runtime,
+    telemetry,
     ...(token === undefined ? {} : { bridgeToken: token }),
     preferences:
       journalHost.journal === undefined

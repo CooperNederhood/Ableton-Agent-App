@@ -42,6 +42,8 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
   - [x] Bound logs by age and size.
   - [ ] Add in-app session-metadata deletion controls.
 - [x] Publish supported platform and Live-version matrix.
+- [x] Add isolated automation profiles, owner-only endpoint discovery, and
+  per-launch loopback authentication for developer UX testing.
 
 ## Tests
 
@@ -55,6 +57,8 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 - [ ] Test journal redaction, local-only behavior, default-on migration,
   retention, size-cap eviction, and persistence-failure diagnostics.
 - [ ] Test offline startup and update-service failure.
+- [x] Test automation endpoint authentication, cleanup, bounded framing,
+  isolated launch options, and visible Electron message delivery.
 
 ## Exit criteria
 

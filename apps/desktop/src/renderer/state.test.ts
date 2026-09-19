@@ -424,6 +424,34 @@ describe("desktop reducer", () => {
     expect(state.diagnostics[0]?.message).toBe("900");
   });
 
+  it("renders an automation submission once in the attributed agent timeline", () => {
+    const event = {
+      type: "agent.user_message_submitted" as const,
+      messageId: "00000000-0000-4000-8000-000000000011",
+      content: "Build a visible drum pattern",
+      agentInstanceId: firstAgentId,
+      agentMode: "interactive" as const,
+      origin: "automation" as const,
+      timestamp: 123,
+      traceId: "00000000-0000-4000-8000-000000000012",
+      correlationId: "00000000-0000-4000-8000-000000000013",
+      causationId: "00000000-0000-4000-8000-000000000014",
+    };
+    const once = desktopReducer(stateWithAgents(), { type: "event", event });
+    const twice = desktopReducer(once, { type: "event", event });
+
+    expect(
+      twice.agentWorkspaces[firstAgentId]?.messages.filter(
+        ({ id }) => id === event.messageId,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        role: "user",
+        content: "Build a visible drum pattern",
+      }),
+    ]);
+  });
+
   it("accumulates stream deltas and completes the message", () => {
     let state = desktopReducer(initialState, {
       type: "event",

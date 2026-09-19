@@ -2,6 +2,17 @@
 
 ## Implemented baseline
 
+`inspection`
+
+- `connection-and-session`: verify the authenticated connection and bounded
+  Session snapshot against a fresh runner-owned Set.
+- `transport-inspection`: inspect bounded Arrangement transport state without
+  mutation.
+- `browser-bounds`: verify Browser category and search traversal remain within
+  reviewed node, result, depth, and duration limits.
+- `capability-surface`: verify the supported command/capability inventory
+  reported by the running Remote Script.
+
 `live-events`
 
 - `live-event-registration`: configure a Triggered Clip Event against a real
@@ -11,6 +22,8 @@
 
 `tracks-and-clips`
 
+- `track-lifecycle`: create, rename, inspect, and remove one namespaced track,
+  then restore the baseline Set.
 - `808-track`: search first, create exactly one namespaced MIDI track, load
   `808 Core Kit.adg`, and verify one `808 Core Kit` device.
 - `four-on-floor`: create the namespaced 808 track and one-bar clip, write four

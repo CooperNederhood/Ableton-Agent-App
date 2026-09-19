@@ -2546,6 +2546,40 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
+  it("publishes an attributed visible user turn for automation ingress", async () => {
+    const { service, events } = await harness();
+    await service.start();
+
+    const accepted = await service.send("Check the visible workflow", [], {
+      origin: "automation",
+      requestId: "00000000-0000-4000-8000-000000000101",
+      trace: {
+        traceId: "00000000-0000-4000-8000-000000000102",
+        spanId: "00000000-0000-4000-8000-000000000103",
+        correlationId: "00000000-0000-4000-8000-000000000104",
+      },
+    });
+
+    const submitted = events.find(
+      (event) =>
+        event.type === "agent.user_message_submitted" &&
+        event.messageId === accepted.messageId,
+    );
+    expect(submitted).toMatchObject({
+      type: "agent.user_message_submitted",
+      content: "Check the visible workflow",
+      origin: "automation",
+      traceId: "00000000-0000-4000-8000-000000000102",
+      correlationId: "00000000-0000-4000-8000-000000000104",
+      causationId: "00000000-0000-4000-8000-000000000101",
+    });
+    if (submitted?.type !== "agent.user_message_submitted") {
+      throw new Error("Expected an automation user-message event");
+    }
+    expect(submitted.agentInstanceId).toBeDefined();
+    await service.stop();
+  });
+
   it("keeps automatic response stream IDs stable and isolated by agent session", async () => {
     const { service, events, sharedEvents } = await harness();
     await service.start();

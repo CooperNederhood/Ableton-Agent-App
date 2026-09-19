@@ -955,6 +955,18 @@ export const appEventSchema = z.discriminatedUnion("type", [
     sdkSessionId: z.string().min(1).optional(),
   }),
   z.object({
+    type: z.literal("agent.user_message_submitted"),
+    messageId: z.string().uuid(),
+    content: z.string().min(1).max(16_000),
+    agentInstanceId: z.string().uuid().optional(),
+    agentMode: agentModeSchema,
+    origin: z.literal("automation"),
+    timestamp: z.number().finite().nonnegative(),
+    traceId: z.string().uuid(),
+    correlationId: z.string().uuid(),
+    causationId: z.string().uuid(),
+  }),
+  z.object({
     type: z.literal("agent.mode_changed"),
     mode: agentModeSchema,
     previousMode: agentModeSchema,

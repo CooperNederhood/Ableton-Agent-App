@@ -143,6 +143,12 @@ Critical workflows:
 - Partial failure.
 - Session resume.
 - Project switch.
+- Debug-only isolated automation launch, selected startup agent/YOLO state,
+  authenticated external message acceptance, and visible user-turn rendering.
+
+The external driver uses the local stdio MCP adapter only to submit a message.
+Computer-use owns screenshots and visual inspection of the Electron app and
+Ableton Live.
 
 ### CLI integration tests
 

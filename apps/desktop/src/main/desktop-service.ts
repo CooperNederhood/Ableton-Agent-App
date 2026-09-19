@@ -39,6 +39,7 @@ import type {
   DesktopSession,
   PlanSection,
 } from "../contracts.js";
+import type { AutomationTrace } from "@ableton-agent/debug-control";
 import type {
   AgentEventListener,
   LiveEventDefinition,
@@ -55,6 +56,11 @@ export interface DesktopService {
   send(
     message: string,
     context: ContextChip[],
+    options?: {
+      origin: "automation";
+      trace: AutomationTrace;
+      requestId: string;
+    },
   ): Promise<{ accepted: true; messageId: string }>;
   cancel(): Promise<{ cancelled: boolean }>;
   createSession(): Promise<string>;

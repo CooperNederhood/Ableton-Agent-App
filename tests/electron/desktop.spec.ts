@@ -1,6 +1,9 @@
-import { resolve } from "node:path";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 import { _electron as electron, expect, test } from "@playwright/test";
+import { sendAutomationMessage } from "../../packages/debug-control/src/client.js";
 
 const desktopPath = resolve("apps/desktop");
 
@@ -148,6 +151,7 @@ test("supports a terminal-sized chat-only window", async () => {
       NODE_ENV: "test",
     },
   });
+
   try {
     const window = await application.firstWindow();
     await window.waitForLoadState("domcontentloaded");
@@ -191,6 +195,57 @@ test("supports a terminal-sized chat-only window", async () => {
     ).toBeVisible();
   } finally {
     await application.close();
+  }
+});
+
+test("accepts an MCP-style user message in the visible desktop session", async () => {
+  const profilePath = await mkdtemp(
+    join(tmpdir(), "ableton-agent-electron-automation-"),
+  );
+  const descriptorPath = join(profilePath, "automation-endpoint.json");
+  const application = await electron.launch({
+    args: [
+      desktopPath,
+      "--automation",
+      "--automation-profile",
+      profilePath,
+      "--automation-agent",
+      "default",
+      "--automation-yolo",
+    ],
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      ELECTRON_DISABLE_SECURITY_WARNINGS: "true",
+      NODE_ENV: "test",
+    },
+  });
+  try {
+    const window = await application.firstWindow();
+    await window.waitForLoadState("domcontentloaded");
+    await expect
+      .poll(
+        async () =>
+          sendAutomationMessage({
+            descriptorPath,
+            message: "Verify this message is visible in the desktop app.",
+          })
+            .then(() => "accepted")
+            .catch(() => "waiting"),
+        { timeout: 15_000 },
+      )
+      .toBe("accepted");
+    await expect(
+      window.getByText("Verify this message is visible in the desktop app.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      window.getByText("YOLO", { exact: true }).first(),
+    ).toBeVisible();
+  } finally {
+    await application.close();
+    await rm(profilePath, { recursive: true, force: true });
   }
 });
 

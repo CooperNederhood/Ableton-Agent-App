@@ -9,6 +9,12 @@ application composition and interaction contracts live in packages also used
 by the CLI/TUI client. The desktop app builds on those contracts, not on CLI
 argument parsing, ANSI rendering, or terminal process execution.
 
+For developer-owned end-to-end UX tests, an explicit `--automation` launch may
+start a narrowly scoped authenticated loopback endpoint in Electron main. It
+uses the same visible desktop service and selected agent as the renderer; it
+does not start another application composition. Ordinary launches expose no
+endpoint.
+
 ## Technology stack
 
 - Electron
@@ -198,6 +204,32 @@ Shutdown order:
 3. Flush change-set and session metadata.
 4. Disconnect from Ableton.
 5. Stop the Copilot SDK client.
+
+In automation mode, endpoint ingress stops and its owned discovery/secret files
+are removed before desktop services stop.
+
+## Debug automation mode
+
+Automation mode requires an absolute isolated Electron profile:
+
+```text
+--automation
+--automation-profile <absolute-path>
+[--automation-descriptor <absolute-path>]
+[--automation-agent <definition-name>]
+[--automation-yolo]
+```
+
+`--automation-yolo` requires an agent definition. The app selects the first
+active instance of that definition or creates it when absent, then applies the
+existing scoped automatic-approval setting inside the isolated profile.
+
+The loopback control protocol accepts only a bounded `send_user_message`
+request for the currently selected agent. It publishes a typed
+`agent.user_message_submitted` event so the visible conversation renders the
+same user text and attribution. The MCP adapter returns after acceptance;
+streaming, operations, and final state remain visible through normal desktop
+events.
 
 ## Configuration
 

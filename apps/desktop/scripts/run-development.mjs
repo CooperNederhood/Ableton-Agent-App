@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
 
 const debug = process.argv.includes("--debug");
+const forwardedArguments = process.argv
+  .slice(2)
+  .filter((argument) => argument !== "--debug");
 const environment = {
   ...process.env,
   VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
@@ -43,11 +46,7 @@ function stop() {
 process.once("SIGINT", stop);
 process.once("SIGTERM", stop);
 
-for (const build of [
-  "build:dependencies",
-  "build:preload",
-  "build:electron",
-]) {
+for (const build of ["build:dependencies", "build:preload", "build:electron"]) {
   const child = run("pnpm", [build]);
   const code = await new Promise((resolve) => child.once("exit", resolve));
   if (code !== 0) process.exit(code ?? 1);
@@ -74,7 +73,7 @@ for (let attempt = 0; attempt < 100; attempt++) {
     throw new Error("Vite development server did not become ready");
   }
 }
-const electron = run("pnpm", ["exec", "electron", "."]);
+const electron = run("pnpm", ["exec", "electron", ".", ...forwardedArguments]);
 const exitCode = await new Promise((resolve) => electron.once("exit", resolve));
 stop();
 process.exitCode = exitCode ?? 1;

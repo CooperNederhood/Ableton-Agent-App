@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -38,8 +38,32 @@ import {
   resolveDesktopIconPath,
   shouldOpenDevelopmentTools,
 } from "./window-options.js";
+import {
+  applyAutomationStartup,
+  createDesktopAutomationServer,
+} from "./automation-host.js";
+import { parseDesktopLaunchOptions } from "./launch-options.js";
+import type { AutomationControlServer } from "@ableton-agent/debug-control";
 
 const currentDirectory = fileURLToPath(new URL(".", import.meta.url));
+const launchOptions = parseDesktopLaunchOptions(process.argv);
+if (launchOptions.automation !== undefined) {
+  const normalUserDataPath = app.getPath("userData");
+  if (
+    resolve(launchOptions.automation.profilePath) ===
+    resolve(normalUserDataPath)
+  ) {
+    throw new Error(
+      "Automation profile must be separate from the normal desktop profile",
+    );
+  }
+  app.setPath("userData", launchOptions.automation.profilePath);
+  app.setPath(
+    "sessionData",
+    join(launchOptions.automation.profilePath, "session"),
+  );
+  app.setPath("logs", join(launchOptions.automation.profilePath, "logs"));
+}
 const desktopIconPath = resolveDesktopIconPath(
   app.isPackaged,
   process.resourcesPath,
@@ -52,6 +76,7 @@ const maximumRendererRestarts = 3;
 const pendingDeepLinks: string[] = [];
 let lifecycleStarted = false;
 let removeSignalSecret: (() => Promise<void>) | undefined;
+let automationServer: AutomationControlServer | undefined;
 
 const logPath = join(
   app.getPath("logs"),
@@ -304,7 +329,11 @@ async function bootstrap(): Promise<void> {
     event.preventDefault();
     shuttingDown = true;
     void stopDesktopLifecycle({
-      stopServices: () => requireService().stop(),
+      stopServices: async () => {
+        await automationServer?.stop();
+        automationServer = undefined;
+        await requireService().stop();
+      },
     }).finally(async () => {
       await removeSignalSecret?.().catch((error: unknown) =>
         logger.write("warn", "Signal ingress secret could not be removed", {
@@ -328,8 +357,31 @@ async function bootstrap(): Promise<void> {
       if (mainWindow?.isMinimized()) mainWindow.restore();
       mainWindow?.focus();
     },
-    startServices: () => requireService().start(),
-    stopServices: () => requireService().stop(),
+    startServices: async () => {
+      await requireService().start();
+      if (launchOptions.automation !== undefined) {
+        await applyAutomationStartup(
+          requireService(),
+          launchOptions.automation,
+        );
+        automationServer = createDesktopAutomationServer({
+          service: requireService(),
+          launch: launchOptions.automation,
+          telemetry: composition!.telemetry,
+        });
+        await automationServer.start();
+        await logger.write("info", "Desktop automation endpoint started", {
+          descriptorPath: launchOptions.automation.descriptorPath,
+          agentDefinition: launchOptions.automation.agentDefinition,
+          yolo: launchOptions.automation.yolo,
+        });
+      }
+    },
+    stopServices: async () => {
+      await automationServer?.stop();
+      automationServer = undefined;
+      await requireService().stop();
+    },
     quit: () => app.quit(),
   });
   lifecycleStarted = true;
@@ -340,6 +392,8 @@ async function bootstrap(): Promise<void> {
 }
 
 void bootstrap().catch(async (error: unknown) => {
+  await automationServer?.stop().catch(() => undefined);
+  await composition?.service.stop().catch(() => undefined);
   await removeSignalSecret?.().catch(() => undefined);
   await logger.write("error", "Desktop bootstrap failed", {
     error: error instanceof Error ? error.message : String(error),

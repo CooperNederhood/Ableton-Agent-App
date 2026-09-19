@@ -235,12 +235,15 @@ describe("agent runtime composition", () => {
 
   it("links a Live delivery through distinct turn and tool lifecycle spans", async () => {
     const telemetry: TelemetryEventEnvelope[] = [];
-    let listener: ((event: TestSessionEvent) => void) | undefined;
+    const listeners = new Set<(event: TestSessionEvent) => void>();
+    const emit = (event: TestSessionEvent): void => {
+      for (const listener of listeners) listener(event);
+    };
     let invocationContext: CorrelationTraceContext | undefined;
     const session = {
       sessionId: "sdk-session",
-      sendAndWait: async () => {
-        listener?.({
+      send: async () => {
+        emit({
           type: "tool.execution_start",
           id: "tool-start",
           parentId: null,
@@ -253,21 +256,36 @@ describe("agent runtime composition", () => {
         invocationContext = withCorrelation("tool-call-1", () =>
           currentCorrelationContext(),
         );
-        listener?.({
+        emit({
           type: "tool.execution_complete",
           id: "tool-complete",
           parentId: null,
           timestamp: "2026-08-29T18:00:03.000Z",
           data: { toolCallId: "tool-call-1", success: true },
         });
-        return { data: { content: "done" } };
+        emit({
+          type: "assistant.message",
+          id: "assistant",
+          parentId: null,
+          timestamp: "2026-08-29T18:00:04.000Z",
+          data: { messageId: "message", content: "done" },
+        });
+        emit({
+          type: "session.idle",
+          id: "idle",
+          parentId: null,
+          timestamp: "2026-08-29T18:00:05.000Z",
+          ephemeral: true,
+          data: { mode: "interactive" },
+        });
+        return "message";
       },
       abort: () => Promise.resolve(),
       disconnect: () => Promise.resolve(),
       on: (next: (event: TestSessionEvent) => void) => {
-        listener = next;
+        listeners.add(next);
         return () => {
-          listener = undefined;
+          listeners.delete(next);
         };
       },
     } satisfies TestSession;
@@ -507,12 +525,38 @@ describe("agent runtime composition", () => {
 });
 
 function fakeSession(sessionId: string) {
+  const listeners = new Set<(event: TestSessionEvent) => void>();
+  const emit = (event: TestSessionEvent): void => {
+    for (const listener of listeners) listener(event);
+  };
   return {
     sessionId,
-    sendAndWait: () => Promise.resolve({ data: { content: "done" } }),
+    send: async () => {
+      emit({
+        type: "assistant.message",
+        id: "assistant",
+        parentId: null,
+        timestamp: new Date().toISOString(),
+        data: { messageId: "message", content: "done" },
+      });
+      emit({
+        type: "session.idle",
+        id: "idle",
+        parentId: null,
+        timestamp: new Date().toISOString(),
+        ephemeral: true,
+        data: { mode: "interactive" },
+      });
+      return "message";
+    },
     abort: () => Promise.resolve(),
     disconnect: vi.fn(() => Promise.resolve()),
-    on: () => () => undefined,
+    on: (listener: (event: TestSessionEvent) => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
   };
 }
 
@@ -576,6 +620,7 @@ describe("composed agent session control", () => {
 
   it("cancels only while a turn is in flight", async () => {
     let release!: () => void;
+    const listeners = new Set<(event: TestSessionEvent) => void>();
     const pending = new Promise<void>((resolve) => {
       release = resolve;
     });
@@ -590,13 +635,28 @@ describe("composed agent session control", () => {
           createSession: () =>
             Promise.resolve({
               sessionId: "session-1",
-              sendAndWait: async () => {
+              send: async () => {
                 await pending;
-                return undefined;
+                for (const listener of listeners) {
+                  listener({
+                    type: "session.idle",
+                    id: "idle",
+                    parentId: null,
+                    timestamp: new Date().toISOString(),
+                    ephemeral: true,
+                    data: { mode: "interactive" },
+                  });
+                }
+                return "message";
               },
               abort,
               disconnect: () => Promise.resolve(),
-              on: () => () => undefined,
+              on: (listener: (event: TestSessionEvent) => void) => {
+                listeners.add(listener);
+                return () => {
+                  listeners.delete(listener);
+                };
+              },
             }),
           resumeSession: () => Promise.reject(new Error("resume not expected")),
           stop: () => Promise.resolve([]),

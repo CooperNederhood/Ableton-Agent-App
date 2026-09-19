@@ -95,6 +95,8 @@ import type {
 import type {
   AppEvent,
   AgentMode,
+  AgentReasoningSummary,
+  AgentWorkingUpdate,
   AgentElicitationRequest,
   AgentElicitationResolution,
   AgentElicitationValue,
@@ -356,6 +358,7 @@ export function isMissingCopilotSessionError(
 const MAX_PLAN_SUMMARY_LENGTH = 8_192;
 const MAX_PLAN_CONTENT_LENGTH = 100_000;
 const MAX_PLAN_FEEDBACK_LENGTH = 8_192;
+const MAX_WORKING_CONTENT_LENGTH = 16_000;
 
 function boundedPlanText(value: string, maximum: number): string {
   return value.slice(0, maximum);
@@ -370,9 +373,24 @@ function recordValue(value: unknown): Readonly<Record<string, unknown>> {
 function elicitationRequest(
   requestId: string,
   context: ElicitationContext,
+  options: { allowChoiceFreeform?: boolean } = {},
 ): AgentElicitationRequest {
   const properties = Object.fromEntries(
-    Object.entries(context.requestedSchema?.properties ?? {}).slice(0, 32),
+    Object.entries(context.requestedSchema?.properties ?? {})
+      .slice(0, 32)
+      .map(([name, field]) => [
+        name,
+        options.allowChoiceFreeform &&
+        field.type === "string" &&
+        ("enum" in field || "oneOf" in field)
+          ? {
+              ...field,
+              allowFreeform: true,
+              minLength: 1,
+              maxLength: MAX_PLAN_FEEDBACK_LENGTH,
+            }
+          : field,
+      ]),
   ) as AgentElicitationRequest["properties"];
   return {
     requestId,
@@ -414,7 +432,11 @@ function validateElicitationContent(
         );
       }
       const allowed = field.enum ?? field.oneOf?.map((choice) => choice.const);
-      if (allowed !== undefined && !allowed.includes(value)) {
+      if (
+        allowed !== undefined &&
+        !allowed.includes(value) &&
+        field.allowFreeform !== true
+      ) {
         throw new Error(`Elicitation field '${name}' has an invalid choice`);
       }
     } else if (field.type === "array") {
@@ -488,13 +510,7 @@ interface CopilotResponse {
 
 interface CopilotSessionAdapter {
   readonly sessionId: string;
-  sendAndWait(
-    options: {
-      prompt: string;
-      agentMode?: AgentMode;
-    },
-    timeoutMs?: number,
-  ): Promise<CopilotResponse | undefined>;
+  send(options: { prompt: string; agentMode?: AgentMode }): Promise<string>;
   abort(): Promise<void>;
   disconnect(): Promise<void>;
   on(listener: (event: SessionEvent) => void): () => void;
@@ -616,7 +632,8 @@ export interface CopilotAgentServiceOptions {
   sessionStateDirectory?: string;
   model?: string;
   reasoningEffort?: AgentReasoningEffort;
-  turnTimeoutMs?: number;
+  reasoningSummary?: AgentReasoningSummary | (() => AgentReasoningSummary);
+  turnTimeoutMs?: number | (() => number);
   signalContext?: SignalContextOptions;
   liveEventContext?: LiveEventContextOptions;
   /**
@@ -655,7 +672,7 @@ export interface AgentRuntimeObserver {
   enqueue(event: AgentRuntimeEvent): void;
 }
 
-export const DEFAULT_AGENT_TURN_TIMEOUT_MS = 180_000;
+export const DEFAULT_AGENT_TURN_TIMEOUT_MS = 600_000;
 export const BASE_SYSTEM_MESSAGE_VERSION = 7;
 export const PLAN_REMINDER_VERSION = 2;
 const baseSystemMessageCandidates = [
@@ -744,12 +761,170 @@ export class AgentTurnTimeoutError extends Error {
   }
 }
 
-function isSessionIdleTimeout(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error.name === "TimeoutError" ||
-      /timeout after \d+ms waiting for session\.idle/i.test(error.message))
+type HumanGateReason = "elicitation" | "plan_approval" | "tool_approval";
+
+interface TurnTimeoutPause {
+  readonly token: symbol;
+  readonly reason: HumanGateReason;
+  readonly requestId: string;
+  readonly startedAt: number;
+}
+
+interface TurnTimeoutPauseResult {
+  readonly pause: TurnTimeoutPause;
+  readonly remainingMs: number;
+  readonly pendingHumanGateCount: number;
+  readonly timerPaused: boolean;
+}
+
+interface TurnTimeoutResumeResult {
+  readonly pause: TurnTimeoutPause;
+  readonly remainingMs: number;
+  readonly pendingHumanGateCount: number;
+  readonly humanWaitDurationMs: number;
+  readonly timerResumed: boolean;
+}
+
+interface TurnTimeoutCancelResult {
+  readonly pauses: readonly TurnTimeoutPause[];
+  readonly remainingMs: number;
+}
+
+class PausableTurnTimeout {
+  readonly expired: Promise<void>;
+
+  #remainingMs: number;
+  #runningSince: number | undefined;
+  #timer: ReturnType<typeof setTimeout> | undefined;
+  #resolveExpired!: () => void;
+  #expired = false;
+  #disposed = false;
+  readonly #pauses = new Map<symbol, TurnTimeoutPause>();
+
+  constructor(readonly timeoutMs: number) {
+    this.#remainingMs = timeoutMs;
+    this.expired = new Promise<void>((resolve) => {
+      this.#resolveExpired = resolve;
+    });
+  }
+
+  start(): void {
+    this.#schedule();
+  }
+
+  pause(
+    reason: HumanGateReason,
+    requestId: string,
+  ): TurnTimeoutPauseResult | undefined {
+    if (this.#disposed || this.#expired) return undefined;
+    const now = Date.now();
+    const timerPaused = this.#pauses.size === 0;
+    if (timerPaused) this.#stopAndDebit(now);
+    const pause: TurnTimeoutPause = {
+      token: Symbol(requestId),
+      reason,
+      requestId,
+      startedAt: now,
+    };
+    this.#pauses.set(pause.token, pause);
+    return {
+      pause,
+      remainingMs: this.#remainingMs,
+      pendingHumanGateCount: this.#pauses.size,
+      timerPaused,
+    };
+  }
+
+  resume(token: symbol): TurnTimeoutResumeResult | undefined {
+    if (this.#disposed || this.#expired) return undefined;
+    const pause = this.#pauses.get(token);
+    if (pause === undefined) return undefined;
+    this.#pauses.delete(token);
+    const timerResumed = this.#pauses.size === 0;
+    if (timerResumed) this.#schedule();
+    return {
+      pause,
+      remainingMs: this.#remainingMs,
+      pendingHumanGateCount: this.#pauses.size,
+      humanWaitDurationMs: Date.now() - pause.startedAt,
+      timerResumed,
+    };
+  }
+
+  dispose(): void {
+    this.cancel();
+  }
+
+  cancel(): TurnTimeoutCancelResult | undefined {
+    if (this.#disposed) return;
+    const now = Date.now();
+    this.#stopAndDebit(now);
+    this.#disposed = true;
+    const pauses = [...this.#pauses.values()];
+    this.#pauses.clear();
+    return { pauses, remainingMs: this.#remainingMs };
+  }
+
+  #schedule(): void {
+    if (
+      this.#disposed ||
+      this.#expired ||
+      this.#timer !== undefined ||
+      this.#pauses.size > 0
+    ) {
+      return;
+    }
+    this.#runningSince = Date.now();
+    this.#timer = setTimeout(() => {
+      this.#timer = undefined;
+      this.#runningSince = undefined;
+      this.#remainingMs = 0;
+      this.#expired = true;
+      this.#resolveExpired();
+    }, this.#remainingMs);
+  }
+
+  #stopAndDebit(now: number): void {
+    if (this.#timer !== undefined) clearTimeout(this.#timer);
+    this.#timer = undefined;
+    if (this.#runningSince !== undefined) {
+      this.#remainingMs = Math.max(
+        0,
+        this.#remainingMs - (now - this.#runningSince),
+      );
+      this.#runningSince = undefined;
+    }
+  }
+}
+
+function waitForSessionCompletion(session: CopilotSessionAdapter): {
+  readonly promise: Promise<CopilotResponse | undefined>;
+  dispose(): void;
+} {
+  let lastAssistantMessage: CopilotResponse | undefined;
+  let unsubscribe: () => void = () => {};
+  const promise = new Promise<CopilotResponse | undefined>(
+    (resolve, reject) => {
+      unsubscribe = session.on((event) => {
+        if (event.type === "assistant.message") {
+          lastAssistantMessage = { data: { content: event.data.content } };
+        } else if (
+          event.type === "session.idle" &&
+          event.data.mode !== "autopilot"
+        ) {
+          resolve(lastAssistantMessage);
+        } else if (event.type === "session.error") {
+          const error = new Error(event.data.message);
+          if (event.data.stack !== undefined) error.stack = event.data.stack;
+          reject(error);
+        }
+      });
+    },
   );
+  return {
+    promise,
+    dispose: unsubscribe,
+  };
 }
 
 const DEFAULT_AGENT_INSTANCE_KEY = "__default__";
@@ -798,6 +973,8 @@ interface InstrumentedTurn {
   terminalRecorded: boolean;
   toolStarted: boolean;
   retryAttempted: boolean;
+  workingTerminalPublished: boolean;
+  timeout: PausableTurnTimeout | undefined;
   readonly agentMode?: AgentMode;
 }
 
@@ -807,6 +984,7 @@ interface ManagedSessionState {
   readonly exposeInstanceId: boolean;
   signalTargetId: string;
   session: CopilotSessionAdapter | undefined;
+  appliedReasoningSummary: AgentReasoningSummary | undefined;
   unsubscribe: (() => void) | undefined;
   inFlightTurns: number;
   queuedTurns: number;
@@ -1441,6 +1619,7 @@ export class CopilotAgentService implements AgentService {
       exposeInstanceId,
       signalTargetId: exposeInstanceId ? configuration.instanceId : key,
       session: undefined,
+      appliedReasoningSummary: undefined,
       unsubscribe: undefined,
       inFlightTurns: 0,
       queuedTurns: 0,
@@ -1500,6 +1679,57 @@ export class CopilotAgentService implements AgentService {
         ? {}
         : { sdkSessionId: state.session.sessionId }),
     };
+  }
+
+  #publishWorkingUpdate(
+    state: ManagedSessionState,
+    update: AgentWorkingUpdate,
+  ): void {
+    this.options.events.publish({
+      type: "agent.working_update",
+      update,
+      ...this.#eventAttribution(state),
+    });
+  }
+
+  #finishWorkingTurn(
+    state: ManagedSessionState,
+    turn: InstrumentedTurn,
+    outcome: Extract<AgentWorkingUpdate, { kind: "finished" }>["outcome"],
+    occurredAt: string,
+    detail?: string,
+  ): void {
+    if (turn.workingTerminalPublished) return;
+    turn.workingTerminalPublished = true;
+    const boundedDetail =
+      detail === undefined
+        ? undefined
+        : boundedPlanText(detail, MAX_WORKING_CONTENT_LENGTH);
+    this.#publishWorkingUpdate(state, {
+      kind: "finished",
+      activityId: turn.id,
+      outcome,
+      ...(boundedDetail === undefined ? {} : { detail: boundedDetail }),
+      occurredAt,
+    });
+    this.#recordRuntime(
+      state,
+      `agent.working.${outcome}`,
+      {
+        activityId: turn.id,
+        ...(boundedDetail === undefined ? {} : { detail: boundedDetail }),
+        durationMs:
+          turn.startedAt === undefined
+            ? undefined
+            : Date.now() - turn.startedAt,
+      },
+      {
+        trace: turn.trace,
+        ...(state.session?.sessionId === undefined
+          ? {}
+          : { sessionId: state.session.sessionId }),
+      },
+    );
   }
 
   #runtimeTrace(
@@ -1570,6 +1800,8 @@ export class CopilotAgentService implements AgentService {
       terminalRecorded: false,
       toolStarted: false,
       retryAttempted: false,
+      workingTerminalPublished: false,
+      timeout: undefined,
       ...(identifiers.agentMode === undefined
         ? {}
         : { agentMode: identifiers.agentMode }),
@@ -1897,12 +2129,13 @@ export class CopilotAgentService implements AgentService {
   #requestElicitation(
     state: ManagedSessionState,
     context: ElicitationContext,
+    options: { allowChoiceFreeform?: boolean } = {},
   ): Promise<ElicitationResult> {
     if (context.mode === "url") {
       return Promise.resolve({ action: "cancel" });
     }
     const requestId = randomUUID();
-    const request = elicitationRequest(requestId, context);
+    const request = elicitationRequest(requestId, context, options);
     const sessionId = state.session?.sessionId ?? context.sessionId;
     const startedAt = Date.now();
     this.#recordRuntime(
@@ -1916,14 +2149,111 @@ export class CopilotAgentService implements AgentService {
       request,
       ...this.#eventAttribution(state),
     });
+    const resumeTimeout = this.#pauseActiveTurnTimeout(
+      state,
+      "elicitation",
+      requestId,
+    );
     return new Promise<ElicitationResult>((resolve) => {
       state.elicitationRequests.set(requestId, {
         sessionId,
         startedAt,
         request,
-        resolve,
+        resolve: (result) => {
+          resumeTimeout();
+          resolve(result);
+        },
       });
     });
+  }
+
+  #pauseActiveTurnTimeout(
+    state: ManagedSessionState,
+    reason: HumanGateReason,
+    requestId: string,
+  ): () => void {
+    const turn = state.activeTurn;
+    const timeout = turn?.timeout;
+    if (turn === undefined || timeout === undefined) return () => undefined;
+    const paused = timeout.pause(reason, requestId);
+    if (paused === undefined) return () => undefined;
+    this.#recordRuntime(
+      state,
+      "agent.turn.timeout.paused",
+      {
+        reason,
+        requestId,
+        timeoutMs: timeout.timeoutMs,
+        remainingMs: paused.remainingMs,
+        pendingHumanGateCount: paused.pendingHumanGateCount,
+        timerPaused: paused.timerPaused,
+      },
+      {
+        trace: turn.trace,
+        ...(state.session?.sessionId === undefined
+          ? {}
+          : { sessionId: state.session.sessionId }),
+      },
+    );
+    let resumed = false;
+    return () => {
+      if (resumed) return;
+      resumed = true;
+      const result = timeout.resume(paused.pause.token);
+      if (result === undefined) return;
+      this.#recordRuntime(
+        state,
+        "agent.turn.timeout.resumed",
+        {
+          reason,
+          requestId,
+          timeoutMs: timeout.timeoutMs,
+          remainingMs: result.remainingMs,
+          pendingHumanGateCount: result.pendingHumanGateCount,
+          humanWaitDurationMs: result.humanWaitDurationMs,
+          timerResumed: result.timerResumed,
+        },
+        {
+          trace: turn.trace,
+          ...(state.session?.sessionId === undefined
+            ? {}
+            : { sessionId: state.session.sessionId }),
+        },
+      );
+    };
+  }
+
+  #cancelActiveTurnTimeout(
+    state: ManagedSessionState,
+    cancellationReason: string,
+  ): void {
+    const turn = state.activeTurn;
+    const timeout = turn?.timeout;
+    if (turn === undefined || timeout === undefined) return;
+    const cancelled = timeout.cancel();
+    turn.timeout = undefined;
+    if (cancelled === undefined) return;
+    for (const [index, pause] of cancelled.pauses.entries()) {
+      this.#recordRuntime(
+        state,
+        "agent.turn.timeout.cancelled",
+        {
+          reason: pause.reason,
+          requestId: pause.requestId,
+          cancellationReason,
+          timeoutMs: timeout.timeoutMs,
+          remainingMs: cancelled.remainingMs,
+          pendingHumanGateCount: cancelled.pauses.length - index - 1,
+          humanWaitDurationMs: Date.now() - pause.startedAt,
+        },
+        {
+          trace: turn.trace,
+          ...(state.session?.sessionId === undefined
+            ? {}
+            : { sessionId: state.session.sessionId }),
+        },
+      );
+    }
   }
 
   async #requestLegacyUserInput(
@@ -1940,25 +2270,31 @@ export class CopilotAgentService implements AgentService {
           .filter((choice) => choice.length > 0),
       ),
     ].slice(0, 32);
-    const result = await this.#requestElicitation(state, {
-      sessionId,
-      mode: "form",
-      elicitationSource: "copilot-sdk:ask_user",
-      message: boundedPlanText(request.question, MAX_PLAN_SUMMARY_LENGTH),
-      requestedSchema: {
-        type: "object",
-        properties: {
-          answer: {
-            type: "string",
-            title: "Answer",
-            ...(choices.length === 0
-              ? { minLength: 1, maxLength: MAX_PLAN_FEEDBACK_LENGTH }
-              : { enum: choices }),
+    const result = await this.#requestElicitation(
+      state,
+      {
+        sessionId,
+        mode: "form",
+        elicitationSource: "copilot-sdk:ask_user",
+        message: boundedPlanText(request.question, MAX_PLAN_SUMMARY_LENGTH),
+        requestedSchema: {
+          type: "object",
+          properties: {
+            answer: {
+              type: "string",
+              title: "Answer",
+              ...(choices.length === 0
+                ? { minLength: 1, maxLength: MAX_PLAN_FEEDBACK_LENGTH }
+                : { enum: choices }),
+            },
           },
+          required: ["answer"],
         },
-        required: ["answer"],
       },
-    });
+      {
+        allowChoiceFreeform: choices.length > 0,
+      },
+    );
     if (result.action !== "accept") {
       throw new Error(
         result.action === "decline"
@@ -2051,10 +2387,17 @@ export class CopilotAgentService implements AgentService {
     const reasoningEffort = state.exposeInstanceId
       ? state.configuration.reasoningEffort
       : this.options.reasoningEffort;
+    const configuredReasoningSummary = this.options.reasoningSummary;
+    const reasoningSummary =
+      typeof configuredReasoningSummary === "function"
+        ? configuredReasoningSummary()
+        : (configuredReasoningSummary ?? "concise");
     const config: SessionConfig = {
       clientName: "ableton-agent-app",
       ...(model === undefined ? {} : { model }),
       ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+      reasoningSummary,
+      streaming: true,
       tools,
       availableTools: qualifyAvailableTools(configuredToolNames),
       toolSearch: { enabled: false },
@@ -2086,6 +2429,11 @@ export class CopilotAgentService implements AgentService {
         ) {
           result = { kind: "approve-once" } as const;
         } else {
+          const resumeTimeout = this.#pauseActiveTurnTimeout(
+            state,
+            "tool_approval",
+            permissionId,
+          );
           try {
             result = await permissionHandler(request, invocation);
           } catch (error) {
@@ -2095,6 +2443,8 @@ export class CopilotAgentService implements AgentService {
               error: error instanceof Error ? error.message : String(error),
             });
             throw error;
+          } finally {
+            resumeTimeout();
           }
         }
         if (result.kind === "reject" && request.kind === "custom-tool") {
@@ -2148,6 +2498,11 @@ export class CopilotAgentService implements AgentService {
           request.summary,
           MAX_PLAN_SUMMARY_LENGTH,
         );
+        const resumeTimeout = this.#pauseActiveTurnTimeout(
+          state,
+          "plan_approval",
+          requestId,
+        );
         const response = new Promise<{
           approved: boolean;
           selectedAction?: AgentPlanExitAction;
@@ -2160,7 +2515,10 @@ export class CopilotAgentService implements AgentService {
             summary,
             actions,
             recommendedAction,
-            resolve,
+            resolve: (result) => {
+              resumeTimeout();
+              resolve(result);
+            },
           });
         });
         this.#recordRuntime(
@@ -2225,6 +2583,8 @@ export class CopilotAgentService implements AgentService {
         })),
         model: config.model,
         reasoningEffort: config.reasoningEffort,
+        reasoningSummary: config.reasoningSummary,
+        streaming: config.streaming,
         tools: tools.map((tool) => ({
           name: tool.name,
           description: tool.description,
@@ -2263,6 +2623,51 @@ export class CopilotAgentService implements AgentService {
         });
       } else if (event.type === "assistant.message_delta") {
         this.#recordRuntime(state, "agent.assistant.delta", sdkData, {
+          occurredAt: event.timestamp,
+          sessionId: session.sessionId,
+        });
+      } else if (event.type === "assistant.intent") {
+        this.#recordRuntime(state, "agent.assistant.intent", sdkData, {
+          occurredAt: event.timestamp,
+          sessionId: session.sessionId,
+        });
+      } else if (event.type === "assistant.reasoning_delta") {
+        this.#recordRuntime(state, "agent.assistant.reasoning.delta", sdkData, {
+          occurredAt: event.timestamp,
+          sessionId: session.sessionId,
+        });
+      } else if (event.type === "assistant.reasoning") {
+        this.#recordRuntime(state, "agent.assistant.reasoning.final", sdkData, {
+          occurredAt: event.timestamp,
+          sessionId: session.sessionId,
+        });
+      } else if (event.type === "assistant.streaming_delta") {
+        this.#recordRuntime(state, "agent.assistant.stream.progress", sdkData, {
+          occurredAt: event.timestamp,
+          sessionId: session.sessionId,
+        });
+      } else if (event.type === "assistant.server_tool_progress") {
+        this.#recordRuntime(state, "agent.server_tool.progress", sdkData, {
+          occurredAt: event.timestamp,
+          sessionId: session.sessionId,
+        });
+      } else if (
+        event.type === "assistant.fusion_phase_started" ||
+        event.type === "assistant.fusion_phase_activity" ||
+        event.type === "assistant.fusion_phase_completed" ||
+        event.type === "assistant.fusion_phase_failed"
+      ) {
+        this.#recordRuntime(
+          state,
+          `agent.${event.type.replaceAll("_", ".")}`,
+          sdkData,
+          {
+            occurredAt: event.timestamp,
+            sessionId: session.sessionId,
+          },
+        );
+      } else if (event.type === "assistant.turn_end") {
+        this.#recordRuntime(state, "agent.assistant.completed", sdkData, {
           occurredAt: event.timestamp,
           sessionId: session.sessionId,
         });
@@ -2341,12 +2746,120 @@ export class CopilotAgentService implements AgentService {
           },
         );
       }
+      const activeTurn =
+        event.agentId === undefined ? state.activeTurn : undefined;
       if (event.type === "assistant.message_delta") {
         this.options.events.publish({
           type: "agent.message_delta",
           content: event.data.deltaContent,
           ...this.#eventAttribution(state),
         });
+      } else if (
+        event.type === "assistant.intent" &&
+        activeTurn !== undefined
+      ) {
+        this.#publishWorkingUpdate(state, {
+          kind: "intent",
+          activityId: activeTurn.id,
+          content: boundedPlanText(
+            event.data.intent,
+            MAX_WORKING_CONTENT_LENGTH,
+          ),
+          occurredAt: event.timestamp,
+        });
+      } else if (
+        event.type === "assistant.reasoning_delta" &&
+        activeTurn !== undefined
+      ) {
+        this.#publishWorkingUpdate(state, {
+          kind: "reasoning_delta",
+          activityId: activeTurn.id,
+          reasoningId: event.data.reasoningId,
+          content: boundedPlanText(
+            event.data.deltaContent,
+            MAX_WORKING_CONTENT_LENGTH,
+          ),
+          occurredAt: event.timestamp,
+        });
+      } else if (
+        event.type === "assistant.reasoning" &&
+        activeTurn !== undefined
+      ) {
+        this.#publishWorkingUpdate(state, {
+          kind: "reasoning_complete",
+          activityId: activeTurn.id,
+          reasoningId: event.data.reasoningId,
+          content: boundedPlanText(
+            event.data.content,
+            MAX_WORKING_CONTENT_LENGTH,
+          ),
+          occurredAt: event.timestamp,
+        });
+      } else if (
+        event.type === "assistant.streaming_delta" &&
+        activeTurn !== undefined
+      ) {
+        this.#publishWorkingUpdate(state, {
+          kind: "streaming",
+          activityId: activeTurn.id,
+          totalResponseSizeBytes: event.data.totalResponseSizeBytes,
+          occurredAt: event.timestamp,
+        });
+      } else if (
+        event.type === "assistant.server_tool_progress" &&
+        activeTurn !== undefined
+      ) {
+        this.#publishWorkingUpdate(state, {
+          kind: "intent",
+          activityId: activeTurn.id,
+          content: boundedPlanText(
+            `${event.data.kind.replaceAll("_", " ")}: ${event.data.status.replaceAll("_", " ")}`,
+            MAX_WORKING_CONTENT_LENGTH,
+          ),
+          occurredAt: event.timestamp,
+        });
+      } else if (
+        event.type === "assistant.fusion_phase_activity" &&
+        activeTurn !== undefined
+      ) {
+        this.#publishWorkingUpdate(state, {
+          kind: "intent",
+          activityId: activeTurn.id,
+          content: boundedPlanText(
+            `${event.data.role}: ${event.data.activity.replaceAll("_", " ")}`,
+            MAX_WORKING_CONTENT_LENGTH,
+          ),
+          occurredAt: event.timestamp,
+        });
+      } else if (
+        event.type === "assistant.turn_end" &&
+        activeTurn !== undefined
+      ) {
+        this.#finishWorkingTurn(
+          state,
+          activeTurn,
+          "completed",
+          event.timestamp,
+        );
+      } else if (
+        event.type === "model.call_failure" &&
+        activeTurn !== undefined
+      ) {
+        this.#finishWorkingTurn(
+          state,
+          activeTurn,
+          "failed",
+          event.timestamp,
+          event.data.errorMessage,
+        );
+      } else if (event.type === "abort" && activeTurn !== undefined) {
+        this.#finishWorkingTurn(
+          state,
+          activeTurn,
+          "cancelled",
+          event.timestamp,
+          event.data.reason,
+        );
       } else if (event.type === "tool.execution_start") {
         const metadata = abletonToolMetadata.find(
           (candidate) => candidate.name === event.data.toolName,
@@ -2512,6 +3025,7 @@ export class CopilotAgentService implements AgentService {
     state: ManagedSessionState,
     options: { removeFromRegistry?: boolean; reason?: unknown } = {},
   ): Promise<void> {
+    this.#cancelActiveTurnTimeout(state, "session_disconnected");
     state.unsubscribe?.();
     state.unsubscribe = undefined;
     state.turnKind = undefined;
@@ -2546,6 +3060,7 @@ export class CopilotAgentService implements AgentService {
     const config = this.#sessionConfig(state);
     const session = await this.#requireClient().createSession(config);
     state.session = session;
+    state.appliedReasoningSummary = config.reasoningSummary;
     this.#recordSessionConfiguration(state, config, session.sessionId);
     if (!state.exposeInstanceId) state.signalTargetId = session.sessionId;
     try {
@@ -2598,6 +3113,7 @@ export class CopilotAgentService implements AgentService {
       throw error;
     }
     state.session = session;
+    state.appliedReasoningSummary = config.reasoningSummary;
     this.#recordSessionConfiguration(state, config, session.sessionId);
     if (!state.exposeInstanceId) state.signalTargetId = session.sessionId;
     try {
@@ -2615,6 +3131,84 @@ export class CopilotAgentService implements AgentService {
       throw error;
     }
     return session;
+  }
+
+  async #refreshDynamicSessionConfiguration(
+    state: ManagedSessionState,
+    turn: InstrumentedTurn,
+  ): Promise<void> {
+    const config = this.#sessionConfig(state);
+    if (state.appliedReasoningSummary === config.reasoningSummary) return;
+    const current = state.session;
+    if (current === undefined) {
+      throw new Error(
+        state.exposeInstanceId
+          ? `Managed agent '${state.configuration.instanceId}' is not active`
+          : "Copilot agent service is not started",
+      );
+    }
+    const startedAt = Date.now();
+    this.#recordRuntime(
+      state,
+      "agent.session.reconfiguration.started",
+      {
+        reason: "reasoning_summary_changed",
+        previousReasoningSummary: state.appliedReasoningSummary,
+        reasoningSummary: config.reasoningSummary,
+      },
+      { trace: turn.trace, sessionId: current.sessionId },
+    );
+    let replacement: CopilotSessionAdapter | undefined;
+    try {
+      replacement = await this.#requireClient().resumeSession(
+        current.sessionId,
+        config,
+      );
+      await replacement.getEvents?.();
+      state.unsubscribe?.();
+      state.unsubscribe = undefined;
+      await current.disconnect();
+      state.session = replacement;
+      state.appliedReasoningSummary = config.reasoningSummary;
+      this.#recordSessionConfiguration(state, config, replacement.sessionId);
+      this.#observe(state, replacement);
+      this.#recordRuntime(
+        state,
+        "agent.session.reconfiguration.completed",
+        {
+          reason: "reasoning_summary_changed",
+          reasoningSummary: config.reasoningSummary,
+          durationMs: Date.now() - startedAt,
+        },
+        { trace: turn.trace, sessionId: replacement.sessionId },
+      );
+    } catch (error) {
+      if (replacement !== undefined && state.session !== replacement) {
+        try {
+          await replacement.disconnect();
+        } catch (cleanupError) {
+          error = new AggregateError(
+            [error, cleanupError],
+            "Copilot session reconfiguration and cleanup failed",
+          );
+        }
+      }
+      if (state.session === current && state.unsubscribe === undefined) {
+        this.#observe(state, current);
+      }
+      this.#recordRuntime(
+        state,
+        "agent.session.reconfiguration.failed",
+        {
+          reason: "reasoning_summary_changed",
+          reasoningSummary: config.reasoningSummary,
+          error: error instanceof Error ? error.message : String(error),
+          durationMs: Date.now() - startedAt,
+        },
+        { trace: turn.trace, sessionId: current.sessionId },
+      );
+      throw error;
+    }
   }
 
   async #commitReplacement(
@@ -2664,6 +3258,7 @@ export class CopilotAgentService implements AgentService {
     previous.inFlightTurns = 0;
     previous.queuedTurns = 0;
     previous.operations.clear();
+    this.#cancelActiveTurnTimeout(previous, "session_replaced");
     this.#cancelPendingPlans(previous, "session_replaced");
     this.#rejectPendingAutomatic(previous, reason);
     this.#states.set(replacement.key, replacement);
@@ -2684,7 +3279,16 @@ export class CopilotAgentService implements AgentService {
     timeoutMs: number,
   ): Promise<never> {
     const turn = state.activeTurn;
-    if (turn !== undefined) turn.terminalRecorded = true;
+    if (turn !== undefined) {
+      turn.terminalRecorded = true;
+      this.#finishWorkingTurn(
+        state,
+        turn,
+        "failed",
+        new Date().toISOString(),
+        `Active work exceeded ${timeoutMs} ms`,
+      );
+    }
     this.#recordRuntime(
       state,
       "agent.turn.timeout",
@@ -2735,6 +3339,7 @@ export class CopilotAgentService implements AgentService {
     );
     try {
       this.#cancelPendingPlans(state, "turn_timed_out");
+      this.#cancelPendingElicitations(state, "turn_timed_out");
       await session.abort();
       this.#recordRuntime(
         state,
@@ -2984,9 +3589,19 @@ export class CopilotAgentService implements AgentService {
       reason: "user",
     });
     try {
+      this.#cancelActiveTurnTimeout(state, "user_cancelled");
       this.#cancelPendingPlans(state, "user_cancelled");
       this.#cancelPendingElicitations(state, "user_cancelled");
       await session.abort();
+      if (state.activeTurn !== undefined) {
+        this.#finishWorkingTurn(
+          state,
+          state.activeTurn,
+          "cancelled",
+          new Date().toISOString(),
+          "Cancelled by user",
+        );
+      }
       this.#recordRuntime(state, "agent.abort.completed", { reason: "user" });
       this.#recordRuntime(state, "agent.turn.cancelled", {
         reason: "user",
@@ -3015,9 +3630,19 @@ export class CopilotAgentService implements AgentService {
       reason: "user",
     });
     try {
+      this.#cancelActiveTurnTimeout(state, "user_cancelled");
       this.#cancelPendingPlans(state, "user_cancelled");
       this.#cancelPendingElicitations(state, "user_cancelled");
       await session.abort();
+      if (state.activeTurn !== undefined) {
+        this.#finishWorkingTurn(
+          state,
+          state.activeTurn,
+          "cancelled",
+          new Date().toISOString(),
+          "Cancelled by user",
+        );
+      }
       this.#recordRuntime(state, "agent.abort.completed", { reason: "user" });
       this.#recordRuntime(state, "agent.turn.cancelled", {
         reason: "user",
@@ -3075,6 +3700,7 @@ export class CopilotAgentService implements AgentService {
     turn: InstrumentedTurn,
     agentMode?: AgentMode,
   ): Promise<string> {
+    await this.#refreshDynamicSessionConfiguration(state, turn);
     const session = state.session;
     if (!session) {
       throw new Error(
@@ -3083,8 +3709,14 @@ export class CopilotAgentService implements AgentService {
           : "Copilot agent service is not started",
       );
     }
+    const configuredTurnTimeout = this.options.turnTimeoutMs;
     const timeoutMs =
-      this.options.turnTimeoutMs ?? DEFAULT_AGENT_TURN_TIMEOUT_MS;
+      typeof configuredTurnTimeout === "function"
+        ? configuredTurnTimeout()
+        : (configuredTurnTimeout ?? DEFAULT_AGENT_TURN_TIMEOUT_MS);
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      throw new Error("Copilot turn timeout must be a positive finite number");
+    }
     const requestedAgentMode = agentMode ?? "interactive";
     const finalPrompt = composeAgentTurnPrompt(prompt, agentMode);
     const planReminderApplied = agentMode === "plan";
@@ -3092,6 +3724,17 @@ export class CopilotAgentService implements AgentService {
     turn.startedAt = startedAt;
     state.activeTurn = turn;
     state.activeAgentMode = requestedAgentMode;
+    this.#publishWorkingUpdate(state, {
+      kind: "started",
+      activityId: turn.id,
+      occurredAt: new Date(startedAt).toISOString(),
+    });
+    this.#recordRuntime(
+      state,
+      "agent.working.started",
+      { activityId: turn.id },
+      { trace: turn.trace, sessionId: session.sessionId },
+    );
     this.#recordRuntime(
       state,
       "agent.turn.started",
@@ -3126,16 +3769,55 @@ export class CopilotAgentService implements AgentService {
     });
     state.inFlightTurns += 1;
     state.turnKind = kind;
+    const completion = waitForSessionCompletion(session);
+    const timeout = new PausableTurnTimeout(timeoutMs);
+    turn.timeout = timeout;
+    timeout.start();
     let response: CopilotResponse | undefined;
     try {
-      response = await session.sendAndWait(
-        {
-          prompt: finalPrompt,
-          ...(agentMode === undefined ? {} : { agentMode }),
-        },
-        timeoutMs,
-      );
+      const send = session.send({
+        prompt: finalPrompt,
+        ...(agentMode === undefined ? {} : { agentMode }),
+      });
+      const initialOutcome = await Promise.race([
+        send.then(
+          () => ({ kind: "sent" as const }),
+          (error: unknown) => ({ kind: "error" as const, error }),
+        ),
+        completion.promise.then(
+          (completedResponse) => ({
+            kind: "completed" as const,
+            response: completedResponse,
+          }),
+          (error: unknown) => ({ kind: "error" as const, error }),
+        ),
+        timeout.expired.then(() => ({ kind: "timeout" as const })),
+      ]);
+      if (initialOutcome.kind === "error") throw initialOutcome.error;
+      if (initialOutcome.kind === "timeout") {
+        return await this.#abortTimedOutTurn(state, session, timeoutMs);
+      }
+      if (initialOutcome.kind === "completed") {
+        response = initialOutcome.response;
+      } else {
+        const completedOutcome = await Promise.race([
+          completion.promise.then(
+            (completedResponse) => ({
+              kind: "completed" as const,
+              response: completedResponse,
+            }),
+            (error: unknown) => ({ kind: "error" as const, error }),
+          ),
+          timeout.expired.then(() => ({ kind: "timeout" as const })),
+        ]);
+        if (completedOutcome.kind === "error") throw completedOutcome.error;
+        if (completedOutcome.kind === "timeout") {
+          return await this.#abortTimedOutTurn(state, session, timeoutMs);
+        }
+        response = completedOutcome.response;
+      }
     } catch (error) {
+      if (error instanceof AgentTurnTimeoutError) throw error;
       this.#logger.error("Agent turn failed", {
         sessionId: session.sessionId,
         ...(state.exposeInstanceId
@@ -3146,9 +3828,6 @@ export class CopilotAgentService implements AgentService {
         durationMs: Date.now() - startedAt,
         error: error instanceof Error ? error.message : String(error),
       });
-      if (isSessionIdleTimeout(error)) {
-        return await this.#abortTimedOutTurn(state, session, timeoutMs);
-      }
       this.#recordRuntime(
         state,
         "agent.turn.failed",
@@ -3166,9 +3845,19 @@ export class CopilotAgentService implements AgentService {
         },
         { trace: turn.trace, sessionId: session.sessionId },
       );
+      this.#finishWorkingTurn(
+        state,
+        turn,
+        "failed",
+        new Date().toISOString(),
+        error instanceof Error ? error.message : String(error),
+      );
       turn.terminalRecorded = true;
       throw error;
     } finally {
+      completion.dispose();
+      timeout.dispose();
+      turn.timeout = undefined;
       state.inFlightTurns -= 1;
       state.turnKind = undefined;
       state.activeAgentMode = undefined;
@@ -3192,6 +3881,13 @@ export class CopilotAgentService implements AgentService {
         },
         { trace: turn.trace, sessionId: session.sessionId },
       );
+      this.#finishWorkingTurn(
+        state,
+        turn,
+        "failed",
+        new Date().toISOString(),
+        "Copilot session completed without an assistant response",
+      );
       turn.terminalRecorded = true;
       throw new Error(
         "Copilot session completed without an assistant response",
@@ -3202,11 +3898,12 @@ export class CopilotAgentService implements AgentService {
       content: response.data.content,
       ...this.#eventAttribution(state),
     });
+    this.#finishWorkingTurn(state, turn, "completed", new Date().toISOString());
     if (!turn.finalObserved) {
       this.#recordRuntime(
         state,
         "agent.assistant.final",
-        { content: response.data.content, source: "sendAndWait" },
+        { content: response.data.content, source: "session-event-wait" },
         { trace: turn.trace, sessionId: session.sessionId },
       );
       turn.terminalRecorded = true;
@@ -3254,6 +3951,7 @@ export class CopilotAgentService implements AgentService {
       state.unsubscribe = undefined;
       await missingSession.disconnect();
       state.session = replacement;
+      state.appliedReasoningSummary = config.reasoningSummary;
       this.#recordSessionConfiguration(state, config, replacement.sessionId);
       this.#observe(state, replacement);
     } catch (error) {

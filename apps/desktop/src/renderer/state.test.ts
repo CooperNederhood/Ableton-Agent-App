@@ -543,6 +543,91 @@ describe("desktop reducer", () => {
     });
   });
 
+  it("builds a bounded Working summary on the assistant turn", () => {
+    const messageId = "assistant-message";
+    const activityId = "00000000-0000-4000-8000-000000000021";
+    let state = desktopReducer(initialState, {
+      type: "event",
+      event: {
+        type: "agent.working_update",
+        messageId,
+        update: {
+          kind: "started",
+          activityId,
+          occurredAt: "2026-08-08T00:00:00.000Z",
+        },
+      },
+    });
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.working_update",
+        messageId,
+        update: {
+          kind: "intent",
+          activityId,
+          content: "Inspecting the arrangement",
+          occurredAt: "2026-08-08T00:00:01.000Z",
+        },
+      },
+    });
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.working_update",
+        messageId,
+        update: {
+          kind: "reasoning_delta",
+          activityId,
+          reasoningId: "reasoning-1",
+          content: "Checking ",
+          occurredAt: "2026-08-08T00:00:02.000Z",
+        },
+      },
+    });
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.working_update",
+        messageId,
+        update: {
+          kind: "reasoning_complete",
+          activityId,
+          reasoningId: "reasoning-1",
+          content: "Checked the available clips.",
+          occurredAt: "2026-08-08T00:00:03.000Z",
+        },
+      },
+    });
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.working_update",
+        messageId,
+        update: {
+          kind: "finished",
+          activityId,
+          outcome: "completed",
+          occurredAt: "2026-08-08T00:00:04.000Z",
+        },
+      },
+    });
+
+    expect(state.messages).toEqual([
+      expect.objectContaining({
+        id: messageId,
+        role: "assistant",
+        content: "",
+        working: expect.objectContaining({
+          status: "completed",
+          intent: "Inspecting the arrangement",
+          summary: "Checked the available clips.",
+          reasoningId: "reasoning-1",
+        }),
+      }),
+    ]);
+  });
+
   it("keeps two agent conversations and streaming attribution independent", () => {
     let state = desktopReducer(stateWithAgents(), {
       type: "user-message",

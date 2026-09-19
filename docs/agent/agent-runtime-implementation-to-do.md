@@ -11,6 +11,11 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [x] Configure a restricted tool environment with explicit allowlists.
 - [x] Define model and reasoning configuration with validated defaults.
 - [x] Normalize SDK events into application-owned `AppEvent` values.
+- [x] Explicitly enable SDK streaming and normalize assistant deltas, liveness,
+  intent, bounded model-provided reasoning summaries, and terminal Working
+  lifecycle without exposing raw hidden chain-of-thought.
+- [x] Apply the global Off/Concise/Detailed reasoning-summary preference before
+  each active agent's next turn by resuming the same SDK session.
 - [x] Forward per-agent interactive/plan mode to SDK turns and normalize
   attributed mode, plan, and completed-plan approval lifecycle.
 - [x] Preserve the selected agent's effective mode across automation ingress
@@ -36,6 +41,12 @@ Companion specification: [Agent Runtime](agent-runtime.md)
   elicitation lifecycle and Desktop UI.
 - [x] Scope the plan-mode pre-tool denial to classified Ableton mutations so it
   cannot block the SDK `exit_plan_mode` control tool.
+- [x] Replace the SDK wall-clock turn wait with an application-owned cumulative
+  active-work timeout that pauses indefinitely across elicitation, plan
+  decisions, and human tool approvals, including attributed pause/resume
+  lifecycle and nested-gate cleanup.
+- [x] Default the active-work budget to 10 minutes and expose a validated,
+  immediately applied Desktop setting for subsequent turns.
 - [ ] Journal sanitized configuration snapshots on session create/resume and
   effective configuration changes.
 - [ ] Journal the complete unsampled SDK/session/turn/stream/hook/tool lifecycle
@@ -98,6 +109,8 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [x] Regression-test canonical plan reads/writes, redaction, permissions,
   optimistic conflicts, stale approval, manual updates during review, and
   structured elicitation resolution.
+- [x] Regression-test active-work timeout exhaustion, unlimited human wait,
+  nested pause counts, remaining-budget resume, cancellation, and cleanup.
 - [x] Regression-test managed message and skill prompt composition, selection
   disabling, deduplication, and replacement between turns.
 - [x] Regression-test final plan-reminder ordering after direct skill expansion,

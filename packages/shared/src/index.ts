@@ -22,6 +22,40 @@ export interface AgentEventAttribution {
 }
 
 export type AgentMode = "interactive" | "plan";
+export type AgentReasoningSummary = "none" | "concise" | "detailed";
+
+export type AgentWorkingUpdate =
+  | {
+      readonly kind: "started";
+      readonly activityId: string;
+      readonly occurredAt: string;
+    }
+  | {
+      readonly kind: "intent";
+      readonly activityId: string;
+      readonly content: string;
+      readonly occurredAt: string;
+    }
+  | {
+      readonly kind: "reasoning_delta" | "reasoning_complete";
+      readonly activityId: string;
+      readonly reasoningId: string;
+      readonly content: string;
+      readonly occurredAt: string;
+    }
+  | {
+      readonly kind: "streaming";
+      readonly activityId: string;
+      readonly totalResponseSizeBytes: number;
+      readonly occurredAt: string;
+    }
+  | {
+      readonly kind: "finished";
+      readonly activityId: string;
+      readonly outcome: "completed" | "failed" | "cancelled";
+      readonly detail?: string;
+      readonly occurredAt: string;
+    };
 
 export type AgentPlanExitAction = "exit_only" | "interactive";
 
@@ -60,6 +94,7 @@ export type AgentElicitationField =
         readonly const: string;
         readonly title: string;
       }[];
+      readonly allowFreeform?: boolean;
       readonly minLength?: number;
       readonly maxLength?: number;
       readonly format?: "email" | "uri" | "date" | "date-time";
@@ -193,6 +228,10 @@ export type AppEvent =
   | ({
       type: "agent.message_complete";
       content: string;
+    } & AgentEventAttribution)
+  | ({
+      type: "agent.working_update";
+      update: AgentWorkingUpdate;
     } & AgentEventAttribution)
   | ({
       type: "agent.mode_changed";

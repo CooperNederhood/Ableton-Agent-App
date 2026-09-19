@@ -73,7 +73,7 @@ up or recovered atomically.
 | Path | Owner | Contents and rules |
 | --- | --- | --- |
 | `storage-version.json` | `@ableton-agent/storage` | Root layout version only. It is independent of application-data schema versions. |
-| `config/` | Desktop/application configuration | Validated, non-secret preferences. |
+| `config/` | Desktop/application configuration | Validated, non-secret preferences, including the global Off/Concise/Detailed agent reasoning-summary visibility setting. |
 | `state/` | Desktop production-session stores | Validated session and saved Live Set association records. A future move to SQLite remains inside this directory. |
 | `credentials/` | Main process secure store | Ciphertext encrypted through OS-backed facilities. Credentials never enter renderer state, logs, journal payloads, or support bundles. |
 | `copilot/` | Copilot SDK adapter | SDK conversation/session data. Application code must not invent a parallel transcript store. |
@@ -102,6 +102,9 @@ up or recovered atomically.
 - Do not follow or migrate symbolic links into the canonical store.
 - Sanitize and bound persisted payloads. Redact credentials embedded in every
   string and replace binary/audio bodies with visible omission markers.
+- Persist only the reasoning-summary preference, never model reasoning text, in
+  `config/preferences.json`. Bounded, redacted Working summaries belong in the
+  profile-wide observability journal and typed renderer history.
 - Keep renderer access typed and redacted. Never expose raw filesystem access,
   raw SQLite access, or a generic storage IPC channel.
 - Keep one writer lock per profile-wide journal. A second writer degrades with

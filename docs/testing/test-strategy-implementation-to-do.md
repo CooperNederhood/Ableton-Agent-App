@@ -61,6 +61,8 @@ Companion specification: [Test Strategy](test-strategy.md)
 - [~] Create real-Live test project and manual runner.
   - [x] Add a runner that records versioned, commit-linked smoke evidence
     without storing project content.
+  - [x] Make exact-PID cleanup tolerate process-exit races at the final
+    liveness check and when a timed helper process has already exited.
   - [ ] Create and publish the canonical Ableton Live test project.
   - [ ] Record real-Live results for Session launch quantization and rollback,
     MIDI/audio duplication compatibility, deletion, and mute/loop property

@@ -694,6 +694,7 @@ const elicitationStringFieldSchema = z
       )
       .max(100)
       .optional(),
+    allowFreeform: z.boolean().optional(),
     minLength: z.number().int().nonnegative().optional(),
     maxLength: z.number().int().nonnegative().max(100_000).optional(),
     format: z.enum(["email", "uri", "date", "date-time"]).optional(),
@@ -975,6 +976,10 @@ export const preferencesSchema = z.object({
   signalPort: z.number().int().min(1).max(65535).default(45832),
   remoteScriptLocation: z.string().default("Auto-detect"),
   loggingLevel: z.enum(["error", "warn", "info", "debug"]).default("info"),
+  agentTurnTimeoutMinutes: z.number().int().min(1).max(120).default(10),
+  agentReasoningVisibility: z
+    .enum(["none", "concise", "detailed"])
+    .default("concise"),
   eventHistoryEnabled: z.boolean().default(true),
   eventHistoryRetentionDays: z.number().finite().positive().default(30),
   eventHistoryMaxBytes: z
@@ -1084,6 +1089,52 @@ export const appEventSchema = z.discriminatedUnion("type", [
     type: z.literal("agent.message_complete"),
     messageId: z.string(),
     content: z.string(),
+    agentInstanceId: z.string().uuid().optional(),
+    sdkSessionId: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("agent.working_update"),
+    messageId: z.string(),
+    update: z.discriminatedUnion("kind", [
+      z.object({
+        kind: z.literal("started"),
+        activityId: z.string().uuid(),
+        occurredAt: z.string().datetime(),
+      }),
+      z.object({
+        kind: z.literal("intent"),
+        activityId: z.string().uuid(),
+        content: z.string().max(16_000),
+        occurredAt: z.string().datetime(),
+      }),
+      z.object({
+        kind: z.literal("reasoning_delta"),
+        activityId: z.string().uuid(),
+        reasoningId: z.string().min(1).max(256),
+        content: z.string().max(16_000),
+        occurredAt: z.string().datetime(),
+      }),
+      z.object({
+        kind: z.literal("reasoning_complete"),
+        activityId: z.string().uuid(),
+        reasoningId: z.string().min(1).max(256),
+        content: z.string().max(16_000),
+        occurredAt: z.string().datetime(),
+      }),
+      z.object({
+        kind: z.literal("streaming"),
+        activityId: z.string().uuid(),
+        totalResponseSizeBytes: z.number().int().nonnegative(),
+        occurredAt: z.string().datetime(),
+      }),
+      z.object({
+        kind: z.literal("finished"),
+        activityId: z.string().uuid(),
+        outcome: z.enum(["completed", "failed", "cancelled"]),
+        detail: z.string().max(16_000).optional(),
+        occurredAt: z.string().datetime(),
+      }),
+    ]),
     agentInstanceId: z.string().uuid().optional(),
     sdkSessionId: z.string().min(1).optional(),
   }),

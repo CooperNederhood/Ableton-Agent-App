@@ -271,6 +271,42 @@ describe("desktop components", () => {
     expect(html).toContain('<span class="sr-only">Assistant:</span>');
   });
 
+  it("renders a live Working disclosure with a concise reasoning summary", () => {
+    const html = renderToStaticMarkup(
+      <Timeline
+        state={{
+          ...initialState,
+          messages: [
+            {
+              id: "assistant-working",
+              role: "assistant",
+              content: "",
+              streaming: false,
+              timestamp: 1,
+              working: {
+                activityId: "00000000-0000-4000-8000-000000000021",
+                status: "running",
+                intent: "Inspecting the arrangement",
+                summary: "Checking the available clips.",
+                reasoningId: "reasoning-1",
+                responseStarted: true,
+                startedAt: 1,
+                updatedAt: 2,
+              },
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(html).toContain("working-disclosure working-running");
+    expect(html).toContain("<summary>");
+    expect(html).toContain("Inspecting the arrangement");
+    expect(html).toContain("Checking the available clips.");
+    expect(html).toContain('open=""');
+    expect(html).not.toContain("Streaming…");
+  });
+
   it("renders context chips as explicit removal controls", () => {
     const html = renderToStaticMarkup(
       <Composer
@@ -501,6 +537,38 @@ describe("desktop components", () => {
     expect(html).toContain("Unknown skill");
   });
 
+  it("renders compact mode and semantic composer actions", () => {
+    const state = workspaceState(firstAgentId);
+    const idle = renderToStaticMarkup(
+      <Composer
+        state={state}
+        value="Create a bass line"
+        busy={false}
+        composerRef={{ current: null }}
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        dispatch={vi.fn()}
+      />,
+    );
+    state.sessions[0]!.activeAgents[0]!.lifecycle = "busy";
+    const busy = renderToStaticMarkup(
+      <Composer
+        state={state}
+        value=""
+        busy
+        composerRef={{ current: null }}
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        dispatch={vi.fn()}
+      />,
+    );
+
+    expect(idle).toContain('class="composer-mode-button interactive"');
+    expect(idle).toContain('aria-label="Send message"');
+    expect(idle).not.toContain("Send <kbd>");
+    expect(busy).toContain('aria-label="Stop agent"');
+  });
+
   it("supports keyboard completion navigation and selection", () => {
     expect(slashCompletionKey("ArrowDown", 0, 2)).toBe(1);
     expect(slashCompletionKey("ArrowDown", 1, 2)).toBe(0);
@@ -510,7 +578,7 @@ describe("desktop components", () => {
     expect(slashCompletionKey("Enter", 0, 0)).toBeUndefined();
   });
 
-  it("shows labeled active-agent instances", () => {
+  it("shows labeled active-agent instances without redundant model status", () => {
     const state = workspaceState();
     state.sessions[0]!.activeAgents[0]!.model = "model-a";
     state.sessions[0]!.activeAgents[0]!.reasoningEffort = "high";
@@ -524,8 +592,8 @@ describe("desktop components", () => {
     expect(header).toContain('aria-label="Active Agent"');
     expect(header).toContain("Default");
     expect(header).toContain("Default 2");
-    expect(header).toContain("model-a · high");
-    expect(workspace).toContain("Default · ready");
+    expect(header).not.toContain("model-a · high");
+    expect(workspace).not.toContain("Default · ready");
   });
 
   it("renders independent accessible workspace sidebar controls", () => {
@@ -555,7 +623,8 @@ describe("desktop components", () => {
     expect(hidden).toContain('aria-label="Show project sidebar"');
     expect(hidden).toContain('aria-label="Show inspector sidebar"');
     expect(hidden).not.toContain('aria-label="Project outline"');
-    expect(hidden).not.toContain('aria-label="Selection inspector"');
+    expect(hidden).toContain('aria-label="Inspector workspace"');
+    expect(hidden).toContain("hidden");
   });
 
   it("renders pointer resize handles and session widths only when sidebars are visible", () => {
@@ -631,6 +700,17 @@ describe("desktop components", () => {
         otherSidebarVisible: true,
       }),
     ).toBe(330);
+    expect(
+      resizedSidebarWidth({
+        side: "right",
+        startWidth: 290,
+        startClientX: 1_150,
+        clientX: 0,
+        workspaceWidth: 1_440,
+        otherSidebarWidth: 250,
+        otherSidebarVisible: true,
+      }),
+    ).toBe(870);
   });
 
   it("renders a compact top-chrome control when requested", () => {
@@ -854,10 +934,17 @@ describe("desktop components", () => {
     );
   });
 
-  it("labels plan-mode user messages without relying on color", () => {
+  it("normalizes user-message modes and labels plan messages", () => {
     const state = workspaceState(firstAgentId);
     state.agentWorkspaces[firstAgentId] = {
       messages: [
+        {
+          id: "interactive-message",
+          role: "user",
+          content: "Inspect the set",
+          streaming: false,
+          timestamp: 0,
+        },
         {
           id: "plan-message",
           role: "user",
@@ -873,8 +960,10 @@ describe("desktop components", () => {
 
     const html = renderToStaticMarkup(<Timeline state={state} />);
 
+    expect(html).toContain('data-agent-mode="interactive"');
     expect(html).toContain('data-agent-mode="plan"');
     expect(html).toContain('class="message-mode">plan</small>');
+    expect(html).toContain("Inspect the set");
     expect(html).toContain("Draft a plan");
   });
 
@@ -898,7 +987,8 @@ describe("desktop components", () => {
       <Inspector state={state} dispatch={vi.fn()} />,
     );
 
-    expect(html).toContain("<h3>Plan</h3>");
+    expect(html).toContain('aria-label="Plan"');
+    expect(html).toContain('aria-label="Plan inspector"');
     expect(html).toContain("Build an intro.");
     expect(html).not.toContain("Approve and continue");
   });
@@ -1706,6 +1796,18 @@ describe("desktop components", () => {
     expect(html).toContain("including across macOS Spaces");
   });
 
+  it("renders the configurable active-work timeout", () => {
+    const html = renderToStaticMarkup(
+      <SettingsView state={initialState} dispatch={vi.fn()} />,
+    );
+
+    expect(html).toContain("Active-work timeout (minutes)");
+    expect(html).toContain('min="1"');
+    expect(html).toContain('max="120"');
+    expect(html).toContain('value="10"');
+    expect(html).toContain("Time waiting for questions");
+  });
+
   it("shows YOLO status without occupying composer space", () => {
     const state = workspaceState();
     state.sessions[0]!.activeAgents[0]!.autoApprove = true;
@@ -1734,7 +1836,7 @@ describe("desktop components", () => {
     );
 
     expect(header).toContain("YOLO");
-    expect(workspace).toContain("YOLO");
+    expect(workspace).not.toContain("YOLO");
     expect(agents).toContain("YOLO");
     expect(composer).not.toContain("Approvals are automatic");
     expect(settings).toContain("Current session: 1 YOLO override");
@@ -1753,7 +1855,7 @@ describe("desktop components", () => {
       renderToStaticMarkup(
         <Inspector state={initialState} dispatch={vi.fn()} />,
       ),
-    ).toContain("Nothing selected");
+    ).toContain("Nothing to inspect");
   });
 
   it("renders output state and accessible routing controls", () => {

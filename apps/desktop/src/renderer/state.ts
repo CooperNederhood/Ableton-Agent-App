@@ -43,6 +43,19 @@ export interface MessageView {
   streaming: boolean;
   timestamp: number;
   agentMode?: DesktopAgentMode;
+  working?: WorkingView;
+}
+
+export interface WorkingView {
+  activityId: string;
+  status: "running" | "completed" | "failed" | "cancelled";
+  intent?: string;
+  summary: string;
+  reasoningId?: string;
+  responseStarted: boolean;
+  detail?: string;
+  startedAt: number;
+  updatedAt: number;
 }
 
 export interface AgentWorkspaceState {
@@ -751,6 +764,30 @@ function reduceEvent(
         ),
       };
     }
+    case "agent.working_update": {
+      if (event.agentInstanceId !== undefined) {
+        return updateAgentWorkspace(
+          state,
+          event.agentInstanceId,
+          (workspace) => ({
+            ...workspace,
+            messages: applyWorkingUpdate(
+              workspace.messages,
+              event.messageId,
+              event.update,
+            ),
+          }),
+        );
+      }
+      return {
+        ...state,
+        messages: applyWorkingUpdate(
+          state.messages,
+          event.messageId,
+          event.update,
+        ),
+      };
+    }
   }
 }
 
@@ -874,6 +911,93 @@ function applyMessageComplete(
           },
         ],
         maxMessages,
+      );
+}
+
+function applyWorkingUpdate(
+  messages: MessageView[],
+  messageId: string,
+  update: Extract<DesktopAppEvent, { type: "agent.working_update" }>["update"],
+): MessageView[] {
+  const occurredAt = Date.parse(update.occurredAt) || Date.now();
+  const index = messages.findIndex(({ id }) => id === messageId);
+  const existing =
+    index < 0
+      ? {
+          id: messageId,
+          role: "assistant" as const,
+          content: "",
+          streaming: false,
+          timestamp: occurredAt,
+        }
+      : messages[index]!;
+  const previous = existing.working;
+  if (
+    previous !== undefined &&
+    previous.activityId !== update.activityId &&
+    previous.status === "running"
+  ) {
+    return messages;
+  }
+  let working: WorkingView;
+  if (update.kind === "started") {
+    working = {
+      activityId: update.activityId,
+      status: "running",
+      summary: "",
+      responseStarted: false,
+      startedAt: occurredAt,
+      updatedAt: occurredAt,
+    };
+  } else {
+    const base =
+      previous?.activityId === update.activityId
+        ? previous
+        : {
+            activityId: update.activityId,
+            status: "running" as const,
+            summary: "",
+            responseStarted: false,
+            startedAt: occurredAt,
+            updatedAt: occurredAt,
+          };
+    if (update.kind === "intent") {
+      working = { ...base, intent: update.content, updatedAt: occurredAt };
+    } else if (update.kind === "reasoning_delta") {
+      working = {
+        ...base,
+        reasoningId: update.reasoningId,
+        summary: (base.summary + update.content).slice(0, 16_000),
+        updatedAt: occurredAt,
+      };
+    } else if (update.kind === "reasoning_complete") {
+      working = {
+        ...base,
+        reasoningId: update.reasoningId,
+        summary: update.content.slice(0, 16_000),
+        updatedAt: occurredAt,
+      };
+    } else if (update.kind === "streaming") {
+      working = {
+        ...base,
+        responseStarted: update.totalResponseSizeBytes > 0,
+        updatedAt: occurredAt,
+      };
+    } else {
+      if (base.status !== "running") return messages;
+      working = {
+        ...base,
+        status: update.outcome,
+        ...(update.detail === undefined ? {} : { detail: update.detail }),
+        updatedAt: occurredAt,
+      };
+    }
+  }
+  const next = { ...existing, working };
+  return index < 0
+    ? bounded([...messages, next], maxMessages)
+    : messages.map((message, messageIndex) =>
+        messageIndex === index ? next : message,
       );
 }
 

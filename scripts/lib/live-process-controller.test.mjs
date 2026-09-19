@@ -49,6 +49,27 @@ describe("LiveProcessController", () => {
     expect(kill.mock.calls.every(([pid]) => pid === owned.pid)).toBe(true);
   });
 
+  it("accepts an exit observed on the final deadline check", async () => {
+    const lists = [[], [], [owned], [owned]];
+    const kill = vi.fn((_pid, signal) => {
+      if (signal === 0) {
+        const error = new Error("gone");
+        error.code = "ESRCH";
+        throw error;
+      }
+    });
+    const controller = new LiveProcessController({
+      listProcesses: async () => lists.shift() ?? [owned],
+      run: async () => ({ status: 0, stdout: "", stderr: "" }),
+      kill,
+      requestQuit: vi.fn(async () => undefined),
+    });
+
+    await controller.launch("/Applications/Ableton Live 11 Suite.app", 1_000);
+    await expect(controller.gracefulStop(0)).resolves.toBeUndefined();
+    expect(controller.publicRecord()).toBeUndefined();
+  });
+
   it("fails closed when the recorded PID identity changes", async () => {
     const lists = [
       [],

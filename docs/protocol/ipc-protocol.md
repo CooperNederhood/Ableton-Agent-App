@@ -155,8 +155,10 @@ Three timeout layers are intentionally distinct:
 
 - normal bridge request: 5 seconds by default;
 - long bridge request: 15 seconds by default;
-- Copilot agent turn: an application-owned 180 seconds passed to the SDK
-  `sendAndWait` call.
+- Copilot agent turn: an application-owned cumulative active-work budget,
+  defaulting to 600 seconds and configured from Desktop Settings. The
+  application waits on SDK events directly and pauses this budget during human
+  decisions.
 
 An SDK turn abort does not prove that a dispatched mutation was cancelled.
 Read-only operations still report `operation_timeout`; an in-flight mutation

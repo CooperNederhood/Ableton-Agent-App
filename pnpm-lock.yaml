@@ -127,6 +127,9 @@ importers:
       '@ableton-agent/signal-routing':
         specifier: workspace:*
         version: link:../../packages/signal-routing
+      '@ableton-agent/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
       '@ableton-agent/tools':
         specifier: workspace:*
         version: link:../../packages/tools
@@ -203,6 +206,9 @@ importers:
       '@ableton-agent/shared':
         specifier: workspace:*
         version: link:../shared
+      '@ableton-agent/storage':
+        specifier: workspace:*
+        version: link:../storage
       '@ableton-agent/tools':
         specifier: workspace:*
         version: link:../tools
@@ -322,6 +328,8 @@ importers:
       zod:
         specifier: ^4.0.17
         version: 4.4.3
+
+  packages/storage: {}
 
   packages/test-support:
     dependencies:

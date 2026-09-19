@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 import type {
   ApprovalDecision,
@@ -255,7 +255,10 @@ export class JsonPreferencesStore {
 }
 
 export class JsonSessionStore {
-  public constructor(private readonly path: string) {}
+  public constructor(
+    private readonly path: string,
+    private readonly sessionStateDirectory?: string,
+  ) {}
 
   public async load(): Promise<DesktopSession[]> {
     try {
@@ -308,9 +311,67 @@ export class JsonSessionStore {
         { encoding: "utf8", mode: 0o600 },
       );
       await rename(temporaryPath, this.path);
+      await this.#writeSessionManifests(sessions);
     } catch (error) {
       await rm(temporaryPath, { force: true });
       throw error;
     }
   }
+
+  async #writeSessionManifests(
+    sessions: readonly DesktopSession[],
+  ): Promise<void> {
+    if (this.sessionStateDirectory === undefined) return;
+    await mkdir(this.sessionStateDirectory, { recursive: true, mode: 0o700 });
+    for (const session of sessions) {
+      const directory = join(
+        this.sessionStateDirectory,
+        sessionDirectoryName(session.id),
+      );
+      await mkdir(join(directory, "artifacts"), {
+        recursive: true,
+        mode: 0o700,
+      });
+      const manifestPath = join(directory, "session.json");
+      const temporaryPath = `${manifestPath}.${randomUUID()}.tmp`;
+      try {
+        await writeFile(
+          temporaryPath,
+          JSON.stringify(
+            {
+              version: 1,
+              productionSessionId: session.id,
+              title: session.title,
+              updatedAt: session.updatedAt,
+              projectName: session.projectName,
+              ...(session.projectId === undefined
+                ? {}
+                : { projectId: session.projectId }),
+              activeAgentIds: session.activeAgents.map(({ id }) => id),
+              sdkSessionIds: session.activeAgents.flatMap(({ sdkSessionId }) =>
+                sdkSessionId === undefined ? [] : [sdkSessionId],
+              ),
+            },
+            undefined,
+            2,
+          ),
+          { encoding: "utf8", mode: 0o600 },
+        );
+        await rename(temporaryPath, manifestPath);
+      } catch (error) {
+        await rm(temporaryPath, { force: true });
+        throw error;
+      }
+    }
+  }
+}
+
+function sessionDirectoryName(sessionId: string): string {
+  if (
+    sessionId.length <= 200 &&
+    /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/u.test(sessionId)
+  ) {
+    return sessionId;
+  }
+  return `session-${createHash("sha256").update(sessionId).digest("hex")}`;
 }

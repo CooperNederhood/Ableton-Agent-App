@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { access } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,6 +32,13 @@ import {
   signalDescriptorPath,
   writeSignalSecret,
 } from "./signal-credentials.js";
+import {
+  ensureLiveAgentStorage,
+  migrateLegacyStorage,
+  resolveLiveAgentStorage,
+  type LegacyStorageEntry,
+  type StorageMigrationResult,
+} from "@ableton-agent/storage";
 import {
   applyAlwaysOnTop,
   applyWindowPreferenceEvent,
@@ -78,23 +86,37 @@ let lifecycleStarted = false;
 let removeSignalSecret: (() => Promise<void>) | undefined;
 let automationServer: AutomationControlServer | undefined;
 
-const logPath = join(
-  app.getPath("logs"),
+const legacyUserDataDirectory = app.getPath("userData");
+const legacyLogsDirectory = app.getPath("logs");
+const storage = resolveLiveAgentStorage({
+  homeDirectory: homedir(),
+  environment:
+    launchOptions.automation === undefined
+      ? process.env
+      : {
+          ...process.env,
+          LIVE_AGENT_HOME: join(
+            launchOptions.automation.profilePath,
+            "live-agent",
+          ),
+          LIVE_AGENT_PROFILE: "automation",
+        },
+  development: !app.isPackaged,
+});
+let logPath = join(
+  legacyLogsDirectory,
   app.isPackaged ? "desktop.log" : "desktop-development.log",
 );
 const environmentLoggingLevel = parseLogLevel(
   process.env.ABLETON_AGENT_LOG_LEVEL,
 );
-const logger = new DesktopFileLogger(
-  logPath,
-  environmentLoggingLevel ?? "info",
-);
+let logger = new DesktopFileLogger(logPath, environmentLoggingLevel ?? "info");
 let activeLoggingLevel: DesktopPreferences["loggingLevel"] =
   environmentLoggingLevel ?? "info";
 // Constructed here so any application-managed credential remains outside
 // preferences and encrypted through Electron's OS-backed safeStorage.
 export const credentialVault = new OsCredentialVault(
-  join(app.getPath("userData"), "credentials"),
+  storage.credentialsDirectory,
   safeStorage,
 );
 // Composed after `app.whenReady()` because preferences and credentials come
@@ -235,6 +257,74 @@ app.on("open-url", (event, url) => {
 let composition: DesktopComposition | undefined;
 
 async function bootstrap(): Promise<void> {
+  const legacyLogName = app.isPackaged
+    ? "desktop.log"
+    : "desktop-development.log";
+  const desktopCopilotDirectory = join(legacyUserDataDirectory, "copilot");
+  const fallbackCopilotDirectory = join(homedir(), ".ableton-agent", "copilot");
+  let legacyCopilotDirectory = desktopCopilotDirectory;
+  try {
+    await access(desktopCopilotDirectory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    legacyCopilotDirectory = fallbackCopilotDirectory;
+  }
+  const migrationEntries: LegacyStorageEntry[] = [
+    {
+      label: "preferences",
+      source: join(legacyUserDataDirectory, "preferences.json"),
+      destination: storage.preferencesPath,
+      kind: "json",
+    },
+    {
+      label: "sessions",
+      source: join(legacyUserDataDirectory, "sessions.json"),
+      destination: storage.sessionsPath,
+      kind: "json",
+    },
+    {
+      label: "project-sessions",
+      source: join(legacyUserDataDirectory, "project-sessions.json"),
+      destination: storage.projectSessionsPath,
+      kind: "json",
+    },
+    {
+      label: "credentials",
+      source: join(legacyUserDataDirectory, "credentials"),
+      destination: storage.credentialsDirectory,
+      kind: "directory",
+    },
+    {
+      label: "copilot",
+      source: legacyCopilotDirectory,
+      destination: storage.copilotDirectory,
+      kind: "directory",
+    },
+    {
+      label: "event-history",
+      source: join(legacyUserDataDirectory, "event-history.sqlite"),
+      destination: storage.eventJournalPath,
+      kind: "sqlite",
+    },
+    {
+      label: "desktop-log",
+      source: join(legacyLogsDirectory, legacyLogName),
+      destination: storage.desktopLogPath,
+      kind: "file",
+    },
+  ];
+  const migration: StorageMigrationResult = await migrateLegacyStorage({
+    layout: storage,
+    entries: migrationEntries,
+  });
+  if (migration.status === "failed") {
+    throw new Error(
+      `Local storage migration failed without modifying legacy data: ${migration.error ?? "unknown error"}`,
+    );
+  }
+  await ensureLiveAgentStorage(storage);
+  logPath = storage.desktopLogPath;
+  logger = new DesktopFileLogger(logPath, environmentLoggingLevel ?? "info");
   await logger.prune();
   await app.whenReady();
   app.dock?.setIcon(desktopIconPath);
@@ -245,18 +335,30 @@ async function bootstrap(): Promise<void> {
     packaged: app.isPackaged,
     loggingLevel: activeLoggingLevel,
     environmentOverride: environmentLoggingLevel !== undefined,
+    storageProfile: storage.profile,
+    storageMigrationStatus: migration.status,
   });
+  for (const event of migration.events) {
+    await logger.write(
+      event.outcome === "failure" ? "error" : "info",
+      event.name,
+      event.attributes,
+    );
+  }
   composition = await createDesktopComposition({
-    preferencesPath: join(app.getPath("userData"), "preferences.json"),
-    sessionsPath: join(app.getPath("userData"), "sessions.json"),
-    projectSessionsPath: join(app.getPath("userData"), "project-sessions.json"),
+    preferencesPath: storage.preferencesPath,
+    sessionsPath: storage.sessionsPath,
+    projectSessionsPath: storage.projectSessionsPath,
     agentsDirectory: app.isPackaged
       ? join(process.resourcesPath, "agents")
       : fileURLToPath(new URL("../../../../agents", import.meta.url)),
     skillsDirectory: app.isPackaged
       ? join(process.resourcesPath, "skills")
       : fileURLToPath(new URL("../../../../skills", import.meta.url)),
-    agentBaseDirectory: join(app.getPath("userData"), "copilot"),
+    agentBaseDirectory: storage.copilotDirectory,
+    sessionStateDirectory: storage.sessionStateDirectory,
+    eventJournalPath: storage.eventJournalPath,
+    storageMigrationEvents: migration.events,
     signalDescriptorPath,
     credentialVault,
     homeDirectory: homedir(),
@@ -282,6 +384,13 @@ async function bootstrap(): Promise<void> {
   logger.setLevel(activeLoggingLevel);
   const diagnostics = createDesktopDiagnosticsActions({
     logPath,
+    storage: {
+      version: storage.version,
+      root: storage.root,
+      profile: storage.profile,
+      profileRoot: storage.profileRoot,
+      migrationStatus: migration.status,
+    },
     getLoggingLevel: () => activeLoggingLevel,
     environmentOverride: environmentLoggingLevel !== undefined,
     appVersion: app.getVersion(),

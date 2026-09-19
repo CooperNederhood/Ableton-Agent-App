@@ -16,6 +16,7 @@ import {
   type TelemetryEventPage,
   type TraceReadOptions,
 } from "@ableton-agent/observability";
+import type { StorageMigrationEvent } from "@ableton-agent/storage";
 import {
   createAgentRuntime,
   RuntimeConfigurationError,
@@ -45,6 +46,8 @@ export interface DesktopCompositionOptions {
   preferencesPath: string;
   sessionsPath: string;
   projectSessionsPath?: string;
+  sessionStateDirectory?: string;
+  eventJournalPath?: string;
   agentsDirectory: string;
   skillsDirectory: string;
   signalDescriptorPath?: string;
@@ -59,6 +62,8 @@ export interface DesktopCompositionOptions {
   logger?: Logger;
   onError?: (message: string, context: Record<string, unknown>) => void;
   onLoggingLevelChange?: (level: DesktopPreferences["loggingLevel"]) => void;
+  storageMigrationEvents?: readonly StorageMigrationEvent[];
+  storageMigrationFailure?: string;
 }
 
 export interface DesktopComposition {
@@ -404,7 +409,10 @@ export async function createDesktopComposition(
 ): Promise<DesktopComposition> {
   const environment = options.environment ?? {};
   const preferencesStore = new JsonPreferencesStore(options.preferencesPath);
-  const sessionStore = new JsonSessionStore(options.sessionsPath);
+  const sessionStore = new JsonSessionStore(
+    options.sessionsPath,
+    options.sessionStateDirectory,
+  );
   const projectSessionStore = new JsonProjectSessionStore(
     options.projectSessionsPath ??
       join(dirname(options.sessionsPath), "project-sessions.json"),
@@ -414,12 +422,20 @@ export async function createDesktopComposition(
     skillsDirectory: options.skillsDirectory,
     availableTools: abletonToolMetadata.map((tool) => tool.name),
   });
-  const notices: Notice[] = [];
+  const notices: Notice[] =
+    options.storageMigrationFailure === undefined
+      ? []
+      : [
+          {
+            label: "Local storage migration",
+            status: "fail",
+            detail: options.storageMigrationFailure,
+          },
+        ];
   const preferences = await loadPreferences(preferencesStore, notices);
-  const eventJournalPath = join(
-    dirname(options.preferencesPath),
-    "event-history.sqlite",
-  );
+  const eventJournalPath =
+    options.eventJournalPath ??
+    join(dirname(options.preferencesPath), "event-history.sqlite");
   const journalHost = await DesktopJournalHost.create({
     path: eventJournalPath,
     retention: {
@@ -449,6 +465,33 @@ export async function createDesktopComposition(
         }),
     },
   );
+  for (const event of options.storageMigrationEvents ?? []) {
+    telemetry.enqueue({
+      version: 1,
+      id: event.id,
+      occurredAt: event.occurredAt,
+      name: event.name,
+      category: "storage",
+      source: "desktop-storage",
+      level: event.outcome === "failure" ? "error" : "info",
+      ...(event.outcome === undefined ? {} : { outcome: event.outcome }),
+      ...(event.durationMs === undefined
+        ? {}
+        : { durationMs: event.durationMs }),
+      correlationId: event.correlationId,
+      ...(event.causationId === undefined
+        ? {}
+        : { causationId: event.causationId }),
+      trace: {
+        traceId: event.traceId,
+        spanId: event.spanId,
+        ...(event.parentSpanId === undefined
+          ? {}
+          : { parentSpanId: event.parentSpanId }),
+      },
+      attributes: event.attributes,
+    });
+  }
   const reconfigureEventJournal = async (
     retention: RetentionPolicy,
   ): Promise<void> => journalHost.reconfigure(retention);

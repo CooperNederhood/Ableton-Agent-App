@@ -1,5 +1,4 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 
@@ -117,6 +116,7 @@ import {
   type AbletonMutationAuthorizationContext,
   type ToolApprovalRequester,
 } from "@ableton-agent/tools";
+import { resolveLiveAgentStorage } from "@ableton-agent/storage";
 import {
   CopilotClient,
   defineTool,
@@ -1045,7 +1045,8 @@ export class CopilotAgentService implements AgentService {
           mode: "empty",
           baseDirectory:
             options.baseDirectory ??
-            join(homedir(), ".ableton-agent", "copilot"),
+            resolveLiveAgentStorage({ homeDirectory: homedir() })
+              .copilotDirectory,
         }));
   }
 

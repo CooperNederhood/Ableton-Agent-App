@@ -39,6 +39,44 @@ afterEach(async () => {
 });
 
 describe("desktop composition", () => {
+  it("replays bootstrap storage migration lifecycle into local history", async () => {
+    const location = await paths();
+    const traceId = "00000000-0000-4000-8000-000000000001";
+    const { service } = await createDesktopComposition({
+      ...location,
+      environment: {},
+      storageMigrationEvents: [
+        {
+          id: "00000000-0000-4000-8000-000000000002",
+          name: "storage.migration.completed",
+          occurredAt: new Date().toISOString(),
+          durationMs: 12,
+          outcome: "success",
+          traceId,
+          spanId: "00000000-0000-4000-8000-000000000003",
+          correlationId: "00000000-0000-4000-8000-000000000004",
+          attributes: { profile: "development", migratedCount: 4 },
+        },
+      ],
+    });
+
+    await vi.waitFor(async () => {
+      expect((await service.getEventTrace(traceId)).items).toHaveLength(1);
+    });
+    const history = await service.getEventTrace(traceId);
+
+    expect(history.items).toEqual([
+      expect.objectContaining({
+        name: "storage.migration.completed",
+        category: "storage",
+        source: "desktop-storage",
+        outcome: "success",
+        durationMs: 12,
+      }),
+    ]);
+    await service.stop();
+  });
+
   it("degrades safely and preserves a corrupt journal file", async () => {
     const location = await paths();
     const journalPath = join(location.directory, "event-history.sqlite");

@@ -132,6 +132,20 @@ containing version/connection diagnostics and at most 500 redacted recent log
 entries per file; preferences, sessions, prompts, paths, credentials, track
 names, device names, and musical content are excluded.
 
+All application-owned local data is rooted at
+`~/.live-agent/profiles/{profile}/`. Packaged builds use `default` and
+development builds use `development`. `LIVE_AGENT_HOME` and
+`LIVE_AGENT_PROFILE` provide explicit overrides. Logs live under `logs/`, the
+local event journal under `observability/`, Copilot SDK state under `copilot/`,
+and production-session ownership manifests under `session-state/`. OS-encrypted
+credential blobs remain under the profile, while the Remote Script's token
+remains in its managed Ableton installation so Live can authenticate.
+
+On first use, the app stages and validates data from prior Electron
+application-data/log directories and `~/.ableton-agent/copilot`, then atomically
+publishes the profile. It retains legacy copies for rollback and refuses to
+overwrite a conflicting destination.
+
 ## Telemetry
 
 Two different facilities must not be conflated:
@@ -184,8 +198,8 @@ Initial supported matrix:
 
 | Platform | Architectures | Ableton Live |
 | --- | --- | --- |
-| macOS 13, 14, 15 | Intel, Apple Silicon | 11.3 or newer, 12.x |
-| Windows 10 22H2, Windows 11 | x64 | 11.3 or newer, 12.x |
+| macOS 13, 14, 15 | Intel, Apple Silicon | 11.3.42 |
+| Windows 10 22H2, Windows 11 | x64 | 11.3.42 |
 
 Installer production is exercised on macOS 14 and Windows Server 2022 CI
 runners. Real Live smoke testing on every supported OS/Live combination remains
@@ -200,7 +214,7 @@ Build the repository, open the canonical validation Set in Ableton, and run:
 
 ```bash
 export ABLETON_AGENT_TOKEN="<installed Remote Script token>"
-pnpm live:validate -- --live-version 12.1
+pnpm live:validate -- --live-version 11.3.42
 ```
 
 The runner records the commit, platform, architecture, Live version, and exit

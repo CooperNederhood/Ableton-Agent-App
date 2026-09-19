@@ -102,12 +102,16 @@ payload is validated by the state schemas on write and on read. Writes run in
 real SQLite transactions, and the database file is replaced atomically.
 
 The current Desktop adapter incrementally implements this model with validated,
-atomically replaced JSON records under Electron user data:
+atomically replaced JSON records under
+`~/.live-agent/profiles/{profile}/state/`:
 
 - `sessions.json` stores production-session and active-agent snapshots;
 - `project-sessions.json` maps a saved Live `projectId` to its canonical
   production session;
-- `copilot/` remains the Copilot SDK's conversation store.
+- `../copilot/` remains the Copilot SDK's conversation store; and
+- `../session-state/{production-session-id}/session.json` records bounded
+  ownership links to project, active-agent, and SDK-session IDs without
+  duplicating conversation or event content.
 
 Unsaved Live Sets are deliberately excluded from the project association
 index. A mid-run identity change is a transaction boundary: agent work and

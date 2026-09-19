@@ -288,8 +288,9 @@ the Ableton application lifecycle.
 - [ ] Reuse the journal writer, trace envelope, retention, and query
   infrastructure for Outputs while preserving separate Output and Live Event
   domains, source inventories, delivery rules, and UI filters.
-- [ ] Store the journal only under the current user's local application data,
-  with capture defaulting on and no upload path.
+- [x] Store the journal only under the current user's
+  `~/.live-agent/profiles/{profile}/observability` directory, with capture
+  defaulting on and no upload path.
 - [ ] Add pause, clear, and per-session deletion controls, 30-day age pruning,
   and a 250 MiB hard cap with oldest-first eviction.
 - [ ] Add typed History query/detail APIs and a paginated, virtualized Desktop

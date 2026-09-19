@@ -77,6 +77,34 @@ requests, Remote Script work, Live Event routing, and Output delivery. The
 journal failure path is explicit and non-blocking so observability cannot stall
 Live's main thread, socket reads, SDK streaming, or tool execution.
 
+### Local storage topology
+
+Application-owned local data uses one shared, versioned root:
+`~/.live-agent`. `LIVE_AGENT_HOME` may override that absolute root for tests,
+portable environments, and recovery. Data is isolated by profile under
+`profiles/{profile}`; packaged clients default to `default`, while development
+clients default to `development`. `LIVE_AGENT_PROFILE` may select another
+filesystem-safe profile.
+
+Each profile contains preferences and session metadata under `config/` and
+`state/`, OS-encrypted credential blobs under `credentials/`, Copilot SDK
+conversation storage under `copilot/`, the detailed-history journal under
+`observability/`, structured logs under `logs/`, and bounded ownership
+manifests and artifacts under `session-state/{production-session-id}/`.
+
+The event journal remains profile-wide so cross-session trace queries,
+retention, health, and indexing do not require opening one database per
+session. Session directories identify ownership and do not duplicate Copilot
+transcripts or journal rows. The renderer receives only typed diagnostics and
+history view models, never raw filesystem or SQLite access.
+
+Legacy Electron application-data/log directories and
+`~/.ableton-agent/copilot` are migrated through a staged, validated, atomic
+profile publication. Legacy sources are retained after migration. Conflicts or
+validation failures do not overwrite either copy. Migration queued, started,
+progress, completed, failed, and cancelled stages use application-owned
+observability records with trace, correlation, causation, and timing.
+
 ### CLI/TUI process
 
 The terminal client hosts the same application-service composition without

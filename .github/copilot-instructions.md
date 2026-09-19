@@ -22,15 +22,14 @@
 - Start with the smallest deterministic unit, component, contract, or Playwright
   test that owns the changed behavior.
 - After changing Electron UI, desktop interactions, approvals, progress/error
-  presentation, or visible Ableton Agent/Ableton workflows, use the repository
-  skill whose frontmatter describes visual desktop UX testing. Follow its full
-  implement, build, launch, message, wait, inspect, close, fix, and repeat loop.
+  presentation, or visible Ableton Agent/Ableton workflows, invoke the
+  `desktop-ux-testing` skill. Follow its full implement, build, launch, message,
+  wait, inspect, close, fix, and repeat loop.
 - After changing agent prompts, tools, workflows, bridge behavior, protocol
-  handling, or exact Live mutations, use the repository skill whose frontmatter
-  describes the runner-owned deterministic workflow smoke suite.
+  handling, or exact Live mutations, invoke the `integration-testing` skill for
+  the runner-owned deterministic workflow smoke suite.
 - When a change affects both exact Live behavior and visible UX, run
-  deterministic integration validation first, then visual desktop UX
-  validation.
+  `integration-testing` first, then `desktop-ux-testing`.
 - Never treat an accepted MCP message, assistant prose, or a screenshot alone
   as proof of exact Live state. Use deterministic postcondition reads when the
   requirement depends on counts, identities, ordering, MIDI content, rollback,

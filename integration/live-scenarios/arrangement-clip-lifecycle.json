@@ -1,0 +1,59 @@
+{
+  "formatVersion": 1,
+  "id": "arrangement-clip-lifecycle",
+  "group": "arrangement-and-cues",
+  "prompt": "Create a temporary Session MIDI clip, duplicate it into Arrangement, inspect the exact result, and remove every generated artifact.",
+  "artifactPrefix": "AA_SMOKE_ARR_",
+  "allowedTools": [
+    "ableton_session_inspect",
+    "ableton_tracks_create",
+    "ableton_clips_create_midi",
+    "ableton_arrangement_duplicate_clip",
+    "ableton_arrangement_inspect",
+    "ableton_arrangement_delete_clip",
+    "ableton_clips_delete",
+    "ableton_tracks_delete"
+  ],
+  "allowedRisks": ["read", "reversible", "destructive"],
+  "maxToolCalls": 12,
+  "maxMutations": 6,
+  "timeoutMs": 240000,
+  "ordering": [
+    {
+      "before": "ableton_tracks_create",
+      "after": "ableton_clips_create_midi"
+    },
+    {
+      "before": "ableton_clips_create_midi",
+      "after": "ableton_arrangement_duplicate_clip"
+    },
+    {
+      "before": "ableton_arrangement_duplicate_clip",
+      "after": "ableton_arrangement_inspect"
+    },
+    {
+      "before": "ableton_arrangement_inspect",
+      "after": "ableton_arrangement_delete_clip"
+    },
+    {
+      "before": "ableton_arrangement_delete_clip",
+      "after": "ableton_clips_delete"
+    },
+    {
+      "before": "ableton_clips_delete",
+      "after": "ableton_tracks_delete"
+    }
+  ],
+  "trackNameSuffixes": ["Track"],
+  "clipNameSuffixes": ["Source"],
+  "assertions": [
+    {
+      "type": "arrangement-clip-lifecycle",
+      "trackNameSuffix": "Track",
+      "clipNameSuffix": "Source",
+      "sourceSceneIndex": 4,
+      "length": 4,
+      "destinationTime": 32
+    }
+  ]
+}

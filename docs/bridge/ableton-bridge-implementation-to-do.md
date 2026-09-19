@@ -38,7 +38,11 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
   - [x] Implement capability-gated track creation and identity-bound deletion.
   - [x] Implement paginated Arrangement inspection and identity-bound clip deletion.
   - [x] Implement identity-bound Arrangement MIDI note replacement.
-  - [x] Implement guarded Session-to-Arrangement duplication and clip properties.
+  - [x] Implement guarded MIDI/audio Session-to-Arrangement duplication and
+    clip properties using verified collection deltas instead of undocumented
+    mutation return values.
+  - [x] Implement long-class, capability-gated Arrangement region filling with
+    bounded result validation and simulator parity.
   - [x] Implement capability-gated, schema-validated Session launch,
     duplication, deletion, and property clients.
   - [x] Implement capability-gated bounded regular-track device/parameter

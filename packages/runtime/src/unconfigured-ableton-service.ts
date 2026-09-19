@@ -9,6 +9,7 @@ import type {
   DeleteArrangementClipResult,
   DeleteSessionClipResult,
   DuplicateClipToArrangementResult,
+  FillArrangementRegionResult,
   DuplicateSessionClipResult,
   FindDevicePositionResult,
   InspectChainMixerResult,
@@ -235,6 +236,9 @@ export class UnconfiguredAbletonService implements AbletonService {
     this.#unavailable();
   }
   public async duplicateClipToArrangement(): Promise<DuplicateClipToArrangementResult> {
+    this.#unavailable();
+  }
+  public async fillArrangementRegion(): Promise<FillArrangementRegionResult> {
     this.#unavailable();
   }
   public async setArrangementClipProperties(): Promise<SetArrangementClipPropertiesResult> {

@@ -55,11 +55,30 @@ connection header plus application tabs can be hidden as one top-chrome region.
 These visibility choices are intentionally transient and reset on launch. The
 composer belongs to the center conversation column, expanding with it when
 either sidebar is hidden so users can isolate chat without losing input.
+The Project and Inspector edges are pointer-draggable within bounded widths.
+Dragging always preserves a usable conversation column, each sidebar retains
+its selected width while hidden and reopened, and widths reset when the desktop
+app restarts. Hide/show buttons remain the keyboard-accessible sidebar
+controls; the resize edges do not add separate keyboard controls.
 
 Assistant turns are borderless, left-aligned reading content. User turns are
 compact right-aligned cards. Neither role needs a repeated textual label in
 every turn; streaming state remains announced. This distinction must remain
 semantic and must not rely on color alone.
+
+Each active agent also owns an interaction mode. `/plan` enters plan mode
+without creating a chat turn, and Shift+Tab toggles between plan and
+interactive modes for the selected agent. The composer shows the current mode.
+User turns submitted in plan mode use a distinct card treatment and a compact
+textual `plan` label so the distinction does not depend on color.
+
+When the agent finishes a plan, the selected agent's Inspector displays the
+bounded plan content and actions to approve and continue interactively, request
+changes, or exit without implementation. Until interactive approval is
+recorded, plan mode remains read-only even if ordinary mutation auto-approval is
+enabled. The panel disables duplicate submissions while a response is pending,
+keeps stale or failed requests visible with an actionable error, and renders
+only the actions offered by the normalized SDK request.
 
 ## Events
 
@@ -166,6 +185,25 @@ a visual plan before execution:
 - Potential destructive changes.
 
 Users can approve, edit, or narrow the plan.
+
+SDK completed plans appear in the right Inspector for the selected active
+agent. The panel presents the bounded plan content and only three product
+actions: approve and continue interactively, request changes with feedback, or
+exit plan mode without implementation. Autopilot and fleet actions advertised
+by the SDK remain hidden. Opening a completed plan reveals the Inspector
+automatically, while plan state and responses remain isolated by active-agent
+instance. Main-process event delivery, preload validation, automatic Inspector
+opening, and typed response IPC are covered together in the Electron harness;
+application-owned success, failure, stale, duplicate, and isolation branches
+remain deterministically unit-tested.
+
+Plan content remains stored, journaled, and transported as the model-authored
+GitHub-Flavored Markdown. The Inspector applies one narrow presentation-only
+cleanup when a single-line plan contains multiple unmistakable bold labeled
+section markers such as ` - **Intro:**`: those markers become Markdown bullets,
+and labeled `Implementation:` or `Verification:` text becomes a separate
+section. Existing multiline Markdown and unrelated one-line prose remain
+unchanged. Approval IPC and History retain the original raw plan text.
 
 ## Recovery UX
 

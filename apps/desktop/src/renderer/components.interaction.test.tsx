@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, useReducer } from "react";
+import { act, useReducer, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,7 +10,14 @@ import type {
   DesktopApi,
   DesktopAppEvent,
 } from "../contracts";
-import { App, AgentsView, ConnectionHeader, EventsView } from "./App";
+import {
+  App,
+  AgentsView,
+  ConnectionHeader,
+  EventsView,
+  Workspace,
+  type WorkspaceSidebarWidths,
+} from "./App";
 import { desktopReducer, initialState, type DesktopState } from "./state";
 
 const agentId = "00000000-0000-4000-8000-000000000001";
@@ -119,6 +126,42 @@ function AgentHarness({ state }: { state: DesktopState }): React.JSX.Element {
       <AgentsView state={current} dispatch={dispatch} />
     </>
   );
+}
+
+function ResizeHarness(): React.JSX.Element {
+  const [widths, setWidths] = useState<WorkspaceSidebarWidths>({
+    left: 250,
+    right: 290,
+  });
+  const [leftVisible, setLeftVisible] = useState(true);
+  const [rightVisible, setRightVisible] = useState(true);
+  return (
+    <Workspace
+      state={rendererState()}
+      dispatch={vi.fn()}
+      leftSidebarVisible={leftVisible}
+      rightSidebarVisible={rightVisible}
+      sidebarWidths={widths}
+      onSidebarWidthChange={(side, width) =>
+        setWidths((current) => ({ ...current, [side]: width }))
+      }
+      onToggleLeftSidebar={() => setLeftVisible((visible) => !visible)}
+      onToggleRightSidebar={() => setRightVisible((visible) => !visible)}
+    />
+  );
+}
+
+function pointerEvent(
+  type: "pointerdown" | "pointermove" | "pointerup" | "pointercancel",
+  clientX: number,
+  pointerId = 1,
+): Event {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperties(event, {
+    clientX: { value: clientX },
+    pointerId: { value: pointerId },
+  });
+  return event;
 }
 
 function button(container: HTMLElement, label: string): HTMLButtonElement {
@@ -367,5 +410,274 @@ describe("desktop component interactions", () => {
     });
     expect(hydrateHistory).toHaveBeenCalledOnce();
     expect(hydrateHistory).toHaveBeenCalledWith(agentId);
+  });
+
+  it("opens the selected Agent Inspector for a plan event and submits feedback", async () => {
+    let publish!: (event: DesktopAppEvent) => void;
+    const resolvePlan = vi.fn().mockResolvedValue(true);
+    const state = rendererState();
+    const desktop = {
+      lifecycle: { get: vi.fn().mockResolvedValue("ready") },
+      ableton: {
+        getStatus: vi.fn().mockResolvedValue({ state: "disconnected" }),
+      },
+      preferences: {
+        get: vi.fn().mockResolvedValue(initialState.preferences),
+      },
+      agent: { getSessions: vi.fn().mockResolvedValue(state.sessions) },
+      agents: {
+        getCatalog: vi.fn().mockResolvedValue(state.agentCatalog),
+        hydrateHistory: vi.fn().mockResolvedValue([]),
+        resolvePlan,
+      },
+      outputs: {
+        list: vi.fn().mockResolvedValue({
+          ...initialState.outputs,
+          activeSessionId: sessionId,
+        }),
+      },
+      events: {
+        list: vi.fn().mockResolvedValue(initialState.events),
+        subscribe: vi.fn((listener: (event: DesktopAppEvent) => void) => {
+          publish = listener;
+          return vi.fn();
+        }),
+      },
+    } as unknown as DesktopApi;
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktop,
+    });
+
+    await act(async () => {
+      root.render(<App />);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const hideInspector = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Hide inspector sidebar"]',
+    );
+    if (hideInspector === null) throw new Error("Inspector toggle not found");
+    await act(async () => hideInspector.click());
+    expect(
+      container.querySelector('[aria-label="Selection inspector"]'),
+    ).toBeNull();
+
+    await act(async () => {
+      publish({
+        type: "agent.plan_approval_requested",
+        agentInstanceId: agentId,
+        sdkSessionId: "sdk-1",
+        request: {
+          requestId: "plan-1",
+          summary: "Arrangement plan",
+          planContent: "# Plan\n\nBuild an intro.",
+          recommendedAction: "interactive",
+          actions: ["interactive", "exit_only"],
+        },
+      });
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelector('[aria-label="Selection inspector"]'),
+    ).not.toBeNull();
+    expect(container.textContent).toContain("Arrangement plan");
+    expect(container.textContent).toContain("Build an intro.");
+    expect(button(container, "Approve and continue").disabled).toBe(false);
+    expect(button(container, "Exit plan mode").disabled).toBe(false);
+
+    const feedback = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder^="Describe what the plan should change"]',
+    );
+    if (feedback === null) throw new Error("Plan feedback field not found");
+    await act(async () => {
+      feedback.setRangeText(
+        "Use fewer tracks",
+        0,
+        feedback.value.length,
+        "end",
+      );
+      feedback.dispatchEvent(new Event("input", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(button(container, "Request changes").disabled).toBe(false);
+    await click(container, "Request changes");
+    expect(resolvePlan).toHaveBeenCalledWith(agentId, {
+      requestId: "plan-1",
+      approved: false,
+      feedback: "Use fewer tracks",
+    });
+
+    await act(async () => {
+      publish({
+        type: "agent.plan_approval_completed",
+        agentInstanceId: agentId,
+        sdkSessionId: "sdk-1",
+        requestId: "plan-1",
+        approved: false,
+        feedback: "Use fewer tracks",
+      });
+      await Promise.resolve();
+    });
+    expect(container.textContent).not.toContain("Arrangement plan");
+  });
+
+  it("keeps a stale plan visible after resolution failure and prevents double submission", async () => {
+    let publish!: (event: DesktopAppEvent) => void;
+    let finishFirst!: (resolved: boolean) => void;
+    const firstResolution = new Promise<boolean>((resolve) => {
+      finishFirst = resolve;
+    });
+    const resolvePlan = vi
+      .fn()
+      .mockImplementationOnce(() => firstResolution)
+      .mockResolvedValueOnce(true);
+    const state = rendererState();
+    const desktop = {
+      lifecycle: { get: vi.fn().mockResolvedValue("ready") },
+      ableton: {
+        getStatus: vi.fn().mockResolvedValue({ state: "disconnected" }),
+      },
+      preferences: {
+        get: vi.fn().mockResolvedValue(initialState.preferences),
+      },
+      agent: { getSessions: vi.fn().mockResolvedValue(state.sessions) },
+      agents: {
+        getCatalog: vi.fn().mockResolvedValue(state.agentCatalog),
+        hydrateHistory: vi.fn().mockResolvedValue([]),
+        resolvePlan,
+      },
+      outputs: {
+        list: vi.fn().mockResolvedValue({
+          ...initialState.outputs,
+          activeSessionId: sessionId,
+        }),
+      },
+      events: {
+        list: vi.fn().mockResolvedValue(initialState.events),
+        subscribe: vi.fn((listener: (event: DesktopAppEvent) => void) => {
+          publish = listener;
+          return vi.fn();
+        }),
+      },
+    } as unknown as DesktopApi;
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktop,
+    });
+
+    await act(async () => {
+      root.render(<App />);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      publish({
+        type: "agent.plan_approval_requested",
+        agentInstanceId: agentId,
+        sdkSessionId: "sdk-1",
+        request: {
+          requestId: "plan-stale",
+          summary: "Pending plan",
+          planContent: "Wait for approval.",
+          recommendedAction: "interactive",
+          actions: ["interactive"],
+        },
+      });
+      await Promise.resolve();
+    });
+    expect(container.textContent).not.toContain("Exit plan mode");
+    const approve = button(container, "Approve and continue");
+    await act(async () => {
+      approve.click();
+      approve.click();
+      await Promise.resolve();
+    });
+    expect(resolvePlan).toHaveBeenCalledTimes(1);
+    expect(approve.disabled).toBe(true);
+
+    await act(async () => {
+      finishFirst(false);
+      await firstResolution;
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain(
+      "This plan request is no longer pending.",
+    );
+    expect(container.textContent).toContain("Pending plan");
+    expect(button(container, "Approve and continue").disabled).toBe(false);
+    await click(container, "Approve and continue");
+    expect(resolvePlan).toHaveBeenCalledTimes(2);
+  });
+
+  it("drags each sidebar independently and restores the session width after hiding", async () => {
+    await act(async () => {
+      root.render(<ResizeHarness />);
+      await Promise.resolve();
+    });
+    const workspace = container.querySelector<HTMLElement>(".workspace");
+    if (workspace === null) throw new Error("Workspace not found");
+    vi.spyOn(workspace, "getBoundingClientRect").mockReturnValue({
+      width: 1_200,
+      height: 700,
+      top: 0,
+      right: 1_200,
+      bottom: 700,
+      left: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    const leftHandle = container.querySelector<HTMLElement>(
+      ".sidebar-resize-handle-left",
+    );
+    const rightHandle = container.querySelector<HTMLElement>(
+      ".sidebar-resize-handle-right",
+    );
+    if (leftHandle === null || rightHandle === null) {
+      throw new Error("Resize handles not found");
+    }
+
+    await act(async () => {
+      leftHandle.dispatchEvent(pointerEvent("pointerdown", 250));
+      leftHandle.dispatchEvent(pointerEvent("pointermove", 330));
+      leftHandle.dispatchEvent(pointerEvent("pointerup", 330));
+      await Promise.resolve();
+    });
+    expect(workspace.style.getPropertyValue("--project-sidebar-width")).toBe(
+      "330px",
+    );
+    expect(workspace.style.getPropertyValue("--inspector-sidebar-width")).toBe(
+      "290px",
+    );
+
+    await act(async () => {
+      rightHandle.dispatchEvent(pointerEvent("pointerdown", 910, 2));
+      rightHandle.dispatchEvent(pointerEvent("pointermove", 830, 2));
+      rightHandle.dispatchEvent(pointerEvent("pointercancel", 830, 2));
+      rightHandle.dispatchEvent(pointerEvent("pointermove", 700, 2));
+      await Promise.resolve();
+    });
+    expect(workspace.style.getPropertyValue("--inspector-sidebar-width")).toBe(
+      "370px",
+    );
+
+    const hideProject = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Hide project sidebar"]',
+    );
+    if (hideProject === null) throw new Error("Project toggle not found");
+    await act(async () => hideProject.click());
+    expect(container.querySelector(".sidebar-resize-handle-left")).toBeNull();
+    const showProject = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Show project sidebar"]',
+    );
+    if (showProject === null)
+      throw new Error("Project restore toggle not found");
+    await act(async () => showProject.click());
+    expect(workspace.style.getPropertyValue("--project-sidebar-width")).toBe(
+      "330px",
+    );
   });
 });

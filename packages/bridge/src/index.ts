@@ -23,6 +23,8 @@ import {
   deleteCuePointParamsSchema,
   duplicateClipToArrangementParamsSchema,
   duplicateClipToArrangementResultSchema,
+  fillArrangementRegionParamsSchema,
+  fillArrangementRegionResultSchema,
   duplicateSessionClipParamsSchema,
   duplicateSessionClipResultSchema,
   findDevicePositionParamsSchema,
@@ -151,6 +153,8 @@ import {
   type DeleteCuePointParams,
   type DuplicateClipToArrangementParams,
   type DuplicateClipToArrangementResult,
+  type FillArrangementRegionParams,
+  type FillArrangementRegionResult,
   type DuplicateSessionClipParams,
   type DuplicateSessionClipResult,
   type FindDevicePositionParams,
@@ -1547,6 +1551,16 @@ export class AbletonBridgeService implements AbletonService {
     const validated = duplicateClipToArrangementParamsSchema.parse(params);
     return duplicateClipToArrangementResultSchema.parse(
       await this.#mutationRequest("arrangement.duplicate_clip", validated),
+    );
+  }
+
+  public async fillArrangementRegion(
+    params: FillArrangementRegionParams,
+  ): Promise<FillArrangementRegionResult> {
+    this.#requireCapability("arrangement.fill_region");
+    const validated = fillArrangementRegionParamsSchema.parse(params);
+    return fillArrangementRegionResultSchema.parse(
+      await this.#mutationRequest("arrangement.fill_region", validated),
     );
   }
 

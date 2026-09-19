@@ -25,6 +25,9 @@ Companion specification: [Test Strategy](test-strategy.md)
   simulator bridge parity.
 - [x] Cover Arrangement loop finite bounds and rollback, runtime-stable cue
   references, reversible creation, destructive deletion, and simulator parity.
+- [x] Cover Arrangement region-fill exact fits, reported remainders, bounded
+  Live-tick chunks, mid-batch rollback, bridge parity, and mutation timeout
+  uncertainty.
 - [x] Cover bounded device/parameter pages, exact identity guards, quantized
   normalized mapping, disabled parameters, rollback, and simulator parity.
   - [x] Cover serial concurrent reads, dispatch-scoped timeout budgets,
@@ -52,6 +55,9 @@ Companion specification: [Test Strategy](test-strategy.md)
     propagation for the final workflow-adapter layer.
 - [x] Implement CLI transcript tests.
 - [x] Implement Playwright Electron harness.
+- [x] Cover the debug-control contract, automation launch parsing, selected
+  agent/YOLO startup, visible external user-turn attribution, and stdio MCP
+  adapter arguments.
 - [ ] Add deterministic local-journal fixtures for clocks, IDs, sensitive
   payloads, concurrent appends, size accounting, and persistence failures.
 - [ ] Cover agent configuration snapshots and complete SDK, tool/workflow,
@@ -71,6 +77,8 @@ Companion specification: [Test Strategy](test-strategy.md)
     availability.
   - [ ] Record real-Live results for Arrangement loop setters, cue-point
     identity stability, naming, creation rollback, and deletion verification.
+  - [ ] Record real-Live results for multi-tile region fill timing, complete
+    rollback, and MIDI/warped/unwarped final-boundary behavior.
   - [ ] Record real-Live results for Device On discovery, native/plug-in
     parameter writability, quantized values, setter failures, and rollback.
   - [ ] Record real-Live results for rack/Drum Rack capabilities, chain/pad

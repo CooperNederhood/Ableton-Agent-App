@@ -99,6 +99,7 @@
                     "operation_timeout",
                     "queue_full",
                     "lom_error",
+                    "applied_indeterminate",
                     "internal_error"
                   ]
                 },
@@ -238,6 +239,7 @@
                 "operation_timeout",
                 "queue_full",
                 "lom_error",
+                "applied_indeterminate",
                 "internal_error"
               ]
             },
@@ -33280,6 +33282,205 @@
         "required": [
           "sourceClip",
           "clip",
+          "beforeClipCount",
+          "afterClipCount",
+          "verified"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "arrangement.fill_region": {
+      "mutates": true,
+      "timeoutClass": "long",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "expectedReference": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "expectedName": { "type": "string", "minLength": 1 },
+          "sceneIndex": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "expectedClipReference": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "regionStart": { "type": "number", "minimum": 0, "maximum": 1576800 },
+          "regionEnd": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1576800
+          }
+        },
+        "required": [
+          "index",
+          "expectedReference",
+          "expectedName",
+          "sceneIndex",
+          "expectedClipReference",
+          "regionStart",
+          "regionEnd"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "sourceClip": {
+            "type": "object",
+            "properties": {
+              "reference": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "trackReference": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "trackIndex": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "sceneIndex": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "name": { "type": "string" },
+              "kind": { "type": "string", "enum": ["midi", "audio"] },
+              "length": { "type": "number", "exclusiveMinimum": 0 },
+              "noteCount": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "muted": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
+              "looping": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "isPlaying": { "type": "boolean" },
+              "isTriggered": { "type": "boolean" }
+            },
+            "required": [
+              "reference",
+              "trackReference",
+              "trackIndex",
+              "sceneIndex",
+              "name",
+              "kind",
+              "length",
+              "noteCount"
+            ],
+            "additionalProperties": false
+          },
+          "clips": {
+            "minItems": 1,
+            "maxItems": 128,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "reference": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "trackReference": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "trackIndex": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "name": { "type": "string" },
+                "kind": { "type": "string", "enum": ["midi", "audio"] },
+                "startTime": { "type": "number", "minimum": 0 },
+                "endTime": { "type": "number", "exclusiveMinimum": 0 },
+                "length": { "type": "number", "exclusiveMinimum": 0 },
+                "noteCount": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "muted": { "type": "boolean" },
+                "looping": {
+                  "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+                }
+              },
+              "required": [
+                "reference",
+                "trackReference",
+                "trackIndex",
+                "name",
+                "kind",
+                "startTime",
+                "endTime",
+                "length",
+                "noteCount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "regionStart": { "type": "number", "minimum": 0 },
+          "regionEnd": { "type": "number", "exclusiveMinimum": 0 },
+          "sourceLength": { "type": "number", "exclusiveMinimum": 0 },
+          "fullTileCount": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "coveredEnd": { "type": "number", "exclusiveMinimum": 0 },
+          "unusedRemainder": { "type": "number", "minimum": 0 },
+          "beforeClipCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "afterClipCount": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "verified": { "type": "boolean", "const": true }
+        },
+        "required": [
+          "sourceClip",
+          "clips",
+          "regionStart",
+          "regionEnd",
+          "sourceLength",
+          "fullTileCount",
+          "coveredEnd",
+          "unusedRemainder",
           "beforeClipCount",
           "afterClipCount",
           "verified"

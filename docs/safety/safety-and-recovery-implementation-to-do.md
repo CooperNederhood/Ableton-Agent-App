@@ -51,15 +51,21 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
     replacement can discard per-note MPE/expression data.
   - [x] Delete failed Arrangement duplicates and restore all applied clip
     properties after mutation or verification failure.
+  - [x] Preflight Arrangement region fills, cap them at 128 clips, remove every
+    tile created by a failed batch, and report unverified restoration as
+    applied-indeterminate.
   - [x] Restore prior Session playback after failed launch where safe, remove
     failed Session duplicates, and restore applied Session clip properties.
   - [x] Restore the complete Arrangement loop state after partial updates and
-    remove cue points created by failed creation.
+    remove cue points created by failed creation, reporting verified rollback
+    as retryable and unverified recovery as applied-indeterminate.
   - [x] Restore prior device-enable and parameter values after failed mutation
     or verification.
 - [x] Define non-reversible operation metadata.
 - [x] Stop dependent workflow steps after failure.
 - [x] Refresh affected state before reporting partial outcomes.
+- [x] Classify in-flight mutations at the application-owned agent-turn timeout
+  as applied-indeterminate rather than claiming SDK abort proved cancellation.
 
 ## Tests
 

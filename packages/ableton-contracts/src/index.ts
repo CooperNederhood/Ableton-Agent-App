@@ -172,6 +172,9 @@ export interface AbletonService {
   duplicateClipToArrangement(
     params: Protocol.DuplicateClipToArrangementParams,
   ): Promise<Protocol.DuplicateClipToArrangementResult>;
+  fillArrangementRegion(
+    params: Protocol.FillArrangementRegionParams,
+  ): Promise<Protocol.FillArrangementRegionResult>;
   setArrangementClipProperties(
     params: Protocol.SetArrangementClipPropertiesParams,
   ): Promise<Protocol.SetArrangementClipPropertiesResult>;

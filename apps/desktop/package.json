@@ -23,6 +23,8 @@
   "dependencies": {
     "@ableton-agent/agent-config": "workspace:*",
     "@ableton-agent/application": "workspace:*",
+    "@ableton-agent/correlation": "workspace:*",
+    "@ableton-agent/debug-control": "workspace:*",
     "@ableton-agent/observability": "workspace:*",
     "@ableton-agent/protocol": "workspace:*",
     "@ableton-agent/runtime": "workspace:*",

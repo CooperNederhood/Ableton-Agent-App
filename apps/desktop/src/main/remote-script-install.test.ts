@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -89,10 +89,15 @@ describe("Remote Script installation", () => {
       now: new Date("2026-01-01T00:00:00.000Z"),
     });
     expect(first.backupPath).toBeUndefined();
-    await expect(
-      readFile(join(first.destination, ".ableton-agent-token"), "utf8"),
-    ).rejects.toMatchObject({ code: "ENOENT" });
-    await writeFile(join(first.destination, ".ableton-agent-token"), "secret");
+    const generatedToken = await readFile(
+      join(first.destination, ".ableton-agent-token"),
+      "utf8",
+    );
+    expect(generatedToken).toMatch(/^[a-f0-9]{64}$/u);
+    expect(
+      (await stat(join(first.destination, ".ableton-agent-token"))).mode &
+        0o777,
+    ).toBe(0o600);
 
     await writeFile(join(source, "__init__.py"), "# updated\n");
     const second = await installRemoteScript({
@@ -108,7 +113,7 @@ describe("Remote Script installation", () => {
     ).toBe("# updated\n");
     expect(
       await readFile(join(second.destination, ".ableton-agent-token"), "utf8"),
-    ).toBe("secret");
+    ).toBe(generatedToken);
     expect(
       await inspectRemoteScriptInstallation(remoteScripts, "1.1.0"),
     ).toMatchObject({ state: "current", installedVersion: "1.1.0" });

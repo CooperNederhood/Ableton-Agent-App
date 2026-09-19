@@ -1027,15 +1027,18 @@ small,
   overflow: hidden;
 }
 .workspace {
+  position: relative;
   height: 100%;
   display: grid;
-  grid-template-columns: 250px minmax(420px, 1fr) 290px;
+  grid-template-columns:
+    var(--project-sidebar-width, 250px) minmax(0, 1fr)
+    var(--inspector-sidebar-width, 290px);
 }
 .workspace.left-sidebar-hidden {
-  grid-template-columns: minmax(420px, 1fr) 290px;
+  grid-template-columns: minmax(0, 1fr) var(--inspector-sidebar-width, 290px);
 }
 .workspace.right-sidebar-hidden {
-  grid-template-columns: 250px minmax(420px, 1fr);
+  grid-template-columns: var(--project-sidebar-width, 250px) minmax(0, 1fr);
 }
 .workspace.left-sidebar-hidden.right-sidebar-hidden {
   grid-template-columns: minmax(0, 1fr);
@@ -1071,6 +1074,37 @@ small,
 .inspector {
   border-left: 1px solid var(--line);
   overflow: auto;
+}
+.sidebar-resize-handle {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+.sidebar-resize-handle::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+  content: "";
+}
+.sidebar-resize-handle:hover::after,
+.sidebar-resize-handle:active::after {
+  background: var(--focus);
+}
+.sidebar-resize-handle-left {
+  left: var(--project-sidebar-width, 250px);
+  transform: translateX(-5px);
+}
+.sidebar-resize-handle-right {
+  right: var(--inspector-sidebar-width, 290px);
+  transform: translateX(5px);
 }
 .conversation {
   display: flex;
@@ -1173,6 +1207,20 @@ small,
   border: 1px solid #2b3237;
   border-radius: 14px;
   background: #191e22;
+}
+.message.user[data-agent-mode="plan"] {
+  border-color: #59647f;
+  background: #24283a;
+}
+.message-mode {
+  display: block;
+  margin-bottom: 3px;
+  color: #b9c4ff;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 .message.user p {
   margin: 0;
@@ -1414,9 +1462,58 @@ small,
   margin-top: 10px;
 }
 .inspection,
-.approval-panel {
+.approval-panel,
+.plan-approval-panel {
   padding: 14px;
   border-bottom: 1px solid var(--line);
+}
+.plan-approval-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.plan-approval-heading h3 {
+  margin: 0;
+}
+.plan-approval-summary {
+  margin: 10px 0 0;
+  color: #d9e0e5;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+.plan-approval-content {
+  width: 100%;
+  max-height: min(55vh, 560px);
+  margin: 10px 0;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid #46506b;
+  border-radius: 8px;
+  background: #171a26;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.plan-approval-content .message-markdown {
+  min-width: 0;
+}
+.plan-approval-content .message-markdown th,
+.plan-approval-content .message-markdown td {
+  white-space: normal;
+}
+.plan-approval-panel label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.plan-approval-panel textarea {
+  resize: vertical;
+  min-height: 64px;
+}
+.plan-approval-panel .approval-actions {
+  flex-wrap: wrap;
 }
 .inspection dl {
   display: grid;
@@ -1526,6 +1623,34 @@ progress {
   border-radius: 14px;
   padding: 8px;
   background: #111519;
+}
+.composer-mode {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  min-width: 72px;
+}
+.composer-mode small {
+  color: var(--muted);
+  font-size: 9px;
+  white-space: nowrap;
+}
+.agent-mode-badge {
+  width: fit-content;
+  padding: 2px 6px;
+  border: 1px solid #4b555c;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+.agent-mode-badge.plan {
+  border-color: #69769e;
+  color: #c3ccff;
+  background: #252b40;
 }
 
 .slash-suggestions {
@@ -1844,13 +1969,15 @@ kbd {
 }
 @media (max-width: 1180px) {
   .workspace {
-    grid-template-columns: 220px minmax(400px, 1fr) 250px;
+    grid-template-columns:
+      var(--project-sidebar-width, 220px) minmax(0, 1fr)
+      var(--inspector-sidebar-width, 250px);
   }
   .workspace.left-sidebar-hidden {
-    grid-template-columns: minmax(400px, 1fr) 250px;
+    grid-template-columns: minmax(0, 1fr) var(--inspector-sidebar-width, 250px);
   }
   .workspace.right-sidebar-hidden {
-    grid-template-columns: 220px minmax(400px, 1fr);
+    grid-template-columns: var(--project-sidebar-width, 220px) minmax(0, 1fr);
   }
   .workspace.left-sidebar-hidden.right-sidebar-hidden {
     grid-template-columns: minmax(0, 1fr);

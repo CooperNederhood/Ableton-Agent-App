@@ -26,8 +26,10 @@ A normalized snapshot should include:
 - Selected objects.
 
 Large data such as all notes or every device parameter is loaded on demand.
-Prepared agent context keeps top-level device order and stable identities but
-bounds each track to 32 summaries and marks truncation explicitly.
+Automatic startup reads only the bounded core Session snapshot. An explicit
+refresh may enrich it with top-level device and parameter summaries, bounded to
+32 devices per track and 64 parameters per device, with truncation reported
+explicitly.
 
 ## Revisions and invalidation
 

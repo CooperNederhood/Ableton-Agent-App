@@ -10,8 +10,9 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && mkdir -p dist/prompts && cp prompts/*.md dist/prompts/",
     "clean": "rm -rf dist",
+    "smoke:copilot-plan-exit": "node scripts/copilot-plan-exit-smoke.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

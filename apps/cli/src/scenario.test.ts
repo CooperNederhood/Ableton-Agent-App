@@ -85,6 +85,29 @@ describe("integration scenarios", () => {
     );
   });
 
+  it("loads Arrangement and cue lifecycle manifests with exact prompts", async () => {
+    const arrangement = await loadScenarioManifest(
+      "arrangement-clip-lifecycle",
+    );
+    const arrangementContext = createScenarioRunContext(arrangement);
+    const arrangementPrompt = scenarioPrompt(
+      arrangement.prompt,
+      arrangementContext,
+    );
+    expect(arrangement.group).toBe("arrangement-and-cues");
+    expect(arrangementPrompt).toContain("Arrangement at beat 32");
+    expect(arrangementPrompt).toContain(
+      `clip "${arrangementContext.clipNames[0]}"`,
+    );
+
+    const cues = await loadScenarioManifest("cue-point-lifecycle");
+    const cueContext = createScenarioRunContext(cues);
+    const cuePrompt = scenarioPrompt(cues.prompt, cueContext);
+    expect(cues.group).toBe("arrangement-and-cues");
+    expect(cuePrompt).toContain("unnamed cue point at beat 32");
+    expect(cuePrompt).toContain("Never issue cue mutations in parallel");
+  });
+
   it("enforces ordering, names, item identity, and budgets", async () => {
     const manifest = await loadScenarioManifest("808-track");
     const context = createScenarioRunContext(manifest);

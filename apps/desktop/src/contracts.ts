@@ -23,6 +23,7 @@ import type {
   TelemetryEventPage,
 } from "@ableton-agent/observability";
 import { z } from "zod";
+import type { AgentMode } from "@ableton-agent/shared";
 
 const telemetryNameSchema = z
   .string()
@@ -541,7 +542,7 @@ export type LiveEventDefinitionDraft = z.infer<
 >;
 
 export const desktopAgentEventListenerSchema = z.object({
-  agentInstanceId: z.string().uuid(),
+  agentInstanceId: z.string().uuid().optional(),
   agentLabel: z.string().min(1).max(128),
   listener: agentEventListenerSchema,
   preparedContextStatus: z
@@ -634,6 +635,20 @@ export const liveEventTriggerSchema = z.object({
 });
 export type LiveEventTrigger = z.infer<typeof liveEventTriggerSchema>;
 export const MAX_AGENT_TRIGGER_HISTORY = 200;
+export const agentModeSchema = z.enum(["interactive", "plan"]);
+export const agentPlanExitActionSchema = z.enum(["exit_only", "interactive"]);
+export type DesktopAgentMode = z.infer<typeof agentModeSchema>;
+
+export const agentPlanApprovalSchema = z
+  .object({
+    requestId: z.string().min(1).max(256),
+    summary: z.string().max(8_192),
+    planContent: z.string().max(100_000),
+    recommendedAction: agentPlanExitActionSchema,
+    actions: z.array(agentPlanExitActionSchema).min(1).max(2),
+  })
+  .strict();
+export type DesktopAgentPlanApproval = z.infer<typeof agentPlanApprovalSchema>;
 
 const forkedAgentHistoryMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
@@ -641,9 +656,11 @@ const forkedAgentHistoryMessageSchema = z.object({
   timestamp: z.string().min(1),
   eventId: z.string().min(1),
   messageId: z.string().min(1).optional(),
+  agentMode: agentModeSchema.optional(),
 });
 
 export const desktopActiveAgentSchema = activeAgentInstanceSchema.extend({
+  mode: agentModeSchema.optional(),
   boundTracks: activeAgentInstanceSchema.shape.boundTracks.default([]),
   outputSubscriptions: z.array(desktopOutputAssignmentSchema).default([]),
   forkedHistory: z.array(forkedAgentHistoryMessageSchema).optional(),
@@ -706,6 +723,7 @@ export const desktopAgentHistoryMessageSchema = z.object({
   messageId: z.string().min(1).optional(),
   agentInstanceId: z.string().uuid(),
   sdkSessionId: z.string().min(1).optional(),
+  agentMode: agentModeSchema.optional(),
 });
 export type DesktopAgentHistoryMessage = z.infer<
   typeof desktopAgentHistoryMessageSchema
@@ -939,6 +957,46 @@ export const appEventSchema = z.discriminatedUnion("type", [
     sdkSessionId: z.string().min(1).optional(),
   }),
   z.object({
+    type: z.literal("agent.user_message_submitted"),
+    messageId: z.string().uuid(),
+    content: z.string().min(1).max(16_000),
+    agentInstanceId: z.string().uuid().optional(),
+    agentMode: agentModeSchema,
+    origin: z.literal("automation"),
+    timestamp: z.number().finite().nonnegative(),
+    traceId: z.string().uuid(),
+    correlationId: z.string().uuid(),
+    causationId: z.string().uuid(),
+  }),
+  z.object({
+    type: z.literal("agent.mode_changed"),
+    mode: agentModeSchema,
+    previousMode: agentModeSchema,
+    agentInstanceId: z.string().uuid().optional(),
+    sdkSessionId: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("agent.plan_changed"),
+    operation: z.string().min(1).max(256),
+    agentInstanceId: z.string().uuid().optional(),
+    sdkSessionId: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("agent.plan_approval_requested"),
+    request: agentPlanApprovalSchema,
+    agentInstanceId: z.string().uuid().optional(),
+    sdkSessionId: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("agent.plan_approval_completed"),
+    requestId: z.string().min(1).max(256),
+    approved: z.boolean(),
+    selectedAction: agentPlanExitActionSchema.optional(),
+    feedback: z.string().max(8_192).optional(),
+    agentInstanceId: z.string().uuid().optional(),
+    sdkSessionId: z.string().min(1).optional(),
+  }),
+  z.object({
     type: z.literal("operation.changed"),
     operation: operationSchema,
     agentInstanceId: z.string().uuid().optional(),
@@ -957,6 +1015,7 @@ export const appEventSchema = z.discriminatedUnion("type", [
       "lifecycle",
       "session-rotated",
       "conversation-settings-changed",
+      "mode-changed",
     ]),
   }),
   z.object({
@@ -1128,9 +1187,31 @@ export const ipcSchemas = {
         instanceId: z.string().uuid(),
         message: z.string().trim().min(1).max(20_000),
         context: z.array(contextChipSchema).max(20),
+        agentMode: agentModeSchema.optional(),
       })
       .strict(),
     response: z.object({ accepted: z.literal(true), messageId: z.string() }),
+  },
+  "agents:set-mode": {
+    request: z
+      .object({
+        instanceId: z.string().uuid(),
+        mode: agentModeSchema,
+      })
+      .strict(),
+    response: desktopActiveAgentSchema,
+  },
+  "agents:resolve-plan": {
+    request: z
+      .object({
+        instanceId: z.string().uuid(),
+        requestId: z.string().min(1).max(256),
+        approved: z.boolean(),
+        selectedAction: agentPlanExitActionSchema.optional(),
+        feedback: z.string().trim().max(8_192).optional(),
+      })
+      .strict(),
+    response: z.object({ resolved: z.boolean() }),
   },
   "agents:invoke-skill": {
     request: z
@@ -1139,6 +1220,7 @@ export const ipcSchemas = {
         skillName: z.string().min(1),
         request: z.string().max(20_000).default(""),
         context: z.array(contextChipSchema).max(20),
+        agentMode: agentModeSchema.optional(),
       })
       .strict(),
     response: z.object({ accepted: z.literal(true), messageId: z.string() }),
@@ -1452,12 +1534,27 @@ export interface DesktopApi {
       instanceId: string,
       message: string,
       context: ContextChip[],
+      agentMode?: AgentMode,
     ): Promise<{ accepted: true; messageId: string }>;
+    setMode(
+      instanceId: string,
+      mode: DesktopAgentMode,
+    ): Promise<DesktopActiveAgent>;
+    resolvePlan(
+      instanceId: string,
+      request: {
+        requestId: string;
+        approved: boolean;
+        selectedAction?: "exit_only" | "interactive";
+        feedback?: string;
+      },
+    ): Promise<boolean>;
     invokeSkill(
       instanceId: string,
       skillName: string,
       request: string,
       context: ContextChip[],
+      agentMode?: AgentMode,
     ): Promise<{ accepted: true; messageId: string }>;
     cancel(instanceId: string): Promise<{ cancelled: boolean }>;
   };

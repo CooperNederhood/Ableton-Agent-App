@@ -3,6 +3,7 @@
 from __future__ import absolute_import, unicode_literals
 
 import threading
+import time
 
 try:
     import queue
@@ -14,19 +15,33 @@ from .messages import failure, success
 
 
 class DeferredResult(object):
-    def __init__(self, start):
+    def __init__(self, start, supports_progress=False):
         self._start = start
+        self._supports_progress = supports_progress
 
-    def start(self, on_success, on_failure):
-        self._start(on_success, on_failure)
+    def start(self, on_success, on_failure, on_progress=None):
+        if self._supports_progress:
+            self._start(on_success, on_failure, on_progress)
+        else:
+            self._start(on_success, on_failure)
 
 
 class MainThreadExecutor(object):
-    def __init__(self, schedule_message, registry, context, max_queue=128):
+    def __init__(
+        self,
+        schedule_message,
+        registry,
+        context,
+        max_queue=128,
+        max_commands_per_drain=8,
+        logger=None,
+    ):
         self._schedule_message = schedule_message
         self._registry = registry
         self._context = context
         self._queue = queue.Queue(maxsize=max_queue)
+        self._max_commands_per_drain = max(1, max_commands_per_drain)
+        self._logger = logger or (lambda _message: None)
         self._lock = threading.Lock()
         self._scheduled = False
         self._closed = False
@@ -65,32 +80,99 @@ class MainThreadExecutor(object):
                     )
                 )
                 return
+            self._log(
+                "queued",
+                request,
+                queue_depth=self._queue.qsize(),
+            )
             if not self._scheduled:
                 self._scheduled = True
                 self._schedule_message(0, self.drain)
 
     def drain(self):
-        while True:
+        drain_started = time.monotonic()
+        self._log_message(
+            "AbletonAgent executor drain started queueDepth={0}".format(
+                self._queue.qsize()
+            )
+        )
+        processed = 0
+        while processed < self._max_commands_per_drain:
             try:
                 request, command, callback = self._queue.get_nowait()
             except queue.Empty:
                 break
+            processed += 1
+            command_started = time.monotonic()
+            outcome = "completed"
+            self._log("started", request, queue_depth=self._queue.qsize())
             try:
                 result = command.execute(self._context, request["params"])
                 if isinstance(result, DeferredResult):
-                    result.start(
-                        lambda value: callback(
+                    outcome = "deferred"
+
+                    def deferred_success(
+                        value,
+                        req=request,
+                        cb=callback,
+                        started_at=command_started,
+                    ):
+                        self._log(
+                            "completed",
+                            req,
+                            duration_ms=int(
+                                (time.monotonic() - started_at) * 1000
+                            ),
+                            queue_depth=self._queue.qsize(),
+                        )
+                        cb(
                             success(
-                                request,
+                                req,
                                 value,
                                 project_revision=getattr(
-                                    self._context, "project_revision", None
+                                    self._context,
+                                    "project_revision",
+                                    None,
                                 ),
                             )
-                        ),
-                        lambda exc: callback(
-                            _failure_from_exception(request, exc)
-                        ),
+                        )
+
+                    def deferred_failure(
+                        exc,
+                        req=request,
+                        cb=callback,
+                        started_at=command_started,
+                    ):
+                        self._log(
+                            "failed",
+                            req,
+                            duration_ms=int(
+                                (time.monotonic() - started_at) * 1000
+                            ),
+                            queue_depth=self._queue.qsize(),
+                        )
+                        cb(_failure_from_exception(req, exc))
+
+                    def deferred_progress(
+                        details,
+                        req=request,
+                        started_at=command_started,
+                    ):
+                        bounded = details if isinstance(details, dict) else {}
+                        self._log(
+                            "progress",
+                            req,
+                            duration_ms=int(
+                                (time.monotonic() - started_at) * 1000
+                            ),
+                            queue_depth=self._queue.qsize(),
+                            **bounded
+                        )
+
+                    result.start(
+                        deferred_success,
+                        deferred_failure,
+                        deferred_progress,
                     )
                 else:
                     callback(
@@ -103,6 +185,7 @@ class MainThreadExecutor(object):
                         )
                     )
             except ProtocolFailure as exc:
+                outcome = "failed"
                 callback(
                     failure(
                         request,
@@ -113,9 +196,27 @@ class MainThreadExecutor(object):
                     )
                 )
             except Exception as exc:
+                outcome = "failed"
                 callback(failure(request, "lom_error", str(exc)))
             finally:
+                if outcome != "deferred":
+                    self._log(
+                        outcome,
+                        request,
+                        duration_ms=int(
+                            (time.monotonic() - command_started) * 1000
+                        ),
+                        queue_depth=self._queue.qsize(),
+                    )
                 self._queue.task_done()
+        self._log_message(
+            "AbletonAgent executor drain completed processed={0} "
+            "remaining={1} durationMs={2}".format(
+                processed,
+                self._queue.qsize(),
+                int((time.monotonic() - drain_started) * 1000),
+            )
+        )
         with self._lock:
             self._scheduled = False
             if not self._queue.empty() and not self._closed:
@@ -138,7 +239,46 @@ class MainThreadExecutor(object):
                     retryable=True,
                 )
             )
+            self._log(
+                "cancelled",
+                request,
+                queue_depth=self._queue.qsize(),
+            )
             self._queue.task_done()
+
+    def _log(
+        self,
+        lifecycle,
+        request,
+        duration_ms=None,
+        queue_depth=None,
+        **details
+    ):
+        fields = [
+            "AbletonAgent executor",
+            lifecycle,
+            "command={0}".format(request.get("command", "")),
+            "requestId={0}".format(request.get("requestId", "")),
+        ]
+        if queue_depth is not None:
+            fields.append("queueDepth={0}".format(queue_depth))
+        if duration_ms is not None:
+            fields.append("durationMs={0}".format(duration_ms))
+        for key in (
+            "phase",
+            "plannedClipCount",
+            "completedClipCount",
+            "currentDestination",
+        ):
+            if key in details:
+                fields.append("{0}={1}".format(key, details[key]))
+        self._log_message(" ".join(fields))
+
+    def _log_message(self, message):
+        try:
+            self._logger(message[:512])
+        except Exception:
+            pass
 
 
 def _failure_from_exception(request, exc):

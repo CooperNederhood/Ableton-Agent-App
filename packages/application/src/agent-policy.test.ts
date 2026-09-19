@@ -278,6 +278,60 @@ describe("agent policy", () => {
     });
   });
 
+  it("blocks mutation tools with the caller-provided plan-mode reason", async () => {
+    const hooks = createAgentHooks({
+      getAbletonStatus: async () => connected,
+      inspectSession: async () => snapshot,
+      mutationBlocked: () => true,
+      mutationBlockReason: () =>
+        "Plan mode is read-only. Finish the plan before changing Ableton.",
+    });
+
+    const mutation = await hooks.onPreToolUse?.(
+      {
+        sessionId: "session-1",
+        timestamp: new Date(),
+        workingDirectory: "/tmp",
+        toolName: "ableton_tracks_create",
+        toolArgs: { kind: "midi", name: "Planned track" },
+      },
+      { sessionId: "session-1" },
+    );
+    const inspection = await hooks.onPreToolUse?.(
+      {
+        sessionId: "session-1",
+        timestamp: new Date(),
+        workingDirectory: "/tmp",
+        toolName: "ableton_session_inspect",
+        toolArgs: {},
+      },
+      { sessionId: "session-1" },
+    );
+    const exitPlanMode = await hooks.onPreToolUse?.(
+      {
+        sessionId: "session-1",
+        timestamp: new Date(),
+        workingDirectory: "/tmp",
+        toolName: "exit_plan_mode",
+        toolArgs: {
+          summary: "Arrangement plan",
+          planContent: "Build the arrangement.",
+        },
+      },
+      { sessionId: "session-1" },
+    );
+
+    expect(mutation).toEqual({
+      permissionDecision: "deny",
+      permissionDecisionReason:
+        "Plan mode is read-only. Finish the plan before changing Ableton.",
+      additionalContext:
+        "Plan mode is read-only. Finish the plan before changing Ableton.",
+    });
+    expect(inspection).toBeUndefined();
+    expect(exitPlanMode).toBeUndefined();
+  });
+
   it("blocks an unchanged retry after an indeterminate mutation", async () => {
     const hooks = createAgentHooks({
       getAbletonStatus: async () => connected,
@@ -304,6 +358,38 @@ describe("agent policy", () => {
 
     expect(failure?.additionalContext).toContain("Re-inspect");
     expect(retry).toMatchObject({ permissionDecision: "deny" });
+  });
+
+  it("allows an unchanged retry after a verified rollback", async () => {
+    const hooks = createAgentHooks({
+      getAbletonStatus: async () => connected,
+      inspectSession: async () => snapshot,
+    });
+    const hookInput = {
+      sessionId: "session-1",
+      timestamp: new Date(),
+      workingDirectory: "/tmp",
+      toolName: "ableton_arrangement_duplicate_clip",
+      toolArgs: { destinationTime: 8 },
+    };
+    const error = serializeAbletonToolFailure(
+      Object.assign(new Error("Arrangement duplication failed"), {
+        code: "lom_error",
+        retryable: true,
+        details: { stage: "invoke", outcome: "rolled_back" },
+      }),
+    );
+
+    const failure = await hooks.onPostToolUseFailure?.(
+      { ...hookInput, error },
+      { sessionId: "session-1" },
+    );
+    const retry = await hooks.onPreToolUse?.(hookInput, {
+      sessionId: "session-1",
+    });
+
+    expect(failure?.additionalContext).toContain("Retry at most once");
+    expect(retry).toBeUndefined();
   });
 
   it("allows permission denial to block the same tool attempt", async () => {

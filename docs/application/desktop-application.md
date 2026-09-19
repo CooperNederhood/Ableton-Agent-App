@@ -9,6 +9,12 @@ application composition and interaction contracts live in packages also used
 by the CLI/TUI client. The desktop app builds on those contracts, not on CLI
 argument parsing, ANSI rendering, or terminal process execution.
 
+For developer-owned end-to-end UX tests, an explicit `--automation` launch may
+start a narrowly scoped authenticated loopback endpoint in Electron main. It
+uses the same visible desktop service and selected agent as the renderer; it
+does not start another application composition. Ordinary launches expose no
+endpoint.
+
 ## Technology stack
 
 - Electron
@@ -157,12 +163,18 @@ cancelled state with relevant timing.
 Startup order:
 
 1. Initialize logging and configuration.
-2. Load preferences, production sessions, and saved Live Set associations.
-3. Start the Ableton bridge and read the current dynamic project identity.
-4. Resume the canonical production session for that saved Live Set, or create
+2. Load preferences and resolve the Remote Script credential from the OS vault,
+   an explicit environment override, or the configured/detected installation.
+3. Persist a discovered installation token in OS-backed storage and compose the
+   Ableton bridge and Signal ingress with the same credential.
+4. Load production sessions and saved Live Set associations.
+5. Start the Ableton bridge and read the current dynamic project identity.
+6. Resume the canonical production session for that saved Live Set, or create
    one clean Default agent for an unmatched or unsaved set.
-5. Start or resume only the selected agents' Copilot SDK conversations.
-6. Open the main window and read the project snapshot.
+7. Start or resume only the selected agents' Copilot SDK conversations.
+8. Open the main window and read the bounded core project snapshot. Device and
+   parameter enrichment is reserved for an explicit refresh so startup does not
+   issue a project-wide parameter scan against Live's main thread.
 
 Desktop stores production sessions in `sessions.json`, saved Live Set
 associations in `project-sessions.json`, and Copilot SDK conversation data
@@ -193,6 +205,32 @@ Shutdown order:
 4. Disconnect from Ableton.
 5. Stop the Copilot SDK client.
 
+In automation mode, endpoint ingress stops and its owned discovery/secret files
+are removed before desktop services stop.
+
+## Debug automation mode
+
+Automation mode requires an absolute isolated Electron profile:
+
+```text
+--automation
+--automation-profile <absolute-path>
+[--automation-descriptor <absolute-path>]
+[--automation-agent <definition-name>]
+[--automation-yolo]
+```
+
+`--automation-yolo` requires an agent definition. The app selects the first
+active instance of that definition or creates it when absent, then applies the
+existing scoped automatic-approval setting inside the isolated profile.
+
+The loopback control protocol accepts only a bounded `send_user_message`
+request for the currently selected agent. It publishes a typed
+`agent.user_message_submitted` event so the visible conversation renders the
+same user text and attribution. The MCP adapter returns after acceptance;
+streaming, operations, and final state remain visible through normal desktop
+events.
+
 ## Configuration
 
 Store non-secret preferences separately from credentials. Important settings:
@@ -211,7 +249,13 @@ Store non-secret preferences separately from credentials. Important settings:
 - Project-specific workflow preferences.
 
 Credentials must use OS-backed secure storage where application-managed secrets
-are necessary.
+are necessary. Desktop resolves the bridge token in this order: an existing
+vault entry, `ABLETON_AGENT_TOKEN`, then the exact
+`AbletonAgent/.ableton-agent-token` file under the selected or auto-detected
+Remote Scripts directory. A discovered token is copied into the vault without
+being exposed to renderer state or IPC. Multiple discovered installations with
+different tokens are an explicit configuration error rather than an
+auto-selection.
 
 ### Scoped automatic approval
 

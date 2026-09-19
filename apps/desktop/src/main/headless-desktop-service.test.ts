@@ -516,6 +516,7 @@ describe("desktop persistence stores", () => {
         ...session,
         activeAgents: session.activeAgents.map((agent) => ({
           ...agent,
+          mode: "interactive" as const,
           triggerHistory: [],
         })),
       })),
@@ -948,6 +949,22 @@ describe("desktop adapter over the shared application", () => {
         ({ definitionName }) => definitionName === "default",
       ),
     ).toHaveLength(3);
+    await service.setActiveAgentMode(second.id, "plan");
+    expect(
+      (await service.listActiveAgents()).find(({ id }) => id === second.id)
+        ?.mode,
+    ).toBe("plan");
+    await expect(
+      service.resolveActiveAgentPlan(second.id, {
+        requestId: "plan-request",
+        approved: true,
+        selectedAction: "interactive",
+      }),
+    ).resolves.toBe(true);
+    expect(
+      (await service.listActiveAgents()).find(({ id }) => id === second.id)
+        ?.mode,
+    ).toBe("interactive");
 
     await service.sendToActiveAgent(first.id, "first history", []);
     await settle();
@@ -2529,6 +2546,40 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
+  it("publishes an attributed visible user turn for automation ingress", async () => {
+    const { service, events } = await harness();
+    await service.start();
+
+    const accepted = await service.send("Check the visible workflow", [], {
+      origin: "automation",
+      requestId: "00000000-0000-4000-8000-000000000101",
+      trace: {
+        traceId: "00000000-0000-4000-8000-000000000102",
+        spanId: "00000000-0000-4000-8000-000000000103",
+        correlationId: "00000000-0000-4000-8000-000000000104",
+      },
+    });
+
+    const submitted = events.find(
+      (event) =>
+        event.type === "agent.user_message_submitted" &&
+        event.messageId === accepted.messageId,
+    );
+    expect(submitted).toMatchObject({
+      type: "agent.user_message_submitted",
+      content: "Check the visible workflow",
+      origin: "automation",
+      traceId: "00000000-0000-4000-8000-000000000102",
+      correlationId: "00000000-0000-4000-8000-000000000104",
+      causationId: "00000000-0000-4000-8000-000000000101",
+    });
+    if (submitted?.type !== "agent.user_message_submitted") {
+      throw new Error("Expected an automation user-message event");
+    }
+    expect(submitted.agentInstanceId).toBeDefined();
+    await service.stop();
+  });
+
   it("keeps automatic response stream IDs stable and isolated by agent session", async () => {
     const { service, events, sharedEvents } = await harness();
     await service.start();
@@ -3708,7 +3759,10 @@ describe("desktop adapter over the shared application", () => {
         updatedAt: "2026-08-30T20:00:01.000Z",
       },
     });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await vi.waitFor(async () => {
+      const [persisted] = await firstService.getSessions();
+      expect(persisted!.activeAgents[0]!.triggerHistory).toHaveLength(1);
+    });
     const [before] = await firstService.getSessions();
     await firstService.stop();
 
@@ -4167,6 +4221,29 @@ describe("desktop adapter over the shared application", () => {
     await ableton.stop();
 
     await expect(service.getSnapshot()).rejects.toThrow("not connected");
+    await service.stop();
+  });
+
+  it("limits the automatic startup snapshot to core session state", async () => {
+    const { service, application, events } = await harness();
+    const inspectSession = vi.spyOn(application, "inspectSession");
+    const inspectDevices = vi.spyOn(application, "inspectDevices");
+    const inspectParameters = vi.spyOn(application, "inspectDeviceParameters");
+
+    await service.start();
+
+    expect(inspectSession).toHaveBeenCalledOnce();
+    expect(inspectDevices).not.toHaveBeenCalled();
+    expect(inspectParameters).not.toHaveBeenCalled();
+    const snapshots = events.filter(
+      (event) => event.type === "project.snapshot_changed",
+    );
+    expect(snapshots).toHaveLength(1);
+    expect(
+      snapshots[0]?.snapshot.tracks.every(
+        (track) => track.devices.length === 0,
+      ),
+    ).toBe(true);
     await service.stop();
   });
 
@@ -4879,6 +4956,7 @@ describe("desktop adapter over the shared application", () => {
       preferencesSchema.parse({
         loggingLevel: "error",
         abletonPort: 9000,
+        remoteScriptLocation: "/custom/Remote Scripts",
         approvalPolicy: "never",
       }),
     );
@@ -4896,6 +4974,14 @@ describe("desktop adapter over the shared application", () => {
         (event) =>
           event.type === "diagnostic" &&
           event.message.includes("abletonPort") &&
+          event.message.includes("next time the app starts"),
+      ),
+    ).toBe(true);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "diagnostic" &&
+          event.message.includes("remoteScriptLocation") &&
           event.message.includes("next time the app starts"),
       ),
     ).toBe(true);

@@ -21,6 +21,18 @@ export interface AgentEventAttribution {
   sdkSessionId?: string;
 }
 
+export type AgentMode = "interactive" | "plan";
+
+export type AgentPlanExitAction = "exit_only" | "interactive";
+
+export interface AgentPlanApprovalRequest {
+  readonly requestId: string;
+  readonly summary: string;
+  readonly planContent: string;
+  readonly recommendedAction: AgentPlanExitAction;
+  readonly actions: readonly AgentPlanExitAction[];
+}
+
 export type LiveEventTypedState =
   | {
       readonly kind: "parameter.value_changed";
@@ -103,6 +115,26 @@ export type AppEvent =
   | ({
       type: "agent.message_complete";
       content: string;
+    } & AgentEventAttribution)
+  | ({
+      type: "agent.mode_changed";
+      previousMode: AgentMode;
+      mode: AgentMode;
+    } & AgentEventAttribution)
+  | ({
+      type: "agent.plan_changed";
+      operation: string;
+    } & AgentEventAttribution)
+  | ({
+      type: "agent.plan_approval_requested";
+      request: AgentPlanApprovalRequest;
+    } & AgentEventAttribution)
+  | ({
+      type: "agent.plan_approval_completed";
+      requestId: string;
+      approved: boolean;
+      selectedAction?: AgentPlanExitAction;
+      feedback?: string;
     } & AgentEventAttribution)
   | ({
       type: "operation.started";

@@ -834,6 +834,44 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
         verified: true as const,
       }),
     ),
+    fillArrangementRegion: vi.fn(
+      async (
+        params: Parameters<AbletonService["fillArrangementRegion"]>[0],
+      ) => ({
+        sourceClip: {
+          reference: params.expectedClipReference,
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          sceneIndex: params.sceneIndex,
+          name: "Beat",
+          kind: "midi" as const,
+          length: 4,
+          noteCount: 1,
+        },
+        clips: [
+          {
+            reference: "00000000-0000-4000-8000-000000000022",
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            name: "Beat",
+            kind: "midi" as const,
+            startTime: params.regionStart,
+            endTime: params.regionStart + 4,
+            length: 4,
+            noteCount: 1,
+          },
+        ],
+        regionStart: params.regionStart,
+        regionEnd: params.regionEnd,
+        sourceLength: 4,
+        fullTileCount: 1,
+        coveredEnd: params.regionStart + 4,
+        unusedRemainder: params.regionEnd - params.regionStart - 4,
+        beforeClipCount: 1,
+        afterClipCount: 2,
+        verified: true as const,
+      }),
+    ),
     setArrangementClipProperties: vi.fn(
       async (
         params: Parameters<AbletonService["setArrangementClipProperties"]>[0],
@@ -944,8 +982,12 @@ describe("CopilotAgentService", () => {
           verified: true as const,
         }),
     );
+    const appEvents: AppEvent[] = [];
+    const events = new InMemoryEventPublisher();
+    events.subscribe((event) => appEvents.push(event));
+    let listener: ((event: SessionEvent) => void) | undefined;
     const service = new CopilotAgentService({
-      events: new InMemoryEventPublisher(),
+      events,
       runtimeObserver: {
         enqueue: (event) => runtimeEvents.push(event),
       },
@@ -1137,6 +1179,41 @@ describe("CopilotAgentService", () => {
           afterClipCount: 2,
           verified: true as const,
         }),
+      fillArrangementRegion: (params) =>
+        Promise.resolve({
+          sourceClip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            sceneIndex: params.sceneIndex,
+            name: "Beat",
+            kind: "midi" as const,
+            length: 4,
+            noteCount: 1,
+          },
+          clips: [
+            {
+              reference: "00000000-0000-4000-8000-000000000022",
+              trackReference: params.expectedReference,
+              trackIndex: params.index,
+              name: "Beat",
+              kind: "midi" as const,
+              startTime: params.regionStart,
+              endTime: params.regionStart + 4,
+              length: 4,
+              noteCount: 1,
+            },
+          ],
+          regionStart: params.regionStart,
+          regionEnd: params.regionEnd,
+          sourceLength: 4,
+          fullTileCount: 1,
+          coveredEnd: params.regionStart + 4,
+          unusedRemainder: params.regionEnd - params.regionStart - 4,
+          beforeClipCount: 1,
+          afterClipCount: 2,
+          verified: true as const,
+        }),
       setArrangementClipProperties: (params) =>
         Promise.resolve({
           clip: {
@@ -1180,7 +1257,10 @@ describe("CopilotAgentService", () => {
             sendAndWait,
             abort,
             disconnect,
-            on: () => () => undefined,
+            on: (receivedListener) => {
+              listener = receivedListener;
+              return () => undefined;
+            },
           });
         },
         resumeSession: () => Promise.reject(new Error("not used")),
@@ -1190,9 +1270,33 @@ describe("CopilotAgentService", () => {
 
     await service.start();
     const response = await service.send("Check the connection");
-    sendAndWait.mockRejectedValueOnce(
-      new Error("Timeout after 180000ms waiting for session.idle"),
-    );
+    sendAndWait.mockImplementationOnce(() => {
+      listener?.({
+        type: "tool.execution_start",
+        id: "mutation-start",
+        parentId: null,
+        timestamp: new Date().toISOString(),
+        data: {
+          toolCallId: "mutation-call",
+          toolName: "ableton_arrangement_fill_region",
+          arguments: { regionStart: 0, regionEnd: 32 },
+        },
+      });
+      listener?.({
+        type: "tool.execution_start",
+        id: "read-start",
+        parentId: null,
+        timestamp: new Date().toISOString(),
+        data: {
+          toolCallId: "read-call",
+          toolName: "ableton_arrangement_inspect",
+          arguments: {},
+        },
+      });
+      return Promise.reject(
+        new Error("Timeout after 180000ms waiting for session.idle"),
+      );
+    });
     await expect(service.send("Take too long")).rejects.toMatchObject({
       name: "AgentTurnTimeoutError",
       timeoutMs: 180_000,
@@ -1335,8 +1439,10 @@ describe("CopilotAgentService", () => {
       "custom:ableton_warp_markers",
       "custom:ableton_special_devices",
       "custom:ableton_workflow_jobs",
+      "custom:ableton_arrangement_fill_region",
+      "builtin:exit_plan_mode",
     ]);
-    expect(config?.tools).toHaveLength(57);
+    expect(config?.tools).toHaveLength(58);
     expect(config?.customAgents).toEqual([
       {
         name: "default-agent",
@@ -1403,16 +1509,22 @@ describe("CopilotAgentService", () => {
           "ableton_warp_markers",
           "ableton_special_devices",
           "ableton_workflow_jobs",
+          "ableton_arrangement_fill_region",
+          "exit_plan_mode",
         ],
         infer: false,
       },
     ]);
     expect(config?.agent).toBe("default-agent");
     expect(config).not.toHaveProperty("skillDirectories");
-    expect(config?.systemMessage?.mode).toBe("replace");
+    expect(config?.systemMessage?.mode).toBeUndefined();
     expect(config?.systemMessage?.content).toContain(
       "Ableton Live production assistant",
     );
+    expect(config?.systemMessage?.content).not.toContain(
+      "Active plan-mode reminder",
+    );
+    expect(config?.onExitPlanModeRequest).toBeTypeOf("function");
     await expect(
       config?.onPermissionRequest?.(
         {
@@ -1450,8 +1562,14 @@ describe("CopilotAgentService", () => {
         { sessionId: "session" },
       ),
     ).toMatchObject({ permissionDecision: "deny" });
-    expect(sendAndWait).toHaveBeenCalledWith("Check the connection", 180_000);
-    expect(sendAndWait).toHaveBeenCalledWith("Take too long", 180_000);
+    expect(sendAndWait).toHaveBeenCalledWith(
+      { prompt: "Check the connection" },
+      180_000,
+    );
+    expect(sendAndWait).toHaveBeenCalledWith(
+      { prompt: "Take too long" },
+      180_000,
+    );
     expect(abort).toHaveBeenCalledOnce();
     expect(disconnect).toHaveBeenCalledOnce();
     expect(stop).toHaveBeenCalledOnce();
@@ -1504,6 +1622,20 @@ describe("CopilotAgentService", () => {
         .filter((event) => event.type.startsWith("agent.turn."))
         .every((event) => event.trace?.turnId !== undefined),
     ).toBe(true);
+    expect(
+      appEvents.filter((event) => event.type === "operation.failed"),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          operationId: "mutation-call",
+          code: "applied_indeterminate",
+        }),
+        expect.objectContaining({
+          operationId: "read-call",
+          code: "operation_timeout",
+        }),
+      ]),
+    );
   });
 
   it("normalizes assistant and tool execution events", async () => {
@@ -1700,6 +1832,41 @@ describe("CopilotAgentService", () => {
             length: 4,
             noteCount: 1,
           },
+          beforeClipCount: 1,
+          afterClipCount: 2,
+          verified: true as const,
+        }),
+      fillArrangementRegion: (params) =>
+        Promise.resolve({
+          sourceClip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            sceneIndex: params.sceneIndex,
+            name: "Beat",
+            kind: "midi" as const,
+            length: 4,
+            noteCount: 1,
+          },
+          clips: [
+            {
+              reference: "00000000-0000-4000-8000-000000000022",
+              trackReference: params.expectedReference,
+              trackIndex: params.index,
+              name: "Beat",
+              kind: "midi" as const,
+              startTime: params.regionStart,
+              endTime: params.regionStart + 4,
+              length: 4,
+              noteCount: 1,
+            },
+          ],
+          regionStart: params.regionStart,
+          regionEnd: params.regionEnd,
+          sourceLength: 4,
+          fullTileCount: 1,
+          coveredEnd: params.regionStart + 4,
+          unusedRemainder: params.regionEnd - params.regionStart - 4,
           beforeClipCount: 1,
           afterClipCount: 2,
           verified: true as const,
@@ -2055,10 +2222,15 @@ describe("HeadlessApplication agent and connection ports", () => {
     );
     expect(reconfigureManagedAgent).toHaveBeenCalledWith(configuration);
     expect(deactivateManagedAgent).toHaveBeenCalledWith("agent-a");
-    expect(sendToManagedAgent).toHaveBeenCalledWith("agent-a", "Follow up");
+    expect(sendToManagedAgent).toHaveBeenCalledWith(
+      "agent-a",
+      "Follow up",
+      undefined,
+    );
     expect(invokeManagedAgentSkill).toHaveBeenCalledWith(
       "agent-a",
       "/midi keep the original rhythm",
+      undefined,
     );
     expect(cancelManagedAgent).toHaveBeenCalledWith("agent-a");
     expect(getManagedAgentHistory).toHaveBeenCalledWith("agent-a");

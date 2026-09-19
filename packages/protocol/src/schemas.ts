@@ -139,6 +139,7 @@ export const protocolErrorCodeSchema = z.enum([
   "operation_timeout",
   "queue_full",
   "lom_error",
+  "applied_indeterminate",
   "internal_error",
 ]);
 
@@ -1777,6 +1778,33 @@ export const duplicateClipToArrangementResultSchema = z.object({
   verified: z.literal(true),
 });
 
+export const fillArrangementRegionParamsSchema = trackTargetSchema
+  .extend({
+    sceneIndex: z.number().int().nonnegative(),
+    expectedClipReference: z.string().uuid(),
+    regionStart: z.number().nonnegative().max(1576800),
+    regionEnd: z.number().positive().max(1576800),
+  })
+  .strict()
+  .refine((params) => params.regionEnd > params.regionStart, {
+    message: "regionEnd must be greater than regionStart",
+    path: ["regionEnd"],
+  });
+
+export const fillArrangementRegionResultSchema = z.object({
+  sourceClip: sessionViewClipSummarySchema,
+  clips: z.array(arrangementClipSummarySchema).min(1).max(128),
+  regionStart: z.number().nonnegative(),
+  regionEnd: z.number().positive(),
+  sourceLength: z.number().positive(),
+  fullTileCount: z.number().int().positive(),
+  coveredEnd: z.number().positive(),
+  unusedRemainder: z.number().nonnegative(),
+  beforeClipCount: z.number().int().nonnegative(),
+  afterClipCount: z.number().int().positive(),
+  verified: z.literal(true),
+});
+
 export const arrangementClipPropertiesSchema = z.object({
   name: z.string(),
   muted: z.boolean(),
@@ -2057,6 +2085,12 @@ export type DuplicateClipToArrangementParams = z.infer<
 >;
 export type DuplicateClipToArrangementResult = z.infer<
   typeof duplicateClipToArrangementResultSchema
+>;
+export type FillArrangementRegionParams = z.infer<
+  typeof fillArrangementRegionParamsSchema
+>;
+export type FillArrangementRegionResult = z.infer<
+  typeof fillArrangementRegionResultSchema
 >;
 export type ArrangementClipProperties = z.infer<
   typeof arrangementClipPropertiesSchema

@@ -35,6 +35,7 @@ export interface AbletonToolInvocation {
 export type AbletonMutationAuthorizationCode =
   | "unknown_tool"
   | "tool_not_allowed"
+  | "plan_mode_read_only"
   | "session_scope_required"
   | "track_scope_required"
   | "track_reference_missing"
@@ -148,6 +149,7 @@ const abletonTrackReferenceArgumentsByToolName: Record<
   ableton_arrangement_delete_clip: ["expectedReference"],
   ableton_arrangement_replace_notes: ["expectedReference"],
   ableton_arrangement_duplicate_clip: ["expectedReference"],
+  ableton_arrangement_fill_region: ["expectedReference"],
   ableton_arrangement_set_clip_properties: ["expectedReference"],
   ableton_device_set_enabled: ["expectedReference"],
   ableton_device_set_parameter: ["expectedReference"],

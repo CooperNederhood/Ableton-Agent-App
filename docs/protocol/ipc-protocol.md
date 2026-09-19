@@ -139,6 +139,28 @@ The command catalog classifies requests as `normal` or `long`. The bridge
 applies that class only after FIFO dispatch to Live. In particular,
 `devices.inspect_parameters` is long-running because some native devices expose
 large or comparatively expensive parameter surfaces.
+`arrangement.fill_region` is also long-running: one bridge request executes a
+bounded deferred state machine that places at most four clips per Live tick and
+at most 128 clips total.
+
+`arrangement.fill_region` uses a half-open `[regionStart, regionEnd)` interval.
+It places every complete source-length copy that fits and reports the uncovered
+tail in `unusedRemainder`. Live 11.3.43 does not expose a writable Arrangement
+right edge, so partial-tile creation is not part of the command. Callers must
+use a shorter source clip when exact coverage is required and must not place a
+full clip past `regionEnd`. Any post-mutation failure rolls back the complete
+batch or returns `applied_indeterminate`.
+
+Three timeout layers are intentionally distinct:
+
+- normal bridge request: 5 seconds by default;
+- long bridge request: 15 seconds by default;
+- Copilot agent turn: an application-owned 180 seconds passed to the SDK
+  `sendAndWait` call.
+
+An SDK turn abort does not prove that a dispatched mutation was cancelled.
+Read-only operations still report `operation_timeout`; an in-flight mutation
+reports `applied_indeterminate` and requires state reinspection.
 
 ## Error taxonomy
 
@@ -157,6 +179,7 @@ Initial stable error codes:
 - `operation_timeout`
 - `queue_full`
 - `lom_error`
+- `applied_indeterminate`
 - `internal_error`
 
 ## Schema ownership

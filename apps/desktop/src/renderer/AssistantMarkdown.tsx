@@ -11,6 +11,18 @@ function safeExternalHref(href: string | undefined): string | undefined {
   }
 }
 
+const compactPlanBulletPattern = /\s+-\s+(?=\*\*[^*\n]+:\*\*)/gu;
+const compactPlanSectionPattern = /\s+(Implementation|Verification):\s*/gu;
+
+export function formatPlanMarkdownForDisplay(content: string): string {
+  if (content.includes("\n")) return content;
+  const bulletMatches = content.match(compactPlanBulletPattern);
+  if (bulletMatches === null || bulletMatches.length < 2) return content;
+  return content
+    .replace(compactPlanBulletPattern, "\n- ")
+    .replace(compactPlanSectionPattern, "\n\n## $1:\n\n");
+}
+
 export function AssistantMarkdown({
   content,
 }: {

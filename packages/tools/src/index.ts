@@ -17,6 +17,8 @@ import type {
   DeleteCuePointParams,
   DuplicateClipToArrangementParams,
   DuplicateClipToArrangementResult,
+  FillArrangementRegionParams,
+  FillArrangementRegionResult,
   DuplicateSessionClipParams,
   DuplicateSessionClipResult,
   FindDevicePositionParams,
@@ -310,6 +312,9 @@ export interface AbletonToolServices {
   duplicateClipToArrangement(
     params: DuplicateClipToArrangementParams,
   ): Promise<DuplicateClipToArrangementResult>;
+  fillArrangementRegion(
+    params: FillArrangementRegionParams,
+  ): Promise<FillArrangementRegionResult>;
   setArrangementClipProperties(
     params: SetArrangementClipPropertiesParams,
   ): Promise<SetArrangementClipPropertiesResult>;
@@ -637,6 +642,14 @@ export const abletonToolMetadata = [
       },
     ]),
   ).values(),
+  {
+    name: "ableton_arrangement_fill_region",
+    title: "Fill Arrangement region",
+    risk: "reversible",
+    duration: "long",
+    mutationTarget: "track",
+    requiredCapability: "arrangement.fill_region",
+  },
 ] as const satisfies readonly AbletonToolMetadata[];
 
 export function resolveAbletonToolMetadata(
@@ -772,6 +785,7 @@ export interface AbletonToolSet {
     Tool<WarpMarkerOperationParams>,
     Tool<SpecializedDeviceOperationParams>,
     Tool<WorkflowJobOperationParams>,
+    Tool<FillArrangementRegionParams>,
   ];
   availableTools: string[];
 }
@@ -1540,7 +1554,7 @@ export function createAbletonTools(
     "ableton_arrangement_delete_clip",
     {
       description:
-        "Destructively deletes an identity-bound Arrangement clip after revalidating its track and start time.",
+        "Destructively deletes an identity-bound Arrangement clip after revalidating its track and start time. expectedName is the track name; expectedClipReference identifies the clip.",
       parameters: z
         .object({
           index: z.number().int().nonnegative(),
@@ -1588,7 +1602,7 @@ export function createAbletonTools(
     "ableton_arrangement_duplicate_clip",
     {
       description:
-        "Duplicates an identity-bound Session View MIDI clip to a verified, non-overlapping Arrangement destination on the same track.",
+        "Duplicates an identity-bound Session View MIDI or audio clip to a verified, non-overlapping Arrangement destination on the same track. Use only for isolated placements; never use it to compensate for a region-fill remainder when the full clip would extend past the requested region end.",
       parameters: z
         .object({
           index: z.number().int().nonnegative(),
@@ -1600,6 +1614,29 @@ export function createAbletonTools(
         })
         .strict(),
       handler: async (params) => services.duplicateClipToArrangement(params),
+    },
+  );
+  const fillArrangementRegionTool = defineTool(
+    "ableton_arrangement_fill_region",
+    {
+      description:
+        "Fills a half-open Arrangement region without overhang using every complete copy of one identity-bound Session MIDI or audio clip that fits. Reports any uncovered tail in unusedRemainder; never add a full tile past regionEnd.",
+      parameters: z
+        .object({
+          index: z.number().int().nonnegative(),
+          expectedReference: z.string().uuid(),
+          expectedName: z.string().min(1),
+          sceneIndex: z.number().int().nonnegative(),
+          expectedClipReference: z.string().uuid(),
+          regionStart: z.number().nonnegative().max(1576800),
+          regionEnd: z.number().positive().max(1576800),
+        })
+        .strict()
+        .refine((params) => params.regionEnd > params.regionStart, {
+          message: "regionEnd must be greater than regionStart",
+          path: ["regionEnd"],
+        }),
+      handler: async (params) => services.fillArrangementRegion(params),
     },
   );
   const setArrangementClipPropertiesTool = defineTool(
@@ -2037,6 +2074,7 @@ export function createAbletonTools(
       requireConnectedTool(warpMarkersTool, services),
       requireConnectedTool(specializedDevicesTool, services),
       requireConnectedTool(workflowJobsTool, services),
+      requireConnectedTool(fillArrangementRegionTool, services),
     ],
     availableTools: [
       ...new Set(

@@ -19,7 +19,6 @@ import {
 import {
   createAgentRuntime,
   RuntimeConfigurationError,
-  TOKEN_ENVIRONMENT_VARIABLE,
   type AgentRuntime,
 } from "@ableton-agent/runtime";
 import type { Logger } from "@ableton-agent/shared";
@@ -33,6 +32,10 @@ import {
 import { preferencesSchema, type DesktopPreferences } from "../contracts.js";
 import { AgentCatalogService } from "./agent-catalog.js";
 import { ApprovalCoordinator, ApprovalPolicyController } from "./approvals.js";
+import {
+  resolveBridgeCredential,
+  type BridgeCredentialVault,
+} from "./bridge-credentials.js";
 import { JsonPreferencesStore, JsonSessionStore } from "./desktop-service.js";
 import {
   HeadlessDesktopService,
@@ -51,6 +54,9 @@ export interface DesktopCompositionOptions {
   agentBaseDirectory: string;
   /** Token from OS-backed secure storage, when one has been provisioned. */
   storedToken?: string | undefined;
+  credentialVault?: BridgeCredentialVault;
+  homeDirectory?: string;
+  platform?: NodeJS.Platform;
   environment?: Readonly<Partial<Record<string, string>>>;
   logger?: Logger;
   onError?: (message: string, context: Record<string, unknown>) => void;
@@ -60,11 +66,14 @@ export interface DesktopCompositionOptions {
 export interface DesktopComposition {
   service: HeadlessDesktopService;
   runtime: AgentRuntime;
+  telemetry: ReturnType<typeof createNonBlockingObservabilityRecorder>;
   preferences: DesktopPreferences;
+  /** Main-process-only credential used by the bridge and Signal ingress. */
+  bridgeToken?: string;
 }
 
 const missingTokenDetail =
-  "No Remote Script token is configured. Store one in the desktop credential vault or set ABLETON_AGENT_TOKEN, then restart.";
+  "No usable Remote Script token is configured or available from the installed script.";
 
 async function loadPreferences(
   store: JsonPreferencesStore,
@@ -390,7 +399,7 @@ export class DesktopJournalHost implements DesktopEventJournal {
 /**
  * Composes the Electron main process on the same headless application the CLI
  * uses. Bridge ports come from persisted preferences; the bridge token comes
- * from OS-backed storage or the environment.
+ * from OS-backed storage, the environment, or an installed Remote Script.
  */
 export async function createDesktopComposition(
   options: DesktopCompositionOptions,
@@ -447,8 +456,29 @@ export async function createDesktopComposition(
   const reconfigureEventJournal = async (
     retention: RetentionPolicy,
   ): Promise<void> => journalHost.reconfigure(retention);
-  const token =
-    options.storedToken ?? environment[TOKEN_ENVIRONMENT_VARIABLE] ?? undefined;
+  const credential = await resolveBridgeCredential({
+    ...(options.storedToken === undefined
+      ? {}
+      : { storedToken: options.storedToken }),
+    ...(options.credentialVault === undefined
+      ? {}
+      : { vault: options.credentialVault }),
+    environment,
+    remoteScriptLocation: preferences.remoteScriptLocation,
+    ...(options.homeDirectory === undefined
+      ? {}
+      : { homeDirectory: options.homeDirectory }),
+    ...(options.platform === undefined ? {} : { platform: options.platform }),
+    telemetry,
+  });
+  for (const notice of credential.notices) {
+    notices.push({
+      label: "Bridge credentials",
+      status: notice.status,
+      detail: notice.detail,
+    });
+  }
+  const token = credential.token;
   const approvals = new ApprovalCoordinator();
   const approvalPolicy = new ApprovalPolicyController(
     preferences.approvalPolicy,
@@ -533,6 +563,8 @@ export async function createDesktopComposition(
   return {
     service,
     runtime,
+    telemetry,
+    ...(token === undefined ? {} : { bridgeToken: token }),
     preferences:
       journalHost.journal === undefined
         ? { ...preferences, eventHistoryEnabled: false }

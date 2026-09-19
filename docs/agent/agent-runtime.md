@@ -38,9 +38,59 @@ results, paths, structured musical/MIDI data, and event payloads are preserved.
 Sanitization redacts credentials embedded in every string and replaces
 binary/audio bodies with visible omission markers before persistence.
 
+Managed desktop turns select an explicit SDK agent mode. Interactive is the
+compatibility default; plan mode is persisted per active-agent instance and is
+forwarded on normal messages and explicit skill invocations. Plan mode is also
+an application-enforced read-only boundary: inspection tools remain available,
+but every Ableton mutation is rejected before approval, locking, or bridge
+dispatch. Because the SDK client runs with an empty built-in tool environment,
+the session allowlist must include exactly `builtin:exit_plan_mode` in addition
+to the qualified application tools, and the selected custom agent allowlist
+must include the bare `exit_plan_mode` name. Enabling the full isolated
+built-in set would exceed the application's least-authority contract. The
+plan-mode pre-tool hook applies mutation denial only to tools positively
+classified as Ableton mutations; SDK control tools such as `exit_plan_mode`
+must pass through. SDK mode changes, plan changes, completed-plan approval
+requests, and approval completions are normalized into application-owned,
+attributed events. Plan summaries, content, and feedback are bounded and
+sanitized before journaling or renderer delivery.
+
+Immediately before a plan-mode turn is sent to the SDK, the application appends
+`packages/application/prompts/plan-reminder.md` after all prepared context,
+direct-skill content, and the user's request. This final prompt suffix reminds
+the model that skill editing instructions are post-approval work and that the
+current turn must finish through `exit_plan_mode`. Interactive turns do not
+receive the suffix. This is a compliance aid, not the safety boundary; the
+pre-tool mutation denial and mutation-handler guard remain authoritative. Turn
+lifecycle records include whether the reminder was applied and its version.
+
+When the SDK requests a completed-plan decision, the application retains
+request ownership on the originating active-agent instance. The desktop may
+approve and continue interactively, request changes with bounded feedback, or
+exit plan mode without implementation. SDK autopilot and fleet actions are not
+exposed by this product surface. Plan response lifecycle records queued,
+started, completed, failed, and stale/cancelled outcomes with timing and the
+original session attribution. Interactive approval updates the effective mode
+before the paused turn resumes, so same-turn implementation is permitted only
+after that transition.
+
+The deterministic unit and Electron suites enforce the application contract.
+SDK compatibility can additionally be checked with
+`RUN_COPILOT_PLAN_EXIT_SMOKE=1 pnpm live:copilot-plan-exit`; this authenticated,
+opt-in smoke exposes only `exit_plan_mode` and always resolves `exit_only`.
+
 ## System behavior
 
-The base system message should teach the agent:
+The canonical shared system message is
+`packages/application/prompts/base-system-message.md`. The conditional
+plan-turn suffix is independently editable at
+`packages/application/prompts/plan-reminder.md`. The application loads both
+files relative to its source or compiled module, and the application build
+copies them into `dist/prompts` for packaged execution. Missing or empty prompt
+content is a startup error. Agent-definition YAML files contain only
+specialization prompts and do not duplicate shared guidance.
+
+The base system message should teach every custom agent:
 
 - Ableton terminology and project structure.
 - The difference between Session and Arrangement views.
@@ -53,6 +103,11 @@ The base system message should teach the agent:
 
 Detailed genre recipes and composition guidance belong in skills or reference
 content, not in an ever-growing base system message.
+
+The separate plan reminder should teach active plan turns to remain read-only,
+treat skill mutation instructions as future implementation, ask a concise chat
+question only when ambiguity blocks an actionable plan, produce multiline GFM,
+and call `exit_plan_mode`.
 
 ## Session context
 

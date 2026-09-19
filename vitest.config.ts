@@ -27,6 +27,9 @@ export default defineConfig({
       "@ableton-agent/correlation": source(
         "./packages/correlation/src/index.ts",
       ),
+      "@ableton-agent/debug-control": source(
+        "./packages/debug-control/src/index.ts",
+      ),
       "@ableton-agent/observability": source(
         "./packages/observability/src/index.ts",
       ),

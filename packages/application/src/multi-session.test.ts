@@ -24,6 +24,8 @@ import {
   CopilotAgentService,
   isMissingCopilotSessionError,
   MissingCopilotSessionError,
+  PLAN_REMINDER,
+  PLAN_REMINDER_VERSION,
   type AgentRuntimeEvent,
   type AgentSkillDescriptor,
   type AgentSessionConfiguration,
@@ -200,23 +202,44 @@ function createFakeSession(
     history?: readonly SessionEvent[];
     getEvents?: () => Promise<readonly SessionEvent[]>;
     abort?: () => Promise<void>;
+    rpc?: {
+      ui: {
+        handlePendingExitPlanMode: (request: {
+          requestId: string;
+          response: {
+            approved: boolean;
+            selectedAction?: "interactive" | "exit_only";
+            feedback?: string;
+          };
+        }) => Promise<{ success: boolean }>;
+      };
+    };
   } = {},
 ) {
   let listener: ((event: SessionEvent) => void) | undefined;
   const prompts: string[] = [];
+  const messages: Array<{
+    prompt: string;
+    agentMode?: "interactive" | "plan";
+  }> = [];
   const disconnect = vi.fn(async () => undefined);
   const abort = vi.fn(options.abort ?? (async () => undefined));
-  const sendAndWait = vi.fn(async (prompt: string) => {
-    prompts.push(prompt);
-    if (options.onSend !== undefined) {
-      return await options.onSend(prompt, (event) => listener?.(event));
-    }
+  const sendAndWait = vi.fn(
+    async (message: { prompt: string; agentMode?: "interactive" | "plan" }) => {
+      const prompt = message.prompt;
+      prompts.push(prompt);
+      messages.push(message);
+      if (options.onSend !== undefined) {
+        return await options.onSend(prompt, (event) => listener?.(event));
+      }
 
-    return { data: { content: `reply:${sessionId}:${prompt}` } };
-  });
+      return { data: { content: `reply:${sessionId}:${prompt}` } };
+    },
+  );
   return {
     sessionId,
     prompts,
+    messages,
     emit: (event: SessionEvent) => listener?.(event),
     sendAndWait,
     abort,
@@ -227,6 +250,7 @@ function createFakeSession(
         if (listener === receivedListener) listener = undefined;
       };
     },
+    ...(options.rpc === undefined ? {} : { rpc: options.rpc }),
     ...(options.getEvents === undefined && options.history === undefined
       ? {}
       : {
@@ -1398,9 +1422,15 @@ describe("CopilotAgentService managed sessions", () => {
     expect(mixConfig).not.toHaveProperty("skillDirectories");
     expect(midiConfig?.systemMessage?.content).toContain("name: midi-compose");
     expect(midiConfig?.systemMessage?.content).not.toContain(
+      "Active plan-mode reminder",
+    );
+    expect(midiConfig?.systemMessage?.content).not.toContain(
       "Keep phrases playable.",
     );
     expect(mixConfig?.systemMessage?.content).toContain("name: mix-review");
+    expect(mixConfig?.systemMessage?.content).not.toContain(
+      "Active plan-mode reminder",
+    );
     expect(mixConfig?.systemMessage?.content).not.toContain(
       "Preserve dynamics.",
     );
@@ -1495,12 +1525,28 @@ describe("CopilotAgentService managed sessions", () => {
     ).resolves.toContain("rebalance");
     expect(midiSession.prompts[2]).toContain("Preserve dynamics.");
     await expect(
+      service.invokeManagedAgentSkill(
+        "midi-agent",
+        "/midi-compose draft the arrangement",
+        "plan",
+      ),
+    ).resolves.toContain("draft the arrangement");
+    const planSkillPrompt = midiSession.prompts[3]!;
+    expect(planSkillPrompt.indexOf("Keep phrases playable.")).toBeLessThan(
+      planSkillPrompt.indexOf("draft the arrangement"),
+    );
+    expect(planSkillPrompt.indexOf("draft the arrangement")).toBeLessThan(
+      planSkillPrompt.indexOf(PLAN_REMINDER),
+    );
+    expect(planSkillPrompt.endsWith(PLAN_REMINDER)).toBe(true);
+    expect(midiSession.messages[3]).toMatchObject({ agentMode: "plan" });
+    await expect(
       service.invokeManagedAgentSkill("midi-agent", "/unknown-skill request"),
     ).rejects.toThrow("Unknown skill '/unknown-skill'.");
     await expect(
       service.sendToManagedAgent("midi-agent", "/Not-A-Skill request"),
     ).rejects.toThrow("Invalid skill invocation");
-    expect(midiSession.prompts).toHaveLength(3);
+    expect(midiSession.prompts).toHaveLength(4);
     midiHistory.push(
       userMessage(
         "direct-skill-user",
@@ -1961,6 +2007,7 @@ describe("CopilotAgentService managed sessions", () => {
       "custom:ableton_session_inspect",
       "custom:ableton_tracks_create",
       "custom:skill",
+      "builtin:exit_plan_mode",
     ]);
     expect(latestResumeConfig?.customAgents).toEqual([
       {
@@ -1968,7 +2015,12 @@ describe("CopilotAgentService managed sessions", () => {
         displayName: "Updated Managed Agent",
         description: "Updated managed session",
         prompt: "Updated managed prompt",
-        tools: ["ableton_session_inspect", "ableton_tracks_create", "skill"],
+        tools: [
+          "ableton_session_inspect",
+          "ableton_tracks_create",
+          "skill",
+          "exit_plan_mode",
+        ],
         infer: false,
       },
     ]);
@@ -1983,6 +2035,415 @@ describe("CopilotAgentService managed sessions", () => {
     await service.stop();
     expect(stop).toHaveBeenCalledOnce();
   });
+});
+
+it("forwards plan mode and resolves only the owning pending plan request", async () => {
+  const events = new InMemoryEventPublisher();
+  const received: AppEvent[] = [];
+  const runtimeEvents: AgentRuntimeEvent[] = [];
+  events.subscribe((event) => received.push(event));
+  let managedConfig: SessionConfig | undefined;
+  const defaultSession = createFakeSession("default-session");
+  const managedSession = createFakeSession("managed-session");
+  const createSession = vi
+    .fn()
+    .mockResolvedValueOnce(defaultSession)
+    .mockImplementationOnce(async (config: SessionConfig) => {
+      managedConfig = config;
+      return managedSession;
+    });
+  const service = new CopilotAgentService(
+    baseOptions({
+      events,
+      runtimeObserver: {
+        enqueue: (event) => runtimeEvents.push(event),
+      },
+      clientFactory: () => ({
+        createSession,
+        resumeSession: vi.fn(async () => {
+          throw new Error("resume not expected");
+        }),
+        stop: vi.fn(async () => undefined),
+      }),
+    }),
+  );
+
+  await service.start();
+  await service.createManagedAgent(configuration("managed"));
+  await service.sendToManagedAgent("managed", "Draft an arrangement", "plan");
+
+  expect(managedSession.messages).toContainEqual({
+    prompt: `Draft an arrangement\n\n${PLAN_REMINDER}`,
+    agentMode: "plan",
+  });
+  expect(
+    runtimeEvents.find((event) => event.type === "agent.turn.started")?.data,
+  ).toMatchObject({
+    prompt: `Draft an arrangement\n\n${PLAN_REMINDER}`,
+    agentMode: "plan",
+    planReminderApplied: true,
+    planReminderVersion: PLAN_REMINDER_VERSION,
+  });
+
+  managedSession.emit({
+    type: "session.mode_changed",
+    id: "mode-event",
+    parentId: null,
+    timestamp: "2026-08-08T00:00:00.000Z",
+    data: { previousMode: "interactive", newMode: "plan" },
+  } as unknown as SessionEvent);
+  expect(received).toContainEqual({
+    type: "agent.mode_changed",
+    previousMode: "interactive",
+    mode: "plan",
+    agentInstanceId: "managed",
+    sdkSessionId: "managed-session",
+  });
+  await expect(
+    service.resolveManagedAgentPlan("managed", {
+      requestId: "unknown-request",
+      approved: false,
+    }),
+  ).resolves.toBe(false);
+
+  const directResult = managedConfig?.onExitPlanModeRequest?.(
+    {
+      summary: "Direct arrangement plan",
+      planContent: "# Plan\n\nInspect, then arrange.",
+      recommendedAction: "autopilot",
+      actions: ["interactive", "autopilot", "exit_only"],
+    },
+    { sessionId: "managed-session" },
+  );
+  expect(directResult).toBeDefined();
+  await vi.waitFor(() =>
+    expect(
+      received.filter(
+        (event) =>
+          event.type === "agent.plan_approval_requested" &&
+          event.request.summary === "Direct arrangement plan",
+      ),
+    ).toHaveLength(1),
+  );
+  const directRequest = received.find(
+    (event) =>
+      event.type === "agent.plan_approval_requested" &&
+      event.request.summary === "Direct arrangement plan",
+  );
+  if (directRequest?.type !== "agent.plan_approval_requested") {
+    throw new Error("Direct plan request was not published");
+  }
+  await expect(
+    service.resolveManagedAgentPlan("managed", {
+      requestId: directRequest.request.requestId,
+      approved: true,
+      selectedAction: "interactive",
+    }),
+  ).resolves.toBe(true);
+  await expect(directResult).resolves.toEqual({
+    approved: true,
+    selectedAction: "interactive",
+  });
+  expect(received).toContainEqual({
+    type: "agent.plan_approval_completed",
+    requestId: directRequest.request.requestId,
+    approved: true,
+    selectedAction: "interactive",
+    agentInstanceId: "managed",
+    sdkSessionId: "managed-session",
+  });
+});
+
+it("bounds plan approval payloads and settles a pending managed request on cancellation", async () => {
+  const turn = deferred<void>();
+  const events = new InMemoryEventPublisher();
+  const received: AppEvent[] = [];
+  const runtimeEvents: AgentRuntimeEvent[] = [];
+  events.subscribe((event) => received.push(event));
+  let managedConfig: SessionConfig | undefined;
+  const managedSession = createFakeSession("managed-session", {
+    onSend: async () => {
+      await turn.promise;
+      return { data: { content: "cancelled turn settled" } };
+    },
+  });
+  const createSession = vi
+    .fn()
+    .mockResolvedValueOnce(createFakeSession("default-session"))
+    .mockImplementationOnce(async (config: SessionConfig) => {
+      managedConfig = config;
+      return managedSession;
+    });
+  const service = new CopilotAgentService(
+    baseOptions({
+      events,
+      runtimeObserver: { enqueue: (event) => runtimeEvents.push(event) },
+      clientFactory: () => ({
+        createSession,
+        resumeSession: vi.fn(async () => {
+          throw new Error("resume not expected");
+        }),
+        stop: vi.fn(async () => undefined),
+      }),
+    }),
+  );
+
+  await service.start();
+  await service.createManagedAgent(configuration("managed"));
+  const response = service.sendToManagedAgent(
+    "managed",
+    "Prepare a bounded plan",
+    "plan",
+  );
+  await vi.waitFor(() => expect(managedSession.sendAndWait).toHaveBeenCalled());
+  const exitRequest = managedConfig?.onExitPlanModeRequest?.(
+    {
+      summary: "s".repeat(9_000),
+      planContent: "p".repeat(110_000),
+      recommendedAction: "interactive",
+      actions: ["interactive", "exit_only"],
+    },
+    { sessionId: "managed-session" },
+  );
+  await vi.waitFor(() =>
+    expect(
+      received.some((event) => event.type === "agent.plan_approval_requested"),
+    ).toBe(true),
+  );
+  const approval = received.find(
+    (event) => event.type === "agent.plan_approval_requested",
+  );
+  if (approval?.type !== "agent.plan_approval_requested") {
+    throw new Error("Plan approval was not published");
+  }
+  expect(approval.request.summary).toHaveLength(8_192);
+  expect(approval.request.planContent).toHaveLength(100_000);
+
+  await expect(service.cancelManagedAgent("managed")).resolves.toBe(true);
+  await expect(exitRequest).resolves.toEqual({ approved: false });
+  expect(managedSession.abort).toHaveBeenCalledOnce();
+  expect(received).toContainEqual({
+    type: "agent.plan_approval_completed",
+    requestId: approval.request.requestId,
+    approved: false,
+    agentInstanceId: "managed",
+    sdkSessionId: "managed-session",
+  });
+  expect(
+    runtimeEvents.find(
+      (event) => event.type === "agent.plan.resolution.cancelled",
+    ),
+  ).toMatchObject({
+    sessionId: "managed-session",
+    agentInstanceId: "managed",
+    data: {
+      requestId: approval.request.requestId,
+      reason: "user_cancelled",
+    },
+  });
+  await expect(
+    service.resolveManagedAgentPlan("managed", {
+      requestId: approval.request.requestId,
+      approved: true,
+      selectedAction: "interactive",
+    }),
+  ).resolves.toBe(false);
+
+  turn.resolve();
+  await expect(response).resolves.toBe("cancelled turn settled");
+  await service.stop();
+});
+
+it("exposes only the exit-plan built-in across empty and deduplicated agent tool lists", async () => {
+  const sessions = [
+    createFakeSession("default-session"),
+    createFakeSession("empty-session"),
+    createFakeSession("deduplicated-session"),
+  ];
+  const configs: SessionConfig[] = [];
+  const createSession = vi.fn(async (config: SessionConfig) => {
+    configs.push(config);
+    const session = sessions[configs.length - 1];
+    if (session === undefined) throw new Error("unexpected createSession call");
+    return session;
+  });
+  const service = new CopilotAgentService(
+    baseOptions({
+      clientFactory: () => ({
+        createSession,
+        resumeSession: vi.fn(async () => {
+          throw new Error("resume not expected");
+        }),
+        stop: vi.fn(async () => undefined),
+      }),
+    }),
+  );
+
+  await service.start();
+  await service.createManagedAgent(
+    configuration("empty", { resolvedTools: [] }),
+  );
+  await service.createManagedAgent(
+    configuration("deduplicated", {
+      resolvedTools: [
+        "custom:ableton_session_inspect",
+        "ableton_session_inspect",
+      ],
+    }),
+  );
+
+  expect(configs[1]?.availableTools).toEqual(["builtin:exit_plan_mode"]);
+  expect(configs[1]?.customAgents?.[0]?.tools).toEqual(["exit_plan_mode"]);
+  expect(configs[2]?.availableTools).toEqual([
+    "custom:ableton_session_inspect",
+    "builtin:exit_plan_mode",
+  ]);
+  expect(configs[2]?.customAgents?.[0]?.tools).toEqual([
+    "ableton_session_inspect",
+    "exit_plan_mode",
+  ]);
+  for (const config of configs) {
+    expect(config.availableTools).not.toContain("builtin:ask_user");
+    expect(config.availableTools).not.toContain("builtin:task");
+    expect(config.availableTools).not.toContain("builtin:task_complete");
+    expect(config.customAgents?.[0]?.tools).not.toContain("ask_user");
+    expect(config.customAgents?.[0]?.tools).not.toContain("task");
+    expect(config.customAgents?.[0]?.tools).not.toContain("task_complete");
+  }
+
+  await service.stop();
+});
+
+it("blocks plan-mode mutations until interactive approval", async () => {
+  const turn = deferred<void>();
+  const events = new InMemoryEventPublisher();
+  const received: AppEvent[] = [];
+  events.subscribe((event) => received.push(event));
+  const createTrack = vi.fn(async () => ({
+    beforeTrackCount: 0,
+    afterTrackCount: 1,
+    track: {
+      reference: "track-1",
+      index: 0,
+      name: "Approved track",
+      kind: "midi" as const,
+    },
+    verified: true as const,
+  }));
+  let managedConfig: SessionConfig | undefined;
+  const managedSession = createFakeSession("managed-session", {
+    onSend: async () => {
+      await turn.promise;
+      return { data: { content: "done" } };
+    },
+  });
+  const createSession = vi
+    .fn()
+    .mockResolvedValueOnce(createFakeSession("default-session"))
+    .mockImplementationOnce(async (config: SessionConfig) => {
+      managedConfig = config;
+      return managedSession;
+    });
+  const service = new CopilotAgentService(
+    baseOptions({
+      events,
+      getAbletonStatus: async () =>
+        ({
+          state: "connected",
+          projectId: "project-1",
+        }) as never,
+      createTrack,
+      clientFactory: () => ({
+        createSession,
+        resumeSession: vi.fn(async () => {
+          throw new Error("resume not expected");
+        }),
+        stop: vi.fn(async () => undefined),
+      }),
+    }),
+  );
+
+  await service.start();
+  await service.createManagedAgent(configuration("managed"));
+  const response = service.sendToManagedAgent(
+    "managed",
+    "Plan a new MIDI track",
+    "plan",
+  );
+  await vi.waitFor(() => expect(managedSession.sendAndWait).toHaveBeenCalled());
+  const create = managedConfig?.tools?.find(
+    ({ name }) => name === "ableton_tracks_create",
+  );
+  const inspect = managedConfig?.tools?.find(
+    ({ name }) => name === "ableton_session_inspect",
+  );
+  const invocation = {
+    sessionId: "managed-session",
+    toolCallId: "tool-1",
+    toolName: "ableton_tracks_create",
+    arguments: {},
+  };
+
+  await expect(inspect?.handler?.({}, invocation)).resolves.toBeDefined();
+  expect(
+    managedConfig?.hooks?.onPreToolUse?.(
+      {
+        sessionId: "managed-session",
+        timestamp: new Date(),
+        workingDirectory: "/tmp",
+        toolName: "exit_plan_mode",
+        toolArgs: {
+          summary: "Create the approved track",
+          planContent: "Create one MIDI track.",
+        },
+      },
+      { sessionId: "managed-session" },
+    ),
+  ).toBeUndefined();
+  await expect(
+    create?.handler?.({ kind: "midi", name: "Must not exist yet" }, invocation),
+  ).rejects.toMatchObject({ code: "plan_mode_read_only" });
+  expect(createTrack).not.toHaveBeenCalled();
+
+  const exitRequest = managedConfig?.onExitPlanModeRequest?.(
+    {
+      summary: "Create the approved track",
+      planContent: "# Plan\n\nCreate one MIDI track.",
+      recommendedAction: "interactive",
+      actions: ["interactive", "exit_only"],
+    },
+    { sessionId: "managed-session" },
+  );
+  await vi.waitFor(() =>
+    expect(
+      received.some((event) => event.type === "agent.plan_approval_requested"),
+    ).toBe(true),
+  );
+  const approval = received.find(
+    (event) => event.type === "agent.plan_approval_requested",
+  );
+  if (approval?.type !== "agent.plan_approval_requested") {
+    throw new Error("Plan approval was not published");
+  }
+  await expect(
+    service.resolveManagedAgentPlan("managed", {
+      requestId: approval.request.requestId,
+      approved: true,
+      selectedAction: "interactive",
+    }),
+  ).resolves.toBe(true);
+  await expect(exitRequest).resolves.toEqual({
+    approved: true,
+    selectedAction: "interactive",
+  });
+  await expect(
+    create?.handler?.({ kind: "midi", name: "Approved track" }, invocation),
+  ).resolves.toMatchObject({ verified: true });
+  expect(createTrack).toHaveBeenCalledOnce();
+
+  turn.resolve();
+  await expect(response).resolves.toBe("done");
+  await service.stop();
 });
 
 function automaticLiveEvent(

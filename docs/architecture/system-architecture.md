@@ -59,6 +59,12 @@ Long-running or CPU-heavy work may later move into Node worker threads or a
 dedicated local service, but the first implementation should avoid unnecessary
 processes.
 
+An explicit automation launch may also host a minimal authenticated loopback
+endpoint for end-to-end UX testing. It calls the same `DesktopService` instance
+as the trusted renderer, is absent from ordinary launches, and is reachable
+through the separate stdio MCP adapter in `apps/debug-mcp`. See
+[ADR 0005](decisions/0005-desktop-automation-mcp-adapter.md).
+
 The event journal is an application-owned infrastructure service, not a
 presentation concern. Producers sanitize versioned records before enqueueing;
 the writer performs defense-in-depth sanitization, bounded asynchronous
@@ -133,7 +139,9 @@ ableton-agent-app/
 │       ├── src/main/
 │       ├── src/preload/
 │       └── src/renderer/
-│   └── cli/
+│   ├── cli/
+│       └── src/
+│   └── debug-mcp/
 │       └── src/
 ├── packages/
 │   ├── application/
@@ -145,6 +153,7 @@ ableton-agent-app/
 │   ├── workflows/
 │   ├── project-state/
 │   ├── shared/
+│   ├── debug-control/
 │   └── test-support/
 ├── remote-script/
 │   └── AbletonAgent/

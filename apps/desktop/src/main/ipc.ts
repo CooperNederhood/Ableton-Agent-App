@@ -69,10 +69,43 @@ export function createIpcHandlers(
     },
     "agents:history": ({ instanceId }) =>
       service.hydrateActiveAgentHistory(instanceId),
-    "agents:send": ({ instanceId, message, context }) =>
-      service.sendToActiveAgent(instanceId, message, context),
-    "agents:invoke-skill": ({ instanceId, skillName, request, context }) =>
-      service.invokeActiveAgentSkill(instanceId, skillName, request, context),
+    "agents:send": ({ instanceId, message, context, agentMode }) =>
+      service.sendToActiveAgent(
+        instanceId,
+        message,
+        context,
+        agentMode ?? "interactive",
+      ),
+    "agents:set-mode": ({ instanceId, mode }) =>
+      service.setActiveAgentMode(instanceId, mode),
+    "agents:resolve-plan": async ({
+      instanceId,
+      requestId,
+      approved,
+      selectedAction,
+      feedback,
+    }) => ({
+      resolved: await service.resolveActiveAgentPlan(instanceId, {
+        requestId,
+        approved,
+        ...(selectedAction === undefined ? {} : { selectedAction }),
+        ...(feedback === undefined ? {} : { feedback }),
+      }),
+    }),
+    "agents:invoke-skill": ({
+      instanceId,
+      skillName,
+      request,
+      context,
+      agentMode,
+    }) =>
+      service.invokeActiveAgentSkill(
+        instanceId,
+        skillName,
+        request,
+        context,
+        agentMode ?? "interactive",
+      ),
     "agents:cancel": ({ instanceId }) => service.cancelActiveAgent(instanceId),
     "ableton:connect": () => service.connect(),
     "ableton:status": () => service.getStatus(),

@@ -1,6 +1,6 @@
 ---
 name: integration-testing
-description: Run and repair the runner-owned Ableton agent workflow smoke suite.
+description: Use for deterministic validation of natural-language agent prompts, tools, workflows, bridge behavior, and exact Ableton project mutations against a runner-owned Live process with scenario manifests, traces, and postcondition assertions via pnpm live:agent-smoke. Do not use for visual Electron UX, layout, progress, approval, or cross-app computer-use testing.
 ---
 
 # Ableton agent integration testing
@@ -29,6 +29,36 @@ are the source of truth; assistant prose is diagnostic evidence only.
 7. If `remote-script/AbletonAgent/` changed, let the harness reinstall it and
    launch a fresh runner-owned Live process. Do not reuse stale Python modules.
 8. Rerun the failed scenario, then its group, then the remaining suite.
+
+## Expanding deterministic coverage
+
+Do not treat `pnpm live:agent-smoke` only as a fixed suite to rerun. Add or
+expand a reviewed scenario when a change introduces or alters a user-facing
+natural-language workflow whose success depends on real Live behavior.
+
+1. Add the narrowest unit, protocol, bridge, tool, and workflow regression tests
+   first. The real-Live scenario is not a substitute for deterministic lower
+   layers.
+2. Add or update a manifest under `integration/live-scenarios/` with:
+   - one exact reviewed prompt;
+   - the minimum tool and risk allowlist;
+   - explicit budgets and ordering constraints;
+   - a generated artifact namespace;
+   - argument and identity guards;
+   - deterministic baseline and final assertions; and
+   - cleanup assertions that restore or explicitly account for the Set.
+3. Add the scenario to `suite.json` in the smallest owning group.
+4. Extend the verifier with read-only bridge assertions. Never ask the model to
+   judge whether its own work succeeded.
+5. Cover the unsupported, denied, partial-failure, timeout, rollback, or cleanup
+   condition relevant to the capability at a lower deterministic layer. Add a
+   real-Live failure scenario only when simulator or fake coverage cannot prove
+   the behavior.
+6. Run the new scenario alone, then its group, then the full remaining suite.
+
+Do not add a real-Live scenario for renderer-only layout, styling, copy, or
+presentation changes. Those require component, Electron Playwright, and visual
+desktop UX testing instead.
 
 ## Non-negotiable safety
 

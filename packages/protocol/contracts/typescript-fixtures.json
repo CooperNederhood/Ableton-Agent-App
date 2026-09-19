@@ -260,6 +260,18 @@
       "requestId": "00000000-0000-4000-8000-000000000113",
       "ok": false,
       "error": {
+        "code": "applied_indeterminate",
+        "message": "Golden applied_indeterminate failure",
+        "retryable": false,
+        "details": { "fixture": true }
+      }
+    },
+    {
+      "protocolVersion": 4,
+      "kind": "response",
+      "requestId": "00000000-0000-4000-8000-000000000114",
+      "ok": false,
+      "error": {
         "code": "internal_error",
         "message": "Golden internal_error failure",
         "retryable": true,

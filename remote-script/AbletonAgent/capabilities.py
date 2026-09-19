@@ -140,6 +140,12 @@ def build_capability_document(
             and _lom_hasattr(track, "delete_clip")
             for track in tracks
         ),
+        "arrangement.fill_region": any(
+            _lom_hasattr(track, "arrangement_clips")
+            and _lom_hasattr(track, "duplicate_clip_to_arrangement")
+            and _lom_hasattr(track, "delete_clip")
+            for track in tracks
+        ),
         "arrangement.set_clip_properties": not tracks
         or any(_lom_hasattr(track, "arrangement_clips") for track in tracks),
     }

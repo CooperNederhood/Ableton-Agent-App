@@ -61,11 +61,31 @@ package changes require restarting `pnpm desktop:dev`, but do not require a
 Remote Script update unless files under `remote-script/AbletonAgent/**` also
 changed.
 
+## Desktop automation operations
+
+Developer UX testing may launch Desktop with `--automation` and an absolute
+isolated `--automation-profile`. The profile owns its sessions, Copilot data,
+logs, event journal, endpoint descriptor, and per-launch secret; it must never
+be the normal Electron user-data path.
+
+The endpoint binds to `127.0.0.1` on an ephemeral port, limits requests and
+frames, accepts only authenticated `send_user_message` operations, and removes
+only descriptor/secret files whose content still matches the current process.
+The MCP adapter reads those owner-only files locally. Secrets and raw frames
+must not enter logs, Desktop History, support bundles, or screenshots.
+
 Detection covers the standard macOS Music/Documents and Windows
 Documents/OneDrive User Library locations. `ABLETON_USER_LIBRARY` overrides
 detection. Installation is staged, keeps the bridge token, and moves the prior
 installation into `.ableton-agent-backups` before replacement. Unmanaged
 installations are never overwritten without the explicit `--confirm` action.
+A fresh managed installation generates a cryptographically random token with
+owner-only permissions before the staged directory is promoted. At Desktop
+startup, the app reads only the exact token file under the configured or
+auto-detected `AbletonAgent` installation and copies a valid token into
+OS-backed secure storage. An existing vault token or explicit
+`ABLETON_AGENT_TOKEN` override takes precedence. Distinct tokens found in
+multiple installations require an explicit location selection.
 
 ## Versioning
 
@@ -200,9 +220,10 @@ must not claim a Live/platform combination without a passing evidence file.
 4. Restart the desktop app, open Diagnostics, and confirm the bridge,
    compatibility, and agent-session checks.
 
-The Remote Script token remains in the installed `AbletonAgent` directory and
-is preserved across managed updates. Do not paste it into issues or support
-bundles.
+The Remote Script token remains in the installed `AbletonAgent` directory, is
+preserved across managed updates, and is automatically provisioned into the
+desktop credential vault. CLI users still provide it through
+`ABLETON_AGENT_TOKEN`. Do not paste it into issues or support bundles.
 
 ## Troubleshooting
 

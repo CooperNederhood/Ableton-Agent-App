@@ -50,6 +50,7 @@ import {
   type RootTraceQuery,
   type LocalObservabilityJournal,
 } from "@ableton-agent/observability";
+import type { AutomationTrace } from "@ableton-agent/debug-control";
 
 import {
   desktopActiveAgentSchema,
@@ -79,6 +80,7 @@ import {
   type DesktopAgentHistoryMessage,
   type DesktopActiveAgent,
   type DesktopAgentModel,
+  type DesktopAgentMode,
   type DesktopPreferences,
   type DesktopProjectSnapshot,
   type DesktopProjectIdentity,
@@ -326,7 +328,7 @@ export class HeadlessDesktopService implements DesktopService {
     this.#emitOutputs();
     if ((await this.#application.getStatus()).state === "connected") {
       try {
-        await this.getSnapshot();
+        await this.#beginSnapshotRefresh(false, "startup");
       } catch (error) {
         this.#report("Project snapshot could not be read", error);
       }
@@ -392,6 +394,11 @@ export class HeadlessDesktopService implements DesktopService {
   public async send(
     message: string,
     context: ContextChip[],
+    options?: {
+      origin: "automation";
+      trace: AutomationTrace;
+      requestId: string;
+    },
   ): Promise<{ accepted: true; messageId: string }> {
     this.#assertAccepting();
     if (this.#turn) {
@@ -436,12 +443,27 @@ export class HeadlessDesktopService implements DesktopService {
     });
     if (this.options.agentCatalog !== undefined) {
       if (managedTarget !== undefined) {
-        return this.#beginManagedTurn(managedTarget, () =>
+        const accepted = await this.#beginManagedTurn(managedTarget, () =>
           this.#application.sendToManagedAgent(
             managedTarget.agentInstanceId,
             composeAgentPrompt(message, selection),
           ),
         );
+        if (options?.origin === "automation") {
+          this.emit({
+            type: "agent.user_message_submitted",
+            messageId: accepted.messageId,
+            content: message,
+            agentInstanceId: managedTarget.agentInstanceId,
+            agentMode: "interactive",
+            origin: "automation",
+            timestamp: Date.now(),
+            traceId: options.trace.traceId,
+            correlationId: options.trace.correlationId,
+            causationId: options.requestId,
+          });
+        }
+        return accepted;
       }
     }
     this.#turn = turn;
@@ -464,6 +486,19 @@ export class HeadlessDesktopService implements DesktopService {
       },
     });
     void this.#runTurn(turn, composeAgentPrompt(message, selection));
+    if (options?.origin === "automation") {
+      this.emit({
+        type: "agent.user_message_submitted",
+        messageId,
+        content: message,
+        agentMode: "interactive",
+        origin: "automation",
+        timestamp: Date.now(),
+        traceId: options.trace.traceId,
+        correlationId: options.trace.correlationId,
+        causationId: options.requestId,
+      });
+    }
     return { accepted: true, messageId };
   }
 
@@ -1077,6 +1112,7 @@ export class HeadlessDesktopService implements DesktopService {
     instanceId: string,
     message: string,
     context: ContextChip[] = [],
+    agentMode: DesktopAgentMode = "interactive",
   ): Promise<{ accepted: true; messageId: string }> {
     const prompt = composeAgentPrompt(
       message,
@@ -1084,8 +1120,58 @@ export class HeadlessDesktopService implements DesktopService {
     );
     return this.#beginManagedTurn(
       this.#captureActiveAgentTarget(instanceId),
-      () => this.#application.sendToManagedAgent(instanceId, prompt),
+      () => this.#application.sendToManagedAgent(instanceId, prompt, agentMode),
     );
+  }
+
+  public setActiveAgentMode(
+    instanceId: string,
+    mode: DesktopAgentMode,
+  ): Promise<DesktopActiveAgent> {
+    const target = this.#captureActiveAgentTarget(instanceId);
+    return this.#queueActiveAgentAction(
+      target,
+      async ({ session, instance }) => {
+        const updated = { ...instance, mode };
+        await this.#replaceActiveProductionSession({
+          ...session,
+          activeAgents: session.activeAgents.map((candidate) =>
+            candidate.id === instanceId ? updated : candidate,
+          ),
+        });
+        this.emit({
+          type: "agent.instance_changed",
+          instance: updated,
+          change: "mode-changed",
+        });
+        return updated;
+      },
+    );
+  }
+
+  public async resolveActiveAgentPlan(
+    instanceId: string,
+    request: {
+      requestId: string;
+      approved: boolean;
+      selectedAction?: "exit_only" | "interactive";
+      feedback?: string;
+    },
+  ): Promise<boolean> {
+    this.#captureActiveAgentTarget(instanceId);
+    const resolved = await this.#application.resolveManagedAgentPlan(
+      instanceId,
+      request,
+    );
+    if (
+      resolved &&
+      request.approved &&
+      (request.selectedAction === "interactive" ||
+        request.selectedAction === "exit_only")
+    ) {
+      await this.setActiveAgentMode(instanceId, "interactive");
+    }
+    return resolved;
   }
 
   public invokeActiveAgentSkill(
@@ -1093,6 +1179,7 @@ export class HeadlessDesktopService implements DesktopService {
     skillName: string,
     argumentsText: string,
     context: ContextChip[] = [],
+    agentMode: DesktopAgentMode = "interactive",
   ): Promise<{ accepted: true; messageId: string }> {
     skillNameSchema.parse(skillName);
     const request = composeAgentPrompt(
@@ -1102,10 +1189,14 @@ export class HeadlessDesktopService implements DesktopService {
     return this.#beginManagedTurn(
       this.#captureActiveAgentTarget(instanceId),
       () =>
-        this.#application.invokeManagedAgentSkill(instanceId, {
-          skillName,
-          request,
-        }),
+        this.#application.invokeManagedAgentSkill(
+          instanceId,
+          {
+            skillName,
+            request,
+          },
+          agentMode,
+        ),
       () => {
         if (!(
           this.options.agentCatalog?.current.skills.some(
@@ -1591,14 +1682,28 @@ export class HeadlessDesktopService implements DesktopService {
    * while resolving callers with the final enriched snapshot on full success.
    */
   public getSnapshot(): Promise<DesktopProjectSnapshot> {
+    return this.#beginSnapshotRefresh(true, "manual");
+  }
+
+  #beginSnapshotRefresh(
+    includeEnrichment: boolean,
+    trigger: "startup" | "manual",
+  ): Promise<DesktopProjectSnapshot> {
     if (!this.#acceptingActions) {
       return Promise.reject(
         new Error("Desktop service is not accepting actions"),
       );
     }
-    if (this.#snapshotRefresh !== undefined) return this.#snapshotRefresh;
+    if (this.#snapshotRefresh !== undefined) {
+      this.#logger.debug("Project refresh coalesced", { trigger });
+      return this.#snapshotRefresh;
+    }
 
-    const refresh = this.#refreshSnapshot();
+    this.#logger.debug("Project refresh queued", {
+      trigger,
+      includeEnrichment,
+    });
+    const refresh = this.#refreshSnapshot(includeEnrichment, trigger);
     this.#snapshotRefresh = refresh;
     void refresh.then(
       () => {
@@ -1606,7 +1711,15 @@ export class HeadlessDesktopService implements DesktopService {
           this.#snapshotRefresh = undefined;
         }
       },
-      () => {
+      (error) => {
+        this.#logger.warn("Project refresh failed", {
+          trigger,
+          includeEnrichment,
+          error: (error instanceof Error ? error.message : String(error)).slice(
+            0,
+            diagnosticMessageLimit,
+          ),
+        });
         if (this.#snapshotRefresh === refresh) {
           this.#snapshotRefresh = undefined;
         }
@@ -1625,15 +1738,23 @@ export class HeadlessDesktopService implements DesktopService {
     }
   }
 
-  async #refreshSnapshot(): Promise<DesktopProjectSnapshot> {
+  async #refreshSnapshot(
+    includeEnrichment: boolean,
+    trigger: "startup" | "manual",
+  ): Promise<DesktopProjectSnapshot> {
     const refreshId = randomUUID();
     const startedAt = Date.now();
-    this.#logger.debug("Project refresh started", { refreshId });
+    this.#logger.debug("Project refresh started", {
+      refreshId,
+      trigger,
+      includeEnrichment,
+    });
     await this.#projectIdentityRefresh;
     const status = await this.#application.getStatus();
     if (status.state !== "connected") {
       this.#logger.warn("Project refresh rejected", {
         refreshId,
+        trigger,
         status,
         durationMs: Date.now() - startedAt,
       });
@@ -1642,6 +1763,7 @@ export class HeadlessDesktopService implements DesktopService {
         { code: "not_connected" },
       );
     }
+    const coreStartedAt = Date.now();
     const snapshot = await this.#application.inspectSession();
     const identity = await this.#readProjectIdentity();
     this.#projectIdentityPollFailures = 0;
@@ -1657,12 +1779,31 @@ export class HeadlessDesktopService implements DesktopService {
           };
     this.#logger.debug("Project core snapshot read", {
       refreshId,
-      snapshot,
-      durationMs: Date.now() - startedAt,
+      trigger,
+      trackCount: snapshot.trackCount,
+      sessionClipCount: snapshot.clips?.length ?? 0,
+      durationMs: Date.now() - coreStartedAt,
+      totalDurationMs: Date.now() - startedAt,
     });
     this.emit({
       type: "project.snapshot_changed",
       snapshot: coreSnapshot,
+    });
+    if (!includeEnrichment) {
+      this.#logger.debug("Project refresh completed", {
+        refreshId,
+        trigger,
+        phase: "core",
+        durationMs: Date.now() - startedAt,
+      });
+      return coreSnapshot;
+    }
+
+    const enrichmentStartedAt = Date.now();
+    this.#logger.debug("Project enrichment started", {
+      refreshId,
+      trigger,
+      durationMs: Date.now() - startedAt,
     });
 
     const enrichmentGeneration = this.#snapshotEnrichmentGeneration;
@@ -1673,6 +1814,9 @@ export class HeadlessDesktopService implements DesktopService {
     if (enrichmentGeneration !== this.#snapshotEnrichmentGeneration) {
       this.#logger.debug("Project enrichment interrupted", {
         refreshId,
+        trigger,
+        phase: "enrichment",
+        enrichmentDurationMs: Date.now() - enrichmentStartedAt,
         durationMs: Date.now() - startedAt,
       });
       return coreSnapshot;
@@ -1692,7 +1836,10 @@ export class HeadlessDesktopService implements DesktopService {
           };
     this.#logger.debug("Project refresh completed", {
       refreshId,
-      snapshot: enrichedSnapshot,
+      trigger,
+      phase: "enriched",
+      trackCount: snapshot.trackCount,
+      enrichmentDurationMs: Date.now() - enrichmentStartedAt,
       durationMs: Date.now() - startedAt,
     });
     this.emit({
@@ -2050,9 +2197,9 @@ export class HeadlessDesktopService implements DesktopService {
           preferences.eventHistoryEnabled,
         );
       }
-      const restartRequired = (["abletonPort", "signalPort"] as const).filter(
-        (key) => previous[key] !== preferences[key],
-      );
+      const restartRequired = (
+        ["abletonPort", "signalPort", "remoteScriptLocation"] as const
+      ).filter((key) => previous[key] !== preferences[key]);
       if (restartRequired.length > 0) {
         this.emit({
           type: "diagnostic",
@@ -2237,6 +2384,12 @@ export class HeadlessDesktopService implements DesktopService {
       void this.#persistRuntimeSessionRotation(event);
       return;
     }
+    if (
+      event.type === "agent.mode_changed" &&
+      event.agentInstanceId !== undefined
+    ) {
+      void this.#persistRuntimeAgentMode(event.agentInstanceId, event.mode);
+    }
     if (event.type === "lifecycle.changed") {
       if (
         !this.#acceptingActions &&
@@ -2245,6 +2398,7 @@ export class HeadlessDesktopService implements DesktopService {
         this.#pendingActionableLifecycle = event.state;
         return;
       }
+
       this.#pendingActionableLifecycle = undefined;
       this.#lifecycle = event.state;
     }
@@ -2262,6 +2416,31 @@ export class HeadlessDesktopService implements DesktopService {
     ) {
       this.#clearAutomaticStreamMessageId(event);
     }
+  }
+
+  async #persistRuntimeAgentMode(
+    instanceId: string,
+    mode: DesktopAgentMode,
+  ): Promise<void> {
+    await this.#queueAgentAction(instanceId, async () => {
+      const session = this.#activeSession();
+      const instance = session?.activeAgents.find(
+        ({ id }) => id === instanceId,
+      );
+      if (
+        session === undefined ||
+        instance === undefined ||
+        instance.mode === mode
+      ) {
+        return;
+      }
+      await this.#replaceActiveProductionSession({
+        ...session,
+        activeAgents: session.activeAgents.map((candidate) =>
+          candidate.id === instanceId ? { ...candidate, mode } : candidate,
+        ),
+      });
+    });
   }
 
   async #persistRuntimeSessionRotation(
@@ -2946,6 +3125,7 @@ export class HeadlessDesktopService implements DesktopService {
       },
       ...(sdkSessionId === undefined ? {} : { sdkSessionId }),
       lifecycle: "ready",
+      mode: "interactive",
       boundTracks: [],
       modified: false,
       eventListeners: [],

@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 import type { AbletonService } from "@ableton-agent/ableton-contracts";
 import {
@@ -31,6 +32,8 @@ import type {
   DeleteCuePointParams,
   DuplicateClipToArrangementParams,
   DuplicateClipToArrangementResult,
+  FillArrangementRegionParams,
+  FillArrangementRegionResult,
   DuplicateSessionClipParams,
   DuplicateSessionClipResult,
   FindDevicePositionParams,
@@ -144,6 +147,8 @@ import {
 } from "@ableton-agent/protocol";
 import type {
   AppEvent,
+  AgentMode,
+  AgentPlanExitAction,
   ConnectionStatus,
   EventPublisher,
   LifecycleState,
@@ -271,6 +276,7 @@ export interface AgentHistoryMessage {
   readonly messageId?: string;
   readonly agentInstanceId?: string;
   readonly sdkSessionId?: string;
+  readonly agentMode?: AgentMode;
 }
 
 export interface AgentService
@@ -308,11 +314,16 @@ export interface AgentService
   /** Disconnects one managed agent instance from its SDK session. */
   deactivateManagedAgent?(instanceId: string): Promise<void>;
   /** Sends a user prompt to one managed agent instance. */
-  sendToManagedAgent?(instanceId: string, prompt: string): Promise<string>;
+  sendToManagedAgent?(
+    instanceId: string,
+    prompt: string,
+    agentMode?: AgentMode,
+  ): Promise<string>;
   /** Explicitly invokes one configured skill for a managed agent instance. */
   invokeManagedAgentSkill?(
     instanceId: string,
     invocation: string | SkillInvocation,
+    agentMode?: AgentMode,
   ): Promise<string>;
   /** Cancels an in-flight turn for one managed agent instance. */
   cancelManagedAgent?(instanceId: string): Promise<boolean>;
@@ -322,6 +333,16 @@ export interface AgentService
   getManagedAgentHistory?(
     instanceId: string,
   ): Promise<readonly AgentHistoryMessage[]>;
+  /** Resolves a pending completed-plan request for one managed instance. */
+  resolveManagedAgentPlan?(
+    instanceId: string,
+    request: {
+      requestId: string;
+      approved: boolean;
+      selectedAction?: AgentPlanExitAction;
+      feedback?: string;
+    },
+  ): Promise<boolean>;
 }
 
 const missingCopilotSessionPattern =
@@ -351,6 +372,14 @@ export function isMissingCopilotSessionError(
   );
 }
 
+const MAX_PLAN_SUMMARY_LENGTH = 8_192;
+const MAX_PLAN_CONTENT_LENGTH = 100_000;
+const MAX_PLAN_FEEDBACK_LENGTH = 8_192;
+
+function boundedPlanText(value: string, maximum: number): string {
+  return value.slice(0, maximum);
+}
+
 export type { AbletonService } from "@ableton-agent/ableton-contracts";
 
 export interface ApplicationServices {
@@ -372,7 +401,10 @@ interface CopilotResponse {
 interface CopilotSessionAdapter {
   readonly sessionId: string;
   sendAndWait(
-    prompt: string,
+    options: {
+      prompt: string;
+      agentMode?: AgentMode;
+    },
     timeoutMs?: number,
   ): Promise<CopilotResponse | undefined>;
   abort(): Promise<void>;
@@ -540,6 +572,9 @@ export interface CopilotAgentServiceOptions {
   duplicateClipToArrangement: (
     params: DuplicateClipToArrangementParams,
   ) => Promise<DuplicateClipToArrangementResult>;
+  fillArrangementRegion: (
+    params: FillArrangementRegionParams,
+  ) => Promise<FillArrangementRegionResult>;
   setArrangementClipProperties: (
     params: SetArrangementClipPropertiesParams,
   ) => Promise<SetArrangementClipPropertiesResult>;
@@ -590,9 +625,60 @@ export interface AgentRuntimeObserver {
 
 export const DEFAULT_AGENT_TURN_TIMEOUT_MS = 180_000;
 export const BASE_SYSTEM_MESSAGE_VERSION = 7;
-export const BASE_SYSTEM_MESSAGE =
-  "You are an Ableton Live production assistant. Use only the provided tools. Use supplied prepared project context and its exact identities directly when they are sufficient and the mutation is identity-guarded; do not inspect solely because cached mutable state is age-expired. Otherwise inspect current project state before making project-specific claims or mutations. Use the strict action variant matching the requested scene, track, mixer/routing, transport, MIDI-note, audio-clip, or workflow operation. Discover routing options immediately before assignment and reuse the exact snapshot ID, option token, display name, target, and direction; surface feedback and external-MIDI warnings. Never claim scene-scoped stop, arbitrary track reordering, recording controls in the transport tool, per-note expression editing, empty rack-chain creation, deterministic direct native-device insertion, or unrestricted file import. Clearly distinguish observed state from suggestions. For every requested instrument, kit, preset, or sound, search the Ableton Browser before creating its destination track. Search each distinct requested sound separately, choose roots deliberately, and resolve an exact supported loadable item. Prefer exact, loadable device or preset results over folders or loose substring matches. If search is truncated or the matches are weak, narrow the roots or try a literal musical synonym before choosing. Only after resolving the content should you create the destination track and load that exact item. Perform dependent mutations sequentially. Never retry a mutation that may already have applied; re-inspect state first and continue from the verified result.";
+export const PLAN_REMINDER_VERSION = 1;
+const baseSystemMessageCandidates = [
+  new URL("../prompts/base-system-message.md", import.meta.url),
+  new URL("./prompts/base-system-message.md", import.meta.url),
+];
+const planReminderCandidates = [
+  new URL("../prompts/plan-reminder.md", import.meta.url),
+  new URL("./prompts/plan-reminder.md", import.meta.url),
+];
+
+function loadPromptAsset(label: string, candidates: readonly URL[]): string {
+  const failures: string[] = [];
+  for (const candidate of candidates) {
+    try {
+      const content = readFileSync(candidate, "utf8").trim();
+      if (content.length === 0) {
+        failures.push(`${candidate.pathname}: prompt is empty`);
+        continue;
+      }
+      return content;
+    } catch (error) {
+      failures.push(
+        `${candidate.pathname}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  throw new Error(`${label} could not be loaded:\n${failures.join("\n")}`);
+}
+
+export function loadBaseSystemMessage(
+  candidates: readonly URL[] = baseSystemMessageCandidates,
+): string {
+  return loadPromptAsset("Base system message", candidates);
+}
+
+export function loadPlanReminder(
+  candidates: readonly URL[] = planReminderCandidates,
+): string {
+  return loadPromptAsset("Plan reminder", candidates);
+}
+
+export const BASE_SYSTEM_MESSAGE = loadBaseSystemMessage();
+export const PLAN_REMINDER = loadPlanReminder();
+
+export function composeAgentTurnPrompt(
+  prompt: string,
+  agentMode: AgentMode | undefined,
+): string {
+  return agentMode === "plan" ? `${prompt}\n\n${PLAN_REMINDER}` : prompt;
+}
+
 export const SKILL_TOOL_NAME = "skill";
+const EXIT_PLAN_MODE_TOOL_NAME = "exit_plan_mode";
+const QUALIFIED_EXIT_PLAN_MODE_TOOL_NAME = `builtin:${EXIT_PLAN_MODE_TOOL_NAME}`;
 const directSkillHistoryPrefix = "<!-- ableton-agent:direct-skill ";
 
 function isVerifiedOperationResult(result: unknown): boolean {
@@ -748,6 +834,7 @@ interface PendingAutomaticTurn {
 interface ObservedOperation {
   label: string;
   toolName: string;
+  mutates: boolean;
   arguments: Readonly<Record<string, unknown>>;
   startedAt: number;
   operationDescriptorId?: string;
@@ -773,6 +860,7 @@ interface InstrumentedTurn {
   terminalRecorded: boolean;
   toolStarted: boolean;
   retryAttempted: boolean;
+  readonly agentMode?: AgentMode;
 }
 
 interface ManagedSessionState {
@@ -786,11 +874,23 @@ interface ManagedSessionState {
   queuedTurns: number;
   turnQueue: Promise<void>;
   turnKind: CopilotTurnKind | undefined;
+  activeAgentMode: AgentMode | undefined;
   preparedContextListener: AgentEventListener | undefined;
   activeTurn: InstrumentedTurn | undefined;
   automaticDrainScheduled: boolean;
   readonly pendingAutomatic: Map<string, PendingAutomaticTurn>;
   readonly operations: Map<string, ObservedOperation>;
+  readonly directPlanRequests: Map<
+    string,
+    {
+      readonly sessionId: string;
+      resolve: (response: {
+        approved: boolean;
+        selectedAction?: AgentPlanExitAction;
+        feedback?: string;
+      }) => void;
+    }
+  >;
 }
 
 function dedupeStrings(values: readonly string[]): string[] {
@@ -916,7 +1016,14 @@ function liveEventTypedState(
 }
 
 function qualifyAvailableTools(toolNames: readonly string[]): string[] {
-  return bareToolNames(toolNames).map((toolName) => `custom:${toolName}`);
+  return [
+    ...bareToolNames(toolNames).map((toolName) => `custom:${toolName}`),
+    QUALIFIED_EXIT_PLAN_MODE_TOOL_NAME,
+  ];
+}
+
+function customAgentToolNames(toolNames: readonly string[]): string[] {
+  return [...bareToolNames(toolNames), EXIT_PLAN_MODE_TOOL_NAME];
 }
 
 function toolParameterSchema(tool: Tool): Readonly<Record<string, unknown>> {
@@ -1133,6 +1240,10 @@ function normalizeHistoryEvent(
       content,
       timestamp: event.timestamp,
       eventId: event.id,
+      ...(event.data.agentMode === "interactive" ||
+      event.data.agentMode === "plan"
+        ? { agentMode: event.data.agentMode }
+        : {}),
       ...attribution,
     };
   }
@@ -1366,6 +1477,7 @@ export class CopilotAgentService implements AgentService {
       deleteArrangementClip: this.options.deleteArrangementClip,
       replaceArrangementMidiNotes: this.options.replaceArrangementMidiNotes,
       duplicateClipToArrangement: this.options.duplicateClipToArrangement,
+      fillArrangementRegion: this.options.fillArrangementRegion,
       setArrangementClipProperties: this.options.setArrangementClipProperties,
     });
     return this.#toolSet;
@@ -1550,6 +1662,16 @@ export class CopilotAgentService implements AgentService {
               Promise.resolve(handler(executionArgs, invocation)),
             );
           }
+          if (state.activeAgentMode === "plan") {
+            this.#recordRuntime(state, "agent.plan.mutation_blocked", {
+              toolName: tool.name,
+              arguments: args,
+            });
+            throw new AbletonMutationAuthorizationError(
+              "plan_mode_read_only",
+              "Plan mode is read-only. Finish the plan and request approval before changing Ableton.",
+            );
+          }
           const requestedAt = Date.now();
           let queuedAt: number | undefined;
           let startedAt: number | undefined;
@@ -1712,11 +1834,13 @@ export class CopilotAgentService implements AgentService {
       queuedTurns: 0,
       turnQueue: Promise.resolve(),
       turnKind: undefined,
+      activeAgentMode: undefined,
       preparedContextListener: undefined,
       activeTurn: undefined,
       automaticDrainScheduled: false,
       pendingAutomatic: new Map(),
       operations: new Map(),
+      directPlanRequests: new Map(),
     };
   }
 
@@ -1819,6 +1943,7 @@ export class CopilotAgentService implements AgentService {
       traceId?: string;
       occurrenceIds?: readonly string[];
       deliveryIds?: readonly string[];
+      agentMode?: AgentMode;
     } = {},
   ): InstrumentedTurn {
     const id = randomUUID();
@@ -1832,6 +1957,9 @@ export class CopilotAgentService implements AgentService {
       terminalRecorded: false,
       toolStarted: false,
       retryAttempted: false,
+      ...(identifiers.agentMode === undefined
+        ? {}
+        : { agentMode: identifiers.agentMode }),
       trace: {
         traceId: identifiers.traceId ?? id,
         turnId: id,
@@ -2025,7 +2153,15 @@ export class CopilotAgentService implements AgentService {
         ? {}
         : { liveEventContext: scopedLiveEventContext }),
       promptContextEnabled: () => state.turnKind === "user",
-      mutationBlocked: () => state.turnKind === "automatic-analysis",
+      mutationBlocked: () =>
+        state.turnKind === "automatic-analysis" ||
+        state.activeAgentMode === "plan",
+      mutationBlockReason: () =>
+        state.activeAgentMode === "plan"
+          ? "Plan mode is read-only. Inspect as needed, finish the plan, and request approval before using mutation tools."
+          : state.turnKind === "automatic-analysis"
+            ? "Automatic analysis turns may inspect Ableton but cannot use mutation tools."
+            : undefined,
     });
     const requestToolApproval =
       this.options.requestToolApproval === undefined
@@ -2062,7 +2198,7 @@ export class CopilotAgentService implements AgentService {
           displayName: state.configuration.label,
           description: state.configuration.description,
           prompt: state.configuration.systemPrompt,
-          tools: configuredToolNames,
+          tools: customAgentToolNames(configuredToolNames),
           infer: false,
         },
       ],
@@ -2128,8 +2264,60 @@ export class CopilotAgentService implements AgentService {
         return result;
       },
       hooks: agentPolicy.hooks,
+      onExitPlanModeRequest: async (request) => {
+        const requestId = randomUUID();
+        const actions = request.actions.filter(
+          (action): action is AgentPlanExitAction =>
+            action === "interactive" || action === "exit_only",
+        );
+        if (actions.length === 0) actions.push("exit_only");
+        const recommendedAction = actions.includes(
+          request.recommendedAction as AgentPlanExitAction,
+        )
+          ? (request.recommendedAction as AgentPlanExitAction)
+          : actions.includes("interactive")
+            ? "interactive"
+            : "exit_only";
+        const sessionId = state.session?.sessionId ?? "";
+        const response = new Promise<{
+          approved: boolean;
+          selectedAction?: AgentPlanExitAction;
+          feedback?: string;
+        }>((resolve) => {
+          state.directPlanRequests.set(requestId, { sessionId, resolve });
+        });
+        this.#recordRuntime(
+          state,
+          "agent.plan.approval.requested",
+          {
+            requestId,
+            summary: boundedPlanText(request.summary, MAX_PLAN_SUMMARY_LENGTH),
+            planContent: boundedPlanText(
+              request.planContent ?? "",
+              MAX_PLAN_CONTENT_LENGTH,
+            ),
+            recommendedAction,
+            actions,
+          },
+          { sessionId },
+        );
+        this.options.events.publish({
+          type: "agent.plan_approval_requested",
+          request: {
+            requestId,
+            summary: boundedPlanText(request.summary, MAX_PLAN_SUMMARY_LENGTH),
+            planContent: boundedPlanText(
+              request.planContent ?? "",
+              MAX_PLAN_CONTENT_LENGTH,
+            ),
+            recommendedAction,
+            actions,
+          },
+          ...this.#eventAttribution(state),
+        });
+        return await response;
+      },
       systemMessage: {
-        mode: "replace",
         content:
           skillInstructions === undefined
             ? BASE_SYSTEM_MESSAGE
@@ -2268,6 +2456,21 @@ export class CopilotAgentService implements AgentService {
           occurredAt: event.timestamp,
           sessionId: session.sessionId,
         });
+      } else if (
+        event.type === "session.mode_changed" ||
+        event.type === "session.plan_changed" ||
+        event.type === "exit_plan_mode.requested" ||
+        event.type === "exit_plan_mode.completed"
+      ) {
+        this.#recordRuntime(
+          state,
+          `agent.${event.type.replaceAll("_", ".")}`,
+          sdkData,
+          {
+            occurredAt: event.timestamp,
+            sessionId: session.sessionId,
+          },
+        );
       }
       if (event.type === "assistant.message_delta") {
         this.options.events.publish({
@@ -2289,6 +2492,7 @@ export class CopilotAgentService implements AgentService {
         state.operations.set(event.data.toolCallId, {
           label,
           toolName: event.data.toolName,
+          mutates: metadata !== undefined && metadata.mutationTarget !== "read",
           arguments: event.data.arguments ?? {},
           startedAt: Date.parse(event.timestamp),
           ...(metadata?.operationId === undefined
@@ -2388,6 +2592,26 @@ export class CopilotAgentService implements AgentService {
             ...this.#eventAttribution(state),
           });
         }
+      } else if (
+        event.type === "session.mode_changed" &&
+        (event.data.newMode === "interactive" ||
+          event.data.newMode === "plan") &&
+        (event.data.previousMode === "interactive" ||
+          event.data.previousMode === "plan")
+      ) {
+        state.activeAgentMode = event.data.newMode;
+        this.options.events.publish({
+          type: "agent.mode_changed",
+          previousMode: event.data.previousMode,
+          mode: event.data.newMode,
+          ...this.#eventAttribution(state),
+        });
+      } else if (event.type === "session.plan_changed") {
+        this.options.events.publish({
+          type: "agent.plan_changed",
+          operation: event.data.operation,
+          ...this.#eventAttribution(state),
+        });
       }
     });
   }
@@ -2400,6 +2624,25 @@ export class CopilotAgentService implements AgentService {
     state.automaticDrainScheduled = false;
   }
 
+  #cancelPendingPlans(state: ManagedSessionState, reason: string): void {
+    for (const [requestId, pending] of state.directPlanRequests) {
+      pending.resolve({ approved: false });
+      this.#recordRuntime(
+        state,
+        "agent.plan.resolution.cancelled",
+        { requestId, reason },
+        { sessionId: pending.sessionId },
+      );
+      this.options.events.publish({
+        type: "agent.plan_approval_completed",
+        requestId,
+        approved: false,
+        ...this.#eventAttribution(state),
+      });
+    }
+    state.directPlanRequests.clear();
+  }
+
   async #disconnectState(
     state: ManagedSessionState,
     options: { removeFromRegistry?: boolean; reason?: unknown } = {},
@@ -2407,11 +2650,13 @@ export class CopilotAgentService implements AgentService {
     state.unsubscribe?.();
     state.unsubscribe = undefined;
     state.turnKind = undefined;
+    state.activeAgentMode = undefined;
     state.preparedContextListener = undefined;
     state.activeTurn = undefined;
     state.inFlightTurns = 0;
     state.queuedTurns = 0;
     state.operations.clear();
+    this.#cancelPendingPlans(state, "session_disconnected");
     this.#rejectPendingAutomatic(
       state,
       options.reason ?? new Error("Copilot session disconnected"),
@@ -2549,9 +2794,11 @@ export class CopilotAgentService implements AgentService {
 
     previous.session = undefined;
     previous.turnKind = undefined;
+    previous.activeAgentMode = undefined;
     previous.inFlightTurns = 0;
     previous.queuedTurns = 0;
     previous.operations.clear();
+    this.#cancelPendingPlans(previous, "session_replaced");
     this.#rejectPendingAutomatic(previous, reason);
     this.#states.set(replacement.key, replacement);
   }
@@ -2581,6 +2828,12 @@ export class CopilotAgentService implements AgentService {
     state.unsubscribe?.();
     state.unsubscribe = undefined;
     for (const [operationId, operation] of state.operations) {
+      const code = operation.mutates
+        ? "applied_indeterminate"
+        : "operation_timeout";
+      const message = operation.mutates
+        ? `${operation.label} may have changed Ableton before the Copilot turn timed out; inspect the affected state before retrying`
+        : `${operation.label} cancelled because the Copilot turn timed out`;
       this.#recordRuntime(
         state,
         "agent.tool.failed",
@@ -2588,8 +2841,10 @@ export class CopilotAgentService implements AgentService {
           toolCallId: operationId,
           toolName: operation.toolName,
           arguments: operation.arguments,
-          code: "operation_timeout",
-          message: `${operation.label} cancelled because the Copilot turn timed out`,
+          code,
+          message,
+          outcome: operation.mutates ? "applied_indeterminate" : "timed_out",
+          requiresReinspection: operation.mutates,
           durationMs: Date.now() - operation.startedAt,
         },
         { trace: turn?.trace, sessionId: session.sessionId },
@@ -2597,8 +2852,8 @@ export class CopilotAgentService implements AgentService {
       this.options.events.publish({
         type: "operation.failed",
         operationId,
-        code: "operation_timeout",
-        message: `${operation.label} cancelled because the Copilot turn timed out`,
+        code,
+        message,
         toolName: operation.toolName,
         ...this.#eventAttribution(state),
       });
@@ -2613,6 +2868,7 @@ export class CopilotAgentService implements AgentService {
       { trace: turn?.trace, sessionId: session.sessionId },
     );
     try {
+      this.#cancelPendingPlans(state, "turn_timed_out");
       await session.abort();
       this.#recordRuntime(
         state,
@@ -2862,6 +3118,7 @@ export class CopilotAgentService implements AgentService {
       reason: "user",
     });
     try {
+      this.#cancelPendingPlans(state, "user_cancelled");
       await session.abort();
       this.#recordRuntime(state, "agent.abort.completed", { reason: "user" });
       this.#recordRuntime(state, "agent.turn.cancelled", {
@@ -2891,6 +3148,7 @@ export class CopilotAgentService implements AgentService {
       reason: "user",
     });
     try {
+      this.#cancelPendingPlans(state, "user_cancelled");
       await session.abort();
       this.#recordRuntime(state, "agent.abort.completed", { reason: "user" });
       this.#recordRuntime(state, "agent.turn.cancelled", {
@@ -2947,6 +3205,7 @@ export class CopilotAgentService implements AgentService {
     prompt: string,
     kind: CopilotTurnKind,
     turn: InstrumentedTurn,
+    agentMode?: AgentMode,
   ): Promise<string> {
     const session = state.session;
     if (!session) {
@@ -2958,16 +3217,25 @@ export class CopilotAgentService implements AgentService {
     }
     const timeoutMs =
       this.options.turnTimeoutMs ?? DEFAULT_AGENT_TURN_TIMEOUT_MS;
+    const requestedAgentMode = agentMode ?? "interactive";
+    const finalPrompt = composeAgentTurnPrompt(prompt, agentMode);
+    const planReminderApplied = agentMode === "plan";
     const startedAt = Date.now();
     turn.startedAt = startedAt;
     state.activeTurn = turn;
+    state.activeAgentMode = requestedAgentMode;
     this.#recordRuntime(
       state,
       "agent.turn.started",
       {
         origin: turn.origin,
-        prompt,
+        prompt: finalPrompt,
         kind,
+        agentMode: state.activeAgentMode,
+        planReminderApplied,
+        ...(planReminderApplied
+          ? { planReminderVersion: PLAN_REMINDER_VERSION }
+          : {}),
         timeoutMs,
         queuedAt: new Date(turn.queuedAt).toISOString(),
         queueDurationMs: startedAt - turn.queuedAt,
@@ -2980,14 +3248,25 @@ export class CopilotAgentService implements AgentService {
         ? { instanceId: state.configuration.instanceId }
         : {}),
       kind,
-      prompt,
+      agentMode: state.activeAgentMode,
+      prompt: finalPrompt,
+      planReminderApplied,
+      ...(planReminderApplied
+        ? { planReminderVersion: PLAN_REMINDER_VERSION }
+        : {}),
       timeoutMs,
     });
     state.inFlightTurns += 1;
     state.turnKind = kind;
     let response: CopilotResponse | undefined;
     try {
-      response = await session.sendAndWait(prompt, timeoutMs);
+      response = await session.sendAndWait(
+        {
+          prompt: finalPrompt,
+          ...(agentMode === undefined ? {} : { agentMode }),
+        },
+        timeoutMs,
+      );
     } catch (error) {
       this.#logger.error("Agent turn failed", {
         sessionId: session.sessionId,
@@ -2995,7 +3274,7 @@ export class CopilotAgentService implements AgentService {
           ? { instanceId: state.configuration.instanceId }
           : {}),
         kind,
-        prompt,
+        prompt: finalPrompt,
         durationMs: Date.now() - startedAt,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -3007,8 +3286,13 @@ export class CopilotAgentService implements AgentService {
         "agent.turn.failed",
         {
           origin: turn.origin,
-          prompt,
+          prompt: finalPrompt,
           kind,
+          agentMode: requestedAgentMode,
+          planReminderApplied,
+          ...(planReminderApplied
+            ? { planReminderVersion: PLAN_REMINDER_VERSION }
+            : {}),
           durationMs: Date.now() - startedAt,
           error: error instanceof Error ? error.message : String(error),
         },
@@ -3019,6 +3303,7 @@ export class CopilotAgentService implements AgentService {
     } finally {
       state.inFlightTurns -= 1;
       state.turnKind = undefined;
+      state.activeAgentMode = undefined;
       state.activeTurn = undefined;
     }
     if (!response) {
@@ -3027,8 +3312,13 @@ export class CopilotAgentService implements AgentService {
         "agent.turn.failed",
         {
           origin: turn.origin,
-          prompt,
+          prompt: finalPrompt,
           kind,
+          agentMode: requestedAgentMode,
+          planReminderApplied,
+          ...(planReminderApplied
+            ? { planReminderVersion: PLAN_REMINDER_VERSION }
+            : {}),
           durationMs: Date.now() - startedAt,
           error: "Copilot session completed without an assistant response",
         },
@@ -3058,8 +3348,13 @@ export class CopilotAgentService implements AgentService {
       "agent.turn.completed",
       {
         origin: turn.origin,
-        prompt,
+        prompt: finalPrompt,
         kind,
+        agentMode: requestedAgentMode,
+        planReminderApplied,
+        ...(planReminderApplied
+          ? { planReminderVersion: PLAN_REMINDER_VERSION }
+          : {}),
         response: response.data.content,
         durationMs: Date.now() - startedAt,
       },
@@ -3072,7 +3367,7 @@ export class CopilotAgentService implements AgentService {
         ? { instanceId: state.configuration.instanceId }
         : {}),
       kind,
-      prompt,
+      prompt: finalPrompt,
       response: response.data.content,
       durationMs: Date.now() - startedAt,
     });
@@ -3166,6 +3461,9 @@ export class CopilotAgentService implements AgentService {
         {
           origin: turn.origin,
           prompt: turn.prompt,
+          ...(turn.agentMode === undefined
+            ? {}
+            : { agentMode: turn.agentMode }),
           queueDepth: state.queuedTurns,
         },
         { trace: turn.trace },
@@ -3218,6 +3516,7 @@ export class CopilotAgentService implements AgentService {
   public sendToManagedAgent(
     instanceId: string,
     prompt: string,
+    agentMode?: AgentMode,
   ): Promise<string> {
     const state = this.#requireManagedState(instanceId);
     let invocation: SkillInvocation | undefined;
@@ -3231,6 +3530,7 @@ export class CopilotAgentService implements AgentService {
     const turn = this.#newTurn(
       invocation === undefined ? "user" : "skill",
       prompt,
+      agentMode === undefined ? {} : { agentMode },
     );
     return this.#serialize(
       state,
@@ -3239,22 +3539,101 @@ export class CopilotAgentService implements AgentService {
           invocation === undefined
             ? prompt
             : await this.#prepareSkillInvocation(state, invocation);
-        return this.#sendNow(state, turnPrompt, "user", turn);
+        return this.#sendNow(state, turnPrompt, "user", turn, agentMode);
       },
       turn,
     );
   }
 
+  public async resolveManagedAgentPlan(
+    instanceId: string,
+    request: {
+      requestId: string;
+      approved: boolean;
+      selectedAction?: AgentPlanExitAction;
+      feedback?: string;
+    },
+  ): Promise<boolean> {
+    const state = this.#requireManagedState(instanceId);
+    const session = state.session;
+    if (session === undefined) {
+      throw new Error(`Managed agent '${instanceId}' is not active`);
+    }
+    const direct = state.directPlanRequests.get(request.requestId);
+    if (direct !== undefined) {
+      const startedAt = Date.now();
+      this.#recordRuntime(
+        state,
+        "agent.plan.resolution.queued",
+        { requestId: request.requestId },
+        { sessionId: direct.sessionId },
+      );
+      this.#recordRuntime(
+        state,
+        "agent.plan.resolution.started",
+        { requestId: request.requestId },
+        { sessionId: direct.sessionId },
+      );
+      state.directPlanRequests.delete(request.requestId);
+      const feedback =
+        request.feedback === undefined
+          ? undefined
+          : boundedPlanText(request.feedback, MAX_PLAN_FEEDBACK_LENGTH);
+      if (
+        request.approved &&
+        (request.selectedAction === "interactive" ||
+          request.selectedAction === "exit_only")
+      ) {
+        state.activeAgentMode = "interactive";
+      }
+      direct.resolve({
+        approved: request.approved,
+        ...(request.selectedAction === undefined
+          ? {}
+          : { selectedAction: request.selectedAction }),
+        ...(feedback === undefined ? {} : { feedback }),
+      });
+      this.#recordRuntime(
+        state,
+        "agent.plan.resolution.completed",
+        {
+          requestId: request.requestId,
+          approved: request.approved,
+          selectedAction: request.selectedAction,
+          durationMs: Date.now() - startedAt,
+        },
+        { sessionId: direct.sessionId },
+      );
+      this.options.events.publish({
+        type: "agent.plan_approval_completed",
+        requestId: request.requestId,
+        approved: request.approved,
+        ...(request.selectedAction === undefined
+          ? {}
+          : { selectedAction: request.selectedAction }),
+        ...(feedback === undefined ? {} : { feedback }),
+        ...this.#eventAttribution(state),
+      });
+      return true;
+    }
+    return false;
+  }
+
   public invokeManagedAgentSkill(
     instanceId: string,
     invocation: string | SkillInvocation,
+    agentMode?: AgentMode,
   ): Promise<string> {
     const state = this.#requireManagedState(instanceId);
     const displayPrompt =
       typeof invocation === "string"
         ? invocation
         : formatSkillInvocation(invocation);
-    const turn = this.#newTurn("skill", displayPrompt);
+    const turn = this.#newTurn(
+      "skill",
+      displayPrompt,
+      agentMode === undefined ? {} : { agentMode },
+    );
     return this.#serialize(
       state,
       async () =>
@@ -3263,6 +3642,7 @@ export class CopilotAgentService implements AgentService {
           await this.#prepareSkillInvocation(state, invocation),
           "user",
           turn,
+          agentMode,
         ),
       turn,
     );
@@ -3474,6 +3854,7 @@ export class HeadlessApplication {
       | "cancelManagedAgent"
       | "getManagedAgentSessionId"
       | "getManagedAgentHistory"
+      | "resolveManagedAgentPlan"
       | "listModels",
   >(name: K): NonNullable<AgentService[K]> {
     const method = this.services.agent[name];
@@ -3634,6 +4015,7 @@ export class HeadlessApplication {
   public sendToManagedAgent(
     instanceId: string,
     prompt: string,
+    agentMode?: AgentMode,
   ): Promise<string> {
     if (this.#state !== "ready" && this.#state !== "degraded") {
       return Promise.reject(
@@ -3643,12 +4025,34 @@ export class HeadlessApplication {
     return this.#requireManagedAgentMethod("sendToManagedAgent")(
       instanceId,
       prompt,
+      agentMode,
+    );
+  }
+
+  public resolveManagedAgentPlan(
+    instanceId: string,
+    request: {
+      requestId: string;
+      approved: boolean;
+      selectedAction?: AgentPlanExitAction;
+      feedback?: string;
+    },
+  ): Promise<boolean> {
+    if (this.#state !== "ready" && this.#state !== "degraded") {
+      return Promise.reject(
+        new Error(`Application is not running (${this.#state})`),
+      );
+    }
+    return this.#requireManagedAgentMethod("resolveManagedAgentPlan")(
+      instanceId,
+      request,
     );
   }
 
   public invokeManagedAgentSkill(
     instanceId: string,
     invocation: string | SkillInvocation,
+    agentMode?: AgentMode,
   ): Promise<string> {
     if (this.#state !== "ready" && this.#state !== "degraded") {
       return Promise.reject(
@@ -3658,6 +4062,7 @@ export class HeadlessApplication {
     return this.#requireManagedAgentMethod("invokeManagedAgentSkill")(
       instanceId,
       invocation,
+      agentMode,
     );
   }
 
@@ -4009,6 +4414,12 @@ export class HeadlessApplication {
     params: DuplicateClipToArrangementParams,
   ): Promise<DuplicateClipToArrangementResult> {
     return this.services.ableton.duplicateClipToArrangement(params);
+  }
+
+  public fillArrangementRegion(
+    params: FillArrangementRegionParams,
+  ): Promise<FillArrangementRegionResult> {
+    return this.services.ableton.fillArrangementRegion(params);
   }
 
   public setArrangementClipProperties(

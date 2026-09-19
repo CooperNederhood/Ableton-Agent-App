@@ -13,6 +13,7 @@ import {
   deleteCuePointParamsSchema,
   deviceSummarySchema,
   duplicateClipToArrangementParamsSchema,
+  fillArrangementRegionParamsSchema,
   duplicateSessionClipParamsSchema,
   findDevicePositionParamsSchema,
   inspectDeviceParametersParamsSchema,
@@ -93,6 +94,9 @@ describe("protocol negotiation", () => {
 
     it("classifies device parameter inspection as long-running", () => {
       expect(commandCatalog["devices.inspect_parameters"].timeoutClass).toBe(
+        "long",
+      );
+      expect(commandCatalog["arrangement.fill_region"].timeoutClass).toBe(
         "long",
       );
     });
@@ -526,6 +530,40 @@ describe("Arrangement operation schemas", () => {
         destinationTime: 16,
       }),
     ).toMatchObject({ sceneIndex: 1, destinationTime: 16 });
+  });
+
+  it("validates half-open Arrangement region fill parameters", () => {
+    expect(
+      fillArrangementRegionParamsSchema.parse({
+        ...identity,
+        sceneIndex: 1,
+        expectedClipReference: "00000000-0000-4000-8000-000000000010",
+        regionStart: 16,
+        regionEnd: 48,
+      }),
+    ).toMatchObject({
+      regionStart: 16,
+      regionEnd: 48,
+    });
+    expect(
+      fillArrangementRegionParamsSchema.safeParse({
+        ...identity,
+        sceneIndex: 1,
+        expectedClipReference: "00000000-0000-4000-8000-000000000010",
+        regionStart: 48,
+        regionEnd: 48,
+      }).success,
+    ).toBe(false);
+    expect(
+      fillArrangementRegionParamsSchema.safeParse({
+        ...identity,
+        sceneIndex: 1,
+        expectedClipReference: "00000000-0000-4000-8000-000000000010",
+        regionStart: 16,
+        regionEnd: 48,
+        remainder: "reject",
+      }).success,
+    ).toBe(false);
   });
 
   describe("Session clip operation schemas", () => {

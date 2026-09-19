@@ -22,10 +22,13 @@ Companion specification: [Desktop Application](desktop-application.md)
 Electron main now composes `createAgentRuntime` from `packages/runtime`, the
 same composition root the CLI uses, and adapts it through
 `HeadlessDesktopService`. The bridge port, model, and reasoning effort come
-from persisted preferences; the bridge token comes from the OS-backed
-credential vault or `ABLETON_AGENT_TOKEN`. Because both are read while the
-composition is built, changing them takes effect on the next launch, which the
-app states explicitly when those preferences are saved.
+from persisted preferences. The bridge token resolves from the OS-backed
+credential vault, `ABLETON_AGENT_TOKEN`, or the configured/auto-detected Remote
+Script installation. A discovered installation token is persisted to the vault
+and shared with Signal ingress without entering renderer state. Because bridge
+credentials and locations are read while the composition is built, changing
+the location takes effect on the next launch, which the app states explicitly
+when that preference is saved.
 
 Actual startup order differs from the specification's sketch: logging and the
 composition are prepared first, then preferences, stored sessions, and saved
@@ -34,7 +37,9 @@ and reads the current LOM project identity before Desktop selects a production
 session. A saved Live Set resumes only its own canonical session; an unmatched
 or unsaved set starts with a clean Default agent. The app no longer resumes the
 newest global conversation merely because it was updated most recently.
-Remote Script detection and installation are still not implemented.
+Remote Script location detection, managed installation, and automatic
+credential provisioning are implemented. One-click installation and update
+controls are still not exposed in the renderer.
 
 The shared application gained only the ports the desktop contract needs:
 `cancel`, `createAgentSession`, `resumeAgentSession`, `agentSessionId`, and
@@ -53,6 +58,8 @@ never left pending, when no renderer is listening or the app is shutting down.
   instances.
 - [x] Implement chat send, cancel, create session, and resume session APIs.
 - [x] Implement connection, status, capability, snapshot, and diagnostic APIs.
+- [x] Keep automatic startup snapshots to bounded core Session state; publish
+  device and parameter enrichment only for explicit coalesced refreshes.
 - [x] Implement approval resolution APIs.
 - [x] Forward shared `AppEvent` values to the renderer with runtime validation.
 - [x] Ensure every essential CLI interaction has a desktop equivalent.
@@ -62,6 +69,10 @@ never left pending, when no renderer is listening or the app is shutting down.
   controls while keeping the composer aligned with the conversation column.
 - [x] Preserve optional tool identity in desktop operation view models and
   render compact typed activity rows without removing recovery details.
+- [x] Add opt-in isolated desktop automation launch flags, selected-agent
+  startup, scoped YOLO startup, and visible external user-turn attribution.
+- [x] Host a debug-only authenticated loopback endpoint that sends through the
+  running visible desktop service rather than a second headless composition.
 
 Project snapshots are read through the shared application (`inspectSession`,
 `inspectDevices`, `inspectDeviceParameters`) and mapped into desktop view
@@ -121,6 +132,8 @@ presentation state and say so; they are not applied to Live.
     keyboard shortcuts, and clean shutdown.
   - [ ] Cover live Copilot chat/tool streaming and approval flows in packaged
     builds.
+  - [x] Cover isolated automation launch and an externally submitted visible
+    user message.
 
 Playwright was not already configured. It remains unchecked because a reliable
 Electron packaging/launch harness would add substantial setup beyond the
@@ -134,6 +147,9 @@ Electron itself is the only untested layer of those flows.
 - [x] Desktop chat matches the CLI reference contract.
 - [x] Renderer has no direct Copilot, filesystem, credential, or socket access.
 - [x] App exits without orphaning Copilot or bridge processes.
+- [x] Keep the application-owned Copilot turn deadline at 180 seconds and
+  classify any still-running Ableton mutation as applied-indeterminate on
+  timeout so the UI requires reinspection instead of claiming cancellation.
 - [x] Packaged development builds pass Electron smoke tests.
 
 Packaging metadata and a packaged-app smoke harness are not yet present in the

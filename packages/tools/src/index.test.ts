@@ -420,6 +420,43 @@ function services() {
           verified: true as const,
         }),
     ),
+    fillArrangementRegion: vi.fn(
+      (params: Parameters<AbletonToolServices["fillArrangementRegion"]>[0]) =>
+        Promise.resolve({
+          sourceClip: {
+            reference: params.expectedClipReference,
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            sceneIndex: params.sceneIndex,
+            name: "Beat",
+            kind: "midi" as const,
+            length: 4,
+            noteCount: 1,
+          },
+          clips: [
+            {
+              reference: "00000000-0000-4000-8000-000000000022",
+              trackReference: params.expectedReference,
+              trackIndex: params.index,
+              name: "Beat",
+              kind: "midi" as const,
+              startTime: params.regionStart,
+              endTime: params.regionStart + 4,
+              length: 4,
+              noteCount: 1,
+            },
+          ],
+          regionStart: params.regionStart,
+          regionEnd: params.regionEnd,
+          sourceLength: 4,
+          fullTileCount: 1,
+          coveredEnd: params.regionStart + 4,
+          unusedRemainder: params.regionEnd - params.regionStart - 4,
+          beforeClipCount: 1,
+          afterClipCount: 2,
+          verified: true as const,
+        }),
+    ),
     setArrangementClipProperties: vi.fn(
       (
         params: Parameters<
@@ -1154,6 +1191,7 @@ describe("Ableton tools", () => {
       "custom:ableton_warp_markers",
       "custom:ableton_special_devices",
       "custom:ableton_workflow_jobs",
+      "custom:ableton_arrangement_fill_region",
     ]);
     expect(toolSet.tools.length).toBeLessThanOrEqual(
       toolCatalogPolicy.maximumEagerTools,
@@ -1747,6 +1785,18 @@ describe("Ableton tools", () => {
       { target: operationChainTarget, mute: true },
       invocation,
     );
+    await toolSet.tools[58].handler?.(
+      {
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Drums",
+        sceneIndex: 0,
+        expectedClipReference: "00000000-0000-4000-8000-000000000010",
+        regionStart: 16,
+        regionEnd: 34,
+      },
+      invocation,
+    );
 
     expect(ports.getConnectionStatus).toHaveBeenCalledTimes(
       toolSet.tools.length - 15,
@@ -1897,6 +1947,15 @@ describe("Ableton tools", () => {
       sceneIndex: 0,
       expectedClipReference: "00000000-0000-4000-8000-000000000010",
       destinationTime: 16,
+    });
+    expect(ports.fillArrangementRegion).toHaveBeenCalledWith({
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000001",
+      expectedName: "Drums",
+      sceneIndex: 0,
+      expectedClipReference: "00000000-0000-4000-8000-000000000010",
+      regionStart: 16,
+      regionEnd: 34,
     });
     expect(ports.setArrangementClipProperties).toHaveBeenCalledWith({
       index: 0,

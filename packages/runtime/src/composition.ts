@@ -736,6 +736,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       ableton.replaceArrangementMidiNotes(params),
     duplicateClipToArrangement: (params) =>
       ableton.duplicateClipToArrangement(params),
+    fillArrangementRegion: (params) => ableton.fillArrangementRegion(params),
     setArrangementClipProperties: (params) =>
       ableton.setArrangementClipProperties(params),
     signalContext: { provider: signals.provider },

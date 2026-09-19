@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -37,8 +38,32 @@ import {
   resolveDesktopIconPath,
   shouldOpenDevelopmentTools,
 } from "./window-options.js";
+import {
+  applyAutomationStartup,
+  createDesktopAutomationServer,
+} from "./automation-host.js";
+import { parseDesktopLaunchOptions } from "./launch-options.js";
+import type { AutomationControlServer } from "@ableton-agent/debug-control";
 
 const currentDirectory = fileURLToPath(new URL(".", import.meta.url));
+const launchOptions = parseDesktopLaunchOptions(process.argv);
+if (launchOptions.automation !== undefined) {
+  const normalUserDataPath = app.getPath("userData");
+  if (
+    resolve(launchOptions.automation.profilePath) ===
+    resolve(normalUserDataPath)
+  ) {
+    throw new Error(
+      "Automation profile must be separate from the normal desktop profile",
+    );
+  }
+  app.setPath("userData", launchOptions.automation.profilePath);
+  app.setPath(
+    "sessionData",
+    join(launchOptions.automation.profilePath, "session"),
+  );
+  app.setPath("logs", join(launchOptions.automation.profilePath, "logs"));
+}
 const desktopIconPath = resolveDesktopIconPath(
   app.isPackaged,
   process.resourcesPath,
@@ -51,6 +76,7 @@ const maximumRendererRestarts = 3;
 const pendingDeepLinks: string[] = [];
 let lifecycleStarted = false;
 let removeSignalSecret: (() => Promise<void>) | undefined;
+let automationServer: AutomationControlServer | undefined;
 
 const logPath = join(
   app.getPath("logs"),
@@ -71,20 +97,6 @@ export const credentialVault = new OsCredentialVault(
   join(app.getPath("userData"), "credentials"),
   safeStorage,
 );
-/** Key holding the Remote Script shared secret in the OS-backed vault. */
-const bridgeTokenKey = "ableton-bridge-token";
-
-async function readStoredToken(): Promise<string | undefined> {
-  try {
-    return await credentialVault.get(bridgeTokenKey);
-  } catch (error) {
-    await logger.write("warn", "Stored bridge token could not be read", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return undefined;
-  }
-}
-
 // Composed after `app.whenReady()` because preferences and credentials come
 // from Electron-managed paths; every handler below runs after that point.
 function requireService(): DesktopComposition["service"] {
@@ -234,11 +246,6 @@ async function bootstrap(): Promise<void> {
     loggingLevel: activeLoggingLevel,
     environmentOverride: environmentLoggingLevel !== undefined,
   });
-  const storedToken = await readStoredToken();
-  const signalSecret = storedToken ?? process.env.ABLETON_AGENT_TOKEN;
-  if (signalSecret !== undefined) {
-    removeSignalSecret = await writeSignalSecret(signalSecret);
-  }
   composition = await createDesktopComposition({
     preferencesPath: join(app.getPath("userData"), "preferences.json"),
     sessionsPath: join(app.getPath("userData"), "sessions.json"),
@@ -251,7 +258,9 @@ async function bootstrap(): Promise<void> {
       : fileURLToPath(new URL("../../../../skills", import.meta.url)),
     agentBaseDirectory: join(app.getPath("userData"), "copilot"),
     signalDescriptorPath,
-    storedToken,
+    credentialVault,
+    homeDirectory: homedir(),
+    platform: process.platform,
     environment: process.env,
     logger: {
       debug: (message, context) => void logger.write("debug", message, context),
@@ -265,6 +274,9 @@ async function bootstrap(): Promise<void> {
       logger.setLevel(activeLoggingLevel);
     },
   });
+  if (composition.bridgeToken !== undefined) {
+    removeSignalSecret = await writeSignalSecret(composition.bridgeToken);
+  }
   activeLoggingLevel =
     environmentLoggingLevel ?? composition.preferences.loggingLevel;
   logger.setLevel(activeLoggingLevel);
@@ -317,7 +329,11 @@ async function bootstrap(): Promise<void> {
     event.preventDefault();
     shuttingDown = true;
     void stopDesktopLifecycle({
-      stopServices: () => requireService().stop(),
+      stopServices: async () => {
+        await automationServer?.stop();
+        automationServer = undefined;
+        await requireService().stop();
+      },
     }).finally(async () => {
       await removeSignalSecret?.().catch((error: unknown) =>
         logger.write("warn", "Signal ingress secret could not be removed", {
@@ -341,8 +357,31 @@ async function bootstrap(): Promise<void> {
       if (mainWindow?.isMinimized()) mainWindow.restore();
       mainWindow?.focus();
     },
-    startServices: () => requireService().start(),
-    stopServices: () => requireService().stop(),
+    startServices: async () => {
+      await requireService().start();
+      if (launchOptions.automation !== undefined) {
+        await applyAutomationStartup(
+          requireService(),
+          launchOptions.automation,
+        );
+        automationServer = createDesktopAutomationServer({
+          service: requireService(),
+          launch: launchOptions.automation,
+          telemetry: composition!.telemetry,
+        });
+        await automationServer.start();
+        await logger.write("info", "Desktop automation endpoint started", {
+          descriptorPath: launchOptions.automation.descriptorPath,
+          agentDefinition: launchOptions.automation.agentDefinition,
+          yolo: launchOptions.automation.yolo,
+        });
+      }
+    },
+    stopServices: async () => {
+      await automationServer?.stop();
+      automationServer = undefined;
+      await requireService().stop();
+    },
     quit: () => app.quit(),
   });
   lifecycleStarted = true;
@@ -353,6 +392,8 @@ async function bootstrap(): Promise<void> {
 }
 
 void bootstrap().catch(async (error: unknown) => {
+  await automationServer?.stop().catch(() => undefined);
+  await composition?.service.stop().catch(() => undefined);
   await removeSignalSecret?.().catch(() => undefined);
   await logger.write("error", "Desktop bootstrap failed", {
     error: error instanceof Error ? error.message : String(error),

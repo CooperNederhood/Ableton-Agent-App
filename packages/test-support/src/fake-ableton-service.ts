@@ -436,6 +436,9 @@ export class FakeAbletonService implements AbletonService {
       new UnsupportedByFakeError("duplicateClipToArrangement"),
     );
   }
+  public fillArrangementRegion(): Promise<Protocol.FillArrangementRegionResult> {
+    return Promise.reject(new UnsupportedByFakeError("fillArrangementRegion"));
+  }
   public setArrangementClipProperties(): Promise<Protocol.SetArrangementClipPropertiesResult> {
     return Promise.reject(
       new UnsupportedByFakeError("setArrangementClipProperties"),

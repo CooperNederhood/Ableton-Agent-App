@@ -51,14 +51,25 @@ The two authorization paths are intentionally different: agent-driven
 `skill(...)` calls use the agent definition's allowlist, while user-driven slash
 commands use the complete validated catalog.
 
+When either path runs in plan mode, the application appends the canonical
+`packages/application/prompts/plan-reminder.md` content after the expanded skill
+body and user request. Edit-oriented skill instructions therefore describe
+post-approval implementation and do not supersede the active read-only mode.
+Interactive skill turns are sent without this suffix.
+
 ## Built-in skills
 
 The initial resource set includes:
 
 - `midi-composition`
-- `arrangement-planning`
+- `techno-arrangement-planning`
 - `sound-design`
 - `mix-review`
+
+The techno arrangement skill inspects the current Arrangement, classifies it as
+beginner, intermediate, or advanced using phrase, energy, evolution,
+transition, identity, and DJ-function criteria, and returns bar-specific
+recommendations for reaching the next level.
 
 Skills package domain guidance. Tool access and edit authority remain governed
 by the active agent's tool set and edit scope.

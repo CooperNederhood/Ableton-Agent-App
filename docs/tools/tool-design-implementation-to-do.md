@@ -76,6 +76,8 @@ Companion specification: [Tool Design](tool-design.md)
   - [x] Implement destructive identity-bound Arrangement clip deletion.
   - [x] Implement destructive bounded Arrangement MIDI note replacement.
   - [x] Implement reversible Session-to-Arrangement clip duplication.
+  - [x] Implement reversible transactional Arrangement region filling with
+    complete-tile placement and uncovered-tail reporting.
   - [x] Implement reversible identity-bound Arrangement clip properties.
 - [~] Implement browser/device load and parameter operations.
   - [x] Add reversible verified device enable/disable and normalized parameter
@@ -122,6 +124,8 @@ Companion specification: [Tool Design](tool-design.md)
   authorization/locking for cross-track device movement.
 - [ ] Validate every mutation against real Live before marking supported.
   - [ ] Validate Arrangement loop and cue-point LOM behavior in real Live.
+  - [ ] Validate region-fill chunk timing and MIDI/warped/unwarped final
+    clipping behavior in real Live.
 
 ## Exit criteria
 

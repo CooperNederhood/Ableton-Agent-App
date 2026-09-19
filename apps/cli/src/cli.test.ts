@@ -756,6 +756,44 @@ function application(
         verified: true as const,
       }),
     ),
+    fillArrangementRegion: vi.fn(
+      async (
+        params: Parameters<AbletonService["fillArrangementRegion"]>[0],
+      ) => ({
+        sourceClip: {
+          reference: params.expectedClipReference,
+          trackReference: params.expectedReference,
+          trackIndex: params.index,
+          sceneIndex: params.sceneIndex,
+          name: "Beat",
+          kind: "midi" as const,
+          length: 4,
+          noteCount: 1,
+        },
+        clips: [
+          {
+            reference: "00000000-0000-4000-8000-000000000022",
+            trackReference: params.expectedReference,
+            trackIndex: params.index,
+            name: "Beat",
+            kind: "midi" as const,
+            startTime: params.regionStart,
+            endTime: params.regionStart + 4,
+            length: 4,
+            noteCount: 1,
+          },
+        ],
+        regionStart: params.regionStart,
+        regionEnd: params.regionEnd,
+        sourceLength: 4,
+        fullTileCount: 1,
+        coveredEnd: params.regionStart + 4,
+        unusedRemainder: params.regionEnd - params.regionStart - 4,
+        beforeClipCount: 1,
+        afterClipCount: 2,
+        verified: true as const,
+      }),
+    ),
     setArrangementClipProperties: vi.fn(
       async (
         params: Parameters<AbletonService["setArrangementClipProperties"]>[0],

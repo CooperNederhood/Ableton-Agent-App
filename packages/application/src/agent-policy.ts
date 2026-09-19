@@ -43,6 +43,7 @@ export interface AgentPolicyServices {
   liveEventContext?: LiveEventContextOptions;
   promptContextEnabled?: () => boolean;
   mutationBlocked?: () => boolean;
+  mutationBlockReason?: () => string | undefined;
 }
 
 export interface AgentPolicy {
@@ -263,9 +264,14 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
         input.toolName,
         input.toolArgs,
       );
-      if (services.mutationBlocked?.() && metadata?.risk !== "read") {
+      if (
+        services.mutationBlocked?.() &&
+        metadata !== undefined &&
+        metadata.risk !== "read"
+      ) {
         const reason =
-          "Automatic analysis turns may inspect Ableton but cannot use mutation tools.";
+          services.mutationBlockReason?.() ??
+          "This turn may inspect Ableton but cannot use mutation tools.";
         return {
           permissionDecision: "deny",
           permissionDecisionReason: reason,

@@ -32,6 +32,15 @@ Companion specification: [Remote Script](remote-script.md)
     cue points using runtime-stable references where Live exposes no IDs.
   - [x] Add seek/jump, time signature, metronome, launch/record quantization,
     capability-gated Link, cue rename/jump, and Back to Arrangement.
+  - [x] Verify Arrangement duplication and cue-point creation with proxy-safe
+    before/after collection deltas, stage-specific failures, and explicit
+    rolled-back versus applied-indeterminate outcomes.
+  - [x] Match cue proxies by their unique Arrangement time when Live returns
+    fresh wrappers, and report read-only cue naming on Live 11.3.43 as an
+    unsupported naming stage after verified rollback.
+  - [x] Bound each main-thread executor drain so queued LOM work yields between
+    batches instead of monopolizing one Live callback, and log bounded queued,
+    started, completed, failed, cancelled, queue-depth, and duration fields.
 - [~] Implement track and mixer handlers.
   - [x] Create MIDI/audio tracks with optional names and verified postconditions.
   - [x] Delete identity-bound non-group tracks with last-track protection.
@@ -64,6 +73,11 @@ Companion specification: [Remote Script](remote-script.md)
   - [x] Replace bounded Arrangement MIDI notes with verification and recovery.
   - [x] Duplicate identity-bound Session clips to non-overlapping Arrangement
     destinations with verification and rollback.
+  - [x] Fill a bounded Arrangement region transactionally through one deferred
+    command, yielding after four tiles per Live tick and rolling back the whole
+    batch after any failure.
+  - [x] Keep region fill complete-tile-only because Live 11.3.43 marker
+    boundaries do not change the read-only Arrangement `end_time`.
   - [x] Update supported Arrangement clip properties with full rollback.
 - [~] Implement device, rack, Drum Rack, and parameter handlers.
   - [x] Inspect top-level regular-track devices and exact-device parameters

@@ -27,7 +27,11 @@ typed service calls, and sessions use explicit create/resume operations.
 - [x] Add transient independent Project/Inspector sidebars and combined
   top-chrome controls, with the composer aligned to the expanding conversation
   column.
+- [x] Add bounded pointer dragging for session-only Project and Inspector
+  widths, preserving the conversation minimum and hide/reopen width.
 - [x] Build chat composer with explicit context chips.
+- [x] Add per-active-agent plan mode with `/plan`, Shift+Tab toggling, composer
+  mode status, and mode-attributed sends.
 - [x] Send bounded, deduplicated context chips atomically with managed-agent
   messages and explicit skill invocations.
 - [x] Build streaming assistant and operation timeline.
@@ -36,6 +40,15 @@ typed service calls, and sessions use explicit create/resume operations.
 - [x] Build project outline and selection model.
 - [x] Build inspector for tracks, clips, devices, and parameters.
 - [x] Build approval and change-preview panel.
+- [x] Present completed SDK plans in the Inspector with interactive approval,
+  change feedback, and exit-only controls.
+- [x] Enforce read-only plan execution and cover the SDK request through
+  Inspector rendering and resolution with regression tests.
+- [x] Prevent duplicate plan responses, retain stale failures for retry, and
+  render only normalized actions offered by the pending request.
+- [x] Render model-authored GFM while applying narrow presentation-only cleanup
+  to recognized compact labeled plans, preserving raw plan state, History, and
+  approval IPC.
 - [x] Build diagnostics, sessions, and settings views.
 - [ ] Build the queryable History surface with filters, cursor pagination,
   virtualized results, redacted trace details, and explicit paused, retained,
@@ -58,6 +71,7 @@ typed service calls, and sessions use explicit create/resume operations.
 
 - [x] Implement keyboard navigation and focus management.
 - [x] Add semantic labels and non-color status indicators.
+- [x] Label plan-mode user turns textually in addition to distinct color.
 - [x] Add accessible expanded-state labels and controls for all collapsible
   workspace regions.
 - [x] Virtualize large lists and throttle streaming updates.
@@ -69,6 +83,8 @@ typed service calls, and sessions use explicit create/resume operations.
 - [x] Test selection-context enablement, deduplication, per-turn replacement,
   and managed message/skill delivery.
 - [x] Component-test operation, approval, inspector, and plan views.
+- [x] Component-test `/plan`, per-agent mode changes, plan-mode sends, and
+  textual plan-message attribution.
 - [~] Test accessibility with automated checks and keyboard scenarios.
   - [x] Verify landmarks, labels, focus shortcuts, and sandboxed preload in
     Electron.
@@ -76,6 +92,12 @@ typed service calls, and sessions use explicit create/resume operations.
 - [~] Playwright-test chat parity with CLI, selections, approvals, recovery,
   sessions, and project switches.
   - [x] Cover launch and navigation in the real Electron shell.
+  - [x] Cover main-process plan event delivery, automatic Inspector opening,
+    and typed response IPC in the real Electron shell.
+  - [x] Cover compact one-line plan formatting in the Inspector while retaining
+    the original event and response payload.
+  - [x] Cover Project and Inspector drag geometry and hide/reopen width
+    restoration in the real Electron shell.
   - [ ] Cover all shared runtime workflows with deterministic injected fakes.
 - [x] Performance-test long event histories and browser lists.
 - [ ] Performance-test History queries/details at the 250 MiB cap, stale-query

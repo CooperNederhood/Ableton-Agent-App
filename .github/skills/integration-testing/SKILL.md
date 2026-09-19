@@ -1,6 +1,6 @@
 ---
 name: integration-testing
-description: Run and repair the runner-owned Ableton agent workflow smoke suite.
+description: Use for deterministic validation of natural-language agent prompts, tools, workflows, bridge behavior, and exact Ableton project mutations against a runner-owned Live process with scenario manifests, traces, and postcondition assertions via pnpm live:agent-smoke. Do not use for visual Electron UX, layout, progress, approval, or cross-app computer-use testing.
 ---
 
 # Ableton agent integration testing

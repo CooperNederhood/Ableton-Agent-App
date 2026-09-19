@@ -218,7 +218,7 @@ function createFakeSession(
     };
   } = {},
 ) {
-  let listener: ((event: SessionEvent) => void) | undefined;
+  const listeners = new Set<(event: SessionEvent) => void>();
   const prompts: string[] = [];
   const messages: Array<{
     prompt: string;
@@ -226,30 +226,51 @@ function createFakeSession(
   }> = [];
   const disconnect = vi.fn(async () => undefined);
   const abort = vi.fn(options.abort ?? (async () => undefined));
-  const sendAndWait = vi.fn(
+  const emit = (event: SessionEvent): void => {
+    for (const listener of listeners) listener(event);
+  };
+  const send = vi.fn(
     async (message: { prompt: string; agentMode?: "interactive" | "plan" }) => {
       const prompt = message.prompt;
       prompts.push(prompt);
       messages.push(message);
-      if (options.onSend !== undefined) {
-        return await options.onSend(prompt, (event) => listener?.(event));
+      const response =
+        options.onSend === undefined
+          ? { data: { content: `reply:${sessionId}:${prompt}` } }
+          : await options.onSend(prompt, emit);
+      if (response !== undefined) {
+        emit(
+          assistantMessage(
+            `assistant-${messages.length}`,
+            `message-${messages.length}`,
+            response.data.content,
+            new Date().toISOString(),
+          ),
+        );
       }
-
-      return { data: { content: `reply:${sessionId}:${prompt}` } };
+      emit({
+        type: "session.idle",
+        id: `idle-${messages.length}`,
+        parentId: null,
+        timestamp: new Date().toISOString(),
+        ephemeral: true,
+        data: { mode: "interactive" },
+      });
+      return `message-${messages.length}`;
     },
   );
   return {
     sessionId,
     prompts,
     messages,
-    emit: (event: SessionEvent) => listener?.(event),
-    sendAndWait,
+    emit,
+    send,
     abort,
     disconnect,
     on: (receivedListener: (event: SessionEvent) => void) => {
-      listener = receivedListener;
+      listeners.add(receivedListener);
       return () => {
-        if (listener === receivedListener) listener = undefined;
+        listeners.delete(receivedListener);
       };
     },
     ...(options.rpc === undefined ? {} : { rpc: options.rpc }),
@@ -477,6 +498,13 @@ describe("CopilotAgentService managed sessions", () => {
       service.resolveManagedAgentElicitation("planner", {
         requestId: requested.request.requestId,
         action: "accept",
+        content: { bars: 32, style: "custom" },
+      }),
+    ).rejects.toThrow("Elicitation field 'style' has an invalid choice");
+    await expect(
+      service.resolveManagedAgentElicitation("planner", {
+        requestId: requested.request.requestId,
+        action: "accept",
         content: { bars: 32, style: "compact" },
       }),
     ).resolves.toBe(true);
@@ -509,6 +537,9 @@ describe("CopilotAgentService managed sessions", () => {
           answer: {
             type: "string",
             enum: ["Minimal", "Syncopated", "Melodic"],
+            allowFreeform: true,
+            minLength: 1,
+            maxLength: 8_192,
           },
         },
         required: ["answer"],
@@ -528,7 +559,210 @@ describe("CopilotAgentService managed sessions", () => {
       answer: "Syncopated",
       wasFreeform: false,
     });
+
+    const freeformResult = legacyHandler(
+      {
+        question: "Choose another bass style.",
+        choices: ["Minimal", "Syncopated", "Melodic"],
+        allowFreeform: false,
+      },
+      { sessionId: "session-2" },
+    );
+    await flushMicrotasks();
+    const freeformRequested = [...received]
+      .reverse()
+      .find((event) => event.type === "agent.elicitation_requested");
+    if (freeformRequested?.type !== "agent.elicitation_requested") {
+      throw new Error("Expected freeform compatibility request");
+    }
+    await expect(
+      service.resolveManagedAgentElicitation("planner", {
+        requestId: freeformRequested.request.requestId,
+        action: "accept",
+        content: { answer: "Sparse with octave jumps" },
+      }),
+    ).resolves.toBe(true);
+    await expect(freeformResult).resolves.toEqual({
+      answer: "Sparse with octave jumps",
+      wasFreeform: true,
+    });
     await service.stop();
+  });
+
+  it("pauses the active-work timeout until every human gate settles", async () => {
+    vi.useFakeTimers();
+    const sessionStateDirectory = await mkdtemp(
+      join(tmpdir(), "ableton-human-gate-timeout-"),
+    );
+    const events = new InMemoryEventPublisher();
+    const received: AppEvent[] = [];
+    const runtimeEvents: AgentRuntimeEvent[] = [];
+    const toolApproval = deferred<boolean>();
+    let config: SessionConfig | undefined;
+    events.subscribe((event) => received.push(event));
+    const managedSession = createFakeSession("managed-session", {
+      onSend: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        if (
+          config?.onElicitationRequest === undefined ||
+          config.onExitPlanModeRequest === undefined ||
+          config.onPermissionRequest === undefined
+        ) {
+          throw new Error("Expected human-interaction handlers");
+        }
+        const [question, plan, permission] = await Promise.all([
+          config.onElicitationRequest({
+            sessionId: "managed-session",
+            mode: "form",
+            message: "Choose a direction.",
+            requestedSchema: {
+              type: "object",
+              properties: {
+                direction: {
+                  type: "string",
+                  enum: ["A", "B"],
+                },
+              },
+              required: ["direction"],
+            },
+          }),
+          config.onExitPlanModeRequest(
+            {
+              summary: "Ready",
+              planContent: "Ignored",
+              actions: ["interactive"],
+              recommendedAction: "interactive",
+            },
+            { sessionId: "managed-session" },
+          ),
+          config.onPermissionRequest(
+            {
+              kind: "custom-tool",
+              toolName: "ableton_tracks_create",
+              toolDescription: "Create a track",
+              args: {},
+            },
+            { sessionId: "managed-session" },
+          ),
+        ]);
+        return {
+          data: {
+            content: `${question.action}:${plan.approved}:${permission.kind}`,
+          },
+        };
+      },
+    });
+    const createSession = vi
+      .fn()
+      .mockResolvedValueOnce(createFakeSession("default-session"))
+      .mockImplementationOnce(async (receivedConfig: SessionConfig) => {
+        config = receivedConfig;
+        return managedSession;
+      });
+    const service = new CopilotAgentService(
+      baseOptions({
+        events,
+        sessionStateDirectory,
+        turnTimeoutMs: 50,
+        requestToolApproval: async () => await toolApproval.promise,
+        runtimeObserver: { enqueue: (event) => runtimeEvents.push(event) },
+        clientFactory: () => ({
+          createSession,
+          resumeSession: vi.fn(async () => {
+            throw new Error("resume not expected");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+
+    try {
+      await service.start();
+      await service.createManagedAgent(configuration("planner"));
+      await service.writeManagedAgentPlan("planner", {
+        content: "# Plan\n\nReview the arrangement.",
+      });
+      const turn = service.sendToManagedAgent("planner", "Prepare the plan");
+      await vi.advanceTimersByTimeAsync(20);
+      await vi.waitFor(() =>
+        expect(
+          received.some(
+            (event) => event.type === "agent.plan_approval_requested",
+          ),
+        ).toBe(true),
+      );
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(
+        runtimeEvents.some((event) => event.type === "agent.turn.timeout"),
+      ).toBe(false);
+      const question = received.find(
+        (event) => event.type === "agent.elicitation_requested",
+      );
+      const plan = received.find(
+        (event) => event.type === "agent.plan_approval_requested",
+      );
+      if (question?.type !== "agent.elicitation_requested") {
+        throw new Error("Expected elicitation request");
+      }
+      if (plan?.type !== "agent.plan_approval_requested") {
+        throw new Error("Expected plan request");
+      }
+
+      await service.resolveManagedAgentElicitation("planner", {
+        requestId: question.request.requestId,
+        action: "accept",
+        content: { direction: "A" },
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(
+        runtimeEvents.some((event) => event.type === "agent.turn.timeout"),
+      ).toBe(false);
+
+      toolApproval.resolve(true);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(
+        runtimeEvents.some((event) => event.type === "agent.turn.timeout"),
+      ).toBe(false);
+
+      await service.resolveManagedAgentPlan("planner", {
+        requestId: plan.request.requestId,
+        approved: true,
+        planRevision: plan.request.planRevision,
+        selectedAction: "interactive",
+      });
+      await expect(turn).resolves.toBe("accept:true:approve-once");
+
+      const pauseEvents = runtimeEvents.filter(
+        (event) => event.type === "agent.turn.timeout.paused",
+      );
+      const resumeEvents = runtimeEvents.filter(
+        (event) => event.type === "agent.turn.timeout.resumed",
+      );
+      expect(pauseEvents.map((event) => event.data.reason).sort()).toEqual([
+        "elicitation",
+        "plan_approval",
+        "tool_approval",
+      ]);
+      expect(
+        pauseEvents.map((event) => event.data.pendingHumanGateCount).sort(),
+      ).toEqual([1, 2, 3]);
+      expect(
+        resumeEvents.map((event) => event.data.pendingHumanGateCount).sort(),
+      ).toEqual([0, 1, 2]);
+      expect(resumeEvents.at(-1)?.data).toMatchObject({
+        pendingHumanGateCount: 0,
+        timerResumed: true,
+        remainingMs: 30,
+      });
+      expect(
+        runtimeEvents.some((event) => event.type === "agent.turn.completed"),
+      ).toBe(true);
+    } finally {
+      await service.stop();
+      await rm(sessionStateDirectory, { recursive: true, force: true });
+      vi.useRealTimers();
+    }
   });
 
   it("validates resumed adapters and narrowly classifies missing SDK sessions", async () => {
@@ -2157,7 +2391,7 @@ it("bounds plan approval payloads and settles a pending managed request on cance
     "Prepare a bounded plan",
     "plan",
   );
-  await vi.waitFor(() => expect(managedSession.sendAndWait).toHaveBeenCalled());
+  await vi.waitFor(() => expect(managedSession.send).toHaveBeenCalled());
   const plan = await service.writeManagedAgentPlan("managed", {
     content: "p".repeat(100_000),
   });
@@ -2205,6 +2439,30 @@ it("bounds plan approval payloads and settles a pending managed request on cance
     data: {
       requestId: approval.request.requestId,
       reason: "user_cancelled",
+    },
+  });
+  expect(
+    runtimeEvents.find(
+      (event) =>
+        event.type === "agent.turn.timeout.paused" &&
+        event.data.reason === "plan_approval",
+    ),
+  ).toMatchObject({
+    sessionId: "managed-session",
+    agentInstanceId: "managed",
+  });
+  expect(
+    runtimeEvents.find(
+      (event) =>
+        event.type === "agent.turn.timeout.cancelled" &&
+        event.data.reason === "plan_approval",
+    ),
+  ).toMatchObject({
+    sessionId: "managed-session",
+    agentInstanceId: "managed",
+    data: {
+      cancellationReason: "user_cancelled",
+      pendingHumanGateCount: 0,
     },
   });
   await expect(
@@ -2340,7 +2598,7 @@ it("blocks plan-mode mutations until interactive approval", async () => {
     "Plan a new MIDI track",
     "plan",
   );
-  await vi.waitFor(() => expect(managedSession.sendAndWait).toHaveBeenCalled());
+  await vi.waitFor(() => expect(managedSession.send).toHaveBeenCalled());
   const create = managedConfig?.tools?.find(
     ({ name }) => name === "ableton_tracks_create",
   );
@@ -2706,7 +2964,7 @@ describe("CopilotAgentService missing-session automatic recovery", () => {
       ),
     ]);
     expect(createSession).toHaveBeenCalledTimes(3);
-    expect(replacement.sendAndWait).toHaveBeenCalledTimes(2);
+    expect(replacement.send).toHaveBeenCalledTimes(2);
     await service.stop();
   });
 

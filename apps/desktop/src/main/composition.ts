@@ -531,6 +531,8 @@ export async function createDesktopComposition(
     preferences.approvalPolicy,
     approvals,
   );
+  let agentTurnTimeoutMs = preferences.agentTurnTimeoutMinutes * 60_000;
+  let agentReasoningVisibility = preferences.agentReasoningVisibility;
   // Preferences already constrain the port to a valid TCP range.
   const port = preferences.abletonPort;
 
@@ -542,6 +544,8 @@ export async function createDesktopComposition(
     },
     agent: {
       baseDirectory: options.agentBaseDirectory,
+      turnTimeoutMs: () => agentTurnTimeoutMs,
+      reasoningSummary: () => agentReasoningVisibility,
       ...(options.sessionStateDirectory === undefined
         ? {}
         : { sessionStateDirectory: options.sessionStateDirectory }),
@@ -607,6 +611,12 @@ export async function createDesktopComposition(
       ? {}
       : { onLoggingLevelChange: options.onLoggingLevelChange }),
     onApprovalPolicyChange: (policy) => approvalPolicy.setPolicy(policy),
+    onAgentTurnTimeoutChange: (minutes) => {
+      agentTurnTimeoutMs = minutes * 60_000;
+    },
+    onAgentReasoningVisibilityChange: (visibility) => {
+      agentReasoningVisibility = visibility;
+    },
     onAutoApprovedAgentIdsChange: (ids) =>
       approvalPolicy.setAutoApprovedAgentInstanceIds(ids),
   });

@@ -18,6 +18,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type DragEvent as ReactDragEvent,
   type FormEvent,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
@@ -58,8 +59,15 @@ import {
   selectedAgentWorkspace,
   type AgentWorkspaceState,
   type DesktopState,
+  type WorkingView,
   type WorkspaceView,
 } from "./state";
+import {
+  createInspectorLayout,
+  inspectorLayoutReducer,
+  openInspectorModules,
+  type InspectorModuleId,
+} from "./inspector-layout";
 import { parseYoloCommand, yoloCommandUsage } from "./yolo-command";
 
 type CatalogSkill = DesktopState["agentCatalog"]["skills"][number];
@@ -93,7 +101,6 @@ const reservedSlashCompletionNames = new Set(
 export const PROJECT_SIDEBAR_MIN_WIDTH = 180;
 export const PROJECT_SIDEBAR_MAX_WIDTH = 480;
 export const INSPECTOR_SIDEBAR_MIN_WIDTH = 220;
-export const INSPECTOR_SIDEBAR_MAX_WIDTH = 560;
 export const WORKSPACE_MIN_CONVERSATION_WIDTH = 320;
 
 export interface WorkspaceSidebarWidths {
@@ -128,15 +135,15 @@ export function resizedSidebarWidth({
 }): number {
   const minimum =
     side === "left" ? PROJECT_SIDEBAR_MIN_WIDTH : INSPECTOR_SIDEBAR_MIN_WIDTH;
-  const configuredMaximum =
-    side === "left" ? PROJECT_SIDEBAR_MAX_WIDTH : INSPECTOR_SIDEBAR_MAX_WIDTH;
   const availableMaximum =
     workspaceWidth -
     WORKSPACE_MIN_CONVERSATION_WIDTH -
     (otherSidebarVisible ? otherSidebarWidth : 0);
   const maximum = Math.max(
     minimum,
-    Math.min(configuredMaximum, availableMaximum),
+    side === "left"
+      ? Math.min(PROJECT_SIDEBAR_MAX_WIDTH, availableMaximum)
+      : availableMaximum,
   );
   const delta = clientX - startClientX;
   const requested = startWidth + (side === "left" ? delta : -delta);
@@ -711,6 +718,16 @@ export function App(): React.JSX.Element {
       string,
       Extract<DesktopAppEvent, { type: "agent.message_delta" }>
     >();
+    type WorkingDeltaEvent = Extract<
+      DesktopAppEvent,
+      { type: "agent.working_update" }
+    > & {
+      update: Extract<
+        Extract<DesktopAppEvent, { type: "agent.working_update" }>["update"],
+        { kind: "reasoning_delta" }
+      >;
+    };
+    const pendingWorkingDeltas = new Map<string, WorkingDeltaEvent>();
     let frame: number | undefined;
     let eventsFrame: number | undefined;
     let pendingEvents:
@@ -720,6 +737,9 @@ export function App(): React.JSX.Element {
       for (const event of pendingDeltas.values())
         dispatch({ type: "event", event });
       pendingDeltas.clear();
+      for (const event of pendingWorkingDeltas.values())
+        dispatch({ type: "event", event });
+      pendingWorkingDeltas.clear();
     };
     const unsubscribe = window.desktop.events.subscribe((event) => {
       if (event.type === "events.changed") {
@@ -732,25 +752,42 @@ export function App(): React.JSX.Element {
         });
         return;
       }
-      if (event.type !== "agent.message_delta") {
-        if (frame !== undefined) cancelAnimationFrame(frame);
-        if (pendingDeltas.size > 0) flush();
-        if (
-          event.type === "agent.plan_approval_requested" ||
-          event.type === "agent.elicitation_requested"
-        ) {
-          setRightSidebarVisible(true);
-        }
-        dispatch({ type: "event", event });
+      if (event.type === "agent.message_delta") {
+        const key = `${event.agentInstanceId ?? "legacy"}:${event.messageId}`;
+        const pending = pendingDeltas.get(key);
+        pendingDeltas.set(key, {
+          ...event,
+          content: (pending?.content ?? "") + event.content,
+        });
+        frame ??= requestAnimationFrame(flush);
         return;
       }
-      const key = `${event.agentInstanceId ?? "legacy"}:${event.messageId}`;
-      const pending = pendingDeltas.get(key);
-      pendingDeltas.set(key, {
-        ...event,
-        content: (pending?.content ?? "") + event.content,
-      });
-      frame ??= requestAnimationFrame(flush);
+      if (
+        event.type === "agent.working_update" &&
+        event.update.kind === "reasoning_delta"
+      ) {
+        const key = `${event.agentInstanceId ?? "legacy"}:${event.messageId}`;
+        const pending = pendingWorkingDeltas.get(key);
+        const combined: WorkingDeltaEvent = {
+          ...event,
+          update: {
+            ...event.update,
+            content: (pending?.update.content ?? "") + event.update.content,
+          },
+        };
+        pendingWorkingDeltas.set(key, combined);
+        frame ??= requestAnimationFrame(flush);
+        return;
+      }
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      if (pendingDeltas.size > 0 || pendingWorkingDeltas.size > 0) flush();
+      if (
+        event.type === "agent.plan_approval_requested" ||
+        event.type === "agent.elicitation_requested"
+      ) {
+        setRightSidebarVisible(true);
+      }
+      dispatch({ type: "event", event });
     });
     return () => {
       unsubscribe();
@@ -2989,10 +3026,6 @@ export function ConnectionHeader({
         {activeAgent?.autoApprove && (
           <span className="agent-badge yolo-badge">YOLO</span>
         )}
-        <span className="model">
-          {activeAgent?.model ?? "SDK default"} ·{" "}
-          {activeAgent?.reasoningEffort ?? "Model default"}
-        </span>
         {state.connection.state !== "connected" && (
           <button
             onClick={() =>
@@ -3057,7 +3090,6 @@ export function Workspace({
   onToggleRightSidebar?: (() => void) | undefined;
   onEditPlan?: (() => void) | undefined;
 }): React.JSX.Element {
-  const activeAgent = selectedAgentInstance(state);
   const drag = useRef<
     | {
         side: keyof WorkspaceSidebarWidths;
@@ -3126,6 +3158,36 @@ export function Workspace({
       className={`workspace ${leftSidebarVisible ? "" : "left-sidebar-hidden"} ${rightSidebarVisible ? "" : "right-sidebar-hidden"}`}
       style={workspaceStyle}
     >
+      {onToggleLeftSidebar !== undefined && (
+        <button
+          type="button"
+          className={`workspace-edge-control workspace-edge-control-left ${leftSidebarVisible ? "expanded" : ""}`}
+          aria-label={
+            leftSidebarVisible ? "Hide project sidebar" : "Show project sidebar"
+          }
+          aria-expanded={leftSidebarVisible}
+          aria-controls="project-sidebar"
+          onClick={onToggleLeftSidebar}
+        >
+          <SidebarIcon side="left" expanded={leftSidebarVisible} />
+        </button>
+      )}
+      {onToggleRightSidebar !== undefined && (
+        <button
+          type="button"
+          className={`workspace-edge-control workspace-edge-control-right ${rightSidebarVisible ? "expanded" : ""}`}
+          aria-label={
+            rightSidebarVisible
+              ? "Hide inspector sidebar"
+              : "Show inspector sidebar"
+          }
+          aria-expanded={rightSidebarVisible}
+          aria-controls="inspector-sidebar"
+          onClick={onToggleRightSidebar}
+        >
+          <SidebarIcon side="right" expanded={rightSidebarVisible} />
+        </button>
+      )}
       {leftSidebarVisible && (
         <ProjectOutline state={state} dispatch={dispatch} />
       )}
@@ -3143,51 +3205,6 @@ export function Workspace({
         className="conversation"
         aria-label="Conversation and operation timeline"
       >
-        <div className="panel-heading">
-          <div className="conversation-heading-start">
-            {onToggleLeftSidebar !== undefined && (
-              <button
-                type="button"
-                className="icon-button"
-                aria-label={
-                  leftSidebarVisible
-                    ? "Hide project sidebar"
-                    : "Show project sidebar"
-                }
-                aria-expanded={leftSidebarVisible}
-                aria-controls="project-sidebar"
-                onClick={onToggleLeftSidebar}
-              >
-                <SidebarIcon side="left" expanded={leftSidebarVisible} />
-              </button>
-            )}
-            <h2>Conversation</h2>
-          </div>
-          <span>
-            {activeAgent === undefined
-              ? "No active agent"
-              : `${activeAgent.label} · ${activeAgent.lifecycle}`}
-            {activeAgent?.autoApprove && (
-              <span className="agent-badge yolo-badge">YOLO</span>
-            )}
-          </span>
-          {onToggleRightSidebar !== undefined && (
-            <button
-              type="button"
-              className="icon-button"
-              aria-label={
-                rightSidebarVisible
-                  ? "Hide inspector sidebar"
-                  : "Show inspector sidebar"
-              }
-              aria-expanded={rightSidebarVisible}
-              aria-controls="inspector-sidebar"
-              onClick={onToggleRightSidebar}
-            >
-              <SidebarIcon side="right" expanded={rightSidebarVisible} />
-            </button>
-          )}
-        </div>
         <Timeline state={state} scrollPositions={timelineScrollPositions} />
         {composer}
       </section>
@@ -3201,9 +3218,12 @@ export function Workspace({
           onPointerCancel={endResize}
         />
       )}
-      {rightSidebarVisible && (
-        <Inspector state={state} dispatch={dispatch} onEditPlan={onEditPlan} />
-      )}
+      <Inspector
+        state={state}
+        dispatch={dispatch}
+        onEditPlan={onEditPlan}
+        hidden={!rightSidebarVisible}
+      />
     </div>
   );
 }
@@ -4693,10 +4713,24 @@ export function ProjectOutline({
       className="project-outline"
       aria-label="Project outline"
     >
-      <div className="panel-heading">
-        <h2>Project</h2>
-        <div className="project-refresh">
+      <div className="project-context-toggle">
+        <div className="project-context-controls">
+          <label>
+            <input
+              type="checkbox"
+              role="switch"
+              checked={state.projectSelectionContextEnabled}
+              onChange={(event) =>
+                dispatch({
+                  type: "project-selection-context",
+                  enabled: event.target.checked,
+                })
+              }
+            />
+            Use project selection as context
+          </label>
           <button
+            className="project-refresh-button"
             aria-label={`${refreshLabel} project snapshot`}
             aria-describedby={
               refreshStatus === undefined ? undefined : "project-refresh-status"
@@ -4710,43 +4744,25 @@ export function ProjectOutline({
           >
             {refreshLabel}
           </button>
-          {refreshStatus !== undefined && (
-            <span
-              id="project-refresh-status"
-              className={
-                state.projectRefresh.status === "failed"
-                  ? "status status-error"
-                  : "status"
-              }
-              role={
-                state.projectRefresh.status === "failed" ? "alert" : "status"
-              }
-            >
-              {refreshStatus}
-            </span>
-          )}
         </div>
-      </div>
-      <div className="project-context-toggle">
-        <label>
-          <input
-            type="checkbox"
-            role="switch"
-            checked={state.projectSelectionContextEnabled}
-            onChange={(event) =>
-              dispatch({
-                type: "project-selection-context",
-                enabled: event.target.checked,
-              })
-            }
-          />
-          Use project selection as context
-        </label>
         <small>
           {state.projectSelectionContextEnabled
             ? "Selected tracks, clips, and devices are included in prompts."
             : "Selections only control the Project and Inspector views."}
         </small>
+        {refreshStatus !== undefined && (
+          <span
+            id="project-refresh-status"
+            className={
+              state.projectRefresh.status === "failed"
+                ? "status status-error"
+                : "status"
+            }
+            role={state.projectRefresh.status === "failed" ? "alert" : "status"}
+          >
+            {refreshStatus}
+          </span>
+        )}
       </div>
       {!state.snapshot ? (
         <EmptyState
@@ -4875,12 +4891,15 @@ export function Timeline({
           <article
             key={`message-${item.id}`}
             className={`message ${item.role}`}
-            data-agent-mode={item.agentMode}
+            data-agent-mode={item.agentMode ?? "interactive"}
           >
             <span className="sr-only">
               {item.role === "user" ? "You" : "Assistant"}:
             </span>
-            {item.streaming && (
+            {item.working !== undefined && (
+              <WorkingDisclosure working={item.working} />
+            )}
+            {item.streaming && item.working === undefined && (
               <span className="streaming-status" role="status">
                 Streaming…
               </span>
@@ -4903,6 +4922,56 @@ export function Timeline({
         ),
       )}
     </div>
+  );
+}
+
+export function WorkingDisclosure({
+  working,
+}: {
+  working: WorkingView;
+}): React.JSX.Element {
+  const running = working.status === "running";
+  const [expanded, setExpanded] = useState(running);
+  const previousStatus = useRef(working.status);
+  useEffect(() => {
+    if (running) {
+      setExpanded(true);
+    } else if (previousStatus.current === "running") {
+      setExpanded(false);
+    }
+    previousStatus.current = working.status;
+  }, [running, working.status]);
+  const statusLabel = {
+    running: "Working",
+    completed: "Completed",
+    failed: "Failed",
+    cancelled: "Cancelled",
+  }[working.status];
+  const fallback = working.responseStarted
+    ? "Receiving response..."
+    : "Preparing the next step...";
+  return (
+    <details
+      className={`working-disclosure working-${working.status}`}
+      open={running || expanded}
+      onToggle={(event) => {
+        if (!running) setExpanded(event.currentTarget.open);
+      }}
+    >
+      <summary>
+        <span className="working-indicator" aria-hidden="true" />
+        <span>{working.intent ?? "Working"}</span>
+        <small role="status">{statusLabel}</small>
+      </summary>
+      <div className="working-details">
+        {working.summary ? (
+          <AssistantMarkdown content={working.summary} />
+        ) : (
+          <p>{fallback}</p>
+        )}
+        {working.detail && <p className="warning">{working.detail}</p>}
+      </div>
+    </details>
   );
 }
 
@@ -5072,10 +5141,12 @@ export function Inspector({
   state,
   dispatch,
   onEditPlan,
+  hidden = false,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
   onEditPlan?: (() => void) | undefined;
+  hidden?: boolean;
 }): React.JSX.Element {
   const track = state.snapshot?.tracks.find(
     (candidate) => candidate.id === state.selectedTrackId,
@@ -5086,50 +5157,414 @@ export function Inspector({
   const device = track?.devices.find(
     (candidate) => candidate.id === state.selectedDeviceId,
   );
-  return (
-    <aside
-      id="inspector-sidebar"
-      className="inspector"
-      aria-label="Selection inspector"
-    >
-      <div className="panel-heading">
-        <h2>Inspector</h2>
-        <span>
-          {device ? "Device" : clip ? "Clip" : track ? "Track" : "Selection"}
-        </span>
-      </div>
-      {!track ? (
-        <EmptyState
-          title="Nothing selected"
-          detail="Choose a track, clip, device, or plan section."
-        />
-      ) : device ? (
+  const workspace = selectedAgentWorkspace(state);
+  const available = useMemo<InspectorModuleId[]>(() => {
+    const modules: InspectorModuleId[] = [];
+    if (track !== undefined) modules.push("selection");
+    if (workspace.planArtifact?.exists === true) modules.push("plan");
+    if (workspace.approval !== undefined) modules.push("approval");
+    return modules;
+  }, [track, workspace.approval, workspace.planArtifact]);
+  const [layout, updateLayout] = useReducer(
+    inspectorLayoutReducer,
+    available,
+    createInspectorLayout,
+  );
+  const [addMenuPaneId, setAddMenuPaneId] = useState<string>();
+  const [draggingModule, setDraggingModule] = useState<InspectorModuleId>();
+  const dividerDrag = useRef<
+    | {
+        pointerId: number;
+        dividerIndex: number;
+        previousClientY: number;
+        height: number;
+      }
+    | undefined
+  >(undefined);
+
+  useEffect(() => {
+    updateLayout({ type: "reconcile", available });
+  }, [available]);
+
+  const openModules = openInspectorModules(layout);
+  const addableModules = available.filter(
+    (moduleId) => !openModules.includes(moduleId),
+  );
+  const moduleContent = (
+    moduleId: InspectorModuleId,
+  ): React.JSX.Element | null => {
+    if (moduleId === "selection" && track !== undefined) {
+      return device ? (
         <DeviceInspector device={device} track={track} dispatch={dispatch} />
       ) : clip ? (
         <ClipInspector clip={clip} track={track} dispatch={dispatch} />
       ) : (
         <TrackInspector track={track} dispatch={dispatch} />
+      );
+    }
+    if (moduleId === "plan") {
+      return (
+        <PlanArtifactPreview state={state} onEditPlan={onEditPlan} embedded />
+      );
+    }
+    if (moduleId === "approval") {
+      return <ApprovalPanel state={state} dispatch={dispatch} embedded />;
+    }
+    return null;
+  };
+  const handleTabDragStart = (
+    event: ReactDragEvent<HTMLElement>,
+    moduleId: InspectorModuleId,
+  ): void => {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/inspector-module", moduleId);
+    event.currentTarget.closest(".inspector-panes")?.classList.add("dragging");
+    setDraggingModule(moduleId);
+  };
+  const draggedModule = (
+    event: ReactDragEvent<HTMLElement>,
+  ): InspectorModuleId | undefined => {
+    const moduleId = event.dataTransfer.getData("text/inspector-module");
+    return moduleId === "selection" ||
+      moduleId === "plan" ||
+      moduleId === "approval"
+      ? moduleId
+      : undefined;
+  };
+  const startDividerResize = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    dividerIndex: number,
+  ): void => {
+    const container = event.currentTarget.parentElement?.parentElement;
+    if (container === null || container === undefined) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    dividerDrag.current = {
+      pointerId: event.pointerId,
+      dividerIndex,
+      previousClientY: event.clientY,
+      height: Math.max(container.getBoundingClientRect().height, 1),
+    };
+  };
+  const moveDivider = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const active = dividerDrag.current;
+    if (active === undefined || active.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const delta = (event.clientY - active.previousClientY) / active.height;
+    active.previousClientY = event.clientY;
+    updateLayout({
+      type: "resize",
+      dividerIndex: active.dividerIndex,
+      delta,
+      minimumWeight: Math.min(0.45, 120 / active.height),
+    });
+  };
+  const endDividerResize = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (dividerDrag.current?.pointerId !== event.pointerId) return;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    dividerDrag.current = undefined;
+  };
+  return (
+    <aside
+      id="inspector-sidebar"
+      className="inspector inspector-workspace"
+      aria-label="Inspector workspace"
+      hidden={hidden}
+    >
+      {layout.panes.length === 0 ? (
+        <div className="inspector-empty">
+          <EmptyState
+            title="Nothing to inspect"
+            detail="Select a project item or wait for a plan or approval."
+          />
+          {addableModules.length > 0 && (
+            <InspectorAddMenu
+              modules={addableModules}
+              open={addMenuPaneId === "empty"}
+              onToggle={() =>
+                setAddMenuPaneId((current) =>
+                  current === "empty" ? undefined : "empty",
+                )
+              }
+              onAdd={(moduleId) => {
+                updateLayout({ type: "add", moduleId });
+                setAddMenuPaneId(undefined);
+              }}
+            />
+          )}
+        </div>
+      ) : (
+        <div
+          className={`inspector-panes ${draggingModule === undefined ? "" : "dragging"}`}
+        >
+          {layout.panes.map((pane, paneIndex) => (
+            <div
+              className="inspector-pane-group"
+              key={pane.id}
+              style={{ flexGrow: pane.weight }}
+            >
+              <section
+                className="inspector-pane"
+                aria-label={`${inspectorModuleLabel(pane.activeTab)} inspector`}
+                onPointerDown={() =>
+                  updateLayout({ type: "focus", paneId: pane.id })
+                }
+              >
+                <div
+                  className="inspector-tablist"
+                  role="tablist"
+                  aria-label="Inspector views"
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const moduleId = draggedModule(event);
+                    if (moduleId !== undefined) {
+                      updateLayout({
+                        type: "move",
+                        moduleId,
+                        paneId: pane.id,
+                      });
+                    }
+                  }}
+                >
+                  {pane.tabs.map((moduleId, tabIndex) => (
+                    <div className="inspector-tab-item" key={moduleId}>
+                      <button
+                        type="button"
+                        className={`inspector-tab ${pane.activeTab === moduleId ? "active" : ""}`}
+                        role="tab"
+                        aria-selected={pane.activeTab === moduleId}
+                        aria-controls={`${pane.id}-${moduleId}-panel`}
+                        aria-label={inspectorModuleLabel(moduleId)}
+                        title={inspectorModuleLabel(moduleId)}
+                        draggable
+                        onDragStart={(event) =>
+                          handleTabDragStart(event, moduleId)
+                        }
+                        onDragEnd={(event) => {
+                          event.currentTarget
+                            .closest(".inspector-panes")
+                            ?.classList.remove("dragging");
+                          setDraggingModule(undefined);
+                        }}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          const dragged = draggedModule(event);
+                          if (dragged !== undefined) {
+                            updateLayout({
+                              type: "move",
+                              moduleId: dragged,
+                              paneId: pane.id,
+                              index: tabIndex,
+                            });
+                          }
+                        }}
+                        onClick={() =>
+                          updateLayout({
+                            type: "activate",
+                            paneId: pane.id,
+                            moduleId,
+                          })
+                        }
+                      >
+                        <InspectorModuleIcon moduleId={moduleId} />
+                      </button>
+                      <button
+                        type="button"
+                        className="inspector-tab-close"
+                        aria-label={`Close ${inspectorModuleLabel(moduleId)}`}
+                        title={`Close ${inspectorModuleLabel(moduleId)}`}
+                        onClick={() =>
+                          updateLayout({ type: "close", moduleId })
+                        }
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  {addableModules.length > 0 && (
+                    <InspectorAddMenu
+                      modules={addableModules}
+                      open={addMenuPaneId === pane.id}
+                      onToggle={() =>
+                        setAddMenuPaneId((current) =>
+                          current === pane.id ? undefined : pane.id,
+                        )
+                      }
+                      onAdd={(moduleId) => {
+                        updateLayout({
+                          type: "add",
+                          moduleId,
+                          paneId: pane.id,
+                        });
+                        setAddMenuPaneId(undefined);
+                      }}
+                    />
+                  )}
+                </div>
+                <div
+                  className="inspector-split-drop inspector-split-drop-before"
+                  aria-hidden="true"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const moduleId = draggedModule(event);
+                    if (moduleId !== undefined) {
+                      updateLayout({
+                        type: "split",
+                        moduleId,
+                        paneId: pane.id,
+                        edge: "before",
+                      });
+                    }
+                  }}
+                />
+                <div
+                  id={`${pane.id}-${pane.activeTab}-panel`}
+                  className="inspector-pane-content"
+                  role="tabpanel"
+                >
+                  {moduleContent(pane.activeTab)}
+                </div>
+                <div
+                  className="inspector-split-drop inspector-split-drop-after"
+                  aria-hidden="true"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const moduleId = draggedModule(event);
+                    if (moduleId !== undefined) {
+                      updateLayout({
+                        type: "split",
+                        moduleId,
+                        paneId: pane.id,
+                        edge: "after",
+                      });
+                    }
+                  }}
+                />
+              </section>
+              {paneIndex < layout.panes.length - 1 && (
+                <div
+                  className="inspector-pane-divider"
+                  role="separator"
+                  aria-orientation="horizontal"
+                  aria-label={`Resize ${inspectorModuleLabel(pane.activeTab)} inspector`}
+                  onPointerDown={(event) =>
+                    startDividerResize(event, paneIndex)
+                  }
+                  onPointerMove={moveDivider}
+                  onPointerUp={endDividerResize}
+                  onPointerCancel={endDividerResize}
+                />
+              )}
+            </div>
+          ))}
+        </div>
       )}
-      <PlanArtifactPreview state={state} onEditPlan={onEditPlan} />
-      <ApprovalPanel state={state} dispatch={dispatch} />
     </aside>
+  );
+}
+
+function inspectorModuleLabel(moduleId: InspectorModuleId): string {
+  if (moduleId === "selection") return "Selection";
+  if (moduleId === "plan") return "Plan";
+  return "Approval";
+}
+
+function InspectorModuleIcon({
+  moduleId,
+}: {
+  moduleId: InspectorModuleId;
+}): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 18 18" aria-hidden="true">
+      {moduleId === "selection" ? (
+        <>
+          <circle cx="9" cy="9" r="5" />
+          <circle cx="9" cy="9" r="1.5" />
+        </>
+      ) : moduleId === "plan" ? (
+        <>
+          <path d="M5 4h9M5 9h9M5 14h9" />
+          <path d="m2.5 4 .7.7 1.3-1.4M2.5 9l.7.7 1.3-1.4M2.5 14l.7.7 1.3-1.4" />
+        </>
+      ) : (
+        <>
+          <path d="M9 2.5 14 4v4.2c0 3-2 5.7-5 7.3-3-1.6-5-4.3-5-7.3V4l5-1.5Z" />
+          <path d="m6.5 8.8 1.6 1.6 3.4-3.4" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function InspectorAddMenu({
+  modules,
+  open,
+  onToggle,
+  onAdd,
+}: {
+  modules: readonly InspectorModuleId[];
+  open: boolean;
+  onToggle: () => void;
+  onAdd: (moduleId: InspectorModuleId) => void;
+}): React.JSX.Element {
+  return (
+    <div className="inspector-add">
+      <button
+        type="button"
+        className="inspector-add-button"
+        aria-label="Add inspector view"
+        aria-expanded={open}
+        title="Add inspector view"
+        onClick={onToggle}
+      >
+        +
+      </button>
+      {open && (
+        <div className="inspector-add-menu" role="menu">
+          {modules.map((moduleId) => (
+            <button
+              type="button"
+              role="menuitem"
+              key={moduleId}
+              onClick={() => onAdd(moduleId)}
+            >
+              <InspectorModuleIcon moduleId={moduleId} />
+              {inspectorModuleLabel(moduleId)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
 export function PlanArtifactPreview({
   state,
   onEditPlan,
+  embedded = false,
 }: {
   state: DesktopState;
   onEditPlan?: (() => void) | undefined;
+  embedded?: boolean;
 }): React.JSX.Element {
   const agent = selectedAgentInstance(state);
   const artifact = selectedAgentWorkspace(state).planArtifact;
 
   return (
-    <section className="plan-artifact-preview" aria-label="Session plan">
+    <section
+      className={`plan-artifact-preview ${embedded ? "embedded" : ""}`}
+      aria-label="Session plan"
+    >
       <div className="plan-approval-heading">
-        <h3>Plan</h3>
+        {!embedded && <h3>Plan</h3>}
         {agent !== undefined && onEditPlan !== undefined && (
           <button type="button" onClick={onEditPlan}>
             Edit Markdown
@@ -5279,9 +5714,11 @@ function Meter({
 export function ApprovalPanel({
   state,
   dispatch,
+  embedded = false,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+  embedded?: boolean;
 }): React.JSX.Element {
   const approval = selectedAgentWorkspace(state).approval;
   const approvalAgentInstanceId = selectedAgentInstance(state)?.id;
@@ -5297,10 +5734,10 @@ export function ApprovalPanel({
   };
   return (
     <section
-      className="approval-panel"
+      className={`approval-panel ${embedded ? "embedded" : ""}`}
       aria-label="Approval and change preview"
     >
-      <h3>Approval</h3>
+      {!embedded && <h3>Approval</h3>}
       {!approval ? (
         <p className="muted">No change is waiting for approval.</p>
       ) : (
@@ -5715,6 +6152,51 @@ export function SettingsView({
             remain enforced.
           </span>
         </div>
+        <fieldset className="agent-settings">
+          <legend>Agent runtime</legend>
+          <label>
+            Active-work timeout (minutes)
+            <input
+              type="number"
+              min="1"
+              max="120"
+              step="1"
+              value={draft.agentTurnTimeoutMinutes}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  agentTurnTimeoutMinutes: Number(event.target.value),
+                })
+              }
+            />
+          </label>
+          <small>
+            Limits cumulative model and tool work for one request. Time waiting
+            for questions, approvals, or plan review does not count.
+          </small>
+          <label>
+            Agent reasoning visibility
+            <select
+              value={draft.agentReasoningVisibility}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  agentReasoningVisibility: event.target
+                    .value as typeof draft.agentReasoningVisibility,
+                })
+              }
+            >
+              <option value="none">Off</option>
+              <option value="concise">Concise</option>
+              <option value="detailed">Detailed</option>
+            </select>
+          </label>
+          <small>
+            Shows model-provided reasoning summaries when supported. Changes
+            apply before each agent&apos;s next turn without clearing its
+            conversation.
+          </small>
+        </fieldset>
         {draft.approvalPolicy === "approve-all" && (
           <div className="approval-policy-warning" role="alert">
             <strong>
@@ -6032,7 +6514,6 @@ function PlanApprovalComposer({
           </div>
           <small>The full plan is visible in the Inspector.</small>
         </div>
-        {request.summary && <p>{request.summary}</p>}
         <label>
           Request changes
           <textarea
@@ -6193,8 +6674,55 @@ function ElicitationComposer({
       }),
     );
   const [values, setValues] = useState(initialValues);
+  const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [manualHeight, setManualHeight] = useState<number>();
+  const resizeDrag = useRef<
+    | {
+        pointerId: number;
+        startClientY: number;
+        startHeight: number;
+      }
+    | undefined
+  >(undefined);
+  const deckRef = useRef<HTMLElement>(null);
+  const requiredComplete = request.required.every((name) => {
+    const value = values[name];
+    if (typeof value === "string") return value.trim().length > 0;
+    if (typeof value === "number") return Number.isFinite(value);
+    if (typeof value === "boolean") return true;
+    return Array.isArray(value) && value.length > 0;
+  });
+  const beginResize = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (deckRef.current === null) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    resizeDrag.current = {
+      pointerId: event.pointerId,
+      startClientY: event.clientY,
+      startHeight: deckRef.current.getBoundingClientRect().height,
+    };
+  };
+  const resize = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const active = resizeDrag.current;
+    if (active === undefined || active.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    setManualHeight(
+      Math.max(
+        180,
+        Math.min(
+          Math.round(globalThis.innerHeight * 0.72),
+          active.startHeight + active.startClientY - event.clientY,
+        ),
+      ),
+    );
+  };
+  const finishResize = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (resizeDrag.current?.pointerId !== event.pointerId) return;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    resizeDrag.current = undefined;
+  };
   const resolve = async (
     action: "accept" | "decline" | "cancel",
   ): Promise<void> => {
@@ -6225,7 +6753,21 @@ function ElicitationComposer({
   };
 
   return (
-    <footer className="composer interaction-deck">
+    <footer
+      ref={deckRef}
+      className="composer interaction-deck elicitation-deck"
+      style={manualHeight === undefined ? undefined : { height: manualHeight }}
+    >
+      <div
+        className="interaction-resize-handle"
+        role="separator"
+        aria-label="Resize question panel"
+        aria-orientation="horizontal"
+        onPointerDown={beginResize}
+        onPointerMove={resize}
+        onPointerUp={finishResize}
+        onPointerCancel={finishResize}
+      />
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -6313,12 +6855,12 @@ function ElicitationComposer({
                   const: value,
                   title: field.enumNames?.[index] ?? value,
                 }));
-              return (
-                <label key={name}>
-                  {label}
-                  {required ? " *" : ""}
-                  {field.description && <small>{field.description}</small>}
-                  {choices === undefined ? (
+              if (choices === undefined) {
+                return (
+                  <label key={name}>
+                    {label}
+                    {required ? " *" : ""}
+                    {field.description && <small>{field.description}</small>}
                     <textarea
                       required={required}
                       minLength={field.minLength}
@@ -6334,28 +6876,71 @@ function ElicitationComposer({
                       }
                       rows={3}
                     />
-                  ) : (
-                    <select
-                      required={required}
-                      value={
-                        typeof values[name] === "string" ? values[name] : ""
-                      }
-                      onChange={(event) =>
+                  </label>
+                );
+              }
+              const selectedValue =
+                typeof values[name] === "string" ? values[name] : "";
+              const namedValues = choices.map((choice) => choice.const);
+              const customValue =
+                customValues[name] ??
+                (selectedValue !== "" && !namedValues.includes(selectedValue)
+                  ? selectedValue
+                  : "");
+              return (
+                <fieldset className="elicitation-choice-group" key={name}>
+                  <legend>
+                    {label}
+                    {required ? " *" : ""}
+                  </legend>
+                  {field.description && <small>{field.description}</small>}
+                  {choices.map((choice) => (
+                    <label className="elicitation-radio" key={choice.const}>
+                      <input
+                        type="radio"
+                        name={`elicitation-${request.requestId}-${name}`}
+                        value={choice.const}
+                        checked={selectedValue === choice.const}
+                        onChange={() =>
+                          setValues((current) => ({
+                            ...current,
+                            [name]: choice.const,
+                          }))
+                        }
+                      />
+                      <span>{choice.title}</span>
+                    </label>
+                  ))}
+                  {field.allowFreeform === true && (
+                    <input
+                      className="elicitation-freeform"
+                      aria-label={`Custom answer for ${label}`}
+                      placeholder="Type another answer"
+                      minLength={field.minLength}
+                      maxLength={field.maxLength}
+                      value={customValue}
+                      onFocus={() => {
+                        if (customValue.length > 0) {
+                          setValues((current) => ({
+                            ...current,
+                            [name]: customValue,
+                          }));
+                        }
+                      }}
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+                        setCustomValues((current) => ({
+                          ...current,
+                          [name]: nextValue,
+                        }));
                         setValues((current) => ({
                           ...current,
-                          [name]: event.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">Choose…</option>
-                      {choices.map((choice) => (
-                        <option key={choice.const} value={choice.const}>
-                          {choice.title}
-                        </option>
-                      ))}
-                    </select>
+                          [name]: nextValue,
+                        }));
+                      }}
+                    />
                   )}
-                </label>
+                </fieldset>
               );
             }
             return (
@@ -6383,7 +6968,11 @@ function ElicitationComposer({
         </div>
         {error && <p className="composer-error">{error}</p>}
         <div className="interaction-actions">
-          <button className="primary" type="submit" disabled={submitting}>
+          <button
+            className="primary"
+            type="submit"
+            disabled={submitting || !requiredComplete}
+          >
             Submit response
           </button>
           <button
@@ -6428,6 +7017,7 @@ export function Composer({
   const [selectedSuggestion, setSelectedSuggestion] = useState(0);
   const context = contextForSelection(state);
   const activeAgent = selectedAgentInstance(state);
+  const agentMode = activeAgent?.mode ?? "interactive";
   const workspace = selectedAgentWorkspace(state);
   const activeBusy =
     busy ||
@@ -6497,14 +7087,6 @@ export function Composer({
         )}
       </div>
       <form onSubmit={(event) => void onSubmit(event)}>
-        {activeAgent !== undefined && (
-          <div className="composer-mode" aria-live="polite">
-            <span className={`agent-mode-badge ${activeAgent.mode}`}>
-              {activeAgent.mode}
-            </span>
-            <small>Shift+Tab toggles mode</small>
-          </div>
-        )}
         <SlashCompletionSuggestions
           entries={slashSuggestions}
           selected={selectedSuggestion}
@@ -6534,24 +7116,83 @@ export function Composer({
           }
           rows={2}
         />
-        {activeBusy ? (
-          <button
-            type="button"
-            onClick={() => void cancelWorkspaceAgent(window.desktop, state)}
-          >
-            Cancel
-          </button>
-        ) : (
-          <button
-            className="primary"
-            type="submit"
-            disabled={unavailable || !value.trim()}
-          >
-            Send <kbd>↵</kbd>
-          </button>
-        )}
+        <div className="composer-actions">
+          {activeAgent !== undefined ? (
+            <button
+              type="button"
+              className={`composer-mode-button ${agentMode}`}
+              aria-label={`Switch to ${agentMode === "plan" ? "interactive" : "plan"} mode`}
+              title="Click or press Shift+Tab to switch mode"
+              disabled={unavailable || activeBusy}
+              onClick={() =>
+                void setSelectedAgentMode(
+                  window.desktop,
+                  state,
+                  agentMode === "plan" ? "interactive" : "plan",
+                  dispatch,
+                ).catch((modeError: unknown) =>
+                  dispatch({
+                    type: "event",
+                    event: {
+                      type: "diagnostic",
+                      level: "error",
+                      message:
+                        modeError instanceof Error
+                          ? modeError.message
+                          : "Agent mode could not be changed",
+                    },
+                  }),
+                )
+              }
+            >
+              {agentMode}
+            </button>
+          ) : (
+            <span />
+          )}
+          {activeBusy ? (
+            <button
+              type="button"
+              className="composer-action-button stop"
+              aria-label="Stop agent"
+              title="Stop agent"
+              onClick={() => void cancelWorkspaceAgent(window.desktop, state)}
+            >
+              <ComposerActionIcon type="stop" />
+            </button>
+          ) : (
+            <button
+              className="composer-action-button primary"
+              type="submit"
+              aria-label="Send message"
+              title="Send message"
+              disabled={unavailable || !value.trim()}
+            >
+              <ComposerActionIcon type="send" />
+            </button>
+          )}
+        </div>
       </form>
     </footer>
+  );
+}
+
+function ComposerActionIcon({
+  type,
+}: {
+  type: "send" | "stop";
+}): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 18 18" aria-hidden="true">
+      {type === "send" ? (
+        <>
+          <path d="M9 14V4" />
+          <path d="m5 8 4-4 4 4" />
+        </>
+      ) : (
+        <rect x="5" y="5" width="8" height="8" rx="1" />
+      )}
+    </svg>
   );
 }
 

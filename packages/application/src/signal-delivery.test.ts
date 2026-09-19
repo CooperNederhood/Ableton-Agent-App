@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { InMemoryEventPublisher, type AppEvent } from "@ableton-agent/shared";
-import type { SessionConfig } from "@github/copilot-sdk";
+import type { SessionConfig, SessionEvent } from "@github/copilot-sdk";
 
 import { createAgentPolicy } from "./agent-policy.js";
 import {
@@ -197,7 +197,11 @@ describe("automatic signal delivery", () => {
     const events = new InMemoryEventPublisher();
     const received: AppEvent[] = [];
     events.subscribe((event) => received.push(event));
-    const sendAndWait = vi.fn(
+    const listeners = new Set<(event: SessionEvent) => void>();
+    const emit = (event: SessionEvent): void => {
+      for (const listener of listeners) listener(event);
+    };
+    const send = vi.fn(
       async (message: {
         prompt: string;
         agentMode?: "interactive" | "plan";
@@ -257,7 +261,25 @@ describe("automatic signal delivery", () => {
           );
         }
         active -= 1;
-        return { data: { content: "complete" } };
+        emit({
+          type: "assistant.message",
+          id: `assistant-${prompts.length}`,
+          parentId: null,
+          timestamp: new Date().toISOString(),
+          data: {
+            messageId: `message-${prompts.length}`,
+            content: "complete",
+          },
+        });
+        emit({
+          type: "session.idle",
+          id: `idle-${prompts.length}`,
+          parentId: null,
+          timestamp: new Date().toISOString(),
+          ephemeral: true,
+          data: { mode: "interactive" },
+        });
+        return `message-${prompts.length}`;
       },
     );
     const options = {
@@ -278,10 +300,15 @@ describe("automatic signal delivery", () => {
           config = received;
           return {
             sessionId: "session",
-            sendAndWait,
+            send,
             abort: async () => undefined,
             disconnect: async () => undefined,
-            on: () => () => undefined,
+            on: (listener: (event: SessionEvent) => void) => {
+              listeners.add(listener);
+              return () => {
+                listeners.delete(listener);
+              };
+            },
           };
         },
         resumeSession: async () => {

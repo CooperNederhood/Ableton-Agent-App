@@ -73,6 +73,13 @@ describe("desktop IPC contracts", () => {
           requestId: "question-2",
           message: "Choose the stems to export.",
           properties: {
+            style: {
+              type: "string",
+              enum: ["compact", "extended"],
+              allowFreeform: true,
+              minLength: 1,
+              maxLength: 8_192,
+            },
             stems: {
               type: "array",
               items: {
@@ -81,7 +88,7 @@ describe("desktop IPC contracts", () => {
               },
             },
           },
-          required: ["stems"],
+          required: ["style", "stems"],
         },
       }).success,
     ).toBe(true);
@@ -249,6 +256,8 @@ describe("desktop IPC contracts", () => {
     expect(preferences.eventHistoryEnabled).toBe(true);
     expect(preferences.eventHistoryRetentionDays).toBe(30);
     expect(preferences.eventHistoryMaxBytes).toBe(250 * 1024 * 1024);
+    expect(preferences.agentTurnTimeoutMinutes).toBe(10);
+    expect(preferences.agentReasoningVisibility).toBe("concise");
     expect(preferences.alwaysOnTop).toBe(false);
     expect(preferences).not.toHaveProperty("model");
     expect(preferences).not.toHaveProperty("reasoning");
@@ -366,6 +375,29 @@ describe("desktop IPC contracts", () => {
     expect(
       preferencesSchema.parse({ approvalPolicy: "approve-all" }).approvalPolicy,
     ).toBe("approve-all");
+  });
+
+  it("bounds the configurable agent active-work timeout", () => {
+    expect(
+      preferencesSchema.parse({ agentTurnTimeoutMinutes: 45 })
+        .agentTurnTimeoutMinutes,
+    ).toBe(45);
+    expect(() =>
+      preferencesSchema.parse({ agentTurnTimeoutMinutes: 0 }),
+    ).toThrow();
+    expect(() =>
+      preferencesSchema.parse({ agentTurnTimeoutMinutes: 121 }),
+    ).toThrow();
+  });
+
+  it("validates the global agent reasoning visibility preference", () => {
+    expect(
+      preferencesSchema.parse({ agentReasoningVisibility: "detailed" })
+        .agentReasoningVisibility,
+    ).toBe("detailed");
+    expect(() =>
+      preferencesSchema.parse({ agentReasoningVisibility: "raw" }),
+    ).toThrow();
   });
 
   it("requires the selected active agent to belong to the session", () => {

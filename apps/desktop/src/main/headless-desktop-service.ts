@@ -150,6 +150,10 @@ export interface HeadlessDesktopServiceOptions {
   onApprovalPolicyChange?: (
     policy: DesktopPreferences["approvalPolicy"],
   ) => void;
+  onAgentTurnTimeoutChange?: (minutes: number) => void;
+  onAgentReasoningVisibilityChange?: (
+    visibility: DesktopPreferences["agentReasoningVisibility"],
+  ) => void;
   onAutoApprovedAgentIdsChange?: (
     agentInstanceIds: ReadonlySet<string>,
   ) => void;
@@ -178,6 +182,7 @@ export type DesktopEventJournal = Pick<
 
 interface ActiveTurn {
   messageId: string;
+  assistantMessageId: string;
   cancelRequested: boolean;
 }
 
@@ -280,6 +285,12 @@ export class HeadlessDesktopService implements DesktopService {
       (await this.options.agentCatalog?.refresh()) ??
       desktopAgentCatalogSchema.parse({});
     this.#preferences = await this.#loadPreferences();
+    this.options.onAgentTurnTimeoutChange?.(
+      this.#preferences.agentTurnTimeoutMinutes,
+    );
+    this.options.onAgentReasoningVisibilityChange?.(
+      this.#preferences.agentReasoningVisibility,
+    );
     if (this.options.eventHistoryUnavailable === true) {
       this.#preferences = {
         ...this.#preferences,
@@ -409,7 +420,11 @@ export class HeadlessDesktopService implements DesktopService {
       throw new Error("A session transition is already in progress");
     }
     const messageId = randomUUID();
-    const turn: ActiveTurn = { messageId, cancelRequested: false };
+    const turn: ActiveTurn = {
+      messageId,
+      assistantMessageId: randomUUID(),
+      cancelRequested: false,
+    };
     const expectedSessionId = this.#activeProductionSessionId;
     if (expectedSessionId === undefined) {
       throw new Error("No active production session");
@@ -2226,6 +2241,33 @@ export class HeadlessDesktopService implements DesktopService {
       if (previous.approvalPolicy !== preferences.approvalPolicy) {
         this.options.onApprovalPolicyChange?.(preferences.approvalPolicy);
       }
+      if (
+        previous.agentTurnTimeoutMinutes !== preferences.agentTurnTimeoutMinutes
+      ) {
+        this.options.onAgentTurnTimeoutChange?.(
+          preferences.agentTurnTimeoutMinutes,
+        );
+        const activeSession = this.#activeSession();
+        if (activeSession !== undefined) {
+          for (const instance of activeSession.activeAgents) {
+            await this.#recordAgentConfiguration(activeSession, instance);
+          }
+        }
+      }
+      if (
+        previous.agentReasoningVisibility !==
+        preferences.agentReasoningVisibility
+      ) {
+        this.options.onAgentReasoningVisibilityChange?.(
+          preferences.agentReasoningVisibility,
+        );
+        const activeSession = this.#activeSession();
+        if (activeSession !== undefined) {
+          for (const instance of activeSession.activeAgents) {
+            await this.#recordAgentConfiguration(activeSession, instance);
+          }
+        }
+      }
       if (previous.eventHistoryEnabled !== preferences.eventHistoryEnabled) {
         this.options.onEventHistoryEnabledChange?.(
           preferences.eventHistoryEnabled,
@@ -2340,6 +2382,9 @@ export class HeadlessDesktopService implements DesktopService {
           definition: instance.definitionName,
           model: instance.model,
           reasoning_effort: instance.reasoningEffort,
+          active_work_timeout_ms:
+            this.#preferences.agentTurnTimeoutMinutes * 60_000,
+          reasoning_summary: this.#preferences.agentReasoningVisibility,
           description: instance.config.description,
           instructions: instance.config.systemPrompt,
           tools: instance.config.tools,
@@ -2444,8 +2489,8 @@ export class HeadlessDesktopService implements DesktopService {
       void this.#persistLiveEventTrigger(event.trigger);
     }
     if (
-      event.type === "agent.message_complete" ||
-      event.type === "operation.failed"
+      event.type === "agent.working_update" &&
+      event.update.kind === "finished"
     ) {
       this.#clearAutomaticStreamMessageId(event);
     }
@@ -2575,17 +2620,26 @@ export class HeadlessDesktopService implements DesktopService {
   #messageIdForSharedEvent(event: AppEvent): string {
     if (
       event.type !== "agent.message_delta" &&
-      event.type !== "agent.message_complete"
+      event.type !== "agent.message_complete" &&
+      event.type !== "agent.working_update"
     ) {
       return randomUUID();
     }
     const managedMessageId =
       event.agentInstanceId === undefined
         ? undefined
-        : this.#managedTurns.get(event.agentInstanceId)?.messageId;
+        : this.#managedTurns.get(event.agentInstanceId)?.assistantMessageId;
     if (managedMessageId !== undefined) return managedMessageId;
-    if (this.#turn !== undefined) return this.#turn.messageId;
+    if (this.#turn !== undefined) return this.#turn.assistantMessageId;
     const key = this.#automaticStreamKey(event);
+    if (
+      event.type === "agent.working_update" &&
+      event.update.kind === "started"
+    ) {
+      const messageId = randomUUID();
+      this.#automaticStreamMessageIds.set(key, messageId);
+      return messageId;
+    }
     const existing = this.#automaticStreamMessageIds.get(key);
     if (existing !== undefined) return existing;
     const messageId = randomUUID();
@@ -2594,10 +2648,7 @@ export class HeadlessDesktopService implements DesktopService {
   }
 
   #clearAutomaticStreamMessageId(
-    event: Extract<
-      AppEvent,
-      { type: "agent.message_complete" | "operation.failed" }
-    >,
+    event: Extract<AppEvent, { type: "agent.working_update" }>,
   ): void {
     if (
       event.agentInstanceId !== undefined &&
@@ -2624,6 +2675,7 @@ export class HeadlessDesktopService implements DesktopService {
       this.#eventJournal === undefined ||
       (event.type !== "agent.message_delta" &&
         event.type !== "agent.message_complete" &&
+        event.type !== "agent.working_update" &&
         event.type !== "operation.started" &&
         event.type !== "operation.completed" &&
         event.type !== "operation.failed")
@@ -2641,28 +2693,49 @@ export class HeadlessDesktopService implements DesktopService {
       event.type === "agent.message_delta" ||
       event.type === "agent.message_complete"
         ? { content: event.content.slice(0, 2_048) }
-        : event.type === "operation.started"
+        : event.type === "agent.working_update"
           ? {
-              operation_id: event.operationId,
-              label: event.label.slice(0, 2_048),
-              status: "running",
+              activity_id: event.update.activityId,
+              kind: event.update.kind,
+              occurred_at: event.update.occurredAt,
+              ...("content" in event.update
+                ? { content: event.update.content.slice(0, 2_048) }
+                : {}),
+              ...("outcome" in event.update
+                ? {
+                    outcome: event.update.outcome,
+                    detail: event.update.detail?.slice(0, 2_048),
+                  }
+                : {}),
+              ...("totalResponseSizeBytes" in event.update
+                ? {
+                    total_response_size_bytes:
+                      event.update.totalResponseSizeBytes,
+                  }
+                : {}),
             }
-          : event.type === "operation.completed"
+          : event.type === "operation.started"
             ? {
                 operation_id: event.operationId,
-                summary: event.summary.slice(0, 2_048),
-                status: "completed",
+                label: event.label.slice(0, 2_048),
+                status: "running",
               }
-            : {
-                operation_id: event.operationId,
-                error_code: event.code.slice(0, 2_048),
-                error_message: event.message.slice(0, 2_048),
-                error_retryable: event.retryable ?? false,
-                ...(event.details === undefined
-                  ? {}
-                  : { error_details: event.details }),
-                status: "failed",
-              };
+            : event.type === "operation.completed"
+              ? {
+                  operation_id: event.operationId,
+                  summary: event.summary.slice(0, 2_048),
+                  status: "completed",
+                }
+              : {
+                  operation_id: event.operationId,
+                  error_code: event.code.slice(0, 2_048),
+                  error_message: event.message.slice(0, 2_048),
+                  error_retryable: event.retryable ?? false,
+                  ...(event.details === undefined
+                    ? {}
+                    : { error_details: event.details }),
+                  status: "failed",
+                };
     void this.#eventJournal
       .enqueue({
         version: 1,
@@ -4242,7 +4315,11 @@ export class HeadlessDesktopService implements DesktopService {
     validate?: (instance: DesktopActiveAgent) => void,
   ): Promise<{ accepted: true; messageId: string }> {
     const messageId = randomUUID();
-    const turn: ActiveTurn = { messageId, cancelRequested: false };
+    const turn: ActiveTurn = {
+      messageId,
+      assistantMessageId: randomUUID(),
+      cancelRequested: false,
+    };
     const instance = await this.#queueActiveAgentAction(
       target,
       async ({ session, instance }) => {

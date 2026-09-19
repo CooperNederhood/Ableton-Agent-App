@@ -16,6 +16,8 @@ import {
   ConnectionHeader,
   DesktopComposer,
   EventsView,
+  Inspector,
+  WorkingDisclosure,
   Workspace,
   type WorkspaceSidebarWidths,
 } from "./App";
@@ -217,6 +219,37 @@ describe("desktop component interactions", () => {
     root = createRoot(container);
   });
 
+  it("keeps Working open while running and allows reopening after completion", async () => {
+    const running = {
+      activityId: "00000000-0000-4000-8000-000000000021",
+      status: "running" as const,
+      intent: "Inspecting the arrangement",
+      summary: "Checking available clips.",
+      responseStarted: true,
+      startedAt: 1,
+      updatedAt: 2,
+    };
+    await act(async () => root.render(<WorkingDisclosure working={running} />));
+    const disclosure = container.querySelector("details");
+    expect(disclosure?.open).toBe(true);
+
+    await act(async () =>
+      root.render(
+        <WorkingDisclosure
+          working={{ ...running, status: "completed", updatedAt: 3 }}
+        />,
+      ),
+    );
+    expect(disclosure?.open).toBe(false);
+
+    await act(async () => {
+      if (disclosure === null) throw new Error("Expected Working disclosure");
+      disclosure.open = true;
+      disclosure.dispatchEvent(new Event("toggle"));
+    });
+    expect(disclosure?.open).toBe(true);
+  });
+
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
@@ -253,7 +286,7 @@ describe("desktop component interactions", () => {
       container.querySelector('select[aria-label="Model for Default"]'),
     ).toBeNull();
     expect(container.textContent).toContain("Model B · model-b");
-    expect(container.textContent).toContain("model-b · xhigh");
+    expect(container.textContent).not.toContain("model-b · xhigh");
   });
 
   it("keeps the editor and draft open when conversation settings fail", async () => {
@@ -559,8 +592,9 @@ describe("desktop component interactions", () => {
     if (hideInspector === null) throw new Error("Inspector toggle not found");
     await act(async () => hideInspector.click());
     expect(
-      container.querySelector('[aria-label="Selection inspector"]'),
-    ).toBeNull();
+      container.querySelector<HTMLElement>('[aria-label="Inspector workspace"]')
+        ?.hidden,
+    ).toBe(true);
 
     await act(async () => {
       publish({
@@ -593,9 +627,11 @@ describe("desktop component interactions", () => {
       await Promise.resolve();
     });
     expect(
-      container.querySelector('[aria-label="Selection inspector"]'),
-    ).not.toBeNull();
-    expect(container.textContent).toContain("Arrangement plan");
+      container.querySelector<HTMLElement>('[aria-label="Inspector workspace"]')
+        ?.hidden,
+    ).toBe(false);
+    expect(container.textContent).not.toContain("Arrangement plan");
+    expect(container.textContent).toContain("Review plan.md");
     expect(container.textContent).toContain("Build an intro.");
     expect(button(container, "Approve and continue").disabled).toBe(false);
     expect(button(container, "Exit plan mode").disabled).toBe(false);
@@ -727,7 +763,8 @@ describe("desktop component interactions", () => {
     expect(container.textContent).toContain(
       "This plan request is no longer pending.",
     );
-    expect(container.textContent).toContain("Pending plan");
+    expect(container.textContent).not.toContain("Pending plan");
+    expect(container.textContent).toContain("Review plan.md");
     expect(button(container, "Approve and continue").disabled).toBe(false);
     await click(container, "Approve and continue");
     expect(resolvePlan).toHaveBeenCalledTimes(2);
@@ -761,6 +798,9 @@ describe("desktop component interactions", () => {
             type: "string",
             title: "Style",
             enum: ["compact", "extended"],
+            allowFreeform: true,
+            minLength: 1,
+            maxLength: 8_192,
           },
           normalize: {
             type: "boolean",
@@ -788,11 +828,17 @@ describe("desktop component interactions", () => {
     });
     expect(container.textContent).toContain("Choose the arrangement style.");
     expect(container.textContent).not.toContain("Review plan.md");
-    const select = container.querySelector("select");
-    if (select === null) throw new Error("Style selection not found");
+    const compact = container.querySelector<HTMLInputElement>(
+      'input[type="radio"][value="compact"]',
+    );
+    if (compact === null) throw new Error("Style option not found");
+    expect(
+      container.querySelector<HTMLInputElement>(
+        'input[aria-label="Custom answer for Style"]',
+      ),
+    ).not.toBeNull();
     await act(async () => {
-      select.value = "compact";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
+      compact.click();
     });
     await click(container, "Submit response");
     expect(resolveElicitation).toHaveBeenCalledWith(agentId, {
@@ -831,6 +877,91 @@ describe("desktop component interactions", () => {
     expect(container.querySelector<HTMLTextAreaElement>("#prompt")?.value).toBe(
       "preserve this draft",
     );
+  });
+
+  it("submits a custom radio answer and resizes the question panel upward", async () => {
+    const resolveElicitation = vi.fn().mockResolvedValue(true);
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktopApi({ resolveElicitation }),
+    });
+    const state = rendererState();
+    state.agentWorkspaces[agentId] = {
+      messages: [],
+      operations: [],
+      triggers: [],
+      elicitation: {
+        requestId: "question-custom",
+        message: "Choose the groove.",
+        properties: {
+          groove: {
+            type: "string",
+            title: "Groove",
+            enum: ["straight", "swung"],
+            allowFreeform: true,
+            minLength: 1,
+            maxLength: 8_192,
+          },
+        },
+        required: ["groove"],
+      },
+    };
+    await act(async () => {
+      root.render(
+        <DesktopComposer
+          state={state}
+          composerRef={createRef<HTMLTextAreaElement>()}
+          dispatch={vi.fn()}
+          value="ordinary draft"
+          error=""
+          onValueChange={vi.fn()}
+          onErrorChange={vi.fn()}
+        />,
+      );
+    });
+    const custom = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Custom answer for Groove"]',
+    );
+    if (custom === null) throw new Error("Custom answer not found");
+    await act(async () => {
+      custom.setRangeText("Loose pocket", 0, custom.value.length, "end");
+      custom.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click(container, "Submit response");
+    expect(resolveElicitation).toHaveBeenCalledWith(agentId, {
+      requestId: "question-custom",
+      action: "accept",
+      content: { groove: "Loose pocket" },
+    });
+
+    const deck = container.querySelector<HTMLElement>(".elicitation-deck");
+    const handle = container.querySelector<HTMLElement>(
+      ".interaction-resize-handle",
+    );
+    if (deck === null || handle === null) {
+      throw new Error("Resizable question panel not found");
+    }
+    vi.spyOn(deck, "getBoundingClientRect").mockReturnValue({
+      width: 800,
+      height: 240,
+      top: 460,
+      right: 800,
+      bottom: 700,
+      left: 0,
+      x: 0,
+      y: 460,
+      toJSON: () => ({}),
+    });
+    await act(async () => {
+      const down = pointerEvent("pointerdown", 0, 9);
+      Object.defineProperty(down, "clientY", { value: 460 });
+      handle.dispatchEvent(down);
+      const move = pointerEvent("pointermove", 0, 9);
+      Object.defineProperty(move, "clientY", { value: 400 });
+      handle.dispatchEvent(move);
+      handle.dispatchEvent(pointerEvent("pointerup", 0, 9));
+    });
+    expect(deck.style.height).toBe("300px");
   });
 
   it("edits plan Markdown with optimistic revision checks in the composer", async () => {
@@ -926,6 +1057,57 @@ describe("desktop component interactions", () => {
       expectedRevision: "a".repeat(64),
     });
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("switches, closes, and re-adds modular inspector views", async () => {
+    const state = rendererState();
+    state.agentWorkspaces[agentId] = {
+      messages: [],
+      operations: [],
+      triggers: [],
+      planArtifact: {
+        exists: true,
+        productionSessionId: sessionId,
+        content: "# Plan\n\nArrange the chorus.",
+        revision: "a".repeat(64),
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        bytes: 28,
+      },
+      approval: {
+        id: "approval-1",
+        title: "Create clips",
+        risk: "medium",
+        summary: "Create two arrangement clips.",
+        changes: ["Create clips"],
+        destructive: false,
+      },
+    };
+    await act(async () => {
+      root.render(<Inspector state={state} dispatch={vi.fn()} />);
+    });
+    expect(container.textContent).toContain("Arrange the chorus.");
+    const approvalTab = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Approval"]',
+    );
+    if (approvalTab === null) throw new Error("Approval tab not found");
+    await act(async () => approvalTab.click());
+    expect(container.textContent).toContain("Create two arrangement clips.");
+
+    const closeApproval = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Close Approval"]',
+    );
+    if (closeApproval === null) throw new Error("Approval close not found");
+    await act(async () => closeApproval.click());
+    expect(container.querySelector('button[aria-label="Approval"]')).toBeNull();
+    const add = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add inspector view"]',
+    );
+    if (add === null) throw new Error("Inspector add button not found");
+    await act(async () => add.click());
+    await click(container, "Approval");
+    expect(
+      container.querySelector('button[aria-label="Approval"]'),
+    ).not.toBeNull();
   });
 
   it("drags each sidebar independently and restores the session width after hiding", async () => {

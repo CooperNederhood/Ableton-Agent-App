@@ -242,6 +242,12 @@ async function harness(
     onApprovalPolicyChange?: (
       policy: ReturnType<typeof preferencesSchema.parse>["approvalPolicy"],
     ) => void;
+    onAgentTurnTimeoutChange?: (minutes: number) => void;
+    onAgentReasoningVisibilityChange?: (
+      visibility: ReturnType<
+        typeof preferencesSchema.parse
+      >["agentReasoningVisibility"],
+    ) => void;
     agentCatalog?: {
       current: DesktopAgentCatalog;
       runtimeSkills?: readonly AgentSkillDescriptor[];
@@ -2541,7 +2547,7 @@ describe("desktop adapter over the shared application", () => {
     expect(await service.getLifecycleState()).toBe("stopped");
   });
 
-  it("streams a turn through shared events under one message id", async () => {
+  it("streams a turn under one assistant message id distinct from the request", async () => {
     const { service, events } = await harness({
       agent: { deltas: ["Insp", "ecting"], reply: "Inspecting the set" },
     });
@@ -2556,7 +2562,8 @@ describe("desktop adapter over the shared application", () => {
       (event) => event.type === "agent.message_delta",
     );
     expect(deltas.map((event) => event.content)).toEqual(["Insp", "ecting"]);
-    expect(deltas.every((event) => event.messageId === messageId)).toBe(true);
+    expect(new Set(deltas.map((event) => event.messageId)).size).toBe(1);
+    expect(deltas.every((event) => event.messageId !== messageId)).toBe(true);
     expect(
       events.some(
         (event) =>
@@ -2620,9 +2627,27 @@ describe("desktop adapter over the shared application", () => {
     };
 
     sharedEvents.publish({
+      type: "agent.working_update",
+      update: {
+        kind: "started",
+        activityId: "00000000-0000-4000-8000-000000000011",
+        occurredAt: "2026-08-08T00:00:00.000Z",
+      },
+      ...first,
+    });
+    sharedEvents.publish({
       type: "agent.message_delta",
       content: "first-a",
       ...first,
+    });
+    sharedEvents.publish({
+      type: "agent.working_update",
+      update: {
+        kind: "started",
+        activityId: "00000000-0000-4000-8000-000000000012",
+        occurredAt: "2026-08-08T00:00:00.000Z",
+      },
+      ...second,
     });
     sharedEvents.publish({
       type: "agent.message_delta",
@@ -2637,6 +2662,16 @@ describe("desktop adapter over the shared application", () => {
     sharedEvents.publish({
       type: "agent.message_complete",
       content: "first complete",
+      ...first,
+    });
+    sharedEvents.publish({
+      type: "agent.working_update",
+      update: {
+        kind: "finished",
+        activityId: "00000000-0000-4000-8000-000000000011",
+        outcome: "completed",
+        occurredAt: "2026-08-08T00:00:01.000Z",
+      },
       ...first,
     });
 
@@ -2675,10 +2710,22 @@ describe("desktop adapter over the shared application", () => {
     ).not.toBe(firstMessages[0]?.messageId);
 
     sharedEvents.publish({
-      type: "operation.failed",
-      operationId: "automatic-response",
-      code: "agent_failed",
-      message: "Automatic response failed",
+      type: "agent.working_update",
+      update: {
+        kind: "finished",
+        activityId: "00000000-0000-4000-8000-000000000012",
+        outcome: "failed",
+        occurredAt: "2026-08-08T00:00:01.000Z",
+      },
+      ...second,
+    });
+    sharedEvents.publish({
+      type: "agent.working_update",
+      update: {
+        kind: "started",
+        activityId: "00000000-0000-4000-8000-000000000013",
+        occurredAt: "2026-08-08T00:00:02.000Z",
+      },
       ...second,
     });
     sharedEvents.publish({
@@ -5035,6 +5082,55 @@ describe("desktop adapter over the shared application", () => {
         (event) =>
           event.type === "diagnostic" &&
           event.message.includes("approvalPolicy") &&
+          event.message.includes("next time the app starts"),
+      ),
+    ).toBe(false);
+    await service.stop();
+  });
+
+  it("applies active-work timeout changes to subsequent turns immediately", async () => {
+    const onAgentTurnTimeoutChange = vi.fn();
+    const { service, events } = await harness({}, { onAgentTurnTimeoutChange });
+    await service.start();
+    expect(onAgentTurnTimeoutChange).toHaveBeenCalledWith(10);
+    onAgentTurnTimeoutChange.mockClear();
+
+    await service.setPreferences(
+      preferencesSchema.parse({ agentTurnTimeoutMinutes: 25 }),
+    );
+
+    expect(onAgentTurnTimeoutChange).toHaveBeenCalledWith(25);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "diagnostic" &&
+          event.message.includes("agentTurnTimeoutMinutes") &&
+          event.message.includes("next time the app starts"),
+      ),
+    ).toBe(false);
+    await service.stop();
+  });
+
+  it("applies reasoning visibility changes before subsequent turns", async () => {
+    const onAgentReasoningVisibilityChange = vi.fn();
+    const { service, events } = await harness(
+      {},
+      { onAgentReasoningVisibilityChange },
+    );
+    await service.start();
+    expect(onAgentReasoningVisibilityChange).toHaveBeenCalledWith("concise");
+    onAgentReasoningVisibilityChange.mockClear();
+
+    await service.setPreferences(
+      preferencesSchema.parse({ agentReasoningVisibility: "detailed" }),
+    );
+
+    expect(onAgentReasoningVisibilityChange).toHaveBeenCalledWith("detailed");
+    expect(
+      events.some(
+        (event) =>
+          event.type === "diagnostic" &&
+          event.message.includes("agentReasoningVisibility") &&
           event.message.includes("next time the app starts"),
       ),
     ).toBe(false);

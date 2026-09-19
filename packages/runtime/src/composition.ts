@@ -31,6 +31,7 @@ import {
 import {
   InMemoryEventPublisher,
   noopLogger,
+  type AgentReasoningSummary,
   type EventPublisher,
   type Logger,
 } from "@ableton-agent/shared";
@@ -290,9 +291,11 @@ export interface AbletonBridgeSettings {
 export interface AgentSettings {
   model?: string | undefined;
   reasoningEffort?: AgentReasoningEffort | undefined;
+  reasoningSummary?:
+    AgentReasoningSummary | (() => AgentReasoningSummary) | undefined;
   baseDirectory?: string | undefined;
   sessionStateDirectory?: string | undefined;
-  turnTimeoutMs?: number | undefined;
+  turnTimeoutMs?: number | (() => number) | undefined;
   /** Replaces the Copilot client; used by tests and fakes. */
   clientFactory?: CopilotAgentServiceOptions["clientFactory"];
 }
@@ -636,6 +639,9 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     ...(agentSettings.reasoningEffort === undefined
       ? {}
       : { reasoningEffort: agentSettings.reasoningEffort }),
+    ...(agentSettings.reasoningSummary === undefined
+      ? {}
+      : { reasoningSummary: agentSettings.reasoningSummary }),
     ...(agentSettings.baseDirectory === undefined
       ? {}
       : { baseDirectory: agentSettings.baseDirectory }),

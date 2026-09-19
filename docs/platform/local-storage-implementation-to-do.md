@@ -10,6 +10,9 @@ Companion specification: [Local Storage Layout](local-storage.md)
 - [x] Support validated `LIVE_AGENT_HOME` and `LIVE_AGENT_PROFILE` overrides.
 - [x] Store preferences, session metadata, credentials, Copilot SDK data,
   observability, logs, and per-session ownership in their defined directories.
+- [x] Persist the global validated reasoning-summary visibility preference in
+  profile-owned `config/preferences.json`; keep bounded Working content in the
+  redacted observability journal rather than a parallel transcript store.
 - [x] Store the shared production-session planning document at
   `session-state/{production-session-id}/artifacts/plan.md` through the shared
   resolver with owner-only permissions and atomic revision-checked writes.

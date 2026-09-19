@@ -480,6 +480,52 @@ describe("desktop composition", () => {
     );
   });
 
+  it("applies the saved active-work timeout to subsequent agent turns", async () => {
+    const location = await paths();
+    const { runtime, service } = await createDesktopComposition({
+      ...location,
+      agentsDirectory: resolve("agents"),
+      skillsDirectory: resolve("skills"),
+      environment: {},
+    });
+    const timeoutProvider = (
+      runtime.agent as unknown as {
+        options: { turnTimeoutMs: () => number };
+      }
+    ).options.turnTimeoutMs;
+
+    expect(timeoutProvider()).toBe(600_000);
+    await service.start();
+    await service.setPreferences(
+      preferencesSchema.parse({ agentTurnTimeoutMinutes: 25 }),
+    );
+    expect(timeoutProvider()).toBe(1_500_000);
+    await service.stop();
+  });
+
+  it("provides the saved reasoning visibility to subsequent SDK turns", async () => {
+    const location = await paths();
+    const { runtime, service } = await createDesktopComposition({
+      ...location,
+      agentsDirectory: resolve("agents"),
+      skillsDirectory: resolve("skills"),
+      environment: {},
+    });
+    const reasoningSummaryProvider = (
+      runtime.agent as unknown as {
+        options: { reasoningSummary: () => string };
+      }
+    ).options.reasoningSummary;
+
+    expect(reasoningSummaryProvider()).toBe("concise");
+    await service.start();
+    await service.setPreferences(
+      preferencesSchema.parse({ agentReasoningVisibility: "detailed" }),
+    );
+    expect(reasoningSummaryProvider()).toBe("detailed");
+    await service.stop();
+  });
+
   it("wires effective active-agent YOLO IDs into the approval policy", async () => {
     const location = await paths();
     const publish = vi.spyOn(

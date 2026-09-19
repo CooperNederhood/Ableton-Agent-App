@@ -434,7 +434,8 @@ describe("desktop persistence stores", () => {
   it("round-trips multiple instances, selection, overrides, and subscriptions", async () => {
     const directory = await temporaryDirectory();
     const path = join(directory, "sessions.json");
-    const store = new JsonSessionStore(path);
+    const sessionStateDirectory = join(directory, "session-state");
+    const store = new JsonSessionStore(path, sessionStateDirectory);
     const firstId = "00000000-0000-4000-8000-000000000001";
     const secondId = "00000000-0000-4000-8000-000000000002";
     const baseAgent = {
@@ -521,7 +522,28 @@ describe("desktop persistence stores", () => {
         })),
       })),
     );
-    expect(await readdir(directory)).toEqual(["sessions.json"]);
+    expect((await readdir(directory)).sort()).toEqual([
+      "session-state",
+      "sessions.json",
+    ]);
+    const sessionDirectory = join(
+      sessionStateDirectory,
+      "00000000-0000-4000-8000-000000000010",
+    );
+    expect(await readdir(sessionDirectory)).toEqual([
+      "artifacts",
+      "session.json",
+    ]);
+    expect(
+      JSON.parse(
+        await readFile(join(sessionDirectory, "session.json"), "utf8"),
+      ),
+    ).toMatchObject({
+      version: 1,
+      productionSessionId: "00000000-0000-4000-8000-000000000010",
+      activeAgentIds: [firstId, secondId],
+      sdkSessionIds: ["sdk-a", "sdk-b"],
+    });
   });
 
   it("migrates version-two sessions without changing inputs or Output subscriptions", async () => {

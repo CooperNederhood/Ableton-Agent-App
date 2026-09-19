@@ -266,6 +266,13 @@ describe("desktop reducer", () => {
   it("stores the trusted diagnostics report for the diagnostics view", () => {
     const report = {
       checks: [{ label: "Bridge", status: "warn" as const, detail: "Offline" }],
+      storage: {
+        version: 1,
+        root: "/home/test/.live-agent",
+        profile: "default",
+        profileRoot: "/home/test/.live-agent/profiles/default",
+        migrationStatus: "completed" as const,
+      },
       logging: {
         level: "info" as const,
         fileName: "desktop.log",

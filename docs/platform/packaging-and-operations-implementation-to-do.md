@@ -32,6 +32,9 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
     musical labels by default.
   - [ ] Propagate correlation IDs through every runtime boundary.
 - [x] Implement diagnostics and support-bundle export.
+- [x] Adopt a versioned `~/.live-agent` root with profile isolation, safe
+  environment overrides, staged legacy migration, and typed storage
+  diagnostics.
 - [x] Define privacy settings and telemetry consent.
 - [x] Limit default telemetry to operational metadata.
 - [ ] Implement the separate default-on, local-only detailed event journal with

@@ -24,6 +24,13 @@ describe("desktop diagnostics actions", () => {
     const revealItem = vi.fn();
     const actions = createDesktopDiagnosticsActions({
       logPath,
+      storage: {
+        version: 1,
+        root: "/home/test/.live-agent",
+        profile: "default",
+        profileRoot: "/home/test/.live-agent/profiles/default",
+        migrationStatus: "completed",
+      },
       getLoggingLevel: () => "info",
       appVersion: "1.2.3",
       platform: "test",
@@ -43,6 +50,7 @@ describe("desktop diagnostics actions", () => {
     expect(JSON.parse(await readFile(destination, "utf8"))).toMatchObject({
       diagnostics: {
         appVersion: "1.2.3",
+        storage: { version: 1, profile: "default" },
         logging: { level: "info", fileName: "desktop.log" },
         checks,
       },
@@ -53,6 +61,13 @@ describe("desktop diagnostics actions", () => {
     const writeClipboard = vi.fn();
     const actions = createDesktopDiagnosticsActions({
       logPath: "/logs/desktop.log",
+      storage: {
+        version: 1,
+        root: "/home/test/.live-agent",
+        profile: "development",
+        profileRoot: "/home/test/.live-agent/profiles/development",
+        migrationStatus: "not-needed",
+      },
       getLoggingLevel: () => "debug",
       appVersion: "1",
       platform: "test",
@@ -70,6 +85,13 @@ describe("desktop diagnostics actions", () => {
     expect(writeClipboard).toHaveBeenCalledWith(
       formatDiagnosticsSummary({
         checks,
+        storage: {
+          version: 1,
+          root: "/home/test/.live-agent",
+          profile: "development",
+          profileRoot: "/home/test/.live-agent/profiles/development",
+          migrationStatus: "not-needed",
+        },
         logging: {
           level: "debug",
           fileName: "desktop.log",
@@ -79,6 +101,9 @@ describe("desktop diagnostics actions", () => {
     );
     expect(writeClipboard.mock.calls[0]?.[0]).toContain(
       "Checks: 1 pass, 1 warning, 0 failed",
+    );
+    expect(writeClipboard.mock.calls[0]?.[0]).toContain(
+      "Storage: development (/home/test/.live-agent)",
     );
   });
 });

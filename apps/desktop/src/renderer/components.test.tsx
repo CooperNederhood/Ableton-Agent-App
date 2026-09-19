@@ -1188,6 +1188,13 @@ describe("desktop components", () => {
             checks: [
               { label: "Bridge", status: "warn", detail: "Not connected" },
             ],
+            storage: {
+              version: 1,
+              root: "/home/test/.live-agent",
+              profile: "development",
+              profileRoot: "/home/test/.live-agent/profiles/development",
+              migrationStatus: "completed",
+            },
             logging: {
               level: "debug",
               fileName: "desktop-development.log",
@@ -1200,6 +1207,7 @@ describe("desktop components", () => {
     );
 
     expect(html).toContain("Active logging level: debug");
+    expect(html).toContain("Local storage profile: development");
     expect(html).toContain("desktop-development.log");
     expect(html).toContain("Reveal log");
     expect(html).toContain("Export support bundle");

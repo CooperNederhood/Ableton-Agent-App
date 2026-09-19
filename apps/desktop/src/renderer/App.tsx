@@ -5570,14 +5570,28 @@ export function DiagnosticsView({
         </div>
       </div>
       {report && (
-        <div className="diagnostics-log">
-          <strong>Active logging level: {report.logging.level}</strong>
-          {report.logging.environmentOverride && (
-            <span>Controlled by ABLETON_AGENT_LOG_LEVEL</span>
-          )}
-          <span>{report.logging.fileName}</span>
-          <code title={report.logging.filePath}>{report.logging.filePath}</code>
-        </div>
+        <>
+          <div className="diagnostics-log">
+            <strong>Local storage profile: {report.storage.profile}</strong>
+            <span>
+              Storage version {report.storage.version}; migration{" "}
+              {report.storage.migrationStatus}
+            </span>
+            <code title={report.storage.profileRoot}>
+              {report.storage.profileRoot}
+            </code>
+          </div>
+          <div className="diagnostics-log">
+            <strong>Active logging level: {report.logging.level}</strong>
+            {report.logging.environmentOverride && (
+              <span>Controlled by ABLETON_AGENT_LOG_LEVEL</span>
+            )}
+            <span>{report.logging.fileName}</span>
+            <code title={report.logging.filePath}>
+              {report.logging.filePath}
+            </code>
+          </div>
+        </>
       )}
       <p className="diagnostics-action-status" aria-live="polite">
         {actionStatus}

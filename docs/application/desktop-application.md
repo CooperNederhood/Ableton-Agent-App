@@ -176,18 +176,35 @@ Startup order:
    parameter enrichment is reserved for an explicit refresh so startup does not
    issue a project-wide parameter scan against Live's main thread.
 
-Desktop stores production sessions in `sessions.json`, saved Live Set
-associations in `project-sessions.json`, and Copilot SDK conversation data
-under `copilot/`, all below Electron's application-data directory. On macOS,
-the packaged app uses `~/Library/Application Support/Ableton Agent/`; the
-`pnpm desktop:dev` package currently uses
-`~/Library/Application Support/@ableton-agent/desktop/`.
+Desktop stores all application-owned local data below
+`~/.live-agent/profiles/{profile}/`. Packaged builds use the `default` profile
+and development builds use `development`; `LIVE_AGENT_HOME` and
+`LIVE_AGENT_PROFILE` provide explicit overrides. The profile contains
+preferences, production-session JSON, saved Live Set associations, OS-encrypted
+credential blobs, Copilot SDK conversation data, structured logs, and
+`observability/event-history.sqlite`. See
+[Local Storage Layout](../platform/local-storage.md) for the canonical tree,
+ownership boundaries, exceptions, and migration contract.
 
-The same application-data root contains the local event journal. Desktop opens
-it before agent sessions start, prunes records older than 30 days, enforces the
-250 MiB cap incrementally, and flushes bounded pending batches during graceful
-shutdown. A journal failure degrades History and raises a visible diagnostic;
-it must not crash or stall the agent/Live control path.
+Each persisted production session also has a bounded ownership manifest at
+`session-state/{production-session-id}/session.json` and a reserved
+`artifacts/` directory. Transcripts remain in the Copilot SDK store and
+detailed events remain in the shared profile journal rather than being
+duplicated per session.
+
+Desktop migrates prior Electron application-data/log locations and the former
+`~/.ableton-agent/copilot` fallback before composing application services.
+Migration copies into staging, validates known JSON/SQLite data, atomically
+publishes the profile, retains legacy sources, and records a version marker.
+Migration conflicts or corrupt sources are reported without overwriting either
+copy.
+
+Desktop opens the local event journal before agent sessions start, prunes
+records older than 30 days, enforces the 250 MiB cap incrementally, and flushes
+bounded pending batches during graceful shutdown. A journal failure degrades
+History and raises a visible diagnostic; it must not crash or stall the
+agent/Live control path. Storage migration lifecycle is replayed into this
+journal after it opens and is also mirrored to the structured log.
 
 Unsaved Live Sets are ephemeral because a name such as `Untitled` is not a
 durable identity. If the open Live Set changes after startup, Desktop blocks
@@ -246,6 +263,8 @@ Store non-secret preferences separately from credentials. Important settings:
 - Whether anonymous operational telemetry is enabled.
 - Local detailed-history capture (default on), retention status, clear, and
   per-session deletion controls.
+- Local storage root/profile diagnostics. Root and profile overrides are
+  process-level configuration and are not renderer-writable preferences.
 - Project-specific workflow preferences.
 
 Credentials must use OS-backed secure storage where application-managed secrets

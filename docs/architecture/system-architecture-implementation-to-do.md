@@ -29,6 +29,8 @@ Companion specification: [System Architecture](system-architecture.md)
   Remote Script logs.
 - [ ] Add the application-owned, versioned local event-journal writer and typed
   append/trace/cursor-query repositories.
+- [x] Define a shared versioned `~/.live-agent` storage root with production
+  and development profiles, safe overrides, and hybrid per-session ownership.
 - [ ] Require every capability and asynchronous stage to define sanitized
   lifecycle events and propagate trace/correlation/causation context.
 

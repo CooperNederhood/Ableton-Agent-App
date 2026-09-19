@@ -30,6 +30,7 @@
     "@ableton-agent/runtime": "workspace:*",
     "@ableton-agent/shared": "workspace:*",
     "@ableton-agent/signal-routing": "workspace:*",
+    "@ableton-agent/storage": "workspace:*",
     "@ableton-agent/tools": "workspace:*",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",

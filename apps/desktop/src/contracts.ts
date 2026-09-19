@@ -871,6 +871,13 @@ export type DiagnosticCheck = z.infer<typeof diagnosticCheckSchema>;
 
 export const desktopDiagnosticsReportSchema = z.object({
   checks: z.array(diagnosticCheckSchema),
+  storage: z.object({
+    version: z.number().int().positive(),
+    root: z.string().min(1),
+    profile: z.string().min(1),
+    profileRoot: z.string().min(1),
+    migrationStatus: z.enum(["completed", "not-needed", "failed"]),
+  }),
   logging: z.object({
     level: z.enum(["error", "warn", "info", "debug"]),
     fileName: z.string().min(1),

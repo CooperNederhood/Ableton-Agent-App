@@ -89,11 +89,16 @@ presentation state and say so; they are not applied to Live.
   selected/all updates, session-switch revalidation, and shutdown draining.
 - [x] Implement validated preferences and migration support.
 - [x] Persist saved Live Set-to-session associations in
-  `project-sessions.json` under Electron user data.
+  `project-sessions.json` under the canonical local profile.
 - [x] Keep unsaved Live Set sessions ephemeral instead of indexing their
   name-derived identity.
 - [x] Store secrets in OS-backed secure storage.
 - [x] Implement development and production logging locations.
+- [x] Consolidate application-owned Desktop data under versioned
+  `~/.live-agent/profiles/{profile}` storage with isolated development and
+  production profiles.
+- [x] Add staged legacy migration and per-production-session ownership
+  manifests without splitting the shared event journal.
 - [ ] Open the local event journal before agent sessions, capture default-on
   sanitized records, and flush bounded batches during graceful shutdown.
 - [ ] Add typed journal query/detail, pause, clear, and per-session deletion IPC

@@ -64,17 +64,64 @@ pnpm --filter @ableton-agent/debug-mcp dev -- \
   --descriptor "$PROFILE/automation-endpoint.json"
 ```
 
+## Resolve and pin both application windows
+
+Before the first inspection, call computer-use `list_apps` and resolve Ableton
+Agent and Ableton Live independently. Do not assume a window title is a stable
+application identity.
+
+For a development build of Ableton Agent:
+
+1. Find the row whose window title is `Ableton Agent`.
+2. Record its returned app identity, app name, and numeric window ID.
+3. Target the discovered app name, commonly `Electron`, together with that exact
+   window ID for every subsequent Agent read or action.
+
+For Ableton Live:
+
+1. Find the row whose title is the runner-owned Set and whose app name is
+   `Live`.
+2. Record its numeric window ID separately.
+3. Target `Ableton Live 11 Suite` together with that exact window ID. This
+   project supports Live 11; never select an installed Live 12 instance.
+
+Do not use a generic Electron or `com.ableton.live` bundle identifier when it
+matches multiple applications. If an identity or window ID changes, call
+`list_apps` again and repin both targets. Element indexes are snapshot-local;
+re-read the relevant window after navigation, reload, startup transitions, or
+identity errors.
+
 ## Inspection procedure
 
-1. Confirm the visible app selected the requested agent and shows the expected
-   YOLO or approval state.
+1. Inspect the pinned Agent window and confirm startup completed, Ableton is
+   connected, the requested agent is selected, and the expected YOLO or
+   approval state is visible.
 2. Send one representative bounded user request through `send_user_message`.
+   Preserve the returned message, trace, and correlation IDs.
 3. Observe the submitted user turn, streaming response, operation rows,
-   approvals, warnings, errors, and final ready state.
-4. Inspect Ableton Live for the expected visible result and absence of
-   unintended changes.
-5. Use Desktop History, logs, and read-only bridge inspection to diagnose what
-   happened. Never treat assistant prose as proof of success.
+   approvals, warnings, errors, and final ready state. Message acceptance does
+   not prove that the renderer displayed it, the agent processed it, tools ran,
+   or Ableton changed.
+4. Inspect the separately pinned Ableton Live window for the exact expected
+   track, device, clip, note, timing, routing, and playback result, plus the
+   absence of unintended changes. Compare before and after state where
+   possible.
+5. Use Desktop History, Diagnostics, logs, and read-only bridge inspection to
+   correlate the workflow with the captured IDs. Never treat assistant prose or
+   pre-existing Ableton content as proof of success.
+6. Prefer accessibility text for inspection. Capture computer-use screenshots
+   when custom Electron or Live surfaces are not adequately exposed or when a
+   visual artifact helps prove the result.
+
+Classify the result explicitly:
+
+- **Completed:** the message is visible, the correlated workflow completed, and
+  Live contains the verified result.
+- **Failed:** the workflow ran and exposed a failure.
+- **Blocked:** startup, connection, agent selection, permissions, or another
+  precondition prevented execution.
+- **Inconclusive:** Agent or Live resembles the expected result, but the
+  available evidence cannot attribute it to the submitted request.
 
 ## Visual success criteria
 
@@ -114,3 +161,6 @@ affects presentation or interaction.
 - Close the automation app before removing its specific isolated profile.
 - If `remote-script/AbletonAgent/**` changed, fully restart the dedicated Live
   process before retesting so embedded Python cannot remain stale.
+- Stop and report a precondition failure when the Agent shows startup,
+  connection, snapshot, project, or agent-selection failure. Do not attribute
+  existing Live content to the accepted message.

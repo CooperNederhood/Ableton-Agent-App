@@ -525,7 +525,7 @@ describe("desktop component interactions", () => {
     expect(navigationItems.map((item) => item.textContent)).toEqual([
       "Defaultdefault",
       "Default 2default",
-      "composeComposition agent.",
+      "ComposeComposition agent.",
     ]);
     expect(
       navigationItems.map((item) =>
@@ -594,22 +594,27 @@ describe("desktop component interactions", () => {
       sourceFile: "compose.yaml",
       fingerprint: "b".repeat(64),
     });
-    const saveDefinition = vi.fn().mockResolvedValue({
-      catalog: {
-        ...state.agentCatalog,
-        revision: "2".repeat(64),
-        definitions: state.agentCatalog.definitions.map((definition) =>
-          definition.name === "compose"
-            ? {
-                ...definition,
-                origin: "session" as const,
-                fingerprint: "c".repeat(64),
-              }
-            : definition,
-        ),
-      },
-      profileSnapshot: {},
-    });
+    const saveDefinition = vi
+      .fn()
+      .mockImplementation((draft: CurrentAgentDefinition) =>
+        Promise.resolve({
+          catalog: {
+            ...state.agentCatalog,
+            revision: "2".repeat(64),
+            definitions: state.agentCatalog.definitions.map((definition) =>
+              definition.name === "compose"
+                ? {
+                    ...definition,
+                    ...draft,
+                    origin: "session" as const,
+                    fingerprint: "c".repeat(64),
+                  }
+                : definition,
+            ),
+          },
+          profileSnapshot: {},
+        }),
+      );
     const onProfilesChanged = vi.fn();
     Object.defineProperty(window, "desktop", {
       configurable: true,
@@ -626,11 +631,16 @@ describe("desktop component interactions", () => {
       ...container.querySelectorAll<HTMLButtonElement>(
         ".agent-navigation-item",
       ),
-    ].find((candidate) => candidate.textContent?.includes("compose"));
+    ].find((candidate) => candidate.textContent?.includes("Compose"));
     if (inactive === undefined) throw new Error("Inactive agent not found");
     await act(async () => inactive.click());
-    await choose(container, "Model for Compose", "model-b");
-    await choose(container, "Reasoning for Compose", "xhigh");
+    const displayName = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Display name for Compose"]',
+    );
+    if (displayName === null) throw new Error("Display name editor not found");
+    await replaceText(displayName, "New Compose");
+    await choose(container, "Model for New Compose", "model-b");
+    await choose(container, "Reasoning for New Compose", "xhigh");
     const visibleDetail = container.querySelector<HTMLElement>(
       ".agent-detail:not([hidden])",
     );
@@ -682,7 +692,7 @@ describe("desktop component interactions", () => {
       expect.objectContaining({
         version: 2,
         name: "compose",
-        label: "Compose",
+        label: "New Compose",
         model: "model-b",
         reasoningEffort: "xhigh",
         autoApprove: true,
@@ -698,6 +708,13 @@ describe("desktop component interactions", () => {
       "b".repeat(64),
     );
     expect(onProfilesChanged).toHaveBeenCalledOnce();
+    expect(
+      [
+        ...container.querySelectorAll<HTMLElement>(
+          ".agent-navigation-item strong",
+        ),
+      ].some((label) => label.textContent === "New Compose"),
+    ).toBe(true);
   });
 
   it("omits a cleared listener prefix from the saved definition", async () => {

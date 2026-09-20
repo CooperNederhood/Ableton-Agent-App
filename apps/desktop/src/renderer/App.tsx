@@ -3817,7 +3817,7 @@ export function AgentsView({
                       aria-label="Inactive agent"
                     />
                     <span className="agent-navigation-label">
-                      <strong>{definition.name}</strong>
+                      <strong>{definition.label}</strong>
                       <small>{definition.description}</small>
                     </span>
                   </button>
@@ -4862,8 +4862,7 @@ function ActiveAgentCard({
     });
   }, [definitionRevision]);
 
-  const dirty =
-    JSON.stringify(draft) !== JSON.stringify(baselineRef.current);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(baselineRef.current);
   const scopeMode = draft.editScope.includes("session") ? "session" : "tracks";
   const trackScope = draft.editScope
     .filter((entry) => entry !== "session")
@@ -4877,8 +4876,7 @@ function ActiveAgentCard({
     model !== "" &&
     (selectedModel === undefined || selectedModel.policyState !== "enabled");
   const reasoningUnavailable =
-    reasoningEffort !== "" &&
-    !reasoningOptions.includes(reasoningEffort);
+    reasoningEffort !== "" && !reasoningOptions.includes(reasoningEffort);
   const save = async (): Promise<void> => {
     if (await onSaveDefinition(draft)) {
       baselineRef.current = draft;
@@ -5277,10 +5275,7 @@ function ActiveAgentCard({
         >
           {busy ? "Saving…" : "Save Session definition"}
         </button>
-        <button
-          disabled={busy || !dirty}
-          onClick={reloadLatestDefinition}
-        >
+        <button disabled={busy || !dirty} onClick={reloadLatestDefinition}>
           Discard changes
         </button>
         {agent !== undefined &&

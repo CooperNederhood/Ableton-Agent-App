@@ -14,7 +14,7 @@ import {
 
 const identity: PlannerIdentity = {
   id: "workflow-1",
-  projectId: "project-1",
+  liveSetId: "project-1",
   sessionId: "session-1",
   correlationId: "correlation-1",
   resource: "project-1",
@@ -25,7 +25,7 @@ function track(
   id = "track-1",
   kind: EntityReference["kind"] = "track",
 ): EntityReference {
-  return { projectId: "project-1", kind, id, revision: 1 };
+  return { liveSetId: "project-1", kind, id, revision: 1 };
 }
 
 describe("deterministic musical planners", () => {
@@ -205,7 +205,7 @@ describe("deterministic musical planners", () => {
         ...identity,
         changes: [
           {
-            track: { ...track(), projectId: "different-project" },
+            track: { ...track(), liveSetId: "different-project" },
             volume: 0.5,
           },
         ],

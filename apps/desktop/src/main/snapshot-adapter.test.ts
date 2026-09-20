@@ -4,12 +4,12 @@ import { describe, expect, it } from "vitest";
 import { composeAgentPrompt } from "./prompt.js";
 import {
   colorFromLiveValue,
-  projectLabel,
+  liveSetLabel,
   toDesktopCapabilities,
   toDesktopSnapshot,
 } from "./snapshot-adapter.js";
 
-describe("project snapshot adapter", () => {
+describe("Live Set snapshot adapter", () => {
   it("maps session tracks, clips, and devices without inventing data", () => {
     const state = defaultFakeState();
     const track = state.snapshot.tracks[0];
@@ -28,8 +28,8 @@ describe("project snapshot adapter", () => {
     ]);
 
     expect(snapshot).toMatchObject({
-      id: "project-fake",
-      name: "Live set project-fake",
+      liveSetId: "set-fake",
+      liveSetName: "Fake Set",
       tempo: 122,
       timeSignature: "4/4",
     });
@@ -69,12 +69,20 @@ describe("project snapshot adapter", () => {
     expect(snapshot.tracks[0]?.devices).toEqual([]);
   });
 
-  it("labels the project only by the identity Live reported", () => {
-    expect(projectLabel({ state: "disconnected" })).toBe(
+  it("labels the Live Set only by the identity Live reported", () => {
+    expect(liveSetLabel({ state: "disconnected" })).toBe(
       "No connected Live set",
     );
     expect(colorFromLiveValue(null)).toBe("#8a8f98");
     expect(colorFromLiveValue(0x00_00_ff)).toBe("#0000ff");
+  });
+
+  it("rejects snapshots without a connected Live Set identity", () => {
+    const state = defaultFakeState();
+
+    expect(() =>
+      toDesktopSnapshot(state.snapshot, { state: "disconnected" }),
+    ).toThrow("without a connected Live Set");
   });
 
   it("lists only capabilities the Remote Script enables", () => {

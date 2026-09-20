@@ -2,13 +2,12 @@ import { lstat, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
-
-import { resolveProductionSessionStorage } from "@ableton-agent/storage";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   FilePlanArtifactStore,
   PlanArtifactConflictError,
+  type PlanArtifactPathResolver,
 } from "./plan-artifact.js";
 
 const roots: string[] = [];
@@ -17,6 +16,18 @@ async function temporaryRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "ableton-plan-artifact-"));
   roots.push(root);
   return root;
+}
+
+function planArtifactPathResolver(root: string): PlanArtifactPathResolver {
+  return (productionSessionId) => {
+    const sessionDirectory = join(root, productionSessionId);
+    const artifactsDirectory = join(sessionDirectory, "artifacts");
+    return {
+      sessionDirectory,
+      artifactsDirectory,
+      planPath: join(artifactsDirectory, "plan.md"),
+    };
+  };
 }
 
 afterEach(async () => {
@@ -28,12 +39,13 @@ afterEach(async () => {
 describe("FilePlanArtifactStore", () => {
   it("creates a canonical owner-only plan artifact", async () => {
     const root = await temporaryRoot();
-    const store = new FilePlanArtifactStore(root);
+    const resolvePaths = vi.fn(planArtifactPathResolver(root));
+    const store = new FilePlanArtifactStore(resolvePaths);
 
     const artifact = await store.write("production-1", {
       content: "# Plan\r\n\r\n1. Inspect the Live Set.\r\n",
     });
-    const paths = resolveProductionSessionStorage(root, "production-1");
+    const paths = await resolvePaths("production-1");
 
     expect(artifact).toMatchObject({
       exists: true,
@@ -44,11 +56,12 @@ describe("FilePlanArtifactStore", () => {
     expect((await lstat(paths.artifactsDirectory)).mode & 0o777).toBe(0o700);
     expect((await lstat(paths.planPath)).mode & 0o777).toBe(0o600);
     await expect(store.read("production-1")).resolves.toEqual(artifact);
+    expect(resolvePaths).toHaveBeenCalledWith("production-1");
   });
 
   it("redacts embedded credentials before persistence", async () => {
     const root = await temporaryRoot();
-    const store = new FilePlanArtifactStore(root);
+    const store = new FilePlanArtifactStore(planArtifactPathResolver(root));
 
     const artifact = await store.write("production-1", {
       content: "# Plan\n\nUse Authorization: Bearer never-store-this.\n",
@@ -62,7 +75,7 @@ describe("FilePlanArtifactStore", () => {
 
   it("requires the current revision for replacements", async () => {
     const root = await temporaryRoot();
-    const store = new FilePlanArtifactStore(root);
+    const store = new FilePlanArtifactStore(planArtifactPathResolver(root));
     const first = await store.write("production-1", { content: "# First\n" });
     if (!first.exists) throw new Error("Expected a stored plan");
 
@@ -85,7 +98,7 @@ describe("FilePlanArtifactStore", () => {
 
   it("serializes concurrent writes and rejects the stale writer", async () => {
     const root = await temporaryRoot();
-    const store = new FilePlanArtifactStore(root);
+    const store = new FilePlanArtifactStore(planArtifactPathResolver(root));
     const first = await store.write("production-1", { content: "# First\n" });
     if (!first.exists) throw new Error("Expected a stored plan");
 

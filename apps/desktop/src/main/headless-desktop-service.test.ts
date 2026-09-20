@@ -1,5 +1,11 @@
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -26,10 +32,15 @@ import type {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { abletonToolMetadata } from "@ableton-agent/tools";
 import type { RetentionPolicy } from "@ableton-agent/observability";
+import {
+  resolveLiveAgentStorage,
+  resolveNestedSessionStorage,
+} from "@ableton-agent/storage";
 
 import {
   desktopAgentCatalogSchema,
   preferencesSchema,
+  sessionSchema,
   type DesktopAppEvent,
   type DesktopActiveAgent,
   type DesktopAgentCatalog,
@@ -44,9 +55,9 @@ import {
   type DesktopEventJournal,
 } from "./headless-desktop-service.js";
 import {
-  JsonProjectSessionStore,
-  type ProjectSessionStore,
-} from "./project-session-store.js";
+  JsonLiveSetSessionStore,
+  type LiveSetSessionStore,
+} from "./live-set-session-store.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -239,7 +250,9 @@ class FakeLiveEventRuntime implements LiveEventRuntime {
 }
 
 async function temporaryDirectory(): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), "ableton-desktop-test-"));
+  const directory = await mkdtemp(
+    join(process.cwd(), ".ableton-desktop-test-"),
+  );
   temporaryDirectories.push(directory);
   return directory;
 }
@@ -267,8 +280,8 @@ async function harness(
     onAutoApprovedAgentIdsChange?: (
       agentInstanceIds: ReadonlySet<string>,
     ) => void;
-    projectSessionStore?: ProjectSessionStore;
-    projectIdentityPollIntervalMs?: number;
+    liveSetSessionStore?: LiveSetSessionStore;
+    liveSetIdentityPollIntervalMs?: number;
     eventJournal?: DesktopEventJournal;
     reconfigureEventJournal?: (policy: RetentionPolicy) => Promise<void>;
   } = {},
@@ -281,14 +294,20 @@ async function harness(
   const fake = createFakeApplication(options);
   const approvals = new ApprovalCoordinator();
   const catalog = serviceOptions.agentCatalog?.current ?? defaultCatalog();
-  const { agentCatalog, projectSessionStore, ...remainingServiceOptions } =
-    serviceOptions;
+  const {
+    agentCatalog,
+    liveSetSessionStore: providedLiveSetSessionStore,
+    ...remainingServiceOptions
+  } = serviceOptions;
+  const liveSetSessionStore =
+    providedLiveSetSessionStore ??
+    new JsonLiveSetSessionStore(join(directory, "live-set-sessions.json"));
   const service = new HeadlessDesktopService({
     application: fake.application,
     approvals,
     preferencesStore,
     sessionStore,
-    ...(projectSessionStore === undefined ? {} : { projectSessionStore }),
+    liveSetSessionStore,
     agentCatalog: agentCatalog ?? {
       current: catalog,
       refresh: () => Promise.resolve(catalog),
@@ -304,6 +323,7 @@ async function harness(
     events,
     sharedEvents: fake.events,
     directory,
+    liveSetSessionStore,
     preferencesStore,
     sessionStore,
   };
@@ -433,7 +453,8 @@ describe("desktop persistence stores", () => {
           id: "obsolete-session",
           title: "Obsolete",
           updatedAt: new Date().toISOString(),
-          projectName: "Old Project",
+          liveSetId: "live-set-1",
+          liveSetName: "Old Project",
           productionPlan: [],
           outputAssignments: [],
         },
@@ -448,9 +469,12 @@ describe("desktop persistence stores", () => {
 
   it("round-trips multiple instances, selection, overrides, and subscriptions", async () => {
     const directory = await temporaryDirectory();
-    const path = join(directory, "sessions.json");
-    const sessionStateDirectory = join(directory, "session-state");
-    const store = new JsonSessionStore(path, sessionStateDirectory);
+    const storage = resolveLiveAgentStorage({
+      homeDirectory: directory,
+      profile: "test",
+    });
+    const path = storage.sessionsPath;
+    const store = new JsonSessionStore(path, storage);
     const firstId = "00000000-0000-4000-8000-000000000001";
     const secondId = "00000000-0000-4000-8000-000000000002";
     const baseAgent = {
@@ -474,11 +498,15 @@ describe("desktop persistence stores", () => {
     };
     const sessions = [
       {
-        version: 3 as const,
+        version: 4 as const,
         id: "00000000-0000-4000-8000-000000000010",
-        title: "Production session",
-        updatedAt: new Date().toISOString(),
-        projectName: "Set",
+        title: "App session",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-02T00:00:00.000Z",
+        liveSetId: "live-set-1",
+        liveSetName: "Set",
+        liveProjectId: "live-project-1",
+        liveProjectName: "Project",
         activeAgents: [
           {
             ...baseAgent,
@@ -527,105 +555,216 @@ describe("desktop persistence stores", () => {
 
     await store.save(sessions);
 
-    await expect(store.load()).resolves.toEqual(
-      sessions.map((session) => ({
-        ...session,
-        activeAgents: session.activeAgents.map((agent) => ({
-          ...agent,
-          mode: "interactive" as const,
-          triggerHistory: [],
-        })),
-      })),
-    );
-    expect((await readdir(directory)).sort()).toEqual([
-      "session-state",
-      "sessions.json",
-    ]);
-    const sessionDirectory = join(
-      sessionStateDirectory,
-      "00000000-0000-4000-8000-000000000010",
-    );
-    expect(await readdir(sessionDirectory)).toEqual([
+    await expect(store.load()).resolves.toEqual(sessions);
+    await expect(
+      store.resolveOwnership("00000000-0000-4000-8000-000000000010"),
+    ).resolves.toEqual({
+      liveSetId: "live-set-1",
+      liveProjectId: "live-project-1",
+      sessionId: "00000000-0000-4000-8000-000000000010",
+    });
+    await expect(store.resolveOwnership("missing")).resolves.toBeUndefined();
+    const sessionPaths = resolveNestedSessionStorage(storage, {
+      liveSetId: "live-set-1",
+      liveProjectId: "live-project-1",
+      sessionId: "00000000-0000-4000-8000-000000000010",
+    });
+    expect(await readdir(sessionPaths.sessionDirectory)).toEqual([
+      "agents",
+      "artifact-state",
       "artifacts",
+      "memory",
       "session.json",
+      "skills",
     ]);
     expect(
       JSON.parse(
-        await readFile(join(sessionDirectory, "session.json"), "utf8"),
+        await readFile(
+          join(sessionPaths.sessionDirectory, "session.json"),
+          "utf8",
+        ),
       ),
     ).toMatchObject({
       version: 1,
-      productionSessionId: "00000000-0000-4000-8000-000000000010",
+      appSessionId: "00000000-0000-4000-8000-000000000010",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-02T00:00:00.000Z",
       activeAgentIds: [firstId, secondId],
       sdkSessionIds: ["sdk-a", "sdk-b"],
     });
   });
 
-  it("migrates version-two sessions without changing inputs or Output subscriptions", async () => {
+  it("relocates the complete Live Set subtree when its Project changes", async () => {
+    const directory = await temporaryDirectory();
+    const storage = resolveLiveAgentStorage({
+      homeDirectory: directory,
+      profile: "test",
+    });
+    const store = new JsonSessionStore(storage.sessionsPath, storage);
+    const session = sessionSchema.parse({
+      version: 4,
+      id: "00000000-0000-4000-8000-000000000010",
+      title: "App session",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      liveSetId: "live-set-1",
+      liveSetName: "Writing",
+      activeAgents: [],
+      productionPlan: [],
+      outputAssignments: [],
+      liveEvents: [],
+    });
+    await store.save([session]);
+    const source = resolveNestedSessionStorage(storage, {
+      liveSetId: session.liveSetId,
+      sessionId: session.id,
+    });
+    await mkdir(source.skillsDirectory, { recursive: true });
+    await writeFile(join(source.skillsDirectory, "interview-me.md"), "Updated");
+
+    await store.save([
+      {
+        ...session,
+        liveProjectId: "live-project-1",
+        liveProjectName: "Album",
+      },
+    ]);
+
+    const destination = resolveNestedSessionStorage(storage, {
+      liveProjectId: "live-project-1",
+      liveSetId: session.liveSetId,
+      sessionId: session.id,
+    });
+    await expect(
+      readFile(join(destination.skillsDirectory, "interview-me.md"), "utf8"),
+    ).resolves.toBe("Updated");
+    await expect(
+      readFile(join(source.skillsDirectory, "interview-me.md"), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("keeps prior session ownership when a relocated manifest cannot be written", async () => {
+    const directory = await temporaryDirectory();
+    const storage = resolveLiveAgentStorage({
+      homeDirectory: directory,
+      profile: "test",
+    });
+    const store = new JsonSessionStore(storage.sessionsPath, storage);
+    const session = sessionSchema.parse({
+      version: 4,
+      id: "00000000-0000-4000-8000-000000000010",
+      title: "App session",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      liveSetId: "live-set-1",
+      liveSetName: "Writing",
+      activeAgents: [],
+      productionPlan: [],
+      outputAssignments: [],
+      liveEvents: [],
+    });
+    await store.save([session]);
+    const source = resolveNestedSessionStorage(storage, {
+      liveSetId: session.liveSetId,
+      sessionId: session.id,
+    });
+    await writeFile(join(source.skillsDirectory, "interview-me.md"), "Updated");
+    await rm(source.manifestPath);
+    await mkdir(source.manifestPath);
+
+    await expect(
+      store.save([
+        {
+          ...session,
+          liveProjectId: "live-project-1",
+          liveProjectName: "Album",
+        },
+      ]),
+    ).rejects.toThrow(
+      "Session persistence failed and storage relocation rollback was incomplete",
+    );
+
+    await expect(store.load()).resolves.toEqual([session]);
+    await expect(
+      readFile(join(source.skillsDirectory, "interview-me.md"), "utf8"),
+    ).resolves.toBe("Updated");
+  });
+
+  it("restores hierarchy metadata when a relocated session save fails", async () => {
+    const directory = await temporaryDirectory();
+    const storage = resolveLiveAgentStorage({
+      homeDirectory: directory,
+      profile: "test",
+    });
+    const store = new JsonSessionStore(storage.sessionsPath, storage);
+    const session = sessionSchema.parse({
+      version: 4,
+      id: "00000000-0000-4000-8000-000000000010",
+      title: "App session",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      liveSetId: "live-set-1",
+      liveSetName: "Writing",
+      activeAgents: [],
+      productionPlan: [],
+      outputAssignments: [],
+      liveEvents: [],
+    });
+    await store.save([session]);
+    await mkdir(join(storage.liveProjectsRegistryPath, ".."), {
+      recursive: true,
+    });
+    await writeFile(storage.liveProjectsRegistryPath, "{invalid-json");
+
+    await expect(
+      store.save([
+        {
+          ...session,
+          liveProjectId: "live-project-1",
+          liveProjectName: "Album",
+        },
+      ]),
+    ).rejects.toThrow("JSON");
+
+    await expect(store.load()).resolves.toEqual([session]);
+    await expect(
+      readFile(storage.liveProjectsRegistryPath, "utf8"),
+    ).resolves.toBe("{invalid-json");
+    const destination = resolveNestedSessionStorage(storage, {
+      liveProjectId: "live-project-1",
+      liveSetId: session.liveSetId,
+      sessionId: session.id,
+    });
+    await expect(
+      readFile(destination.project!.metadataPath, "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("rejects pre-v4 sessions instead of migrating them at runtime", async () => {
     const directory = await temporaryDirectory();
     const path = join(directory, "sessions.json");
-    const agentId = "00000000-0000-4000-8000-000000000001";
-    const subscription = {
-      assignmentId: "assignment-legacy",
-      producerId: "producer-legacy",
-      enabled: true,
-      deliveryMode: "next-prompt",
-      usageInstruction: "Use the legacy output.",
-      processingPolicyIds: ["latest-window"],
-    };
     await writeFile(
       path,
       JSON.stringify([
         {
-          version: 2,
+          version: 3,
           id: "production-session",
-          title: "Version two",
+          title: "Version three",
           updatedAt: new Date().toISOString(),
           projectName: "Set",
-          activeAgents: [
-            {
-              id: agentId,
-              definitionName: "default",
-              definitionFingerprint: "a".repeat(64),
-              label: "Default",
-              lifecycle: "ready",
-              config: {
-                description: "General agent.",
-                systemPrompt: "Help.",
-                tools: ["*"],
-                resolvedTools: [],
-                editScope: ["session"],
-                skills: [],
-                inputChannels: ["producer-legacy"],
-              },
-              boundTracks: [],
-              outputSubscriptions: [subscription],
-              modified: false,
-            },
-          ],
-          selectedAgentInstanceId: agentId,
+          projectId: "project-1",
+          activeAgents: [],
           productionPlan: [],
-          outputAssignments: [subscription],
+          outputAssignments: [],
+          liveEvents: [],
         },
       ]),
       "utf8",
     );
 
-    const [migrated] = await new JsonSessionStore(path).load();
-
-    expect(migrated).toMatchObject({
-      version: 3,
-      liveEvents: [],
-      outputAssignments: [subscription],
-      activeAgents: [
-        {
-          config: { inputChannels: ["producer-legacy"] },
-          outputSubscriptions: [subscription],
-          eventListeners: [],
-          triggerHistory: [],
-        },
-      ],
-    });
+    await expect(new JsonSessionStore(path).load()).rejects.toThrow(
+      "Sessions could not be loaded",
+    );
   });
 
   it("rejects invalid and corrupt session data without overwriting it", async () => {
@@ -638,7 +777,8 @@ describe("desktop persistence stores", () => {
         id: "production-session",
         title: "Invalid",
         updatedAt: new Date().toISOString(),
-        projectName: "Set",
+        liveSetId: "live-set-1",
+        liveSetName: "Set",
         activeAgents: [],
         selectedAgentInstanceId: "00000000-0000-4000-8000-000000000001",
       },
@@ -689,7 +829,7 @@ describe("desktop adapter over the shared application", () => {
   it("uses root pagination for history and preserves trace page metadata", async () => {
     const traceId = "00000000-0000-4000-8000-000000000100";
     const roots = {
-      version: 1 as const,
+      version: 2 as const,
       items: [
         {
           rootTraceId: traceId,
@@ -712,7 +852,7 @@ describe("desktop adapter over the shared application", () => {
       },
     };
     const trace = {
-      version: 1 as const,
+      version: 2 as const,
       items: [],
       page: {
         limit: 10,
@@ -759,7 +899,7 @@ describe("desktop adapter over the shared application", () => {
 
   it("keeps queries and shutdown bound to a recovered journal after retention fails", async () => {
     const roots = {
-      version: 1 as const,
+      version: 2 as const,
       items: [],
       page: {
         limit: 10,
@@ -833,7 +973,7 @@ describe("desktop adapter over the shared application", () => {
 
   it("does not reconfigure or prune history when preference persistence fails", async () => {
     const roots = {
-      version: 1 as const,
+      version: 2 as const,
       items: [],
       page: {
         limit: 10,
@@ -910,7 +1050,7 @@ describe("desktop adapter over the shared application", () => {
     expect(created.boundTracks).toEqual([
       {
         selector: { track: { name: "Bass", occurrence: 0 } },
-        projectId: "project-fake",
+        projectId: "set-fake",
         trackReference: ableton.state.snapshot.tracks[0]?.reference,
         trackIndex: 0,
         expectedName: "Bass",
@@ -1275,8 +1415,8 @@ describe("desktop adapter over the shared application", () => {
       join(directory, "preferences.json"),
     );
     const sessionStore = new JsonSessionStore(join(directory, "sessions.json"));
-    const projectSessionStore = new JsonProjectSessionStore(
-      join(directory, "project-sessions.json"),
+    const liveSetSessionStore = new JsonLiveSetSessionStore(
+      join(directory, "live-set-sessions.json"),
     );
     const catalog = defaultCatalog();
     const first = createFakeApplication();
@@ -1286,7 +1426,7 @@ describe("desktop adapter over the shared application", () => {
       approvals: new ApprovalCoordinator(),
       preferencesStore,
       sessionStore,
-      projectSessionStore,
+      liveSetSessionStore,
       agentCatalog: {
         current: catalog,
         refresh: () => Promise.resolve(catalog),
@@ -1306,7 +1446,7 @@ describe("desktop adapter over the shared application", () => {
       approvals: new ApprovalCoordinator(),
       preferencesStore,
       sessionStore,
-      projectSessionStore,
+      liveSetSessionStore,
       agentCatalog: {
         current: catalog,
         refresh: () => Promise.resolve(catalog),
@@ -1466,7 +1606,13 @@ describe("desktop adapter over the shared application", () => {
 
   it("persists per-instance auto approval and reset adopts definition state", async () => {
     const published: string[][] = [];
-    const { service, sessionStore, preferencesStore, events } = await harness(
+    const {
+      service,
+      sessionStore,
+      liveSetSessionStore,
+      preferencesStore,
+      events,
+    } = await harness(
       {},
       {
         onAutoApprovedAgentIdsChange: (ids) => published.push([...ids].sort()),
@@ -1542,6 +1688,7 @@ describe("desktop adapter over the shared application", () => {
       approvals: new ApprovalCoordinator(),
       preferencesStore,
       sessionStore,
+      liveSetSessionStore,
       agentCatalog: {
         current: catalog,
         refresh: () => Promise.resolve(catalog),
@@ -1555,7 +1702,7 @@ describe("desktop adapter over the shared application", () => {
     await restarted.stop();
   });
 
-  it("closes the active production session without deleting it", async () => {
+  it("closes the active App session without deleting it", async () => {
     const { service, sessionStore, events } = await harness();
     await service.start();
     const activeSessionId = (await service.listOutputs()).activeSessionId;
@@ -1585,16 +1732,22 @@ describe("desktop adapter over the shared application", () => {
     async ({ initial, requested }) => {
       const policyReference: { current?: ApprovalPolicyController } = {};
       const published: string[][] = [];
-      const { service, approvals, sessionStore, preferencesStore, events } =
-        await harness(
-          {},
-          {
-            onAutoApprovedAgentIdsChange: (ids) => {
-              published.push([...ids].sort());
-              policyReference.current?.setAutoApprovedAgentInstanceIds(ids);
-            },
+      const {
+        service,
+        approvals,
+        sessionStore,
+        liveSetSessionStore,
+        preferencesStore,
+        events,
+      } = await harness(
+        {},
+        {
+          onAutoApprovedAgentIdsChange: (ids) => {
+            published.push([...ids].sort());
+            policyReference.current?.setAutoApprovedAgentInstanceIds(ids);
           },
-        );
+        },
+      );
       const policy = new ApprovalPolicyController("risky", approvals);
       policyReference.current = policy;
       await service.start();
@@ -1663,6 +1816,7 @@ describe("desktop adapter over the shared application", () => {
         approvals: new ApprovalCoordinator(),
         preferencesStore,
         sessionStore,
+        liveSetSessionStore,
         agentCatalog: {
           current: catalog,
           refresh: () => Promise.resolve(catalog),
@@ -1731,17 +1885,21 @@ describe("desktop adapter over the shared application", () => {
       initialAutoApprove: true,
       requestedAutoApprove: false,
       mutate: async ({ service, ableton }) => {
-        if (ableton.state.status.state !== "connected") {
+        if (
+          ableton.state.status.state !== "connected" ||
+          !("liveSetId" in ableton.state.status)
+        ) {
           throw new Error("Expected the fake Ableton service to be connected");
         }
-        ableton.state.projectIdentity = {
-          projectId: ableton.state.status.projectId,
-          projectName: "Ordered Project",
+        ableton.state.liveIdentity = {
+          liveSetId: ableton.state.liveIdentity.liveSetId,
+          liveSetName: "Ordered Project",
           saved: true,
+          diagnostics: [],
         };
         await service.getSnapshot();
       },
-      isMutationApplied: (session) => session.projectName === "Ordered Project",
+      isMutationApplied: (session) => session.liveSetName === "Ordered Project",
     });
   });
 
@@ -1771,10 +1929,8 @@ describe("desktop adapter over the shared application", () => {
     await service.resumeSession(targetSessionId);
     release.resolve();
 
-    await expect(configure).rejects.toThrow(
-      "Active production session changed",
-    );
-    await expect(update).rejects.toThrow("Active production session changed");
+    await expect(configure).rejects.toThrow("Active App session changed");
+    await expect(update).rejects.toThrow("Active App session changed");
     expect(
       (await sessionStore.load()).find(({ id }) => id === source.id)
         ?.activeAgents[0]?.autoApprove,
@@ -2010,7 +2166,7 @@ describe("desktop adapter over the shared application", () => {
     expect(agent.managedConfigurations.size).toBe(0);
   });
 
-  it("rolls back prepared runtime replacement when the production session switches", async () => {
+  it("rolls back prepared runtime replacement when the App session switches", async () => {
     const { service, agent, sessionStore } = await harness();
     await service.start();
     const originalSession = (await service.getSessions())[0]!;
@@ -2044,7 +2200,7 @@ describe("desktop adapter over the shared application", () => {
     release.resolve();
 
     await expect(configure).rejects.toThrow(
-      `Active production session changed from '${originalSession.id}' to '${otherSessionId}' while the operation was queued`,
+      `Active App session changed from '${originalSession.id}' to '${otherSessionId}' while the operation was queued`,
     );
     expect([...agent.managedConfigurations.keys()].sort()).toEqual(
       [...otherAgentIds].sort(),
@@ -2056,7 +2212,7 @@ describe("desktop adapter over the shared application", () => {
     expect(agent.managedConfigurations.size).toBe(0);
   });
 
-  it("does not resurrect a deactivated agent after its production session switches", async () => {
+  it("does not resurrect a deactivated agent after its App session switches", async () => {
     const signals = new FakeSignalRuntime();
     const { service, agent, sessionStore } = await harness({}, { signals });
     await service.start();
@@ -2088,7 +2244,7 @@ describe("desktop adapter over the shared application", () => {
     release.resolve();
 
     await expect(mutation).rejects.toThrow(
-      `Active production session changed from '${sourceSession.id}' to '${targetSessionId}' while the operation was queued`,
+      `Active App session changed from '${sourceSession.id}' to '${targetSessionId}' while the operation was queued`,
     );
     expect([...agent.managedConfigurations.keys()].sort()).toEqual(
       [...targetAgentIds].sort(),
@@ -2127,7 +2283,7 @@ describe("desktop adapter over the shared application", () => {
     release.resolve();
 
     await expect(mutation).rejects.toThrow(
-      `Agent instance '${sourceAgent.id}' changed in production session '${sourceSession.id}' while the operation was preparing`,
+      `Agent instance '${sourceAgent.id}' changed in App session '${sourceSession.id}' while the operation was preparing`,
     );
     expect([...agent.managedConfigurations.keys()]).toEqual([sourceAgent.id]);
     expect(signals.activeAgentIds).toEqual([sourceAgent.id]);
@@ -2160,7 +2316,7 @@ describe("desktop adapter over the shared application", () => {
     release.resolve();
 
     await expect(mutation).rejects.toThrow(
-      `Agent instance '${active.id}' changed in production session '${session.id}' while the operation was preparing`,
+      `Agent instance '${active.id}' changed in App session '${session.id}' while the operation was preparing`,
     );
     expect(agent.getManagedAgentSessionId(active.id)).toBe(active.sdkSessionId);
     expect(agent.managedConfigurations.has(active.id)).toBe(true);
@@ -2201,7 +2357,7 @@ describe("desktop adapter over the shared application", () => {
     release.resolve();
 
     await expect(mutation).rejects.toThrow(
-      `Agent instance '${active.id}' changed in production session '${session.id}' while the operation was preparing`,
+      `Agent instance '${active.id}' changed in App session '${session.id}' while the operation was preparing`,
     );
     await stop;
     expect(resumeCalls).toBe(1);
@@ -2243,7 +2399,7 @@ describe("desktop adapter over the shared application", () => {
     const error = await mutation.catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(AggregateError);
     expect((error as AggregateError).errors[0]).toMatchObject({
-      message: `Agent instance '${active.id}' changed in production session '${session.id}' while the operation was preparing`,
+      message: `Agent instance '${active.id}' changed in App session '${session.id}' while the operation was preparing`,
     });
     expect((error as AggregateError).errors[1]).toMatchObject({
       message: "restore failed",
@@ -2601,7 +2757,7 @@ describe("desktop adapter over the shared application", () => {
     expect(
       events.some(
         (event) =>
-          event.type === "project.snapshot_changed" &&
+          event.type === "live_set.snapshot_changed" &&
           event.snapshot.tracks[0]?.name === "Bass",
       ),
     ).toBe(true);
@@ -2886,6 +3042,9 @@ describe("desktop adapter over the shared application", () => {
     const directory = await temporaryDirectory();
     const preferencesPath = join(directory, "preferences.json");
     const sessionsPath = join(directory, "sessions.json");
+    const liveSetSessionStore = new JsonLiveSetSessionStore(
+      join(directory, "live-set-sessions.json"),
+    );
     const build = () => {
       const fake = createFakeApplication();
       const catalog = defaultCatalog();
@@ -2896,6 +3055,7 @@ describe("desktop adapter over the shared application", () => {
           approvals: new ApprovalCoordinator(),
           preferencesStore: new JsonPreferencesStore(preferencesPath),
           sessionStore: new JsonSessionStore(sessionsPath),
+          liveSetSessionStore,
           agentCatalog: {
             current: catalog,
             refresh: () => Promise.resolve(catalog),
@@ -2906,7 +3066,14 @@ describe("desktop adapter over the shared application", () => {
 
     const first = build();
     await first.service.start();
+    const initialSession = (await first.service.getSessions())[0]!;
     const productionSessionId = await first.service.createSession();
+    const createdSession = (await first.service.getSessions()).find(
+      ({ id }) => id === productionSessionId,
+    )!;
+    expect(Date.parse(createdSession.createdAt)).toBeGreaterThan(
+      Date.parse(initialSession.createdAt),
+    );
     const sdkSessionId = first.fake.agent.sessionId;
     expect(sdkSessionId).toBeDefined();
     expect(productionSessionId).not.toBe(sdkSessionId);
@@ -2921,6 +3088,11 @@ describe("desktop adapter over the shared application", () => {
       },
     ];
     await first.service.updatePlan(plan);
+    expect(
+      (await first.service.getSessions()).find(
+        ({ id }) => id === productionSessionId,
+      )?.createdAt,
+    ).toBe(createdSession.createdAt);
     await first.service.send("Continue the arrangement", []);
     await settle();
     await first.service.stop();
@@ -2937,6 +3109,7 @@ describe("desktop adapter over the shared application", () => {
       ({ id }) => id === productionSessionId,
     );
     expect(restoredSession?.productionPlan).toEqual(plan);
+    expect(restoredSession?.createdAt).toBe(createdSession.createdAt);
     expect(typeof restoredSession?.selectedAgentInstanceId).toBe("string");
     expect(restoredSession?.activeAgents).toEqual([
       expect.objectContaining({
@@ -2970,17 +3143,36 @@ describe("desktop adapter over the shared application", () => {
       join(directory, "preferences.json"),
     );
     const sessionStore = new JsonSessionStore(join(directory, "sessions.json"));
-    const projectSessionStore = new JsonProjectSessionStore(
-      join(directory, "project-sessions.json"),
+    const liveSetSessionStore = new JsonLiveSetSessionStore(
+      join(directory, "live-set-sessions.json"),
     );
     const catalog = defaultCatalog();
-    const build = (projectId: string, projectName: string) => {
+    const build = (liveSetId: string, liveSetName: string) => {
       const ableton = defaultFakeState();
-      if (ableton.status.state !== "connected") {
+      if (
+        ableton.status.state !== "connected" ||
+        !("liveSetId" in ableton.status)
+      ) {
         throw new Error("Expected connected fake state");
       }
-      ableton.status = { ...ableton.status, projectId };
-      ableton.projectIdentity = { projectId, projectName, saved: true };
+      ableton.status = {
+        state: "connected",
+        liveVersion: ableton.status.liveVersion,
+        remoteScriptVersion: ableton.status.remoteScriptVersion,
+        liveSetId,
+        liveSetName,
+        saved: true,
+        liveProjectId: "shared-project",
+        liveProjectName: "Shared Project",
+      };
+      ableton.liveIdentity = {
+        liveSetId,
+        liveSetName,
+        saved: true,
+        liveProjectId: "shared-project",
+        liveProjectName: "Shared Project",
+        diagnostics: [],
+      };
       const fake = createFakeApplication({ ableton });
       return {
         fake,
@@ -2989,7 +3181,7 @@ describe("desktop adapter over the shared application", () => {
           approvals: new ApprovalCoordinator(),
           preferencesStore,
           sessionStore,
-          projectSessionStore,
+          liveSetSessionStore,
           agentCatalog: {
             current: catalog,
             refresh: () => Promise.resolve(catalog),
@@ -3013,7 +3205,7 @@ describe("desktop adapter over the shared application", () => {
     await second.service.start();
     const active = (await second.service.getSessions())[0]!;
     expect(active.id).not.toBe(firstSession.id);
-    expect(active.projectId).toBe("project-b");
+    expect(active.liveSetId).toBe("project-b");
     await expect(
       second.service.hydrateActiveAgentHistory(active.activeAgents[0]!.id),
     ).resolves.toEqual([]);
@@ -3023,10 +3215,11 @@ describe("desktop adapter over the shared application", () => {
   it("keeps unsaved Live Set sessions ephemeral across shutdown", async () => {
     const directory = await temporaryDirectory();
     const ableton = defaultFakeState();
-    ableton.projectIdentity = {
-      projectId: "untitled-name-hash",
-      projectName: "Untitled",
+    ableton.liveIdentity = {
+      liveSetId: "untitled-name-hash",
+      liveSetName: "Untitled",
       saved: false,
+      diagnostics: [],
     };
     const fake = createFakeApplication({ ableton });
     const sessionStore = new JsonSessionStore(join(directory, "sessions.json"));
@@ -3037,8 +3230,8 @@ describe("desktop adapter over the shared application", () => {
         join(directory, "preferences.json"),
       ),
       sessionStore,
-      projectSessionStore: new JsonProjectSessionStore(
-        join(directory, "project-sessions.json"),
+      liveSetSessionStore: new JsonLiveSetSessionStore(
+        join(directory, "live-set-sessions.json"),
       ),
       agentCatalog: {
         current: defaultCatalog(),
@@ -3048,7 +3241,7 @@ describe("desktop adapter over the shared application", () => {
 
     await service.start();
     const active = (await service.getSessions())[0]!;
-    expect(active.projectId).toBeUndefined();
+    expect(active.liveSetId).toBe("untitled-name-hash");
     await service.sendToActiveAgent(
       active.activeAgents[0]!.id,
       "Temporary idea",
@@ -3063,10 +3256,11 @@ describe("desktop adapter over the shared application", () => {
   it("persists an unsaved Live Set session when Session Scope is requested", async () => {
     const directory = await temporaryDirectory();
     const ableton = defaultFakeState();
-    ableton.projectIdentity = {
-      projectId: "untitled-name-hash",
-      projectName: "Untitled",
+    ableton.liveIdentity = {
+      liveSetId: "untitled-name-hash",
+      liveSetName: "Untitled",
       saved: false,
+      diagnostics: [],
     };
     const fake = createFakeApplication({ ableton });
     const sessionStore = new JsonSessionStore(join(directory, "sessions.json"));
@@ -3077,8 +3271,8 @@ describe("desktop adapter over the shared application", () => {
         join(directory, "preferences.json"),
       ),
       sessionStore,
-      projectSessionStore: new JsonProjectSessionStore(
-        join(directory, "project-sessions.json"),
+      liveSetSessionStore: new JsonLiveSetSessionStore(
+        join(directory, "live-set-sessions.json"),
       ),
       agentCatalog: {
         current: defaultCatalog(),
@@ -3094,7 +3288,10 @@ describe("desktop adapter over the shared application", () => {
 
     const persisted = await sessionStore.load();
     expect(persisted).toHaveLength(1);
-    expect(persisted[0]).toMatchObject({ id: active.id });
+    expect(persisted[0]).toMatchObject({
+      id: active.id,
+      createdAt: active.createdAt,
+    });
     expect(persisted[0]).not.toHaveProperty("projectId");
     expect(
       [...events].reverse().find(({ type }) => type === "sessions.changed"),
@@ -3106,8 +3303,8 @@ describe("desktop adapter over the shared application", () => {
 
   it("requests a decision when the open Live Set changes mid-run", async () => {
     const directory = await temporaryDirectory();
-    const projectSessionStore = new JsonProjectSessionStore(
-      join(directory, "project-sessions.json"),
+    const liveSetSessionStore = new JsonLiveSetSessionStore(
+      join(directory, "live-set-sessions.json"),
     );
     let currentCatalog = defaultCatalog();
     const refreshForSession = vi.fn(async (sessionId?: string) => {
@@ -3132,7 +3329,7 @@ describe("desktop adapter over the shared application", () => {
     const { service, ableton, events, sessionStore } = await harness(
       {},
       {
-        projectSessionStore,
+        liveSetSessionStore,
         agentCatalog: {
           get current() {
             return currentCatalog;
@@ -3143,26 +3340,35 @@ describe("desktop adapter over the shared application", () => {
       },
     );
     await service.start();
-    ableton.state.projectIdentity = {
-      projectId: "project-b",
-      projectName: "Project B",
+    const source = (await service.getSessions())[0]!;
+    ableton.state.liveIdentity = {
+      liveSetId: "project-b",
+      liveSetName: "Project B",
       saved: true,
+      diagnostics: [],
     };
-    if (ableton.state.status.state === "connected") {
+    if (
+      ableton.state.status.state === "connected" &&
+      "liveSetId" in ableton.state.status
+    ) {
       ableton.state.status = {
-        ...ableton.state.status,
-        projectId: "project-b",
+        state: "connected",
+        liveVersion: ableton.state.status.liveVersion,
+        remoteScriptVersion: ableton.state.status.remoteScriptVersion,
+        liveSetId: "project-b",
+        liveSetName: "Project B",
+        saved: true,
       };
     }
 
     await service.getSnapshot();
     const requested = events.find(
-      (event) => event.type === "project.transition_requested",
+      (event) => event.type === "live_set.transition_requested",
     );
     expect(requested).toMatchObject({
       transition: {
         kind: "unassociated",
-        project: { projectId: "project-b" },
+        liveSet: { liveSetId: "project-b" },
         decisions: ["fork-current", "start-fresh"],
       },
     });
@@ -3170,19 +3376,22 @@ describe("desktop adapter over the shared application", () => {
     expect(() =>
       service.sendToActiveAgent(activeAgentId, "Do not run", []),
     ).toThrow("transition decision");
-    if (requested?.type !== "project.transition_requested") {
-      throw new Error("Expected a pending project transition");
+    if (requested?.type !== "live_set.transition_requested") {
+      throw new Error("Expected a pending Live Set transition");
     }
-    const session = await service.resolveProjectTransition(
+    const session = await service.resolveLiveSetTransition(
       requested.transition.token,
       "start-fresh",
     );
-    expect(session.projectId).toBe("project-b");
+    expect(session.liveSetId).toBe("project-b");
+    expect(Date.parse(session.createdAt)).toBeGreaterThan(
+      Date.parse(source.createdAt),
+    );
     expect(session.productionPlan).toEqual([]);
     expect(await sessionStore.load()).toContainEqual(
       expect.objectContaining({
         id: session.id,
-        projectId: "project-b",
+        liveSetId: "project-b",
       }),
     );
     expect(refreshForSession).toHaveBeenLastCalledWith(session.id);
@@ -3202,26 +3411,36 @@ describe("desktop adapter over the shared application", () => {
     const { service, ableton, events } = await harness(
       {},
       {
-        projectSessionStore: new JsonProjectSessionStore(
-          join(directory, "project-sessions.json"),
+        liveSetSessionStore: new JsonLiveSetSessionStore(
+          join(directory, "live-set-sessions.json"),
         ),
-        projectIdentityPollIntervalMs: 5,
+        liveSetIdentityPollIntervalMs: 5,
       },
     );
+    const getLiveIdentity = vi.spyOn(ableton, "getLiveIdentity");
     await service.start();
-    ableton.state.projectIdentity = {
-      projectId: "polled-project",
-      projectName: "Polled Project",
+    ableton.state.liveIdentity = {
+      liveSetId: "polled-project",
+      liveSetName: "Polled Project",
       saved: true,
+      diagnostics: [],
     };
 
+    const initialIdentityReads = getLiveIdentity.mock.calls.length;
+    await vi.waitFor(
+      () =>
+        expect(getLiveIdentity.mock.calls.length).toBeGreaterThan(
+          initialIdentityReads,
+        ),
+      { timeout: 500 },
+    );
     await vi.waitFor(
       () => {
         expect(
           events.some(
             (event) =>
-              event.type === "project.transition_requested" &&
-              event.transition.project.projectId === "polled-project",
+              event.type === "live_set.transition_requested" &&
+              event.transition.liveSet.liveSetId === "polled-project",
           ),
         ).toBe(true);
       },
@@ -3230,14 +3449,136 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
+  it("rehomes a Live Set when only its Live Project association changes", async () => {
+    const ableton = defaultFakeState();
+    if (
+      ableton.status.state !== "connected" ||
+      !("liveSetId" in ableton.status)
+    ) {
+      throw new Error("Expected connected fake state");
+    }
+    ableton.status = {
+      ...ableton.status,
+      liveSetId: "live-set-1",
+      liveSetName: "Writing",
+      saved: true,
+    };
+    ableton.liveIdentity = {
+      liveSetId: "live-set-1",
+      liveSetName: "Writing",
+      saved: true,
+      diagnostics: [],
+    };
+    const catalog = defaultCatalog();
+    const refreshForSession = vi.fn(async () => catalog);
+    const { service, events } = await harness(
+      { ableton },
+      {
+        liveSetIdentityPollIntervalMs: 5,
+        agentCatalog: {
+          current: catalog,
+          refresh: () => Promise.resolve(catalog),
+          refreshForSession,
+        },
+      },
+    );
+    await service.start();
+
+    ableton.liveIdentity = {
+      ...ableton.liveIdentity,
+      liveProjectId: "live-project-1",
+      liveProjectName: "Album",
+    };
+
+    await vi.waitFor(async () =>
+      expect((await service.getSessions())[0]).toMatchObject({
+        liveSetId: "live-set-1",
+        liveProjectId: "live-project-1",
+        liveProjectName: "Album",
+      }),
+    );
+    expect(
+      events.some(({ type }) => type === "live_set.transition_requested"),
+    ).toBe(false);
+    expect(refreshForSession).toHaveBeenCalledWith(
+      (await service.getSessions())[0]!.id,
+    );
+    expect(events.some(({ type }) => type === "agents.catalog_changed")).toBe(
+      true,
+    );
+    await service.stop();
+  });
+
+  it("retries project-only rehoming after persistence fails", async () => {
+    const ableton = defaultFakeState();
+    if (
+      ableton.status.state !== "connected" ||
+      !("liveSetId" in ableton.status)
+    ) {
+      throw new Error("Expected connected fake state");
+    }
+    ableton.status = {
+      ...ableton.status,
+      liveSetId: "live-set-1",
+      liveSetName: "Writing",
+      saved: true,
+    };
+    ableton.liveIdentity = {
+      liveSetId: "live-set-1",
+      liveSetName: "Writing",
+      saved: true,
+      diagnostics: [],
+    };
+    const catalog = defaultCatalog();
+    const refreshForSession = vi.fn(async () => catalog);
+    const { service, sessionStore } = await harness(
+      { ableton },
+      {
+        liveSetIdentityPollIntervalMs: 5,
+        agentCatalog: {
+          current: catalog,
+          refresh: () => Promise.resolve(catalog),
+          refreshForSession,
+        },
+      },
+    );
+    await service.start();
+    refreshForSession.mockClear();
+    const save = vi
+      .spyOn(sessionStore, "save")
+      .mockRejectedValue(new Error("persistence unavailable"));
+
+    ableton.liveIdentity = {
+      ...ableton.liveIdentity,
+      liveProjectId: "live-project-1",
+      liveProjectName: "Album",
+    };
+
+    await vi.waitFor(() => expect(save).toHaveBeenCalled());
+    expect((await service.getSessions())[0]).not.toHaveProperty(
+      "liveProjectId",
+    );
+    expect(refreshForSession).not.toHaveBeenCalled();
+
+    save.mockRestore();
+    await vi.waitFor(async () =>
+      expect((await service.getSessions())[0]).toMatchObject({
+        liveProjectId: "live-project-1",
+        liveProjectName: "Album",
+      }),
+    );
+    expect(refreshForSession).toHaveBeenCalledTimes(1);
+    await service.stop();
+  });
+
   it("forks conversation context without sharing SDK sessions across Live Sets", async () => {
     const directory = await temporaryDirectory();
-    const projectSessionStore = new JsonProjectSessionStore(
-      join(directory, "project-sessions.json"),
+    const liveSetSessionStore = new JsonLiveSetSessionStore(
+      join(directory, "live-set-sessions.json"),
     );
     const { service, ableton, events } = await harness(
       {},
-      { projectSessionStore },
+      { liveSetSessionStore },
     );
     await service.start();
     const source = (await service.getSessions())[0]!;
@@ -3248,31 +3589,42 @@ describe("desktop adapter over the shared application", () => {
       [],
     );
     await settle();
-    ableton.state.projectIdentity = {
-      projectId: "project-fork",
-      projectName: "Forked Project",
+    ableton.state.liveIdentity = {
+      liveSetId: "project-fork",
+      liveSetName: "Forked Project",
       saved: true,
+      diagnostics: [],
     };
-    if (ableton.state.status.state === "connected") {
+    if (
+      ableton.state.status.state === "connected" &&
+      "liveSetId" in ableton.state.status
+    ) {
       ableton.state.status = {
-        ...ableton.state.status,
-        projectId: "project-fork",
+        state: "connected",
+        liveVersion: ableton.state.status.liveVersion,
+        remoteScriptVersion: ableton.state.status.remoteScriptVersion,
+        liveSetId: "project-fork",
+        liveSetName: "Forked Project",
+        saved: true,
       };
     }
     events.length = 0;
     await service.getSnapshot();
     const requested = events.find(
-      (event) => event.type === "project.transition_requested",
+      (event) => event.type === "live_set.transition_requested",
     );
-    if (requested?.type !== "project.transition_requested") {
-      throw new Error("Expected a pending project transition");
+    if (requested?.type !== "live_set.transition_requested") {
+      throw new Error("Expected a pending Live Set transition");
     }
 
-    const fork = await service.resolveProjectTransition(
+    const fork = await service.resolveLiveSetTransition(
       requested.transition.token,
       "fork-current",
     );
-    expect(fork.projectId).toBe("project-fork");
+    expect(fork.liveSetId).toBe("project-fork");
+    expect(Date.parse(fork.createdAt)).toBeGreaterThan(
+      Date.parse(source.createdAt),
+    );
     expect(fork.id).not.toBe(source.id);
     expect(fork.activeAgents[0]?.id).not.toBe(sourceAgent.id);
     expect(fork.activeAgents[0]?.sdkSessionId).not.toBe(
@@ -3285,8 +3637,9 @@ describe("desktop adapter over the shared application", () => {
       ),
     ).toBe(true);
     expect(
-      (await service.getSessions()).some(({ id }) => id === source.id),
-    ).toBe(true);
+      (await service.getSessions()).find(({ id }) => id === source.id)
+        ?.createdAt,
+    ).toBe(source.createdAt);
     await service.stop();
   });
 
@@ -3296,17 +3649,36 @@ describe("desktop adapter over the shared application", () => {
       join(directory, "preferences.json"),
     );
     const sessionStore = new JsonSessionStore(join(directory, "sessions.json"));
-    const projectSessionStore = new JsonProjectSessionStore(
-      join(directory, "project-sessions.json"),
+    const liveSetSessionStore = new JsonLiveSetSessionStore(
+      join(directory, "live-set-sessions.json"),
     );
     const catalog = defaultCatalog();
-    const build = (projectId: string, projectName: string) => {
+    const build = (liveSetId: string, liveSetName: string) => {
       const ableton = defaultFakeState();
-      if (ableton.status.state !== "connected") {
+      if (
+        ableton.status.state !== "connected" ||
+        !("liveSetId" in ableton.status)
+      ) {
         throw new Error("Expected connected fake state");
       }
-      ableton.status = { ...ableton.status, projectId };
-      ableton.projectIdentity = { projectId, projectName, saved: true };
+      ableton.status = {
+        state: "connected",
+        liveVersion: ableton.status.liveVersion,
+        remoteScriptVersion: ableton.status.remoteScriptVersion,
+        liveSetId,
+        liveSetName,
+        saved: true,
+        liveProjectId: "shared-project",
+        liveProjectName: "Shared Project",
+      };
+      ableton.liveIdentity = {
+        liveSetId,
+        liveSetName,
+        saved: true,
+        liveProjectId: "shared-project",
+        liveProjectName: "Shared Project",
+        diagnostics: [],
+      };
       const fake = createFakeApplication({ ableton });
       const events: DesktopAppEvent[] = [];
       const service = new HeadlessDesktopService({
@@ -3314,7 +3686,7 @@ describe("desktop adapter over the shared application", () => {
         approvals: new ApprovalCoordinator(),
         preferencesStore,
         sessionStore,
-        projectSessionStore,
+        liveSetSessionStore,
         agentCatalog: {
           current: catalog,
           refresh: () => Promise.resolve(catalog),
@@ -3324,53 +3696,65 @@ describe("desktop adapter over the shared application", () => {
       return { ...fake, service, events };
     };
 
-    const projectA = build("project-a", "Project A");
-    await projectA.service.start();
-    const projectASession = (await projectA.service.getSessions())[0]!;
-    await projectA.service.stop();
+    const setA = build("set-a", "Set A");
+    await setA.service.start();
+    const setASession = (await setA.service.getSessions())[0]!;
+    expect(setASession.liveProjectId).toBe("shared-project");
+    await setA.service.stop();
 
-    const projectB = build("project-b", "Project B");
-    await projectB.service.start();
-    const projectBSession = (await projectB.service.getSessions())[0]!;
-    await projectB.service.stop();
+    const setB = build("set-b", "Set B");
+    await setB.service.start();
+    const setBSession = (await setB.service.getSessions())[0]!;
+    expect(setBSession.liveProjectId).toBe("shared-project");
+    await setB.service.stop();
 
-    const activeA = build("project-a", "Project A");
+    const activeA = build("set-a", "Set A");
     await activeA.service.start();
-    expect((await activeA.service.getSessions())[0]?.id).toBe(
-      projectASession.id,
-    );
-    activeA.ableton.state.projectIdentity = {
-      projectId: "project-b",
-      projectName: "Project B",
+    expect((await activeA.service.getSessions())[0]?.id).toBe(setASession.id);
+    activeA.ableton.state.liveIdentity = {
+      liveSetId: "set-b",
+      liveSetName: "Set B",
       saved: true,
+      liveProjectId: "shared-project",
+      liveProjectName: "Shared Project",
+      diagnostics: [],
     };
-    if (activeA.ableton.state.status.state !== "connected") {
+    if (
+      activeA.ableton.state.status.state !== "connected" ||
+      !("liveSetId" in activeA.ableton.state.status)
+    ) {
       throw new Error("Expected connected fake state");
     }
     activeA.ableton.state.status = {
-      ...activeA.ableton.state.status,
-      projectId: "project-b",
+      state: "connected",
+      liveVersion: activeA.ableton.state.status.liveVersion,
+      remoteScriptVersion: activeA.ableton.state.status.remoteScriptVersion,
+      liveSetId: "set-b",
+      liveSetName: "Set B",
+      saved: true,
+      liveProjectId: "shared-project",
+      liveProjectName: "Shared Project",
     };
     activeA.events.length = 0;
     await activeA.service.getSnapshot();
     const requested = activeA.events.find(
-      (event) => event.type === "project.transition_requested",
+      (event) => event.type === "live_set.transition_requested",
     );
     expect(requested).toMatchObject({
       transition: {
         kind: "associated",
-        associatedSession: { id: projectBSession.id },
+        associatedSession: { id: setBSession.id },
         decisions: ["resume-associated", "start-fresh"],
       },
     });
-    if (requested?.type !== "project.transition_requested") {
-      throw new Error("Expected an associated project transition");
+    if (requested?.type !== "live_set.transition_requested") {
+      throw new Error("Expected an associated Live Set transition");
     }
-    const resumed = await activeA.service.resolveProjectTransition(
+    const resumed = await activeA.service.resolveLiveSetTransition(
       requested.transition.token,
       "resume-associated",
     );
-    expect(resumed.id).toBe(projectBSession.id);
+    expect(resumed.id).toBe(setBSession.id);
     await activeA.service.stop();
   });
 
@@ -3775,7 +4159,7 @@ describe("desktop adapter over the shared application", () => {
         service.assignOutput(agent.id, "producer-1"),
     },
   ])(
-    "revalidates the production session after a queued $name races a session switch",
+    "revalidates the App session after a queued $name races a session switch",
     async ({ run }) => {
       const signals = new FakeSignalRuntime();
       const { service, agent, sessionStore } = await harness({}, { signals });
@@ -3808,7 +4192,7 @@ describe("desktop adapter over the shared application", () => {
 
       await resume;
       await expect(mutation).rejects.toThrow(
-        `Active production session changed from '${targetSessionId}' to '${sourceSession.id}' while the operation was queued`,
+        `Active App session changed from '${targetSessionId}' to '${sourceSession.id}' while the operation was queued`,
       );
       const persisted = await sessionStore.load();
       expect(persisted.find(({ id }) => id === targetSessionId)).toEqual(
@@ -3881,10 +4265,13 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
-  it("fails closed without replacing a production session on generic resume failure", async () => {
+  it("fails closed without replacing a App session on generic resume failure", async () => {
     const directory = await temporaryDirectory();
     const sessionsPath = join(directory, "sessions.json");
     const preferencesPath = join(directory, "preferences.json");
+    const liveSetSessionStore = new JsonLiveSetSessionStore(
+      join(directory, "live-set-sessions.json"),
+    );
     const catalog = defaultCatalog();
     const first = createFakeApplication();
     const firstService = new HeadlessDesktopService({
@@ -3892,6 +4279,7 @@ describe("desktop adapter over the shared application", () => {
       approvals: new ApprovalCoordinator(),
       preferencesStore: new JsonPreferencesStore(preferencesPath),
       sessionStore: new JsonSessionStore(sessionsPath),
+      liveSetSessionStore,
       agentCatalog: {
         current: catalog,
         refresh: () => Promise.resolve(catalog),
@@ -3909,6 +4297,7 @@ describe("desktop adapter over the shared application", () => {
       approvals: new ApprovalCoordinator(),
       preferencesStore: new JsonPreferencesStore(preferencesPath),
       sessionStore: new JsonSessionStore(sessionsPath),
+      liveSetSessionStore,
       agentCatalog: {
         current: catalog,
         refresh: () => Promise.resolve(catalog),
@@ -3942,6 +4331,9 @@ describe("desktop adapter over the shared application", () => {
     const directory = await temporaryDirectory();
     const sessionsPath = join(directory, "sessions.json");
     const preferencesPath = join(directory, "preferences.json");
+    const liveSetSessionStore = new JsonLiveSetSessionStore(
+      join(directory, "live-set-sessions.json"),
+    );
     const catalog = defaultCatalog();
     const first = createFakeApplication();
     first.agent.models = [agentModel("model-a")];
@@ -3950,6 +4342,7 @@ describe("desktop adapter over the shared application", () => {
       approvals: new ApprovalCoordinator(),
       preferencesStore: new JsonPreferencesStore(preferencesPath),
       sessionStore: new JsonSessionStore(sessionsPath),
+      liveSetSessionStore,
       agentCatalog: {
         current: catalog,
         refresh: () => Promise.resolve(catalog),
@@ -3983,7 +4376,12 @@ describe("desktop adapter over the shared application", () => {
         updatedAt: "2026-08-30T20:00:01.000Z",
       },
     });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await vi.waitFor(async () =>
+      expect(
+        (await new JsonSessionStore(sessionsPath).load())[0]!.activeAgents[0]!
+          .triggerHistory,
+      ).toHaveLength(1),
+    );
     const [before] = await firstService.getSessions();
     await firstService.stop();
 
@@ -4005,6 +4403,7 @@ describe("desktop adapter over the shared application", () => {
       approvals: new ApprovalCoordinator(),
       preferencesStore: new JsonPreferencesStore(preferencesPath),
       sessionStore: new JsonSessionStore(sessionsPath),
+      liveSetSessionStore,
       agentCatalog: {
         current: catalog,
         refresh: () => Promise.resolve(catalog),
@@ -4061,6 +4460,9 @@ describe("desktop adapter over the shared application", () => {
     const directory = await temporaryDirectory();
     const sessionsPath = join(directory, "sessions.json");
     const preferencesPath = join(directory, "preferences.json");
+    const liveSetSessionStore = new JsonLiveSetSessionStore(
+      join(directory, "live-set-sessions.json"),
+    );
     const catalog = defaultCatalog();
     const first = createFakeApplication();
     const firstService = new HeadlessDesktopService({
@@ -4068,6 +4470,7 @@ describe("desktop adapter over the shared application", () => {
       approvals: new ApprovalCoordinator(),
       preferencesStore: new JsonPreferencesStore(preferencesPath),
       sessionStore: new JsonSessionStore(sessionsPath),
+      liveSetSessionStore,
       agentCatalog: {
         current: catalog,
         refresh: () => Promise.resolve(catalog),
@@ -4090,6 +4493,7 @@ describe("desktop adapter over the shared application", () => {
       approvals: new ApprovalCoordinator(),
       preferencesStore: new JsonPreferencesStore(preferencesPath),
       sessionStore,
+      liveSetSessionStore,
       agentCatalog: {
         current: catalog,
         refresh: () => Promise.resolve(catalog),
@@ -4155,19 +4559,17 @@ describe("desktop adapter over the shared application", () => {
         updatedAt: "2026-08-30T20:00:01.000Z",
       },
     });
-    await settle();
-    await settle();
-    await new Promise((resolve) => setTimeout(resolve, 20));
-
-    expect(
-      (await sessionStore.load())[0]!.activeAgents[0]!.triggerHistory,
-    ).toEqual([
-      {
-        ...trigger,
-        status: "completed",
-        updatedAt: "2026-08-30T20:00:01.000Z",
-      },
-    ]);
+    await vi.waitFor(async () =>
+      expect(
+        (await sessionStore.load())[0]!.activeAgents[0]!.triggerHistory,
+      ).toEqual([
+        {
+          ...trigger,
+          status: "completed",
+          updatedAt: "2026-08-30T20:00:01.000Z",
+        },
+      ]),
+    );
 
     sharedEvents.publish({
       type: "agent.sdk_session_rotated",
@@ -4324,7 +4726,7 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
-  it("rolls back a failed production-session switch after one target agent resumes", async () => {
+  it("rolls back a failed App-session switch after one target agent resumes", async () => {
     const { service, agent, sessionStore } = await harness();
     await service.start();
     const [previousAgent] = await service.listActiveAgents();
@@ -4342,7 +4744,7 @@ describe("desktop adapter over the shared application", () => {
     };
 
     await expect(service.resumeSession(targetSessionId)).rejects.toThrow(
-      `Could not switch to production session '${targetSessionId}' during resume target agents: target resume failed`,
+      `Could not switch to App session '${targetSessionId}' during resume target agents: target resume failed`,
     );
 
     expect((await service.listActiveAgents()).map(({ id }) => id)).toEqual([
@@ -4457,7 +4859,7 @@ describe("desktop adapter over the shared application", () => {
     expect(inspectDevices).not.toHaveBeenCalled();
     expect(inspectParameters).not.toHaveBeenCalled();
     const snapshots = events.filter(
-      (event) => event.type === "project.snapshot_changed",
+      (event) => event.type === "live_set.snapshot_changed",
     );
     expect(snapshots).toHaveLength(1);
     expect(
@@ -4484,7 +4886,7 @@ describe("desktop adapter over the shared application", () => {
       },
     );
     const unsubscribe = service.subscribe((event) => {
-      if (event.type !== "project.snapshot_changed") return;
+      if (event.type !== "live_set.snapshot_changed") return;
       order.push(
         event.snapshot.tracks[0]?.devices.length === 0 ? "core" : "enriched",
       );
@@ -4499,7 +4901,7 @@ describe("desktop adapter over the shared application", () => {
 
     expect(completed).toBe(false);
     expect(
-      events.filter((event) => event.type === "project.snapshot_changed"),
+      events.filter((event) => event.type === "live_set.snapshot_changed"),
     ).toHaveLength(1);
 
     deviceRead.resolve(undefined);
@@ -4578,7 +4980,7 @@ describe("desktop adapter over the shared application", () => {
       }),
     ]);
     const published = events.filter(
-      (event) => event.type === "project.snapshot_changed",
+      (event) => event.type === "live_set.snapshot_changed",
     );
     expect(published).toHaveLength(2);
     expect(
@@ -4759,7 +5161,7 @@ describe("desktop adapter over the shared application", () => {
     );
     expect(inspectDevices).not.toHaveBeenCalled();
     expect(
-      events.some((event) => event.type === "project.snapshot_changed"),
+      events.some((event) => event.type === "live_set.snapshot_changed"),
     ).toBe(false);
     await service.stop();
   });
@@ -4847,7 +5249,7 @@ describe("desktop adapter over the shared application", () => {
       liveEvents.configurations.at(-1)?.definitions.map(({ id }) => id),
     ).toContain(created.id);
     expect(
-      events.filter((event) => event.type === "project.snapshot_changed"),
+      events.filter((event) => event.type === "live_set.snapshot_changed"),
     ).toHaveLength(1);
     await service.stop();
   });
@@ -4855,7 +5257,7 @@ describe("desktop adapter over the shared application", () => {
   it("defers identity polling while snapshot enrichment is in progress", async () => {
     const { service, application } = await harness(
       {},
-      { projectIdentityPollIntervalMs: 5 },
+      { liveSetIdentityPollIntervalMs: 5 },
     );
     await service.start();
 
@@ -4869,18 +5271,18 @@ describe("desktop adapter over the shared application", () => {
         return originalInspectDevices(params);
       },
     );
-    const getProjectIdentity = vi.spyOn(application, "getProjectIdentity");
+    const getLiveIdentity = vi.spyOn(application, "getLiveIdentity");
 
     const refresh = service.getSnapshot();
     await deviceReadEntered.promise;
-    expect(getProjectIdentity).toHaveBeenCalledOnce();
+    expect(getLiveIdentity).toHaveBeenCalledOnce();
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(getProjectIdentity).toHaveBeenCalledOnce();
+    expect(getLiveIdentity).toHaveBeenCalledOnce();
 
     deviceRead.resolve(undefined);
     await refresh;
     await vi.waitFor(() =>
-      expect(getProjectIdentity.mock.calls.length).toBeGreaterThan(1),
+      expect(getLiveIdentity.mock.calls.length).toBeGreaterThan(1),
     );
     await service.stop();
   });
@@ -4888,15 +5290,15 @@ describe("desktop adapter over the shared application", () => {
   it("waits for an in-flight identity poll before starting a snapshot", async () => {
     const { service, application } = await harness(
       {},
-      { projectIdentityPollIntervalMs: 5 },
+      { liveSetIdentityPollIntervalMs: 5 },
     );
     await service.start();
 
     const identityReadEntered = deferred<void>();
     const releaseIdentityRead = deferred<void>();
     const originalGetProjectIdentity =
-      application.getProjectIdentity.bind(application);
-    vi.spyOn(application, "getProjectIdentity").mockImplementationOnce(
+      application.getLiveIdentity.bind(application);
+    vi.spyOn(application, "getLiveIdentity").mockImplementationOnce(
       async () => {
         identityReadEntered.resolve();
         await releaseIdentityRead.promise;
@@ -4919,20 +5321,20 @@ describe("desktop adapter over the shared application", () => {
   it("backs off identity polling after a failed read", async () => {
     const { service, application } = await harness(
       {},
-      { projectIdentityPollIntervalMs: 20 },
+      { liveSetIdentityPollIntervalMs: 20 },
     );
     await service.start();
 
-    const getProjectIdentity = vi
-      .spyOn(application, "getProjectIdentity")
+    const getLiveIdentity = vi
+      .spyOn(application, "getLiveIdentity")
       .mockRejectedValueOnce(new Error("identity timeout"));
-    while (getProjectIdentity.mock.calls.length === 0) {
+    while (getLiveIdentity.mock.calls.length === 0) {
       await new Promise((resolve) => setTimeout(resolve, 1));
     }
     await new Promise((resolve) => setTimeout(resolve, 25));
-    expect(getProjectIdentity).toHaveBeenCalledOnce();
+    expect(getLiveIdentity).toHaveBeenCalledOnce();
     await vi.waitFor(() =>
-      expect(getProjectIdentity.mock.calls.length).toBeGreaterThan(1),
+      expect(getLiveIdentity.mock.calls.length).toBeGreaterThan(1),
     );
     await service.stop();
   });
@@ -4940,7 +5342,7 @@ describe("desktop adapter over the shared application", () => {
   it("resumes identity polling after a snapshot fails", async () => {
     const { service, application } = await harness(
       {},
-      { projectIdentityPollIntervalMs: 5 },
+      { liveSetIdentityPollIntervalMs: 5 },
     );
     await service.start();
 
@@ -4950,20 +5352,20 @@ describe("desktop adapter over the shared application", () => {
       inspectionEntered.resolve();
       return rejectInspection.promise;
     });
-    const getProjectIdentity = vi.spyOn(application, "getProjectIdentity");
+    const getLiveIdentity = vi.spyOn(application, "getLiveIdentity");
 
     const refresh = service.getSnapshot();
     await inspectionEntered.promise;
     await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(getProjectIdentity).not.toHaveBeenCalled();
+    expect(getLiveIdentity).not.toHaveBeenCalled();
 
     rejectInspection.reject(new Error("snapshot failed"));
     await expect(refresh).rejects.toThrow("snapshot failed");
-    await vi.waitFor(() => expect(getProjectIdentity).toHaveBeenCalled());
+    await vi.waitFor(() => expect(getLiveIdentity).toHaveBeenCalled());
     await service.stop();
   });
 
-  it("drains an in-flight snapshot and its project sync before final shutdown persistence", async () => {
+  it("drains an in-flight snapshot and its Live Set sync before final shutdown persistence", async () => {
     const {
       service,
       application,
@@ -4975,17 +5377,25 @@ describe("desktop adapter over the shared application", () => {
     await service.start();
     events.length = 0;
 
-    if (ableton.state.status.state !== "connected") {
+    if (
+      ableton.state.status.state !== "connected" ||
+      !("liveSetId" in ableton.state.status)
+    ) {
       throw new Error("Expected the fake Ableton service to be connected");
     }
     ableton.state.status = {
-      ...ableton.state.status,
-      projectId: "shutdown-project",
-    };
-    ableton.state.projectIdentity = {
-      projectId: "shutdown-project",
-      projectName: "Shutdown Project",
+      state: "connected",
+      liveVersion: ableton.state.status.liveVersion,
+      remoteScriptVersion: ableton.state.status.remoteScriptVersion,
+      liveSetId: "shutdown-project",
+      liveSetName: "Shutdown Project",
       saved: true,
+    };
+    ableton.state.liveIdentity = {
+      liveSetId: "shutdown-project",
+      liveSetName: "Shutdown Project",
+      saved: true,
+      diagnostics: [],
     };
 
     const inspectionEntered = deferred<void>();
@@ -5017,7 +5427,7 @@ describe("desktop adapter over the shared application", () => {
       await originalStop();
     };
     service.subscribe((event) => {
-      if (event.type === "project.snapshot_changed") {
+      if (event.type === "live_set.snapshot_changed") {
         lifecycle.push("snapshot:event");
       }
     });
@@ -5046,11 +5456,11 @@ describe("desktop adapter over the shared application", () => {
       "final:persistence",
       "application:stop",
     ]);
-    expect((await sessionStore.load())[0]?.projectId).toBe("project-fake");
+    expect((await sessionStore.load())[0]?.liveSetId).toBe("set-fake");
 
     const postStopLifecycle = [...lifecycle];
     const postStopSnapshotEvents = events.filter(
-      (event) => event.type === "project.snapshot_changed",
+      (event) => event.type === "live_set.snapshot_changed",
     ).length;
     await expect(service.getSnapshot()).rejects.toThrow(
       "Desktop service is not accepting actions",
@@ -5058,7 +5468,7 @@ describe("desktop adapter over the shared application", () => {
     await settle();
     expect(lifecycle).toEqual(postStopLifecycle);
     expect(
-      events.filter((event) => event.type === "project.snapshot_changed"),
+      events.filter((event) => event.type === "live_set.snapshot_changed"),
     ).toHaveLength(postStopSnapshotEvents);
   });
 
@@ -5106,7 +5516,7 @@ describe("desktop adapter over the shared application", () => {
       type: "diagnostic",
       level: "error",
       message:
-        "Project snapshot could not be read: shutdown inspection exploded",
+        "Live Set snapshot could not be read: shutdown inspection exploded",
     });
 
     const postStopEventCount = events.length;

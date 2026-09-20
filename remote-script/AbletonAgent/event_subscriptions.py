@@ -16,7 +16,7 @@ from .device_commands import (
     _resolve_parameter,
 )
 from .errors import ProtocolFailure
-from .identity import build_project_identity
+from .identity import build_live_identity
 from .system_commands import _resolve_track, _same_lom_object, _track_reference
 
 try:
@@ -281,8 +281,8 @@ class LomSubscriptionManager(object):
             raise ProtocolFailure(
                 "conflict", "Dynamic subscription limit reached"
             )
-        project_id = build_project_identity(self._context.song)["projectId"]
-        if params["projectId"] != project_id:
+        live_set_id = build_live_identity(self._context.song)["liveSetId"]
+        if params["liveSetId"] != live_set_id:
             raise ProtocolFailure(
                 "stale_reference", "Live Set identity changed before subscribe"
             )
@@ -373,9 +373,9 @@ class LomSubscriptionManager(object):
     def _descriptor(self, subscription, include_initial=False):
         resolution = {
             "status": "resolved",
-            "projectId": build_project_identity(
+            "liveSetId": build_live_identity(
                 self._context.song
-            )["projectId"],
+            )["liveSetId"],
         }
         resolution.update(subscription.target)
         result = {
@@ -672,7 +672,7 @@ def _validate_subscribe(params):
     required = set([
         "eventId",
         "kind",
-        "projectId",
+        "liveSetId",
         "index",
         "expectedReference",
         "expectedName",
@@ -694,10 +694,10 @@ def _validate_subscribe(params):
     if not _validate_event_id(params.get("eventId")):
         return "eventId must be a canonical Live event ID"
     if (
-        not isinstance(params.get("projectId"), STRING_TYPES)
-        or not params["projectId"]
+        not isinstance(params.get("liveSetId"), STRING_TYPES)
+        or not params["liveSetId"]
     ):
-        return "projectId must be a non-empty string"
+        return "liveSetId must be a non-empty string"
     try:
         _resolve_validator = {
             "index": params["index"],

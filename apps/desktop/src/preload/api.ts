@@ -196,8 +196,10 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
       setContext: async (context) => {
         await invoke("project:set-context", { context });
       },
+    },
+    liveSet: {
       resolveTransition: async (token, decision) =>
-        (await invoke("project:resolve-transition", { token, decision }))
+        (await invoke("live-set:resolve-transition", { token, decision }))
           .session,
     },
     plan: {

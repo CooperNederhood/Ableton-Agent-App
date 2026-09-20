@@ -113,8 +113,10 @@ compliance aid, not the safety boundary; the
 pre-tool mutation denial and mutation-handler guard remain authoritative. Turn
 lifecycle records include whether the reminder was applied and its version.
 
-Each production session owns one canonical
-`session-state/{production-session-id}/artifacts/plan.md`. The fixed-target
+Each App session owns one canonical plan at
+`project-state/{live-project-id}/live-set-state/{live-set-id}/session-state/{app-session-id}/artifacts/plan.md`,
+or beneath `unassigned-live-set-state/{live-set-id}` when no verified Project
+exists. The fixed-target
 `read_plan` and `write_plan` tools accept no path, bypass ordinary tool
 permission prompts, reject symbolic links, sanitize embedded credentials,
 enforce size limits, publish atomically, and use SHA-256 revisions for

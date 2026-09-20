@@ -20,7 +20,7 @@ from AbletonAgent.event_subscriptions import (  # noqa: E402
     register_event_commands,
     triggered_clip_state,
 )
-from AbletonAgent.identity import build_project_identity  # noqa: E402
+from AbletonAgent.identity import build_live_identity  # noqa: E402
 from AbletonAgent.registry import CommandRegistry  # noqa: E402
 from AbletonAgent.system_commands import _track_reference  # noqa: E402
 from simulator import SimulatorState, handle  # noqa: E402
@@ -141,7 +141,7 @@ class DynamicSubscriptionTests(unittest.TestCase):
         result = {
             "eventId": event_id(suffix),
             "kind": kind,
-            "projectId": build_project_identity(self.context.song)["projectId"],
+            "liveSetId": build_live_identity(self.context.song)["liveSetId"],
             "index": 0,
             "expectedReference": _track_reference(self.context, track),
             "expectedName": track.name,
@@ -317,6 +317,13 @@ class DynamicSubscriptionTests(unittest.TestCase):
             self.manager.subscribe(params)
         self.assertEqual(raised.exception.code, "stale_reference")
 
+    def test_rejects_subscription_for_a_different_live_set(self):
+        params = self.params("track.triggered_clip_changed")
+        params["liveSetId"] = "different-live-set"
+        with self.assertRaises(Exception) as raised:
+            self.manager.subscribe(params)
+        self.assertEqual(raised.exception.code, "stale_reference")
+
 
 class SimulatorSubscriptionTests(unittest.TestCase):
     def test_parameter_subscription_produces_deterministic_occurrence(self):
@@ -332,7 +339,7 @@ class SimulatorSubscriptionTests(unittest.TestCase):
             "params": {
                 "eventId": event_id(9),
                 "kind": "parameter.value_changed",
-                "projectId": "simulated-project",
+                "liveSetId": "simulated-live-set",
                 "index": 0,
                 "expectedReference": track["reference"],
                 "expectedName": track["name"],

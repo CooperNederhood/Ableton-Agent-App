@@ -243,25 +243,55 @@ export const helloParamsSchema = z.object({
   eventSubscriptions: z.array(z.string()).default([]),
 });
 
-export const capabilityDocumentSchema = z.object({
-  selectedProtocolVersion: z.literal(PROTOCOL_VERSION),
-  liveVersion: z.string().min(1),
-  remoteScriptVersion: z.string().min(1),
-  projectId: z.string().min(1),
-  projectName: z.string().min(1).optional(),
-  saved: z.boolean().optional(),
-  capabilities: z.record(z.string(), z.boolean()),
-  limits: z.object({
-    maxFrameBytes: z.number().int().positive(),
-    maxBatchItems: z.number().int().positive(),
-  }),
-});
+export const capabilityDocumentSchema = z
+  .object({
+    selectedProtocolVersion: z.literal(PROTOCOL_VERSION),
+    liveVersion: z.string().min(1),
+    remoteScriptVersion: z.string().min(1),
+    liveSetId: z.string().min(1),
+    liveSetName: z.string().min(1),
+    saved: z.boolean(),
+    liveProjectId: z.string().min(1).optional(),
+    liveProjectName: z.string().min(1).max(128).optional(),
+    diagnostics: z
+      .array(
+        z
+          .object({
+            code: z.enum(["live_project_not_found"]),
+            message: z.string().min(1).max(256),
+          })
+          .strict(),
+      )
+      .max(4)
+      .default([]),
+    capabilities: z.record(z.string(), z.boolean()),
+    limits: z.object({
+      maxFrameBytes: z.number().int().positive(),
+      maxBatchItems: z.number().int().positive(),
+    }),
+  })
+  .strict();
 
-export const projectIdentitySchema = z.object({
-  projectId: z.string().min(1),
-  projectName: z.string().min(1),
-  saved: z.boolean(),
-});
+export const liveIdentitySchema = z
+  .object({
+    liveSetId: z.string().min(1),
+    liveSetName: z.string().min(1),
+    saved: z.boolean(),
+    liveProjectId: z.string().min(1).optional(),
+    liveProjectName: z.string().min(1).max(128).optional(),
+    diagnostics: z
+      .array(
+        z
+          .object({
+            code: z.enum(["live_project_not_found"]),
+            message: z.string().min(1).max(256),
+          })
+          .strict(),
+      )
+      .max(4)
+      .default([]),
+  })
+  .strict();
 
 export const pingResultSchema = z.object({
   pong: z.literal(true),
@@ -303,7 +333,7 @@ const eventObservationPolicySchema = z
 
 const subscribeEventBase = {
   eventId: liveEventIdSchema,
-  projectId: z.string().min(1),
+  liveSetId: z.string().min(1),
 };
 
 export const subscribeEventParamsSchema = z.discriminatedUnion("kind", [
@@ -347,13 +377,13 @@ const resolvedParameterEventTargetSchema =
 const resolvedTrackEventResolutionSchema =
   resolvedTrackEventTargetSchema.extend({
     status: z.literal("resolved"),
-    projectId: z.string().min(1),
+    liveSetId: z.string().min(1),
   });
 
 const resolvedParameterEventResolutionSchema =
   resolvedParameterEventTargetSchema.extend({
     status: z.literal("resolved"),
-    projectId: z.string().min(1),
+    liveSetId: z.string().min(1),
   });
 
 const eventSubscriptionDescriptorBase = {
@@ -1335,7 +1365,7 @@ export const setArrangementClipPropertiesResultSchema = z.object({
 
 export type HelloParams = z.infer<typeof helloParamsSchema>;
 export type CapabilityDocument = z.infer<typeof capabilityDocumentSchema>;
-export type ProjectIdentity = z.infer<typeof projectIdentitySchema>;
+export type LiveIdentity = z.infer<typeof liveIdentitySchema>;
 export type PingResult = z.infer<typeof pingResultSchema>;
 export type EventTrackIdentity = z.infer<typeof eventTrackIdentitySchema>;
 export type EventParameterIdentity = z.infer<

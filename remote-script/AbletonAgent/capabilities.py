@@ -8,7 +8,7 @@ except ImportError:  # pragma: no cover - available only inside Live
     MidiNoteSpecification = None
 
 from .protocol import DEFAULT_MAX_FRAME_BYTES
-from .identity import build_project_identity
+from .identity import build_live_identity
 from .version import PROTOCOL_VERSION, REMOTE_SCRIPT_VERSION
 
 
@@ -31,7 +31,7 @@ def build_capability_document(
     note_editing_supported=None,
 ):
     live_version = application.get_version_string()
-    project_identity = build_project_identity(song)
+    live_identity = build_live_identity(song)
     capabilities = {name: True for name in registry.metadata()}
     tracks = list(song.tracks)
     capabilities.update({
@@ -236,5 +236,5 @@ def build_capability_document(
             "maxBatchItems": max_batch_items,
         },
     }
-    document.update(project_identity)
+    document.update(live_identity)
     return document

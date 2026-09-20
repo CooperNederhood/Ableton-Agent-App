@@ -41,7 +41,7 @@ const entityKinds = new Set([
 ]);
 
 function payloadProjectIds(value: unknown): string[] {
-  const projectIds: string[] = [];
+  const liveSetIds: string[] = [];
   const visited = new WeakSet<object>();
   const visit = (candidate: unknown): void => {
     if (typeof candidate !== "object" || candidate === null) return;
@@ -53,18 +53,18 @@ function payloadProjectIds(value: unknown): string[] {
     }
     const object = candidate as Record<string, unknown>;
     if (
-      typeof object.projectId === "string" &&
+      typeof object.liveSetId === "string" &&
       typeof object.kind === "string" &&
       entityKinds.has(object.kind) &&
       typeof object.id === "string" &&
       typeof object.revision === "number"
     ) {
-      projectIds.push(object.projectId);
+      liveSetIds.push(object.liveSetId);
     }
     Object.values(object).forEach(visit);
   };
   visit(value);
-  return projectIds;
+  return liveSetIds;
 }
 
 function validateTransaction(transaction: WorkflowTransaction): string | null {
@@ -109,7 +109,7 @@ function validateTransaction(transaction: WorkflowTransaction): string | null {
     }
     if (
       step.target !== undefined &&
-      step.target.projectId !== transaction.projectId
+      step.target.liveSetId !== transaction.liveSetId
     ) {
       throw new WorkflowValidationError(
         `Step '${step.id}' target belongs to a different project`,
@@ -117,7 +117,7 @@ function validateTransaction(transaction: WorkflowTransaction): string | null {
     }
     if (
       payloadProjectIds(step.payload).some(
-        (projectId) => projectId !== transaction.projectId,
+        (liveSetId) => liveSetId !== transaction.liveSetId,
       )
     ) {
       throw new WorkflowValidationError(

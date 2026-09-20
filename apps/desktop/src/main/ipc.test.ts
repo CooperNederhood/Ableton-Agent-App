@@ -485,9 +485,9 @@ describe("desktop IPC", () => {
   it("routes bounded history queries and destructive controls", async () => {
     const searchEventHistory = vi
       .fn()
-      .mockResolvedValue({ version: 1, items: [] });
+      .mockResolvedValue({ version: 2, items: [] });
     const getEventTrace = vi.fn().mockResolvedValue({
-      version: 1,
+      version: 2,
       items: [],
       nextCursor: "trace-next",
     });

@@ -94,7 +94,7 @@ interface WorkerBatchResult {
 }
 
 interface WorkerHealth {
-  readonly version: 1;
+  readonly version: 2;
   readonly status: "healthy" | "degraded";
   readonly schemaVersion: number;
   readonly persistedEvents: number;
@@ -392,7 +392,13 @@ export class LocalObservabilityJournal implements ObservabilitySink {
   public async deleteConfigurationSnapshots(
     query: Pick<
       ConfigurationSnapshotQuery,
-      "components" | "projectId" | "sessionId" | "activeAgentId" | "from" | "to"
+      | "components"
+      | "liveSetId"
+      | "liveProjectId"
+      | "sessionId"
+      | "activeAgentId"
+      | "from"
+      | "to"
     > = {},
   ): Promise<number> {
     this.#assertOpen();

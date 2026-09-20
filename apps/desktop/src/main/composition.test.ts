@@ -185,7 +185,7 @@ describe("desktop composition", () => {
     );
     expect(first.enqueueConfigurationSnapshot).not.toHaveBeenCalled();
     const roots = {
-      version: 1 as const,
+      version: 2 as const,
       items: [],
       page: {
         limit: 10,
@@ -388,7 +388,7 @@ describe("desktop composition", () => {
 
   function telemetryEvent(id: string): TelemetryEventEnvelope {
     return {
-      version: 1,
+      version: 2,
       id,
       occurredAt: "2026-01-01T00:00:00.000Z",
       name: "agent.turn",
@@ -400,7 +400,7 @@ describe("desktop composition", () => {
 
   function configurationSnapshot(id: string): ConfigurationSnapshot {
     return {
-      version: 1,
+      version: 2,
       id,
       capturedAt: "2026-01-01T00:00:00.000Z",
       component: "desktop",

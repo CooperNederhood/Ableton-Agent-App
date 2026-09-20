@@ -88,16 +88,21 @@ presentation state and say so; they are not applied to Live.
 
 ## Configuration and persistence
 
-- [x] Migrate stored conversations into versioned production sessions with
+- [x] Store conversations in versioned App sessions with
   multiple active agents.
 - [x] Persist session-level agent overrides and output subscriptions.
 - [x] Persist per-active-agent automatic approval with a safe default, atomic
   selected/all updates, session-switch revalidation, and shutdown draining.
 - [x] Implement validated preferences and migration support.
-- [x] Persist saved Live Set-to-session associations in
-  `project-sessions.json` under the canonical local profile.
-- [x] Keep unsaved Live Set sessions ephemeral instead of indexing their
-  name-derived identity.
+- [x] Persist one canonical App-session association per saved `liveSetId` in
+  `live-set-sessions.json`, while retaining historical App sessions.
+- [x] Adopt Desktop session schema v4 with required Live Set identity and
+  optional Live Project grouping, plus an immutable bounded `createdAt` used
+  for deterministic per-Set App-session numbering; reject older schemas at
+  runtime.
+- [x] Resolve Live Set transitions independently inside the same Live Project.
+- [x] Keep unsaved and orphan Live Set sessions explicit but ephemeral during
+  ordinary operation instead of inferring ownership from names or history.
 - [x] Store secrets in OS-backed secure storage.
 - [x] Implement development and production logging locations.
 - [x] Consolidate application-owned Desktop data under versioned

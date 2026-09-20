@@ -20,8 +20,11 @@ import {
   type TelemetryEventPage,
   type TraceReadOptions,
 } from "@ableton-agent/observability";
-import type { StorageMigrationEvent } from "@ableton-agent/storage";
-import type { LiveAgentStorageLayout } from "@ableton-agent/storage";
+import {
+  resolveNestedSessionStorage,
+  type LiveAgentStorageLayout,
+  type StorageMigrationEvent,
+} from "@ableton-agent/storage";
 import {
   createAgentRuntime,
   RuntimeConfigurationError,
@@ -45,12 +48,12 @@ import {
   HeadlessDesktopService,
   type DesktopEventJournal,
 } from "./headless-desktop-service.js";
-import { JsonProjectSessionStore } from "./project-session-store.js";
+import { JsonLiveSetSessionStore } from "./live-set-session-store.js";
 
 export interface DesktopCompositionOptions {
   preferencesPath: string;
   sessionsPath: string;
-  projectSessionsPath?: string;
+  liveSetSessionsPath?: string;
   sessionStateDirectory?: string;
   eventJournalPath?: string;
   agentsDirectory: string;
@@ -417,11 +420,11 @@ export async function createDesktopComposition(
   const preferencesStore = new JsonPreferencesStore(options.preferencesPath);
   const sessionStore = new JsonSessionStore(
     options.sessionsPath,
-    options.sessionStateDirectory,
+    options.storage,
   );
-  const projectSessionStore = new JsonProjectSessionStore(
-    options.projectSessionsPath ??
-      join(dirname(options.sessionsPath), "project-sessions.json"),
+  const liveSetSessionStore = new JsonLiveSetSessionStore(
+    options.liveSetSessionsPath ??
+      join(dirname(options.sessionsPath), "live-set-sessions.json"),
   );
   const agentCatalog = new AgentCatalogService({
     agentsDirectory: options.agentsDirectory,
@@ -432,6 +435,8 @@ export async function createDesktopComposition(
       ...APPROVED_BUILTIN_TOOL_NAMES,
     ],
     ...(options.storage === undefined ? {} : { storage: options.storage }),
+    resolveSessionOwnership: (sessionId) =>
+      sessionStore.resolveOwnership(sessionId),
   });
   const notices: Notice[] =
     options.storageMigrationFailure === undefined
@@ -478,7 +483,7 @@ export async function createDesktopComposition(
   );
   for (const event of options.storageMigrationEvents ?? []) {
     telemetry.enqueue({
-      version: 1,
+      version: 2,
       id: event.id,
       occurredAt: event.occurredAt,
       name: event.name,
@@ -538,6 +543,10 @@ export async function createDesktopComposition(
   let agentReasoningVisibility = preferences.agentReasoningVisibility;
   // Preferences already constrain the port to a valid TCP range.
   const port = preferences.abletonPort;
+  const storage = options.storage;
+  const inMemorySessionSource: {
+    read?: () => ReturnType<HeadlessDesktopService["getSessions"]>;
+  } = {};
 
   const runtimeOptions = {
     ableton: {
@@ -551,6 +560,34 @@ export async function createDesktopComposition(
       reasoningSummary: () => agentReasoningVisibility,
       resolveSkill: (sessionId: string, skillName: string) =>
         agentCatalog.resolveRuntimeSkill(sessionId, skillName),
+      ...(storage === undefined
+        ? {}
+        : {
+            resolvePlanArtifactPaths: async (sessionId: string) => {
+              const persistedOwnership =
+                await sessionStore.resolveOwnership(sessionId);
+              const activeSession = (
+                await inMemorySessionSource.read?.()
+              )?.find((session) => session.id === sessionId);
+              const ownership =
+                persistedOwnership ??
+                (activeSession === undefined
+                  ? undefined
+                  : {
+                      liveSetId: activeSession.liveSetId,
+                      ...(activeSession.liveProjectId === undefined
+                        ? {}
+                        : { liveProjectId: activeSession.liveProjectId }),
+                      sessionId: activeSession.id,
+                    });
+              if (ownership === undefined) {
+                throw new Error(
+                  `Plan artifact session '${sessionId}' does not exist`,
+                );
+              }
+              return resolveNestedSessionStorage(storage, ownership);
+            },
+          }),
       ...(options.sessionStateDirectory === undefined
         ? {}
         : { sessionStateDirectory: options.sessionStateDirectory }),
@@ -601,7 +638,7 @@ export async function createDesktopComposition(
     approvals,
     preferencesStore,
     sessionStore,
-    projectSessionStore,
+    liveSetSessionStore,
     agentCatalog,
     signals: runtime.signals,
     liveEvents: runtime.liveEvents,
@@ -625,6 +662,7 @@ export async function createDesktopComposition(
     onAutoApprovedAgentIdsChange: (ids) =>
       approvalPolicy.setAutoApprovedAgentInstanceIds(ids),
   });
+  inMemorySessionSource.read = () => service.getSessions();
   return {
     service,
     runtime,

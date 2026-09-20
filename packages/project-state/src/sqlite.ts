@@ -25,7 +25,7 @@ import {
   type ChangeSetRepository,
   type PlanRepository,
   type PreferenceRepository,
-  type ProjectRepository,
+  type LiveSetRepository,
   type ProjectStateRepositories,
   type ProjectStateStore,
   type SessionRepository,
@@ -36,7 +36,7 @@ import {
   changeSetSchema,
   preferenceSchema,
   productionPlanSchema,
-  projectIdentitySchema,
+  liveSetIdentitySchema,
   type Schema,
 } from "./schemas.js";
 
@@ -159,15 +159,15 @@ function createRepositories(executor: Executor): ProjectStateRepositories {
       executor.write((database) => {
         const parsed = appSessionSchema.parse(session);
         database.run(
-          `INSERT INTO sessions (id, active_project_id, updated_at, payload)
+          `INSERT INTO sessions (id, active_live_set_id, updated_at, payload)
            VALUES (?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET
-             active_project_id = excluded.active_project_id,
+             active_live_set_id = excluded.active_live_set_id,
              updated_at = excluded.updated_at,
              payload = excluded.payload`,
           [
             parsed.id,
-            parsed.activeProjectId ?? null,
+            parsed.activeLiveSetId ?? null,
             parsed.updatedAt,
             encode(parsed),
           ],
@@ -175,58 +175,33 @@ function createRepositories(executor: Executor): ProjectStateRepositories {
       }),
   };
 
-  const projects: ProjectRepository = {
-    get: (id) =>
+  const liveSets: LiveSetRepository = {
+    get: (liveSetId) =>
       executor.read((database) =>
         decodeRow(
-          projectIdentitySchema,
-          selectRow(database, "SELECT payload FROM projects WHERE id = ?", [
-            id,
+          liveSetIdentitySchema,
+          selectRow(database, "SELECT payload FROM live_sets WHERE id = ?", [
+            liveSetId,
           ]),
-          "project identity",
+          "Live Set identity",
         ),
       ),
-    findByAbletonId: (abletonProjectId) =>
-      executor.read((database) =>
-        decodeRow(
-          projectIdentitySchema,
-          selectRow(
-            database,
-            "SELECT payload FROM projects WHERE ableton_project_id = ?",
-            [abletonProjectId],
-          ),
-          "project identity",
-        ),
-      ),
-    save: (project) =>
+    save: (liveSet) =>
       executor.write((database) => {
-        const parsed = projectIdentitySchema.parse(project);
-        const message = `Ableton project '${parsed.abletonProjectId}' already exists`;
-        const conflicting = selectRow(
-          database,
-          "SELECT id FROM projects WHERE ableton_project_id = ? AND id <> ?",
-          [parsed.abletonProjectId, parsed.id],
-        );
-        if (conflicting !== undefined) {
-          throw new RepositoryConflictError(message);
-        }
-        conflictGuard(
-          () =>
-            database.run(
-              `INSERT INTO projects (id, ableton_project_id, last_seen_at, payload)
-               VALUES (?, ?, ?, ?)
-               ON CONFLICT(id) DO UPDATE SET
-                 ableton_project_id = excluded.ableton_project_id,
-                 last_seen_at = excluded.last_seen_at,
-                 payload = excluded.payload`,
-              [
-                parsed.id,
-                parsed.abletonProjectId,
-                parsed.lastSeenAt,
-                encode(parsed),
-              ],
-            ),
-          message,
+        const parsed = liveSetIdentitySchema.parse(liveSet);
+        database.run(
+          `INSERT INTO live_sets (id, live_set_id, last_seen_at, payload)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             live_set_id = excluded.live_set_id,
+             last_seen_at = excluded.last_seen_at,
+             payload = excluded.payload`,
+          [
+            parsed.liveSetId,
+            parsed.liveSetId,
+            parsed.lastSeenAt,
+            encode(parsed),
+          ],
         );
       }),
   };
@@ -240,16 +215,16 @@ function createRepositories(executor: Executor): ProjectStateRepositories {
           "production plan",
         ),
       ),
-    listByProject: (projectId) =>
+    listByLiveSet: (liveSetId) =>
       executor.read((database) =>
         decodeRows(
           productionPlanSchema,
           selectRows(
             database,
             `SELECT payload FROM plans
-             WHERE project_id = ?
+             WHERE live_set_id = ?
              ORDER BY created_at, id`,
-            [projectId],
+            [liveSetId],
           ),
           "production plan",
         ).sort(compareOrderedRecords()),
@@ -274,17 +249,17 @@ function createRepositories(executor: Executor): ProjectStateRepositories {
           }
         }
         database.run(
-          `INSERT INTO plans (id, project_id, version, status, created_at, payload)
+          `INSERT INTO plans (id, live_set_id, version, status, created_at, payload)
            VALUES (?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET
-             project_id = excluded.project_id,
+             live_set_id = excluded.live_set_id,
              version = excluded.version,
              status = excluded.status,
              created_at = excluded.created_at,
              payload = excluded.payload`,
           [
             parsed.id,
-            parsed.projectId,
+            parsed.liveSetId,
             parsed.version,
             parsed.status,
             parsed.createdAt,
@@ -317,16 +292,16 @@ function createRepositories(executor: Executor): ProjectStateRepositories {
           "change set",
         ),
       ),
-    listByProject: (projectId) =>
+    listByLiveSet: (liveSetId) =>
       executor.read((database) =>
         decodeRows(
           changeSetSchema,
           selectRows(
             database,
             `SELECT payload FROM change_sets
-             WHERE project_id = ?
+             WHERE live_set_id = ?
              ORDER BY created_at, id`,
-            [projectId],
+            [liveSetId],
           ),
           "change set",
         ).sort(compareOrderedRecords()),
@@ -347,11 +322,11 @@ function createRepositories(executor: Executor): ProjectStateRepositories {
           () =>
             database.run(
               `INSERT INTO change_sets (
-                 id, project_id, session_id, correlation_id, status, created_at, payload
+                 id, live_set_id, session_id, correlation_id, status, created_at, payload
                )
                VALUES (?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
-                 project_id = excluded.project_id,
+                 live_set_id = excluded.live_set_id,
                  session_id = excluded.session_id,
                  correlation_id = excluded.correlation_id,
                  status = excluded.status,
@@ -359,7 +334,7 @@ function createRepositories(executor: Executor): ProjectStateRepositories {
                  payload = excluded.payload`,
               [
                 parsed.id,
-                parsed.projectId,
+                parsed.liveSetId,
                 parsed.sessionId,
                 parsed.correlationId,
                 parsed.status,
@@ -443,11 +418,11 @@ function createRepositories(executor: Executor): ProjectStateRepositories {
         const parsed = approvalDecisionSchema.parse(decision);
         database.run(
           `INSERT INTO approvals (
-             id, project_id, session_id, subject_type, subject_id, decided_at, payload
+             id, live_set_id, session_id, subject_type, subject_id, decided_at, payload
            )
            VALUES (?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET
-             project_id = excluded.project_id,
+             live_set_id = excluded.live_set_id,
              session_id = excluded.session_id,
              subject_type = excluded.subject_type,
              subject_id = excluded.subject_id,
@@ -455,7 +430,7 @@ function createRepositories(executor: Executor): ProjectStateRepositories {
              payload = excluded.payload`,
           [
             parsed.id,
-            parsed.projectId,
+            parsed.liveSetId,
             parsed.sessionId,
             parsed.subjectType,
             parsed.subjectId,
@@ -466,7 +441,7 @@ function createRepositories(executor: Executor): ProjectStateRepositories {
       }),
   };
 
-  return { sessions, projects, plans, changeSets, preferences, approvals };
+  return { sessions, liveSets, plans, changeSets, preferences, approvals };
 }
 
 export interface SqliteProjectStateStoreOptions {
@@ -580,8 +555,8 @@ export class SqliteProjectStateStore implements ProjectStateStore {
     return this.#repositories.sessions;
   }
 
-  public get projects(): ProjectRepository {
-    return this.#repositories.projects;
+  public get liveSets(): LiveSetRepository {
+    return this.#repositories.liveSets;
   }
 
   public get plans(): PlanRepository {

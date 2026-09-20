@@ -76,6 +76,9 @@ Trace/correlation context flows from SDK turns through tools, workflows, bridge
 requests, Remote Script work, Live Event routing, and Output delivery. The
 journal failure path is explicit and non-blocking so observability cannot stall
 Live's main thread, socket reads, SDK streaming, or tool execution.
+Journal attribution uses `liveSetId` for the open `.als` and adds
+`liveProjectId` only when that optional grouping is known; these fields remain
+independent of trace, correlation, and causation identifiers.
 
 ### Local storage topology
 
@@ -93,7 +96,11 @@ Each profile contains preferences and session metadata under `config/` and
 `state/`, OS-encrypted credential blobs under `credentials/`, Copilot SDK
 conversation storage under `copilot/`, the detailed-history journal under
 `observability/`, structured logs under `logs/`, and bounded ownership
-manifests and artifacts under `session-state/{production-session-id}/`.
+manifests and artifacts under
+`project-state/{live-project-id}/live-set-state/{live-set-id}/session-state/{app-session-id}/`
+or the equivalent `unassigned-live-set-state/{live-set-id}` tree. This physical
+Profile → Live Project → Live Set → App-session hierarchy is also the reserved
+ownership model for future hierarchical memory.
 
 The event journal remains profile-wide so cross-session trace queries,
 retention, health, and indexing do not require opening one database per

@@ -8,7 +8,9 @@ const connected = {
   state: "connected" as const,
   liveVersion: "12.1",
   remoteScriptVersion: "1.0.0",
-  projectId: "project-1",
+  liveSetId: "set-1",
+  liveSetName: "Test Set",
+  saved: true,
 };
 
 const snapshot = {

@@ -70,11 +70,13 @@ async function fixture(
       layout.sessionsPath,
       JSON.stringify([
         {
-          version: 3,
+          version: 4,
           id: options.activeSessionId,
           title: "Production session",
+          createdAt: "2026-09-19T00:00:00.000Z",
           updatedAt: "2026-09-19T00:00:00.000Z",
-          projectName: "Test Set",
+          liveSetId: "test-set",
+          liveSetName: "Test Set",
           activeAgents: [],
           productionPlan: [],
           outputAssignments: [],
@@ -109,11 +111,13 @@ async function fixture(
       throw new Error("No active production session");
     }
     const session = sessionSchema.parse({
-      version: 3,
+      version: 4,
       id: activeSessionId,
       title: "Production session",
+      createdAt: "2026-09-19T00:00:00.000Z",
       updatedAt: "2026-09-19T00:00:00.000Z",
-      projectName: "Test Set",
+      liveSetId: "test-set",
+      liveSetName: "Test Set",
       activeAgents: [],
       productionPlan: [],
       outputAssignments: [],
@@ -136,11 +140,13 @@ async function fixture(
           activeSessionId === undefined
             ? undefined
             : sessionSchema.parse({
-                version: 3,
+                version: 4,
                 id: activeSessionId,
                 title: "Production session",
+                createdAt: "2026-09-19T00:00:00.000Z",
                 updatedAt: "2026-09-19T00:00:00.000Z",
-                projectName: "Test Set",
+                liveSetId: "test-set",
+                liveSetName: "Test Set",
                 activeAgents: [],
                 productionPlan: [],
                 outputAssignments: [],
@@ -212,8 +218,10 @@ describe("DesktopProfileManager", () => {
     expect(
       await readFile(
         join(
-          resolveArtifactScopePaths(layout, "session", "session-skills")
-            .skillsDirectory,
+          resolveArtifactScopePaths(layout, "session", {
+            liveSetId: "test-set",
+            sessionId: "session-skills",
+          }).skillsDirectory,
           "session-groove",
           "SKILL.md",
         ),
@@ -260,10 +268,10 @@ describe("DesktopProfileManager", () => {
       { scope: "system", kind: "agent", name: "default" },
       { scope: "system", kind: "skill", name: "mix-review" },
     ]);
-    expect(initial.profiles[0]?.sessions).toEqual([
+    expect(initial.profiles[0]?.sessions).toMatchObject([
       {
         id: "session-1",
-        title: "Production session",
+        title: "Test Set",
         active: true,
         persisted: true,
       },
@@ -328,33 +336,39 @@ describe("DesktopProfileManager", () => {
       activeSessionId: "session-active",
     });
     const sourceSession = sessionSchema.parse({
-      version: 3,
+      version: 4,
       id: "session-source",
       title: "Older session",
+      createdAt: "2026-09-18T00:00:00.000Z",
       updatedAt: "2026-09-18T00:00:00.000Z",
-      projectName: "Older Set",
+      liveSetId: "older-set",
+      liveSetName: "Older Set",
       activeAgents: [],
       productionPlan: [],
       outputAssignments: [],
       liveEvents: [],
     });
     const targetSession = sessionSchema.parse({
-      version: 3,
+      version: 4,
       id: "session-target",
       title: "Target session",
+      createdAt: "2026-09-17T00:00:00.000Z",
       updatedAt: "2026-09-17T00:00:00.000Z",
-      projectName: "Target Set",
+      liveSetId: "target-set",
+      liveSetName: "Target Set",
       activeAgents: [],
       productionPlan: [],
       outputAssignments: [],
       liveEvents: [],
     });
     const activeSession = sessionSchema.parse({
-      version: 3,
+      version: 4,
       id: "session-active",
       title: "Production session",
+      createdAt: "2026-09-19T00:00:00.000Z",
       updatedAt: "2026-09-19T00:00:00.000Z",
-      projectName: "Current Set",
+      liveSetId: "current-set",
+      liveSetName: "Current Set",
       activeAgents: [],
       productionPlan: [],
       outputAssignments: [],
@@ -364,11 +378,10 @@ describe("DesktopProfileManager", () => {
       layout.sessionsPath,
       JSON.stringify([activeSession, sourceSession, targetSession]),
     );
-    const sourcePaths = resolveArtifactScopePaths(
-      layout,
-      "session",
-      sourceSession.id,
-    );
+    const sourcePaths = resolveArtifactScopePaths(layout, "session", {
+      liveSetId: sourceSession.liveSetId,
+      sessionId: sourceSession.id,
+    });
     await mkdir(join(sourcePaths.skillsDirectory, "interview-me"), {
       recursive: true,
     });
@@ -448,6 +461,99 @@ describe("DesktopProfileManager", () => {
     expect(refreshActiveCatalog).not.toHaveBeenCalled();
   });
 
+  it("groups App sessions by Project and Live Set and publishes Project artifacts", async () => {
+    const activeProjectSession = sessionSchema.parse({
+      version: 4,
+      id: "session-1",
+      title: "First conversation",
+      createdAt: "2026-09-17T00:00:00.000Z",
+      updatedAt: "2026-09-20T00:00:00.000Z",
+      liveSetId: "live-set-1",
+      liveSetName: "Writing",
+      liveProjectId: "live-project-1",
+      liveProjectName: "Album",
+      activeAgents: [],
+      productionPlan: [],
+      outputAssignments: [],
+      liveEvents: [],
+    });
+    const { manager, layout, refreshActiveCatalog } = await fixture({
+      activeSessionId: "session-1",
+      getActiveSession: () => Promise.resolve(activeProjectSession),
+    });
+    const sessions = [
+      activeProjectSession,
+      sessionSchema.parse({
+        version: 4,
+        id: "session-2",
+        title: "Second conversation",
+        createdAt: "2026-09-18T00:00:00.000Z",
+        updatedAt: "2026-09-18T00:00:00.000Z",
+        liveSetId: "live-set-1",
+        liveSetName: "Writing",
+        liveProjectId: "live-project-1",
+        liveProjectName: "Album",
+        activeAgents: [],
+        productionPlan: [],
+        outputAssignments: [],
+        liveEvents: [],
+      }),
+    ];
+    await writeFile(layout.sessionsPath, JSON.stringify(sessions));
+    await mkdir(join(layout.liveSetSessionsPath, ".."), { recursive: true });
+    await writeFile(
+      layout.liveSetSessionsPath,
+      JSON.stringify({
+        version: 1,
+        associations: [
+          {
+            liveSetId: "live-set-1",
+            liveSetName: "Writing",
+            sessionId: "session-2",
+            updatedAt: "2026-09-18T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+
+    const initial = await manager.get();
+    const project = initial.profiles[0]?.liveProjects[0];
+    expect(project).toMatchObject({
+      id: "live-project-1",
+      name: "Album",
+      active: true,
+    });
+    expect(project?.liveSets[0]?.sessions).toMatchObject([
+      { id: "session-1", title: "Writing-1", canonical: false },
+      { id: "session-2", title: "Writing-2", canonical: true },
+    ]);
+
+    const copied = await manager.copyArtifact({
+      kind: "skill",
+      name: "mix-review",
+      source: { scope: "bundled" },
+      destination: {
+        scope: "project",
+        profile: "default",
+        liveProjectId: "live-project-1",
+      },
+      expectedRevision: initial.revision,
+    });
+
+    expect(copied.status).toBe("completed");
+    if (copied.status !== "completed") throw new Error("Expected completion");
+    expect(
+      copied.snapshot.artifacts.find(
+        ({ scope, kind, name, liveProjectId }) =>
+          scope === "project" &&
+          kind === "skill" &&
+          name === "mix-review" &&
+          liveProjectId === "live-project-1",
+      ),
+    ).toMatchObject({ origin: "project", state: "overridden" });
+    expect(refreshActiveCatalog).toHaveBeenCalledOnce();
+  });
+
   it("shows and promotes an active ephemeral session on first transfer", async () => {
     const {
       manager,
@@ -461,10 +567,10 @@ describe("DesktopProfileManager", () => {
     await rm(layout.sessionsPath);
     const initial = await manager.get();
 
-    expect(initial.profiles[0]?.sessions).toEqual([
+    expect(initial.profiles[0]?.sessions).toMatchObject([
       {
         id: "session-ephemeral",
-        title: "Production session",
+        title: "Test Set",
         active: true,
         persisted: false,
       },
@@ -566,11 +672,10 @@ describe("DesktopProfileManager", () => {
       state: "overridden",
       sessionId: "session-1",
     });
-    const sessionPaths = resolveArtifactScopePaths(
-      layout,
-      "session",
-      "session-1",
-    );
+    const sessionPaths = resolveArtifactScopePaths(layout, "session", {
+      liveSetId: "test-set",
+      sessionId: "session-1",
+    });
     expect(
       await readFile(
         join(sessionPaths.agentsDirectory, "default.yaml"),
@@ -830,11 +935,10 @@ describe("DesktopProfileManager", () => {
       }),
     ).rejects.toThrow("refresh failed");
 
-    const sessionPaths = resolveArtifactScopePaths(
-      layout,
-      "session",
-      "session-1",
-    );
+    const sessionPaths = resolveArtifactScopePaths(layout, "session", {
+      liveSetId: "test-set",
+      sessionId: "session-1",
+    });
     await expect(
       readFile(join(sessionPaths.agentsDirectory, "default.yaml"), "utf8"),
     ).rejects.toMatchObject({ code: "ENOENT" });

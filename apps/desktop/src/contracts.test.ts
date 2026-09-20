@@ -364,18 +364,31 @@ describe("desktop IPC contracts", () => {
     expect(
       ipcSchemas["event-history:search"].request.parse({
         sources: ["runtime"],
+        liveSetId: "live-set-1",
+        liveProjectId: "live-project-1",
         limit: 50,
       }),
-    ).toMatchObject({ sources: ["runtime"], limit: 50, order: "desc" });
+    ).toMatchObject({
+      sources: ["runtime"],
+      liveSetId: "live-set-1",
+      liveProjectId: "live-project-1",
+      limit: 50,
+      order: "desc",
+    });
     expect(() =>
       ipcSchemas["event-history:search"].request.parse({
         limit: 501,
         secret: "no",
       }),
     ).toThrow();
+    expect(() =>
+      ipcSchemas["event-history:search"].request.parse({
+        projectId: "legacy-project",
+      }),
+    ).toThrow();
     expect(
       ipcSchemas["event-history:search"].response.safeParse({
-        version: 1,
+        version: 2,
         items: [
           {
             rootTraceId: traceId,
@@ -400,7 +413,7 @@ describe("desktop IPC contracts", () => {
     ).toBe(true);
     expect(
       ipcSchemas["event-history:trace"].response.safeParse({
-        version: 1,
+        version: 2,
         items: [],
         page: {
           limit: 50,
@@ -450,24 +463,56 @@ describe("desktop IPC contracts", () => {
   it("requires the selected active agent to belong to the session", () => {
     expect(
       sessionSchema.safeParse({
-        version: 3,
+        version: 4,
         id: "production-session",
         title: "Production session",
+        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        projectName: "Set",
+        liveSetId: "live-set-1",
+        liveSetName: "Set",
         activeAgents: [],
         selectedAgentInstanceId: "00000000-0000-4000-8000-000000000001",
       }).success,
     ).toBe(false);
   });
 
+  it("requires a bounded ISO creation timestamp for schema-v4 sessions", () => {
+    const session = {
+      version: 4,
+      id: "app-session",
+      title: "App session",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      liveSetId: "live-set-1",
+      liveSetName: "Set",
+      activeAgents: [],
+    };
+
+    expect(
+      sessionSchema.safeParse({
+        ...session,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }).success,
+    ).toBe(true);
+    expect(sessionSchema.safeParse(session).success).toBe(false);
+    expect(
+      sessionSchema.safeParse({ ...session, createdAt: "not-a-timestamp" })
+        .success,
+    ).toBe(false);
+    expect(
+      sessionSchema.safeParse({ ...session, createdAt: "2".repeat(65) })
+        .success,
+    ).toBe(false);
+  });
+
   it("defaults old production-session auto approval off", () => {
     const session = sessionSchema.parse({
-      version: 3,
+      version: 4,
       id: "production-session",
       title: "Production session",
+      createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      projectName: "Set",
+      liveSetId: "live-set-1",
+      liveSetName: "Set",
       activeAgents: [
         {
           id: "00000000-0000-4000-8000-000000000001",
@@ -500,11 +545,13 @@ describe("desktop IPC contracts", () => {
     const eventId = "live-event.00000000-0000-4000-8000-000000000002";
     const listenerId = "event-listener.00000000-0000-4000-8000-000000000003";
     const session = sessionSchema.parse({
-      version: 3,
+      version: 4,
       id: "production-session",
       title: "Production session",
+      createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
-      projectName: "Set",
+      liveSetId: "live-set-1",
+      liveSetName: "Set",
       liveEvents: [
         {
           id: eventId,

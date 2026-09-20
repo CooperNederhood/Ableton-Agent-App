@@ -135,7 +135,27 @@ describe("desktop agent catalog", () => {
       environment: { LIVE_AGENT_HOME: join(root, "storage") },
     });
     await ensureLiveAgentStorage(storage);
-    const session = resolveArtifactScopePaths(storage, "session", "session-1");
+    const ownership = {
+      liveSetId: "live-set-1",
+      liveProjectId: "live-project-1",
+      sessionId: "session-1",
+    };
+    const project = resolveArtifactScopePaths(storage, "project", {
+      liveProjectId: ownership.liveProjectId,
+    });
+    const session = resolveArtifactScopePaths(storage, "session", ownership);
+    await mkdir(project.agentsDirectory, { recursive: true });
+    await mkdir(project.skillsDirectory, { recursive: true });
+    await writeFile(
+      join(project.agentsDirectory, "default.yaml"),
+      definition
+        .map((line) =>
+          line === "description: General agent."
+            ? "description: Project agent."
+            : line,
+        )
+        .join("\n"),
+    );
     await mkdir(session.agentsDirectory, { recursive: true });
     await mkdir(session.skillsDirectory, { recursive: true });
     await writeFile(
@@ -153,6 +173,7 @@ describe("desktop agent catalog", () => {
       skillsDirectory,
       availableTools: ["ableton_session_inspect"],
       storage,
+      resolveSessionOwnership: async () => ownership,
     });
 
     const catalog = await service.refreshForSession("session-1");
@@ -161,7 +182,7 @@ describe("desktop agent catalog", () => {
       description: "Session agent.",
       origin: "session",
       inherited: false,
-      overrides: ["bundled"],
+      overrides: ["bundled", "project"],
     });
   });
 
@@ -179,7 +200,23 @@ describe("desktop agent catalog", () => {
       environment: { LIVE_AGENT_HOME: join(root, "storage") },
     });
     await ensureLiveAgentStorage(storage);
-    const session = resolveArtifactScopePaths(storage, "session", "session-1");
+    const ownership = {
+      liveSetId: "live-set-1",
+      liveProjectId: "live-project-1",
+      sessionId: "session-1",
+    };
+    const project = resolveArtifactScopePaths(storage, "project", {
+      liveProjectId: ownership.liveProjectId,
+    });
+    await mkdir(join(project.skillsDirectory, "mix-review"), {
+      recursive: true,
+    });
+    const projectPath = join(project.skillsDirectory, "mix-review", "SKILL.md");
+    await writeFile(
+      projectPath,
+      "---\nname: mix-review\ndescription: Review the mix.\n---\n\nProject body.",
+    );
+    const session = resolveArtifactScopePaths(storage, "session", ownership);
     await mkdir(join(session.skillsDirectory, "mix-review"), {
       recursive: true,
     });
@@ -193,6 +230,7 @@ describe("desktop agent catalog", () => {
       skillsDirectory,
       availableTools: [],
       storage,
+      resolveSessionOwnership: async () => ownership,
     });
 
     await expect(
@@ -200,6 +238,15 @@ describe("desktop agent catalog", () => {
     ).resolves.toMatchObject({
       name: "mix-review",
       sourcePath: sessionPath,
+    });
+    await rm(join(session.skillsDirectory, "mix-review"), {
+      recursive: true,
+    });
+    await expect(
+      service.resolveRuntimeSkill("session-1", "mix-review"),
+    ).resolves.toMatchObject({
+      name: "mix-review",
+      sourcePath: projectPath,
     });
   });
 });

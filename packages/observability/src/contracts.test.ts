@@ -13,7 +13,7 @@ import {
 } from "./contracts.js";
 
 const validEvent = {
-  version: 1,
+  version: 2,
   id: "00000000-0000-4000-8000-000000000001",
   occurredAt: "2026-08-29T18:00:00-04:00",
   name: "tool.completed",
@@ -89,7 +89,9 @@ describe("observability contracts", () => {
   it("validates configuration snapshots under the same privacy constraints", () => {
     expect(
       configurationSnapshotSchema.parse({
-        version: 1,
+        version: 2,
+        liveSetId: "live-set-1",
+        liveProjectId: "live-project-1",
         id: "00000000-0000-4000-8000-000000000002",
         capturedAt: "2026-08-29T22:00:00.000Z",
         component: "agent.runtime",
@@ -98,6 +100,8 @@ describe("observability contracts", () => {
       }),
     ).toMatchObject({
       component: "agent.runtime",
+      liveSetId: "live-set-1",
+      liveProjectId: "live-project-1",
       values: { telemetry_enabled: false },
     });
   });
@@ -115,6 +119,15 @@ describe("observability contracts", () => {
       telemetryQuerySchema.safeParse({
         from: "2026-08-30T00:00:00.000Z",
         to: "2026-08-29T00:00:00.000Z",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects the former project attribution field", () => {
+    expect(
+      telemetryEventEnvelopeSchema.safeParse({
+        ...validEvent,
+        projectId: "live-set-1",
       }).success,
     ).toBe(false);
   });

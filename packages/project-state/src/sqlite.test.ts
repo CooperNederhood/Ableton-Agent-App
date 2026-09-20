@@ -27,7 +27,7 @@ import {
   type ChangeSet,
   type Preference,
   type ProductionPlan,
-  type ProjectIdentity,
+  type LiveSetIdentity,
   type ProjectStateRepositories,
   type ProjectStateStore,
   type ServiceRuntime,
@@ -60,14 +60,11 @@ async function temporaryDatabasePath(
   return join(await mkdtemp(join(temporaryRoot, "sqlite-")), name);
 }
 
-function project(
-  id: string = ids.projectA,
-  abletonProjectId = "live-a",
-): ProjectIdentity {
+function project(liveSetId: string = ids.projectA): LiveSetIdentity {
   return {
-    id,
-    abletonProjectId,
-    displayName: abletonProjectId,
+    liveSetId,
+    liveSetName: liveSetId,
+    saved: true,
     firstSeenAt: earlier,
     lastSeenAt: now,
   };
@@ -76,7 +73,7 @@ function project(
 function session(id: string = ids.session): AppSession {
   return {
     id,
-    activeProjectId: ids.projectA,
+    activeLiveSetId: ids.projectA,
     startedAt: earlier,
     updatedAt: now,
   };
@@ -84,12 +81,12 @@ function session(id: string = ids.session): AppSession {
 
 function plan(
   id: string = ids.planA,
-  projectId: string = ids.projectA,
+  liveSetId: string = ids.projectA,
   createdAt = earlier,
 ): ProductionPlan {
   return {
     id,
-    projectId,
+    liveSetId,
     goal: `Goal ${id}`,
     tempo: 124,
     sections: [],
@@ -105,17 +102,17 @@ function plan(
 function changeSet(
   id: string = ids.changeSetA,
   correlationId: string = ids.correlationA,
-  projectId: string = ids.projectA,
+  liveSetId: string = ids.projectA,
   createdAt = earlier,
 ): ChangeSet {
   return {
     id,
-    projectId,
+    liveSetId,
     sessionId: ids.session,
     correlationId,
     userIntent: "Rename the lead",
     workflow: "rename-track",
-    targets: [{ projectId, kind: "track", id: "track-1", revision: 4 }],
+    targets: [{ liveSetId, kind: "track", id: "track-1", revision: 4 }],
     beforeState: { name: "Lead" },
     requestedMutations: [],
     completedMutations: [],
@@ -144,7 +141,7 @@ function approval(
 ): ApprovalDecision {
   return {
     id,
-    projectId: ids.projectA,
+    liveSetId: ids.projectA,
     sessionId: ids.session,
     subjectType: "plan",
     subjectId,
@@ -220,21 +217,21 @@ describe.each(factories)("$name repository parity", ({ create }) => {
   it("round-trips every record type", async () => {
     const store = await openStore();
     await store.sessions.save(session());
-    await store.projects.save(project());
+    await store.liveSets.save(project());
     await store.plans.save(plan());
     await store.changeSets.save(changeSet());
     await store.preferences.save(preference("theme", "dark"));
     await store.approvals.save(approval());
 
     expect(await store.sessions.get(ids.session)).toEqual(session());
-    expect(await store.projects.get(ids.projectA)).toEqual(project());
+    expect(await store.liveSets.get(ids.projectA)).toEqual(project());
     expect(await store.plans.get(ids.planA)).toEqual(plan());
     expect(await store.changeSets.get(ids.changeSetA)).toEqual(changeSet());
     expect(await store.preferences.get(ids.session, "theme")).toEqual(
       preference("theme", "dark"),
     );
     expect(await store.approvals.get(ids.approvalA)).toEqual(approval());
-    expect(await store.projects.get(ids.projectB)).toBeUndefined();
+    expect(await store.liveSets.get(ids.projectB)).toBeUndefined();
     expect(await store.preferences.get(ids.session, "missing")).toBeUndefined();
   });
 
@@ -248,7 +245,7 @@ describe.each(factories)("$name repository parity", ({ create }) => {
     await store.sessions.save(withoutProject);
     const stored = await store.sessions.get(ids.session);
     expect(stored).toEqual(withoutProject);
-    expect(stored).not.toHaveProperty("activeProjectId");
+    expect(stored).not.toHaveProperty("activeLiveSetId");
 
     await store.sessions.save(session());
     expect(await store.sessions.get(ids.session)).toEqual(session());
@@ -256,11 +253,11 @@ describe.each(factories)("$name repository parity", ({ create }) => {
 
   it("finds records through unique lookups", async () => {
     const store = await openStore();
-    await store.projects.save(project());
+    await store.liveSets.save(project());
     await store.changeSets.save(changeSet());
 
-    expect(await store.projects.findByAbletonId("live-a")).toEqual(project());
-    expect(await store.projects.findByAbletonId("live-z")).toBeUndefined();
+    expect(await store.liveSets.get(ids.projectA)).toEqual(project());
+    expect(await store.liveSets.get("live-z")).toBeUndefined();
     expect(
       await store.changeSets.findByCorrelationId(ids.correlationA),
     ).toEqual(changeSet());
@@ -289,10 +286,10 @@ describe.each(factories)("$name repository parity", ({ create }) => {
     );
 
     expect(
-      (await store.plans.listByProject(ids.projectA)).map((item) => item.id),
+      (await store.plans.listByLiveSet(ids.projectA)).map((item) => item.id),
     ).toEqual([ids.planA, ids.planB]);
     expect(
-      (await store.changeSets.listByProject(ids.projectA)).map(
+      (await store.changeSets.listByLiveSet(ids.projectA)).map(
         (item) => item.id,
       ),
     ).toEqual([ids.changeSetA, ids.changeSetB]);
@@ -314,14 +311,11 @@ describe.each(factories)("$name repository parity", ({ create }) => {
     ]);
   });
 
-  it("rejects duplicate ableton projects and correlations", async () => {
+  it("updates Live Set identities and rejects duplicate correlations", async () => {
     const store = await openStore();
-    await store.projects.save(project());
-    await expect(
-      store.projects.save(project(ids.projectB, "live-a")),
-    ).rejects.toThrow(RepositoryConflictError);
-    await store.projects.save({ ...project(), displayName: "Renamed" });
-    expect((await store.projects.get(ids.projectA))?.displayName).toBe(
+    await store.liveSets.save(project());
+    await store.liveSets.save({ ...project(), liveSetName: "Renamed" });
+    expect((await store.liveSets.get(ids.projectA))?.liveSetName).toBe(
       "Renamed",
     );
 
@@ -352,52 +346,55 @@ describe.each(factories)("$name repository parity", ({ create }) => {
   it("validates payloads through the state schemas", async () => {
     const store = await openStore();
     await expect(
-      store.projects.save({ ...project(), tempo: 120 } as ProjectIdentity),
+      store.liveSets.save({ ...project(), tempo: 120 } as LiveSetIdentity),
     ).rejects.toThrow("unexpected key");
     await expect(
-      store.projects.save({ ...project(), id: "not-a-uuid" }),
-    ).rejects.toThrow("id must be a UUID");
+      store.liveSets.save({ ...project(), liveSetId: "" }),
+    ).rejects.toThrow("liveSetId must be a non-empty string");
     await expect(
       store.preferences.save({
         ...preference("mix", "loud"),
         value: { notes: [60] },
       }),
     ).rejects.toThrow("Detailed musical content");
-    expect(await store.projects.get(ids.projectA)).toBeUndefined();
+    expect(await store.liveSets.get(ids.projectA)).toBeUndefined();
   });
 
   it("commits successful transactions and rolls failures back", async () => {
     const store = await openStore();
     await store.transaction(async (repositories) => {
-      await repositories.projects.save(project());
+      await repositories.liveSets.save(project());
       await repositories.plans.save(plan());
     });
-    expect(await store.projects.get(ids.projectA)).toEqual(project());
+    expect(await store.liveSets.get(ids.projectA)).toEqual(project());
     expect(await store.plans.get(ids.planA)).toEqual(plan());
 
     await expect(
       store.transaction(async (repositories) => {
-        await repositories.projects.save(project(ids.projectB, "live-b"));
+        await repositories.liveSets.save(project(ids.projectB));
         await repositories.plans.save(plan(ids.planB, ids.projectB));
         throw new Error("rollback");
       }),
     ).rejects.toThrow("rollback");
-    expect(await store.projects.get(ids.projectB)).toBeUndefined();
+    expect(await store.liveSets.get(ids.projectB)).toBeUndefined();
     expect(await store.plans.get(ids.planB)).toBeUndefined();
-    expect(await store.plans.listByProject(ids.projectA)).toHaveLength(1);
+    expect(await store.plans.listByLiveSet(ids.projectA)).toHaveLength(1);
   });
 
   it("rolls back when a repository rejects inside a transaction", async () => {
     const store = await openStore();
-    await store.projects.save(project());
+    await store.liveSets.save(project());
+    await store.changeSets.save(changeSet());
     await expect(
       store.transaction(async (repositories) => {
         await repositories.plans.save(plan());
-        await repositories.projects.save(project(ids.projectB, "live-a"));
+        await repositories.changeSets.save(
+          changeSet(ids.changeSetB, ids.correlationA),
+        );
       }),
     ).rejects.toThrow(RepositoryConflictError);
     expect(await store.plans.get(ids.planA)).toBeUndefined();
-    expect(await store.projects.get(ids.projectB)).toBeUndefined();
+    expect(await store.liveSets.get(ids.projectB)).toBeUndefined();
   });
 
   it("never applies writes made after a transaction completed", async () => {
@@ -405,15 +402,13 @@ describe.each(factories)("$name repository parity", ({ create }) => {
     let escaped!: ProjectStateRepositories;
     await store.transaction(async (repositories) => {
       escaped = repositories;
-      await repositories.projects.save(project());
+      await repositories.liveSets.save(project());
     });
 
-    await escaped.projects
-      .save(project(ids.projectB, "live-b"))
-      .catch(() => undefined);
+    await escaped.liveSets.save(project(ids.projectB)).catch(() => undefined);
 
-    expect(await store.projects.get(ids.projectA)).toEqual(project());
-    expect(await store.projects.get(ids.projectB)).toBeUndefined();
+    expect(await store.liveSets.get(ids.projectA)).toEqual(project());
+    expect(await store.liveSets.get(ids.projectB)).toBeUndefined();
   });
 
   it("supports the plan and change-set services", async () => {
@@ -423,7 +418,7 @@ describe.each(factories)("$name repository parity", ({ create }) => {
       runtime([ids.planA, ids.approvalA]),
     );
     const draft = await plans.create({
-      projectId: ids.projectA,
+      liveSetId: ids.projectA,
       goal: "Arrange the drop",
     });
     const approved = await plans.approve(draft.id, ids.session, "Ship it");
@@ -437,7 +432,7 @@ describe.each(factories)("$name repository parity", ({ create }) => {
 
     const changeSets = new ChangeSetService(store, runtime([ids.changeSetA]));
     const created = await changeSets.create({
-      projectId: ids.projectA,
+      liveSetId: ids.projectA,
       sessionId: ids.session,
       correlationId: ids.correlationA,
       userIntent: "Rename",
@@ -449,29 +444,29 @@ describe.each(factories)("$name repository parity", ({ create }) => {
       "recovered",
     );
     expect(
-      (await store.changeSets.listByProject(ids.projectA)).map(
+      (await store.changeSets.listByLiveSet(ids.projectA)).map(
         (item) => item.status,
       ),
     ).toEqual(["recovered"]);
   });
 
-  it("resumes sessions and isolates plans across project switches", async () => {
+  it("resumes sessions and isolates plans across Live Set switches", async () => {
     const store = await openStore();
     const state = new ProjectStateService(store, runtime([ids.session]));
     const started = await state.startSession();
-    await state.switchProject(project());
+    await state.switchLiveSet(project());
     await store.plans.save(plan());
     await store.plans.save(plan(ids.planB, ids.projectB));
     expect(await state.activePlans()).toHaveLength(1);
 
-    await state.switchProject(project(ids.projectB, "live-b"));
+    await state.switchLiveSet(project(ids.projectB));
     expect((await state.activePlans()).map((item) => item.id)).toEqual([
       ids.planB,
     ]);
 
     const resumed = new ProjectStateService(store, runtime([]));
     await resumed.resumeSession(started.id);
-    expect(resumed.activeProject()?.id).toBe(ids.projectB);
+    expect(resumed.activeLiveSet()?.liveSetId).toBe(ids.projectB);
   });
 });
 
@@ -502,15 +497,15 @@ describe("sqlite persistence", () => {
       "project-state.sqlite.lock",
     ]);
 
-    await store.projects.save(project());
+    await store.liveSets.save(project());
     await store.plans.save(plan());
     await store.preferences.save(preference("theme", "dark"));
     await store.close();
     expect(store.isOpen).toBe(false);
 
     const reopened = await openStore({ path });
-    expect(await reopened.projects.get(ids.projectA)).toEqual(project());
-    expect(await reopened.plans.listByProject(ids.projectA)).toEqual([plan()]);
+    expect(await reopened.liveSets.get(ids.projectA)).toEqual(project());
+    expect(await reopened.plans.listByLiveSet(ids.projectA)).toEqual([plan()]);
     expect(await reopened.preferences.listBySession(ids.session)).toEqual([
       preference("theme", "dark"),
     ]);
@@ -519,7 +514,7 @@ describe("sqlite persistence", () => {
   it("writes atomically and leaves no temporary files behind", async () => {
     const path = await temporaryDatabasePath();
     const store = await openStore({ path });
-    await store.projects.save(project());
+    await store.liveSets.save(project());
     await store.flush();
     const entries = await readdir(dirname(path));
     expect(entries.sort()).toEqual([
@@ -535,11 +530,15 @@ describe("sqlite persistence", () => {
       path,
       autoFlush: false,
     });
-    await store.projects.save(project());
-    expect(await inspect(path, "SELECT count(*) FROM projects")).toEqual([[0]]);
+    await store.liveSets.save(project());
+    expect(await inspect(path, "SELECT count(*) FROM live_sets")).toEqual([
+      [0],
+    ]);
 
     await store.flush();
-    expect(await inspect(path, "SELECT count(*) FROM projects")).toEqual([[1]]);
+    expect(await inspect(path, "SELECT count(*) FROM live_sets")).toEqual([
+      [1],
+    ]);
 
     await store.plans.save(plan());
     expect(await inspect(path, "SELECT count(*) FROM plans")).toEqual([[0]]);
@@ -550,7 +549,7 @@ describe("sqlite persistence", () => {
   it("keeps rolled-back transactions out of the database file", async () => {
     const path = await temporaryDatabasePath();
     const store = await openStore({ path });
-    await store.projects.save(project());
+    await store.liveSets.save(project());
     await expect(
       store.transaction(async (repositories) => {
         await repositories.plans.save(plan());
@@ -561,7 +560,7 @@ describe("sqlite persistence", () => {
 
     const reopened = await openStore({ path });
     expect(await reopened.plans.get(ids.planA)).toBeUndefined();
-    expect(await reopened.projects.get(ids.projectA)).toEqual(project());
+    expect(await reopened.liveSets.get(ids.projectA)).toEqual(project());
   });
 
   it("joins store-level repository calls to an open transaction", async () => {
@@ -576,25 +575,25 @@ describe("sqlite persistence", () => {
     expect(await store.plans.get(ids.planA)).toBeUndefined();
 
     await store.transaction(async () => {
-      await store.projects.save(project());
+      await store.liveSets.save(project());
     });
-    expect(await store.projects.get(ids.projectA)).toEqual(project());
+    expect(await store.liveSets.get(ids.projectA)).toEqual(project());
   });
 
   it("serializes concurrent operations", async () => {
     const store = await openStore({ path: await temporaryDatabasePath() });
     await Promise.all([
-      store.projects.save(project()),
-      store.projects.save(project(ids.projectB, "live-b")),
+      store.liveSets.save(project()),
+      store.liveSets.save(project(ids.projectB)),
       store.plans.save(plan()),
       store.plans.save(plan(ids.planB, ids.projectB)),
       store.preferences.save(preference("theme", "dark")),
     ]);
-    expect(await store.projects.get(ids.projectA)).toEqual(project());
-    expect(await store.projects.get(ids.projectB)).toEqual(
-      project(ids.projectB, "live-b"),
+    expect(await store.liveSets.get(ids.projectA)).toEqual(project());
+    expect(await store.liveSets.get(ids.projectB)).toEqual(
+      project(ids.projectB),
     );
-    expect(await store.plans.listByProject(ids.projectA)).toHaveLength(1);
+    expect(await store.plans.listByLiveSet(ids.projectA)).toHaveLength(1);
   });
 
   it("prevents multiple stores from owning the same database file", async () => {
@@ -653,10 +652,10 @@ describe("sqlite persistence", () => {
 
     await store.close();
     await store.close();
-    await expect(store.projects.get(ids.projectA)).rejects.toThrow(
+    await expect(store.liveSets.get(ids.projectA)).rejects.toThrow(
       "store is closed",
     );
-    await expect(store.projects.save(project())).rejects.toThrow(
+    await expect(store.liveSets.save(project())).rejects.toThrow(
       "store is closed",
     );
   });
@@ -682,27 +681,27 @@ describe("sqlite migrations", () => {
       JSON.stringify(session()),
     ]);
     database.run(
-      "INSERT INTO projects (id, ableton_project_id, payload) VALUES (?, ?, ?)",
+      "INSERT INTO live_sets (id, live_set_id, payload) VALUES (?, ?, ?)",
       [
-        legacyProject.id,
-        legacyProject.abletonProjectId,
+        legacyProject.liveSetId,
+        legacyProject.liveSetId,
         JSON.stringify(legacyProject),
       ],
     );
     database.run(
-      "INSERT INTO plans (id, project_id, version, payload) VALUES (?, ?, ?, ?)",
+      "INSERT INTO plans (id, live_set_id, version, payload) VALUES (?, ?, ?, ?)",
       [
         legacyPlan.id,
-        legacyPlan.projectId,
+        legacyPlan.liveSetId,
         legacyPlan.version,
         JSON.stringify(legacyPlan),
       ],
     );
     database.run(
-      "INSERT INTO change_sets (id, project_id, correlation_id, payload) VALUES (?, ?, ?, ?)",
+      "INSERT INTO change_sets (id, live_set_id, correlation_id, payload) VALUES (?, ?, ?, ?)",
       [
         legacyChangeSet.id,
-        legacyChangeSet.projectId,
+        legacyChangeSet.liveSetId,
         legacyChangeSet.correlationId,
         JSON.stringify(legacyChangeSet),
       ],
@@ -727,8 +726,8 @@ describe("sqlite migrations", () => {
     try {
       expect(store.schemaVersion).toBe(projectStateSchemaVersion);
       expect(await store.sessions.get(ids.session)).toEqual(session());
-      expect(await store.projects.findByAbletonId("live-a")).toEqual(project());
-      expect(await store.plans.listByProject(ids.projectA)).toEqual([plan()]);
+      expect(await store.liveSets.get(ids.projectA)).toEqual(project());
+      expect(await store.plans.listByLiveSet(ids.projectA)).toEqual([plan()]);
       expect(
         await store.changeSets.findByCorrelationId(ids.correlationA),
       ).toEqual(changeSet());
@@ -739,9 +738,10 @@ describe("sqlite migrations", () => {
         approval(),
       ]);
 
-      await expect(
-        store.projects.save(project(ids.projectB, "live-a")),
-      ).rejects.toThrow(RepositoryConflictError);
+      await store.liveSets.save(project(ids.projectB));
+      expect(await store.liveSets.get(ids.projectB)).toEqual(
+        project(ids.projectB),
+      );
     } finally {
       await store.close();
     }
@@ -759,7 +759,7 @@ describe("sqlite migrations", () => {
       [["draft", earlier]],
     );
     expect(
-      await inspect(path, "SELECT active_project_id FROM sessions"),
+      await inspect(path, "SELECT active_live_set_id FROM sessions"),
     ).toEqual([[ids.projectA]]);
     expect(
       await inspect(path, "SELECT session_id, status FROM change_sets"),
@@ -778,13 +778,13 @@ describe("sqlite migrations", () => {
   it("is idempotent when every migration is already applied", async () => {
     const path = await temporaryDatabasePath();
     const first = await SqliteProjectStateStore.open({ path });
-    await first.projects.save(project());
+    await first.liveSets.save(project());
     await first.close();
 
     const second = await SqliteProjectStateStore.open({ path });
     try {
       expect(second.schemaVersion).toBe(projectStateSchemaVersion);
-      expect(await second.projects.get(ids.projectA)).toEqual(project());
+      expect(await second.liveSets.get(ids.projectA)).toEqual(project());
     } finally {
       await second.close();
     }

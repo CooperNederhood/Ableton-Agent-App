@@ -102,12 +102,21 @@ function configuration(
 function baseOptions(
   overrides: Partial<CopilotAgentServiceOptions>,
 ): CopilotAgentServiceOptions {
+  const sessionStateDirectory = join(
+    tmpdir(),
+    `ableton-agent-test-session-state-${randomUUID()}`,
+  );
   return {
     events: new InMemoryEventPublisher(),
-    sessionStateDirectory: join(
-      tmpdir(),
-      `ableton-agent-test-session-state-${randomUUID()}`,
-    ),
+    resolvePlanArtifactPaths: (productionSessionId: string) => {
+      const sessionDirectory = join(sessionStateDirectory, productionSessionId);
+      const artifactsDirectory = join(sessionDirectory, "artifacts");
+      return {
+        sessionDirectory,
+        artifactsDirectory,
+        planPath: join(artifactsDirectory, "plan.md"),
+      };
+    },
     getAbletonStatus: async () => disconnected,
     inspectSession: async () => emptySnapshot,
     signalContext: {
@@ -314,7 +323,18 @@ describe("CopilotAgentService managed sessions", () => {
     const service = new CopilotAgentService(
       baseOptions({
         events,
-        sessionStateDirectory,
+        resolvePlanArtifactPaths: (productionSessionId: string) => {
+          const sessionDirectory = join(
+            sessionStateDirectory,
+            productionSessionId,
+          );
+          const artifactsDirectory = join(sessionDirectory, "artifacts");
+          return {
+            sessionDirectory,
+            artifactsDirectory,
+            planPath: join(artifactsDirectory, "plan.md"),
+          };
+        },
         clientFactory: () => ({
           createSession: vi.fn(async (config: SessionConfig) => {
             configs.push(config);
@@ -662,7 +682,18 @@ describe("CopilotAgentService managed sessions", () => {
     const service = new CopilotAgentService(
       baseOptions({
         events,
-        sessionStateDirectory,
+        resolvePlanArtifactPaths: (productionSessionId: string) => {
+          const sessionDirectory = join(
+            sessionStateDirectory,
+            productionSessionId,
+          );
+          const artifactsDirectory = join(sessionDirectory, "artifacts");
+          return {
+            sessionDirectory,
+            artifactsDirectory,
+            planPath: join(artifactsDirectory, "plan.md"),
+          };
+        },
         turnTimeoutMs: 50,
         requestToolApproval: async () => await toolApproval.promise,
         runtimeObserver: { enqueue: (event) => runtimeEvents.push(event) },
@@ -1226,7 +1257,9 @@ describe("CopilotAgentService managed sessions", () => {
         getAbletonStatus: async () =>
           ({
             state: "connected",
-            projectId,
+            liveSetId: projectId,
+            liveSetName: "Test Set",
+            saved: true,
           }) as never,
         inspectSession: async () => snapshot,
         renameTrack,
@@ -1437,7 +1470,9 @@ describe("CopilotAgentService managed sessions", () => {
         getAbletonStatus: async () =>
           ({
             state: "connected",
-            projectId: "project-1",
+            liveSetId: "project-1",
+            liveSetName: "Test Set",
+            saved: true,
           }) as never,
         inspectSession: async () => snapshot,
         renameTrack,
@@ -2595,7 +2630,9 @@ it("blocks plan-mode mutations until interactive approval", async () => {
       getAbletonStatus: async () =>
         ({
           state: "connected",
-          projectId: "project-1",
+          liveSetId: "project-1",
+          liveSetName: "Test Set",
+          saved: true,
         }) as never,
       createTrack,
       clientFactory: () => ({

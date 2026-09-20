@@ -29,6 +29,7 @@ import {
   deleteProfile,
   ensureLiveAgentStorage,
   loadProfileRegistry,
+  readLiveProjectsRegistry,
   renameProfile,
   resolveArtifactScopePaths,
   resolveLiveAgentStorage,
@@ -55,6 +56,7 @@ import {
   type DesktopSkillDocument,
 } from "../contracts.js";
 import type { ProfileManagerActions } from "./ipc.js";
+import { JsonLiveSetSessionStore } from "./live-set-session-store.js";
 
 const availableTools = [
   ...abletonToolMetadata.map((tool) => tool.name),
@@ -64,7 +66,7 @@ const availableTools = [
 const maximumSessionsFileBytes = 4 * 1024 * 1024;
 
 type TelemetryWriter = (event: {
-  version: 1;
+  version: 2;
   id: string;
   occurredAt: string;
   name: string;
@@ -147,7 +149,12 @@ function artifactSourceFile(
 function catalogArtifacts(
   scope: DesktopArtifactScope,
   catalog: LayeredAgentCatalog,
-  owner: { profile?: string; sessionId?: string } = {},
+  owner: {
+    profile?: string;
+    liveProjectId?: string;
+    liveSetId?: string;
+    sessionId?: string;
+  } = {},
   includeInherited = false,
 ): DesktopScopedArtifact[] {
   const convert = (
@@ -244,6 +251,48 @@ function sourceDescription(
   fallback: string,
 ): string {
   return artifact?.description || fallback;
+}
+
+function sessionSummaries(
+  sessions: readonly DesktopSession[],
+  activeProfile: boolean,
+  activeSessionId: string | undefined,
+  persistedSessionIds: ReadonlySet<string>,
+  canonicalSessionIds: ReadonlySet<string>,
+) {
+  const ordered = [...sessions].sort(
+    (left, right) =>
+      left.createdAt.localeCompare(right.createdAt) ||
+      left.id.localeCompare(right.id),
+  );
+  const counts = new Map<string, number>();
+  for (const session of ordered) {
+    counts.set(session.liveSetId, (counts.get(session.liveSetId) ?? 0) + 1);
+  }
+  const positions = new Map<string, number>();
+  return ordered.map((session) => {
+    const position = (positions.get(session.liveSetId) ?? 0) + 1;
+    positions.set(session.liveSetId, position);
+    const multiple = (counts.get(session.liveSetId) ?? 0) > 1;
+    return {
+      id: session.id,
+      title: multiple
+        ? `${session.liveSetName}-${position}`
+        : session.liveSetName,
+      liveSetId: session.liveSetId,
+      liveSetName: session.liveSetName,
+      ...(session.liveProjectId === undefined
+        ? {}
+        : { liveProjectId: session.liveProjectId }),
+      ...(session.liveProjectName === undefined
+        ? {}
+        : { liveProjectName: session.liveProjectName }),
+      createdAt: session.createdAt,
+      active: activeProfile && session.id === activeSessionId,
+      canonical: canonicalSessionIds.has(session.id),
+      persisted: persistedSessionIds.has(session.id),
+    };
+  });
 }
 
 export class DesktopProfileManager implements ProfileManagerActions {
@@ -348,10 +397,17 @@ export class DesktopProfileManager implements ProfileManagerActions {
             `Agent event listeners reference unknown events: ${[...new Set(unknownEventIds)].join(", ")}`,
           );
         }
+        const sessionOwnership = {
+          liveSetId: session.liveSetId,
+          ...(session.liveProjectId === undefined
+            ? {}
+            : { liveProjectId: session.liveProjectId }),
+          sessionId,
+        };
         const sessionPaths = resolveArtifactScopePaths(
           selectedLayout,
           "session",
-          sessionId,
+          sessionOwnership,
         );
         await ensureScope(sessionPaths);
         const bundled = {
@@ -360,11 +416,18 @@ export class DesktopProfileManager implements ProfileManagerActions {
         };
         const system = resolveArtifactScopePaths(selectedLayout, "system");
         const profile = resolveArtifactScopePaths(selectedLayout, "profile");
+        const project =
+          session.liveProjectId === undefined
+            ? undefined
+            : resolveArtifactScopePaths(selectedLayout, "project", {
+                liveProjectId: session.liveProjectId,
+              });
         const load = () =>
           loadLayeredAgentCatalog({
             bundled,
             system: layer(system),
             profile: layer(profile),
+            ...(project === undefined ? {} : { project: layer(project) }),
             session: layer(sessionPaths),
             availableTools,
           });
@@ -515,7 +578,13 @@ export class DesktopProfileManager implements ProfileManagerActions {
         const sessionPaths = resolveArtifactScopePaths(
           selectedLayout,
           "session",
-          sessionId,
+          {
+            liveSetId: session.liveSetId,
+            ...(session.liveProjectId === undefined
+              ? {}
+              : { liveProjectId: session.liveProjectId }),
+            sessionId,
+          },
         );
         await ensureScope(sessionPaths);
         const load = () => this.#loadCatalog(snapshot.activeProfile, sessionId);
@@ -1033,33 +1102,104 @@ export class DesktopProfileManager implements ProfileManagerActions {
       profile: layer(profile),
       availableTools,
     });
-    const sessionArtifacts = (
+    const selectedProjectRegistry = await readLiveProjectsRegistry(
+      selectedLayout.liveProjectsRegistryPath,
+    );
+    const selectedProjectIds = new Set([
+      ...selectedProjectRegistry.projects.map(({ projectId }) => projectId),
+      ...persistedSelectedSessions.flatMap(({ liveProjectId }) =>
+        liveProjectId === undefined ? [] : [liveProjectId],
+      ),
+    ]);
+    const projectCatalogs = new Map<string, LayeredAgentCatalog>();
+    const projectArtifacts = (
       await Promise.all(
-        persistedSelectedSessions.map(async ({ id }) => {
-          const session = resolveArtifactScopePaths(
+        [...selectedProjectIds].map(async (liveProjectId) => {
+          const projectPaths = resolveArtifactScopePaths(
             selectedLayout,
-            "session",
-            id,
+            "project",
+            { liveProjectId },
           );
+          await ensureScope(projectPaths);
           const catalog = await loadLayeredAgentCatalog({
             bundled,
             system: layer(system),
             profile: layer(profile),
+            project: layer(projectPaths),
+            availableTools,
+          });
+          projectCatalogs.set(liveProjectId, catalog);
+          const artifacts = catalogArtifacts(
+            "project",
+            catalog,
+            { profile: selectedProfile, liveProjectId },
+            false,
+          );
+          await this.#appendDisabledArtifacts(
+            artifacts,
+            "project",
+            projectPaths,
+            profileCatalog,
+            { profile: selectedProfile, liveProjectId },
+          );
+          return artifacts;
+        }),
+      )
+    ).flat();
+    const sessionArtifacts = (
+      await Promise.all(
+        persistedSelectedSessions.map(async (storedSession) => {
+          const { id } = storedSession;
+          const session = resolveArtifactScopePaths(selectedLayout, "session", {
+            liveSetId: storedSession.liveSetId,
+            ...(storedSession.liveProjectId === undefined
+              ? {}
+              : { liveProjectId: storedSession.liveProjectId }),
+            sessionId: id,
+          });
+          const project =
+            storedSession.liveProjectId === undefined
+              ? undefined
+              : resolveArtifactScopePaths(selectedLayout, "project", {
+                  liveProjectId: storedSession.liveProjectId,
+                });
+          const catalog = await loadLayeredAgentCatalog({
+            bundled,
+            system: layer(system),
+            profile: layer(profile),
+            ...(project === undefined ? {} : { project: layer(project) }),
             session: layer(session),
             availableTools,
           });
           const artifacts = catalogArtifacts(
             "session",
             catalog,
-            { profile: selectedProfile, sessionId: id },
+            {
+              profile: selectedProfile,
+              liveSetId: storedSession.liveSetId,
+              ...(storedSession.liveProjectId === undefined
+                ? {}
+                : { liveProjectId: storedSession.liveProjectId }),
+              sessionId: id,
+            },
             false,
           );
           await this.#appendDisabledArtifacts(
             artifacts,
             "session",
             session,
-            profileCatalog,
-            { profile: selectedProfile, sessionId: id },
+            storedSession.liveProjectId === undefined
+              ? profileCatalog
+              : (projectCatalogs.get(storedSession.liveProjectId) ??
+                  profileCatalog),
+            {
+              profile: selectedProfile,
+              liveSetId: storedSession.liveSetId,
+              ...(storedSession.liveProjectId === undefined
+                ? {}
+                : { liveProjectId: storedSession.liveProjectId }),
+              sessionId: id,
+            },
           );
           return artifacts;
         }),
@@ -1073,6 +1213,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
         { profile: selectedProfile },
         false,
       ),
+      ...projectArtifacts,
       ...sessionArtifacts,
     ];
     await this.#appendDisabledArtifacts(
@@ -1090,33 +1231,113 @@ export class DesktopProfileManager implements ProfileManagerActions {
     );
     const profiles = await Promise.all(
       registry.profiles.map(async ({ name }) => {
-        const persistedSessions = await readSessions(
-          resolveLiveAgentStorage({
-            environment: { LIVE_AGENT_HOME: this.options.rootLayout.root },
-            profile: name,
-          }),
-        );
+        const profileLayout = resolveLiveAgentStorage({
+          environment: { LIVE_AGENT_HOME: this.options.rootLayout.root },
+          profile: name,
+        });
+        const persistedSessions = await readSessions(profileLayout);
         const sessions =
           name === activeProfile &&
           activeSession !== undefined &&
           !persistedSessions.some(({ id }) => id === activeSession.id)
-            ? [activeSession, ...persistedSessions]
+            ? [...persistedSessions, activeSession]
             : persistedSessions;
         const persistedSessionIds =
           name === selectedProfile
             ? persistedSelectedSessionIds
             : new Set(persistedSessions.map(({ id }) => id));
+        const associations = await new JsonLiveSetSessionStore(
+          profileLayout.liveSetSessionsPath,
+        ).load(persistedSessions);
+        const canonicalSessionIds = new Set(
+          associations.map(({ sessionId }) => sessionId),
+        );
+        const summaries = sessionSummaries(
+          sessions,
+          name === activeProfile,
+          currentActiveSessionId,
+          persistedSessionIds,
+          canonicalSessionIds,
+        );
+        const liveSets = new Map<
+          string,
+          {
+            id: string;
+            name: string;
+            saved: boolean;
+            liveProjectId?: string;
+            sessions: typeof summaries;
+          }
+        >();
+        for (const summary of summaries) {
+          const current = liveSets.get(summary.liveSetId);
+          if (current === undefined) {
+            liveSets.set(summary.liveSetId, {
+              id: summary.liveSetId,
+              name: summary.liveSetName,
+              saved: summary.liveProjectId !== undefined,
+              ...(summary.liveProjectId === undefined
+                ? {}
+                : { liveProjectId: summary.liveProjectId }),
+              sessions: [summary],
+            });
+          } else {
+            current.sessions.push(summary);
+          }
+        }
+        const projectRegistry = await readLiveProjectsRegistry(
+          profileLayout.liveProjectsRegistryPath,
+        );
+        const projectNames = new Map(
+          projectRegistry.projects.map(({ projectId, displayName }) => [
+            projectId,
+            displayName,
+          ]),
+        );
+        for (const summary of summaries) {
+          if (
+            summary.liveProjectId !== undefined &&
+            summary.liveProjectName !== undefined &&
+            !projectNames.has(summary.liveProjectId)
+          ) {
+            projectNames.set(summary.liveProjectId, summary.liveProjectName);
+          }
+        }
+        const liveProjects = [...projectNames]
+          .map(([id, projectName]) => ({
+            id,
+            name: projectName,
+            active:
+              name === activeProfile &&
+              summaries.some(
+                (session) => session.active && session.liveProjectId === id,
+              ),
+            liveSets: [...liveSets.values()]
+              .filter(({ liveProjectId }) => liveProjectId === id)
+              .map(({ id, name, saved, sessions }) => ({
+                id,
+                name,
+                saved,
+                sessions,
+              })),
+          }))
+          .sort((left, right) => left.name.localeCompare(right.name));
+        const unassignedLiveSets = [...liveSets.values()]
+          .filter(({ liveProjectId }) => liveProjectId === undefined)
+          .map(({ id, name, saved, sessions }) => ({
+            id,
+            name,
+            saved,
+            sessions,
+          }));
         return {
           name,
           active: name === activeProfile,
           reserved: false,
           sessionCount: sessions.length,
-          sessions: sessions.map(({ id, title }) => ({
-            id,
-            title,
-            active: name === activeProfile && id === currentActiveSessionId,
-            persisted: persistedSessionIds.has(id),
-          })),
+          sessions: summaries,
+          liveProjects,
+          unassignedLiveSets,
         };
       }),
     );
@@ -1126,10 +1347,23 @@ export class DesktopProfileManager implements ProfileManagerActions {
       selectedProfile,
       activeSessionId,
       sessions: profiles.flatMap(({ name, sessions }) =>
-        sessions.map(({ id, persisted }) => ({ profile: name, id, persisted })),
+        sessions.map(
+          ({ id, persisted, canonical, liveSetId, liveProjectId }) => ({
+            profile: name,
+            id,
+            persisted,
+            canonical,
+            liveSetId,
+            liveProjectId,
+          }),
+        ),
       ),
       artifacts: artifacts.map((artifact) => ({
         scope: artifact.scope,
+        profile: artifact.profile,
+        liveProjectId: artifact.liveProjectId,
+        liveSetId: artifact.liveSetId,
+        sessionId: artifact.sessionId,
         kind: artifact.kind,
         name: artifact.name,
         state: artifact.state,
@@ -1158,7 +1392,12 @@ export class DesktopProfileManager implements ProfileManagerActions {
     scope: DesktopArtifactScope,
     paths: ArtifactScopePaths,
     upstream: LayeredAgentCatalog,
-    owner: { profile?: string; sessionId?: string } = {},
+    owner: {
+      profile?: string;
+      liveProjectId?: string;
+      liveSetId?: string;
+      sessionId?: string;
+    } = {},
   ): Promise<void> {
     for (const kind of ["agent", "skill"] as const) {
       const tombstones = await readArtifactTombstones(
@@ -1194,7 +1433,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
     }
   }
 
-  #loadCatalog(
+  async #loadCatalog(
     profileName: string,
     sessionId?: string,
   ): Promise<LayeredAgentCatalog> {
@@ -1204,10 +1443,37 @@ export class DesktopProfileManager implements ProfileManagerActions {
     });
     const system = resolveArtifactScopePaths(selectedLayout, "system");
     const profile = resolveArtifactScopePaths(selectedLayout, "profile");
-    const session =
+    const persistedSession =
       sessionId === undefined
         ? undefined
-        : resolveArtifactScopePaths(selectedLayout, "session", sessionId);
+        : (await readSessions(selectedLayout)).find(
+            ({ id }) => id === sessionId,
+          );
+    const activeSession =
+      sessionId === undefined || persistedSession !== undefined
+        ? undefined
+        : await this.options.getActiveSession();
+    const storedSession =
+      persistedSession ??
+      (activeSession?.id === sessionId ? activeSession : undefined);
+    if (sessionId !== undefined && storedSession === undefined)
+      throw new Error(`App session '${sessionId}' is not listed`);
+    const project =
+      storedSession?.liveProjectId === undefined
+        ? undefined
+        : resolveArtifactScopePaths(selectedLayout, "project", {
+            liveProjectId: storedSession.liveProjectId,
+          });
+    const session =
+      persistedSession === undefined
+        ? undefined
+        : resolveArtifactScopePaths(selectedLayout, "session", {
+            liveSetId: persistedSession.liveSetId,
+            ...(persistedSession.liveProjectId === undefined
+              ? {}
+              : { liveProjectId: persistedSession.liveProjectId }),
+            sessionId: persistedSession.id,
+          });
     return loadLayeredAgentCatalog({
       bundled: {
         agentsDirectory: this.options.bundledAgentsDirectory,
@@ -1215,6 +1481,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
       },
       system: layer(system),
       profile: layer(profile),
+      ...(project === undefined ? {} : { project: layer(project) }),
       ...(session === undefined ? {} : { session: layer(session) }),
       availableTools,
     });
@@ -1249,6 +1516,22 @@ export class DesktopProfileManager implements ProfileManagerActions {
       profile,
     });
     await ensureLiveAgentStorage(layout);
+    if (location.scope === "project") {
+      if (location.liveProjectId === undefined) {
+        throw new Error("Project Scope requires a Live Project");
+      }
+      const projectExists = snapshot.profiles
+        .find(({ name }) => name === profile)
+        ?.liveProjects.some(({ id }) => id === location.liveProjectId);
+      if (projectExists !== true) {
+        throw new Error("Project Scope target is not a listed Live Project");
+      }
+      const paths = resolveArtifactScopePaths(layout, "project", {
+        liveProjectId: location.liveProjectId,
+      });
+      await ensureScope(paths);
+      return paths;
+    }
     if (location.scope === "session") {
       if (location.sessionId === undefined) {
         throw new Error("Session Scope requires a session");
@@ -1283,11 +1566,13 @@ export class DesktopProfileManager implements ProfileManagerActions {
           );
         }
       }
-      const paths = resolveArtifactScopePaths(
-        layout,
-        "session",
-        location.sessionId,
-      );
+      const paths = resolveArtifactScopePaths(layout, "session", {
+        liveSetId: session.liveSetId,
+        ...(session.liveProjectId === undefined
+          ? {}
+          : { liveProjectId: session.liveProjectId }),
+        sessionId: location.sessionId,
+      });
       await ensureScope(paths);
       return paths;
     }
@@ -1302,6 +1587,11 @@ export class DesktopProfileManager implements ProfileManagerActions {
     const affectsActiveScope =
       location.scope === "system" ||
       (location.scope === "profile" && profile === activeProfile) ||
+      (location.scope === "project" &&
+        profile === activeProfile &&
+        location.liveProjectId !== undefined &&
+        location.liveProjectId ===
+          (await this.options.getActiveSession())?.liveProjectId) ||
       (location.scope === "session" &&
         profile === activeProfile &&
         location.sessionId === (await this.options.getActiveSessionId()));
@@ -1475,7 +1765,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
   ): string {
     const id = randomUUID();
     this.options.telemetry?.({
-      version: 1,
+      version: 2,
       id,
       occurredAt: new Date().toISOString(),
       name,

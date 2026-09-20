@@ -227,8 +227,8 @@ export function createIpcHandlers(
       await service.setContext(context);
       return { updated: true };
     },
-    "project:resolve-transition": async ({ token, decision }) => ({
-      session: await service.resolveProjectTransition(token, decision),
+    "live-set:resolve-transition": async ({ token, decision }) => ({
+      session: await service.resolveLiveSetTransition(token, decision),
     }),
     "plan:update": async ({ sections }) => {
       await service.updatePlan(sections);

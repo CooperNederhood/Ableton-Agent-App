@@ -13,13 +13,20 @@ Companion specification: [Local Storage Layout](local-storage.md)
 - [x] Persist the global validated reasoning-summary visibility preference in
   profile-owned `config/preferences.json`; keep bounded Working content in the
   redacted observability journal rather than a parallel transcript store.
-- [x] Store the shared production-session planning document at
-  `session-state/{production-session-id}/artifacts/plan.md` through the shared
+- [x] Store the shared production-session planning document at the nested
+  `*/session-state/{app-session-id}/artifacts/plan.md` path through the shared
   resolver with owner-only permissions and atomic revision-checked writes.
 - [x] Keep the event journal profile-wide rather than splitting it per session.
-- [ ] Add root-owned profile registry and editable System Scope artifacts.
-- [ ] Add Profile and Session Scope agent/skill directories and tombstones.
+- [x] Add root-owned profile registry and editable System Scope artifacts.
+- [x] Add Profile and Session Scope agent/skill directories and tombstones.
 - [ ] Preserve bundled agents and skills as immutable fallback resources.
+- [x] Define strict Project -> Live Set -> app-session and unassigned Live Set
+  physical paths, metadata contracts, and bounded Live Projects registry
+  primitives.
+- [x] Resolve Project Scope agents, skills, and tombstones under
+  `project-state/{liveProjectId}/` from a required typed ownership context.
+- [x] Reserve profile, project, Live Set, and app-session `memory/` ownership
+  directories without defining memory behavior.
 
 ## Migration and safety
 
@@ -32,6 +39,14 @@ Companion specification: [Local Storage Layout](local-storage.md)
   symbolic links.
 - [x] Redact embedded credentials and enforce character/byte limits before
   publishing plan artifacts.
+- [x] Add the operator-invoked, dry-run-by-default v1-to-v2 migration CLI.
+- [x] Refuse unsupported and partial layouts, create backups before writes,
+  rename legacy project fields and association filenames atomically, move
+  complete legacy sessions under unassigned Live Sets, and publish the storage
+  version last.
+- [x] Populate missing immutable session `createdAt` values from legacy
+  `updatedAt` and sort by creation time with session ID tie-breaks.
+- [x] Keep nested-layout migration out of runtime startup.
 
 ## Visibility and tests
 

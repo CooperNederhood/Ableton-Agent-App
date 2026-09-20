@@ -63,8 +63,8 @@ class ListenerManagerTests(unittest.TestCase):
         self.assertEqual(
             published,
             [
-                ("project.changed", {"reason": "tempo"}, 1),
-                ("project.changed", {"reason": "selection"}, 2),
+                ("live_set.changed", {"reason": "tempo"}, 1),
+                ("live_set.changed", {"reason": "selection"}, 2),
             ],
         )
         self.assertEqual(context.project_revision, 2)

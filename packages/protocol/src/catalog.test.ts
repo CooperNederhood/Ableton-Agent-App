@@ -8,7 +8,7 @@ import { commandCatalog, commandNames } from "./catalog.js";
 function quotedCommands(source: string): string[] {
   return [
     ...source.matchAll(
-      /"(?:system|project|session|transport|tracks|clips|arrangement|devices|browser|events)\.[a-z_]+"/g,
+      /"(?:system|live_set|session|transport|tracks|clips|arrangement|devices|browser|events)\.[a-z_]+"/g,
     ),
   ]
     .map(([match]) => match.slice(1, -1))

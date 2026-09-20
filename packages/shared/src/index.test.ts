@@ -9,11 +9,28 @@ import {
   type AgentEventAttribution,
   type AppEvent,
   type ConfigurationStore,
+  type ConnectionStatus,
   type SecureStorage,
   type ShutdownParticipant,
 } from "./index.js";
 
 describe("shared runtime contracts", () => {
+  it("describes connected Live Set and optional Live Project identity", () => {
+    const status = {
+      state: "connected",
+      liveVersion: "11.3.42",
+      remoteScriptVersion: "0.5.0",
+      liveSetId: "set-1",
+      liveSetName: "Performance",
+      saved: true,
+      liveProjectId: "project-1",
+      liveProjectName: "Tour",
+    } satisfies ConnectionStatus;
+
+    expect(status.liveSetId).toBe("set-1");
+    expect(status.liveProjectName).toBe("Tour");
+  });
+
   it("publishes events and removes subscriptions deterministically", () => {
     const publisher = new InMemoryEventPublisher();
     const received: AppEvent[] = [];

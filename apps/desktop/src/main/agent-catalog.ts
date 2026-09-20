@@ -10,6 +10,7 @@ import type { AgentSkillDescriptor } from "@ableton-agent/application";
 import {
   resolveArtifactScopePaths,
   type LiveAgentStorageLayout,
+  type SessionStorageOwnershipContext,
 } from "@ableton-agent/storage";
 
 import {
@@ -22,6 +23,9 @@ export interface AgentCatalogOptions {
   readonly skillsDirectory: string;
   readonly availableTools: readonly string[];
   readonly storage?: LiveAgentStorageLayout;
+  readonly resolveSessionOwnership?: (
+    sessionId: string,
+  ) => Promise<SessionStorageOwnershipContext | undefined>;
 }
 
 export function toDesktopCatalog(
@@ -136,10 +140,20 @@ export class AgentCatalogService {
     const storage = this.options.storage!;
     const system = resolveArtifactScopePaths(storage, "system");
     const profile = resolveArtifactScopePaths(storage, "profile");
-    const session =
+    const ownership =
       sessionId === undefined
         ? undefined
-        : resolveArtifactScopePaths(storage, "session", sessionId);
+        : await this.options.resolveSessionOwnership?.(sessionId);
+    const project =
+      ownership?.liveProjectId === undefined
+        ? undefined
+        : resolveArtifactScopePaths(storage, "project", {
+            liveProjectId: ownership.liveProjectId,
+          });
+    const session =
+      ownership === undefined
+        ? undefined
+        : resolveArtifactScopePaths(storage, "session", ownership);
     return loadLayeredAgentCatalog({
       bundled: {
         agentsDirectory: this.options.agentsDirectory,
@@ -157,6 +171,16 @@ export class AgentCatalogService {
         agentTombstones: profile.agentTombstonesPath,
         skillTombstones: profile.skillTombstonesPath,
       },
+      ...(project === undefined
+        ? {}
+        : {
+            project: {
+              agentsDirectory: project.agentsDirectory,
+              skillsDirectory: project.skillsDirectory,
+              agentTombstones: project.agentTombstonesPath,
+              skillTombstones: project.skillTombstonesPath,
+            },
+          }),
       ...(session === undefined
         ? {}
         : {

@@ -109,17 +109,25 @@ rejected before mutation.
 
 ## Live Set identity
 
-The Remote Script derives project identity directly from the LOM:
+The Remote Script derives Live Set identity directly from the LOM:
 
 - saved sets use a SHA-256 hash of `Song.file_path`, truncated to 24
   hexadecimal characters;
-- unsaved sets use the same hash shape over `Song.name`, but explicitly report
-  `saved: false`.
+- unsaved sets receive a collision-resistant runtime identity that remains
+  stable when the Set is renamed and differs between distinct unsaved Sets.
 
-`project.get_identity` computes this value on demand and returns only
-`projectId`, `projectName`, and `saved`. It never sends the raw filesystem path.
-Capability negotiation and the dynamic command share the same helper so Save
-As and reconnect behavior cannot use different identity rules.
+For a saved Set, the script walks upward from the `.als` file and uses the
+nearest ancestor containing `Ableton Project Info` as its Live Project. An
+orphan saved Set has no `liveProjectId` or `liveProjectName` and reports a
+bounded `live_project_not_found` diagnostic instead.
+
+`live_set.get_identity` computes this value on demand. It returns explicit
+`liveSetId`, `liveSetName`, and `saved` fields, optional `liveProjectId` and
+`liveProjectName`, plus at most four diagnostics with messages limited to 256
+characters. It never sends raw filesystem paths. Capability negotiation and
+the dynamic command share the same helper so Save As and reconnect behavior
+cannot use different identity rules. Entity stale guards use `liveSetId`; Live
+Project identity never participates in object-reference validation.
 
 ## Events
 

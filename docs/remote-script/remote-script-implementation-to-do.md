@@ -117,3 +117,10 @@ Companion specification: [Remote Script](remote-script.md)
 - [x] All commands are registered, validated, scheduled, and tested.
 - [x] Disconnect leaves no listeners, sockets, or active client threads.
 - [ ] Supported Live versions produce an accurate capability report.
+# Live identity terminology
+
+- [x] Expose explicit Live Set identity and optional nearest-ancestor Live
+  Project identity without transmitting filesystem paths.
+- [x] Keep unsaved Set IDs collision-resistant and stable for the Remote Script
+  runtime, and bound orphan-Set diagnostics.
+- [x] Scope dynamic Live Event stale guards to `liveSetId`.

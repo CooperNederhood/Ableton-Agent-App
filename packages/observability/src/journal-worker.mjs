@@ -279,7 +279,8 @@ function eventWhere(query) {
   const scalar = [
     ["trace_id", "traceId"],
     ["correlation_id", "correlationId"],
-    ["project_id", "projectId"],
+    ["live_set_id", "liveSetId"],
+    ["live_project_id", "liveProjectId"],
     ["session_id", "sessionId"],
     ["active_agent_id", "activeAgentId"],
     ["live_event_id", "liveEventId"],
@@ -308,7 +309,8 @@ function snapshotWhere(query) {
   const parameters = [];
   appendListFilter("component", query.components, clauses, parameters);
   for (const [column, property] of [
-    ["project_id", "projectId"],
+    ["live_set_id", "liveSetId"],
+    ["live_project_id", "liveProjectId"],
     ["session_id", "sessionId"],
     ["active_agent_id", "activeAgentId"],
   ]) {
@@ -420,7 +422,7 @@ function readEvents(query, rootTraceId) {
     );
   const last = items.at(-1);
   const result = {
-    version: 1,
+    version: 2,
     items,
     ...(hasMore && last !== undefined
       ? { nextCursor: encodeCursor("events", last.sequence, order) }
@@ -474,7 +476,7 @@ function readSnapshots(query) {
     );
   const last = items.at(-1);
   return {
-    version: 1,
+    version: 2,
     items,
     ...(hasMore && last !== undefined
       ? { nextCursor: encodeCursor("snapshots", last.sequence, order) }
@@ -548,7 +550,7 @@ function rootSummaries(query) {
   }));
   const last = items.at(-1);
   return {
-    version: 1,
+    version: 2,
     items,
     ...(hasMore && last !== undefined
       ? { nextCursor: encodeCursor("roots", last.firstSequence, order) }
@@ -569,11 +571,12 @@ function insertBatch(writes, recordedAt) {
             event_id, contract_version, occurred_at, recorded_at, name,
             category, source, stage, level, outcome, correlation_id,
             causation_id, trace_id, span_id, parent_span_id, root_trace_id,
-            project_id, session_id, active_agent_id, live_event_id, output_id,
+            live_set_id, live_project_id, session_id, active_agent_id,
+            live_event_id, output_id,
             tool_name, duration_ms, payload
           ) VALUES (
             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?
+            ?, ?, ?, ?
           )`,
           [
             event.id,
@@ -592,7 +595,8 @@ function insertBatch(writes, recordedAt) {
             event.trace?.spanId ?? null,
             event.trace?.parentSpanId ?? null,
             event.trace?.traceId ?? event.id,
-            event.projectId ?? null,
+            event.liveSetId ?? null,
+            event.liveProjectId ?? null,
             event.sessionId ?? null,
             event.activeAgentId ?? null,
             event.liveEventId ?? null,
@@ -607,9 +611,9 @@ function insertBatch(writes, recordedAt) {
         database.run(
           `INSERT OR IGNORE INTO configuration_snapshots (
             snapshot_id, contract_version, captured_at, recorded_at,
-            component, configuration_version, project_id, session_id,
-            active_agent_id, payload
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            component, configuration_version, live_set_id, live_project_id,
+            session_id, active_agent_id, payload
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             snapshot.id,
             snapshot.version,
@@ -617,7 +621,8 @@ function insertBatch(writes, recordedAt) {
             recordedAt,
             snapshot.component,
             snapshot.configurationVersion,
-            snapshot.projectId ?? null,
+            snapshot.liveSetId ?? null,
+            snapshot.liveProjectId ?? null,
             snapshot.sessionId ?? null,
             snapshot.activeAgentId ?? null,
             JSON.stringify(snapshot),
@@ -756,7 +761,7 @@ function applyRetention(nowIso) {
   }
 
   return {
-    version: 1,
+    version: 2,
     deletedEvents,
     deletedTraces,
     deletedConfigurationSnapshots,
@@ -938,7 +943,7 @@ async function dispatch(method, args) {
          FROM telemetry_events`,
       );
       return {
-        version: 1,
+        version: 2,
         status: lastError === null ? "healthy" : "degraded",
         schemaVersion,
         persistedEvents: number(

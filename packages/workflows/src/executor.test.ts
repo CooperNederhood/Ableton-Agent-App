@@ -37,7 +37,7 @@ function transaction(
 ): WorkflowTransaction {
   return {
     id: "transaction-1",
-    projectId: "project-1",
+    liveSetId: "project-1",
     sessionId: "session-1",
     correlationId: "correlation-1",
     resource: "project-1",
@@ -415,7 +415,7 @@ describe("deterministic workflow executor", () => {
     const crossProject = {
       ...step("one"),
       target: {
-        projectId: "project-2",
+        liveSetId: "project-2",
         kind: "track" as const,
         id: "track-1",
         revision: 1,
@@ -437,14 +437,14 @@ describe("deterministic workflow executor", () => {
     const hiddenCrossProject = {
       ...step("one"),
       target: {
-        projectId: "project-1",
+        liveSetId: "project-1",
         kind: "track" as const,
         id: "track-1",
         revision: 1,
       },
       payload: {
         track: {
-          projectId: "project-2",
+          liveSetId: "project-2",
           kind: "track" as const,
           id: "track-2",
           revision: 1,

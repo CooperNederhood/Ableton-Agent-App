@@ -212,7 +212,8 @@ describe("agent runtime composition", () => {
     expect(snapshots[0]?.component).toBe("agent-runtime");
     expect(snapshots[0]?.configurationVersion).toBe("runtime-observer-v1");
     expect(snapshots[0]?.sessionId).toBe("sdk-session");
-    expect(snapshots[0]?.projectId).toBeUndefined();
+    expect(snapshots[0]?.liveSetId).toBeUndefined();
+    expect(snapshots[0]?.liveProjectId).toBeUndefined();
     const configurationData = snapshots[0]?.values.data as
       Readonly<Record<string, unknown>> | undefined;
     const sdkSystemMessage = configurationData?.sdkSystemMessage as
@@ -445,8 +446,9 @@ describe("agent runtime composition", () => {
       ableton: { port: 8765 },
       abletonService: Object.assign(
         new UnconfiguredAbletonService("no bridge in tests"),
-        { getCurrentProjectId: () => "project-a" },
+        { getCurrentLiveSetId: () => "set-a" },
       ),
+      currentLiveProjectId: () => "live-project-a",
       agent: {
         clientFactory: () => ({
           createSession: () =>
@@ -485,7 +487,8 @@ describe("agent runtime composition", () => {
     );
     expect(managedSnapshot).toMatchObject({
       component: "agent-runtime",
-      projectId: "project-a",
+      liveSetId: "set-a",
+      liveProjectId: "live-project-a",
       sessionId: "managed-sdk",
       activeAgentId: "agent-a",
     });
@@ -507,13 +510,15 @@ describe("agent runtime composition", () => {
         await journal.enqueueConfigurationSnapshot(snapshot);
       }
       const page = await journal.readConfigurationSnapshots({
-        projectId: "project-a",
+        liveSetId: "set-a",
+        liveProjectId: "live-project-a",
         sessionId: "managed-sdk",
         activeAgentId: "agent-a",
       });
       expect(page.items).toHaveLength(1);
       expect(page.items[0]).toMatchObject({
-        projectId: "project-a",
+        liveSetId: "set-a",
+        liveProjectId: "live-project-a",
         sessionId: "managed-sdk",
         activeAgentId: "agent-a",
       });

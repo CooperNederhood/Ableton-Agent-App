@@ -41,11 +41,13 @@ function stateWithAgents(): DesktopState {
     activeSessionId: "session",
     sessions: [
       {
-        version: 3 as const,
+        version: 4 as const,
         id: "session",
         title: "Session",
+        createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString(),
-        projectName: "Project",
+        liveSetId: "live-set-1",
+        liveSetName: "Project",
         activeAgents: [
           agent(firstAgentId, "Default"),
           agent(secondAgentId, "Default 2"),
@@ -388,7 +390,7 @@ describe("desktop reducer", () => {
   it("paginates history and replaces selected trace detail", () => {
     const traceId = "00000000-0000-4000-8000-000000000010";
     const event = {
-      version: 1 as const,
+      version: 2 as const,
       id: "00000000-0000-4000-8000-000000000001",
       sequence: 1,
       occurredAt: "2026-01-01T00:00:00.000Z",
@@ -413,7 +415,7 @@ describe("desktop reducer", () => {
       type: "event-history-loaded",
       append: false,
       page: {
-        version: 1,
+        version: 2,
         items: [root],
         nextCursor: "next",
         page: {
@@ -429,7 +431,7 @@ describe("desktop reducer", () => {
       type: "event-history-loaded",
       append: true,
       page: {
-        version: 1,
+        version: 2,
         items: [
           {
             ...root,
@@ -456,7 +458,7 @@ describe("desktop reducer", () => {
       traceId,
       append: false,
       page: {
-        version: 1,
+        version: 2,
         items: [event],
         nextCursor: "trace-next",
         page: {
@@ -479,7 +481,7 @@ describe("desktop reducer", () => {
       traceId,
       append: true,
       page: {
-        version: 1,
+        version: 2,
         items: [{ ...event, id: secondAgentId, sequence: 2 }],
         page: {
           limit: 1,
@@ -651,19 +653,18 @@ describe("desktop reducer", () => {
       },
     });
 
-    expect(state.messages).toEqual([
-      expect.objectContaining({
-        id: messageId,
-        role: "assistant",
-        content: "",
-        working: expect.objectContaining({
-          status: "completed",
-          intent: "Inspecting the arrangement",
-          summary: "Checked the available clips.",
-          reasoningId: "reasoning-1",
-        }),
-      }),
-    ]);
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]).toMatchObject({
+      id: messageId,
+      role: "assistant",
+      content: "",
+      working: {
+        status: "completed",
+        intent: "Inspecting the arrangement",
+        summary: "Checked the available clips.",
+        reasoningId: "reasoning-1",
+      },
+    });
   });
 
   it("keeps two agent conversations and streaming attribution independent", () => {
@@ -915,8 +916,8 @@ describe("desktop reducer", () => {
 
   it("turns selected project objects into explicit context", () => {
     const snapshot = {
-      id: "p",
-      name: "Project",
+      liveSetId: "p",
+      liveSetName: "Project",
       tempo: 120,
       timeSignature: "4/4",
       tracks: [
@@ -956,8 +957,8 @@ describe("desktop reducer", () => {
 
   it("removes generated context without clearing project selection", () => {
     const snapshot = {
-      id: "p",
-      name: "Project",
+      liveSetId: "p",
+      liveSetName: "Project",
       tempo: 120,
       timeSignature: "4/4",
       tracks: [
@@ -1018,8 +1019,8 @@ describe("desktop reducer", () => {
       ...initialState,
       context: [explicit],
       snapshot: {
-        id: "p",
-        name: "Project",
+        liveSetId: "p",
+        liveSetName: "Project",
         tempo: 120,
         timeSignature: "4/4",
         tracks: [
@@ -1060,8 +1061,8 @@ describe("desktop reducer", () => {
       ...initialState,
       context: [explicit],
       snapshot: {
-        id: "p",
-        name: "Project",
+        liveSetId: "p",
+        liveSetName: "Project",
         tempo: 120,
         timeSignature: "4/4",
         tracks: [
@@ -1179,8 +1180,8 @@ describe("desktop reducer", () => {
 
   it("bounds refresh failures and preserves the last valid snapshot", () => {
     const snapshot = {
-      id: "project",
-      name: "Existing project",
+      liveSetId: "project",
+      liveSetName: "Existing project",
       tempo: 120,
       timeSignature: "4/4",
       tracks: [],

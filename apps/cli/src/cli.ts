@@ -841,7 +841,9 @@ export async function runCommand(
         healthy: ping.pong,
         liveVersion: status.liveVersion,
         remoteScriptVersion: status.remoteScriptVersion,
-        projectId: status.projectId,
+        liveSetId: status.liveSetId,
+        liveSetName: status.liveSetName,
+        saved: status.saved,
         supportedCapabilities: Object.values(capabilities.capabilities).filter(
           Boolean,
         ).length,

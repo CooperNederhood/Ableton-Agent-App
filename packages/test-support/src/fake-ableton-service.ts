@@ -19,7 +19,7 @@ export interface FakeDevice {
 
 export interface FakeAbletonState {
   status: ConnectionStatus;
-  projectIdentity: Protocol.ProjectIdentity;
+  liveIdentity: Protocol.LiveIdentity;
   snapshot: Protocol.SessionSnapshot;
   devicesByTrackReference: Record<string, FakeDevice[]>;
   capabilities: Protocol.CapabilityDocument;
@@ -37,20 +37,26 @@ export function defaultFakeState(): FakeAbletonState {
       state: "connected",
       liveVersion: "12.1",
       remoteScriptVersion: PRODUCT_VERSIONS.remoteScript,
-      projectId: "project-fake",
+      liveSetId: "set-fake",
+      liveSetName: "Fake Set",
+      saved: true,
     },
     capabilities: {
       selectedProtocolVersion: PRODUCT_VERSIONS.protocol,
       liveVersion: "12.1",
       remoteScriptVersion: PRODUCT_VERSIONS.remoteScript,
-      projectId: "project-fake",
+      liveSetId: "set-fake",
+      liveSetName: "Fake Set",
+      saved: true,
+      diagnostics: [],
       capabilities: { "session.inspect": true, "transport.set_tempo": false },
       limits: { maxFrameBytes: 262_144, maxBatchItems: 64 },
     },
-    projectIdentity: {
-      projectId: "project-fake",
-      projectName: "Fake Set",
+    liveIdentity: {
+      liveSetId: "set-fake",
+      liveSetName: "Fake Set",
       saved: true,
+      diagnostics: [],
     },
     snapshot: {
       tempo: 122,
@@ -152,8 +158,8 @@ export class FakeAbletonService implements AbletonService {
     return this.state.capabilities;
   }
 
-  public async getProjectIdentity(): Promise<Protocol.ProjectIdentity> {
-    return this.state.projectIdentity;
+  public async getLiveIdentity(): Promise<Protocol.LiveIdentity> {
+    return this.state.liveIdentity;
   }
 
   public async ping(): Promise<Protocol.PingResult> {

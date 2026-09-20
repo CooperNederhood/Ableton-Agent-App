@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const OBSERVABILITY_CONTRACT_VERSION = 1 as const;
+export const OBSERVABILITY_CONTRACT_VERSION = 2 as const;
 export const DEFAULT_RETENTION_DAYS = 30;
 export const DEFAULT_MAX_DATABASE_BYTES = 250 * 1024 * 1024;
 export const DEFAULT_MAX_PENDING_WRITES = 10_000;
@@ -197,7 +197,8 @@ export const telemetryEventEnvelopeSchema = z
     durationMs: z.number().finite().nonnegative().optional(),
     correlationId: telemetryEntityIdSchema.optional(),
     causationId: telemetryEntityIdSchema.optional(),
-    projectId: telemetryEntityIdSchema.optional(),
+    liveSetId: telemetryEntityIdSchema.optional(),
+    liveProjectId: telemetryEntityIdSchema.optional(),
     sessionId: telemetryEntityIdSchema.optional(),
     activeAgentId: telemetryEntityIdSchema.optional(),
     liveEventId: telemetryEntityIdSchema.optional(),
@@ -240,7 +241,8 @@ export const configurationSnapshotSchema = z
     capturedAt: isoTimestampSchema,
     component: telemetryNameSchema,
     configurationVersion: z.string().min(1).max(64),
-    projectId: telemetryEntityIdSchema.optional(),
+    liveSetId: telemetryEntityIdSchema.optional(),
+    liveProjectId: telemetryEntityIdSchema.optional(),
     sessionId: telemetryEntityIdSchema.optional(),
     activeAgentId: telemetryEntityIdSchema.optional(),
     values: sanitizedAttributesSchema,
@@ -278,7 +280,8 @@ const telemetryFilterShape = {
     .optional(),
   traceId: telemetryIdSchema.optional(),
   correlationId: telemetryEntityIdSchema.optional(),
-  projectId: telemetryEntityIdSchema.optional(),
+  liveSetId: telemetryEntityIdSchema.optional(),
+  liveProjectId: telemetryEntityIdSchema.optional(),
   sessionId: telemetryEntityIdSchema.optional(),
   activeAgentId: telemetryEntityIdSchema.optional(),
   liveEventId: telemetryEntityIdSchema.optional(),
@@ -322,7 +325,8 @@ export const telemetryDeleteFilterSchema = z
 
 const configurationSnapshotFilterShape = {
   components: stringFilterSchema.optional(),
-  projectId: telemetryEntityIdSchema.optional(),
+  liveSetId: telemetryEntityIdSchema.optional(),
+  liveProjectId: telemetryEntityIdSchema.optional(),
   sessionId: telemetryEntityIdSchema.optional(),
   activeAgentId: telemetryEntityIdSchema.optional(),
   from: isoTimestampSchema.optional(),

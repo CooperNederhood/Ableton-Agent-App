@@ -5,7 +5,7 @@ Companion specification: [Scoped Profiles](scoped-profiles.md)
 ## Storage and resolution
 
 - [x] Add root profile registry and active-profile selection.
-- [x] Add typed System, Profile, and Session agent/skill paths.
+- [x] Add typed System, Profile, Project, and nested Session agent/skill paths.
 - [x] Add bounded scope-local tombstones and metadata.
 - [x] Resolve effective artifacts as session > profile > system > bundled.
 - [x] Preserve the existing default profile without eager resource copying.
@@ -20,7 +20,12 @@ Companion specification: [Scoped Profiles](scoped-profiles.md)
 
 ## Artifact management
 
-- [x] List the System baseline and physical Profile/Session agents and skills.
+- [x] List the System baseline and physical Profile/Project/Session agents and
+  skills.
+- [x] Group Profiles as Live Project, Live Set, then App sessions, including
+  stable Set-derived numbering for one-to-many App-session associations.
+- [x] Resolve effective definitions as Session, Project, Profile, System, then
+  bundled fallback.
 - [x] Copy and move artifacts through staged validated publication.
 - [x] Perform semantic agent and skill rename with same-scope references.
 - [x] Delete local overrides and reveal inherited artifacts.

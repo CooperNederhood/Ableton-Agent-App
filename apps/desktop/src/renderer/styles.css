@@ -166,11 +166,11 @@ h3 {
   align-items: center;
   gap: 12px;
 }
-.project-title {
+.live-set-title {
   justify-content: center;
   font-weight: 700;
 }
-.project-title small,
+.live-set-title small,
 .model,
 small,
 .muted {
@@ -993,6 +993,10 @@ small,
 
 .skill-scope-light.is-profile {
   background: #63a9e8;
+}
+
+.skill-scope-light.is-project {
+  background: #a77be8;
 }
 
 .skill-scope-light.is-system {

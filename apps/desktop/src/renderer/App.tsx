@@ -35,7 +35,7 @@ import type {
   DesktopConnectionStatus,
   DesktopOutputAssignment,
   DesktopOutputConnection,
-  DesktopProjectSnapshot,
+  DesktopLiveSetSnapshot,
   DesktopProfileStatus,
   DesktopSkillDocument,
   DesktopLiveEventState,
@@ -260,7 +260,7 @@ function namedOccurrence<T extends { name: string }>(
 
 function trackDraft(
   track: DesktopTrack,
-  snapshot: DesktopProjectSnapshot,
+  snapshot: DesktopLiveSetSnapshot,
   kind: TrackEventKind,
 ): LiveEventDefinitionDraft {
   const index = snapshot.tracks.findIndex(({ id }) => id === track.id);
@@ -279,7 +279,7 @@ function trackDraft(
 }
 
 export function parameterDraftFromSnapshot(
-  snapshot: DesktopProjectSnapshot,
+  snapshot: DesktopLiveSetSnapshot,
   trackId: string,
   deviceId: string,
   parameterId: string,
@@ -318,7 +318,7 @@ export function parameterDraftFromSnapshot(
 
 export function parameterDraftFromSelection(
   selection: LiveEventSelection,
-  snapshot?: DesktopProjectSnapshot,
+  snapshot?: DesktopLiveSetSnapshot,
 ): LiveEventDefinitionDraft | undefined {
   const identity = selection.parameter;
   if (identity === null || snapshot === undefined) return undefined;
@@ -339,7 +339,7 @@ export interface EventTrackGroup {
 
 export function groupEventsByTrack(
   events: DesktopLiveEventState[],
-  snapshot: DesktopProjectSnapshot | undefined,
+  snapshot: DesktopLiveSetSnapshot | undefined,
 ): EventTrackGroup[] {
   const tracks = new Map(
     (snapshot?.tracks ?? []).map((track, index) => [
@@ -407,7 +407,7 @@ export interface OutputTrackGroup {
 
 function resolvedOutputTrack(
   connection: DesktopOutputConnection,
-  snapshot: DesktopProjectSnapshot | undefined,
+  snapshot: DesktopLiveSetSnapshot | undefined,
 ): { track: DesktopTrack; index: number } | undefined {
   const name = connection.track?.name;
   if (snapshot === undefined || name === undefined) return undefined;
@@ -429,7 +429,7 @@ function resolvedOutputTrack(
 
 export function groupOutputsByTrack(
   connections: DesktopOutputConnection[],
-  snapshot: DesktopProjectSnapshot | undefined,
+  snapshot: DesktopLiveSetSnapshot | undefined,
 ): OutputTrackGroup[] {
   const groups = new Map<
     string,
@@ -1004,7 +1004,7 @@ export function App(): React.JSX.Element {
           onHideChrome={() => setTopChromeVisible(false)}
         />
       )}
-      <ProjectTransitionModal state={state} dispatch={dispatch} />
+      <LiveSetTransitionModal state={state} dispatch={dispatch} />
       {topChromeVisible && (
         <nav
           id="application-views"
@@ -1153,7 +1153,7 @@ function eventError(
 
 function selectionTrack(
   selection: LiveEventSelection | undefined,
-  snapshot: DesktopProjectSnapshot | undefined,
+  snapshot: DesktopLiveSetSnapshot | undefined,
 ): DesktopTrack | undefined {
   if (!selection?.track || !snapshot) return undefined;
   return (
@@ -2050,7 +2050,8 @@ export function AddEventPanel({
           <span>No parameter is selected in Live.</span>
         ) : selectedParameterDraft === undefined ? (
           <span>
-            Refresh the project snapshot to safely match the selected parameter.
+            Refresh the Live Set snapshot to safely match the selected
+            parameter.
           </span>
         ) : null}
       </div>
@@ -2078,7 +2079,7 @@ export function AddEventPanel({
       <details className="event-picker">
         <summary>Browse all</summary>
         {!snapshot ? (
-          <p>Refresh the project snapshot to browse tracks and parameters.</p>
+          <p>Refresh the Live Set snapshot to browse tracks and parameters.</p>
         ) : (
           <div className="event-picker-fields">
             <label>
@@ -2906,25 +2907,25 @@ function OutputAssignmentControls({
   );
 }
 
-export function ProjectTransitionModal({
+export function LiveSetTransitionModal({
   state,
   dispatch,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
 }): React.JSX.Element | null {
-  const transition = state.pendingProjectTransition;
+  const transition = state.pendingLiveSetTransition;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
   if (transition === undefined) return null;
 
   const resolve = async (
-    decision: Parameters<DesktopApi["project"]["resolveTransition"]>[1],
+    decision: Parameters<DesktopApi["liveSet"]["resolveTransition"]>[1],
   ): Promise<void> => {
     setSubmitting(true);
     setError(undefined);
     try {
-      const session = await window.desktop.project.resolveTransition(
+      const session = await window.desktop.liveSet.resolveTransition(
         transition.token,
         decision,
       );
@@ -2953,7 +2954,7 @@ export function ProjectTransitionModal({
       >
         <h1 id="project-transition-title">Live Set changed</h1>
         <p>
-          Ableton is now using <strong>{transition.project.projectName}</strong>
+          Ableton is now using <strong>{transition.liveSet.liveSetName}</strong>
           .
         </p>
         {transition.kind === "associated" ? (
@@ -3116,8 +3117,8 @@ export function ConnectionHeader({
           ● {connectionText}
         </span>
       </div>
-      <div className="project-title">
-        {state.snapshot?.name ?? "No project"}{" "}
+      <div className="live-set-title">
+        {state.snapshot?.liveSetName ?? "No Live Set"}{" "}
         <small>
           {state.snapshot
             ? `${state.snapshot.tempo} BPM · ${state.snapshot.timeSignature}`
@@ -5813,7 +5814,7 @@ export async function refreshProjectSnapshot(
     const snapshot = await requestSnapshot();
     dispatch({
       type: "event",
-      event: { type: "project.snapshot_changed", snapshot },
+      event: { type: "live_set.snapshot_changed", snapshot },
     });
     dispatch({ type: "project-refresh-succeeded" });
   } catch (error) {
@@ -5854,9 +5855,9 @@ export function ProjectOutline({
           : "Refresh";
   const refreshStatus =
     state.projectRefresh.status === "refreshing"
-      ? "Refreshing project snapshot."
+      ? "Refreshing Live Set snapshot."
       : state.projectRefresh.status === "succeeded"
-        ? "Project snapshot updated."
+        ? "Live Set snapshot updated."
         : state.projectRefresh.status === "failed"
           ? state.projectRefresh.message
           : undefined;
@@ -5885,7 +5886,7 @@ export function ProjectOutline({
           </label>
           <button
             className="project-refresh-button"
-            aria-label={`${refreshLabel} project snapshot`}
+            aria-label={`${refreshLabel} Live Set snapshot`}
             aria-describedby={
               refreshStatus === undefined ? undefined : "project-refresh-status"
             }
@@ -7212,13 +7213,10 @@ function SessionsView({ state }: { state: DesktopState }): React.JSX.Element {
               <div>
                 <h2>{session.title}</h2>
                 <p>
-                  {session.projectName} ·{" "}
+                  {session.liveSetName} ·{" "}
                   {new Date(session.updatedAt).toLocaleString()}
                 </p>
                 {session.id === currentSession?.id && <strong>Current</strong>}
-                {session.projectId === undefined && (
-                  <span className="muted"> Ephemeral</span>
-                )}
               </div>
               <button
                 disabled={session.id === currentSession?.id}

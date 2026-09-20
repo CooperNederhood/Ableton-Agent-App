@@ -57,6 +57,7 @@ import {
   desktopAgentCatalogSchema,
   desktopAgentConversationSettingsSchema,
   desktopAgentModelsSchema,
+  connectionStatusSchema,
   MAX_AGENT_TRIGGER_HISTORY,
   preferencesSchema,
   type ApprovalDecision,
@@ -83,16 +84,16 @@ import {
   type DesktopAgentMode,
   type DesktopPlanArtifactSnapshot,
   type DesktopPreferences,
-  type DesktopProjectSnapshot,
-  type DesktopProjectIdentity,
+  type DesktopLiveSetSnapshot,
+  type DesktopLiveSetIdentity,
   type DesktopSession,
   type PlanSection,
   type LatestAcceptedOutput,
   type LiveEventDefinitionDraft,
   type LiveEventTrigger,
   type OutputDeliveryMode,
-  type PendingProjectTransition,
-  type ProjectTransitionDecision,
+  type PendingLiveSetTransition,
+  type LiveSetTransitionDecision,
 } from "../contracts.js";
 import type { ApprovalCoordinator } from "./approvals.js";
 import type { AgentCatalogService } from "./agent-catalog.js";
@@ -104,17 +105,16 @@ import type {
 import { composeAgentPrompt } from "./prompt.js";
 import { normalizeSharedEvent } from "./shared-event-adapter.js";
 import {
-  projectLabel,
   toDesktopCapabilities,
   toDesktopSnapshot,
   type TrackDevices,
 } from "./snapshot-adapter.js";
 import type {
-  ProjectSessionAssociation,
-  ProjectSessionStore,
-} from "./project-session-store.js";
+  LiveSetSessionAssociation,
+  LiveSetSessionStore,
+} from "./live-set-session-store.js";
 
-/** Devices and parameters read per track when building a project snapshot. */
+/** Devices and parameters read per track when building a Live Set snapshot. */
 const deviceReadLimit = 32;
 const parameterReadLimit = 64;
 const diagnosticMessageLimit = 512;
@@ -122,15 +122,15 @@ const forkedHistoryMessageLimit = 100;
 const forkedHistoryCharacterLimit = 40_000;
 /** The sessions view shows the most recent entries; older ones are dropped. */
 const storedSessionLimit = 100;
-const defaultProjectIdentityPollIntervalMs = 10_000;
-const maximumProjectIdentityPollBackoffMs = 60_000;
+const defaultLiveSetIdentityPollIntervalMs = 10_000;
+const maximumLiveSetIdentityPollBackoffMs = 60_000;
 
 export interface HeadlessDesktopServiceOptions {
   application: HeadlessApplication;
   approvals: ApprovalCoordinator;
   preferencesStore: JsonPreferencesStore;
   sessionStore: JsonSessionStore;
-  projectSessionStore?: ProjectSessionStore;
+  liveSetSessionStore?: LiveSetSessionStore;
   agentCatalog?: Pick<AgentCatalogService, "current" | "refresh"> &
     Partial<Pick<AgentCatalogService, "runtimeSkills">>;
   signals?: SignalRuntime;
@@ -158,7 +158,7 @@ export interface HeadlessDesktopServiceOptions {
     agentInstanceIds: ReadonlySet<string>,
   ) => void;
   logger?: Logger;
-  projectIdentityPollIntervalMs?: number;
+  liveSetIdentityPollIntervalMs?: number;
   /** Main-process-owned journal. It is never exposed to the renderer. */
   eventJournal?: DesktopEventJournal;
   reconfigureEventJournal?: (policy: RetentionPolicy) => Promise<void>;
@@ -233,18 +233,18 @@ export class HeadlessDesktopService implements DesktopService {
   #pendingActionableLifecycle:
     Extract<DesktopLifecycleState, "ready" | "degraded"> | undefined;
   #latestOutputs = new Map<string, LatestAcceptedOutput>();
-  #snapshotRefresh: Promise<DesktopProjectSnapshot> | undefined;
+  #snapshotRefresh: Promise<DesktopLiveSetSnapshot> | undefined;
   #snapshotEnrichmentGeneration = 0;
-  #activeProductionSessionId: string | undefined;
+  #activeAppSessionId: string | undefined;
   readonly #sdkSessionIds = new Map<string, string>();
   readonly #ephemeralSessionIds = new Set<string>();
-  #projectAssociations: ProjectSessionAssociation[] = [];
-  #projectIdentity: DesktopProjectIdentity | undefined;
-  #pendingProjectTransition: PendingProjectTransition | undefined;
-  #projectIdentityTimer: NodeJS.Timeout | undefined;
-  #projectIdentityRefresh: Promise<void> | undefined;
-  #projectIdentityRead: Promise<DesktopProjectIdentity | undefined> | undefined;
-  #projectIdentityPollFailures = 0;
+  #liveSetAssociations: LiveSetSessionAssociation[] = [];
+  #liveSetIdentity: DesktopLiveSetIdentity | undefined;
+  #pendingLiveSetTransition: PendingLiveSetTransition | undefined;
+  #liveSetIdentityTimer: NodeJS.Timeout | undefined;
+  #liveSetIdentityRefresh: Promise<void> | undefined;
+  #liveSetIdentityRead: Promise<DesktopLiveSetIdentity | undefined> | undefined;
+  #liveSetIdentityPollFailures = 0;
   #transitionCommitting = false;
   #eventJournal: DesktopEventJournal | undefined;
   #eventJournalTransitionFailure: string | undefined;
@@ -302,8 +302,8 @@ export class HeadlessDesktopService implements DesktopService {
     );
     this.#sessions = await this.#loadSessions();
     this.#sdkSessionIds.clear();
-    this.#projectAssociations = await this.#loadProjectAssociations();
-    this.#activeProductionSessionId = undefined;
+    this.#liveSetAssociations = await this.#loadLiveSetAssociations();
+    this.#activeAppSessionId = undefined;
     this.#publishAutoApprovedAgentIds();
     this.emit({ type: "preferences.changed", preferences: this.#preferences });
     this.emit({ type: "sessions.changed", sessions: this.#sessions });
@@ -324,10 +324,12 @@ export class HeadlessDesktopService implements DesktopService {
       // status, so report the status the bridge actually observed.
       this.emit({
         type: "ableton.connection_changed",
-        status: await this.#application.getStatus(),
+        status: connectionStatusSchema.parse(
+          await this.#application.getStatus(),
+        ),
       });
     }
-    await this.#restoreOrRegisterSession(await this.#readProjectIdentity());
+    await this.#restoreOrRegisterSession(await this.#readLiveIdentity());
     const activeSession = this.#activeSession();
     if (activeSession !== undefined) {
       for (const instance of activeSession.activeAgents) {
@@ -342,10 +344,10 @@ export class HeadlessDesktopService implements DesktopService {
       try {
         await this.#beginSnapshotRefresh(false, "startup");
       } catch (error) {
-        this.#report("Project snapshot could not be read", error);
+        this.#report("Live Set snapshot could not be read", error);
       }
     }
-    this.#scheduleProjectIdentityRefresh();
+    this.#scheduleLiveIdentityRefresh();
     this.#logger.info("Desktop service started", {
       durationMs: Date.now() - startedAt,
       sessionId: this.#application.agentSessionId,
@@ -357,11 +359,11 @@ export class HeadlessDesktopService implements DesktopService {
     const startedAt = Date.now();
     this.#logger.info("Desktop service stopping");
     this.#acceptingActions = false;
-    if (this.#projectIdentityTimer !== undefined) {
-      clearTimeout(this.#projectIdentityTimer);
-      this.#projectIdentityTimer = undefined;
+    if (this.#liveSetIdentityTimer !== undefined) {
+      clearTimeout(this.#liveSetIdentityTimer);
+      this.#liveSetIdentityTimer = undefined;
     }
-    await this.#projectIdentityRefresh;
+    await this.#liveSetIdentityRefresh;
     this.#pendingActionableLifecycle = undefined;
     this.#approvals.denyAll();
     await this.#preferenceSaveTail;
@@ -396,7 +398,7 @@ export class HeadlessDesktopService implements DesktopService {
     this.#unsubscribeLiveEvents = undefined;
     this.#turn = undefined;
     this.#automaticStreamMessageIds.clear();
-    this.#activeProductionSessionId = undefined;
+    this.#activeAppSessionId = undefined;
     this.#publishAutoApprovedAgentIds();
     this.#logger.info("Desktop service stopped", {
       durationMs: Date.now() - startedAt,
@@ -425,9 +427,9 @@ export class HeadlessDesktopService implements DesktopService {
       assistantMessageId: randomUUID(),
       cancelRequested: false,
     };
-    const expectedSessionId = this.#activeProductionSessionId;
+    const expectedSessionId = this.#activeAppSessionId;
     if (expectedSessionId === undefined) {
-      throw new Error("No active production session");
+      throw new Error("No active App session");
     }
     const { managedTarget, selection } = await this.#queueSessionAction(
       async () => {
@@ -634,10 +636,10 @@ export class HeadlessDesktopService implements DesktopService {
       }
       return this.#withSuspendedSignals(async () => {
         if (this.options.agentCatalog !== undefined) {
-          return this.#createManagedProductionSession("New production session");
+          return this.#createManagedAppSession("New App session");
         }
         const sdkSessionId = await this.#application.createAgentSession();
-        return this.#rememberSession(sdkSessionId, "New production session");
+        return this.#rememberSession(sdkSessionId, "New App session");
       });
     });
   }
@@ -687,7 +689,7 @@ export class HeadlessDesktopService implements DesktopService {
     const catalog =
       scoped.refreshForSession === undefined
         ? await scoped.refresh()
-        : await scoped.refreshForSession(this.#activeProductionSessionId);
+        : await scoped.refreshForSession(this.#activeAppSessionId);
     this.emit({ type: "agents.catalog_changed", catalog });
     return catalog;
   }
@@ -705,9 +707,9 @@ export class HeadlessDesktopService implements DesktopService {
     definitionName: string,
   ): Promise<DesktopActiveAgent> {
     this.#assertAccepting();
-    const productionSessionId = this.#activeProductionSessionId;
+    const productionSessionId = this.#activeAppSessionId;
     if (productionSessionId === undefined) {
-      throw new Error("No active production session");
+      throw new Error("No active App session");
     }
     const candidate = this.#activeAgentFromDefinition(
       this.#requireDefinition(definitionName),
@@ -1004,9 +1006,9 @@ export class HeadlessDesktopService implements DesktopService {
     this.#assertAccepting();
     const { productionSessionId, instanceIds } = await this.#queueSessionAction(
       async () => {
-        const productionSessionId = this.#activeProductionSessionId;
+        const productionSessionId = this.#activeAppSessionId;
         if (productionSessionId === undefined) {
-          throw new Error("No active production session");
+          throw new Error("No active App session");
         }
         const session = this.#requireExpectedActiveSession(productionSessionId);
         const instanceIds =
@@ -1027,7 +1029,7 @@ export class HeadlessDesktopService implements DesktopService {
         for (const instanceId of instanceIds) {
           if (!current.activeAgents.some(({ id }) => id === instanceId)) {
             throw new Error(
-              `Agent instance '${instanceId}' changed in production session '${productionSessionId}' while the operation was queued`,
+              `Agent instance '${instanceId}' changed in App session '${productionSessionId}' while the operation was queued`,
             );
           }
         }
@@ -1037,7 +1039,7 @@ export class HeadlessDesktopService implements DesktopService {
             current.activeAgents.some(({ id }) => !instanceIds.includes(id)))
         ) {
           throw new Error(
-            `Active agents changed in production session '${productionSessionId}' while the operation was queued`,
+            `Active agents changed in App session '${productionSessionId}' while the operation was queued`,
           );
         }
         const targetIds = new Set(instanceIds);
@@ -1335,18 +1337,18 @@ export class HeadlessDesktopService implements DesktopService {
         if (errors.length > 0) {
           throw new AggregateError(
             errors,
-            `Could not close production session '${session.id}'`,
+            `Could not close App session '${session.id}'`,
           );
         }
-        if (this.#projectIdentity?.saved === true) {
-          this.#projectAssociations = this.#projectAssociations.filter(
-            ({ projectId }) => projectId !== this.#projectIdentity!.projectId,
+        if (this.#liveSetIdentity?.saved === true) {
+          this.#liveSetAssociations = this.#liveSetAssociations.filter(
+            ({ liveSetId }) => liveSetId !== this.#liveSetIdentity!.liveSetId,
           );
-          await this.options.projectSessionStore?.save(
-            this.#projectAssociations,
+          await this.options.liveSetSessionStore?.save(
+            this.#liveSetAssociations,
           );
         }
-        this.#activeProductionSessionId = undefined;
+        this.#activeAppSessionId = undefined;
         this.#pinnedContext = [];
         await this.#persistSessions();
         this.#publishAutoApprovedAgentIds();
@@ -1363,7 +1365,7 @@ export class HeadlessDesktopService implements DesktopService {
       this.emit({
         type: "diagnostic",
         level: "info",
-        message: `Closed production session ${session.id}.`,
+        message: `Closed App session ${session.id}.`,
       });
     });
   }
@@ -1376,9 +1378,9 @@ export class HeadlessDesktopService implements DesktopService {
       throw new Error("Session not found");
     }
     if (
-      this.#projectIdentity?.saved === true &&
-      requested.projectId !== undefined &&
-      requested.projectId !== this.#projectIdentity.projectId
+      this.#liveSetIdentity?.saved === true &&
+      requested.liveSetId !== undefined &&
+      requested.liveSetId !== this.#liveSetIdentity.liveSetId
     ) {
       throw new Error(
         "Session belongs to a different Live Set; switch Live Sets before resuming it",
@@ -1413,7 +1415,7 @@ export class HeadlessDesktopService implements DesktopService {
         }
         const previous = this.#activeSession();
         if (previous?.id !== session.id) {
-          const resumed = await this.#switchManagedProductionSession(
+          const resumed = await this.#switchManagedAppSession(
             previous,
             session,
           );
@@ -1428,9 +1430,9 @@ export class HeadlessDesktopService implements DesktopService {
         }
         await this.#application.resumeAgentSession(sdkSessionId);
       }
-      this.#activeProductionSessionId = sessionId;
+      this.#activeAppSessionId = sessionId;
       await this.#touchSession(sessionId);
-      await this.#associateActiveSession(this.#projectIdentity);
+      await this.#associateActiveSession(this.#liveSetIdentity);
       this.#publishAutoApprovedAgentIds();
     });
     const session = this.#sessions.find((item) => item.id === sessionId);
@@ -1441,66 +1443,68 @@ export class HeadlessDesktopService implements DesktopService {
     this.emit({
       type: "diagnostic",
       level: "info",
-      message: `Resumed production session ${sessionId}.`,
+      message: `Resumed App session ${sessionId}.`,
     });
   }
 
   public async connect(): Promise<DesktopConnectionStatus> {
     this.#assertAccepting();
-    const status = await this.#application.connectAbleton();
+    const status = connectionStatusSchema.parse(
+      await this.#application.connectAbleton(),
+    );
     if (status.state === "connected") {
       try {
         await this.getSnapshot();
       } catch (error) {
-        this.#report("Project snapshot could not be read", error);
+        this.#report("Live Set snapshot could not be read", error);
       }
     }
     return status;
   }
 
-  public async resolveProjectTransition(
+  public async resolveLiveSetTransition(
     token: string,
-    decision: ProjectTransitionDecision,
+    decision: LiveSetTransitionDecision,
   ): Promise<DesktopSession> {
     this.#assertAccepting(true);
     return this.#queueSessionAction(async () => {
-      const transition = this.#pendingProjectTransition;
+      const transition = this.#pendingLiveSetTransition;
       if (transition === undefined || transition.token !== token) {
-        throw new Error("Project transition is no longer pending");
+        throw new Error("Live Set transition is no longer pending");
       }
       if (!transition.decisions.includes(decision)) {
-        throw new Error("Project transition decision is not valid");
+        throw new Error("Live Set transition decision is not valid");
       }
       this.#transitionCommitting = true;
-      const previousIdentity = this.#projectIdentity;
-      this.#projectIdentity = transition.project;
+      const previousIdentity = this.#liveSetIdentity;
+      this.#liveSetIdentity = transition.liveSet;
       try {
         let session: DesktopSession;
         if (decision === "resume-associated") {
           if (transition.associatedSession === undefined) {
-            throw new Error("Associated project session is unavailable");
+            throw new Error("Associated Live Set session is unavailable");
           }
           await this.#resumeSessionInTransaction(
             transition.associatedSession.id,
           );
           session = this.#requireActiveSession();
         } else if (decision === "fork-current") {
-          session = await this.#forkCurrentSession(transition.project);
+          session = await this.#forkCurrentSession(transition.liveSet);
         } else {
-          await this.#createManagedProductionSession(
-            "Production session",
-            transition.project,
+          await this.#createManagedAppSession(
+            "App session",
+            transition.liveSet,
           );
           session = this.#requireActiveSession();
         }
-        this.#pendingProjectTransition = undefined;
-        await this.#associateActiveSession(transition.project);
+        this.#pendingLiveSetTransition = undefined;
+        await this.#associateActiveSession(transition.liveSet);
         this.#bindActiveOutputAssignments();
-        this.emit({ type: "project.transition_cleared", token });
+        this.emit({ type: "live_set.transition_cleared", token });
         this.emit({ type: "session.context_restored", session });
         return session;
       } catch (error) {
-        this.#projectIdentity = previousIdentity;
+        this.#liveSetIdentity = previousIdentity;
         throw error;
       } finally {
         this.#transitionCommitting = false;
@@ -1509,7 +1513,7 @@ export class HeadlessDesktopService implements DesktopService {
   }
 
   async #forkCurrentSession(
-    identity: DesktopProjectIdentity,
+    identity: DesktopLiveSetIdentity,
   ): Promise<DesktopSession> {
     const source = this.#requireActiveSession();
     const created: DesktopActiveAgent[] = [];
@@ -1554,26 +1558,34 @@ export class HeadlessDesktopService implements DesktopService {
       const selectedIndex = source.activeAgents.findIndex(
         ({ id }) => id === source.selectedAgentInstanceId,
       );
+      const createdAt = this.#nextSessionCreatedAt();
       const target: DesktopSession = {
         ...structuredClone(source),
         id: randomUUID(),
         title: `${source.title} (fork)`,
-        updatedAt: new Date().toISOString(),
-        projectId: identity.projectId,
-        projectName: identity.projectName,
+        createdAt,
+        updatedAt: createdAt,
+        liveSetId: identity.liveSetId,
+        liveSetName: identity.liveSetName,
+        ...(identity.liveProjectId === undefined
+          ? { liveProjectId: undefined }
+          : { liveProjectId: identity.liveProjectId }),
+        ...(identity.liveProjectName === undefined
+          ? { liveProjectName: undefined }
+          : { liveProjectName: identity.liveProjectName }),
         activeAgents: created,
         selectedAgentInstanceId:
           created[Math.max(0, selectedIndex)]?.id ?? created[0]?.id,
         outputAssignments:
           created[Math.max(0, selectedIndex)]?.outputSubscriptions ?? [],
       };
-      target.activeAgents = await this.#switchManagedProductionSession(
+      target.activeAgents = await this.#switchManagedAppSession(
         source,
         target,
         true,
       );
       this.#sessions = [target, ...this.#sessions].slice(0, storedSessionLimit);
-      this.#activeProductionSessionId = target.id;
+      this.#activeAppSessionId = target.id;
       await this.#persistSessions();
       this.#publishAutoApprovedAgentIds();
       return target;
@@ -1584,62 +1596,66 @@ export class HeadlessDesktopService implements DesktopService {
   }
 
   public getStatus(): Promise<DesktopConnectionStatus> {
-    return this.#application.getStatus();
+    return this.#application
+      .getStatus()
+      .then((status) => connectionStatusSchema.parse(status));
   }
 
-  async #readProjectIdentity(): Promise<DesktopProjectIdentity | undefined> {
-    if (this.#projectIdentityRead !== undefined) {
-      return this.#projectIdentityRead;
+  async #readLiveIdentity(): Promise<DesktopLiveSetIdentity | undefined> {
+    if (this.#liveSetIdentityRead !== undefined) {
+      return this.#liveSetIdentityRead;
     }
-    const read = this.#readProjectIdentityNow();
-    this.#projectIdentityRead = read;
+    const read = this.#readLiveIdentityNow();
+    this.#liveSetIdentityRead = read;
     void read.then(
       () => {
-        if (this.#projectIdentityRead === read) {
-          this.#projectIdentityRead = undefined;
+        if (this.#liveSetIdentityRead === read) {
+          this.#liveSetIdentityRead = undefined;
         }
       },
       () => {
-        if (this.#projectIdentityRead === read) {
-          this.#projectIdentityRead = undefined;
+        if (this.#liveSetIdentityRead === read) {
+          this.#liveSetIdentityRead = undefined;
         }
       },
     );
     return read;
   }
 
-  async #readProjectIdentityNow(): Promise<DesktopProjectIdentity | undefined> {
-    const status = await this.#application.getStatus();
+  async #readLiveIdentityNow(): Promise<DesktopLiveSetIdentity | undefined> {
+    const status = connectionStatusSchema.parse(
+      await this.#application.getStatus(),
+    );
     if (status.state !== "connected") return undefined;
-    return this.#application.getProjectIdentity();
+    return this.#application.getLiveIdentity();
   }
 
-  #scheduleProjectIdentityRefresh(): void {
-    if (!this.#acceptingActions || this.#projectIdentityTimer !== undefined) {
+  #scheduleLiveIdentityRefresh(): void {
+    if (!this.#acceptingActions || this.#liveSetIdentityTimer !== undefined) {
       return;
     }
     const baseInterval =
-      this.options.projectIdentityPollIntervalMs ??
-      defaultProjectIdentityPollIntervalMs;
+      this.options.liveSetIdentityPollIntervalMs ??
+      defaultLiveSetIdentityPollIntervalMs;
     const interval = Math.min(
-      baseInterval * 2 ** Math.min(this.#projectIdentityPollFailures, 6),
-      maximumProjectIdentityPollBackoffMs,
+      baseInterval * 2 ** Math.min(this.#liveSetIdentityPollFailures, 6),
+      maximumLiveSetIdentityPollBackoffMs,
     );
-    this.#projectIdentityTimer = setTimeout(() => {
-      this.#projectIdentityTimer = undefined;
-      const refresh = this.#refreshProjectIdentityWhenIdle();
-      this.#projectIdentityRefresh = refresh;
+    this.#liveSetIdentityTimer = setTimeout(() => {
+      this.#liveSetIdentityTimer = undefined;
+      const refresh = this.#refreshLiveIdentityWhenIdle();
+      this.#liveSetIdentityRefresh = refresh;
       void refresh.finally(() => {
-        if (this.#projectIdentityRefresh === refresh) {
-          this.#projectIdentityRefresh = undefined;
+        if (this.#liveSetIdentityRefresh === refresh) {
+          this.#liveSetIdentityRefresh = undefined;
         }
-        this.#scheduleProjectIdentityRefresh();
+        this.#scheduleLiveIdentityRefresh();
       });
     }, interval);
-    this.#projectIdentityTimer.unref?.();
+    this.#liveSetIdentityTimer.unref?.();
   }
 
-  async #refreshProjectIdentityWhenIdle(): Promise<void> {
+  async #refreshLiveIdentityWhenIdle(): Promise<void> {
     const snapshotRefresh = this.#snapshotRefresh;
     if (snapshotRefresh !== undefined) {
       try {
@@ -1649,83 +1665,112 @@ export class HeadlessDesktopService implements DesktopService {
       }
       return;
     }
-    await this.#refreshProjectIdentity();
+    await this.#refreshLiveIdentity();
   }
 
-  async #refreshProjectIdentity(): Promise<void> {
-    let identity: DesktopProjectIdentity | undefined;
+  async #refreshLiveIdentity(): Promise<void> {
     try {
-      identity = await this.#readProjectIdentity();
-      this.#projectIdentityPollFailures = 0;
+      const identity = await this.#readLiveIdentity();
+      if (identity === undefined) return;
+      await this.#observeLiveIdentity(identity);
+      this.#liveSetIdentityPollFailures = 0;
     } catch (error) {
-      this.#projectIdentityPollFailures += 1;
+      this.#liveSetIdentityPollFailures += 1;
       this.#logger.warn("Live Set identity refresh failed", {
         error: error instanceof Error ? error.message : String(error),
         retryDelayMs: Math.min(
-          (this.options.projectIdentityPollIntervalMs ??
-            defaultProjectIdentityPollIntervalMs) *
-            2 ** Math.min(this.#projectIdentityPollFailures, 6),
-          maximumProjectIdentityPollBackoffMs,
+          (this.options.liveSetIdentityPollIntervalMs ??
+            defaultLiveSetIdentityPollIntervalMs) *
+            2 ** Math.min(this.#liveSetIdentityPollFailures, 6),
+          maximumLiveSetIdentityPollBackoffMs,
         ),
       });
       return;
     }
-    if (identity === undefined) return;
-    await this.#observeProjectIdentity(identity);
   }
 
-  async #observeProjectIdentity(
-    identity: DesktopProjectIdentity,
-  ): Promise<void> {
+  async #observeLiveIdentity(identity: DesktopLiveSetIdentity): Promise<void> {
     if (
-      this.#pendingProjectTransition?.project.projectId ===
-        identity.projectId &&
-      this.#pendingProjectTransition.project.saved === identity.saved
+      this.#pendingLiveSetTransition?.liveSet.liveSetId ===
+        identity.liveSetId &&
+      this.#pendingLiveSetTransition.liveSet.saved === identity.saved
     ) {
       return;
     }
-    const previous = this.#projectIdentity;
+    const previous = this.#liveSetIdentity;
     if (
-      previous?.projectId === identity.projectId &&
+      previous?.liveSetId === identity.liveSetId &&
       previous.saved === identity.saved &&
-      previous.projectName === identity.projectName
+      previous.liveSetName === identity.liveSetName &&
+      previous.liveProjectId === identity.liveProjectId &&
+      previous.liveProjectName === identity.liveProjectName
     ) {
       return;
     }
     if (
-      previous?.projectId === identity.projectId &&
+      previous?.liveSetId === identity.liveSetId &&
       previous.saved === identity.saved
     ) {
       await this.#queueSessionAction(async () => {
         const current = this.#activeSession();
-        this.#projectIdentity = identity;
         if (current === undefined) return;
-        const updated = {
-          ...current,
-          projectName: identity.projectName,
-          updatedAt: new Date().toISOString(),
-        };
+        const previousSessions = this.#sessions;
+        const updatedAt = new Date().toISOString();
+        const rehomed = this.#sessions.map((session) =>
+          session.liveSetId === current.liveSetId
+            ? {
+                ...session,
+                liveSetName: identity.liveSetName,
+                ...(identity.liveProjectId === undefined
+                  ? { liveProjectId: undefined }
+                  : { liveProjectId: identity.liveProjectId }),
+                ...(identity.liveProjectName === undefined
+                  ? { liveProjectName: undefined }
+                  : { liveProjectName: identity.liveProjectName }),
+                ...(session.id === current.id ? { updatedAt } : {}),
+              }
+            : session,
+        );
+        const updated = rehomed.find(({ id }) => id === current.id)!;
         this.#sessions = [
           updated,
-          ...this.#sessions.filter(({ id }) => id !== current.id),
+          ...rehomed.filter(({ id }) => id !== current.id),
         ];
-        await this.#persistSessions();
+        try {
+          await this.#persistSessionsOrThrow();
+        } catch (error) {
+          this.#sessions = previousSessions;
+          this.#report("Sessions could not be saved", error);
+          throw error;
+        }
         await this.#associateActiveSession(identity);
+        await this.refreshAgentCatalog();
+        this.#liveSetIdentity = identity;
         this.emit({ type: "session.context_restored", session: updated });
       });
       return;
     }
     if (previous === undefined) {
-      this.#projectIdentity = identity;
+      this.#liveSetIdentity = identity;
       return;
     }
     await this.#queueSessionAction(async () => {
       if (this.#transitionCommitting) return;
       if (!previous.saved && !identity.saved) {
-        this.#projectIdentity = identity;
+        this.#liveSetIdentity = identity;
         const current = this.#activeSession();
         if (current !== undefined) {
-          const updated = { ...current, projectName: identity.projectName };
+          const updated = {
+            ...current,
+            liveSetId: identity.liveSetId,
+            liveSetName: identity.liveSetName,
+            ...(identity.liveProjectId === undefined
+              ? { liveProjectId: undefined }
+              : { liveProjectId: identity.liveProjectId }),
+            ...(identity.liveProjectName === undefined
+              ? { liveProjectName: undefined }
+              : { liveProjectName: identity.liveProjectName }),
+          };
           this.#sessions = [
             updated,
             ...this.#sessions.filter(({ id }) => id !== current.id),
@@ -1735,14 +1780,11 @@ export class HeadlessDesktopService implements DesktopService {
         return;
       }
       if (!identity.saved) {
-        this.#projectIdentity = identity;
-        await this.#createManagedProductionSession(
-          "Unsaved production session",
-          identity,
-        );
+        this.#liveSetIdentity = identity;
+        await this.#createManagedAppSession("Unsaved App session", identity);
         return;
       }
-      const associated = this.#associatedSession(identity.projectId);
+      const associated = this.#associatedSession(identity.liveSetId);
       if (
         associated === undefined &&
         (await this.#activeSessionIsCleanEphemeral())
@@ -1750,8 +1792,14 @@ export class HeadlessDesktopService implements DesktopService {
         const current = this.#requireActiveSession();
         const updated = {
           ...current,
-          projectId: identity.projectId,
-          projectName: identity.projectName,
+          liveSetId: identity.liveSetId,
+          liveSetName: identity.liveSetName,
+          ...(identity.liveProjectId === undefined
+            ? {}
+            : { liveProjectId: identity.liveProjectId }),
+          ...(identity.liveProjectName === undefined
+            ? {}
+            : { liveProjectName: identity.liveProjectName }),
           updatedAt: new Date().toISOString(),
         };
         this.#ephemeralSessionIds.delete(current.id);
@@ -1759,19 +1807,19 @@ export class HeadlessDesktopService implements DesktopService {
           updated,
           ...this.#sessions.filter(({ id }) => id !== current.id),
         ];
-        this.#projectIdentity = identity;
+        this.#liveSetIdentity = identity;
         await this.#persistSessions();
         await this.#associateActiveSession(identity);
         this.emit({ type: "session.context_restored", session: updated });
         return;
       }
-      const transition: PendingProjectTransition = {
+      const transition: PendingLiveSetTransition = {
         token: randomUUID(),
         kind: associated === undefined ? "unassociated" : "associated",
-        project: identity,
-        ...(this.#activeProductionSessionId === undefined
+        liveSet: identity,
+        ...(this.#activeAppSessionId === undefined
           ? {}
-          : { currentSessionId: this.#activeProductionSessionId }),
+          : { currentSessionId: this.#activeAppSessionId }),
         ...(associated === undefined
           ? {}
           : {
@@ -1786,10 +1834,10 @@ export class HeadlessDesktopService implements DesktopService {
             ? ["fork-current", "start-fresh"]
             : ["resume-associated", "start-fresh"],
       };
-      this.#pendingProjectTransition = transition;
+      this.#pendingLiveSetTransition = transition;
       this.#approvals.denyAll();
       this.#signals.setActiveAgentInstances([]);
-      this.emit({ type: "project.transition_requested", transition });
+      this.emit({ type: "live_set.transition_requested", transition });
     });
   }
 
@@ -1825,25 +1873,25 @@ export class HeadlessDesktopService implements DesktopService {
    * Publishes the deterministic core snapshot before optional device reads,
    * while resolving callers with the final enriched snapshot on full success.
    */
-  public getSnapshot(): Promise<DesktopProjectSnapshot> {
+  public getSnapshot(): Promise<DesktopLiveSetSnapshot> {
     return this.#beginSnapshotRefresh(true, "manual");
   }
 
   #beginSnapshotRefresh(
     includeEnrichment: boolean,
     trigger: "startup" | "manual",
-  ): Promise<DesktopProjectSnapshot> {
+  ): Promise<DesktopLiveSetSnapshot> {
     if (!this.#acceptingActions) {
       return Promise.reject(
         new Error("Desktop service is not accepting actions"),
       );
     }
     if (this.#snapshotRefresh !== undefined) {
-      this.#logger.debug("Project refresh coalesced", { trigger });
+      this.#logger.debug("Live Set refresh coalesced", { trigger });
       return this.#snapshotRefresh;
     }
 
-    this.#logger.debug("Project refresh queued", {
+    this.#logger.debug("Live Set refresh queued", {
       trigger,
       includeEnrichment,
     });
@@ -1856,7 +1904,7 @@ export class HeadlessDesktopService implements DesktopService {
         }
       },
       (error) => {
-        this.#logger.warn("Project refresh failed", {
+        this.#logger.warn("Live Set refresh failed", {
           trigger,
           includeEnrichment,
           error: (error instanceof Error ? error.message : String(error)).slice(
@@ -1878,50 +1926,58 @@ export class HeadlessDesktopService implements DesktopService {
     try {
       await refresh;
     } catch (error) {
-      this.#report("Project snapshot could not be read", error);
+      this.#report("Live Set snapshot could not be read", error);
     }
   }
 
   async #refreshSnapshot(
     includeEnrichment: boolean,
     trigger: "startup" | "manual",
-  ): Promise<DesktopProjectSnapshot> {
+  ): Promise<DesktopLiveSetSnapshot> {
     const refreshId = randomUUID();
     const startedAt = Date.now();
-    this.#logger.debug("Project refresh started", {
+    this.#logger.debug("Live Set refresh started", {
       refreshId,
       trigger,
       includeEnrichment,
     });
-    await this.#projectIdentityRefresh;
-    const status = await this.#application.getStatus();
+    await this.#liveSetIdentityRefresh;
+    const status = connectionStatusSchema.parse(
+      await this.#application.getStatus(),
+    );
     if (status.state !== "connected") {
-      this.#logger.warn("Project refresh rejected", {
+      this.#logger.warn("Live Set refresh rejected", {
         refreshId,
         trigger,
         status,
         durationMs: Date.now() - startedAt,
       });
       throw Object.assign(
-        new Error("Ableton is not connected, so no project can be read"),
+        new Error("Ableton is not connected, so no Live Set can be read"),
         { code: "not_connected" },
       );
     }
     const coreStartedAt = Date.now();
     const snapshot = await this.#application.inspectSession();
-    const identity = await this.#readProjectIdentity();
-    this.#projectIdentityPollFailures = 0;
-    if (identity !== undefined) await this.#observeProjectIdentity(identity);
+    const identity = await this.#readLiveIdentity();
+    this.#liveSetIdentityPollFailures = 0;
+    if (identity !== undefined) await this.#observeLiveIdentity(identity);
     const baseSnapshot = toDesktopSnapshot(snapshot, status);
     const coreSnapshot =
       identity === undefined
         ? baseSnapshot
         : {
             ...baseSnapshot,
-            id: identity.projectId,
-            name: identity.projectName,
+            liveSetId: identity.liveSetId,
+            liveSetName: identity.liveSetName,
+            ...(identity.liveProjectId === undefined
+              ? {}
+              : { liveProjectId: identity.liveProjectId }),
+            ...(identity.liveProjectName === undefined
+              ? {}
+              : { liveProjectName: identity.liveProjectName }),
           };
-    this.#logger.debug("Project core snapshot read", {
+    this.#logger.debug("Live Set core snapshot read", {
       refreshId,
       trigger,
       trackCount: snapshot.trackCount,
@@ -1930,11 +1986,11 @@ export class HeadlessDesktopService implements DesktopService {
       totalDurationMs: Date.now() - startedAt,
     });
     this.emit({
-      type: "project.snapshot_changed",
+      type: "live_set.snapshot_changed",
       snapshot: coreSnapshot,
     });
     if (!includeEnrichment) {
-      this.#logger.debug("Project refresh completed", {
+      this.#logger.debug("Live Set refresh completed", {
         refreshId,
         trigger,
         phase: "core",
@@ -1944,7 +2000,7 @@ export class HeadlessDesktopService implements DesktopService {
     }
 
     const enrichmentStartedAt = Date.now();
-    this.#logger.debug("Project enrichment started", {
+    this.#logger.debug("Live Set enrichment started", {
       refreshId,
       trigger,
       durationMs: Date.now() - startedAt,
@@ -1956,7 +2012,7 @@ export class HeadlessDesktopService implements DesktopService {
       enrichmentGeneration,
     );
     if (enrichmentGeneration !== this.#snapshotEnrichmentGeneration) {
-      this.#logger.debug("Project enrichment interrupted", {
+      this.#logger.debug("Live Set enrichment interrupted", {
         refreshId,
         trigger,
         phase: "enrichment",
@@ -1975,10 +2031,16 @@ export class HeadlessDesktopService implements DesktopService {
         ? baseEnrichedSnapshot
         : {
             ...baseEnrichedSnapshot,
-            id: identity.projectId,
-            name: identity.projectName,
+            liveSetId: identity.liveSetId,
+            liveSetName: identity.liveSetName,
+            ...(identity.liveProjectId === undefined
+              ? {}
+              : { liveProjectId: identity.liveProjectId }),
+            ...(identity.liveProjectName === undefined
+              ? {}
+              : { liveProjectName: identity.liveProjectName }),
           };
-    this.#logger.debug("Project refresh completed", {
+    this.#logger.debug("Live Set refresh completed", {
       refreshId,
       trigger,
       phase: "enriched",
@@ -1987,7 +2049,7 @@ export class HeadlessDesktopService implements DesktopService {
       durationMs: Date.now() - startedAt,
     });
     this.emit({
-      type: "project.snapshot_changed",
+      type: "live_set.snapshot_changed",
       snapshot: enrichedSnapshot,
     });
     return enrichedSnapshot;
@@ -2462,16 +2524,19 @@ export class HeadlessDesktopService implements DesktopService {
     }
     try {
       await this.#eventJournal.enqueueConfigurationSnapshot({
-        version: 1,
+        version: 2,
         id: randomUUID(),
         capturedAt: new Date().toISOString(),
         component: "active-agent",
         configurationVersion: instance.definitionFingerprint,
         sessionId: session.id,
         activeAgentId: instance.id,
-        ...(session.projectId === undefined
+        ...(session.liveSetId === undefined
           ? {}
-          : { projectId: session.projectId }),
+          : { liveSetId: session.liveSetId }),
+        ...(session.liveProjectId === undefined
+          ? {}
+          : { liveProjectId: session.liveProjectId }),
         values: {
           label: instance.label,
           definition: instance.definitionName,
@@ -2831,9 +2896,10 @@ export class HeadlessDesktopService implements DesktopService {
                     : { error_details: event.details }),
                   status: "failed",
                 };
+    const activeSession = this.#activeSession();
     void this.#eventJournal
       .enqueue({
-        version: 1,
+        version: 2,
         id: randomUUID(),
         occurredAt: new Date().toISOString(),
         name: event.type,
@@ -2846,9 +2912,15 @@ export class HeadlessDesktopService implements DesktopService {
             ? { outcome: "failure" as const }
             : {}),
         correlationId,
-        ...(this.#activeProductionSessionId === undefined
+        ...(this.#activeAppSessionId === undefined
           ? {}
-          : { sessionId: this.#activeProductionSessionId }),
+          : { sessionId: this.#activeAppSessionId }),
+        ...(activeSession === undefined
+          ? {}
+          : { liveSetId: activeSession.liveSetId }),
+        ...(activeSession?.liveProjectId === undefined
+          ? {}
+          : { liveProjectId: activeSession.liveProjectId }),
         ...(event.agentInstanceId === undefined
           ? {}
           : { activeAgentId: event.agentInstanceId }),
@@ -2890,50 +2962,27 @@ export class HeadlessDesktopService implements DesktopService {
     }
   }
 
-  async #loadProjectAssociations(): Promise<ProjectSessionAssociation[]> {
-    if (this.options.projectSessionStore === undefined) {
-      return this.#sessions
-        .filter(
-          (
-            session,
-          ): session is DesktopSession & {
-            projectId: string;
-          } => session.projectId !== undefined,
-        )
-        .filter(
-          (session, index, sessions) =>
-            sessions.findIndex(
-              ({ projectId }) => projectId === session.projectId,
-            ) === index,
-        )
-        .map((session) => ({
-          projectId: session.projectId,
-          projectName: session.projectName,
-          sessionId: session.id,
-          updatedAt: session.updatedAt,
-        }));
+  async #loadLiveSetAssociations(): Promise<LiveSetSessionAssociation[]> {
+    if (this.options.liveSetSessionStore === undefined) {
+      return [];
     }
     try {
-      return await this.options.projectSessionStore.load(this.#sessions);
+      return await this.options.liveSetSessionStore.load(this.#sessions);
     } catch (error) {
-      this.#report("Project session associations could not be loaded", error);
+      this.#report("Live Set session associations could not be loaded", error);
       return [];
     }
   }
 
   async #restoreOrRegisterSession(
-    identity: DesktopProjectIdentity | undefined,
+    identity: DesktopLiveSetIdentity | undefined,
   ): Promise<void> {
-    this.#projectIdentity = identity;
+    this.#liveSetIdentity = identity;
     const associatedSession =
       identity?.saved === true
-        ? this.#associatedSession(identity.projectId)
+        ? this.#associatedSession(identity.liveSetId)
         : undefined;
-    const startupSession =
-      associatedSession ??
-      (this.options.projectSessionStore === undefined
-        ? this.#sessions[0]
-        : undefined);
+    const startupSession = associatedSession;
     if (this.options.agentCatalog !== undefined) {
       if (startupSession !== undefined) {
         const scoped = this.options.agentCatalog as
@@ -2954,7 +3003,7 @@ export class HeadlessDesktopService implements DesktopService {
           pendingLegacySdkSessionId !== undefined
         ) {
           await this.#application.resumeAgentSession(pendingLegacySdkSessionId);
-          this.#activeProductionSessionId = startupSession.id;
+          this.#activeAppSessionId = startupSession.id;
           this.#publishAutoApprovedAgentIds();
           this.emit({
             type: "session.context_restored",
@@ -2967,7 +3016,7 @@ export class HeadlessDesktopService implements DesktopService {
             startupSession,
             true,
           );
-          this.#activeProductionSessionId = startupSession.id;
+          this.#activeAppSessionId = startupSession.id;
           this.#publishAutoApprovedAgentIds();
           const restored = this.#sessions.find(
             ({ id }) => id === startupSession.id,
@@ -2980,17 +3029,14 @@ export class HeadlessDesktopService implements DesktopService {
           this.emit({
             type: "diagnostic",
             level: "error",
-            message: `Project session ${startupSession.id} could not be resumed (${
+            message: `Live Set session ${startupSession.id} could not be resumed (${
               error instanceof Error ? error.message : String(error)
-            }); restoration stopped without replacing the production session.`,
+            }); restoration stopped without replacing the App session.`,
           });
           return;
         }
       }
-      await this.#createManagedProductionSession(
-        "Production session",
-        identity,
-      );
+      await this.#createManagedAppSession("App session", identity);
       return;
     }
     const initialSdkSessionId = this.#application.agentSessionId;
@@ -3002,7 +3048,7 @@ export class HeadlessDesktopService implements DesktopService {
           throw new Error("selected agent has no SDK session");
         }
         await this.#application.resumeAgentSession(sdkSessionId);
-        this.#activeProductionSessionId = startupSession.id;
+        this.#activeAppSessionId = startupSession.id;
         await this.#touchSession(startupSession.id);
         this.#publishAutoApprovedAgentIds();
         const restored = this.#sessions.find(
@@ -3016,7 +3062,7 @@ export class HeadlessDesktopService implements DesktopService {
         this.emit({
           type: "diagnostic",
           level: "warning",
-          message: `Project session ${startupSession.id} could not be resumed (${
+          message: `Live Set session ${startupSession.id} could not be resumed (${
             error instanceof Error ? error.message : String(error)
           }); a new session was started.`,
         });
@@ -3024,17 +3070,13 @@ export class HeadlessDesktopService implements DesktopService {
     }
     const currentSdkSessionId =
       this.#application.agentSessionId ?? initialSdkSessionId;
-    await this.#rememberSession(
-      currentSdkSessionId,
-      "Production session",
-      identity,
-    );
+    await this.#rememberSession(currentSdkSessionId, "App session", identity);
   }
 
   async #rememberSession(
     sdkSessionId: string,
     title: string,
-    identity = this.#projectIdentity,
+    identity = this.#liveSetIdentity,
   ): Promise<string> {
     const defaultDefinition =
       this.options.agentCatalog?.current.definitions.find(
@@ -3045,16 +3087,23 @@ export class HeadlessDesktopService implements DesktopService {
         ? undefined
         : this.#activeAgentFromDefinition(defaultDefinition, sdkSessionId);
     const productionSessionId = randomUUID();
+    const liveSetId = identity?.liveSetId ?? `orphan:${productionSessionId}`;
+    const createdAt = this.#nextSessionCreatedAt();
     this.#sdkSessionIds.set(productionSessionId, sdkSessionId);
     const session: DesktopSession = {
-      version: 3,
+      version: 4,
       id: productionSessionId,
       title,
-      updatedAt: new Date().toISOString(),
-      projectName:
-        identity?.projectName ??
-        projectLabel(await this.#application.getStatus()),
-      ...(identity?.saved === true ? { projectId: identity.projectId } : {}),
+      createdAt,
+      updatedAt: createdAt,
+      liveSetName: identity?.liveSetName ?? "No connected Live Set",
+      liveSetId,
+      ...(identity?.liveProjectId === undefined
+        ? {}
+        : { liveProjectId: identity.liveProjectId }),
+      ...(identity?.liveProjectName === undefined
+        ? {}
+        : { liveProjectName: identity.liveProjectName }),
       productionPlan: [],
       outputAssignments: [],
       liveEvents: [],
@@ -3066,7 +3115,7 @@ export class HeadlessDesktopService implements DesktopService {
           }),
     };
     this.#sessions = [session, ...this.#sessions].slice(0, storedSessionLimit);
-    this.#activeProductionSessionId = productionSessionId;
+    this.#activeAppSessionId = productionSessionId;
     if (identity?.saved !== true) {
       this.#ephemeralSessionIds.add(productionSessionId);
     }
@@ -3076,12 +3125,14 @@ export class HeadlessDesktopService implements DesktopService {
     return productionSessionId;
   }
 
-  async #createManagedProductionSession(
+  async #createManagedAppSession(
     title: string,
-    identity = this.#projectIdentity,
+    identity = this.#liveSetIdentity,
   ): Promise<string> {
     const productionSessionId = randomUUID();
-    const previousSessionId = this.#activeProductionSessionId;
+    const liveSetId = identity?.liveSetId ?? `orphan:${productionSessionId}`;
+    const createdAt = this.#nextSessionCreatedAt();
+    const previousSessionId = this.#activeAppSessionId;
     const scopedCatalog = this.options.agentCatalog as
       | (typeof this.options.agentCatalog & {
           refreshForSession?: (
@@ -3100,21 +3151,26 @@ export class HeadlessDesktopService implements DesktopService {
       );
       const connected = { ...activeAgent, sdkSessionId };
       const session: DesktopSession = {
-        version: 3,
+        version: 4,
         id: productionSessionId,
         title,
-        updatedAt: new Date().toISOString(),
-        projectName:
-          identity?.projectName ??
-          projectLabel(await this.#application.getStatus()),
-        ...(identity?.saved === true ? { projectId: identity.projectId } : {}),
+        createdAt,
+        updatedAt: createdAt,
+        liveSetName: identity?.liveSetName ?? "No connected Live Set",
+        liveSetId,
+        ...(identity?.liveProjectId === undefined
+          ? {}
+          : { liveProjectId: identity.liveProjectId }),
+        ...(identity?.liveProjectName === undefined
+          ? {}
+          : { liveProjectName: identity.liveProjectName }),
         activeAgents: [connected],
         selectedAgentInstanceId: connected.id,
         productionPlan: [],
         outputAssignments: [],
         liveEvents: [],
       };
-      session.activeAgents = await this.#switchManagedProductionSession(
+      session.activeAgents = await this.#switchManagedAppSession(
         this.#activeSession(),
         session,
         true,
@@ -3123,7 +3179,7 @@ export class HeadlessDesktopService implements DesktopService {
         0,
         storedSessionLimit,
       );
-      this.#activeProductionSessionId = productionSessionId;
+      this.#activeAppSessionId = productionSessionId;
       sessionActivated = true;
       if (identity?.saved !== true) {
         this.#ephemeralSessionIds.add(productionSessionId);
@@ -3153,7 +3209,7 @@ export class HeadlessDesktopService implements DesktopService {
     persistBeforeActivation = false,
   ): Promise<DesktopActiveAgent[]> {
     if (session.activeAgents.length === 0) {
-      throw new Error("Production session has no active agent instances");
+      throw new Error("App session has no active agent instances");
     }
     const resumed: DesktopActiveAgent[] = [];
     const rotations: Array<{
@@ -3184,7 +3240,7 @@ export class HeadlessDesktopService implements DesktopService {
         }
       }
       if (persistBeforeActivation) {
-        await this.#replaceStoredProductionSessionStrict(session, {
+        await this.#replaceStoredAppSessionStrict(session, {
           ...session,
           activeAgents: resumed,
         });
@@ -3213,7 +3269,7 @@ export class HeadlessDesktopService implements DesktopService {
     return resumed;
   }
 
-  async #switchManagedProductionSession(
+  async #switchManagedAppSession(
     previous: DesktopSession | undefined,
     target: DesktopSession,
     targetAlreadyActive = false,
@@ -3278,22 +3334,22 @@ export class HeadlessDesktopService implements DesktopService {
     const detail = cause instanceof Error ? cause.message : String(cause);
     if (rollbackErrors.length === 0) {
       return new Error(
-        `Could not switch to production session '${sessionId}' during ${phase}: ${detail}`,
+        `Could not switch to App session '${sessionId}' during ${phase}: ${detail}`,
         { cause },
       );
     }
     return new AggregateError(
       [cause, ...rollbackErrors],
-      `Could not switch to production session '${sessionId}' during ${phase}; rollback also failed`,
+      `Could not switch to App session '${sessionId}' during ${phase}; rollback also failed`,
     );
   }
 
   #managedConfiguration(
     instance: DesktopActiveAgent,
-    productionSessionId = this.#activeProductionSessionId,
+    productionSessionId = this.#activeAppSessionId,
   ): AgentSessionConfiguration {
     if (productionSessionId === undefined) {
-      throw new Error("No active production session");
+      throw new Error("No active App session");
     }
     const inheritedContext = this.#forkedHistoryContext(instance);
     return {
@@ -3396,15 +3452,33 @@ export class HeadlessDesktopService implements DesktopService {
     await this.#persistSessions();
   }
 
+  #nextSessionCreatedAt(): string {
+    const latestCreatedAt = this.#sessions.reduce(
+      (latest, session) => Math.max(latest, Date.parse(session.createdAt)),
+      Number.NEGATIVE_INFINITY,
+    );
+    return new Date(
+      Math.max(
+        Date.now(),
+        Number.isFinite(latestCreatedAt) ? latestCreatedAt + 1 : 0,
+      ),
+    ).toISOString();
+  }
+
   async #updateActiveSessionInTransaction(
     update: Partial<
       Pick<
         DesktopSession,
-        "productionPlan" | "projectId" | "projectName" | "outputAssignments"
+        | "productionPlan"
+        | "liveSetId"
+        | "liveSetName"
+        | "liveProjectId"
+        | "liveProjectName"
+        | "outputAssignments"
       >
     >,
   ): Promise<void> {
-    const sessionId = this.#activeProductionSessionId;
+    const sessionId = this.#activeAppSessionId;
     if (sessionId === undefined) return;
     const current = this.#sessions.find((session) => session.id === sessionId);
     if (current === undefined) return;
@@ -3431,26 +3505,30 @@ export class HeadlessDesktopService implements DesktopService {
   }
 
   async #persistSessions(): Promise<void> {
-    const snapshot = this.#sessions.filter(
-      ({ id }) => !this.#ephemeralSessionIds.has(id),
-    );
     try {
-      await this.options.sessionStore.save(snapshot);
+      await this.#persistSessionsOrThrow();
     } catch (error) {
       this.#report("Sessions could not be saved", error);
     }
+  }
+
+  async #persistSessionsOrThrow(): Promise<void> {
+    const snapshot = this.#sessions.filter(
+      ({ id }) => !this.#ephemeralSessionIds.has(id),
+    );
+    await this.options.sessionStore.save(snapshot);
     this.emit({
       type: "sessions.changed",
       sessions: [...this.#sessions],
-      ...(this.#activeProductionSessionId === undefined
+      ...(this.#activeAppSessionId === undefined
         ? {}
-        : { activeSessionId: this.#activeProductionSessionId }),
+        : { activeSessionId: this.#activeAppSessionId }),
     });
   }
 
-  #associatedSession(projectId: string): DesktopSession | undefined {
-    const association = this.#projectAssociations.find(
-      (candidate) => candidate.projectId === projectId,
+  #associatedSession(liveSetId: string): DesktopSession | undefined {
+    const association = this.#liveSetAssociations.find(
+      (candidate) => candidate.liveSetId === liveSetId,
     );
     return association === undefined
       ? undefined
@@ -3458,28 +3536,25 @@ export class HeadlessDesktopService implements DesktopService {
   }
 
   async #associateActiveSession(
-    identity: DesktopProjectIdentity | undefined,
+    identity: DesktopLiveSetIdentity | undefined,
   ): Promise<void> {
-    if (
-      identity?.saved !== true ||
-      this.#activeProductionSessionId === undefined
-    ) {
+    if (identity?.saved !== true || this.#activeAppSessionId === undefined) {
       return;
     }
-    const association: ProjectSessionAssociation = {
-      projectId: identity.projectId,
-      projectName: identity.projectName,
-      sessionId: this.#activeProductionSessionId,
+    const association: LiveSetSessionAssociation = {
+      liveSetId: identity.liveSetId,
+      liveSetName: identity.liveSetName,
+      sessionId: this.#activeAppSessionId,
       updatedAt: new Date().toISOString(),
     };
-    this.#projectAssociations = [
+    this.#liveSetAssociations = [
       association,
-      ...this.#projectAssociations.filter(
-        ({ projectId }) => projectId !== identity.projectId,
+      ...this.#liveSetAssociations.filter(
+        ({ liveSetId }) => liveSetId !== identity.liveSetId,
       ),
     ];
-    if (this.options.projectSessionStore !== undefined) {
-      await this.options.projectSessionStore.save(this.#projectAssociations);
+    if (this.options.liveSetSessionStore !== undefined) {
+      await this.options.liveSetSessionStore.save(this.#liveSetAssociations);
     }
   }
 
@@ -3530,9 +3605,9 @@ export class HeadlessDesktopService implements DesktopService {
 
   #captureActiveAgentTarget(agentInstanceId: string): ActiveAgentTarget {
     this.#assertAccepting();
-    const productionSessionId = this.#activeProductionSessionId;
+    const productionSessionId = this.#activeAppSessionId;
     if (productionSessionId === undefined) {
-      throw new Error("No active production session");
+      throw new Error("No active App session");
     }
     return { productionSessionId, agentInstanceId };
   }
@@ -3603,12 +3678,12 @@ export class HeadlessDesktopService implements DesktopService {
     );
     if (instance === undefined) {
       throw new Error(
-        `Agent instance '${target.agentInstanceId}' not found in production session '${target.productionSessionId}'`,
+        `Agent instance '${target.agentInstanceId}' not found in App session '${target.productionSessionId}'`,
       );
     }
     if (expectedInstance !== undefined && instance !== expectedInstance) {
       throw new Error(
-        `Agent instance '${target.agentInstanceId}' changed in production session '${target.productionSessionId}' while the operation was preparing`,
+        `Agent instance '${target.agentInstanceId}' changed in App session '${target.productionSessionId}' while the operation was preparing`,
       );
     }
     return { session, instance };
@@ -3857,10 +3932,7 @@ export class HeadlessDesktopService implements DesktopService {
     return this.#queueSessionAction(async () => {
       await this.#interruptSnapshotEnrichment();
       const session = this.#requireActiveSession();
-      const projectId = session.projectId ?? this.#projectIdentity?.projectId;
-      if (projectId === undefined) {
-        throw new Error("The active Ableton project has no stable identity");
-      }
+      const projectId = session.liveSetId;
       const now = new Date().toISOString();
       const definition = {
         ...draft,
@@ -4177,9 +4249,9 @@ export class HeadlessDesktopService implements DesktopService {
           })),
         ) ?? [],
       latest: [...this.#latestOutputs.values()],
-      ...(this.#activeProductionSessionId === undefined
+      ...(this.#activeAppSessionId === undefined
         ? {}
-        : { activeSessionId: this.#activeProductionSessionId }),
+        : { activeSessionId: this.#activeAppSessionId }),
     };
   }
 
@@ -4212,18 +4284,27 @@ export class HeadlessDesktopService implements DesktopService {
           listeners: session.activeAgents.flatMap((agent) =>
             agent.eventListeners
               .filter((listener) => listener.eventId === definition.id)
-              .map((listener) => ({
-                agentInstanceId: agent.id,
-                agentLabel: agent.label,
-                listener,
-                preparedContextStatus:
+              .map((listener) => {
+                const preparedContextStatus =
                   this.#liveEvents?.getPreparedContextStatus?.(
                     agent.id,
                     listener,
                   ) ?? {
                     state: "unavailable" as const,
-                  },
-              })),
+                  };
+                return {
+                  agentInstanceId: agent.id,
+                  agentLabel: agent.label,
+                  listener,
+                  preparedContextStatus:
+                    preparedContextStatus.state === "unavailable"
+                      ? preparedContextStatus
+                      : {
+                          ...preparedContextStatus,
+                          projectId: preparedContextStatus.liveSetId,
+                        },
+                };
+              }),
           ),
         };
       }),
@@ -4237,7 +4318,9 @@ export class HeadlessDesktopService implements DesktopService {
       return { ...instance, boundTracks: [] };
     }
 
-    const status = await this.#application.getStatus();
+    const status = connectionStatusSchema.parse(
+      await this.#application.getStatus(),
+    );
     if (status.state !== "connected") {
       throw Object.assign(
         new Error(
@@ -4269,7 +4352,7 @@ export class HeadlessDesktopService implements DesktopService {
         }
         return {
           selector,
-          projectId: status.projectId,
+          projectId: status.liveSetId,
           trackReference: track.reference,
           trackIndex: track.index,
           expectedName: track.name,
@@ -4288,27 +4371,27 @@ export class HeadlessDesktopService implements DesktopService {
   }
 
   #activeSession(): DesktopSession | undefined {
-    const sessionId = this.#activeProductionSessionId;
+    const sessionId = this.#activeAppSessionId;
     return this.#sessions.find((session) => session.id === sessionId);
   }
 
   #requireActiveSession(): DesktopSession {
     const session = this.#activeSession();
     if (session === undefined) {
-      throw new Error("No active production session");
+      throw new Error("No active App session");
     }
     return session;
   }
 
   #requireExpectedActiveSession(productionSessionId: string): DesktopSession {
-    if (this.#activeProductionSessionId !== productionSessionId) {
+    if (this.#activeAppSessionId !== productionSessionId) {
       throw new Error(
-        `Active production session changed from '${productionSessionId}' to '${this.#activeProductionSessionId ?? "none"}' while the operation was queued`,
+        `Active App session changed from '${productionSessionId}' to '${this.#activeAppSessionId ?? "none"}' while the operation was queued`,
       );
     }
     const session = this.#sessions.find(({ id }) => id === productionSessionId);
     if (session === undefined) {
-      throw new Error(`Production session '${productionSessionId}' not found`);
+      throw new Error(`App session '${productionSessionId}' not found`);
     }
     return session;
   }
@@ -4370,25 +4453,25 @@ export class HeadlessDesktopService implements DesktopService {
     session: DesktopSession,
   ): Promise<void> {
     const expected = this.#requireExpectedActiveSession(session.id);
-    await this.#replaceStoredProductionSessionStrict(expected, session);
+    await this.#replaceStoredAppSessionStrict(expected, session);
   }
 
-  async #replaceStoredProductionSessionStrict(
+  async #replaceStoredAppSessionStrict(
     expected: DesktopSession,
     replacement: DesktopSession,
   ): Promise<void> {
     if (replacement.id !== expected.id) {
       throw new Error(
-        `Cannot replace production session '${expected.id}' with '${replacement.id}'`,
+        `Cannot replace App session '${expected.id}' with '${replacement.id}'`,
       );
     }
     const index = this.#sessions.findIndex(({ id }) => id === expected.id);
     if (index === -1) {
-      throw new Error(`Production session '${expected.id}' not found`);
+      throw new Error(`App session '${expected.id}' not found`);
     }
     if (this.#sessions[index] !== expected) {
       throw new Error(
-        `Production session '${expected.id}' changed while the operation was preparing`,
+        `App session '${expected.id}' changed while the operation was preparing`,
       );
     }
     const committed = {
@@ -4406,9 +4489,9 @@ export class HeadlessDesktopService implements DesktopService {
     this.emit({
       type: "sessions.changed",
       sessions,
-      ...(this.#activeProductionSessionId === undefined
+      ...(this.#activeAppSessionId === undefined
         ? {}
-        : { activeSessionId: this.#activeProductionSessionId }),
+        : { activeSessionId: this.#activeAppSessionId }),
     });
   }
 
@@ -4699,7 +4782,7 @@ export class HeadlessDesktopService implements DesktopService {
     }
     if (
       !allowPendingTransition &&
-      (this.#pendingProjectTransition !== undefined ||
+      (this.#pendingLiveSetTransition !== undefined ||
         this.#transitionCommitting)
     ) {
       throw new Error("A Live Set transition decision is required");

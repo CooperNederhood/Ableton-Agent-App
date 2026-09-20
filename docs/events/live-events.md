@@ -365,8 +365,11 @@ subscriptions continue to load unchanged.
 Desktop captures a complete, unsampled operational journal by default. Records
 use a versioned envelope containing record/event type, source and lifecycle
 stage, event and recorded timestamps, trace/correlation/causation IDs, relevant
-project/session/active-agent IDs, outcome, duration fields, and a bounded
-sanitized payload.
+Live Set/session/active-agent IDs, optional Live Project ID, outcome, duration
+fields, and a bounded sanitized payload. `liveSetId` identifies the open
+`.als`; `liveProjectId` is only present when Desktop has associated that Live
+Set with a Live Project. Observability APIs do not use the ambiguous
+`projectId` attribution name.
 
 The journal includes:
 

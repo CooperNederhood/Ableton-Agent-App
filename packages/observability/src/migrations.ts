@@ -102,6 +102,49 @@ export const observabilityMigrations: readonly ObservabilityMigration[] = [
         ON configuration_snapshots (active_agent_id, sequence)`,
     ],
   },
+  {
+    version: 2,
+    description:
+      "Attribute observability records to Live Sets and optional Live Projects",
+    statements: [
+      `DROP INDEX IF EXISTS telemetry_events_project`,
+      `DROP INDEX IF EXISTS configuration_snapshots_project`,
+      `ALTER TABLE telemetry_events RENAME COLUMN project_id TO live_set_id`,
+      `ALTER TABLE telemetry_events ADD COLUMN live_project_id TEXT`,
+      `ALTER TABLE configuration_snapshots RENAME COLUMN project_id TO live_set_id`,
+      `ALTER TABLE configuration_snapshots ADD COLUMN live_project_id TEXT`,
+      `UPDATE telemetry_events
+        SET contract_version = 2,
+            payload = CASE
+              WHEN json_type(payload, '$.projectId') IS NULL
+                THEN json_set(payload, '$.version', 2)
+              ELSE json_set(
+                json_remove(payload, '$.projectId'),
+                '$.version', 2,
+                '$.liveSetId', json_extract(payload, '$.projectId')
+              )
+            END`,
+      `UPDATE configuration_snapshots
+        SET contract_version = 2,
+            payload = CASE
+              WHEN json_type(payload, '$.projectId') IS NULL
+                THEN json_set(payload, '$.version', 2)
+              ELSE json_set(
+                json_remove(payload, '$.projectId'),
+                '$.version', 2,
+                '$.liveSetId', json_extract(payload, '$.projectId')
+              )
+            END`,
+      `CREATE INDEX telemetry_events_live_set
+        ON telemetry_events (live_set_id, sequence)`,
+      `CREATE INDEX telemetry_events_live_project
+        ON telemetry_events (live_project_id, sequence)`,
+      `CREATE INDEX configuration_snapshots_live_set
+        ON configuration_snapshots (live_set_id, sequence)`,
+      `CREATE INDEX configuration_snapshots_live_project
+        ON configuration_snapshots (live_project_id, sequence)`,
+    ],
+  },
 ];
 
 export const observabilitySchemaVersion = observabilityMigrations.reduce(

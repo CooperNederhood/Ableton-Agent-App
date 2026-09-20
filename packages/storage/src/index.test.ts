@@ -1,21 +1,37 @@
-import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  LIVE_AGENT_STORAGE_VERSION,
+  migrateNestedStorage,
   ensureLiveAgentStorage,
   createProfile,
   deleteProfile,
   loadProfileRegistry,
   migrateLegacyStorage,
   readArtifactTombstones,
+  readLiveSetStorageMetadata,
+  readProjectStorageMetadata,
+  relocateLiveSetStorage,
   renameProfile,
   resolveArtifactScopePaths,
-  resolveProductionSessionStorage,
+  resolveProjectStorage,
+  resolveNestedSessionStorage,
   resolveLiveAgentStorage,
   selectProfile,
   writeArtifactTombstones,
+  writeLiveProjectsRegistry,
+  writeLiveSetStorageMetadata,
+  writeProjectStorageMetadata,
 } from "./index.js";
 
 const roots: string[] = [];
@@ -35,26 +51,38 @@ afterEach(async () => {
 
 describe("live agent storage", () => {
   it("resolves bounded production-session artifacts under session-state", () => {
-    const root = join(process.cwd(), ".session-state");
-    const ordinary = resolveProductionSessionStorage(root, "session:123");
-    const unsafe = resolveProductionSessionStorage(root, "../outside");
+    const layout = resolveLiveAgentStorage({
+      homeDirectory: join(process.cwd(), ".session-test-home"),
+    });
+    const ordinary = resolveNestedSessionStorage(layout, {
+      liveSetId: "set:456",
+      sessionId: "session:123",
+    });
+    const unsafe = resolveNestedSessionStorage(layout, {
+      liveSetId: "../outside-set",
+      sessionId: "../outside",
+    });
 
     expect(ordinary.planPath).toBe(
-      join(root, "session:123", "artifacts", "plan.md"),
-    );
-    expect(ordinary.manifestPath).toBe(
-      join(root, "session:123", "session.json"),
-    );
-    expect(unsafe.sessionDirectory).toMatch(
-      new RegExp(
-        `^${root.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}/session-[a-f0-9]{64}$`,
-        "u",
+      join(
+        layout.unassignedLiveSetStateDirectory,
+        "set:456",
+        "session-state",
+        "session:123",
+        "artifacts",
+        "plan.md",
       ),
     );
-    expect(unsafe.planPath.startsWith(`${root}/`)).toBe(true);
-    expect(() => resolveProductionSessionStorage(root, "")).toThrow(
-      "must not be empty",
+    expect(unsafe.sessionDirectory).toMatch(
+      /unassigned-live-set-state[/\\]entity-[a-f0-9]{64}[/\\]session-state[/\\]session-[a-f0-9]{64}$/u,
     );
+    expect(unsafe.planPath.startsWith(`${layout.profileRoot}/`)).toBe(true);
+    expect(() =>
+      resolveNestedSessionStorage(layout, {
+        liveSetId: "set-1",
+        sessionId: "",
+      }),
+    ).toThrow("must not be empty");
   });
 
   it("resolves isolated production and development profiles", async () => {
@@ -107,21 +135,103 @@ describe("live agent storage", () => {
       ),
     });
     expect(
-      resolveArtifactScopePaths(layout, "session", "session:123"),
+      resolveArtifactScopePaths(layout, "project", {
+        liveProjectId: "project:456",
+      }),
     ).toMatchObject({
+      root: join(
+        home,
+        ".live-agent",
+        "profiles",
+        "default",
+        "project-state",
+        "project:456",
+      ),
+      agentsDirectory: join(
+        home,
+        ".live-agent",
+        "profiles",
+        "default",
+        "project-state",
+        "project:456",
+        "agents",
+      ),
       agentTombstonesPath: join(
         home,
         ".live-agent",
         "profiles",
         "default",
-        "session-state",
-        "session:123",
+        "project-state",
+        "project:456",
         "artifact-state",
         "agents.json",
       ),
     });
-    expect(() => resolveArtifactScopePaths(layout, "session")).toThrow(
-      "Production session ID is required",
+    const nested = resolveNestedSessionStorage(layout, {
+      liveProjectId: "project:456",
+      liveSetId: "set:789",
+      sessionId: "session:123",
+    });
+    expect(nested).toMatchObject({
+      sessionDirectory: join(
+        home,
+        ".live-agent",
+        "profiles",
+        "default",
+        "project-state",
+        "project:456",
+        "live-set-state",
+        "set:789",
+        "session-state",
+        "session:123",
+      ),
+      memoryDirectory: join(
+        home,
+        ".live-agent",
+        "profiles",
+        "default",
+        "project-state",
+        "project:456",
+        "live-set-state",
+        "set:789",
+        "session-state",
+        "session:123",
+        "memory",
+      ),
+    });
+    expect(
+      resolveArtifactScopePaths(layout, "session", {
+        liveProjectId: "project:456",
+        liveSetId: "set:789",
+        sessionId: "session:123",
+      }).root,
+    ).toBe(nested.sessionDirectory);
+    expect(
+      resolveNestedSessionStorage(layout, {
+        liveSetId: "set:789",
+        sessionId: "session:123",
+      }).sessionDirectory,
+    ).toBe(
+      join(
+        home,
+        ".live-agent",
+        "profiles",
+        "default",
+        "unassigned-live-set-state",
+        "set:789",
+        "session-state",
+        "session:123",
+      ),
+    );
+    const resolveWithoutOwnership = resolveArtifactScopePaths as unknown as (
+      layoutValue: ReturnType<typeof resolveLiveAgentStorage>,
+      scope: "project" | "session",
+    ) => unknown;
+    expect(() => resolveWithoutOwnership(layout, "project")).toThrow(
+      "Project ownership context is required",
+    );
+    expect(() => resolveWithoutOwnership(layout, "session")).toThrow(
+      "Session ownership context is required",
     );
   });
 
@@ -153,11 +263,28 @@ describe("live agent storage", () => {
       JSON.parse(
         await readFile(join(layout.root, "storage-version.json"), "utf8"),
       ),
-    ).toMatchObject({ version: 1 });
+    ).toMatchObject({ version: LIVE_AGENT_STORAGE_VERSION });
     expect((await stat(layout.systemAgentsDirectory)).mode & 0o777).toBe(0o700);
     expect((await stat(layout.profileSkillsDirectory)).mode & 0o777).toBe(
       0o700,
     );
+  });
+
+  it("refuses an old version before creating v2 directories", async () => {
+    const home = await temporaryRoot();
+    const layout = resolveLiveAgentStorage({ homeDirectory: home });
+    await mkdir(layout.profileRoot, { recursive: true });
+    await writeFile(
+      join(layout.root, "storage-version.json"),
+      JSON.stringify({ version: 1 }),
+    );
+
+    await expect(ensureLiveAgentStorage(layout)).rejects.toThrow(
+      "Storage version 1 is not supported",
+    );
+    await expect(stat(layout.projectStateDirectory)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
   it("bootstraps and mutates the profile registry with revision checks", async () => {
@@ -184,6 +311,7 @@ describe("live agent storage", () => {
     const selected = await selectProfile(layout, "writing", {
       expectedRevision: renamed.revision,
     });
+
     const selectedDefault = await selectProfile(layout, "default", {
       expectedRevision: selected.revision,
     });
@@ -220,6 +348,20 @@ describe("live agent storage", () => {
     ).rejects.toThrow("At least one visible user profile");
   });
 
+  it("allows an OS-managed symlink ancestor outside the storage root", async () => {
+    const root = await temporaryRoot();
+    const physicalParent = join(root, "physical");
+    const linkedParent = join(root, "linked");
+    await mkdir(physicalParent);
+    await symlink(physicalParent, linkedParent);
+    const layout = resolveLiveAgentStorage({
+      environment: { LIVE_AGENT_HOME: join(linkedParent, "live-agent") },
+    });
+
+    await expect(ensureLiveAgentStorage(layout)).resolves.toBeUndefined();
+    expect((await stat(layout.profileRoot)).isDirectory()).toBe(true);
+  });
+
   it("stores typed tombstones atomically with optimistic concurrency", async () => {
     const home = await temporaryRoot();
     const layout = resolveLiveAgentStorage({ homeDirectory: home });
@@ -244,6 +386,342 @@ describe("live agent storage", () => {
     await expect(
       writeArtifactTombstones(statePath, ["../escape"], 1),
     ).rejects.toThrow("Artifact name");
+  });
+
+  it("stores a bounded live-projects registry with revision checks", async () => {
+    const home = await temporaryRoot();
+    const layout = resolveLiveAgentStorage({ homeDirectory: home });
+    const updated = await writeLiveProjectsRegistry(
+      layout.liveProjectsRegistryPath,
+      [
+        {
+          projectId: "project-1",
+          displayName: "Studio Project",
+          liveSetIds: ["set-1", "set-2"],
+          updatedAt: "2026-09-20T12:00:00.000Z",
+        },
+      ],
+      0,
+    );
+    expect(updated).toMatchObject({
+      revision: 1,
+      projects: [{ projectId: "project-1" }],
+    });
+    await expect(
+      writeLiveProjectsRegistry(layout.liveProjectsRegistryPath, [], 0),
+    ).rejects.toThrow("revision conflict");
+  });
+
+  it("validates project and Live Set metadata at their owning paths", async () => {
+    const home = await temporaryRoot();
+    const layout = resolveLiveAgentStorage({ homeDirectory: home });
+    const nested = resolveNestedSessionStorage(layout, {
+      liveProjectId: "project-1",
+      liveSetId: "set-1",
+      sessionId: "session-1",
+    });
+
+    const timestamp = "2026-09-20T12:00:00.000Z";
+    await writeProjectStorageMetadata(nested.project!.metadataPath, {
+      version: 1,
+      projectId: "project-1",
+      displayName: "Album",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    await writeLiveSetStorageMetadata(nested.liveSet.metadataPath, {
+      version: 1,
+      projectId: "project-1",
+      liveSetId: "set-1",
+      displayName: "Song",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    expect(
+      await readProjectStorageMetadata(
+        resolveProjectStorage(layout, "project-1").metadataPath,
+      ),
+    ).toMatchObject({ projectId: "project-1", displayName: "Album" });
+    expect(
+      await readLiveSetStorageMetadata(nested.liveSet.metadataPath),
+    ).toMatchObject({
+      projectId: "project-1",
+      liveSetId: "set-1",
+      displayName: "Song",
+    });
+    await expect(
+      writeLiveSetStorageMetadata(nested.liveSet.metadataPath, {
+        version: 1,
+        liveSetId: "set-1",
+        displayName: "x".repeat(513),
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
+    ).rejects.toThrow("between 1 and 512 characters");
+  });
+
+  it("relocates a complete unassigned Live Set subtree into a Project", async () => {
+    const root = await temporaryRoot();
+    const layout = resolveLiveAgentStorage({
+      environment: { LIVE_AGENT_HOME: root },
+    });
+    await ensureLiveAgentStorage(layout);
+    const unassigned = resolveNestedSessionStorage(layout, {
+      liveSetId: "set-1",
+      sessionId: "session-1",
+    });
+    await mkdir(unassigned.artifactsDirectory, { recursive: true });
+    await writeFile(unassigned.planPath, "# Preserved plan");
+
+    await expect(
+      relocateLiveSetStorage(
+        layout,
+        { ownership: "unassigned", liveSetId: "set-1" },
+        {
+          ownership: "project",
+          projectId: "project-1",
+          liveSetId: "set-1",
+        },
+      ),
+    ).resolves.toBe(true);
+
+    const assigned = resolveNestedSessionStorage(layout, {
+      liveProjectId: "project-1",
+      liveSetId: "set-1",
+      sessionId: "session-1",
+    });
+    await expect(readFile(assigned.planPath, "utf8")).resolves.toBe(
+      "# Preserved plan",
+    );
+    await expect(
+      relocateLiveSetStorage(
+        layout,
+        {
+          ownership: "project",
+          projectId: "project-1",
+          liveSetId: "set-1",
+        },
+        {
+          ownership: "project",
+          projectId: "project-1",
+          liveSetId: "set-1",
+        },
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it("publishes storage v2 only after every legacy profile is migrated", async () => {
+    const root = await temporaryRoot();
+    const environment = { LIVE_AGENT_HOME: root };
+    const first = resolveLiveAgentStorage({ environment, profile: "first" });
+    const second = resolveLiveAgentStorage({ environment, profile: "second" });
+    await mkdir(join(root, "profiles", "first", "session-state"), {
+      recursive: true,
+    });
+    await mkdir(join(root, "profiles", "second", "session-state"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(root, "storage-version.json"),
+      JSON.stringify({ version: 1 }),
+    );
+
+    await expect(
+      migrateNestedStorage({ layout: first, apply: true }),
+    ).resolves.toMatchObject({ status: "completed" });
+    await expect(
+      readFile(join(root, "storage-version.json"), "utf8"),
+    ).resolves.toContain('"version":1');
+
+    await expect(
+      migrateNestedStorage({ layout: second, apply: true }),
+    ).resolves.toMatchObject({ status: "completed" });
+    await expect(
+      readFile(join(root, "storage-version.json"), "utf8"),
+    ).resolves.toContain('"version": 2');
+  });
+
+  it("dry-runs and applies the v1 nested migration without inferring projects", async () => {
+    const home = await temporaryRoot();
+    const layout = resolveLiveAgentStorage({ homeDirectory: home });
+    const legacySessionStateDirectory = join(
+      layout.profileRoot,
+      "session-state",
+    );
+    const legacyProjectSessionsPath = join(
+      layout.profileRoot,
+      "state",
+      "project-sessions.json",
+    );
+    await mkdir(join(layout.profileRoot, "state"), { recursive: true });
+    await mkdir(join(legacySessionStateDirectory, "session-1", "artifacts"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(layout.root, "storage-version.json"),
+      JSON.stringify({ version: 1 }),
+    );
+    await writeFile(
+      layout.sessionsPath,
+      JSON.stringify({
+        version: 3,
+        sessions: [
+          {
+            id: "session-z",
+            updatedAt: "2026-01-02T00:00:00.000Z",
+            projectName: "Unsaved Live Set",
+          },
+          {
+            id: "session-1",
+            updatedAt: "2026-01-02T00:00:00.000Z",
+            projectId: "legacy-set-1",
+            projectName: "Song",
+          },
+        ],
+      }),
+    );
+    await writeFile(
+      legacyProjectSessionsPath,
+      JSON.stringify({
+        version: 1,
+        associations: [
+          {
+            projectId: "legacy-set-1",
+            projectName: "Song",
+            sessionId: "session-1",
+          },
+        ],
+      }),
+    );
+    await writeFile(
+      join(legacySessionStateDirectory, "session-1", "session.json"),
+      JSON.stringify({
+        version: 1,
+        productionSessionId: "session-1",
+        updatedAt: "2026-01-02T00:00:00.000Z",
+        projectId: "legacy-set-1",
+        projectName: "Song",
+      }),
+    );
+    const dryRun = await migrateNestedStorage({ layout });
+    expect(dryRun.status).toBe("dry-run");
+    expect(await stat(legacySessionStateDirectory)).toBeDefined();
+    expect(
+      JSON.parse(
+        await readFile(join(layout.root, "storage-version.json"), "utf8"),
+      ),
+    ).toEqual({ version: 1 });
+
+    const applied = await migrateNestedStorage({
+      layout,
+      apply: true,
+      now: () => new Date("2026-09-20T12:00:00.000Z"),
+    });
+    expect(applied.status).toBe("completed");
+    expect(applied.backupPath).toContain("backups/storage-v1-");
+    expect(
+      JSON.parse(
+        await readFile(
+          join(applied.backupPath!, "..", "storage-version.json"),
+          "utf8",
+        ),
+      ),
+    ).toEqual({ version: 1 });
+    expect(
+      JSON.parse(
+        await readFile(join(layout.root, "storage-version.json"), "utf8"),
+      ),
+    ).toEqual({ version: LIVE_AGENT_STORAGE_VERSION });
+    const migratedSession = resolveNestedSessionStorage(layout, {
+      liveSetId: "legacy-set-1",
+      sessionId: "session-1",
+    });
+    expect(
+      JSON.parse(await readFile(migratedSession.manifestPath, "utf8")),
+    ).toMatchObject({
+      liveSetId: "legacy-set-1",
+      liveSetName: "Song",
+      createdAt: "2026-01-02T00:00:00.000Z",
+    });
+    expect(
+      JSON.parse(await readFile(layout.sessionsPath, "utf8")),
+    ).toMatchObject({
+      version: 4,
+      sessions: [
+        {
+          id: "session-1",
+          createdAt: "2026-01-02T00:00:00.000Z",
+          liveSetId: "legacy-set-1",
+        },
+        {
+          id: "session-z",
+          createdAt: "2026-01-02T00:00:00.000Z",
+        },
+      ],
+    });
+    expect(
+      JSON.parse(await readFile(layout.liveSetSessionsPath, "utf8")),
+    ).toMatchObject({
+      associations: [
+        {
+          liveSetId: "legacy-set-1",
+          liveSetName: "Song",
+          sessionId: "session-1",
+        },
+      ],
+    });
+    await expect(stat(legacyProjectSessionsPath)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await expect(stat(legacySessionStateDirectory)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(await stat(migratedSession.memoryDirectory)).toBeDefined();
+    expect(await stat(layout.projectStateDirectory)).toBeDefined();
+    expect(
+      JSON.parse(await readFile(layout.liveProjectsRegistryPath, "utf8")),
+    ).toEqual({ version: 1, revision: 0, projects: [] });
+  });
+
+  it("refuses partial nested layouts and incomplete legacy session directories", async () => {
+    const home = await temporaryRoot();
+    const layout = resolveLiveAgentStorage({ homeDirectory: home });
+    await mkdir(layout.profileRoot, { recursive: true });
+    await writeFile(
+      join(layout.root, "storage-version.json"),
+      JSON.stringify({ version: 1 }),
+    );
+    await mkdir(layout.projectStateDirectory);
+    const partial = await migrateNestedStorage({ layout });
+    expect(partial).toMatchObject({ status: "failed", applied: false });
+    expect(partial.error).toContain("partial nested layout");
+
+    await (
+      await import("node:fs/promises")
+    ).rm(layout.projectStateDirectory, {
+      recursive: true,
+    });
+    await mkdir(join(layout.profileRoot, "session-state", "session-1"), {
+      recursive: true,
+    });
+    const incomplete = await migrateNestedStorage({ layout });
+    expect(incomplete.status).toBe("failed");
+    expect(incomplete.error).toContain("has no session.json");
+  });
+
+  it("refuses unsupported storage versions", async () => {
+    const home = await temporaryRoot();
+    const layout = resolveLiveAgentStorage({ homeDirectory: home });
+    await mkdir(layout.profileRoot, { recursive: true });
+    await writeFile(
+      join(layout.root, "storage-version.json"),
+      JSON.stringify({ version: 99 }),
+    );
+
+    const result = await migrateNestedStorage({ layout });
+    expect(result.status).toBe("failed");
+    expect(result.error).toContain("Storage version 99 is not supported");
   });
 
   it("rejects symbolic links in managed storage paths", async () => {

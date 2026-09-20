@@ -81,11 +81,13 @@ function rendererState(active = true): DesktopState {
     ...(active ? { activeSessionId: sessionId } : {}),
     sessions: [
       {
-        version: 3,
+        version: 4,
         id: sessionId,
         title: "Session",
+        createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString(),
-        projectName: "Project",
+        liveSetId: "live-set-1",
+        liveSetName: "Project",
         activeAgents: [activeAgent()],
         selectedAgentInstanceId: agentId,
         productionPlan: [],

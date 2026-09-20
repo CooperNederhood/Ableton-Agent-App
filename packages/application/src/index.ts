@@ -51,7 +51,7 @@ import type {
   SetSessionClipPropertiesParams,
   SetSessionClipPropertiesResult,
   PingResult,
-  ProjectIdentity,
+  LiveIdentity,
   InspectArrangementParams,
   InspectArrangementResult,
   InspectArrangementMidiNotesParams,
@@ -157,6 +157,7 @@ import {
 import {
   FilePlanArtifactStore,
   PlanArtifactConflictError,
+  type PlanArtifactPathResolver,
   type PlanArtifactWrite,
 } from "./plan-artifact.js";
 
@@ -197,6 +198,8 @@ export {
   MAX_PLAN_ARTIFACT_BYTES,
   MAX_PLAN_ARTIFACT_CHARACTERS,
   PlanArtifactConflictError,
+  type PlanArtifactPathResolver,
+  type PlanArtifactPaths,
   type PlanArtifactWrite,
 } from "./plan-artifact.js";
 
@@ -629,7 +632,7 @@ export interface CopilotAgentServiceOptions {
   askForReadApproval?: boolean | (() => boolean);
   clientFactory?: () => CopilotClientAdapter;
   baseDirectory?: string;
-  sessionStateDirectory?: string;
+  resolvePlanArtifactPaths?: PlanArtifactPathResolver;
   model?: string;
   reasoningEffort?: AgentReasoningEffort;
   reasoningSummary?: AgentReasoningSummary | (() => AgentReasoningSummary);
@@ -1405,7 +1408,12 @@ export class CopilotAgentService implements AgentService {
     this.#logger = options.logger ?? noopLogger;
     const storage = resolveLiveAgentStorage({ homeDirectory: homedir() });
     this.#planArtifacts = new FilePlanArtifactStore(
-      options.sessionStateDirectory ?? storage.sessionStateDirectory,
+      options.resolvePlanArtifactPaths ??
+        (() => {
+          throw new Error(
+            "Plan artifact storage requires a session ownership path resolver",
+          );
+        }),
     );
     this.#clientFactory =
       options.clientFactory ??
@@ -1511,10 +1519,10 @@ export class CopilotAgentService implements AgentService {
     }
     const snapshot = await this.options.inspectSession();
     for (const binding of configuration.boundTracks) {
-      if (binding.projectId !== status.projectId) {
+      if (binding.projectId !== status.liveSetId) {
         throw new AbletonMutationAuthorizationError(
           "binding_cross_project",
-          `Track binding '${binding.expectedName}' belongs to project ${binding.projectId}, not ${status.projectId}`,
+          `Track binding '${binding.expectedName}' belongs to Live Set ${binding.projectId}, not ${status.liveSetId}`,
         );
       }
       const indexedTrack = snapshot.tracks[binding.trackIndex];
@@ -4821,8 +4829,8 @@ export class HeadlessApplication {
     return this.services.ableton.getCapabilities();
   }
 
-  public getProjectIdentity(): Promise<ProjectIdentity> {
-    return this.services.ableton.getProjectIdentity();
+  public getLiveIdentity(): Promise<LiveIdentity> {
+    return this.services.ableton.getLiveIdentity();
   }
 
   public ping(): Promise<PingResult> {

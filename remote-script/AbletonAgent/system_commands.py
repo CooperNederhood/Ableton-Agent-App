@@ -12,7 +12,7 @@ except ImportError:  # pragma: no cover - available only inside Live
 
 from .executor import DeferredResult
 from .errors import ProtocolFailure
-from .identity import build_project_identity
+from .identity import build_live_identity
 
 ARRANGEMENT_MAX_BEATS = 1576800
 ARRANGEMENT_FILL_MAX_CLIPS = 128
@@ -361,8 +361,8 @@ def ping(_context, _params):
     return {"pong": True}
 
 
-def get_project_identity(context, _params):
-    return build_project_identity(context.song)
+def get_live_set_identity(context, _params):
+    return build_live_identity(context.song)
 
 
 def inspect_session(context, _params):
@@ -3436,8 +3436,8 @@ def set_arrangement_clip_properties(context, params):
 def register_system_commands(registry):
     registry.register("system.ping", ping, validator=_no_params)
     registry.register(
-        "project.get_identity",
-        get_project_identity,
+        "live_set.get_identity",
+        get_live_set_identity,
         validator=_no_params,
     )
     registry.register("session.inspect", inspect_session, validator=_no_params)

@@ -6,8 +6,10 @@ import type {
 import type { ConnectionStatus } from "@ableton-agent/shared";
 
 import {
-  projectSnapshotSchema,
-  type DesktopProjectSnapshot,
+  connectionStatusSchema,
+  liveSetSnapshotSchema,
+  type DesktopConnectionStatus,
+  type DesktopLiveSetSnapshot,
   type DesktopTrack,
 } from "../contracts.js";
 
@@ -32,13 +34,13 @@ export function colorFromLiveValue(value: number | null): string {
   return `#${(value & 0xff_ff_ff).toString(16).padStart(6, "0")}`;
 }
 
-/**
- * Names the Live set by the only identity the protocol exposes: the project ID
- * from the Remote Script handshake. No display name is invented.
- */
-export function projectLabel(status: ConnectionStatus): string {
-  return status.state === "connected"
-    ? `Live set ${status.projectId}`
+/** Names the Live Set from the explicit Remote Script identity. */
+export function liveSetLabel(
+  status: ConnectionStatus | DesktopConnectionStatus,
+): string {
+  const desktopStatus = connectionStatusSchema.parse(status);
+  return desktopStatus.state === "connected"
+    ? desktopStatus.liveSetName
     : "No connected Live set";
 }
 
@@ -96,26 +98,36 @@ function desktopTrack(
 }
 
 /**
- * Maps a protocol session snapshot into the desktop project view model.
+ * Maps a protocol session snapshot into the desktop Live Set view model.
  * Devices are included only for tracks whose devices were actually read.
  */
 export function toDesktopSnapshot(
   snapshot: SessionSnapshot,
-  status: ConnectionStatus,
+  status: ConnectionStatus | DesktopConnectionStatus,
   trackDevices: readonly TrackDevices[] = [],
-): DesktopProjectSnapshot {
+): DesktopLiveSetSnapshot {
+  const desktopStatus = connectionStatusSchema.parse(status);
+  if (desktopStatus.state !== "connected") {
+    throw new Error("Cannot map a snapshot without a connected Live Set");
+  }
   const devicesByTrack = new Map(
     trackDevices.map((entry) => [entry.trackReference, entry]),
   );
-  return projectSnapshotSchema.parse({
-    id: status.state === "connected" ? status.projectId : "unknown-project",
-    name: projectLabel(status),
+  return liveSetSnapshotSchema.parse({
+    liveSetId: desktopStatus.liveSetId,
+    liveSetName: liveSetLabel(desktopStatus),
+    ...(desktopStatus.liveProjectId === undefined
+      ? {}
+      : { liveProjectId: desktopStatus.liveProjectId }),
+    ...(desktopStatus.liveProjectName === undefined
+      ? {}
+      : { liveProjectName: desktopStatus.liveProjectName }),
     tempo: snapshot.tempo,
     timeSignature: `${snapshot.timeSignature.numerator}/${snapshot.timeSignature.denominator}`,
     tracks: snapshot.tracks.map((track) =>
       desktopTrack(track, snapshot, devicesByTrack.get(track.reference)),
     ),
-  } satisfies DesktopProjectSnapshot);
+  } satisfies DesktopLiveSetSnapshot);
 }
 
 /** Lists the capability names the connected Remote Script reports as enabled. */

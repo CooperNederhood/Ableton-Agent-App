@@ -5,6 +5,9 @@ protocols:
     schemes:
       - ableton-agent
 asar: true
+asarUnpack:
+  - node_modules/@github/copilot-sdk-*/**/*
+  - node_modules/@koromix/koffi-*/**/*
 artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
 directories:
   output: ../../release

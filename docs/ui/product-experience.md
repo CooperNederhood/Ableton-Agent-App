@@ -54,8 +54,13 @@ or Inspector heading rows. The Project and Inspector columns each have an
 independent, subtle icon control at the workspace edge, and the connection
 header plus application tabs can be hidden as one top-chrome region.
 These visibility choices are intentionally transient and reset on launch. The
-composer belongs to the center conversation column, expanding with it when
-either sidebar is hidden so users can isolate chat without losing input.
+composer belongs exclusively to the Workspace center conversation column,
+expanding with it when either sidebar is hidden so users can isolate chat
+without losing input. Agents, Outputs, Events, Browser, Profiles, Diagnostics,
+Sessions, and Settings use their full content area without a chat composer.
+The global focus-composer shortcut returns to Workspace before focusing the
+saved draft, and incoming questions or plan approvals return to Workspace so a
+blocking interaction is never hidden on a management tab.
 The Project and Inspector edges are pointer-draggable. The Project sidebar
 retains a bounded maximum, while the Inspector may expand through all workspace
 width available after the visible Project sidebar and minimum usable

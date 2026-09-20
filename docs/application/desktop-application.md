@@ -111,7 +111,12 @@ The primary workspace is a collapsible three-column shell: Project,
 Conversation, and Inspector. Project and Inspector can be hidden independently,
 and the connection header plus application navigation can be hidden together.
 All regions return on each application launch. The prompt composer is part of
-the Conversation column and follows its width as sidebars collapse.
+the Workspace Conversation column and follows its width as sidebars collapse.
+It is not rendered in Agents, Outputs, Events, Browser, Profiles, Diagnostics,
+Sessions, or Settings.
+Composer-focus shortcuts and newly received elicitation or plan-approval
+requests return the application to Workspace before focusing or presenting the
+required interaction.
 
 After hiding both sidebars and the application toolbar, the desktop window can
 be resized to a 320x360 chat-only view. At that size, conversation status is

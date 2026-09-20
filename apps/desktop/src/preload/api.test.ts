@@ -9,6 +9,7 @@ describe("preload API", () => {
       "lifecycle",
       "agent",
       "agents",
+      "profiles",
       "ableton",
       "approvals",
       "diagnostics",
@@ -57,6 +58,107 @@ describe("preload API", () => {
       transportFor({ "ableton:status": { state: "connected" } }),
     );
     await expect(api.ableton.getStatus()).rejects.toThrow();
+  });
+
+  it("closes the active production session through typed IPC", async () => {
+    const transport = transportFor({
+      "agent:close-session": { closed: true },
+    });
+    const api = createDesktopApi(transport);
+
+    await api.agent.closeSession();
+
+    expect(vi.mocked(transport).invoke).toHaveBeenCalledWith(
+      "agent:close-session",
+      {},
+    );
+  });
+
+  it("exposes typed profile and artifact operations", async () => {
+    const revision = "a".repeat(64);
+    const snapshot = {
+      revision,
+      activeProfile: "default",
+      selectedProfile: "ambient",
+      profiles: [
+        {
+          name: "default",
+          active: true,
+          reserved: false,
+          sessionCount: 1,
+          sessions: [
+            {
+              id: "session-1",
+              title: "Untitled",
+              active: true,
+            },
+          ],
+        },
+        {
+          name: "ambient",
+          active: false,
+          reserved: false,
+          sessionCount: 0,
+          sessions: [],
+        },
+      ],
+      artifacts: [],
+    };
+    const transport = transportFor({
+      "profiles:get": snapshot,
+      "profiles:status": {
+        revision,
+        activeProfile: "default",
+        activeSessionId: "session-1",
+        profiles: [
+          { name: "default", active: true, reserved: false },
+          { name: "ambient", active: false, reserved: false },
+        ],
+      },
+      "profiles:create": snapshot,
+      "profiles:switch": { switching: true },
+      "profiles:copy-artifact": {
+        status: "completed",
+        snapshot,
+      },
+    });
+    const api = createDesktopApi(transport);
+
+    await api.profiles.get("ambient");
+    await api.profiles.status();
+    await api.profiles.create("ambient", revision);
+    await api.profiles.switch("ambient", revision, true);
+    await api.profiles.copyArtifact({
+      kind: "skill",
+      name: "mix-review",
+      source: { scope: "bundled" },
+      destination: { scope: "profile", profile: "ambient" },
+      expectedRevision: revision,
+    });
+
+    expect(vi.mocked(transport).invoke.mock.calls).toEqual([
+      ["profiles:get", { selectedProfile: "ambient" }],
+      ["profiles:status", {}],
+      ["profiles:create", { name: "ambient", expectedRevision: revision }],
+      [
+        "profiles:switch",
+        {
+          name: "ambient",
+          expectedRevision: revision,
+          closeActiveSession: true,
+        },
+      ],
+      [
+        "profiles:copy-artifact",
+        {
+          kind: "skill",
+          name: "mix-review",
+          source: { scope: "bundled" },
+          destination: { scope: "profile", profile: "ambient" },
+          expectedRevision: revision,
+        },
+      ],
+    ]);
   });
 
   it("validates output routing requests and responses", async () => {

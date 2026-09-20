@@ -2,9 +2,14 @@ import { basename } from "node:path";
 
 import {
   loadAgentCatalog,
+  loadLayeredAgentCatalog,
   type AgentCatalog,
 } from "@ableton-agent/agent-config";
 import type { AgentSkillDescriptor } from "@ableton-agent/application";
+import {
+  resolveArtifactScopePaths,
+  type LiveAgentStorageLayout,
+} from "@ableton-agent/storage";
 
 import {
   desktopAgentCatalogSchema,
@@ -15,6 +20,7 @@ export interface AgentCatalogOptions {
   readonly agentsDirectory: string;
   readonly skillsDirectory: string;
   readonly availableTools: readonly string[];
+  readonly storage?: LiveAgentStorageLayout;
 }
 
 function toDesktopCatalog(catalog: AgentCatalog): DesktopAgentCatalog {
@@ -59,12 +65,15 @@ export class AgentCatalogService {
     return this.#runtimeSkills;
   }
 
-  public async refresh(): Promise<DesktopAgentCatalog> {
-    const loaded = await loadAgentCatalog({
-      agentsDirectory: this.options.agentsDirectory,
-      skillsDirectory: this.options.skillsDirectory,
-      availableTools: this.options.availableTools,
-    });
+  public async refresh(sessionId?: string): Promise<DesktopAgentCatalog> {
+    const loaded =
+      this.options.storage === undefined
+        ? await loadAgentCatalog({
+            agentsDirectory: this.options.agentsDirectory,
+            skillsDirectory: this.options.skillsDirectory,
+            availableTools: this.options.availableTools,
+          })
+        : await this.#loadScopedCatalog(sessionId);
     this.#runtimeSkills = loaded.skills.map((skill) => ({
       name: skill.metadata.name,
       description: skill.metadata.description,
@@ -73,5 +82,48 @@ export class AgentCatalogService {
     }));
     this.#catalog = toDesktopCatalog(loaded);
     return this.#catalog;
+  }
+
+  public refreshForSession(sessionId?: string): Promise<DesktopAgentCatalog> {
+    return this.refresh(sessionId);
+  }
+
+  async #loadScopedCatalog(sessionId?: string): Promise<AgentCatalog> {
+    const storage = this.options.storage!;
+    const system = resolveArtifactScopePaths(storage, "system");
+    const profile = resolveArtifactScopePaths(storage, "profile");
+    const session =
+      sessionId === undefined
+        ? undefined
+        : resolveArtifactScopePaths(storage, "session", sessionId);
+    return loadLayeredAgentCatalog({
+      bundled: {
+        agentsDirectory: this.options.agentsDirectory,
+        skillsDirectory: this.options.skillsDirectory,
+      },
+      system: {
+        agentsDirectory: system.agentsDirectory,
+        skillsDirectory: system.skillsDirectory,
+        agentTombstones: system.agentTombstonesPath,
+        skillTombstones: system.skillTombstonesPath,
+      },
+      profile: {
+        agentsDirectory: profile.agentsDirectory,
+        skillsDirectory: profile.skillsDirectory,
+        agentTombstones: profile.agentTombstonesPath,
+        skillTombstones: profile.skillTombstonesPath,
+      },
+      ...(session === undefined
+        ? {}
+        : {
+            session: {
+              agentsDirectory: session.agentsDirectory,
+              skillsDirectory: session.skillsDirectory,
+              agentTombstones: session.agentTombstonesPath,
+              skillTombstones: session.skillTombstonesPath,
+            },
+          }),
+      availableTools: this.options.availableTools,
+    });
   }
 }

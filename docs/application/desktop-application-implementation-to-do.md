@@ -65,6 +65,8 @@ never left pending, when no renderer is listening or the app is shutting down.
   bridge calls.
 - [x] Add transient Project, Inspector, and combined top-chrome visibility
   controls while keeping the composer aligned with the conversation column.
+- [x] Render the prompt composer only in Workspace and let every management or
+  diagnostic view consume the full remaining application height.
 - [x] Preserve optional tool identity in desktop operation view models and
   render compact typed activity rows without removing recovery details.
 - [x] Add opt-in isolated desktop automation launch flags, selected-agent

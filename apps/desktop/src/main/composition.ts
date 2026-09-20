@@ -21,6 +21,7 @@ import {
   type TraceReadOptions,
 } from "@ableton-agent/observability";
 import type { StorageMigrationEvent } from "@ableton-agent/storage";
+import type { LiveAgentStorageLayout } from "@ableton-agent/storage";
 import {
   createAgentRuntime,
   RuntimeConfigurationError,
@@ -54,6 +55,7 @@ export interface DesktopCompositionOptions {
   eventJournalPath?: string;
   agentsDirectory: string;
   skillsDirectory: string;
+  storage?: LiveAgentStorageLayout;
   signalDescriptorPath?: string;
   /** Copilot session storage owned by the desktop app. */
   agentBaseDirectory: string;
@@ -429,6 +431,7 @@ export async function createDesktopComposition(
       ...APPLICATION_TOOL_NAMES,
       ...APPROVED_BUILTIN_TOOL_NAMES,
     ],
+    ...(options.storage === undefined ? {} : { storage: options.storage }),
   });
   const notices: Notice[] =
     options.storageMigrationFailure === undefined

@@ -27,6 +27,7 @@ import {
 import type {
   DesktopApi,
   DesktopActiveAgent,
+  DesktopAgentDefinition,
   DesktopAgentConversationSettings,
   DesktopAgentModel,
   DesktopAppEvent,
@@ -34,6 +35,7 @@ import type {
   DesktopOutputAssignment,
   DesktopOutputConnection,
   DesktopProjectSnapshot,
+  DesktopProfileStatus,
   DesktopLiveEventState,
   LatestAcceptedOutput,
   DesktopTrack,
@@ -69,6 +71,7 @@ import {
   type InspectorModuleId,
 } from "./inspector-layout";
 import { parseYoloCommand, yoloCommandUsage } from "./yolo-command";
+import { ProfileManagerView } from "./ProfileManagerView";
 
 type CatalogSkill = DesktopState["agentCatalog"]["skills"][number];
 
@@ -706,6 +709,7 @@ export function App(): React.JSX.Element {
     initialWorkspaceSidebarWidths(window.innerWidth),
   );
   const [topChromeVisible, setTopChromeVisible] = useState(true);
+  const [profileRefreshToken, setProfileRefreshToken] = useState(0);
   const [composerValue, setComposerValue] = useState("");
   const [composerError, setComposerError] = useState("");
   const [planEditorOpen, setPlanEditorOpen] = useState(false);
@@ -786,6 +790,7 @@ export function App(): React.JSX.Element {
         event.type === "agent.elicitation_requested"
       ) {
         setRightSidebarVisible(true);
+        dispatch({ type: "view", view: "workspace" });
       }
       dispatch({ type: "event", event });
     });
@@ -857,6 +862,7 @@ export function App(): React.JSX.Element {
     state.lifecycle,
   ]);
   useEffect(() => {
+    if (state.lifecycle !== "ready" && state.lifecycle !== "degraded") return;
     if (selectedInstanceId === undefined || activeSessionId === undefined)
       return;
     if (selectedPlanArtifact !== undefined) return;
@@ -885,7 +891,12 @@ export function App(): React.JSX.Element {
           },
         });
       });
-  }, [activeSessionId, selectedInstanceId, selectedPlanArtifact]);
+  }, [
+    activeSessionId,
+    selectedInstanceId,
+    selectedPlanArtifact,
+    state.lifecycle,
+  ]);
   useEffect(() => {
     setPlanEditorOpen(false);
   }, [activeSessionId, selectedInstanceId]);
@@ -930,14 +941,20 @@ export function App(): React.JSX.Element {
       }
       if ((event.metaKey || event.ctrlKey) && event.key === "k") {
         event.preventDefault();
-        composerRef.current?.focus();
+        if (state.activeView !== "workspace") {
+          dispatch({ type: "view", view: "workspace" });
+        }
+        requestAnimationFrame(() => composerRef.current?.focus());
       }
       if ((event.metaKey || event.ctrlKey) && event.key === ",") {
         event.preventDefault();
         dispatch({ type: "view", view: "settings" });
       }
       if (event.key === "Escape" && selectedAgentWorkspace(state).approval) {
-        composerRef.current?.focus();
+        if (state.activeView !== "workspace") {
+          dispatch({ type: "view", view: "workspace" });
+        }
+        requestAnimationFrame(() => composerRef.current?.focus());
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -945,13 +962,12 @@ export function App(): React.JSX.Element {
   }, [state]);
 
   return (
-    <div
-      className={`app-shell ${state.activeView === "workspace" ? "workspace-active" : ""} ${topChromeVisible ? "" : "top-chrome-hidden"}`}
-    >
+    <div className={`app-shell ${topChromeVisible ? "" : "top-chrome-hidden"}`}>
       {topChromeVisible && (
         <ConnectionHeader
           state={state}
           dispatch={dispatch}
+          profileRefreshToken={profileRefreshToken}
           onHideChrome={() => setTopChromeVisible(false)}
         />
       )}
@@ -969,6 +985,7 @@ export function App(): React.JSX.Element {
               "outputs",
               "events",
               "browser",
+              "profiles",
               "diagnostics",
               "sessions",
               "settings",
@@ -1051,6 +1068,13 @@ export function App(): React.JSX.Element {
           <EventsView state={state} dispatch={dispatch} />
         ) : state.activeView === "browser" ? (
           <BrowserView state={state} dispatch={dispatch} />
+        ) : state.activeView === "profiles" ? (
+          <ProfileManagerView
+            {...(activeSessionId === undefined ? {} : { activeSessionId })}
+            onProfilesChanged={() =>
+              setProfileRefreshToken((current) => current + 1)
+            }
+          />
         ) : state.activeView === "diagnostics" ? (
           <DiagnosticsView state={state} dispatch={dispatch} />
         ) : state.activeView === "sessions" ? (
@@ -1059,19 +1083,6 @@ export function App(): React.JSX.Element {
           <SettingsView state={state} dispatch={dispatch} />
         )}
       </main>
-      {state.activeView !== "workspace" && (
-        <DesktopComposer
-          state={state}
-          composerRef={composerRef}
-          dispatch={dispatch}
-          value={composerValue}
-          error={composerError}
-          onValueChange={setComposerValue}
-          onErrorChange={setComposerError}
-          planEditorOpen={planEditorOpen}
-          onPlanEditorClose={() => setPlanEditorOpen(false)}
-        />
-      )}
     </div>
   );
 }
@@ -2949,13 +2960,74 @@ export function ConnectionHeader({
   state,
   dispatch,
   onHideChrome,
+  profileRefreshToken = 0,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
   onHideChrome?: (() => void) | undefined;
+  profileRefreshToken?: number;
 }): React.JSX.Element {
   const session = activeSession(state);
   const activeAgent = selectedAgentInstance(state);
+  const [profileStatus, setProfileStatus] = useState<DesktopProfileStatus>();
+  const [pendingProfile, setPendingProfile] = useState<string>();
+  const [profileError, setProfileError] = useState("");
+  const [profileBusy, setProfileBusy] = useState(false);
+  useEffect(() => {
+    if (state.lifecycle !== "ready" && state.lifecycle !== "degraded") return;
+    if (window.desktop.profiles?.status === undefined) return;
+    void window.desktop.profiles
+      .status()
+      .then(setProfileStatus)
+      .catch((error: unknown) =>
+        setProfileError(
+          error instanceof Error
+            ? error.message
+            : "Profiles could not be loaded",
+        ),
+      );
+  }, [profileRefreshToken, state.activeSessionId, state.lifecycle]);
+  const requestProfileSwitch = (profile: string): void => {
+    if (
+      profileStatus === undefined ||
+      profile === profileStatus.activeProfile ||
+      profileBusy
+    ) {
+      return;
+    }
+    if (profileStatus.activeSessionId !== undefined) {
+      setPendingProfile(profile);
+      return;
+    }
+    setProfileBusy(true);
+    setProfileError("");
+    void window.desktop.profiles
+      .switch(profile, profileStatus.revision, false)
+      .catch((error: unknown) => {
+        setProfileError(
+          error instanceof Error ? error.message : "Profile switch failed",
+        );
+        setProfileBusy(false);
+      });
+  };
+  const confirmProfileSwitch = async (): Promise<void> => {
+    if (profileStatus === undefined || pendingProfile === undefined) return;
+    setProfileBusy(true);
+    setProfileError("");
+    try {
+      await window.desktop.profiles.switch(
+        pendingProfile,
+        profileStatus.revision,
+        profileStatus.activeSessionId !== undefined,
+      );
+    } catch (error) {
+      setProfileError(
+        error instanceof Error ? error.message : "Profile switch failed",
+      );
+      setPendingProfile(undefined);
+      setProfileBusy(false);
+    }
+  };
   const selectAgent = async (instanceId: string): Promise<void> => {
     try {
       await selectWorkspaceAgent(window.desktop, instanceId, dispatch);
@@ -3004,8 +3076,40 @@ export function ConnectionHeader({
         </small>
       </div>
       <div className="header-controls">
-        <label>
-          Active Agent
+        <span className="header-divider" aria-hidden="true">
+          |
+        </span>
+        <label className="header-selector">
+          <span>Profile:</span>
+          <select
+            className="profile-selector"
+            aria-label="Active Profile"
+            value={profileStatus?.activeProfile ?? ""}
+            disabled={
+              profileBusy ||
+              profileStatus === undefined ||
+              profileStatus.switchingDisabledReason !== undefined
+            }
+            title={
+              profileStatus?.switchingDisabledReason ??
+              (profileError || undefined)
+            }
+            onChange={(event) => requestProfileSwitch(event.target.value)}
+          >
+            {profileStatus?.profiles
+              .filter(({ reserved, active }) => !reserved || active)
+              .map((profile) => (
+                <option key={profile.name} value={profile.name}>
+                  {profile.name}
+                </option>
+              ))}
+          </select>
+        </label>
+        <span className="header-divider" aria-hidden="true">
+          |
+        </span>
+        <label className="header-selector">
+          <span>Agent:</span>
           <select
             className="agent-instance-selector"
             aria-label="Active Agent"
@@ -3023,6 +3127,9 @@ export function ConnectionHeader({
             ))}
           </select>
         </label>
+        <span className="header-divider" aria-hidden="true">
+          |
+        </span>
         {activeAgent?.autoApprove && (
           <span className="agent-badge yolo-badge">YOLO</span>
         )}
@@ -3060,6 +3167,40 @@ export function ConnectionHeader({
           </button>
         )}
       </div>
+      {pendingProfile !== undefined && (
+        <div className="profile-conflict-backdrop" role="presentation">
+          <section
+            className="profile-conflict-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="header-profile-switch-title"
+          >
+            <h2 id="header-profile-switch-title">Switch profile?</h2>
+            <p>
+              {profileStatus?.activeSessionId === undefined
+                ? `Switch to ${pendingProfile}?`
+                : "The active session will be saved and closed. You can resume it later from its current profile."}
+            </p>
+            <div className="profile-conflict-actions">
+              <button
+                type="button"
+                disabled={profileBusy}
+                onClick={() => setPendingProfile(undefined)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="primary"
+                disabled={profileBusy}
+                onClick={() => void confirmProfileSwitch()}
+              >
+                Switch
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </header>
   );
 }
@@ -3262,6 +3403,81 @@ function ChromeIcon({ expanded }: { expanded: boolean }): React.JSX.Element {
   );
 }
 
+type AgentDetailSection = "general" | "capabilities" | "connections";
+
+function agentDetailSectionLabel(section: AgentDetailSection): string {
+  if (section === "general") return "General";
+  if (section === "capabilities") return "Capabilities";
+  return "Connections";
+}
+
+function AgentDetailSectionIcon({
+  section,
+}: {
+  section: AgentDetailSection;
+}): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 18 18" aria-hidden="true">
+      {section === "general" ? (
+        <>
+          <circle cx="9" cy="6" r="3" />
+          <path d="M3.5 15c.7-3 2.5-4.5 5.5-4.5s4.8 1.5 5.5 4.5" />
+        </>
+      ) : section === "capabilities" ? (
+        <>
+          <path d="M9 2.5v3M9 12.5v3M2.5 9h3M12.5 9h3" />
+          <circle cx="9" cy="9" r="3.5" />
+        </>
+      ) : (
+        <>
+          <circle cx="9" cy="9" r="2" />
+          <path d="M5.5 5.5a5 5 0 0 0 0 7M12.5 5.5a5 5 0 0 1 0 7" />
+          <path d="M3 3a8.5 8.5 0 0 0 0 12M15 3a8.5 8.5 0 0 1 0 12" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function AgentDetailTabs({
+  section,
+  panelIdPrefix,
+  onChange,
+}: {
+  section: AgentDetailSection;
+  panelIdPrefix: string;
+  onChange: (section: AgentDetailSection) => void;
+}): React.JSX.Element {
+  const sections = [
+    "general",
+    "capabilities",
+    "connections",
+  ] as const satisfies readonly AgentDetailSection[];
+  return (
+    <div
+      className="agent-detail-tabs"
+      role="tablist"
+      aria-label="Agent definition views"
+    >
+      {sections.map((candidate) => (
+        <button
+          type="button"
+          className={`agent-detail-tab ${section === candidate ? "active" : ""}`}
+          role="tab"
+          aria-selected={section === candidate}
+          aria-controls={`${panelIdPrefix}-${candidate}`}
+          aria-label={agentDetailSectionLabel(candidate)}
+          title={agentDetailSectionLabel(candidate)}
+          onClick={() => onChange(candidate)}
+          key={candidate}
+        >
+          <AgentDetailSectionIcon section={candidate} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function AgentsView({
   state,
   dispatch,
@@ -3281,6 +3497,34 @@ export function AgentsView({
     | { status: "loaded"; models: DesktopAgentModel[] }
     | { status: "failed"; models: DesktopAgentModel[]; message: string }
   >({ status: "loading", models: [] });
+  const inactiveDefinitions = useMemo(() => {
+    const activeDefinitionNames = new Set(
+      activeAgents.map(({ definitionName }) => definitionName),
+    );
+    return state.agentCatalog.definitions.filter(
+      ({ name }) => !activeDefinitionNames.has(name),
+    );
+  }, [activeAgents, state.agentCatalog.definitions]);
+  const defaultInspectedKey =
+    (selectedAgentId === undefined ? undefined : `active:${selectedAgentId}`) ??
+    (activeAgents[0] === undefined
+      ? undefined
+      : `active:${activeAgents[0].id}`) ??
+    (inactiveDefinitions[0] === undefined
+      ? undefined
+      : `definition:${inactiveDefinitions[0].name}`);
+  const [inspectedKey, setInspectedKey] = useState<string | undefined>(
+    defaultInspectedKey,
+  );
+
+  useEffect(() => {
+    const keys = new Set([
+      ...activeAgents.map(({ id }) => `active:${id}`),
+      ...inactiveDefinitions.map(({ name }) => `definition:${name}`),
+    ]);
+    if (inspectedKey !== undefined && keys.has(inspectedKey)) return;
+    setInspectedKey(defaultInspectedKey);
+  }, [activeAgents, defaultInspectedKey, inactiveDefinitions, inspectedKey]);
 
   const reportError = useCallback(
     (error: unknown, fallback: string): void => {
@@ -3374,6 +3618,7 @@ export function AgentsView({
     try {
       const created = await window.desktop.agents.create(definitionName);
       reconcileAgent(created, "created");
+      setInspectedKey(`active:${created.id}`);
     } catch (error) {
       reportError(error, `Could not create ${definitionName}`);
     } finally {
@@ -3449,27 +3694,66 @@ export function AgentsView({
           restored.
         </div>
       )}
-      <section
-        className="active-agents"
-        aria-labelledby="active-agents-heading"
-      >
-        <div className="panel-heading">
-          <div>
-            <h3 id="active-agents-heading">Active agents</h3>
-            <p>Independent conversations in the current production session.</p>
-          </div>
-        </div>
-        {activeAgents.length === 0 ? (
-          state.lifecycle === "starting" && session === undefined ? (
-            <p role="status">Loading active agents…</p>
-          ) : (
-            <EmptyState
-              title="No active agents"
-              detail="Create an instance from a definition below."
-            />
-          )
-        ) : (
-          <div className="active-agent-list">
+      {state.lifecycle === "starting" && session === undefined ? (
+        <p role="status">Loading active agents…</p>
+      ) : state.agentCatalog.definitions.length === 0 &&
+        activeAgents.length === 0 ? (
+        <EmptyState
+          title="No valid agents found"
+          detail="Add YAML definitions to the configured agents directory."
+        />
+      ) : (
+        <div className="agents-workspace">
+          <nav className="agent-navigation" aria-label="Agents">
+            <div className="agent-navigation-list">
+              {activeAgents.map((agent) => {
+                const key = `active:${agent.id}`;
+                return (
+                  <button
+                    type="button"
+                    className={`agent-navigation-item ${inspectedKey === key ? "active" : ""}`}
+                    aria-current={inspectedKey === key ? "page" : undefined}
+                    onClick={() => setInspectedKey(key)}
+                    key={key}
+                  >
+                    <span
+                      className="agent-activity-light is-active"
+                      aria-label="Active agent"
+                    />
+                    <span className="agent-navigation-label">
+                      <strong>{agent.label}</strong>
+                      <small>{agent.definitionName}</small>
+                    </span>
+                  </button>
+                );
+              })}
+              {activeAgents.length > 0 && inactiveDefinitions.length > 0 && (
+                <div className="agent-navigation-divider" aria-hidden="true" />
+              )}
+              {inactiveDefinitions.map((definition) => {
+                const key = `definition:${definition.name}`;
+                return (
+                  <button
+                    type="button"
+                    className={`agent-navigation-item ${inspectedKey === key ? "active" : ""}`}
+                    aria-current={inspectedKey === key ? "page" : undefined}
+                    onClick={() => setInspectedKey(key)}
+                    key={key}
+                  >
+                    <span
+                      className="agent-activity-light"
+                      aria-label="Inactive agent"
+                    />
+                    <span className="agent-navigation-label">
+                      <strong>{definition.name}</strong>
+                      <small>{definition.description}</small>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
+          <div className="agent-detail-workspace">
             {activeAgents.map((agent) => (
               <ActiveAgentCard
                 agent={agent}
@@ -3488,6 +3772,8 @@ export function AgentsView({
                     definition.fingerprint !== agent.definitionFingerprint,
                 )}
                 selected={selectedAgentId === agent.id}
+                hidden={inspectedKey !== `active:${agent.id}`}
+                creating={creatingDefinition === agent.definitionName}
                 busy={busyAgentId === agent.id || agent.lifecycle === "busy"}
                 confirmingReset={confirmResetId === agent.id}
                 onRename={(label) =>
@@ -3521,7 +3807,7 @@ export function AgentsView({
                 onReset={() => {
                   if (confirmResetId !== agent.id) {
                     setConfirmResetId(agent.id);
-                    return Promise.resolve();
+                    return Promise.resolve(undefined);
                   }
                   setConfirmResetId(undefined);
                   return runAgentAction(
@@ -3529,7 +3815,7 @@ export function AgentsView({
                     () => window.desktop.agents.reset(agent.id),
                     "Could not reset agent",
                     "reset",
-                  ).then(() => undefined);
+                  );
                 }}
                 onCancelReset={() => setConfirmResetId(undefined)}
                 onEventError={(error) =>
@@ -3537,91 +3823,129 @@ export function AgentsView({
                 }
                 onSelect={() => selectAgent(agent.id, false)}
                 onOpen={() => selectAgent(agent.id, true)}
+                onCreateAnother={() => createAgent(agent.definitionName)}
                 onDeactivate={() => deactivateAgent(agent.id)}
                 key={agent.id}
               />
             ))}
+            {inactiveDefinitions.map((definition) => (
+              <AgentDefinitionDetail
+                definition={definition}
+                hidden={inspectedKey !== `definition:${definition.name}`}
+                busy={creatingDefinition === definition.name}
+                disabled={session === undefined}
+                onCreate={() => createAgent(definition.name)}
+                key={definition.name}
+              />
+            ))}
           </div>
-        )}
-      </section>
-      <div className="panel-heading agent-definitions-heading">
-        <div>
-          <h3>Defined agents</h3>
-          <p>Templates for creating independent active instances.</p>
-        </div>
-      </div>
-      {state.agentCatalog.definitions.length === 0 ? (
-        <EmptyState
-          title="No valid agents found"
-          detail="Add YAML definitions to the configured agents directory."
-        />
-      ) : (
-        <div className="agent-definition-grid">
-          {state.agentCatalog.definitions.map((definition) => (
-            <article className="agent-definition-card" key={definition.name}>
-              <header>
-                <div>
-                  <h3>{definition.name}</h3>
-                  <p>{definition.description}</p>
-                </div>
-                <span>Defined</span>
-              </header>
-              <dl>
-                <dt>Source</dt>
-                <dd>{definition.sourceFile}</dd>
-                <dt>Fingerprint</dt>
-                <dd>
-                  <code title={definition.fingerprint}>
-                    {definition.fingerprint.slice(0, 12)}
-                  </code>
-                </dd>
-                <dt>Tools</dt>
-                <dd>
-                  {definition.tools.join(", ")}
-                  <ResolvedToolsDisclosure
-                    patterns={definition.tools}
-                    resolvedTools={definition.resolvedTools}
-                  />
-                </dd>
-                <dt>Edit scope</dt>
-                <dd>
-                  {definition.editScope
-                    .map((entry) =>
-                      entry === "session"
-                        ? "Full session"
-                        : `${entry.track.name} #${entry.track.occurrence + 1}`,
-                    )
-                    .join(", ")}
-                </dd>
-                <dt>Skills</dt>
-                <dd>
-                  {definition.skills.length > 0
-                    ? definition.skills.join(", ")
-                    : "None"}
-                </dd>
-                <dt>Inputs</dt>
-                <dd>
-                  {definition.inputChannels.length > 0
-                    ? definition.inputChannels.join(", ")
-                    : "Prompt only"}
-                </dd>
-              </dl>
-              <button
-                disabled={
-                  session === undefined ||
-                  creatingDefinition === definition.name
-                }
-                onClick={() => void createAgent(definition.name)}
-              >
-                {creatingDefinition === definition.name
-                  ? "Creating…"
-                  : "Create agent"}
-              </button>
-            </article>
-          ))}
         </div>
       )}
     </section>
+  );
+}
+
+function AgentDefinitionDetail({
+  definition,
+  hidden,
+  busy,
+  disabled,
+  onCreate,
+}: {
+  definition: DesktopAgentDefinition;
+  hidden: boolean;
+  busy: boolean;
+  disabled: boolean;
+  onCreate: () => Promise<void>;
+}): React.JSX.Element {
+  const [section, setSection] = useState<AgentDetailSection>("general");
+  return (
+    <article className="agent-detail" hidden={hidden}>
+      <header className="agent-detail-header">
+        <div>
+          <h3>{definition.name}</h3>
+          <p>{definition.description}</p>
+        </div>
+        <button disabled={disabled || busy} onClick={() => void onCreate()}>
+          {busy ? "Creating…" : "Create agent"}
+        </button>
+      </header>
+      <AgentDetailTabs
+        section={section}
+        panelIdPrefix={`agent-definition-${definition.name}`}
+        onChange={setSection}
+      />
+      <div
+        id={`agent-definition-${definition.name}-${section}`}
+        className="agent-detail-content"
+        role="tabpanel"
+        aria-label={agentDetailSectionLabel(section)}
+      >
+        {section === "general" && (
+          <dl className="agent-metadata">
+            <dt>Definition</dt>
+            <dd>{definition.name}</dd>
+            <dt>Source</dt>
+            <dd>{definition.sourceFile}</dd>
+            <dt>Fingerprint</dt>
+            <dd>
+              <code title={definition.fingerprint}>
+                {definition.fingerprint.slice(0, 12)}
+              </code>
+            </dd>
+            <dt>Status</dt>
+            <dd>Available to create in this production session</dd>
+          </dl>
+        )}
+        {section === "capabilities" && (
+          <div className="agent-readonly-sections">
+            <section>
+              <h4>System prompt</h4>
+              <pre>{definition.systemPrompt}</pre>
+            </section>
+            <section>
+              <h4>Tools</h4>
+              <p>{definition.tools.join(", ")}</p>
+              <ResolvedToolsDisclosure
+                patterns={definition.tools}
+                resolvedTools={definition.resolvedTools}
+              />
+            </section>
+            <section>
+              <h4>Edit scope</h4>
+              <p>{scopeLabel(definition.editScope)}</p>
+            </section>
+            <section>
+              <h4>Skills</h4>
+              <p>
+                {definition.skills.length > 0
+                  ? definition.skills.join(", ")
+                  : "None"}
+              </p>
+            </section>
+          </div>
+        )}
+        {section === "connections" && (
+          <div className="agent-readonly-sections">
+            <section>
+              <h4>Input channels</h4>
+              <p>
+                {definition.inputChannels.length > 0
+                  ? definition.inputChannels.join(", ")
+                  : "Prompt only"}
+              </p>
+            </section>
+            <section>
+              <h4>Listening Events</h4>
+              <p>
+                Create an active instance to configure session-specific event
+                subscriptions and prepared context.
+              </p>
+            </section>
+          </div>
+        )}
+      </div>
+    </article>
   );
 }
 
@@ -4251,6 +4575,8 @@ function ActiveAgentCard({
   definitionSource,
   definitionUpdated,
   selected,
+  hidden,
+  creating,
   busy,
   confirmingReset,
   onRename,
@@ -4261,6 +4587,7 @@ function ActiveAgentCard({
   onEventError,
   onSelect,
   onOpen,
+  onCreateAnother,
   onDeactivate,
 }: {
   agent: DesktopActiveAgent;
@@ -4271,6 +4598,8 @@ function ActiveAgentCard({
   definitionSource?: string | undefined;
   definitionUpdated: boolean;
   selected: boolean;
+  hidden: boolean;
+  creating: boolean;
   busy: boolean;
   confirmingReset: boolean;
   onRename: (label: string) => Promise<DesktopActiveAgent | undefined>;
@@ -4280,14 +4609,15 @@ function ActiveAgentCard({
   onSetConversationSettings: (
     settings: DesktopAgentConversationSettings,
   ) => Promise<DesktopActiveAgent | undefined>;
-  onReset: () => Promise<void>;
+  onReset: () => Promise<DesktopActiveAgent | undefined>;
   onCancelReset: () => void;
   onEventError: (error: unknown) => void;
   onSelect: () => Promise<void>;
   onOpen: () => Promise<void>;
+  onCreateAnother: () => Promise<void>;
   onDeactivate: () => Promise<void>;
 }): React.JSX.Element {
-  const [editing, setEditing] = useState(false);
+  const [section, setSection] = useState<AgentDetailSection>("general");
   const [model, setModel] = useState(agent.model ?? "");
   const [reasoningEffort, setReasoningEffort] = useState(
     agent.reasoningEffort ?? "",
@@ -4340,14 +4670,31 @@ function ActiveAgentCard({
     });
     if (updated !== undefined) {
       setConfirmingConversationSettings(false);
-      setEditing(false);
     }
   };
-  const closeEditor = (): void => {
-    setModel(agent.model ?? "");
-    setReasoningEffort(agent.reasoningEffort ?? "");
+  const resetDrafts = (source = agent): void => {
+    setLabel(source.label);
+    setSystemPrompt(source.config.systemPrompt);
+    setTools(listValue(source.config.tools));
+    setScopeMode(
+      source.config.editScope.includes("session") ? "session" : "tracks",
+    );
+    setTrackScope(
+      source.config.editScope
+        .filter((entry) => entry !== "session")
+        .map((entry) => `${entry.track.name} #${entry.track.occurrence + 1}`)
+        .join("\n"),
+    );
+    const validNames = new Set(availableSkills.map(({ name }) => name));
+    setSkills(source.config.skills.filter((name) => validNames.has(name)));
+    setInputChannels(listValue(source.config.inputChannels));
+    setModel(source.model ?? "");
+    setReasoningEffort(source.reasoningEffort ?? "");
     setConfirmingConversationSettings(false);
-    setEditing(false);
+  };
+  const resetToDefinition = async (): Promise<void> => {
+    const updated = await onReset();
+    if (updated !== undefined) resetDrafts(updated);
   };
 
   const save = async (): Promise<void> => {
@@ -4366,15 +4713,23 @@ function ActiveAgentCard({
       skills,
       inputChannels: parseList(inputChannels),
     });
-    if (configured !== undefined) setEditing(false);
+    if (configured !== undefined) {
+      setLabel(configured.label);
+      setSystemPrompt(configured.config.systemPrompt);
+      setTools(listValue(configured.config.tools));
+      setInputChannels(listValue(configured.config.inputChannels));
+    }
   };
 
   return (
-    <article className={`active-agent-card${selected ? " is-selected" : ""}`}>
-      <header>
+    <article
+      className={`agent-detail active-agent-detail${selected ? " is-selected" : ""}`}
+      hidden={hidden}
+    >
+      <header className="agent-detail-header">
         <div>
           <div className="agent-title-line">
-            <h4>{agent.label}</h4>
+            <h3>{agent.label}</h3>
             {selected && <span className="agent-badge">Selected</span>}
             {agent.autoApprove && (
               <span className="agent-badge yolo-badge">YOLO</span>
@@ -4383,238 +4738,253 @@ function ActiveAgentCard({
           </div>
           <p>{agent.config.description}</p>
         </div>
-        <span className={`agent-lifecycle lifecycle-${agent.lifecycle}`}>
-          {agent.lifecycle}
-        </span>
-      </header>
-      <dl className="agent-metadata">
-        <dt>Definition</dt>
-        <dd>
-          {agent.definitionName} ·{" "}
-          <code title={agent.definitionFingerprint}>
-            {agent.definitionFingerprint.slice(0, 12)}
-          </code>
-          {definitionSource !== undefined && (
-            <small>
-              {definitionSource}
-              {definitionUpdated
-                ? " · newer definition available; reset to adopt it"
-                : ""}
-            </small>
+        <div className="agent-header-actions">
+          <span className={`agent-lifecycle lifecycle-${agent.lifecycle}`}>
+            {agent.lifecycle}
+          </span>
+          {!selected && (
+            <button disabled={busy} onClick={() => void onSelect()}>
+              Select
+            </button>
           )}
-        </dd>
-        <dt>Model</dt>
-        <dd>{agentModelLabel(agent.model, models)}</dd>
-        <dt>Reasoning</dt>
-        <dd>{agentReasoningLabel(agent.reasoningEffort)}</dd>
-        <dt>Tools</dt>
-        <dd>
-          {agent.config.tools.join(", ")}
-          <ResolvedToolsDisclosure
-            patterns={agent.config.tools}
-            resolvedTools={agent.config.resolvedTools}
-          />
-        </dd>
-        <dt>Scope</dt>
-        <dd>{scopeLabel(agent.config.editScope)}</dd>
-        <dt>Skills</dt>
-        <dd>
-          {agent.config.skills.length > 0
-            ? agent.config.skills.join(", ")
-            : "None"}
-        </dd>
-        <dt>Inputs</dt>
-        <dd>
-          {agent.config.inputChannels.length > 0
-            ? agent.config.inputChannels.join(", ")
-            : "Prompt only"}
-        </dd>
-        <dt>Listening Events</dt>
-        <dd>
-          {listeningEvents.length === 0
-            ? "None"
-            : listeningEvents
-                .map((event) => {
-                  const listener = listenerForAgent(event, agent.id)!;
-                  const status = [
-                    listener.enabled ? undefined : "listener disabled",
-                    event.definition.enabled ? undefined : "event disabled",
-                    event.resolution.status === "resolved"
-                      ? undefined
-                      : "unresolved",
-                  ].filter(Boolean);
-                  return `${event.definition.name} · ${
-                    listener.responseMode === "automatic"
-                      ? "Automatic"
-                      : "Next prompt"
-                  }${status.length === 0 ? "" : ` (${status.join(", ")})`}`;
-                })
-                .join("; ")}
-        </dd>
-      </dl>
-      {editing && (
-        <div className="agent-editor">
-          <AgentModelEditor
-            agentLabel={agent.label}
-            currentModelId={agent.model}
-            currentReasoningEffort={agent.reasoningEffort}
-            model={model}
-            reasoningEffort={reasoningEffort}
-            models={models}
-            modelsStatus={modelsStatus}
-            busy={busy}
-            confirming={confirmingConversationSettings}
-            onModelChange={(value) => {
-              setModel(value);
-              setReasoningEffort(
-                reasoningEffortForDraftModel(value, reasoningEffort, models),
-              );
-              setConfirmingConversationSettings(false);
-            }}
-            onReasoningEffortChange={(value) => {
-              setReasoningEffort(value);
-              setConfirmingConversationSettings(false);
-            }}
-            onRequestConfirmation={() =>
-              setConfirmingConversationSettings(true)
-            }
-            onConfirm={() => void applyConversationSettings()}
-            onCancel={() => setConfirmingConversationSettings(false)}
-          />
-          <label>
-            Instance name
-            <input
-              maxLength={128}
-              required
-              value={label}
-              onChange={(event) => setLabel(event.target.value)}
-            />
-          </label>
-          <label>
-            Session prompt
-            <textarea
-              rows={6}
-              value={systemPrompt}
-              onChange={(event) => setSystemPrompt(event.target.value)}
-            />
-          </label>
-          <label>
-            Tool patterns <small>One per line; wildcards are supported.</small>
-            <textarea
-              rows={4}
-              value={tools}
-              onChange={(event) => setTools(event.target.value)}
-            />
-          </label>
-          <fieldset>
-            <legend>Edit scope</legend>
-            <label>
-              <input
-                checked={scopeMode === "session"}
-                name={`scope-${agent.id}`}
-                type="radio"
-                onChange={() => setScopeMode("session")}
-              />
-              Full session
-            </label>
-            <label>
-              <input
-                checked={scopeMode === "tracks"}
-                name={`scope-${agent.id}`}
-                type="radio"
-                onChange={() => setScopeMode("tracks")}
-              />
-              Specific tracks
-            </label>
-            {scopeMode === "tracks" && (
-              <textarea
-                aria-label="Track scope"
-                placeholder={"Drums #1\nBass #1"}
-                rows={3}
-                value={trackScope}
-                onChange={(event) => setTrackScope(event.target.value)}
-              />
-            )}
-          </fieldset>
-          <fieldset>
-            <legend>Skills</legend>
-            {availableSkills.length === 0 ? (
-              <small>No valid skills are available in the catalog.</small>
-            ) : (
-              availableSkills.map((skill) => (
-                <label key={skill.name}>
-                  <input
-                    type="checkbox"
-                    checked={skills.includes(skill.name)}
-                    onChange={(event) =>
-                      setSkills((selected) =>
-                        event.target.checked
-                          ? [...selected, skill.name]
-                          : selected.filter((name) => name !== skill.name),
-                      )
-                    }
-                  />
-                  <span>
-                    /{skill.name}
-                    <small>{skill.description}</small>
-                  </span>
-                </label>
-              ))
-            )}
-          </fieldset>
-          <ListeningEventsEditor
-            agentInstanceId={agent.id}
-            events={liveEvents}
-            busy={busy}
-            onError={onEventError}
-          />
-          <label>
-            Input channels <small>One per line.</small>
-            <textarea
-              rows={3}
-              value={inputChannels}
-              onChange={(event) => setInputChannels(event.target.value)}
-            />
-          </label>
-          <div className="agent-actions">
-            <button
-              disabled={
-                busy ||
-                label.trim() === "" ||
-                systemPrompt.trim() === "" ||
-                parseList(tools).length === 0
-              }
-              onClick={() => void save()}
-            >
-              {busy ? "Saving…" : "Save overrides"}
-            </button>
-            <button disabled={busy} onClick={closeEditor}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-      <div className="agent-actions">
-        {!selected && (
-          <button disabled={busy} onClick={() => void onSelect()}>
-            Select
+          <button disabled={busy} onClick={() => void onOpen()}>
+            Open
           </button>
+          <button
+            disabled={busy || creating}
+            onClick={() => void onCreateAnother()}
+          >
+            {creating ? "Creating…" : "Create another"}
+          </button>
+        </div>
+      </header>
+      <AgentDetailTabs
+        section={section}
+        panelIdPrefix={`active-agent-${agent.id}`}
+        onChange={setSection}
+      />
+      <div
+        id={`active-agent-${agent.id}-${section}`}
+        className="agent-detail-content"
+        role="tabpanel"
+        aria-label={agentDetailSectionLabel(section)}
+      >
+        {section === "general" && (
+          <div className="agent-editor-section">
+            <dl className="agent-metadata">
+              <dt>Definition</dt>
+              <dd>
+                {agent.definitionName} ·{" "}
+                <code title={agent.definitionFingerprint}>
+                  {agent.definitionFingerprint.slice(0, 12)}
+                </code>
+                {definitionSource !== undefined && (
+                  <small>
+                    {definitionSource}
+                    {definitionUpdated
+                      ? " · newer definition available; reset to adopt it"
+                      : ""}
+                  </small>
+                )}
+              </dd>
+              <dt>Model</dt>
+              <dd>{agentModelLabel(agent.model, models)}</dd>
+              <dt>Reasoning</dt>
+              <dd>{agentReasoningLabel(agent.reasoningEffort)}</dd>
+            </dl>
+            <label>
+              Instance name
+              <input
+                aria-label={`Instance name for ${agent.label}`}
+                maxLength={128}
+                required
+                value={label}
+                onChange={(event) => setLabel(event.target.value)}
+              />
+            </label>
+            <AgentModelEditor
+              agentLabel={agent.label}
+              currentModelId={agent.model}
+              currentReasoningEffort={agent.reasoningEffort}
+              model={model}
+              reasoningEffort={reasoningEffort}
+              models={models}
+              modelsStatus={modelsStatus}
+              busy={busy}
+              confirming={confirmingConversationSettings}
+              onModelChange={(value) => {
+                setModel(value);
+                setReasoningEffort(
+                  reasoningEffortForDraftModel(value, reasoningEffort, models),
+                );
+                setConfirmingConversationSettings(false);
+              }}
+              onReasoningEffortChange={(value) => {
+                setReasoningEffort(value);
+                setConfirmingConversationSettings(false);
+              }}
+              onRequestConfirmation={() =>
+                setConfirmingConversationSettings(true)
+              }
+              onConfirm={() => void applyConversationSettings()}
+              onCancel={() => setConfirmingConversationSettings(false)}
+            />
+          </div>
         )}
-        <button disabled={busy} onClick={() => void onOpen()}>
-          Open
-        </button>
+        {section === "capabilities" && (
+          <div className="agent-editor-section agent-capabilities-editor">
+            <label className="agent-prompt-editor">
+              Session prompt
+              <textarea
+                aria-label={`Session prompt for ${agent.label}`}
+                rows={12}
+                value={systemPrompt}
+                onChange={(event) => setSystemPrompt(event.target.value)}
+              />
+            </label>
+            <label>
+              Tool patterns{" "}
+              <small>One per line; wildcards are supported.</small>
+              <textarea
+                aria-label={`Tool patterns for ${agent.label}`}
+                rows={6}
+                value={tools}
+                onChange={(event) => setTools(event.target.value)}
+              />
+              <ResolvedToolsDisclosure
+                patterns={agent.config.tools}
+                resolvedTools={agent.config.resolvedTools}
+              />
+            </label>
+            <fieldset>
+              <legend>Edit scope</legend>
+              <label>
+                <input
+                  checked={scopeMode === "session"}
+                  name={`scope-${agent.id}`}
+                  type="radio"
+                  onChange={() => setScopeMode("session")}
+                />
+                Full session
+              </label>
+              <label>
+                <input
+                  checked={scopeMode === "tracks"}
+                  name={`scope-${agent.id}`}
+                  type="radio"
+                  onChange={() => setScopeMode("tracks")}
+                />
+                Specific tracks
+              </label>
+              {scopeMode === "tracks" && (
+                <textarea
+                  aria-label="Track scope"
+                  placeholder={"Drums #1\nBass #1"}
+                  rows={4}
+                  value={trackScope}
+                  onChange={(event) => setTrackScope(event.target.value)}
+                />
+              )}
+            </fieldset>
+            <fieldset>
+              <legend>Skills</legend>
+              {availableSkills.length === 0 ? (
+                <small>No valid skills are available in the catalog.</small>
+              ) : (
+                availableSkills.map((skill) => (
+                  <label key={skill.name}>
+                    <input
+                      type="checkbox"
+                      checked={skills.includes(skill.name)}
+                      onChange={(event) =>
+                        setSkills((selectedSkills) =>
+                          event.target.checked
+                            ? [...selectedSkills, skill.name]
+                            : selectedSkills.filter(
+                                (name) => name !== skill.name,
+                              ),
+                        )
+                      }
+                    />
+                    <span>
+                      /{skill.name}
+                      <small>{skill.description}</small>
+                    </span>
+                  </label>
+                ))
+              )}
+            </fieldset>
+          </div>
+        )}
+        {section === "connections" && (
+          <div className="agent-editor-section agent-connections-editor">
+            <label>
+              Input channels <small>One per line.</small>
+              <textarea
+                aria-label={`Input channels for ${agent.label}`}
+                rows={4}
+                value={inputChannels}
+                onChange={(event) => setInputChannels(event.target.value)}
+              />
+            </label>
+            <div className="agent-listening-summary">
+              <strong>Current listeners</strong>
+              <p>
+                {listeningEvents.length === 0
+                  ? "None"
+                  : listeningEvents
+                      .map((event) => {
+                        const listener = listenerForAgent(event, agent.id)!;
+                        const status = [
+                          listener.enabled ? undefined : "listener disabled",
+                          event.definition.enabled
+                            ? undefined
+                            : "event disabled",
+                          event.resolution.status === "resolved"
+                            ? undefined
+                            : "unresolved",
+                        ].filter(Boolean);
+                        return `${event.definition.name} · ${
+                          listener.responseMode === "automatic"
+                            ? "Automatic"
+                            : "Next prompt"
+                        }${
+                          status.length === 0 ? "" : ` (${status.join(", ")})`
+                        }`;
+                      })
+                      .join("; ")}
+              </p>
+            </div>
+            <ListeningEventsEditor
+              agentInstanceId={agent.id}
+              events={liveEvents}
+              busy={busy}
+              onError={onEventError}
+            />
+          </div>
+        )}
+      </div>
+      <footer className="agent-detail-actions">
         <button
-          disabled={busy}
-          onClick={() => (editing ? closeEditor() : setEditing(true))}
+          disabled={
+            busy ||
+            label.trim() === "" ||
+            systemPrompt.trim() === "" ||
+            parseList(tools).length === 0
+          }
+          onClick={() => void save()}
         >
-          {editing ? "Close editor" : "Edit overrides"}
+          {busy ? "Saving…" : "Save changes"}
+        </button>
+        <button disabled={busy} onClick={() => resetDrafts()}>
+          Discard changes
         </button>
         {confirmingReset ? (
           <>
             <button
               className="danger-button"
               disabled={busy}
-              onClick={() => void onReset()}
+              onClick={() => void resetToDefinition()}
             >
               Confirm reset
             </button>
@@ -4623,7 +4993,7 @@ function ActiveAgentCard({
             </button>
           </>
         ) : (
-          <button disabled={busy} onClick={() => void onReset()}>
+          <button disabled={busy} onClick={() => void resetToDefinition()}>
             Reset to current definition
           </button>
         )}
@@ -4634,7 +5004,7 @@ function ActiveAgentCard({
         >
           Deactivate
         </button>
-      </div>
+      </footer>
     </article>
   );
 }

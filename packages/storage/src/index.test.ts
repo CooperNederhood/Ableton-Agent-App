@@ -5,9 +5,17 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   ensureLiveAgentStorage,
+  createProfile,
+  deleteProfile,
+  loadProfileRegistry,
   migrateLegacyStorage,
+  readArtifactTombstones,
+  renameProfile,
+  resolveArtifactScopePaths,
   resolveProductionSessionStorage,
   resolveLiveAgentStorage,
+  selectProfile,
+  writeArtifactTombstones,
 } from "./index.js";
 
 const roots: string[] = [];
@@ -71,6 +79,50 @@ describe("live agent storage", () => {
       ),
     );
     expect(development.profileRoot).not.toBe(production.profileRoot);
+    expect(production.profilesRegistryPath).toBe(
+      join(home, ".live-agent", "config", "profiles.json"),
+    );
+    expect(production.systemAgentsDirectory).toBe(
+      join(home, ".live-agent", "system", "agents"),
+    );
+    expect(production.profileSkillsDirectory).toBe(
+      join(home, ".live-agent", "profiles", "default", "skills"),
+    );
+  });
+
+  it("resolves typed system, profile, and session artifact scopes", async () => {
+    const home = await temporaryRoot();
+    const layout = resolveLiveAgentStorage({ homeDirectory: home });
+
+    expect(resolveArtifactScopePaths(layout, "system")).toMatchObject({
+      agentsDirectory: join(home, ".live-agent", "system", "agents"),
+    });
+    expect(resolveArtifactScopePaths(layout, "profile")).toMatchObject({
+      skillsDirectory: join(
+        home,
+        ".live-agent",
+        "profiles",
+        "default",
+        "skills",
+      ),
+    });
+    expect(
+      resolveArtifactScopePaths(layout, "session", "session:123"),
+    ).toMatchObject({
+      agentTombstonesPath: join(
+        home,
+        ".live-agent",
+        "profiles",
+        "default",
+        "session-state",
+        "session:123",
+        "artifact-state",
+        "agents.json",
+      ),
+    });
+    expect(() => resolveArtifactScopePaths(layout, "session")).toThrow(
+      "Production session ID is required",
+    );
   });
 
   it("requires an absolute override and a safe profile", () => {
@@ -102,6 +154,110 @@ describe("live agent storage", () => {
         await readFile(join(layout.root, "storage-version.json"), "utf8"),
       ),
     ).toMatchObject({ version: 1 });
+    expect((await stat(layout.systemAgentsDirectory)).mode & 0o777).toBe(0o700);
+    expect((await stat(layout.profileSkillsDirectory)).mode & 0o777).toBe(
+      0o700,
+    );
+  });
+
+  it("bootstraps and mutates the profile registry with revision checks", async () => {
+    const home = await temporaryRoot();
+    const layout = resolveLiveAgentStorage({ homeDirectory: home });
+    const initial = await loadProfileRegistry(
+      layout,
+      () => new Date("2026-01-01T00:00:00.000Z"),
+    );
+    const created = await createProfile(
+      layout,
+      { name: "studio", displayName: "Studio" },
+      { expectedRevision: initial.revision },
+    );
+    const renamed = await renameProfile(
+      layout,
+      "studio",
+      { name: "writing" },
+      { expectedRevision: created.revision },
+    );
+    expect(
+      await stat(join(home, ".live-agent", "profiles", "writing")),
+    ).toBeDefined();
+    const selected = await selectProfile(layout, "writing", {
+      expectedRevision: renamed.revision,
+    });
+    const selectedDefault = await selectProfile(layout, "default", {
+      expectedRevision: selected.revision,
+    });
+    const deleted = await deleteProfile(layout, "writing", {
+      expectedRevision: selectedDefault.revision,
+    });
+
+    expect(initial).toMatchObject({
+      version: 1,
+      revision: 1,
+      selectedProfile: "default",
+      profiles: [{ name: "default", displayName: "Default" }],
+    });
+    expect(deleted.profiles.map(({ name }) => name)).toEqual(["default"]);
+    await expect(
+      stat(join(home, ".live-agent", "profiles", "writing")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      createProfile(
+        layout,
+        { name: "other" },
+        { expectedRevision: initial.revision },
+      ),
+    ).rejects.toThrow("revision conflict");
+    await expect(
+      createProfile(
+        layout,
+        { name: "development" },
+        { expectedRevision: deleted.revision },
+      ),
+    ).rejects.toThrow("reserved");
+    await expect(
+      deleteProfile(layout, "default", { expectedRevision: deleted.revision }),
+    ).rejects.toThrow("At least one visible user profile");
+  });
+
+  it("stores typed tombstones atomically with optimistic concurrency", async () => {
+    const home = await temporaryRoot();
+    const layout = resolveLiveAgentStorage({ homeDirectory: home });
+    const statePath = layout.profileSkillTombstonesPath;
+
+    expect(await readArtifactTombstones(statePath)).toMatchObject({
+      revision: 0,
+      names: [],
+    });
+    const updated = await writeArtifactTombstones(
+      statePath,
+      ["midi", "mix-review", "midi"],
+      0,
+    );
+    expect(updated).toMatchObject({
+      revision: 1,
+      names: ["midi", "mix-review"],
+    });
+    await expect(writeArtifactTombstones(statePath, [], 0)).rejects.toThrow(
+      "revision conflict",
+    );
+    await expect(
+      writeArtifactTombstones(statePath, ["../escape"], 1),
+    ).rejects.toThrow("Artifact name");
+  });
+
+  it("rejects symbolic links in managed storage paths", async () => {
+    const home = await temporaryRoot();
+    const outside = await temporaryRoot();
+    const root = join(home, ".live-agent");
+    const { symlink } = await import("node:fs/promises");
+    await mkdir(root);
+    await symlink(outside, join(root, "system"));
+    const layout = resolveLiveAgentStorage({ homeDirectory: home });
+
+    await expect(ensureLiveAgentStorage(layout)).rejects.toThrow(
+      "Symbolic links are not allowed",
+    );
   });
 
   it("stages, validates, and publishes legacy data idempotently", async () => {

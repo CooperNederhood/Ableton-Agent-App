@@ -1515,6 +1515,28 @@ describe("desktop adapter over the shared application", () => {
     await restarted.stop();
   });
 
+  it("closes the active production session without deleting it", async () => {
+    const { service, sessionStore, events } = await harness();
+    await service.start();
+    const activeSessionId = (await service.listOutputs()).activeSessionId;
+    expect(activeSessionId).toBeDefined();
+
+    await service.closeSession();
+
+    expect((await service.listOutputs()).activeSessionId).toBeUndefined();
+    expect(
+      (await sessionStore.load()).some(({ id }) => id === activeSessionId),
+    ).toBe(true);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "sessions.changed" &&
+          event.activeSessionId === undefined,
+      ),
+    ).toBe(true);
+    await service.stop();
+  });
+
   it.each([
     { initial: false, requested: true },
     { initial: true, requested: false },

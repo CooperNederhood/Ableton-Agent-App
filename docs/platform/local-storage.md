@@ -12,6 +12,16 @@ The default root is:
 ~/.live-agent/
 ```
 
+Root-owned profile selection and editable System Scope artifacts are stored
+outside individual profiles:
+
+```text
+~/.live-agent/config/profiles.json
+~/.live-agent/system/agents/
+~/.live-agent/system/skills/
+~/.live-agent/system/artifact-state/{agents,skills}.json
+```
+
 `LIVE_AGENT_HOME` may override the root with an absolute path for tests,
 portable environments, automation, and recovery. Data is isolated below a
 profile:
@@ -53,9 +63,19 @@ must consume its typed paths rather than reconstructing them.
     │   │   └── event-history.sqlite.lock
     │   ├── logs/
     │   │   └── desktop.log
+    │   ├── agents/
+    │   ├── skills/
+    │   ├── artifact-state/
+    │   │   ├── agents.json
+    │   │   └── skills.json
     │   └── session-state/
     │       └── {production-session-id}/
     │           ├── session.json
+    │           ├── agents/
+    │           ├── skills/
+    │           ├── artifact-state/
+    │           │   ├── agents.json
+    │           │   └── skills.json
     │           └── artifacts/
     │               └── plan.md
     ├── development/
@@ -73,6 +93,8 @@ up or recovered atomically.
 | Path | Owner | Contents and rules |
 | --- | --- | --- |
 | `storage-version.json` | `@ableton-agent/storage` | Root layout version only. It is independent of application-data schema versions. |
+| `config/profiles.json` | Profile registry | Versioned visible-profile registry and selected packaged-app profile. Reserved development and automation profiles are hidden. |
+| `system/` | Scoped artifact manager | Editable System Scope agent and skill additions, overrides, and tombstones. Bundled resources remain immutable fallback content. |
 | `config/` | Desktop/application configuration | Validated, non-secret preferences, including the global Off/Concise/Detailed agent reasoning-summary visibility setting. |
 | `state/` | Desktop production-session stores | Validated session and saved Live Set association records. A future move to SQLite remains inside this directory. |
 | `credentials/` | Main process secure store | Ciphertext encrypted through OS-backed facilities. Credentials never enter renderer state, logs, journal payloads, or support bundles. |
@@ -80,6 +102,11 @@ up or recovered atomically.
 | `observability/` | Local observability journal | One profile-wide SQLite journal for cross-session queries, traces, retention, and health. Do not create one journal per production session. |
 | `logs/` | Structured diagnostic logger | Bounded, redacted newline-delimited JSON logs. |
 | `session-state/{production-session-id}/` | Production-session persistence | Bounded ownership manifest plus session-owned artifacts. It links project, active-agent, and SDK-session IDs without duplicating transcripts or journal rows. `artifacts/plan.md` is the single shared planning document for the production session. |
+
+Profile and production-session `agents/`, `skills/`, and `artifact-state/`
+files implement copy-on-write scoped customization.
+Effective resolution is Session, then Profile, then System, then bundled
+fallback. See [Scoped Profiles](scoped-profiles.md).
 
 ## Data that intentionally remains outside the root
 

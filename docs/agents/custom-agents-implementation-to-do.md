@@ -16,6 +16,9 @@ Companion specification: [Custom Agents](custom-agents.md)
   selected native custom agent inherit it so SDK built-ins remain callable.
 - [~] Add Default, Compose, Arrange, Sound, and Mix definitions.
   - [x] Define Default as a general-purpose editing-capable agent.
+- [x] Resolve definitions through bundled, System, Profile, and Session
+      layers with deterministic override metadata and tombstones.
+- [x] Add validated copy, move, delete, and semantic rename primitives.
 
 ## Runtime
 
@@ -52,12 +55,16 @@ Companion specification: [Custom Agents](custom-agents.md)
 ## Desktop
 
 - [ ] Add typed definition and active-agent IPC.
-- [ ] Build the Agents tab and definition diagnostics.
+- [x] Build the Agents tab and definition diagnostics with active-first
+  instance navigation, inactive-definition status, and semantic General,
+  Capabilities, and Connections detail views.
 - [x] Replace the old selector with Active Agent selection.
 - [ ] Partition transcript, activity, approvals, busy state, and cancellation.
 - [ ] Remove mode-specific placeholder panels and prompt prefixes.
 - [x] Add strict local `/yolo` control, unified slash completion, badges,
   effective-policy warning, and layered Settings status.
+- [x] Add typed Profile Manager contracts and a scoped artifact view.
+- [x] Add profile lifecycle and artifact-management main-process actions.
 
 ## Verification
 

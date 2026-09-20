@@ -20,6 +20,53 @@ describe("desktop IPC contracts", () => {
     ).toThrow();
   });
 
+  it("defines a strict close-session request", () => {
+    expect(ipcSchemas["agent:close-session"].request.parse({})).toEqual({});
+    expect(() =>
+      ipcSchemas["agent:close-session"].request.parse({ unexpected: true }),
+    ).toThrow();
+  });
+
+  it("bounds profile and scoped artifact IPC", () => {
+    const revision = "a".repeat(64);
+    expect(
+      ipcSchemas["profiles:create"].request.parse({
+        name: "ambient",
+        expectedRevision: revision,
+      }),
+    ).toEqual({ name: "ambient", expectedRevision: revision });
+    expect(() =>
+      ipcSchemas["profiles:create"].request.parse({
+        name: "../ambient",
+        expectedRevision: revision,
+      }),
+    ).toThrow();
+    expect(
+      ipcSchemas["profiles:switch"].request.parse({
+        name: "ambient",
+        expectedRevision: revision,
+        closeActiveSession: true,
+      }),
+    ).toEqual({
+      name: "ambient",
+      expectedRevision: revision,
+      closeActiveSession: true,
+    });
+    expect(
+      ipcSchemas["profiles:copy-artifact"].request.parse({
+        kind: "skill",
+        name: "evolving-pads",
+        source: { scope: "bundled" },
+        destination: { scope: "profile", profile: "ambient" },
+        expectedRevision: revision,
+      }),
+    ).toMatchObject({
+      kind: "skill",
+      source: { scope: "bundled" },
+      destination: { scope: "profile", profile: "ambient" },
+    });
+  });
+
   it("strictly validates plan artifacts and structured elicitation IPC", () => {
     const instanceId = "00000000-0000-4000-8000-000000000001";
     const revision = "a".repeat(64);

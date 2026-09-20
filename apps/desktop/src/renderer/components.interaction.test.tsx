@@ -112,7 +112,10 @@ function rendererState(active = true): DesktopState {
   };
 }
 
-function desktopApi(overrides: Partial<DesktopApi["agents"]> = {}): DesktopApi {
+function desktopApi(
+  overrides: Partial<DesktopApi["agents"]> = {},
+  profileOverrides: Partial<DesktopApi["profiles"]> = {},
+): DesktopApi {
   return {
     agents: {
       listModels: vi.fn().mockResolvedValue(models),
@@ -123,6 +126,20 @@ function desktopApi(overrides: Partial<DesktopApi["agents"]> = {}): DesktopApi {
       writePlan: vi.fn(),
       resolveElicitation: vi.fn(),
       ...overrides,
+    },
+    profiles: {
+      status: vi.fn().mockResolvedValue({
+        revision: "a".repeat(64),
+        activeProfile: "default",
+        profiles: [
+          {
+            name: "default",
+            active: true,
+            reserved: false,
+          },
+        ],
+      }),
+      ...profileOverrides,
     },
   } as unknown as DesktopApi;
 }
@@ -188,6 +205,17 @@ async function click(container: HTMLElement, label: string): Promise<void> {
   });
 }
 
+async function clickAria(container: HTMLElement, label: string): Promise<void> {
+  const control = container.querySelector<HTMLButtonElement>(
+    `button[aria-label="${label}"]`,
+  );
+  if (control === null) throw new Error(`Button '${label}' not found`);
+  await act(async () => {
+    control.click();
+    await Promise.resolve();
+  });
+}
+
 async function choose(
   container: HTMLElement,
   label: string,
@@ -201,6 +229,16 @@ async function choose(
     select.value = value;
     select.dispatchEvent(new Event("change", { bubbles: true }));
     await Promise.resolve();
+  });
+}
+
+async function replaceText(
+  control: HTMLInputElement | HTMLTextAreaElement,
+  value: string,
+): Promise<void> {
+  await act(async () => {
+    control.setRangeText(value, 0, control.value.length, "end");
+    control.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
 
@@ -256,7 +294,7 @@ describe("desktop component interactions", () => {
     vi.restoreAllMocks();
   });
 
-  it("commits conversation settings, closes the editor, and updates both summaries", async () => {
+  it("commits conversation settings and updates the active detail", async () => {
     const updated = activeAgent({
       model: "model-b",
       reasoningEffort: "xhigh",
@@ -272,7 +310,6 @@ describe("desktop component interactions", () => {
       root.render(<AgentHarness state={rendererState()} />);
       await Promise.resolve();
     });
-    await click(container, "Edit overrides");
     await choose(container, "Model for Default", "model-b");
     await choose(container, "Reasoning for Default", "xhigh");
     await click(container, "Apply conversation settings");
@@ -283,8 +320,10 @@ describe("desktop component interactions", () => {
       reasoningEffort: "xhigh",
     });
     expect(
-      container.querySelector('select[aria-label="Model for Default"]'),
-    ).toBeNull();
+      container.querySelector<HTMLSelectElement>(
+        'select[aria-label="Model for Default"]',
+      )?.value,
+    ).toBe("model-b");
     expect(container.textContent).toContain("Model B · model-b");
     expect(container.textContent).not.toContain("model-b · xhigh");
   });
@@ -302,7 +341,6 @@ describe("desktop component interactions", () => {
       root.render(<AgentHarness state={rendererState()} />);
       await Promise.resolve();
     });
-    await click(container, "Edit overrides");
     await choose(container, "Model for Default", "model-b");
     await choose(container, "Reasoning for Default", "xhigh");
     await click(container, "Apply conversation settings");
@@ -321,7 +359,7 @@ describe("desktop component interactions", () => {
     expect(button(container, "Start fresh Conversation").disabled).toBe(false);
   });
 
-  it("discards unapplied conversation drafts when the editor closes", async () => {
+  it("discards unapplied conversation drafts", async () => {
     const setConversationSettings = vi.fn();
     Object.defineProperty(window, "desktop", {
       configurable: true,
@@ -332,11 +370,9 @@ describe("desktop component interactions", () => {
       root.render(<AgentHarness state={rendererState()} />);
       await Promise.resolve();
     });
-    await click(container, "Edit overrides");
     await choose(container, "Model for Default", "model-b");
     await choose(container, "Reasoning for Default", "xhigh");
-    await click(container, "Close editor");
-    await click(container, "Edit overrides");
+    await click(container, "Discard changes");
 
     expect(setConversationSettings).not.toHaveBeenCalled();
     expect(
@@ -349,6 +385,229 @@ describe("desktop component interactions", () => {
         'select[aria-label="Reasoning for Default"]',
       )?.value,
     ).toBe("high");
+  });
+
+  it("switches semantic detail tabs and preserves per-agent drafts", async () => {
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktopApi(),
+    });
+
+    await act(async () => {
+      root.render(<AgentHarness state={rendererState()} />);
+      await Promise.resolve();
+    });
+    await clickAria(container, "Capabilities");
+    const prompt = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Session prompt for Default"]',
+    );
+    if (prompt === null) throw new Error("Expected session prompt editor");
+    await act(async () => {
+      prompt.setRangeText("Keep this draft", 0, prompt.value.length, "end");
+      prompt.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await clickAria(container, "Connections");
+    expect(
+      container.querySelector(
+        'textarea[aria-label="Input channels for Default"]',
+      ),
+    ).not.toBeNull();
+    await clickAria(container, "Capabilities");
+    expect(
+      container.querySelector<HTMLTextAreaElement>(
+        'textarea[aria-label="Session prompt for Default"]',
+      )?.value,
+    ).toBe("Keep this draft");
+  });
+
+  it("lists active instances first and creates from an inactive definition", async () => {
+    const state = rendererState();
+    state.sessions[0]!.activeAgents.push(
+      activeAgent({
+        id: "00000000-0000-4000-8000-000000000002",
+        label: "Default 2",
+      }),
+    );
+    state.agentCatalog.definitions.push({
+      name: "compose",
+      description: "Composition agent.",
+      systemPrompt: "Compose.",
+      tools: ["*"],
+      resolvedTools: [],
+      editScope: ["session"],
+      skills: [],
+      inputChannels: [],
+      sourceFile: "compose.yaml",
+      fingerprint: "b".repeat(64),
+    });
+    const created = activeAgent({
+      id: "00000000-0000-4000-8000-000000000003",
+      definitionName: "compose",
+      definitionFingerprint: "b".repeat(64),
+      label: "Compose",
+      config: {
+        ...activeAgent().config,
+        description: "Composition agent.",
+        systemPrompt: "Compose.",
+      },
+    });
+    const create = vi.fn().mockResolvedValue(created);
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktopApi({ create }),
+    });
+
+    await act(async () => {
+      root.render(<AgentHarness state={state} />);
+      await Promise.resolve();
+    });
+    const navigationItems = [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        ".agent-navigation-item",
+      ),
+    ];
+    expect(navigationItems.map((item) => item.textContent)).toEqual([
+      "Defaultdefault",
+      "Default 2default",
+      "composeComposition agent.",
+    ]);
+    expect(
+      navigationItems.map((item) =>
+        item
+          .querySelector(".agent-activity-light")
+          ?.classList.contains("is-active"),
+      ),
+    ).toEqual([true, true, false]);
+
+    await act(async () => {
+      navigationItems[2]!.click();
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelector(".agent-detail:not([hidden]) h3")?.textContent,
+    ).toBe("compose");
+    await click(container, "Create agent");
+    expect(create).toHaveBeenCalledWith("compose");
+    expect(
+      container.querySelector(".agent-detail:not([hidden]) h3")?.textContent,
+    ).toBe("Compose");
+  });
+
+  it("saves editable capability and connection fields from one detail workspace", async () => {
+    const configured = activeAgent({
+      config: {
+        ...activeAgent().config,
+        systemPrompt: "Arrange carefully.",
+        tools: ["ableton_session_inspect"],
+        inputChannels: ["midi:keys"],
+      },
+      modified: true,
+    });
+    const configure = vi.fn().mockResolvedValue(configured);
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktopApi({ configure }),
+    });
+
+    await act(async () => {
+      root.render(<AgentHarness state={rendererState()} />);
+      await Promise.resolve();
+    });
+    await clickAria(container, "Capabilities");
+    const prompt = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Session prompt for Default"]',
+    );
+    const tools = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Tool patterns for Default"]',
+    );
+    if (prompt === null || tools === null) {
+      throw new Error("Expected capability editors");
+    }
+    await replaceText(prompt, "Arrange carefully.");
+    await replaceText(tools, "ableton_session_inspect");
+    await clickAria(container, "Connections");
+    const inputs = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Input channels for Default"]',
+    );
+    if (inputs === null) throw new Error("Expected input channel editor");
+    await replaceText(inputs, "midi:keys");
+    await click(container, "Save changes");
+
+    expect(configure).toHaveBeenCalledWith(agentId, {
+      systemPrompt: "Arrange carefully.",
+      tools: ["ableton_session_inspect"],
+      editScope: ["session"],
+      skills: [],
+      inputChannels: ["midi:keys"],
+    });
+  });
+
+  it("keeps capability drafts available when saving overrides fails", async () => {
+    const configure = vi
+      .fn()
+      .mockRejectedValue(new Error("configuration persistence failed"));
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktopApi({ configure }),
+    });
+
+    await act(async () => {
+      root.render(<AgentHarness state={rendererState()} />);
+      await Promise.resolve();
+    });
+    await clickAria(container, "Capabilities");
+    const prompt = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Session prompt for Default"]',
+    );
+    if (prompt === null) throw new Error("Expected capability editor");
+    await replaceText(prompt, "Keep failed draft");
+    await click(container, "Save changes");
+
+    expect(configure).toHaveBeenCalledOnce();
+    expect(
+      container.querySelector<HTMLTextAreaElement>(
+        'textarea[aria-label="Session prompt for Default"]',
+      )?.value,
+    ).toBe("Keep failed draft");
+    expect(button(container, "Save changes").disabled).toBe(false);
+  });
+
+  it("keeps reset confirmation and deactivation scoped to the inspected instance", async () => {
+    const reset = vi.fn().mockResolvedValue(
+      activeAgent({
+        config: {
+          ...activeAgent().config,
+          systemPrompt: "Reset prompt.",
+        },
+      }),
+    );
+    const deactivate = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktopApi({ reset, deactivate }),
+    });
+
+    await act(async () => {
+      root.render(<AgentHarness state={rendererState()} />);
+      await Promise.resolve();
+    });
+    await click(container, "Reset to current definition");
+    expect(reset).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Confirm reset");
+    await click(container, "Keep overrides");
+    expect(container.textContent).not.toContain("Confirm reset");
+    await click(container, "Reset to current definition");
+    await click(container, "Confirm reset");
+    expect(reset).toHaveBeenCalledWith(agentId);
+    await clickAria(container, "Capabilities");
+    expect(
+      container.querySelector<HTMLTextAreaElement>(
+        'textarea[aria-label="Session prompt for Default"]',
+      )?.value,
+    ).toBe("Reset prompt.");
+
+    await click(container, "Deactivate");
+    expect(deactivate).toHaveBeenCalledWith(agentId);
   });
 
   it("does not invoke Agent or Event mutations for stored inactive state", async () => {
@@ -456,6 +715,71 @@ describe("desktop component interactions", () => {
     expect(hydrateHistory).toHaveBeenCalledWith(agentId);
   });
 
+  it("renders the composer only in Workspace and preserves its draft", async () => {
+    const state = rendererState();
+    const desktop = {
+      lifecycle: { get: vi.fn().mockResolvedValue("ready") },
+      ableton: {
+        getStatus: vi.fn().mockResolvedValue({ state: "disconnected" }),
+      },
+      preferences: {
+        get: vi.fn().mockResolvedValue(initialState.preferences),
+      },
+      agent: { getSessions: vi.fn().mockResolvedValue(state.sessions) },
+      agents: {
+        getCatalog: vi.fn().mockResolvedValue(state.agentCatalog),
+        hydrateHistory: vi.fn().mockResolvedValue([]),
+        readPlan: vi.fn().mockResolvedValue({
+          exists: false,
+          productionSessionId: sessionId,
+        }),
+        listModels: vi.fn().mockResolvedValue(models),
+      },
+      outputs: {
+        list: vi.fn().mockResolvedValue({
+          ...initialState.outputs,
+          activeSessionId: sessionId,
+        }),
+      },
+      events: {
+        list: vi.fn().mockResolvedValue(initialState.events),
+        subscribe: vi.fn(() => vi.fn()),
+      },
+    } as unknown as DesktopApi;
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktop,
+    });
+
+    await act(async () => {
+      root.render(<App />);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const prompt = container.querySelector<HTMLTextAreaElement>("#prompt");
+    if (prompt === null) throw new Error("Expected Workspace composer");
+    await replaceText(prompt, "Preserve this workspace draft");
+
+    for (const view of ["Agents", "Outputs", "Events", "Settings"]) {
+      await click(container, view);
+      expect(container.querySelector("#prompt")).toBeNull();
+    }
+
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "k", metaKey: true }),
+      );
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+    expect(container.querySelector<HTMLTextAreaElement>("#prompt")?.value).toBe(
+      "Preserve this workspace draft",
+    );
+    expect(document.activeElement).toBe(
+      container.querySelector<HTMLTextAreaElement>("#prompt"),
+    );
+  });
+
   it("reloads the shared plan when returning to a production session", async () => {
     let publish!: (event: DesktopAppEvent) => void;
     const secondAgentId = "00000000-0000-4000-8000-000000000002";
@@ -539,6 +863,64 @@ describe("desktop component interactions", () => {
     expect(container.textContent).toContain("First plan");
   });
 
+  it("waits for an actionable lifecycle before loading the shared plan", async () => {
+    let publish!: (event: DesktopAppEvent) => void;
+    const state = rendererState();
+    const readPlan = vi.fn().mockResolvedValue({
+      exists: false,
+      productionSessionId: sessionId,
+    });
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: {
+        lifecycle: { get: vi.fn().mockResolvedValue("starting") },
+        ableton: {
+          getStatus: vi.fn().mockResolvedValue({ state: "disconnected" }),
+        },
+        preferences: {
+          get: vi.fn().mockResolvedValue(initialState.preferences),
+        },
+        agent: { getSessions: vi.fn().mockResolvedValue(state.sessions) },
+        agents: {
+          getCatalog: vi.fn().mockResolvedValue(state.agentCatalog),
+          hydrateHistory: vi.fn().mockResolvedValue([]),
+          readPlan,
+        },
+        outputs: { list: vi.fn().mockResolvedValue(initialState.outputs) },
+        events: {
+          list: vi.fn().mockResolvedValue(initialState.events),
+          subscribe: vi.fn((listener: (event: DesktopAppEvent) => void) => {
+            publish = listener;
+            return vi.fn();
+          }),
+        },
+      },
+    });
+
+    await act(async () => {
+      root.render(<App />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      publish({
+        type: "session.context_restored",
+        session: state.sessions[0]!,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(readPlan).not.toHaveBeenCalled();
+
+    await act(async () => {
+      publish({ type: "lifecycle.changed", state: "ready" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(readPlan).toHaveBeenCalledOnce();
+    expect(readPlan).toHaveBeenCalledWith(agentId);
+  });
+
   it("opens the selected Agent Inspector for a plan event and submits feedback", async () => {
     let publish!: (event: DesktopAppEvent) => void;
     const resolvePlan = vi.fn().mockResolvedValue(true);
@@ -595,6 +977,8 @@ describe("desktop component interactions", () => {
       container.querySelector<HTMLElement>('[aria-label="Inspector workspace"]')
         ?.hidden,
     ).toBe(true);
+    await click(container, "Agents");
+    expect(container.querySelector("#prompt")).toBeNull();
 
     await act(async () => {
       publish({
@@ -626,6 +1010,9 @@ describe("desktop component interactions", () => {
       });
       await Promise.resolve();
     });
+    expect(button(container, "Workspace").classList.contains("selected")).toBe(
+      true,
+    );
     expect(
       container.querySelector<HTMLElement>('[aria-label="Inspector workspace"]')
         ?.hidden,
@@ -1177,5 +1564,42 @@ describe("desktop component interactions", () => {
     expect(workspace.style.getPropertyValue("--project-sidebar-width")).toBe(
       "330px",
     );
+  });
+  it("confirms and closes the active session when switching profiles", async () => {
+    const switchProfile = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktopApi(
+        {},
+        {
+          status: vi.fn().mockResolvedValue({
+            revision: "b".repeat(64),
+            activeProfile: "default",
+            activeSessionId: sessionId,
+            profiles: [
+              { name: "default", active: true, reserved: false },
+              { name: "ambient", active: false, reserved: false },
+            ],
+          }),
+          switch: switchProfile,
+        },
+      ),
+    });
+    const state = rendererState();
+    await act(async () => {
+      root.render(<AgentHarness state={state} />);
+    });
+
+    await choose(container, "Active Profile", "ambient");
+    expect(container.textContent).toContain(
+      "The active session will be saved and closed",
+    );
+    await act(async () =>
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Switch")
+        ?.click(),
+    );
+
+    expect(switchProfile).toHaveBeenCalledWith("ambient", "b".repeat(64), true);
   });
 });

@@ -20,8 +20,9 @@ typed service calls, and sessions use explicit create/resume operations.
 ## Core workspace
 
 - [x] Replace the obsolete workflow switcher with Active Agent selection.
-- [~] Add an Agents tab with definition discovery and diagnostics.
-- [ ] Add active-agent creation, editing, reset, deactivate, and modified state.
+- [x] Add an Agents tab with definition discovery, diagnostics, active-first
+  navigation, and semantic icon-based detail views.
+- [x] Add active-agent creation, editing, reset, deactivate, and modified state.
 - [x] Build application shell, connection header, and active-agent selector
   without redundant SDK/model-default status.
 - [x] Add transient independent Project/Inspector sidebars and combined
@@ -34,6 +35,8 @@ typed service calls, and sessions use explicit create/resume operations.
   context switch, and retain subtle edge controls for sidebar visibility.
 - [x] Build a compact chat composer with explicit context chips, a text mode
   control, and circular semantic send/stop actions.
+- [x] Keep the chat composer exclusive to Workspace so management and
+  diagnostic tabs use their full content height.
 - [x] Add per-active-agent plan mode with `/plan`, Shift+Tab toggling, composer
   mode status, and mode-attributed sends.
 - [x] Propagate and attribute the selected mode for automation-originated

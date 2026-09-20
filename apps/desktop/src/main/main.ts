@@ -553,11 +553,12 @@ async function bootstrap(): Promise<void> {
     getActiveProfile: () => storage.profile,
     getActiveSessionId: async () =>
       (await requireService().listOutputs()).activeSessionId,
+    persistActiveSession: async () => requireService().persistActiveSession(),
     closeActiveSession: async () => {
       await requireService().closeSession();
     },
     refreshActiveCatalog: async () => {
-      await requireService().refreshAgentCatalog();
+      return requireService().refreshAgentCatalog();
     },
     switchProfile: switchDesktopProfile,
     telemetry: (event) => composition?.telemetry.enqueue(event),

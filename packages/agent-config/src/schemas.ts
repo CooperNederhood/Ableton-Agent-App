@@ -222,6 +222,15 @@ export const agentEventListenerSchema = z.object({
 });
 export type AgentEventListener = z.infer<typeof agentEventListenerSchema>;
 
+export const agentReasoningEffortSchema = z.enum([
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
+export type AgentReasoningEffort = z.infer<typeof agentReasoningEffortSchema>;
+
 export const agentDefinitionNameSchema = z
   .string()
   .regex(
@@ -282,8 +291,7 @@ export const editScopeSchema = z
     }
   });
 
-export const agentDefinitionSchema = z.object({
-  version: z.literal(1),
+const agentDefinitionCoreSchema = z.object({
   name: agentDefinitionNameSchema,
   description: z.string().trim().min(1).max(512),
   systemPrompt: z.string().trim().min(1).max(64_000),
@@ -294,6 +302,65 @@ export const agentDefinitionSchema = z.object({
     .array(z.string().trim().min(1).max(MAX_AGENT_ASSIGNMENT_COMPONENT_LENGTH))
     .max(256),
 });
+
+const versionOneAgentDefinitionSchema = agentDefinitionCoreSchema.extend({
+  version: z.literal(1),
+});
+
+export const currentAgentDefinitionSchema = agentDefinitionCoreSchema
+  .extend({
+    version: z.literal(2),
+    label: z.string().trim().min(1).max(128),
+    model: z.string().trim().min(1).max(256).nullable(),
+    reasoningEffort: agentReasoningEffortSchema.nullable(),
+    autoApprove: z.boolean(),
+    eventListeners: z
+      .array(agentEventListenerSchema)
+      .max(MAX_EVENT_LISTENERS_PER_AGENT),
+  })
+  .superRefine((definition, context) => {
+    const listenerIds = definition.eventListeners.map(({ id }) => id);
+    if (new Set(listenerIds).size !== listenerIds.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["eventListeners"],
+        message: "Agent event listener IDs must be unique",
+      });
+    }
+    const eventIds = definition.eventListeners.map(({ eventId }) => eventId);
+    if (new Set(eventIds).size !== eventIds.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["eventListeners"],
+        message: "An agent definition may listen to each Live event once",
+      });
+    }
+  });
+export type CurrentAgentDefinition = z.infer<
+  typeof currentAgentDefinitionSchema
+>;
+
+export function defaultAgentDefinitionLabel(name: string): string {
+  return name === "default"
+    ? "Default"
+    : `${name[0]?.toUpperCase() ?? ""}${name.slice(1)}`;
+}
+
+export const agentDefinitionSchema = z
+  .union([versionOneAgentDefinitionSchema, currentAgentDefinitionSchema])
+  .transform((definition): CurrentAgentDefinition =>
+    definition.version === 2
+      ? definition
+      : {
+          ...definition,
+          version: 2,
+          label: defaultAgentDefinitionLabel(definition.name),
+          model: null,
+          reasoningEffort: null,
+          autoApprove: false,
+          eventListeners: [],
+        },
+  );
 export type AgentDefinition = z.infer<typeof agentDefinitionSchema>;
 
 export const skillMetadataSchema = z.object({
@@ -342,21 +409,12 @@ export const outputSubscriptionSchema = z.object({
 });
 export type OutputSubscription = z.infer<typeof outputSubscriptionSchema>;
 
-export const activeAgentConfigSchema = agentDefinitionSchema
-  .omit({ version: true, name: true })
+export const activeAgentConfigSchema = agentDefinitionCoreSchema
+  .omit({ name: true })
   .extend({
     resolvedTools: z.array(z.string().min(1)).max(256),
   });
 export type ActiveAgentConfig = z.infer<typeof activeAgentConfigSchema>;
-
-export const agentReasoningEffortSchema = z.enum([
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-]);
-export type AgentReasoningEffort = z.infer<typeof agentReasoningEffortSchema>;
 
 export const activeAgentInstanceSchema = z.object({
   id: z.string().uuid(),

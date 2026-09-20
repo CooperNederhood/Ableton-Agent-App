@@ -11,6 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import {
+  basename,
   dirname,
   extname,
   isAbsolute,
@@ -19,11 +20,13 @@ import {
   resolve,
 } from "node:path";
 
-import { parseDocument } from "yaml";
+import { parseDocument, stringify } from "yaml";
 
 import {
   agentDefinitionNameSchema,
   agentDefinitionSchema,
+  currentAgentDefinitionSchema,
+  type AgentDefinition,
   skillNameSchema,
 } from "./schemas.js";
 
@@ -181,6 +184,14 @@ async function artifactPath(
   return kind === "agent"
     ? findAgent(directory, name)
     : findSkill(directory, name);
+}
+
+export async function resolveArtifactPathInScope(options: {
+  kind: MutableArtifactKind;
+  directory: string;
+  name: string;
+}): Promise<string | undefined> {
+  return artifactPath(options.kind, options.directory, options.name);
 }
 
 async function hashArtifact(
@@ -465,6 +476,53 @@ export async function renameAgentInScope(options: {
     throw error;
   }
   return destination;
+}
+
+export async function replaceAgentDefinitionInScope(options: {
+  readonly agentsDirectory: string;
+  readonly definition: AgentDefinition;
+  readonly validatePublishedCatalog: () => Promise<void>;
+}): Promise<{ path: string; fingerprint: string }> {
+  const definition = currentAgentDefinitionSchema.parse(options.definition);
+  await assertPhysicalDirectory(options.agentsDirectory);
+  const existing = await findAgent(options.agentsDirectory, definition.name);
+  const destination =
+    existing ?? join(options.agentsDirectory, `${definition.name}.yaml`);
+  assertWithin(options.agentsDirectory, destination);
+  if (existing === undefined && (await pathExists(destination))) {
+    throw new Error(
+      `Artifact path '${basename(destination)}' is already occupied by another or invalid definition`,
+    );
+  }
+  const staged = `${destination}.${randomUUID()}.staged`;
+  const backup = `${destination}.${randomUUID()}.backup`;
+  const content = stringify(definition, { lineWidth: 0 });
+  let backedUp = false;
+  let published = false;
+  try {
+    await writeFile(staged, content, {
+      encoding: "utf8",
+      mode: 0o600,
+      flag: "wx",
+    });
+    if (existing !== undefined) {
+      await rename(existing, backup);
+      backedUp = true;
+    }
+    await rename(staged, destination);
+    published = true;
+    await options.validatePublishedCatalog();
+    if (backedUp) await rm(backup, { force: true });
+    return {
+      path: destination,
+      fingerprint: fingerprint(Buffer.from(content, "utf8")),
+    };
+  } catch (error) {
+    if (published) await rm(destination, { force: true });
+    if (backedUp) await rename(backup, destination);
+    await rm(staged, { force: true });
+    throw error;
+  }
 }
 
 export async function deleteArtifact(options: {

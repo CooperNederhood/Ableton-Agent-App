@@ -1370,6 +1370,18 @@ describe("desktop components", () => {
                 sourceFile: "default.yaml",
                 fingerprint: "b".repeat(64),
               },
+              {
+                name: "compose",
+                description: "Composition-focused Ableton agent.",
+                systemPrompt: "Develop musical ideas.",
+                tools: ["ableton_*"],
+                resolvedTools: ["ableton_session_inspect"],
+                editScope: ["session"],
+                skills: [],
+                inputChannels: [],
+                sourceFile: "compose.yaml",
+                fingerprint: "c".repeat(64),
+              },
             ],
             skills: [],
             diagnostics: [
@@ -1386,26 +1398,27 @@ describe("desktop components", () => {
     );
 
     expect(html).toContain("General-purpose Ableton agent.");
-    expect(html).toContain("Defined");
-    expect(html).toContain("Active agents");
+    expect(html).toContain('aria-label="Active agent"');
+    expect(html).toContain('aria-label="Inactive agent"');
+    expect(html).toContain('aria-label="General"');
+    expect(html).toContain('aria-label="Capabilities"');
+    expect(html).toContain('aria-label="Connections"');
     expect(html).toContain("Selected");
     expect(html).toContain("Modified");
-    expect(html).toContain("ableton_transport_get");
-    expect(html).toContain("mix-review");
-    expect(html).toContain("midi:drums");
-    expect(html).toContain("retired-model · unavailable");
-    expect(html).toContain(">max<");
+    expect(html).toContain("retired-model (unavailable)");
+    expect(html).toContain("max (unavailable)");
     expect(html).toContain("Loading Copilot models");
-    expect(html).toContain("Full session");
     expect(html).toContain("default.yaml");
     expect(html).toContain("newer definition available");
     expect(html).toContain("Definition diagnostics");
     expect(html).toContain("broken.yaml: Missing system prompt");
-    expect(html).toContain("Edit overrides");
+    expect(html).toContain("Save Session definition");
     expect(html).toContain("Reset to current definition");
     expect(html).toContain("Deactivate");
     expect(html).toContain("Open");
+    expect(html).toContain("Create another");
     expect(html).toContain("Create agent");
+    expect(html.indexOf("Default")).toBeLessThan(html.indexOf("compose"));
   });
 
   it("renders atomic model and reasoning settings with bounded live options", () => {
@@ -1511,15 +1524,12 @@ describe("desktop components", () => {
     expect(reasoningEffortForDraftModel("fixed", "xhigh", models)).toBe("");
   });
 
-  it("renders per-agent Listening Events summaries and editor states", () => {
+  it("renders per-agent Listening Events editor states", () => {
     const state = workspaceState();
     state.events = {
       activeSessionId: "session",
       events: liveEventStates(),
     };
-    const html = renderToStaticMarkup(
-      <AgentsView state={state} dispatch={vi.fn()} />,
-    );
     const editor = renderToStaticMarkup(
       <ListeningEventsEditor
         agentInstanceId={firstAgentId}
@@ -1529,8 +1539,6 @@ describe("desktop components", () => {
       />,
     );
 
-    expect(html).toContain("Keys clip · Automatic");
-    expect(html).toContain("Keys clip · Next prompt (listener disabled)");
     expect(editor).toContain("Keys clip");
     expect(editor).toContain("Vocal recording");
     expect(editor).toContain("Event disabled");
@@ -1653,7 +1661,6 @@ describe("desktop components", () => {
     );
 
     expect(loading).toContain("Loading active agents");
-    expect(empty).toContain("No active agents");
     expect(empty).toContain("No valid agents found");
   });
 

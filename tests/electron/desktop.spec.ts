@@ -71,16 +71,14 @@ test("launches the packaged desktop contract securely", async () => {
     await composer.fill("Keep this draft");
     await window.getByRole("button", { name: "Events" }).click();
     await expect(window.getByRole("heading", { name: "Events" })).toBeVisible();
+    await expect(composer).toHaveCount(0);
 
     await window.getByRole("button", { name: "Agents" }).click();
     await expect(
       window.getByRole("heading", { name: "Agents", exact: true }),
     ).toBeVisible();
-    const editOverrides = window.getByRole("button", {
-      name: "Edit overrides",
-    });
-    await expect(editOverrides.first()).toBeVisible();
-    await editOverrides.first().click();
+    await expect(composer).toHaveCount(0);
+    await window.getByRole("tab", { name: "Connections" }).first().click();
     await expect(
       window.getByRole("group", { name: "Listening Events" }).first(),
     ).toBeVisible();
@@ -94,6 +92,7 @@ test("launches the packaged desktop contract securely", async () => {
     await expect(
       window.getByRole("heading", { name: "Profiles", exact: true }),
     ).toBeVisible();
+    await expect(composer).toHaveCount(0);
     await expect(
       window.getByRole("heading", { name: "System", exact: true }),
     ).toBeVisible();
@@ -144,7 +143,13 @@ test("launches the packaged desktop contract securely", async () => {
     await expect(reasoningVisibility).toHaveValue("concise");
     await reasoningVisibility.selectOption("detailed");
     await expect(reasoningVisibility).toHaveValue("detailed");
+    await expect(composer).toHaveCount(0);
     await window.keyboard.press(`${shortcutModifier}+k`);
+    await expect(
+      window.getByRole("region", {
+        name: "Conversation and operation timeline",
+      }),
+    ).toBeVisible();
     await expect(composer).toBeEnabled();
     await expect(composer).toBeFocused();
     await expect(composer).toHaveValue("Keep this draft");

@@ -55,6 +55,7 @@ function defaultCatalog(): DesktopAgentCatalog {
     definitions: [
       {
         name: "default",
+        label: "Default",
         description: "General-purpose Ableton agent.",
         systemPrompt: "Help with Ableton.",
         tools: ["*"],
@@ -62,6 +63,13 @@ function defaultCatalog(): DesktopAgentCatalog {
         editScope: ["session"],
         skills: [],
         inputChannels: [],
+        model: null,
+        reasoningEffort: null,
+        autoApprove: false,
+        eventListeners: [],
+        origin: "bundled",
+        inherited: false,
+        overrides: [],
         sourceFile: "default.yaml",
         fingerprint: "a".repeat(64),
       },
@@ -1053,7 +1061,7 @@ describe("desktop adapter over the shared application", () => {
     const reset = await service.resetActiveAgent(second.id);
     expect(reset).toMatchObject({
       id: second.id,
-      label: "Drum specialist",
+      label: "Default",
       definitionFingerprint: "b".repeat(64),
       modified: false,
       config: { systemPrompt: "Use the refreshed definition." },
@@ -1072,8 +1080,18 @@ describe("desktop adapter over the shared application", () => {
 
   it("changes one agent model and reasoning with a fresh session while preserving instance state", async () => {
     const liveEvents = new FakeLiveEventRuntime();
+    const catalog = defaultCatalog();
     const { service, agent, approvals, sharedEvents, sessionStore, events } =
-      await harness({}, { liveEvents });
+      await harness(
+        {},
+        {
+          liveEvents,
+          agentCatalog: {
+            current: catalog,
+            refresh: () => Promise.resolve(catalog),
+          },
+        },
+      );
     agent.models = [agentModel("model-a"), agentModel("model-b")];
     await service.start();
     const original = (await service.listActiveAgents())[0]!;
@@ -1173,12 +1191,33 @@ describe("desktop adapter over the shared application", () => {
       triggerHistory: [],
     });
 
+    Object.assign(catalog.definitions[0]!, {
+      label: "Updated default",
+      fingerprint: "b".repeat(64),
+      model: "model-b",
+      reasoningEffort: "low",
+      autoApprove: false,
+      eventListeners: before.eventListeners,
+    });
     const reset = await service.resetActiveAgent(original.id);
-    expect(reset.model).toBe("model-a");
-    expect(reset.reasoningEffort).toBe("high");
-    expect(agent.managedConfigurations.get(original.id)?.model).toBe("model-a");
+    expect(reset).toMatchObject({
+      label: "Updated default",
+      definitionFingerprint: "b".repeat(64),
+      model: "model-b",
+      reasoningEffort: "low",
+      autoApprove: false,
+    });
+    expect(reset.eventListeners).toHaveLength(before.eventListeners.length);
+    expect(reset.eventListeners[0]).toMatchObject({
+      eventId: before.eventListeners[0]!.eventId,
+      enabled: before.eventListeners[0]!.enabled,
+      responseMode: before.eventListeners[0]!.responseMode,
+      messagePrefix: before.eventListeners[0]!.messagePrefix,
+    });
+    expect(reset.eventListeners[0]!.id).not.toBe(before.eventListeners[0]!.id);
+    expect(agent.managedConfigurations.get(original.id)?.model).toBe("model-b");
     expect(agent.managedConfigurations.get(original.id)?.reasoningEffort).toBe(
-      "high",
+      "low",
     );
     await service.stop();
   });
@@ -1424,7 +1463,7 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
-  it("persists per-instance auto approval, preserves reset state, and publishes effective IDs", async () => {
+  it("persists per-instance auto approval and reset adopts definition state", async () => {
     const published: string[][] = [];
     const { service, sessionStore, preferencesStore, events } = await harness(
       {},
@@ -1456,7 +1495,7 @@ describe("desktop adapter over the shared application", () => {
     await service.configureActiveAgent(first!.id, {
       systemPrompt: "Temporary prompt",
     });
-    expect((await service.resetActiveAgent(first!.id)).autoApprove).toBe(true);
+    expect((await service.resetActiveAgent(first!.id)).autoApprove).toBe(false);
 
     await service.setAutoApproval("all", true);
     expect(published.at(-1)).toEqual([first!.id, second.id].sort());
@@ -3018,6 +3057,50 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
 
     await expect(sessionStore.load()).resolves.toEqual([]);
+  });
+
+  it("persists an unsaved Live Set session when Session Scope is requested", async () => {
+    const directory = await temporaryDirectory();
+    const ableton = defaultFakeState();
+    ableton.projectIdentity = {
+      projectId: "untitled-name-hash",
+      projectName: "Untitled",
+      saved: false,
+    };
+    const fake = createFakeApplication({ ableton });
+    const sessionStore = new JsonSessionStore(join(directory, "sessions.json"));
+    const service = new HeadlessDesktopService({
+      application: fake.application,
+      approvals: new ApprovalCoordinator(),
+      preferencesStore: new JsonPreferencesStore(
+        join(directory, "preferences.json"),
+      ),
+      sessionStore,
+      projectSessionStore: new JsonProjectSessionStore(
+        join(directory, "project-sessions.json"),
+      ),
+      agentCatalog: {
+        current: defaultCatalog(),
+        refresh: () => Promise.resolve(defaultCatalog()),
+      },
+    });
+    const events: DesktopAppEvent[] = [];
+    service.subscribe((event) => events.push(event));
+
+    await service.start();
+    const active = await service.persistActiveSession();
+    await service.stop();
+
+    const persisted = await sessionStore.load();
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]).toMatchObject({ id: active.id });
+    expect(persisted[0]).not.toHaveProperty("projectId");
+    expect(
+      [...events].reverse().find(({ type }) => type === "sessions.changed"),
+    ).toMatchObject({
+      type: "sessions.changed",
+      activeSessionId: active.id,
+    });
   });
 
   it("requests a decision when the open Live Set changes mid-run", async () => {

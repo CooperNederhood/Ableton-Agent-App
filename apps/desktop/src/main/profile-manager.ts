@@ -1,20 +1,21 @@
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, rename, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   compareArtifacts,
   copyArtifact,
   deleteArtifact,
   disableArtifact,
-  loadAgentCatalog,
   loadLayeredAgentCatalog,
   moveArtifact,
+  replaceAgentDefinitionInScope,
   readArtifactTombstones,
   renameAgentInScope,
   renameSkillInScope,
+  resolveArtifactPathInScope,
   restoreArtifact,
-  type AgentCatalog,
   type LayeredAgentCatalog,
 } from "@ableton-agent/agent-config";
 import {
@@ -45,8 +46,10 @@ import {
   type DesktopArtifactLocation,
   type DesktopArtifactMutationResult,
   type DesktopArtifactScope,
+  type DesktopAgentCatalog,
   type DesktopProfileManagerSnapshot,
   type DesktopScopedArtifact,
+  type DesktopSession,
 } from "../contracts.js";
 import type { ProfileManagerActions } from "./ipc.js";
 
@@ -68,6 +71,7 @@ type TelemetryWriter = (event: {
   outcome?: "success" | "failure" | "cancelled";
   durationMs?: number;
   correlationId: string;
+  causationId?: string;
   trace: {
     traceId: string;
     spanId: string;
@@ -83,11 +87,14 @@ export interface ProfileManagerOptions {
   readonly environmentProfileOverride?: string;
   readonly getActiveProfile: () => string;
   readonly getActiveSessionId: () => Promise<string | undefined>;
+  readonly persistActiveSession: () => Promise<DesktopSession>;
   readonly closeActiveSession: () => Promise<void>;
-  readonly refreshActiveCatalog: () => Promise<void>;
+  readonly refreshActiveCatalog: () => Promise<DesktopAgentCatalog>;
   readonly switchProfile: (profile: string) => Promise<void>;
   readonly telemetry?: TelemetryWriter;
 }
+
+class ProfileOperationCancelledError extends Error {}
 
 function fingerprint(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -208,34 +215,19 @@ async function ensureScope(paths: ArtifactScopePaths): Promise<void> {
   ]);
 }
 
-async function localCatalog(paths: ArtifactScopePaths): Promise<AgentCatalog> {
-  await ensureScope(paths);
-  return loadAgentCatalog({
-    agentsDirectory: paths.agentsDirectory,
-    skillsDirectory: paths.skillsDirectory,
-    availableTools,
-  });
-}
-
 async function physicalArtifact(
   kind: DesktopArtifactKind,
   directory: ArtifactScopePaths,
   name: string,
   ensureDirectories = true,
 ): Promise<string | undefined> {
-  const catalog = ensureDirectories
-    ? await localCatalog(directory)
-    : await loadAgentCatalog({
-        agentsDirectory: directory.agentsDirectory,
-        skillsDirectory: directory.skillsDirectory,
-        availableTools,
-      });
-  if (kind === "agent") {
-    return catalog.agents.find(({ definition }) => definition.name === name)
-      ?.sourcePath;
-  }
-  return catalog.skills.find(({ metadata }) => metadata.name === name)
-    ?.directory;
+  if (ensureDirectories) await ensureScope(directory);
+  return resolveArtifactPathInScope({
+    kind,
+    directory:
+      kind === "agent" ? directory.agentsDirectory : directory.skillsDirectory,
+    name,
+  });
 }
 
 function sourceDescription(
@@ -252,9 +244,12 @@ export class DesktopProfileManager implements ProfileManagerActions {
     selectedProfile?: string,
   ): Promise<DesktopProfileManagerSnapshot> {
     const registry = await loadProfileRegistry(this.options.rootLayout);
+    const activeProfile = this.options.getActiveProfile();
     const selected =
       selectedProfile !== undefined &&
-      registry.profiles.some(({ name }) => name === selectedProfile)
+      (registry.profiles.some(({ name }) => name === selectedProfile) ||
+        (this.options.environmentProfileOverride !== undefined &&
+          selectedProfile === activeProfile))
         ? selectedProfile
         : registry.selectedProfile;
     return this.#snapshot(registry, selected);
@@ -289,6 +284,138 @@ export class DesktopProfileManager implements ProfileManagerActions {
           : [{ name: activeProfile, active: true, reserved: true }]),
       ],
     });
+  }
+
+  public async saveAgentDefinition({
+    definition,
+    expectedRevision,
+    expectedFingerprint,
+  }: Parameters<ProfileManagerActions["saveAgentDefinition"]>[0]) {
+    return this.#artifactOperation(
+      "save-definition",
+      "agent",
+      definition.name,
+      async () => {
+        const activeProfile = this.options.getActiveProfile();
+        let snapshot: DesktopProfileManagerSnapshot;
+        try {
+          snapshot = await this.#assertRevision(
+            expectedRevision,
+            activeProfile,
+          );
+        } catch (error) {
+          throw new ProfileOperationCancelledError(
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        const sessionId = snapshot.activeSessionId;
+        if (sessionId === undefined) {
+          throw new Error("An active persisted production session is required");
+        }
+        const selectedLayout = resolveLiveAgentStorage({
+          environment: { LIVE_AGENT_HOME: this.options.rootLayout.root },
+          profile: snapshot.activeProfile,
+        });
+        let session = (await readSessions(selectedLayout)).find(
+          ({ id }) => id === sessionId,
+        );
+        if (session === undefined) {
+          session = await this.options.persistActiveSession();
+          if (session.id !== sessionId) {
+            throw new Error(
+              "The active production session changed during save",
+            );
+          }
+        }
+        const eventIds = new Set(session.liveEvents.map(({ id }) => id));
+        const unknownEventIds = definition.eventListeners
+          .map(({ eventId }) => eventId)
+          .filter((eventId) => !eventIds.has(eventId));
+        if (unknownEventIds.length > 0) {
+          throw new Error(
+            `Agent event listeners reference unknown events: ${[...new Set(unknownEventIds)].join(", ")}`,
+          );
+        }
+        const sessionPaths = resolveArtifactScopePaths(
+          selectedLayout,
+          "session",
+          sessionId,
+        );
+        await ensureScope(sessionPaths);
+        const bundled = {
+          agentsDirectory: this.options.bundledAgentsDirectory,
+          skillsDirectory: this.options.bundledSkillsDirectory,
+        };
+        const system = resolveArtifactScopePaths(selectedLayout, "system");
+        const profile = resolveArtifactScopePaths(selectedLayout, "profile");
+        const load = () =>
+          loadLayeredAgentCatalog({
+            bundled,
+            system: layer(system),
+            profile: layer(profile),
+            session: layer(sessionPaths),
+            availableTools,
+          });
+        const current = (await load()).agents.find(
+          ({ definition: candidate }) => candidate.name === definition.name,
+        );
+        if (current === undefined) {
+          throw new Error(
+            `Agent definition '${definition.name}' does not exist`,
+          );
+        }
+        if (current.fingerprint !== expectedFingerprint) {
+          throw new ProfileOperationCancelledError(
+            "Agent definition changed; refresh before trying again",
+          );
+        }
+        try {
+          await this.#assertSnapshotUnchanged(snapshot);
+        } catch (error) {
+          throw new ProfileOperationCancelledError(
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        let result:
+          | {
+              catalog: DesktopAgentCatalog;
+              profileSnapshot: DesktopProfileManagerSnapshot;
+            }
+          | undefined;
+        try {
+          await replaceAgentDefinitionInScope({
+            agentsDirectory: sessionPaths.agentsDirectory,
+            definition: definition,
+            validatePublishedCatalog: async () => {
+              const validated = await load();
+              const saved = validated.agents.find(
+                ({ definition: candidate }) =>
+                  candidate.name === definition.name,
+              );
+              if (
+                saved?.origin !== "session" ||
+                !isDeepStrictEqual(saved.definition, definition)
+              ) {
+                throw new Error(
+                  `Saved agent definition '${definition.name}' did not resolve from Session Scope`,
+                );
+              }
+              result = {
+                catalog: await this.options.refreshActiveCatalog(),
+                profileSnapshot: await this.get(snapshot.activeProfile),
+              };
+            },
+          });
+        } catch (error) {
+          await this.options.refreshActiveCatalog().catch(() => undefined);
+          throw error;
+        }
+        if (result === undefined) {
+          throw new Error("Agent definition save did not produce a snapshot");
+        }
+        return result;
+      },
+    );
   }
 
   public async create({
@@ -919,11 +1046,17 @@ export class DesktopProfileManager implements ProfileManagerActions {
   async #registryRevision(
     snapshot: DesktopProfileManagerSnapshot,
   ): Promise<number> {
+    await this.#assertSnapshotUnchanged(snapshot);
+    return (await loadProfileRegistry(this.options.rootLayout)).revision;
+  }
+
+  async #assertSnapshotUnchanged(
+    snapshot: DesktopProfileManagerSnapshot,
+  ): Promise<void> {
     const current = await this.get(snapshot.selectedProfile);
     if (current.revision !== snapshot.revision) {
       throw new Error("Profile Manager changed; refresh before trying again");
     }
-    return (await loadProfileRegistry(this.options.rootLayout)).revision;
   }
 
   async #profileOperation<T>(
@@ -956,27 +1089,39 @@ export class DesktopProfileManager implements ProfileManagerActions {
     const traceId = randomUUID();
     const correlationId = randomUUID();
     const rootSpanId = randomUUID();
-    this.#record(`${name}.queued`, traceId, rootSpanId, correlationId, {
-      ...attributes,
-      active_profile: this.options.getActiveProfile(),
-    });
+    const queuedId = this.#record(
+      `${name}.queued`,
+      traceId,
+      rootSpanId,
+      correlationId,
+      {
+        ...attributes,
+        active_profile: this.options.getActiveProfile(),
+      },
+    );
     const startedSpanId = randomUUID();
-    this.#record(
+    const startedId = this.#record(
       `${name}.started`,
       traceId,
       startedSpanId,
       correlationId,
       attributes,
       rootSpanId,
+      undefined,
+      undefined,
+      queuedId,
     );
     try {
-      this.#record(
+      const progressId = this.#record(
         `${name}.progress`,
         traceId,
         randomUUID(),
         correlationId,
         { ...attributes, phase: "validating" },
         startedSpanId,
+        undefined,
+        undefined,
+        startedId,
       );
       const result = await action();
       if (
@@ -994,6 +1139,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
           startedSpanId,
           "cancelled",
           Date.now() - startedAt,
+          progressId,
         );
         return result;
       }
@@ -1006,11 +1152,12 @@ export class DesktopProfileManager implements ProfileManagerActions {
         startedSpanId,
         "success",
         Date.now() - startedAt,
+        progressId,
       );
       return result;
     } catch (error) {
       this.#record(
-        `${name}.failed`,
+        `${name}.${error instanceof ProfileOperationCancelledError ? "cancelled" : "failed"}`,
         traceId,
         randomUUID(),
         correlationId,
@@ -1022,8 +1169,11 @@ export class DesktopProfileManager implements ProfileManagerActions {
               : String(error).slice(0, 512),
         },
         startedSpanId,
-        "failure",
+        error instanceof ProfileOperationCancelledError
+          ? "cancelled"
+          : "failure",
         Date.now() - startedAt,
+        startedId,
       );
       throw error;
     }
@@ -1038,10 +1188,12 @@ export class DesktopProfileManager implements ProfileManagerActions {
     parentSpanId?: string,
     outcome?: "success" | "failure" | "cancelled",
     durationMs?: number,
-  ): void {
+    causationId?: string,
+  ): string {
+    const id = randomUUID();
     this.options.telemetry?.({
       version: 1,
-      id: randomUUID(),
+      id,
       occurredAt: new Date().toISOString(),
       name,
       category: "storage",
@@ -1050,6 +1202,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
       ...(outcome === undefined ? {} : { outcome }),
       ...(durationMs === undefined ? {} : { durationMs }),
       correlationId,
+      ...(causationId === undefined ? {} : { causationId }),
       trace: {
         traceId,
         spanId,
@@ -1057,5 +1210,6 @@ export class DesktopProfileManager implements ProfileManagerActions {
       },
       attributes,
     });
+    return id;
   }
 }

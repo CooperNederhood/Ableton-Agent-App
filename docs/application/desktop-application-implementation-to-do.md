@@ -49,10 +49,10 @@ never left pending, when no renderer is listening or the app is shutting down.
 
 ## Desktop interaction contract
 
-- [~] Add typed definition discovery and refresh APIs.
-- [ ] Add active-agent create, edit, reset, select, deactivate, history, send,
+- [x] Add typed definition discovery and refresh APIs.
+- [x] Add active-agent create, edit, reset, select, deactivate, history, send,
   and cancel APIs.
-- [ ] Attribute messages, operations, approvals, and busy state to active-agent
+- [x] Attribute messages, operations, approvals, and busy state to active-agent
   instances.
 - [x] Implement chat send, cancel, create session, and resume session APIs.
 - [x] Implement connection, status, capability, snapshot, and diagnostic APIs.
@@ -65,6 +65,12 @@ never left pending, when no renderer is listening or the app is shutting down.
   bridge calls.
 - [x] Add transient Project, Inspector, and combined top-chrome visibility
   controls while keeping the composer aligned with the conversation column.
+- [x] Render the prompt composer only in Workspace and let every management or
+  diagnostic view consume the full remaining application height.
+- [x] Route only selected-agent blocking interactions to Workspace, preserve
+  Agents drafts, and focus structured question/approval controls.
+- [x] Add typed atomic Session-scope agent-definition saves and refresh Agents
+  and Profiles from the same scoped source.
 - [x] Preserve optional tool identity in desktop operation view models and
   render compact typed activity rows without removing recovery details.
 - [x] Add opt-in isolated desktop automation launch flags, selected-agent
@@ -82,9 +88,9 @@ presentation state and say so; they are not applied to Live.
 
 ## Configuration and persistence
 
-- [ ] Migrate stored conversations into versioned production sessions with
+- [x] Migrate stored conversations into versioned production sessions with
   multiple active agents.
-- [ ] Persist session-level agent overrides and output subscriptions.
+- [x] Persist session-level agent overrides and output subscriptions.
 - [x] Persist per-active-agent automatic approval with a safe default, atomic
   selected/all updates, session-switch revalidation, and shutdown draining.
 - [x] Implement validated preferences and migration support.
@@ -138,12 +144,9 @@ presentation state and say so; they are not applied to Live.
   - [x] Cover isolated automation launch and an externally submitted visible
     user message.
 
-Playwright was not already configured. It remains unchecked because a reliable
-Electron packaging/launch harness would add substantial setup beyond the
-existing Vitest workspace; the same flows are covered at contract, reducer,
-component, lifecycle, adapter, and security boundaries. The adapter tests run
-the real `HeadlessApplication` on the fakes in `packages/test-support`, so
-Electron itself is the only untested layer of those flows.
+Playwright and packaged Electron launch coverage are configured. The item
+remains partial because live Copilot chat/tool streaming and approval workflows
+still need complete packaged-build coverage.
 
 ## Exit criteria
 
@@ -156,9 +159,6 @@ Electron itself is the only untested layer of those flows.
   instead of claiming cancellation.
 - [x] Packaged development builds pass Electron smoke tests.
 
-Packaging metadata and a packaged-app smoke harness are not yet present in the
-repository, so only the production Vite/Electron compilation is verified. The
-compiled `dist/main/composition.js` was additionally booted in plain Node to
-confirm the shared composition resolves, starts a Copilot session, reports the
-unconfigured bridge honestly, and refuses to produce a snapshot while
-disconnected.
+Packaging metadata, packaged-app smoke coverage, and isolated automation launch
+support are present. Full packaged live-Copilot workflow coverage remains open
+under the Playwright item above.

@@ -5,6 +5,47 @@ import type { DiagnosticsActions, ProfileManagerActions } from "./ipc.js";
 import { createIpcHandlers, registerIpc } from "./ipc.js";
 
 describe("desktop IPC", () => {
+  it("routes scoped agent definition saves through the profile manager", async () => {
+    const saveAgentDefinition = vi.fn().mockResolvedValue({
+      catalog: { definitions: [], skills: [], diagnostics: [] },
+      profileSnapshot: {
+        revision: "a".repeat(64),
+        activeProfile: "default",
+        selectedProfile: "default",
+        profiles: [],
+        artifacts: [],
+      },
+    });
+    const handlers = createIpcHandlers(
+      {} as DesktopService,
+      {} as DiagnosticsActions,
+      { saveAgentDefinition } as unknown as ProfileManagerActions,
+    );
+    const request = {
+      definition: {
+        version: 2 as const,
+        name: "default",
+        label: "Default",
+        description: "General agent.",
+        systemPrompt: "Help with Ableton.",
+        tools: ["*"],
+        editScope: ["session"] as "session"[],
+        skills: [],
+        inputChannels: [],
+        model: null,
+        reasoningEffort: null,
+        autoApprove: false,
+        eventListeners: [],
+      },
+      expectedRevision: "a".repeat(64),
+      expectedFingerprint: "b".repeat(64),
+    };
+
+    await handlers["agents:save-definition"](request);
+
+    expect(saveAgentDefinition).toHaveBeenCalledWith(request);
+  });
+
   it("routes profile and artifact operations through the profile manager", async () => {
     const revision = "a".repeat(64);
     const snapshot = {

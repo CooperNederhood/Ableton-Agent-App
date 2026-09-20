@@ -20,8 +20,11 @@ typed service calls, and sessions use explicit create/resume operations.
 ## Core workspace
 
 - [x] Replace the obsolete workflow switcher with Active Agent selection.
-- [~] Add an Agents tab with definition discovery and diagnostics.
-- [ ] Add active-agent creation, editing, reset, deactivate, and modified state.
+- [x] Add an Agents tab with definition discovery, diagnostics, active-first
+  navigation, and semantic icon-based detail views.
+- [x] Add active-agent creation, editing, reset, deactivate, and modified state.
+- [x] Unify active/inactive definition editing and publish every save as a
+  Session-scope override visible in Profiles.
 - [x] Build application shell, connection header, and active-agent selector
   without redundant SDK/model-default status.
 - [x] Add transient independent Project/Inspector sidebars and combined
@@ -34,6 +37,8 @@ typed service calls, and sessions use explicit create/resume operations.
   context switch, and retain subtle edge controls for sidebar visibility.
 - [x] Build a compact chat composer with explicit context chips, a text mode
   control, and circular semantic send/stop actions.
+- [x] Keep the chat composer exclusive to Workspace so management and
+  diagnostic tabs use their full content height.
 - [x] Add per-active-agent plan mode with `/plan`, Shift+Tab toggling, composer
   mode status, and mode-attributed sends.
 - [x] Propagate and attribute the selected mode for automation-originated
@@ -67,6 +72,8 @@ typed service calls, and sessions use explicit create/resume operations.
   render only normalized actions offered by the pending request.
 - [x] Preserve ordinary message drafts during composer takeover and enforce
   elicitation, approval, manual editor, then ordinary-composer priority.
+- [x] Route selected-agent blocking interactions to Workspace, preserve Agents
+  drafts, and focus the structured interaction control.
 - [x] Render model-authored GFM while applying narrow presentation-only cleanup
   to recognized compact labeled plans, preserving raw plan state, History, and
   approval IPC.
@@ -82,9 +89,9 @@ typed service calls, and sessions use explicit create/resume operations.
 ## Production workflows
 
 - [x] Remove hard-coded workflow layouts in favor of definition-driven agents.
-- [ ] Partition transcript, operations, approvals, and cancellation by active
+- [x] Partition transcript, operations, approvals, and cancellation by active
   agent.
-- [ ] Add per-active-agent Output subscription controls and slash-skill
+- [x] Add per-active-agent Output subscription controls and slash-skill
   discovery.
 - [x] Implement editable structured production plan.
 - [x] Implement arrangement section/timeline visualization.
@@ -139,8 +146,8 @@ typed service calls, and sessions use explicit create/resume operations.
 
 Semantic markup, labels, focus shortcuts, Enter-to-send, and reduced-motion
 support are implemented, but automated accessibility tooling and full keyboard
-scenario automation remain unchecked. Playwright remains blocked on the
-packaged Electron launch harness noted in the desktop checklist.
+scenario automation remain unchecked. Playwright has a packaged Electron
+launch harness; complete live Copilot workflow coverage remains open.
 Histories and result sets are bounded and CSS-contained, and the reducer has a
 long-history regression test. True viewport virtualization, frame-batched
 stream rendering, and browser-list performance instrumentation remain future

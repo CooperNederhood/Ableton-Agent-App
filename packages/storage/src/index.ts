@@ -1931,6 +1931,7 @@ export interface StorageMigrationResult {
 export interface MigrateLegacyStorageOptions {
   readonly layout: LiveAgentStorageLayout;
   readonly entries: readonly LegacyStorageEntry[];
+  readonly skipReason?: "automation-profile" | "explicit-home-override";
   readonly now?: () => Date;
 }
 
@@ -1971,6 +1972,20 @@ export async function migrateLegacyStorage(
       candidateCount: options.entries.length,
     },
   });
+
+  if (options.skipReason !== undefined) {
+    emit({
+      name: "storage.migration.cancelled",
+      spanId: rootSpanId,
+      outcome: "cancelled",
+      durationMs: now().getTime() - startedAt.getTime(),
+      attributes: {
+        profile: options.layout.profile,
+        reason: options.skipReason,
+      },
+    });
+    return { status: "not-needed", migrated: [], events };
+  }
 
   if (await exists(options.layout.migrationMarkerPath)) {
     emit({

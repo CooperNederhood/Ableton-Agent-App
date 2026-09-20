@@ -8,15 +8,14 @@ import {
   copyArtifact,
   deleteArtifact,
   disableArtifact,
-  loadAgentCatalog,
   loadLayeredAgentCatalog,
   moveArtifact,
   replaceAgentDefinitionInScope,
   readArtifactTombstones,
   renameAgentInScope,
   renameSkillInScope,
+  resolveArtifactPathInScope,
   restoreArtifact,
-  type AgentCatalog,
   type LayeredAgentCatalog,
 } from "@ableton-agent/agent-config";
 import {
@@ -216,34 +215,19 @@ async function ensureScope(paths: ArtifactScopePaths): Promise<void> {
   ]);
 }
 
-async function localCatalog(paths: ArtifactScopePaths): Promise<AgentCatalog> {
-  await ensureScope(paths);
-  return loadAgentCatalog({
-    agentsDirectory: paths.agentsDirectory,
-    skillsDirectory: paths.skillsDirectory,
-    availableTools,
-  });
-}
-
 async function physicalArtifact(
   kind: DesktopArtifactKind,
   directory: ArtifactScopePaths,
   name: string,
   ensureDirectories = true,
 ): Promise<string | undefined> {
-  const catalog = ensureDirectories
-    ? await localCatalog(directory)
-    : await loadAgentCatalog({
-        agentsDirectory: directory.agentsDirectory,
-        skillsDirectory: directory.skillsDirectory,
-        availableTools,
-      });
-  if (kind === "agent") {
-    return catalog.agents.find(({ definition }) => definition.name === name)
-      ?.sourcePath;
-  }
-  return catalog.skills.find(({ metadata }) => metadata.name === name)
-    ?.directory;
+  if (ensureDirectories) await ensureScope(directory);
+  return resolveArtifactPathInScope({
+    kind,
+    directory:
+      kind === "agent" ? directory.agentsDirectory : directory.skillsDirectory,
+    name,
+  });
 }
 
 function sourceDescription(

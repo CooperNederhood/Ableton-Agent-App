@@ -335,6 +335,56 @@ describe("DesktopProfileManager", () => {
     ).toMatchObject({ origin: "session", sessionId: "session-1" });
   });
 
+  it("moves a Session agent whose skills are inherited from an upstream scope", async () => {
+    const { manager } = await fixture({
+      activeSessionId: "session-1",
+    });
+    const initial = await manager.get();
+    const inherited = initial.artifacts.find(
+      ({ kind, name }) => kind === "agent" && name === "default",
+    )!;
+    const saved = await manager.saveAgentDefinition({
+      definition: {
+        version: 2,
+        name: "default",
+        label: "Session default",
+        description: "Uses an inherited skill.",
+        systemPrompt: "Help with this session.",
+        tools: ["*"],
+        editScope: ["session"],
+        skills: ["mix-review"],
+        inputChannels: [],
+        model: null,
+        reasoningEffort: null,
+        autoApprove: false,
+        eventListeners: [],
+      },
+      expectedRevision: initial.revision,
+      expectedFingerprint: inherited.fingerprint!,
+    });
+
+    const moved = await manager.moveArtifact({
+      kind: "agent",
+      name: "default",
+      source: {
+        scope: "session",
+        profile: "default",
+        sessionId: "session-1",
+      },
+      destination: { scope: "profile", profile: "default" },
+      expectedRevision: saved.profileSnapshot.revision,
+    });
+
+    expect(moved.status).toBe("completed");
+    if (moved.status !== "completed") throw new Error("Expected completion");
+    expect(
+      moved.snapshot.artifacts.find(
+        ({ scope, kind, name }) =>
+          scope === "profile" && kind === "agent" && name === "default",
+      ),
+    ).toMatchObject({ origin: "profile" });
+  });
+
   it("saves definitions for an environment-selected reserved profile", async () => {
     const { manager } = await fixture({
       activeProfile: "development",

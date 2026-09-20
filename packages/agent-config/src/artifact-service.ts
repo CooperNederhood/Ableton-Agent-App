@@ -186,6 +186,14 @@ async function artifactPath(
     : findSkill(directory, name);
 }
 
+export async function resolveArtifactPathInScope(options: {
+  kind: MutableArtifactKind;
+  directory: string;
+  name: string;
+}): Promise<string | undefined> {
+  return artifactPath(options.kind, options.directory, options.name);
+}
+
 async function hashArtifact(
   kind: MutableArtifactKind,
   path: string,

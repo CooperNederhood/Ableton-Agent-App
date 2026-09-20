@@ -25,6 +25,8 @@ Companion specification: [Custom Agents](custom-agents.md)
   effective-catalog/Profile refresh.
 - [x] Promote an ephemeral unsaved-Set production session when the user
   explicitly saves a Session-scope agent definition.
+- [x] Resolve drag-and-drop transfer sources physically so Session agents can
+  retain inherited skills while moving between scopes.
 
 ## Runtime
 

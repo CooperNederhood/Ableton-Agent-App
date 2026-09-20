@@ -143,6 +143,10 @@ ephemeral. An explicit Agents-tab save promotes that session to durable local
 storage before publishing the Session Scope override, so the definition remains
 resolvable and appears under Session-defined Agents in Profiles.
 
+Profile Manager copy and move operations resolve the physical artifact owned by
+the dragged scope. Validation still uses the complete layered catalog, allowing
+an agent to reference skills inherited from System or bundled scope.
+
 The production-session record stores active runtime snapshots, selected
 instance, bound project identities, runtime delivery state, and output
 subscriptions. Existing active instances retain their current model, reasoning,

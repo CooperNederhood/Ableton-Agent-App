@@ -1,5 +1,4 @@
 import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { _electron as electron, expect, test } from "@playwright/test";
@@ -10,7 +9,7 @@ const desktopPath = resolve("apps/desktop");
 test.setTimeout(60_000);
 
 test("launches the packaged desktop contract securely", async () => {
-  const profile = await mkdtemp(join(tmpdir(), "ableton-agent-electron-"));
+  const profile = await mkdtemp(join(process.cwd(), "ableton-agent-electron-"));
   const application = await electron.launch({
     args: [desktopPath, `--user-data-dir=${join(profile, "electron")}`],
     cwd: process.cwd(),
@@ -90,6 +89,20 @@ test("launches the packaged desktop contract securely", async () => {
         "No Live events are available in this production session.",
       ),
     ).toBeVisible();
+
+    await window.getByRole("button", { name: "Profiles" }).click();
+    await expect(
+      window.getByRole("heading", { name: "Profiles", exact: true }),
+    ).toBeVisible();
+    await expect(window.getByText("System Scope")).toBeVisible();
+    await expect(window.getByText("Profile Scope")).toBeVisible();
+    await expect(window.getByText("Session Scope")).toBeVisible();
+    await expect(
+      window.getByText(/Profile switching is disabled/u),
+    ).toBeVisible();
+    await window.getByLabel("Profile name").fill("ambient");
+    await window.getByRole("button", { name: "Create" }).click();
+    await expect(window.getByLabel("Managed profile")).toHaveValue("ambient");
 
     const isolation = await window.evaluate(() => ({
       desktop: typeof window.desktop,
@@ -216,7 +229,7 @@ test("supports a terminal-sized chat-only window", async () => {
 
 test("accepts an MCP-style user message in the visible desktop session", async () => {
   const profilePath = await mkdtemp(
-    join(tmpdir(), "ableton-agent-electron-automation-"),
+    join(process.cwd(), "ableton-agent-electron-automation-"),
   );
   const descriptorPath = join(profilePath, "automation-endpoint.json");
   const application = await electron.launch({

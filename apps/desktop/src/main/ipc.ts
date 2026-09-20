@@ -29,9 +29,46 @@ export interface DiagnosticsActions {
   copySummary(checks: DiagnosticCheck[]): Promise<void>;
 }
 
+export interface ProfileManagerActions {
+  get(selectedProfile?: string): Promise<ResponseOf<"profiles:get">>;
+  create(
+    request: RequestOf<"profiles:create">,
+  ): Promise<ResponseOf<"profiles:create">>;
+  rename(
+    request: RequestOf<"profiles:rename">,
+  ): Promise<ResponseOf<"profiles:rename">>;
+  delete(
+    request: RequestOf<"profiles:delete">,
+  ): Promise<ResponseOf<"profiles:delete">>;
+  switch(request: RequestOf<"profiles:switch">): Promise<void>;
+  copyArtifact(
+    request: RequestOf<"profiles:copy-artifact">,
+  ): Promise<ResponseOf<"profiles:copy-artifact">>;
+  moveArtifact(
+    request: RequestOf<"profiles:move-artifact">,
+  ): Promise<ResponseOf<"profiles:move-artifact">>;
+  renameArtifact(
+    request: RequestOf<"profiles:rename-artifact">,
+  ): Promise<ResponseOf<"profiles:rename-artifact">>;
+  deleteArtifact(
+    request: RequestOf<"profiles:delete-artifact">,
+  ): Promise<ResponseOf<"profiles:delete-artifact">>;
+  setArtifactDisabled(
+    request: RequestOf<"profiles:set-artifact-disabled">,
+  ): Promise<ResponseOf<"profiles:set-artifact-disabled">>;
+}
+
+const unavailableProfiles: ProfileManagerActions = new Proxy(
+  {},
+  {
+    get: () => () => Promise.reject(new Error("Profile Manager unavailable")),
+  },
+) as ProfileManagerActions;
+
 export function createIpcHandlers(
   service: DesktopService,
   diagnostics: DiagnosticsActions,
+  profiles: ProfileManagerActions = unavailableProfiles,
 ): IpcHandlers {
   return {
     "app:lifecycle": async () => ({
@@ -46,6 +83,10 @@ export function createIpcHandlers(
     "agent:resume-session": async ({ sessionId }) => {
       await service.resumeSession(sessionId);
       return { resumed: true };
+    },
+    "agent:close-session": async () => {
+      await service.closeSession();
+      return { closed: true };
     },
     "agents:catalog": () => service.getAgentCatalog(),
     "agents:refresh": () => service.refreshAgentCatalog(),
@@ -128,6 +169,20 @@ export function createIpcHandlers(
         agentMode ?? "interactive",
       ),
     "agents:cancel": ({ instanceId }) => service.cancelActiveAgent(instanceId),
+    "profiles:get": ({ selectedProfile }) => profiles.get(selectedProfile),
+    "profiles:create": (request) => profiles.create(request),
+    "profiles:rename": (request) => profiles.rename(request),
+    "profiles:delete": (request) => profiles.delete(request),
+    "profiles:switch": async (request) => {
+      await profiles.switch(request);
+      return { switching: true };
+    },
+    "profiles:copy-artifact": (request) => profiles.copyArtifact(request),
+    "profiles:move-artifact": (request) => profiles.moveArtifact(request),
+    "profiles:rename-artifact": (request) => profiles.renameArtifact(request),
+    "profiles:delete-artifact": (request) => profiles.deleteArtifact(request),
+    "profiles:set-artifact-disabled": (request) =>
+      profiles.setArtifactDisabled(request),
     "ableton:connect": () => service.connect(),
     "ableton:status": () => service.getStatus(),
     "ableton:capabilities": () => service.getCapabilities(),
@@ -273,8 +328,9 @@ export function registerIpc(
   diagnostics: DiagnosticsActions,
   isTrustedSender: (event: IpcMainInvokeEvent) => boolean,
   logger?: Logger,
+  profiles: ProfileManagerActions = unavailableProfiles,
 ): () => void {
-  const handlers = createIpcHandlers(service, diagnostics);
+  const handlers = createIpcHandlers(service, diagnostics, profiles);
   const channels = Object.keys(ipcSchemas) as IpcChannel[];
   for (const channel of channels) {
     ipcMain.handle(channel, async (event, payload: unknown) => {

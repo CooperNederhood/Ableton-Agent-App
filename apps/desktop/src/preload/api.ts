@@ -44,6 +44,9 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
       resumeSession: async (sessionId) => {
         await invoke("agent:resume-session", { sessionId });
       },
+      closeSession: async () => {
+        await invoke("agent:close-session", {});
+      },
     },
     agents: {
       getCatalog: () => invoke("agents:catalog", {}),
@@ -114,6 +117,27 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
           agentMode,
         }),
       cancel: (instanceId) => invoke("agents:cancel", { instanceId }),
+    },
+    profiles: {
+      get: (selectedProfile) =>
+        invoke("profiles:get", {
+          ...(selectedProfile === undefined ? {} : { selectedProfile }),
+        }),
+      create: (name, expectedRevision) =>
+        invoke("profiles:create", { name, expectedRevision }),
+      rename: (name, newName, expectedRevision) =>
+        invoke("profiles:rename", { name, newName, expectedRevision }),
+      delete: (name, expectedRevision) =>
+        invoke("profiles:delete", { name, expectedRevision }),
+      switch: async (name, expectedRevision) => {
+        await invoke("profiles:switch", { name, expectedRevision });
+      },
+      copyArtifact: (request) => invoke("profiles:copy-artifact", request),
+      moveArtifact: (request) => invoke("profiles:move-artifact", request),
+      renameArtifact: (request) => invoke("profiles:rename-artifact", request),
+      deleteArtifact: (request) => invoke("profiles:delete-artifact", request),
+      setArtifactDisabled: (request) =>
+        invoke("profiles:set-artifact-disabled", request),
     },
     ableton: {
       connect: () => invoke("ableton:connect", {}),

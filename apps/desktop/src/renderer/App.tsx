@@ -69,6 +69,7 @@ import {
   type InspectorModuleId,
 } from "./inspector-layout";
 import { parseYoloCommand, yoloCommandUsage } from "./yolo-command";
+import { ProfileManagerView } from "./ProfileManagerView";
 
 type CatalogSkill = DesktopState["agentCatalog"]["skills"][number];
 
@@ -857,6 +858,7 @@ export function App(): React.JSX.Element {
     state.lifecycle,
   ]);
   useEffect(() => {
+    if (state.lifecycle !== "ready" && state.lifecycle !== "degraded") return;
     if (selectedInstanceId === undefined || activeSessionId === undefined)
       return;
     if (selectedPlanArtifact !== undefined) return;
@@ -885,7 +887,12 @@ export function App(): React.JSX.Element {
           },
         });
       });
-  }, [activeSessionId, selectedInstanceId, selectedPlanArtifact]);
+  }, [
+    activeSessionId,
+    selectedInstanceId,
+    selectedPlanArtifact,
+    state.lifecycle,
+  ]);
   useEffect(() => {
     setPlanEditorOpen(false);
   }, [activeSessionId, selectedInstanceId]);
@@ -969,6 +976,7 @@ export function App(): React.JSX.Element {
               "outputs",
               "events",
               "browser",
+              "profiles",
               "diagnostics",
               "sessions",
               "settings",
@@ -1051,6 +1059,10 @@ export function App(): React.JSX.Element {
           <EventsView state={state} dispatch={dispatch} />
         ) : state.activeView === "browser" ? (
           <BrowserView state={state} dispatch={dispatch} />
+        ) : state.activeView === "profiles" ? (
+          <ProfileManagerView
+            {...(activeSessionId === undefined ? {} : { activeSessionId })}
+          />
         ) : state.activeView === "diagnostics" ? (
           <DiagnosticsView state={state} dispatch={dispatch} />
         ) : state.activeView === "sessions" ? (

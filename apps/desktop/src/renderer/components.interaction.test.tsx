@@ -539,6 +539,64 @@ describe("desktop component interactions", () => {
     expect(container.textContent).toContain("First plan");
   });
 
+  it("waits for an actionable lifecycle before loading the shared plan", async () => {
+    let publish!: (event: DesktopAppEvent) => void;
+    const state = rendererState();
+    const readPlan = vi.fn().mockResolvedValue({
+      exists: false,
+      productionSessionId: sessionId,
+    });
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: {
+        lifecycle: { get: vi.fn().mockResolvedValue("starting") },
+        ableton: {
+          getStatus: vi.fn().mockResolvedValue({ state: "disconnected" }),
+        },
+        preferences: {
+          get: vi.fn().mockResolvedValue(initialState.preferences),
+        },
+        agent: { getSessions: vi.fn().mockResolvedValue(state.sessions) },
+        agents: {
+          getCatalog: vi.fn().mockResolvedValue(state.agentCatalog),
+          hydrateHistory: vi.fn().mockResolvedValue([]),
+          readPlan,
+        },
+        outputs: { list: vi.fn().mockResolvedValue(initialState.outputs) },
+        events: {
+          list: vi.fn().mockResolvedValue(initialState.events),
+          subscribe: vi.fn((listener: (event: DesktopAppEvent) => void) => {
+            publish = listener;
+            return vi.fn();
+          }),
+        },
+      },
+    });
+
+    await act(async () => {
+      root.render(<App />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      publish({
+        type: "session.context_restored",
+        session: state.sessions[0]!,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(readPlan).not.toHaveBeenCalled();
+
+    await act(async () => {
+      publish({ type: "lifecycle.changed", state: "ready" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(readPlan).toHaveBeenCalledOnce();
+    expect(readPlan).toHaveBeenCalledWith(agentId);
+  });
+
   it("opens the selected Agent Inspector for a plan event and submits feedback", async () => {
     let publish!: (event: DesktopAppEvent) => void;
     const resolvePlan = vi.fn().mockResolvedValue(true);

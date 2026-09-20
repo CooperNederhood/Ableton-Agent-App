@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFile, readdir } from "node:fs/promises";
-import { extname, join } from "node:path";
+import { lstat, readFile, readdir, realpath } from "node:fs/promises";
+import { extname, isAbsolute, join, resolve } from "node:path";
 
 import { parseDocument } from "yaml";
 
@@ -15,6 +15,8 @@ import { resolveToolPatterns } from "./tool-patterns.js";
 
 const maximumDefinitionBytes = 256 * 1024;
 const maximumSkillBytes = 512 * 1024;
+
+export type ArtifactOrigin = "bundled" | "system" | "profile" | "session";
 
 export interface LoadedSkill {
   readonly metadata: SkillMetadata;
@@ -42,6 +44,31 @@ export interface AgentCatalog {
   readonly diagnostics: DefinitionDiagnostic[];
 }
 
+export interface LayeredLoadedSkill extends LoadedSkill {
+  readonly origin: ArtifactOrigin;
+  readonly inherited: boolean;
+  readonly overrides: readonly ArtifactOrigin[];
+}
+
+export interface LayeredLoadedAgentDefinition extends LoadedAgentDefinition {
+  readonly origin: ArtifactOrigin;
+  readonly inherited: boolean;
+  readonly overrides: readonly ArtifactOrigin[];
+}
+
+export interface LayeredAgentCatalog {
+  readonly agents: LayeredLoadedAgentDefinition[];
+  readonly skills: LayeredLoadedSkill[];
+  readonly diagnostics: DefinitionDiagnostic[];
+}
+
+export interface ArtifactLayerDirectories {
+  readonly agentsDirectory: string;
+  readonly skillsDirectory: string;
+  readonly agentTombstones?: readonly string[] | string;
+  readonly skillTombstones?: readonly string[] | string;
+}
+
 function fingerprint(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
@@ -54,12 +81,16 @@ async function boundedRead(
   path: string,
   maximumBytes: number,
 ): Promise<string> {
-  const content = await readFile(path);
-  if (content.byteLength > maximumBytes) {
+  const details = await lstat(path);
+  if (details.isSymbolicLink() || !details.isFile()) {
+    throw new Error(`Expected a regular file at '${path}'`);
+  }
+  if (details.size > maximumBytes) {
     throw Object.assign(new Error(`File exceeds ${maximumBytes} bytes`), {
       code: "file_too_large",
     });
   }
+  const content = await readFile(path);
   return content.toString("utf8");
 }
 
@@ -293,4 +324,249 @@ export async function loadAgentCatalog(options: {
       ...deduplicatedAgents.diagnostics,
     ],
   };
+}
+
+async function validatePhysicalLayer(
+  origin: ArtifactOrigin,
+  layer: ArtifactLayerDirectories,
+): Promise<void> {
+  for (const directory of [layer.agentsDirectory, layer.skillsDirectory]) {
+    if (!isAbsolute(directory)) {
+      throw new Error(`${origin} artifact directories must be absolute`);
+    }
+    try {
+      const details = await lstat(directory);
+      if (details.isSymbolicLink() || !details.isDirectory()) {
+        throw new Error(`${origin} artifact path must be a physical directory`);
+      }
+      if ((await realpath(directory)) !== resolve(directory)) {
+        throw new Error(
+          `${origin} artifact directory contains a symbolic-link ancestor`,
+        );
+      }
+      await rejectArtifactSymlinks(directory, origin);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+
+  async function rejectArtifactSymlinks(
+    directory: string,
+    origin: ArtifactOrigin,
+    remainingEntries: { value: number } = { value: 4_096 },
+  ): Promise<void> {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      remainingEntries.value -= 1;
+      if (remainingEntries.value < 0) {
+        throw new Error(`${origin} artifact scope exceeds 4096 entries`);
+      }
+      if (entry.isSymbolicLink()) {
+        throw new Error(
+          `Symbolic links are not allowed in ${origin} artifact directories`,
+        );
+      }
+      if (entry.isDirectory()) {
+        await rejectArtifactSymlinks(
+          join(directory, entry.name),
+          origin,
+          remainingEntries,
+        );
+      }
+    }
+  }
+}
+
+async function readTombstones(
+  value: readonly string[] | string | undefined,
+): Promise<Set<string>> {
+  if (value === undefined) return new Set();
+  let names: unknown;
+  if (typeof value === "string") {
+    try {
+      names = (
+        JSON.parse(await boundedRead(value, 256 * 1024)) as {
+          names?: unknown;
+        }
+      ).names;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return new Set();
+      throw error;
+    }
+    names ??= [];
+  } else {
+    names = value;
+  }
+  if (!Array.isArray(names)) {
+    throw new Error("Artifact tombstones must contain a names array");
+  }
+  return new Set(
+    names.map((name) => skillMetadataSchema.shape.name.parse(name)),
+  );
+}
+
+interface OriginEntry<T> {
+  readonly origin: ArtifactOrigin;
+  readonly value: T;
+}
+
+function resolveLayeredEntries<T>(
+  entries: readonly OriginEntry<T>[],
+  key: (entry: T) => string,
+  tombstones: ReadonlyMap<ArtifactOrigin, ReadonlySet<string>>,
+  activeOrigin: ArtifactOrigin,
+): Array<
+  T & {
+    origin: ArtifactOrigin;
+    inherited: boolean;
+    overrides: ArtifactOrigin[];
+  }
+> {
+  const resolved = new Map<
+    string,
+    { origin: ArtifactOrigin; value: T; overrides: ArtifactOrigin[] }
+  >();
+  const order: readonly ArtifactOrigin[] = [
+    "bundled",
+    "system",
+    "profile",
+    "session",
+  ];
+  for (const origin of order) {
+    for (const name of tombstones.get(origin) ?? []) resolved.delete(name);
+    for (const entry of entries.filter(
+      (candidate) => candidate.origin === origin,
+    )) {
+      const name = key(entry.value);
+      const previous = resolved.get(name);
+      resolved.set(name, {
+        origin,
+        value: entry.value,
+        overrides:
+          previous === undefined
+            ? []
+            : [...previous.overrides, previous.origin],
+      });
+    }
+  }
+  return [...resolved.values()].map(({ origin, value, overrides }) => ({
+    ...value,
+    origin,
+    inherited: origin !== activeOrigin,
+    overrides,
+  }));
+}
+
+export async function loadLayeredAgentCatalog(options: {
+  readonly bundled: ArtifactLayerDirectories;
+  readonly system?: ArtifactLayerDirectories;
+  readonly profile?: ArtifactLayerDirectories;
+  readonly session?: ArtifactLayerDirectories;
+  readonly availableTools: readonly string[];
+}): Promise<LayeredAgentCatalog> {
+  const layers = (
+    [
+      ["bundled", options.bundled],
+      ["system", options.system],
+      ["profile", options.profile],
+      ["session", options.session],
+    ] as const
+  ).filter(
+    (entry): entry is readonly [ArtifactOrigin, ArtifactLayerDirectories] =>
+      entry[1] !== undefined,
+  );
+  await Promise.all(
+    layers.map(([origin, layer]) => validatePhysicalLayer(origin, layer)),
+  );
+  const loadedSkillLayers = await Promise.all(
+    layers.map(async ([origin, layer]) => {
+      const loaded = await loadSkills(layer.skillsDirectory);
+      const deduplicated = removeDuplicates(
+        loaded.skills,
+        (skill) => skill.metadata.name,
+        (skill) => skill.sourcePath,
+        "duplicate_skill",
+      );
+      return {
+        origin,
+        loaded: {
+          skills: deduplicated.unique,
+          diagnostics: [...loaded.diagnostics, ...deduplicated.diagnostics],
+        },
+      };
+    }),
+  );
+  const allSkills = loadedSkillLayers.flatMap(({ loaded }) => loaded.skills);
+  const loadedAgentLayers = await Promise.all(
+    layers.map(async ([origin, layer]) => {
+      const loaded = await loadAgents(
+        layer.agentsDirectory,
+        options.availableTools,
+        allSkills,
+      );
+      const deduplicated = removeDuplicates(
+        loaded.agents,
+        (agent) => agent.definition.name,
+        (agent) => agent.sourcePath,
+        "duplicate_agent",
+      );
+      return {
+        origin,
+        loaded: {
+          agents: deduplicated.unique,
+          diagnostics: [...loaded.diagnostics, ...deduplicated.diagnostics],
+        },
+      };
+    }),
+  );
+  const skillTombstones = new Map<ArtifactOrigin, ReadonlySet<string>>();
+  const agentTombstones = new Map<ArtifactOrigin, ReadonlySet<string>>();
+  await Promise.all(
+    layers.flatMap(([origin, layer]) => [
+      readTombstones(layer.skillTombstones).then((names) =>
+        skillTombstones.set(origin, names),
+      ),
+      readTombstones(layer.agentTombstones).then((names) =>
+        agentTombstones.set(origin, names),
+      ),
+    ]),
+  );
+  const activeOrigin = layers.at(-1)?.[0] ?? "bundled";
+  const skills = resolveLayeredEntries(
+    loadedSkillLayers.flatMap(({ origin, loaded }) =>
+      loaded.skills.map((value) => ({ origin, value })),
+    ),
+    (skill) => skill.metadata.name,
+    skillTombstones,
+    activeOrigin,
+  );
+  const agents = resolveLayeredEntries(
+    loadedAgentLayers.flatMap(({ origin, loaded }) =>
+      loaded.agents.map((value) => ({ origin, value })),
+    ),
+    (agent) => agent.definition.name,
+    agentTombstones,
+    activeOrigin,
+  );
+  const effectiveSkillNames = new Set(
+    skills.map((skill) => skill.metadata.name),
+  );
+  const diagnostics = [
+    ...loadedSkillLayers.flatMap(({ loaded }) => loaded.diagnostics),
+    ...loadedAgentLayers.flatMap(({ loaded }) => loaded.diagnostics),
+  ];
+  const validAgents = agents.filter((agent) => {
+    const unknown = agent.definition.skills.filter(
+      (name) => !effectiveSkillNames.has(name),
+    );
+    if (unknown.length === 0) return true;
+    diagnostics.push(
+      diagnostic(
+        agent.sourcePath,
+        "unknown_skill",
+        `Unknown skills: ${unknown.join(", ")}`,
+      ),
+    );
+    return false;
+  });
+  return { agents: validAgents, skills, diagnostics };
 }

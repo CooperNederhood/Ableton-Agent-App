@@ -1,10 +1,59 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { DesktopService } from "./desktop-service.js";
-import type { DiagnosticsActions } from "./ipc.js";
+import type { DiagnosticsActions, ProfileManagerActions } from "./ipc.js";
 import { createIpcHandlers, registerIpc } from "./ipc.js";
 
 describe("desktop IPC", () => {
+  it("routes profile and artifact operations through the profile manager", async () => {
+    const revision = "a".repeat(64);
+    const snapshot = {
+      revision,
+      activeProfile: "default",
+      selectedProfile: "default",
+      profiles: [],
+      artifacts: [],
+    };
+    const getProfile = vi.fn().mockResolvedValue(snapshot);
+    const createProfile = vi.fn().mockResolvedValue(snapshot);
+    const copyArtifact = vi.fn().mockResolvedValue({
+      status: "completed",
+      snapshot,
+    });
+    const profiles = {
+      get: getProfile,
+      create: createProfile,
+      copyArtifact,
+    } as unknown as ProfileManagerActions;
+    const handlers = createIpcHandlers(
+      {} as DesktopService,
+      {} as DiagnosticsActions,
+      profiles,
+    );
+
+    await handlers["profiles:get"]({ selectedProfile: "default" });
+    await handlers["profiles:create"]({
+      name: "ambient",
+      expectedRevision: revision,
+    });
+    await handlers["profiles:copy-artifact"]({
+      kind: "agent",
+      name: "mix",
+      source: { scope: "system" },
+      destination: { scope: "profile", profile: "default" },
+      expectedRevision: revision,
+    });
+
+    expect(getProfile).toHaveBeenCalledWith("default");
+    expect(createProfile).toHaveBeenCalledWith({
+      name: "ambient",
+      expectedRevision: revision,
+    });
+    expect(copyArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "mix" }),
+    );
+  });
+
   it("routes managed-agent operations to the requested instance", async () => {
     const sendToActiveAgent = vi
       .fn()

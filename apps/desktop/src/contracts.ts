@@ -1069,6 +1069,148 @@ export const desktopAgentCatalogSchema = z.object({
 });
 export type DesktopAgentCatalog = z.infer<typeof desktopAgentCatalogSchema>;
 
+export const desktopArtifactKindSchema = z.enum(["agent", "skill"]);
+export type DesktopArtifactKind = z.infer<typeof desktopArtifactKindSchema>;
+
+export const desktopArtifactScopeSchema = z.enum([
+  "system",
+  "profile",
+  "session",
+]);
+export type DesktopArtifactScope = z.infer<typeof desktopArtifactScopeSchema>;
+
+export const desktopArtifactOriginSchema = z.enum([
+  "bundled",
+  "system",
+  "profile",
+  "session",
+]);
+export type DesktopArtifactOrigin = z.infer<typeof desktopArtifactOriginSchema>;
+
+export const desktopScopedArtifactSchema = z
+  .object({
+    kind: desktopArtifactKindSchema,
+    name: z.string().min(1).max(128),
+    description: z.string().max(2_048).default(""),
+    scope: desktopArtifactScopeSchema,
+    origin: desktopArtifactOriginSchema,
+    state: z.enum(["local", "inherited", "overridden", "disabled"]),
+    sourceFile: z.string().min(1).max(512),
+    fingerprint: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/u)
+      .optional(),
+    profile: z.string().min(1).max(64).optional(),
+    sessionId: z.string().min(1).max(4_096).optional(),
+    overriddenOrigins: z.array(desktopArtifactOriginSchema).max(4).default([]),
+    diagnostics: z.array(z.string().max(2_048)).max(20).default([]),
+  })
+  .strict();
+export type DesktopScopedArtifact = z.infer<typeof desktopScopedArtifactSchema>;
+
+export const desktopProfileSessionSummarySchema = z
+  .object({
+    id: z.string().min(1).max(4_096),
+    title: z.string().min(1).max(512),
+    active: z.boolean(),
+  })
+  .strict();
+export type DesktopProfileSessionSummary = z.infer<
+  typeof desktopProfileSessionSummarySchema
+>;
+
+export const desktopProfileSummarySchema = z
+  .object({
+    name: z.string().min(1).max(64),
+    active: z.boolean(),
+    reserved: z.boolean(),
+    sessionCount: z.number().int().nonnegative(),
+    sessions: z.array(desktopProfileSessionSummarySchema).max(10_000),
+  })
+  .strict();
+export type DesktopProfileSummary = z.infer<typeof desktopProfileSummarySchema>;
+
+export const desktopProfileManagerSnapshotSchema = z
+  .object({
+    revision: z.string().regex(/^[a-f0-9]{64}$/u),
+    activeProfile: z.string().min(1).max(64),
+    selectedProfile: z.string().min(1).max(64),
+    activeSessionId: z.string().min(1).optional(),
+    switchingDisabledReason: z.string().max(2_048).optional(),
+    profiles: z.array(desktopProfileSummarySchema).max(128),
+    artifacts: z.array(desktopScopedArtifactSchema).max(2_000),
+  })
+  .strict();
+export type DesktopProfileManagerSnapshot = z.infer<
+  typeof desktopProfileManagerSnapshotSchema
+>;
+
+export const desktopArtifactLocationSchema = z
+  .object({
+    scope: desktopArtifactOriginSchema,
+    profile: z.string().min(1).max(64).optional(),
+    sessionId: z.string().min(1).max(4_096).optional(),
+  })
+  .strict();
+export type DesktopArtifactLocation = z.infer<
+  typeof desktopArtifactLocationSchema
+>;
+
+export const desktopArtifactConflictSchema = z
+  .object({
+    kind: desktopArtifactKindSchema,
+    name: z.string().min(1).max(128),
+    sourceFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+    destinationFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+    sourceDescription: z.string().max(2_048),
+    destinationDescription: z.string().max(2_048),
+    suggestedName: z.string().min(1).max(128),
+  })
+  .strict();
+export type DesktopArtifactConflict = z.infer<
+  typeof desktopArtifactConflictSchema
+>;
+
+export const desktopArtifactMutationResultSchema = z.discriminatedUnion(
+  "status",
+  [
+    z
+      .object({
+        status: z.literal("completed"),
+        snapshot: desktopProfileManagerSnapshotSchema,
+      })
+      .strict(),
+    z
+      .object({
+        status: z.literal("conflict"),
+        conflict: desktopArtifactConflictSchema,
+      })
+      .strict(),
+  ],
+);
+export type DesktopArtifactMutationResult = z.infer<
+  typeof desktopArtifactMutationResultSchema
+>;
+
+const profileNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/u);
+
+const artifactMutationBaseSchema = z
+  .object({
+    kind: desktopArtifactKindSchema,
+    name: z.string().min(1).max(128),
+    source: desktopArtifactLocationSchema,
+    destination: desktopArtifactLocationSchema,
+    expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+    conflictResolution: z.enum(["replace", "rename"]).optional(),
+    renamedName: z.string().min(1).max(128).optional(),
+  })
+  .strict();
+
 export const appEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("lifecycle.changed"),
@@ -1310,6 +1452,10 @@ export const ipcSchemas = {
     request: z.object({ sessionId: z.string().min(1) }),
     response: z.object({ resumed: z.literal(true) }),
   },
+  "agent:close-session": {
+    request: z.object({}).strict(),
+    response: z.object({ closed: z.literal(true) }).strict(),
+  },
   "agents:catalog": {
     request: z.object({}),
     response: desktopAgentCatalogSchema,
@@ -1463,6 +1609,92 @@ export const ipcSchemas = {
   "agents:cancel": {
     request: z.object({ instanceId: z.string().uuid() }).strict(),
     response: z.object({ cancelled: z.boolean() }),
+  },
+  "profiles:get": {
+    request: z
+      .object({ selectedProfile: profileNameSchema.optional() })
+      .strict(),
+    response: desktopProfileManagerSnapshotSchema,
+  },
+  "profiles:create": {
+    request: z
+      .object({
+        name: profileNameSchema,
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: desktopProfileManagerSnapshotSchema,
+  },
+  "profiles:rename": {
+    request: z
+      .object({
+        name: profileNameSchema,
+        newName: profileNameSchema,
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: desktopProfileManagerSnapshotSchema,
+  },
+  "profiles:delete": {
+    request: z
+      .object({
+        name: profileNameSchema,
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: desktopProfileManagerSnapshotSchema,
+  },
+  "profiles:switch": {
+    request: z
+      .object({
+        name: profileNameSchema,
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: z.object({ switching: z.literal(true) }).strict(),
+  },
+  "profiles:copy-artifact": {
+    request: artifactMutationBaseSchema,
+    response: desktopArtifactMutationResultSchema,
+  },
+  "profiles:move-artifact": {
+    request: artifactMutationBaseSchema,
+    response: desktopArtifactMutationResultSchema,
+  },
+  "profiles:rename-artifact": {
+    request: z
+      .object({
+        kind: desktopArtifactKindSchema,
+        name: z.string().min(1).max(128),
+        newName: z.string().min(1).max(128),
+        location: desktopArtifactLocationSchema,
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: desktopProfileManagerSnapshotSchema,
+  },
+  "profiles:delete-artifact": {
+    request: z
+      .object({
+        kind: desktopArtifactKindSchema,
+        name: z.string().min(1).max(128),
+        location: desktopArtifactLocationSchema,
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: desktopProfileManagerSnapshotSchema,
+  },
+  "profiles:set-artifact-disabled": {
+    request: z
+      .object({
+        kind: desktopArtifactKindSchema,
+        name: z.string().min(1).max(128),
+        location: desktopArtifactLocationSchema,
+        disabled: z.boolean(),
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: desktopProfileManagerSnapshotSchema,
   },
   "ableton:connect": {
     request: z.object({}),
@@ -1741,6 +1973,7 @@ export interface DesktopApi {
     createSession(): Promise<string>;
     getSessions(): Promise<DesktopSession[]>;
     resumeSession(sessionId: string): Promise<void>;
+    closeSession(): Promise<void>;
   };
   agents: {
     getCatalog(): Promise<DesktopAgentCatalog>;
@@ -1808,6 +2041,49 @@ export interface DesktopApi {
       agentMode?: AgentMode,
     ): Promise<{ accepted: true; messageId: string }>;
     cancel(instanceId: string): Promise<{ cancelled: boolean }>;
+  };
+  profiles: {
+    get(selectedProfile?: string): Promise<DesktopProfileManagerSnapshot>;
+    create(
+      name: string,
+      expectedRevision: string,
+    ): Promise<DesktopProfileManagerSnapshot>;
+    rename(
+      name: string,
+      newName: string,
+      expectedRevision: string,
+    ): Promise<DesktopProfileManagerSnapshot>;
+    delete(
+      name: string,
+      expectedRevision: string,
+    ): Promise<DesktopProfileManagerSnapshot>;
+    switch(name: string, expectedRevision: string): Promise<void>;
+    copyArtifact(
+      request: z.input<typeof artifactMutationBaseSchema>,
+    ): Promise<DesktopArtifactMutationResult>;
+    moveArtifact(
+      request: z.input<typeof artifactMutationBaseSchema>,
+    ): Promise<DesktopArtifactMutationResult>;
+    renameArtifact(request: {
+      kind: DesktopArtifactKind;
+      name: string;
+      newName: string;
+      location: DesktopArtifactLocation;
+      expectedRevision: string;
+    }): Promise<DesktopProfileManagerSnapshot>;
+    deleteArtifact(request: {
+      kind: DesktopArtifactKind;
+      name: string;
+      location: DesktopArtifactLocation;
+      expectedRevision: string;
+    }): Promise<DesktopProfileManagerSnapshot>;
+    setArtifactDisabled(request: {
+      kind: DesktopArtifactKind;
+      name: string;
+      location: DesktopArtifactLocation;
+      disabled: boolean;
+      expectedRevision: string;
+    }): Promise<DesktopProfileManagerSnapshot>;
   };
   ableton: {
     connect(): Promise<DesktopConnectionStatus>;

@@ -69,6 +69,7 @@ export interface DesktopService {
   createSession(): Promise<string>;
   getSessions(): Promise<DesktopSession[]>;
   resumeSession(sessionId: string): Promise<void>;
+  closeSession(): Promise<void>;
   getAgentCatalog(): Promise<DesktopAgentCatalog>;
   refreshAgentCatalog(): Promise<DesktopAgentCatalog>;
   listActiveAgents(): Promise<DesktopActiveAgent[]>;

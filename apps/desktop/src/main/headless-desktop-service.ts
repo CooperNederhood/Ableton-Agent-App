@@ -4299,10 +4299,7 @@ export class HeadlessDesktopService implements DesktopService {
                   preparedContextStatus:
                     preparedContextStatus.state === "unavailable"
                       ? preparedContextStatus
-                      : {
-                          ...preparedContextStatus,
-                          projectId: preparedContextStatus.liveSetId,
-                        },
+                      : preparedContextStatus,
                 };
               }),
           ),

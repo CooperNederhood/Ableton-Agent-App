@@ -83,6 +83,23 @@ describe("Live Set snapshot adapter", () => {
     expect(() =>
       toDesktopSnapshot(state.snapshot, { state: "disconnected" }),
     ).toThrow("without a connected Live Set");
+    expect(() =>
+      toDesktopSnapshot(state.snapshot, {
+        state: "connected",
+        liveVersion: "11.3.42",
+        remoteScriptVersion: "1.0.0",
+        saved: true,
+      } as never),
+    ).toThrow();
+    expect(() =>
+      toDesktopSnapshot(state.snapshot, {
+        state: "connected",
+        liveVersion: "11.3.42",
+        remoteScriptVersion: "1.0.0",
+        liveSetId: "set-1",
+        saved: true,
+      } as never),
+    ).toThrow();
   });
 
   it("lists only capabilities the Remote Script enables", () => {

@@ -54,7 +54,6 @@ export interface DesktopCompositionOptions {
   preferencesPath: string;
   sessionsPath: string;
   liveSetSessionsPath?: string;
-  sessionStateDirectory?: string;
   eventJournalPath?: string;
   agentsDirectory: string;
   skillsDirectory: string;
@@ -588,9 +587,6 @@ export async function createDesktopComposition(
               return resolveNestedSessionStorage(storage, ownership);
             },
           }),
-      ...(options.sessionStateDirectory === undefined
-        ? {}
-        : { sessionStateDirectory: options.sessionStateDirectory }),
     },
     requestToolApproval: (request: ToolApprovalRequest) =>
       approvalPolicy.request(request),

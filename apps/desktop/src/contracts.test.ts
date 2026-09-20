@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   appEventSchema,
   desktopActiveAgentSchema,
+  desktopAgentEventListenerSchema,
   desktopAgentModelSchema,
   ipcSchemas,
   MAX_AGENT_TRIGGER_HISTORY,
@@ -11,6 +12,35 @@ import {
 } from "./contracts";
 
 describe("desktop IPC contracts", () => {
+  it("uses Live Set identity for prepared context status", () => {
+    const listener = {
+      agentLabel: "Default",
+      listener: {
+        id: "event-listener.00000000-0000-4000-8000-000000000001",
+        eventId: "live-event.00000000-0000-4000-8000-000000000002",
+        enabled: true,
+        responseMode: "next-prompt",
+      },
+      preparedContextStatus: {
+        state: "fresh",
+        capturedAt: "2026-09-20T18:00:00.000Z",
+        liveSetId: "set-1",
+      },
+    };
+
+    expect(desktopAgentEventListenerSchema.parse(listener)).toEqual(listener);
+    expect(() =>
+      desktopAgentEventListenerSchema.parse({
+        ...listener,
+        preparedContextStatus: {
+          state: "fresh",
+          capturedAt: "2026-09-20T18:00:00.000Z",
+          projectId: "set-1",
+        },
+      }),
+    ).toThrow();
+  });
+
   it("rejects empty prompts", () => {
     expect(() =>
       ipcSchemas["agent:send"].request.parse({

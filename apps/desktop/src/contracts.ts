@@ -565,7 +565,7 @@ export const desktopAgentEventListenerSchema = z.object({
       z.object({
         state: z.enum(["fresh", "stale"]),
         capturedAt: z.string().datetime(),
-        projectId: z.string().min(1),
+        liveSetId: z.string().min(1),
         projectRevision: z.number().int().nonnegative().optional(),
         unresolvedTrackLocators: z.number().int().positive().optional(),
       }),

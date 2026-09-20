@@ -660,7 +660,11 @@ export class HeadlessDesktopService implements DesktopService {
         this.#ephemeralSessionIds.add(session.id);
         throw error;
       }
-      this.emit({ type: "sessions.changed", sessions: [...this.#sessions] });
+      this.emit({
+        type: "sessions.changed",
+        sessions: [...this.#sessions],
+        activeSessionId: session.id,
+      });
       return session;
     });
   }

@@ -24,7 +24,8 @@ Companion specification: [Custom Agents](custom-agents.md)
 - [x] Add revision-checked atomic Session-scope definition publication and
   effective-catalog/Profile refresh.
 - [x] Promote an ephemeral unsaved-Set production session when the user
-  explicitly saves a Session-scope agent definition.
+  explicitly saves a Session-scope agent definition without clearing the
+  renderer's active-session identity.
 - [x] Resolve drag-and-drop transfer sources physically so Session agents can
   retain inherited skills while moving between scopes.
 

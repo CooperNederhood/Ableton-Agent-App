@@ -141,7 +141,9 @@ or definition fingerprints cancel rather than overwrite.
 When the open Live Set is unsaved, the active production session is normally
 ephemeral. An explicit Agents-tab save promotes that session to durable local
 storage before publishing the Session Scope override, so the definition remains
-resolvable and appears under Session-defined Agents in Profiles.
+resolvable and appears under Session-defined Agents in Profiles. The promotion
+preserves the active-session identity in renderer updates, so Agents and
+Workspace controls remain available throughout the save.
 
 Profile Manager copy and move operations resolve the physical artifact owned by
 the dragged scope. Validation still uses the complete layered catalog, allowing

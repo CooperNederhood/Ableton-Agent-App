@@ -3084,6 +3084,8 @@ describe("desktop adapter over the shared application", () => {
         refresh: () => Promise.resolve(defaultCatalog()),
       },
     });
+    const events: DesktopAppEvent[] = [];
+    service.subscribe((event) => events.push(event));
 
     await service.start();
     const active = await service.persistActiveSession();
@@ -3093,6 +3095,12 @@ describe("desktop adapter over the shared application", () => {
     expect(persisted).toHaveLength(1);
     expect(persisted[0]).toMatchObject({ id: active.id });
     expect(persisted[0]).not.toHaveProperty("projectId");
+    expect(
+      [...events].reverse().find(({ type }) => type === "sessions.changed"),
+    ).toMatchObject({
+      type: "sessions.changed",
+      activeSessionId: active.id,
+    });
   });
 
   it("requests a decision when the open Live Set changes mid-run", async () => {

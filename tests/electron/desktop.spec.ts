@@ -94,15 +94,26 @@ test("launches the packaged desktop contract securely", async () => {
     await expect(
       window.getByRole("heading", { name: "Profiles", exact: true }),
     ).toBeVisible();
-    await expect(window.getByText("System Scope")).toBeVisible();
-    await expect(window.getByText("Profile Scope")).toBeVisible();
-    await expect(window.getByText("Session Scope")).toBeVisible();
+    await expect(
+      window.getByRole("heading", { name: "System", exact: true }),
+    ).toBeVisible();
     await expect(
       window.getByText(/Profile switching is disabled/u),
     ).toBeVisible();
-    await window.getByLabel("Profile name").fill("ambient");
-    await window.getByRole("button", { name: "Create" }).click();
-    await expect(window.getByLabel("Managed profile")).toHaveValue("ambient");
+    await expect(window.getByLabel("Active Profile")).toBeDisabled();
+    await window.getByRole("button", { name: "Create profile" }).click();
+    await window.getByLabel("New profile").fill("ambient");
+    await window.getByRole("button", { name: "Create", exact: true }).click();
+    const ambientProfile = window.getByRole("button", {
+      name: "ambient",
+      exact: true,
+    });
+    await expect(ambientProfile).toBeVisible();
+    await ambientProfile.click({ button: "right" });
+    await expect(
+      window.getByRole("menuitem", { name: "Rename" }),
+    ).toBeVisible();
+    await expect(window.getByText("Selected artifact")).toHaveCount(0);
 
     const isolation = await window.evaluate(() => ({
       desktop: typeof window.desktop,

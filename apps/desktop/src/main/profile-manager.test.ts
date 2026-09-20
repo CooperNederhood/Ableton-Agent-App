@@ -16,6 +16,7 @@ async function fixture(
   options: {
     activeSessionId?: string;
     switchFailure?: Error;
+    closeFailure?: Error;
   } = {},
 ) {
   const root = await mkdtemp(join(process.cwd(), ".test-profile-manager-"));
@@ -55,6 +56,11 @@ async function fixture(
   await ensureLiveAgentStorage(layout);
   const events: Array<{ name: string }> = [];
   let activeProfile = "default";
+  let activeSessionId = options.activeSessionId;
+  const closeActiveSession = vi.fn(async () => {
+    if (options.closeFailure !== undefined) throw options.closeFailure;
+    activeSessionId = undefined;
+  });
   const switchProfile = vi.fn(async (profile: string) => {
     if (options.switchFailure !== undefined) throw options.switchFailure;
     activeProfile = profile;
@@ -64,12 +70,13 @@ async function fixture(
     bundledAgentsDirectory,
     bundledSkillsDirectory,
     getActiveProfile: () => activeProfile,
-    getActiveSessionId: () => Promise.resolve(options.activeSessionId),
+    getActiveSessionId: () => Promise.resolve(activeSessionId),
+    closeActiveSession,
     refreshActiveCatalog: vi.fn().mockResolvedValue(undefined),
     switchProfile,
     telemetry: (event) => events.push(event),
   });
-  return { manager, events, switchProfile };
+  return { manager, events, switchProfile, closeActiveSession };
 }
 
 afterEach(async () => {
@@ -152,10 +159,10 @@ describe("DesktopProfileManager", () => {
     ).toMatchObject({ state: "disabled", origin: "bundled" });
   });
 
-  it("blocks profile switching while a production session is active", async () => {
+  it("requires confirmation before closing an active session to switch", async () => {
     const { manager } = await fixture({ activeSessionId: "session-1" });
     const initial = await manager.get();
-    const created = await manager.create({
+    await manager.create({
       name: "ambient",
       expectedRevision: initial.revision,
     });
@@ -163,24 +170,39 @@ describe("DesktopProfileManager", () => {
     await expect(
       manager.switch({
         name: "ambient",
-        expectedRevision: created.revision,
+        expectedRevision: (await manager.status()).revision,
+        closeActiveSession: false,
       }),
-    ).rejects.toThrow("Close the active production session");
+    ).rejects.toThrow("Confirm closing the active production session");
   });
 
-  it("switches profiles after the active session is closed", async () => {
-    const { manager, switchProfile } = await fixture();
+  it("reports profile status without loading artifact details", async () => {
+    const { manager } = await fixture({ activeSessionId: "session-1" });
+
+    await expect(manager.status()).resolves.toMatchObject({
+      activeProfile: "default",
+      activeSessionId: "session-1",
+      profiles: [{ name: "default", active: true, reserved: false }],
+    });
+  });
+
+  it("closes the active session when confirmed and switches profiles", async () => {
+    const { manager, switchProfile, closeActiveSession } = await fixture({
+      activeSessionId: "session-1",
+    });
     const initial = await manager.get();
-    const created = await manager.create({
+    await manager.create({
       name: "ambient",
       expectedRevision: initial.revision,
     });
 
     await manager.switch({
       name: "ambient",
-      expectedRevision: created.revision,
+      expectedRevision: (await manager.status()).revision,
+      closeActiveSession: true,
     });
 
+    expect(closeActiveSession).toHaveBeenCalledTimes(1);
     expect(switchProfile).toHaveBeenCalledWith("ambient");
     expect((await manager.get()).activeProfile).toBe("ambient");
   });
@@ -190,7 +212,7 @@ describe("DesktopProfileManager", () => {
       switchFailure: new Error("replacement failed"),
     });
     const initial = await manager.get();
-    const created = await manager.create({
+    await manager.create({
       name: "ambient",
       expectedRevision: initial.revision,
     });
@@ -198,10 +220,32 @@ describe("DesktopProfileManager", () => {
     await expect(
       manager.switch({
         name: "ambient",
-        expectedRevision: created.revision,
+        expectedRevision: (await manager.status()).revision,
+        closeActiveSession: false,
       }),
     ).rejects.toThrow("replacement failed");
 
     expect((await manager.get()).selectedProfile).toBe("default");
+  });
+
+  it("does not switch when the confirmed session close fails", async () => {
+    const { manager, switchProfile } = await fixture({
+      activeSessionId: "session-1",
+      closeFailure: new Error("session busy"),
+    });
+    const initial = await manager.get();
+    await manager.create({
+      name: "ambient",
+      expectedRevision: initial.revision,
+    });
+
+    await expect(
+      manager.switch({
+        name: "ambient",
+        expectedRevision: (await manager.status()).revision,
+        closeActiveSession: true,
+      }),
+    ).rejects.toThrow("session busy");
+    expect(switchProfile).not.toHaveBeenCalled();
   });
 });

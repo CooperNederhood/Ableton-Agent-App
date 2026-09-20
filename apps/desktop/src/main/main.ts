@@ -553,6 +553,9 @@ async function bootstrap(): Promise<void> {
     getActiveProfile: () => storage.profile,
     getActiveSessionId: async () =>
       (await requireService().listOutputs()).activeSessionId,
+    closeActiveSession: async () => {
+      await requireService().closeSession();
+    },
     refreshActiveCatalog: async () => {
       await requireService().refreshAgentCatalog();
     },

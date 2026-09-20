@@ -42,6 +42,17 @@ describe("desktop IPC contracts", () => {
       }),
     ).toThrow();
     expect(
+      ipcSchemas["profiles:switch"].request.parse({
+        name: "ambient",
+        expectedRevision: revision,
+        closeActiveSession: true,
+      }),
+    ).toEqual({
+      name: "ambient",
+      expectedRevision: revision,
+      closeActiveSession: true,
+    });
+    expect(
       ipcSchemas["profiles:copy-artifact"].request.parse({
         kind: "skill",
         name: "evolving-pads",

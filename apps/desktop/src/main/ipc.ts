@@ -31,6 +31,7 @@ export interface DiagnosticsActions {
 
 export interface ProfileManagerActions {
   get(selectedProfile?: string): Promise<ResponseOf<"profiles:get">>;
+  status(): Promise<ResponseOf<"profiles:status">>;
   create(
     request: RequestOf<"profiles:create">,
   ): Promise<ResponseOf<"profiles:create">>;
@@ -170,6 +171,7 @@ export function createIpcHandlers(
       ),
     "agents:cancel": ({ instanceId }) => service.cancelActiveAgent(instanceId),
     "profiles:get": ({ selectedProfile }) => profiles.get(selectedProfile),
+    "profiles:status": () => profiles.status(),
     "profiles:create": (request) => profiles.create(request),
     "profiles:rename": (request) => profiles.rename(request),
     "profiles:delete": (request) => profiles.delete(request),

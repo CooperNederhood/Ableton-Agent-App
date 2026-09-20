@@ -106,7 +106,17 @@ describe("preload API", () => {
     };
     const transport = transportFor({
       "profiles:get": snapshot,
+      "profiles:status": {
+        revision,
+        activeProfile: "default",
+        activeSessionId: "session-1",
+        profiles: [
+          { name: "default", active: true, reserved: false },
+          { name: "ambient", active: false, reserved: false },
+        ],
+      },
       "profiles:create": snapshot,
+      "profiles:switch": { switching: true },
       "profiles:copy-artifact": {
         status: "completed",
         snapshot,
@@ -115,7 +125,9 @@ describe("preload API", () => {
     const api = createDesktopApi(transport);
 
     await api.profiles.get("ambient");
+    await api.profiles.status();
     await api.profiles.create("ambient", revision);
+    await api.profiles.switch("ambient", revision, true);
     await api.profiles.copyArtifact({
       kind: "skill",
       name: "mix-review",
@@ -126,7 +138,16 @@ describe("preload API", () => {
 
     expect(vi.mocked(transport).invoke.mock.calls).toEqual([
       ["profiles:get", { selectedProfile: "ambient" }],
+      ["profiles:status", {}],
       ["profiles:create", { name: "ambient", expectedRevision: revision }],
+      [
+        "profiles:switch",
+        {
+          name: "ambient",
+          expectedRevision: revision,
+          closeActiveSession: true,
+        },
+      ],
       [
         "profiles:copy-artifact",
         {

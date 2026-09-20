@@ -160,7 +160,7 @@ h3 {
 }
 .connection-header {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 1fr) auto;
   align-items: center;
   gap: 16px;
   padding: 0 18px;
@@ -185,14 +185,23 @@ small,
 }
 .header-controls {
   justify-content: flex-end;
+  gap: 6px;
 }
-.header-controls label {
+.header-selector {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 12px;
 }
 .header-controls select {
   padding: 5px;
+}
+.header-divider {
+  color: var(--line);
+}
+.profile-selector {
+  max-width: 140px;
 }
 .agent-instance-selector {
   min-width: 150px;
@@ -222,14 +231,17 @@ small,
 }
 
 .profile-manager {
+  height: 100%;
   min-height: 0;
-  overflow: auto;
-  padding: 18px;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 18px 18px 40px;
+  overscroll-behavior: contain;
 }
 .profile-manager-heading,
 .scope-column > header,
-.profile-controls,
-.artifact-actions {
+.profile-heading-actions {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -249,36 +261,53 @@ small,
   color: #ffd077;
   background: #2b2517;
 }
-.profile-controls {
-  flex-wrap: wrap;
-  margin: 16px 0;
+.profile-heading-actions {
+  position: relative;
 }
-.profile-controls label,
-.artifact-actions label {
+.profile-popover {
+  position: absolute;
+  z-index: 40;
+  top: 36px;
+  right: 0;
+  width: 240px;
   display: grid;
-  gap: 4px;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 12px 36px rgb(0 0 0 / 40%);
+}
+.profile-popover label {
+  display: grid;
+  gap: 5px;
   color: var(--muted);
   font-size: 12px;
 }
-.profile-controls select,
-.profile-controls input,
-.artifact-actions select,
-.artifact-actions input {
-  min-width: 150px;
-  padding: 6px 8px;
+.profile-popover input {
+  width: 100%;
+  box-sizing: border-box;
 }
-.selected-profile-summary {
-  display: grid;
-  gap: 2px;
-  min-width: 150px;
-}
-.selected-profile-summary span,
-.selected-profile-summary small {
+.profile-clipboard {
+  width: fit-content;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
   color: var(--muted);
+  background: var(--panel-2);
   font-size: 12px;
+}
+.profile-clipboard button {
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
 }
 .profile-tree {
-  max-width: 1120px;
+  width: min(1120px, 100%);
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel-2);
@@ -331,6 +360,19 @@ small,
   color: inherit;
   text-align: left;
 }
+.scope-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.scope-active-indicator {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #78d99b;
+  box-shadow: 0 0 0 2px rgb(120 217 155 / 14%);
+}
 .profile-tree-label:hover:not(:disabled) {
   color: var(--focus);
 }
@@ -357,6 +399,11 @@ small,
 }
 .profile-tree-node.selected-scope > .profile-tree-row {
   background: rgb(130 199 255 / 8%);
+}
+.profile-tree-row.drop-target {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+  background: rgb(130 199 255 / 14%);
 }
 .profile-tree-artifacts {
   display: grid;
@@ -436,6 +483,10 @@ small,
   border-color: var(--focus);
   background: #24323a;
 }
+.artifact-list button.artifact-cut {
+  opacity: 0.55;
+  border-style: dashed;
+}
 .artifact-list button > span:first-child {
   min-width: 0;
   display: grid;
@@ -458,17 +509,26 @@ small,
 .artifact-state.disabled {
   color: #ff8980;
 }
-.artifact-actions {
-  flex-wrap: wrap;
-  margin-top: 14px;
-  padding: 12px;
+.profile-context-menu {
+  position: fixed;
+  z-index: 1200;
+  min-width: 160px;
+  display: grid;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  box-shadow: 0 12px 36px rgb(0 0 0 / 45%);
 }
-.artifact-actions legend {
-  color: var(--muted);
+.profile-context-menu button {
+  padding: 7px 10px;
+  border: 0;
+  background: transparent;
+  text-align: left;
 }
-.artifact-actions p {
-  flex-basis: 100%;
-  margin-bottom: 0;
+.profile-context-menu button:hover:not(:disabled),
+.profile-context-menu button:focus-visible {
+  background: var(--panel-3);
 }
 .profile-conflict-backdrop {
   position: fixed;

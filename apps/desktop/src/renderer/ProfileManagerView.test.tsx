@@ -24,30 +24,16 @@ function snapshot(
         reserved: false,
         sessionCount: 2,
         sessions: [
-          {
-            id: "session-1",
-            title: "Untitled",
-            active: true,
-          },
-          {
-            id: "session-2",
-            title: "Second set",
-            active: false,
-          },
+          { id: "session-1", title: "Untitled", active: true },
+          { id: "session-2", title: "Second set", active: false },
         ],
       },
       {
         name: "ambient",
         active: false,
         reserved: false,
-        sessionCount: 1,
-        sessions: [
-          {
-            id: "ambient-session",
-            title: "Ambient set",
-            active: false,
-          },
-        ],
+        sessionCount: 0,
+        sessions: [],
       },
     ],
     artifacts: [
@@ -60,18 +46,6 @@ function snapshot(
         state: "inherited",
         sourceFile: "default.yaml",
         fingerprint: "f".repeat(64),
-        overriddenOrigins: [],
-        diagnostics: [],
-      },
-      {
-        kind: "skill",
-        name: "arrangement",
-        description: "Arrangement skill",
-        scope: "system",
-        origin: "bundled",
-        state: "inherited",
-        sourceFile: "arrangement/SKILL.md",
-        fingerprint: "e".repeat(64),
         overriddenOrigins: [],
         diagnostics: [],
       },
@@ -121,12 +95,19 @@ function snapshot(
 
 function api(
   profileOverrides: Partial<DesktopApi["profiles"]> = {},
-  closeSession = vi.fn().mockResolvedValue(undefined),
 ): DesktopApi {
   return {
-    agent: { closeSession },
     profiles: {
       get: vi.fn().mockResolvedValue(snapshot()),
+      status: vi.fn().mockResolvedValue({
+        revision,
+        activeProfile: "default",
+        activeSessionId: "session-1",
+        profiles: [
+          { name: "default", active: true, reserved: false },
+          { name: "ambient", active: false, reserved: false },
+        ],
+      }),
       create: vi.fn().mockResolvedValue(snapshot()),
       rename: vi.fn().mockResolvedValue(snapshot()),
       delete: vi.fn().mockResolvedValue(snapshot()),
@@ -145,6 +126,40 @@ function api(
       ...profileOverrides,
     },
   } as unknown as DesktopApi;
+}
+
+function rightClick(element: Element): void {
+  element.dispatchEvent(
+    new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 20,
+      clientY: 30,
+    }),
+  );
+}
+
+function setInput(input: HTMLInputElement, value: string): void {
+  Object.defineProperty(input, "value", {
+    configurable: true,
+    value,
+  });
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function dragEvent(type: string, altKey = false): Event {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperties(event, {
+    altKey: { value: altKey },
+    dataTransfer: {
+      value: {
+        effectAllowed: "none",
+        dropEffect: "none",
+        setData: vi.fn(),
+      },
+    },
+  });
+  return event;
 }
 
 describe("ProfileManagerView", () => {
@@ -167,52 +182,55 @@ describe("ProfileManagerView", () => {
     container.remove();
   });
 
-  it("renders the nested scope hierarchy and closes the active session", async () => {
-    const closeSession = vi.fn().mockResolvedValue(undefined);
-    const getProfiles = vi.fn().mockResolvedValue(snapshot());
-    const desktop = api({ get: getProfiles }, closeSession);
-    window.desktop = desktop;
-
+  it("renders a compact hierarchy without persistent action panels", async () => {
+    window.desktop = api();
     await act(async () => {
       root.render(<ProfileManagerView activeSessionId="session-1" />);
     });
 
     expect(container.textContent).toContain("System");
     expect(container.textContent).toContain("default");
-    expect(container.textContent).not.toContain("house-groove");
-
-    const expandSystem = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Expand System artifacts"]',
-    );
-    await act(async () => expandSystem?.click());
     expect(container.textContent).toContain("Agents");
     expect(container.textContent).toContain("Skills");
-    expect(container.textContent).toContain("arrangement");
-
-    const expandProfile = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Expand default profile"]',
-    );
-    await act(async () => expandProfile?.click());
     expect(container.textContent).toContain("house-groove");
-    expect(container.textContent).toContain("Untitled");
+    expect(container.textContent).not.toContain("Selected artifact");
+    expect(container.textContent).not.toContain("Close active session");
 
     const expandSession = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Expand Untitled session"]',
     );
     await act(async () => expandSession?.click());
     expect(container.textContent).toContain("compose");
-    const close = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "Close active session",
-    );
-    expect(close).toBeDefined();
-
-    await act(async () => close?.click());
-
-    expect(closeSession).toHaveBeenCalledTimes(1);
-    expect(getProfiles).toHaveBeenLastCalledWith("default");
   });
 
-  it("requires an explicit conflict decision", async () => {
+  it("creates profiles from the header popover", async () => {
+    const create = vi.fn().mockResolvedValue(snapshot());
+    window.desktop = api({ create });
+    await act(async () => {
+      root.render(<ProfileManagerView />);
+    });
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Create profile"]')
+        ?.click(),
+    );
+    const input = container.querySelector<HTMLInputElement>(
+      ".profile-popover input",
+    )!;
+    await act(async () => setInput(input, "ambient-two"));
+    await act(async () =>
+      input
+        .closest("form")
+        ?.dispatchEvent(
+          new SubmitEvent("submit", { bubbles: true, cancelable: true }),
+        ),
+    );
+
+    expect(create).toHaveBeenCalledWith("ambient-two", revision);
+  });
+
+  it("uses Copy and scope Paste with explicit conflict resolution", async () => {
     const copyArtifact = vi
       .fn()
       .mockResolvedValueOnce({
@@ -232,60 +250,81 @@ describe("ProfileManagerView", () => {
         snapshot: snapshot(),
       });
     window.desktop = api({ copyArtifact });
-
     await act(async () => {
-      root.render(<ProfileManagerView activeSessionId="session-1" />);
+      root.render(<ProfileManagerView />);
     });
-    const expandSystem = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Expand System artifacts"]',
-    );
-    await act(async () => expandSystem?.click());
-    const mix = [...container.querySelectorAll("button")].find((button) =>
-      button.textContent?.includes("mix"),
-    );
-    await act(async () => mix?.click());
-    const copy = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "Copy",
-    );
-    await act(async () => copy?.click());
 
+    const mix = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="mix, Local"]',
+    )!;
+    await act(async () => rightClick(mix));
+    await act(async () =>
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Copy")
+        ?.click(),
+    );
+
+    const profileRow = container
+      .querySelector<HTMLButtonElement>(
+        'button[aria-label="Collapse default profile"]',
+      )
+      ?.closest("header");
+    await act(async () => rightClick(profileRow!));
+    await act(async () =>
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Paste")
+        ?.click(),
+    );
     expect(container.textContent).toContain("Artifact already exists");
-    const replace = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "Replace",
-    );
-    await act(async () => replace?.click());
 
+    await act(async () =>
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Replace")
+        ?.click(),
+    );
     expect(copyArtifact).toHaveBeenLastCalledWith(
-      expect.objectContaining({ conflictResolution: "replace" }),
+      expect.objectContaining({
+        destination: { scope: "profile", profile: "default" },
+        conflictResolution: "replace",
+      }),
     );
   });
 
-  it("does not repeat inherited artifacts in fresh lower scopes", async () => {
-    window.desktop = api({
-      get: vi.fn().mockResolvedValue(
-        snapshot({
-          artifacts: snapshot().artifacts.filter(
-            ({ scope }) => scope === "system",
-          ),
-        }),
-      ),
+  it("moves by default and copies when Option is held during drag", async () => {
+    const moveArtifact = vi.fn().mockResolvedValue({
+      status: "completed",
+      snapshot: snapshot(),
     });
-
+    const copyArtifact = vi.fn().mockResolvedValue({
+      status: "completed",
+      snapshot: snapshot(),
+    });
+    window.desktop = api({ moveArtifact, copyArtifact });
     await act(async () => {
-      root.render(<ProfileManagerView activeSessionId="session-1" />);
+      root.render(<ProfileManagerView />);
     });
-    const expandProfile = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Expand default profile"]',
-    );
-    await act(async () => expandProfile?.click());
-    const expandSession = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Expand Untitled session"]',
-    );
-    await act(async () => expandSession?.click());
 
-    expect(
-      container.textContent?.match(/None defined at this level\./gu),
-    ).toHaveLength(4);
-    expect(container.textContent).not.toContain("Bundled baseline");
+    const mix = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="mix, Local"]',
+    )!;
+    const profileToggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Collapse default profile"]',
+    );
+    if (profileToggle === null) throw new Error("Profile toggle not found");
+    const profileRow = profileToggle.closest("header");
+    if (profileRow === null) throw new Error("Profile row not found");
+    await act(async () => mix.dispatchEvent(dragEvent("dragstart")));
+    await act(async () => {
+      profileRow.dispatchEvent(dragEvent("dragover"));
+      profileRow.dispatchEvent(dragEvent("drop"));
+    });
+    expect(moveArtifact).toHaveBeenCalledTimes(1);
+
+    await act(async () => mix.dispatchEvent(dragEvent("dragstart", true)));
+    await act(async () => {
+      profileRow.dispatchEvent(dragEvent("dragover", true));
+      profileRow.dispatchEvent(dragEvent("drop", true));
+    });
+    expect(copyArtifact).toHaveBeenCalledTimes(1);
   });
 });

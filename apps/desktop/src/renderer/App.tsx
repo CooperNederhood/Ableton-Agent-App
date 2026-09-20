@@ -34,6 +34,7 @@ import type {
   DesktopOutputAssignment,
   DesktopOutputConnection,
   DesktopProjectSnapshot,
+  DesktopProfileStatus,
   DesktopLiveEventState,
   LatestAcceptedOutput,
   DesktopTrack,
@@ -707,6 +708,7 @@ export function App(): React.JSX.Element {
     initialWorkspaceSidebarWidths(window.innerWidth),
   );
   const [topChromeVisible, setTopChromeVisible] = useState(true);
+  const [profileRefreshToken, setProfileRefreshToken] = useState(0);
   const [composerValue, setComposerValue] = useState("");
   const [composerError, setComposerError] = useState("");
   const [planEditorOpen, setPlanEditorOpen] = useState(false);
@@ -959,6 +961,7 @@ export function App(): React.JSX.Element {
         <ConnectionHeader
           state={state}
           dispatch={dispatch}
+          profileRefreshToken={profileRefreshToken}
           onHideChrome={() => setTopChromeVisible(false)}
         />
       )}
@@ -1062,6 +1065,9 @@ export function App(): React.JSX.Element {
         ) : state.activeView === "profiles" ? (
           <ProfileManagerView
             {...(activeSessionId === undefined ? {} : { activeSessionId })}
+            onProfilesChanged={() =>
+              setProfileRefreshToken((current) => current + 1)
+            }
           />
         ) : state.activeView === "diagnostics" ? (
           <DiagnosticsView state={state} dispatch={dispatch} />
@@ -2961,13 +2967,74 @@ export function ConnectionHeader({
   state,
   dispatch,
   onHideChrome,
+  profileRefreshToken = 0,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
   onHideChrome?: (() => void) | undefined;
+  profileRefreshToken?: number;
 }): React.JSX.Element {
   const session = activeSession(state);
   const activeAgent = selectedAgentInstance(state);
+  const [profileStatus, setProfileStatus] = useState<DesktopProfileStatus>();
+  const [pendingProfile, setPendingProfile] = useState<string>();
+  const [profileError, setProfileError] = useState("");
+  const [profileBusy, setProfileBusy] = useState(false);
+  useEffect(() => {
+    if (state.lifecycle !== "ready" && state.lifecycle !== "degraded") return;
+    if (window.desktop.profiles?.status === undefined) return;
+    void window.desktop.profiles
+      .status()
+      .then(setProfileStatus)
+      .catch((error: unknown) =>
+        setProfileError(
+          error instanceof Error
+            ? error.message
+            : "Profiles could not be loaded",
+        ),
+      );
+  }, [profileRefreshToken, state.activeSessionId, state.lifecycle]);
+  const requestProfileSwitch = (profile: string): void => {
+    if (
+      profileStatus === undefined ||
+      profile === profileStatus.activeProfile ||
+      profileBusy
+    ) {
+      return;
+    }
+    if (profileStatus.activeSessionId !== undefined) {
+      setPendingProfile(profile);
+      return;
+    }
+    setProfileBusy(true);
+    setProfileError("");
+    void window.desktop.profiles
+      .switch(profile, profileStatus.revision, false)
+      .catch((error: unknown) => {
+        setProfileError(
+          error instanceof Error ? error.message : "Profile switch failed",
+        );
+        setProfileBusy(false);
+      });
+  };
+  const confirmProfileSwitch = async (): Promise<void> => {
+    if (profileStatus === undefined || pendingProfile === undefined) return;
+    setProfileBusy(true);
+    setProfileError("");
+    try {
+      await window.desktop.profiles.switch(
+        pendingProfile,
+        profileStatus.revision,
+        profileStatus.activeSessionId !== undefined,
+      );
+    } catch (error) {
+      setProfileError(
+        error instanceof Error ? error.message : "Profile switch failed",
+      );
+      setPendingProfile(undefined);
+      setProfileBusy(false);
+    }
+  };
   const selectAgent = async (instanceId: string): Promise<void> => {
     try {
       await selectWorkspaceAgent(window.desktop, instanceId, dispatch);
@@ -3016,8 +3083,40 @@ export function ConnectionHeader({
         </small>
       </div>
       <div className="header-controls">
-        <label>
-          Active Agent
+        <span className="header-divider" aria-hidden="true">
+          |
+        </span>
+        <label className="header-selector">
+          <span>Profile:</span>
+          <select
+            className="profile-selector"
+            aria-label="Active Profile"
+            value={profileStatus?.activeProfile ?? ""}
+            disabled={
+              profileBusy ||
+              profileStatus === undefined ||
+              profileStatus.switchingDisabledReason !== undefined
+            }
+            title={
+              profileStatus?.switchingDisabledReason ??
+              (profileError || undefined)
+            }
+            onChange={(event) => requestProfileSwitch(event.target.value)}
+          >
+            {profileStatus?.profiles
+              .filter(({ reserved, active }) => !reserved || active)
+              .map((profile) => (
+                <option key={profile.name} value={profile.name}>
+                  {profile.name}
+                </option>
+              ))}
+          </select>
+        </label>
+        <span className="header-divider" aria-hidden="true">
+          |
+        </span>
+        <label className="header-selector">
+          <span>Agent:</span>
           <select
             className="agent-instance-selector"
             aria-label="Active Agent"
@@ -3035,6 +3134,9 @@ export function ConnectionHeader({
             ))}
           </select>
         </label>
+        <span className="header-divider" aria-hidden="true">
+          |
+        </span>
         {activeAgent?.autoApprove && (
           <span className="agent-badge yolo-badge">YOLO</span>
         )}
@@ -3072,6 +3174,40 @@ export function ConnectionHeader({
           </button>
         )}
       </div>
+      {pendingProfile !== undefined && (
+        <div className="profile-conflict-backdrop" role="presentation">
+          <section
+            className="profile-conflict-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="header-profile-switch-title"
+          >
+            <h2 id="header-profile-switch-title">Switch profile?</h2>
+            <p>
+              {profileStatus?.activeSessionId === undefined
+                ? `Switch to ${pendingProfile}?`
+                : "The active session will be saved and closed. You can resume it later from its current profile."}
+            </p>
+            <div className="profile-conflict-actions">
+              <button
+                type="button"
+                disabled={profileBusy}
+                onClick={() => setPendingProfile(undefined)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="primary"
+                disabled={profileBusy}
+                onClick={() => void confirmProfileSwitch()}
+              >
+                Switch
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </header>
   );
 }

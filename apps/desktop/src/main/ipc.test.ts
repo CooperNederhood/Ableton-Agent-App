@@ -15,14 +15,22 @@ describe("desktop IPC", () => {
       artifacts: [],
     };
     const getProfile = vi.fn().mockResolvedValue(snapshot);
+    const getStatus = vi.fn().mockResolvedValue({
+      revision,
+      activeProfile: "default",
+      profiles: [],
+    });
     const createProfile = vi.fn().mockResolvedValue(snapshot);
+    const switchProfile = vi.fn().mockResolvedValue(undefined);
     const copyArtifact = vi.fn().mockResolvedValue({
       status: "completed",
       snapshot,
     });
     const profiles = {
       get: getProfile,
+      status: getStatus,
       create: createProfile,
+      switch: switchProfile,
       copyArtifact,
     } as unknown as ProfileManagerActions;
     const handlers = createIpcHandlers(
@@ -32,9 +40,15 @@ describe("desktop IPC", () => {
     );
 
     await handlers["profiles:get"]({ selectedProfile: "default" });
+    await handlers["profiles:status"]({});
     await handlers["profiles:create"]({
       name: "ambient",
       expectedRevision: revision,
+    });
+    await handlers["profiles:switch"]({
+      name: "ambient",
+      expectedRevision: revision,
+      closeActiveSession: true,
     });
     await handlers["profiles:copy-artifact"]({
       kind: "agent",
@@ -45,9 +59,15 @@ describe("desktop IPC", () => {
     });
 
     expect(getProfile).toHaveBeenCalledWith("default");
+    expect(getStatus).toHaveBeenCalledTimes(1);
     expect(createProfile).toHaveBeenCalledWith({
       name: "ambient",
       expectedRevision: revision,
+    });
+    expect(switchProfile).toHaveBeenCalledWith({
+      name: "ambient",
+      expectedRevision: revision,
+      closeActiveSession: true,
     });
     expect(copyArtifact).toHaveBeenCalledWith(
       expect.objectContaining({ name: "mix" }),

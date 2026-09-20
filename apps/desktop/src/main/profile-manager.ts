@@ -38,6 +38,7 @@ import { abletonToolMetadata } from "@ableton-agent/tools";
 
 import {
   desktopProfileManagerSnapshotSchema,
+  desktopProfileStatusSchema,
   sessionSchema,
   type DesktopArtifactConflict,
   type DesktopArtifactKind,
@@ -82,6 +83,7 @@ export interface ProfileManagerOptions {
   readonly environmentProfileOverride?: string;
   readonly getActiveProfile: () => string;
   readonly getActiveSessionId: () => Promise<string | undefined>;
+  readonly closeActiveSession: () => Promise<void>;
   readonly refreshActiveCatalog: () => Promise<void>;
   readonly switchProfile: (profile: string) => Promise<void>;
   readonly telemetry?: TelemetryWriter;
@@ -258,6 +260,37 @@ export class DesktopProfileManager implements ProfileManagerActions {
     return this.#snapshot(registry, selected);
   }
 
+  public async status() {
+    const registry = await loadProfileRegistry(this.options.rootLayout);
+    const activeProfile = this.options.getActiveProfile();
+    const activeSessionId = await this.options.getActiveSessionId();
+    return desktopProfileStatusSchema.parse({
+      revision: fingerprint({
+        registryRevision: registry.revision,
+        activeProfile,
+        activeSessionId,
+      }),
+      activeProfile,
+      ...(activeSessionId === undefined ? {} : { activeSessionId }),
+      ...(this.options.environmentProfileOverride === undefined
+        ? {}
+        : {
+            switchingDisabledReason:
+              "Profile switching is disabled because LIVE_AGENT_PROFILE is set.",
+          }),
+      profiles: [
+        ...registry.profiles.map(({ name }) => ({
+          name,
+          active: name === activeProfile,
+          reserved: false,
+        })),
+        ...(registry.profiles.some(({ name }) => name === activeProfile)
+          ? []
+          : [{ name: activeProfile, active: true, reserved: true }]),
+      ],
+    });
+  }
+
   public async create({
     name,
     expectedRevision,
@@ -318,20 +351,39 @@ export class DesktopProfileManager implements ProfileManagerActions {
   public async switch({
     name,
     expectedRevision,
+    closeActiveSession,
   }: Parameters<ProfileManagerActions["switch"]>[0]): Promise<void> {
     await this.#profileOperation("switch", { profile: name }, async () => {
-      const snapshot = await this.#assertRevision(expectedRevision, name);
+      const registry = await loadProfileRegistry(this.options.rootLayout);
+      const activeProfile = this.options.getActiveProfile();
+      const activeSessionId = await this.options.getActiveSessionId();
+      if (
+        fingerprint({
+          registryRevision: registry.revision,
+          activeProfile,
+          activeSessionId,
+        }) !== expectedRevision
+      ) {
+        throw new Error("Profiles changed; refresh before trying again");
+      }
       if (this.options.environmentProfileOverride !== undefined) {
         throw new Error(
           "Profile switching is disabled by LIVE_AGENT_PROFILE for this process",
         );
       }
-      if ((await this.options.getActiveSessionId()) !== undefined) {
-        throw new Error("Close the active production session before switching");
+      if (activeSessionId !== undefined) {
+        if (!closeActiveSession) {
+          throw new Error(
+            "Confirm closing the active production session before switching",
+          );
+        }
+        await this.options.closeActiveSession();
+        if ((await this.options.getActiveSessionId()) !== undefined) {
+          throw new Error("The active production session could not be closed");
+        }
       }
-      const registryRevision = await this.#registryRevision(snapshot);
       const selected = await selectProfile(this.options.rootLayout, name, {
-        expectedRevision: registryRevision,
+        expectedRevision: registry.revision,
       });
       try {
         await this.options.switchProfile(name);

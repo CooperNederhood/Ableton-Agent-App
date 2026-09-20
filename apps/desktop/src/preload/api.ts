@@ -123,14 +123,19 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
         invoke("profiles:get", {
           ...(selectedProfile === undefined ? {} : { selectedProfile }),
         }),
+      status: () => invoke("profiles:status", {}),
       create: (name, expectedRevision) =>
         invoke("profiles:create", { name, expectedRevision }),
       rename: (name, newName, expectedRevision) =>
         invoke("profiles:rename", { name, newName, expectedRevision }),
       delete: (name, expectedRevision) =>
         invoke("profiles:delete", { name, expectedRevision }),
-      switch: async (name, expectedRevision) => {
-        await invoke("profiles:switch", { name, expectedRevision });
+      switch: async (name, expectedRevision, closeActiveSession = false) => {
+        await invoke("profiles:switch", {
+          name,
+          expectedRevision,
+          closeActiveSession,
+        });
       },
       copyArtifact: (request) => invoke("profiles:copy-artifact", request),
       moveArtifact: (request) => invoke("profiles:move-artifact", request),

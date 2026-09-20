@@ -97,23 +97,35 @@ under every descendant; runtime resolution remains visible in artifact status
 and continues to follow Session, Profile, System, then bundled precedence.
 
 Profile nodes expose their persisted sessions even when the session is closed.
-Session labels include a bounded user-facing title and identifier, and the
-active profile and session are marked without exposing filesystem paths.
+Session labels use a bounded user-facing title, expose the full identifier as
+accessible supplemental text, and mark the active profile and session without
+exposing filesystem paths. Sessions are display-only in this view.
+
+The Profiles pane owns vertical scrolling inside the Desktop content row, so
+large profile and session trees remain reachable above the persistent
+composer. The application toolbar presents compact Profile and Agent selectors.
+Changing Profile while a production session is active requires confirmation;
+the app persists and deactivates that session before switching and leaves it
+available to resume.
 
 Supported operations are:
 
-- copy an artifact down or back up the hierarchy;
-- move a local artifact between editable scopes;
+- create a profile from the `+` popover beside the Profiles heading;
+- switch, rename, or delete an eligible profile from its context menu;
+- copy or cut an artifact from its context menu and paste it onto a compatible
+  System, Profile, or Session row;
+- drag an artifact to another scope, moving it by default or copying it while
+  Option is held;
 - semantically rename an agent or skill;
 - delete a local override, revealing the next inherited definition;
-- disable or restore an inherited artifact with a tombstone; and
-- create, rename, switch, or delete eligible profiles.
+- disable or restore an inherited artifact with a tombstone.
 
 Destination conflicts never overwrite silently. The app returns a bounded
 comparison and requires replace, semantic rename, or cancel. Skill rename
 updates same-scope agent references atomically. All filesystem mutation stays
-in the main process behind typed IPC; renderers receive no raw paths or file
-bodies.
+in the main process behind typed IPC. The UI receives the names, descriptions,
+scope, status, and actions needed for management but does not receive
+unrestricted filesystem access.
 
 ## Safety and observability
 

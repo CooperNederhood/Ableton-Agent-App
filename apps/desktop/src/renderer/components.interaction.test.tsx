@@ -112,7 +112,10 @@ function rendererState(active = true): DesktopState {
   };
 }
 
-function desktopApi(overrides: Partial<DesktopApi["agents"]> = {}): DesktopApi {
+function desktopApi(
+  overrides: Partial<DesktopApi["agents"]> = {},
+  profileOverrides: Partial<DesktopApi["profiles"]> = {},
+): DesktopApi {
   return {
     agents: {
       listModels: vi.fn().mockResolvedValue(models),
@@ -123,6 +126,20 @@ function desktopApi(overrides: Partial<DesktopApi["agents"]> = {}): DesktopApi {
       writePlan: vi.fn(),
       resolveElicitation: vi.fn(),
       ...overrides,
+    },
+    profiles: {
+      status: vi.fn().mockResolvedValue({
+        revision: "a".repeat(64),
+        activeProfile: "default",
+        profiles: [
+          {
+            name: "default",
+            active: true,
+            reserved: false,
+          },
+        ],
+      }),
+      ...profileOverrides,
     },
   } as unknown as DesktopApi;
 }
@@ -1235,5 +1252,42 @@ describe("desktop component interactions", () => {
     expect(workspace.style.getPropertyValue("--project-sidebar-width")).toBe(
       "330px",
     );
+  });
+  it("confirms and closes the active session when switching profiles", async () => {
+    const switchProfile = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktopApi(
+        {},
+        {
+          status: vi.fn().mockResolvedValue({
+            revision: "b".repeat(64),
+            activeProfile: "default",
+            activeSessionId: sessionId,
+            profiles: [
+              { name: "default", active: true, reserved: false },
+              { name: "ambient", active: false, reserved: false },
+            ],
+          }),
+          switch: switchProfile,
+        },
+      ),
+    });
+    const state = rendererState();
+    await act(async () => {
+      root.render(<AgentHarness state={state} />);
+    });
+
+    await choose(container, "Active Profile", "ambient");
+    expect(container.textContent).toContain(
+      "The active session will be saved and closed",
+    );
+    await act(async () =>
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Switch")
+        ?.click(),
+    );
+
+    expect(switchProfile).toHaveBeenCalledWith("ambient", "b".repeat(64), true);
   });
 });

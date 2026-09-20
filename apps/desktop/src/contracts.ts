@@ -1130,6 +1130,27 @@ export const desktopProfileSummarySchema = z
   .strict();
 export type DesktopProfileSummary = z.infer<typeof desktopProfileSummarySchema>;
 
+export const desktopProfileStatusSchema = z
+  .object({
+    revision: z.string().regex(/^[a-f0-9]{64}$/u),
+    activeProfile: z.string().min(1).max(64),
+    activeSessionId: z.string().min(1).optional(),
+    switchingDisabledReason: z.string().max(2_048).optional(),
+    profiles: z
+      .array(
+        z
+          .object({
+            name: z.string().min(1).max(64),
+            active: z.boolean(),
+            reserved: z.boolean(),
+          })
+          .strict(),
+      )
+      .max(128),
+  })
+  .strict();
+export type DesktopProfileStatus = z.infer<typeof desktopProfileStatusSchema>;
+
 export const desktopProfileManagerSnapshotSchema = z
   .object({
     revision: z.string().regex(/^[a-f0-9]{64}$/u),
@@ -1616,6 +1637,10 @@ export const ipcSchemas = {
       .strict(),
     response: desktopProfileManagerSnapshotSchema,
   },
+  "profiles:status": {
+    request: z.object({}).strict(),
+    response: desktopProfileStatusSchema,
+  },
   "profiles:create": {
     request: z
       .object({
@@ -1649,6 +1674,7 @@ export const ipcSchemas = {
       .object({
         name: profileNameSchema,
         expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+        closeActiveSession: z.boolean().default(false),
       })
       .strict(),
     response: z.object({ switching: z.literal(true) }).strict(),
@@ -2044,6 +2070,7 @@ export interface DesktopApi {
   };
   profiles: {
     get(selectedProfile?: string): Promise<DesktopProfileManagerSnapshot>;
+    status(): Promise<DesktopProfileStatus>;
     create(
       name: string,
       expectedRevision: string,
@@ -2057,7 +2084,11 @@ export interface DesktopApi {
       name: string,
       expectedRevision: string,
     ): Promise<DesktopProfileManagerSnapshot>;
-    switch(name: string, expectedRevision: string): Promise<void>;
+    switch(
+      name: string,
+      expectedRevision: string,
+      closeActiveSession?: boolean,
+    ): Promise<void>;
     copyArtifact(
       request: z.input<typeof artifactMutationBaseSchema>,
     ): Promise<DesktopArtifactMutationResult>;

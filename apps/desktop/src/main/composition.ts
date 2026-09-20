@@ -549,6 +549,8 @@ export async function createDesktopComposition(
       baseDirectory: options.agentBaseDirectory,
       turnTimeoutMs: () => agentTurnTimeoutMs,
       reasoningSummary: () => agentReasoningVisibility,
+      resolveSkill: (sessionId: string, skillName: string) =>
+        agentCatalog.resolveRuntimeSkill(sessionId, skillName),
       ...(options.sessionStateDirectory === undefined
         ? {}
         : { sessionStateDirectory: options.sessionStateDirectory }),

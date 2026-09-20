@@ -25,6 +25,11 @@ typed service calls, and sessions use explicit create/resume operations.
 - [x] Add active-agent creation, editing, reset, deactivate, and modified state.
 - [x] Unify active/inactive definition editing and publish every save as a
   Session-scope override visible in Profiles.
+- [x] Add an Agents-aligned Skills tab with Session-scope create/edit,
+  immutable published metadata, Profiles synchronization, and immediate
+  Workspace slash-command discovery.
+- [x] Show active in-memory sessions in Profiles, promote them on first scoped
+  mutation, and allow artifact transfer into inactive persisted sessions.
 - [x] Build application shell, connection header, and active-agent selector
   without redundant SDK/model-default status.
 - [x] Add transient independent Project/Inspector sidebars and combined

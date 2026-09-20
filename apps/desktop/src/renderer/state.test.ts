@@ -267,6 +267,44 @@ describe("desktop reducer", () => {
     expect(activeSession(restored)?.id).toBe("session");
   });
 
+  it("clears a stale scoped catalog when the active session changes", () => {
+    const initial = stateWithAgents();
+    initial.activeSessionId = "session-old";
+    initial.agentCatalog = {
+      ...initial.agentCatalog,
+      sessionId: "session-old",
+      skills: [
+        {
+          name: "interview-me",
+          description: "Interview the user.",
+          origin: "session",
+          sourceFile: "interview-me/SKILL.md",
+          fingerprint: "f".repeat(64),
+        },
+      ],
+    };
+    const nextSession = {
+      ...initial.sessions[0]!,
+      id: "session-new",
+    };
+
+    const changed = desktopReducer(initial, {
+      type: "event",
+      event: {
+        type: "sessions.changed",
+        sessions: [nextSession, ...initial.sessions],
+        activeSessionId: nextSession.id,
+      },
+    });
+
+    expect(changed.agentCatalog).toEqual({
+      sessionId: "session-new",
+      definitions: [],
+      skills: [],
+      diagnostics: [],
+    });
+  });
+
   it("applies a returned session with updated YOLO state immediately", () => {
     const state = stateWithAgents();
     const session = {

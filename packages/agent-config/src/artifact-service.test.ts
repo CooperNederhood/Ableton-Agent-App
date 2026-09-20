@@ -9,6 +9,7 @@ import {
   disableArtifact,
   readArtifactTombstones,
   replaceAgentDefinitionInScope,
+  replaceSkillInScope,
   renameAgentInScope,
   renameSkillInScope,
   restoreArtifact,
@@ -165,6 +166,61 @@ describe("artifact service", () => {
           autoApprove: false,
           eventListeners: [],
         },
+        validatePublishedCatalog: () =>
+          Promise.reject(new Error("catalog rejected")),
+      }),
+    ).rejects.toThrow("catalog rejected");
+
+    expect(await readFile(path, "utf8")).toBe(original);
+  });
+
+  it("publishes skill bodies atomically with validated metadata", async () => {
+    const root = await temporaryRoot();
+    const skills = join(root, "skills");
+    await mkdir(skills);
+
+    const published = await replaceSkillInScope({
+      skillsDirectory: skills,
+      metadata: {
+        name: "mix-review",
+        description: "Review the mix.",
+      },
+      body: "# Mix review\n\nPreserve headroom.",
+      validatePublishedCatalog: () => Promise.resolve(),
+    });
+
+    expect(published.fingerprint).toMatch(/^[a-f0-9]{64}$/u);
+    expect(await readFile(published.path, "utf8")).toBe(
+      [
+        "---",
+        "name: mix-review",
+        "description: Review the mix.",
+        "---",
+        "",
+        "# Mix review",
+        "",
+        "Preserve headroom.",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("rolls back a skill body replacement when catalog validation fails", async () => {
+    const root = await temporaryRoot();
+    const skills = join(root, "skills");
+    await mkdir(skills);
+    const directory = await writeSkill(skills, "mix-review", "mix-review");
+    const path = join(directory, "SKILL.md");
+    const original = await readFile(path, "utf8");
+
+    await expect(
+      replaceSkillInScope({
+        skillsDirectory: skills,
+        metadata: {
+          name: "mix-review",
+          description: "Test skill.",
+        },
+        body: "# Changed",
         validatePublishedCatalog: () =>
           Promise.reject(new Error("catalog rejected")),
       }),

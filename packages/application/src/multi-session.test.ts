@@ -1566,6 +1566,15 @@ describe("CopilotAgentService managed sessions", () => {
       "# Mix review\n\nPreserve dynamics.",
     );
     const availableSkills = [midiSkill, mixSkill];
+    const resolveSkill = async (_productionSessionId: string, name: string) => {
+      const descriptor = availableSkills.find((skill) => skill.name === name);
+      if (descriptor === undefined) return undefined;
+      const document = await readSkillDocument(
+        descriptor.sourcePath,
+        descriptor.name,
+      );
+      return { ...descriptor, fingerprint: document.fingerprint };
+    };
     const defaultSession = createFakeSession("default-session");
     const midiHistory: SessionEvent[] = [];
     const midiSession = createFakeSession("midi-session", {
@@ -1583,6 +1592,7 @@ describe("CopilotAgentService managed sessions", () => {
     const service = new CopilotAgentService(
       baseOptions({
         events,
+        resolveSkill,
         clientFactory: () => ({
           createSession,
           resumeSession: vi.fn(async () => {
@@ -1770,7 +1780,14 @@ describe("CopilotAgentService managed sessions", () => {
           arguments: { skill_name: "midi-compose" },
         },
       ),
-    ).rejects.toThrow("changed after the catalog was loaded");
+    ).resolves.toContain("# Changed");
+    await expect(
+      service.invokeManagedAgentSkill(
+        "midi-agent",
+        "/midi-compose use the revised instructions",
+      ),
+    ).resolves.toContain("use the revised instructions");
+    expect(midiSession.prompts.at(-1)).toContain("# Changed");
 
     await service.stop();
   });

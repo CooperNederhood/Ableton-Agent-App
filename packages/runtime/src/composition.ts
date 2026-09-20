@@ -298,6 +298,7 @@ export interface AgentSettings {
   turnTimeoutMs?: number | (() => number) | undefined;
   /** Replaces the Copilot client; used by tests and fakes. */
   clientFactory?: CopilotAgentServiceOptions["clientFactory"];
+  resolveSkill?: CopilotAgentServiceOptions["resolveSkill"];
 }
 
 export interface AgentRuntimeOptions {
@@ -654,6 +655,9 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     ...(agentSettings.turnTimeoutMs === undefined
       ? {}
       : { turnTimeoutMs: agentSettings.turnTimeoutMs }),
+    ...(agentSettings.resolveSkill === undefined
+      ? {}
+      : { resolveSkill: agentSettings.resolveSkill }),
     ...(options.requestToolApproval === undefined
       ? {}
       : { requestToolApproval: options.requestToolApproval }),

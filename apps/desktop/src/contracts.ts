@@ -9,6 +9,7 @@ import {
   liveEventOccurrenceSchema,
   liveEventResolutionSchema,
   outputSubscriptionSchema,
+  skillNameSchema,
   type AgentEventListener,
   type LiveEventDefinition,
 } from "@ableton-agent/agent-config/schemas";
@@ -1058,6 +1059,7 @@ export type DesktopAgentDefinition = z.infer<
 >;
 
 export const desktopAgentCatalogSchema = z.object({
+  sessionId: z.string().min(1).max(128).optional(),
   revision: z
     .string()
     .regex(/^[a-f0-9]{64}$/u)
@@ -1089,6 +1091,21 @@ export const desktopAgentCatalogSchema = z.object({
     .default([]),
 });
 export type DesktopAgentCatalog = z.infer<typeof desktopAgentCatalogSchema>;
+
+export const desktopSkillDocumentSchema = z
+  .object({
+    name: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/u),
+    description: z.string().trim().min(1).max(512),
+    body: z
+      .string()
+      .trim()
+      .min(1)
+      .max(512 * 1024),
+    origin: z.enum(["bundled", "system", "profile", "session"]),
+    fingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+  })
+  .strict();
+export type DesktopSkillDocument = z.infer<typeof desktopSkillDocumentSchema>;
 
 export const desktopArtifactKindSchema = z.enum(["agent", "skill"]);
 export type DesktopArtifactKind = z.infer<typeof desktopArtifactKindSchema>;
@@ -1134,6 +1151,7 @@ export const desktopProfileSessionSummarySchema = z
     id: z.string().min(1).max(4_096),
     title: z.string().min(1).max(512),
     active: z.boolean(),
+    persisted: z.boolean().optional(),
   })
   .strict();
 export type DesktopProfileSessionSummary = z.infer<
@@ -1186,6 +1204,14 @@ export const desktopProfileManagerSnapshotSchema = z
 export type DesktopProfileManagerSnapshot = z.infer<
   typeof desktopProfileManagerSnapshotSchema
 >;
+
+const desktopSkillMutationResultSchema = z
+  .object({
+    document: desktopSkillDocumentSchema,
+    catalog: desktopAgentCatalogSchema,
+    profileSnapshot: desktopProfileManagerSnapshotSchema,
+  })
+  .strict();
 
 export const desktopArtifactLocationSchema = z
   .object({
@@ -1520,6 +1546,40 @@ export const ipcSchemas = {
         profileSnapshot: desktopProfileManagerSnapshotSchema,
       })
       .strict(),
+  },
+  "skills:read": {
+    request: z.object({ name: skillNameSchema }).strict(),
+    response: desktopSkillDocumentSchema,
+  },
+  "skills:create": {
+    request: z
+      .object({
+        name: skillNameSchema,
+        description: z.string().trim().min(1).max(512),
+        body: z
+          .string()
+          .trim()
+          .min(1)
+          .max(512 * 1024),
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: desktopSkillMutationResultSchema,
+  },
+  "skills:save": {
+    request: z
+      .object({
+        name: skillNameSchema,
+        body: z
+          .string()
+          .trim()
+          .min(1)
+          .max(512 * 1024),
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+        expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: desktopSkillMutationResultSchema,
   },
   "agents:active": {
     request: z.object({}),
@@ -2111,6 +2171,29 @@ export interface DesktopApi {
       agentMode?: AgentMode,
     ): Promise<{ accepted: true; messageId: string }>;
     cancel(instanceId: string): Promise<{ cancelled: boolean }>;
+  };
+  skills: {
+    read(name: string): Promise<DesktopSkillDocument>;
+    create(
+      name: string,
+      description: string,
+      body: string,
+      expectedRevision: string,
+    ): Promise<{
+      document: DesktopSkillDocument;
+      catalog: DesktopAgentCatalog;
+      profileSnapshot: DesktopProfileManagerSnapshot;
+    }>;
+    save(
+      name: string,
+      body: string,
+      expectedRevision: string,
+      expectedFingerprint: string,
+    ): Promise<{
+      document: DesktopSkillDocument;
+      catalog: DesktopAgentCatalog;
+      profileSnapshot: DesktopProfileManagerSnapshot;
+    }>;
   };
   profiles: {
     get(selectedProfile?: string): Promise<DesktopProfileManagerSnapshot>;

@@ -33,6 +33,15 @@ export interface ProfileManagerActions {
   saveAgentDefinition(
     request: RequestOf<"agents:save-definition">,
   ): Promise<ResponseOf<"agents:save-definition">>;
+  readSkill(
+    request: RequestOf<"skills:read">,
+  ): Promise<ResponseOf<"skills:read">>;
+  createSkill(
+    request: RequestOf<"skills:create">,
+  ): Promise<ResponseOf<"skills:create">>;
+  saveSkill(
+    request: RequestOf<"skills:save">,
+  ): Promise<ResponseOf<"skills:save">>;
   get(selectedProfile?: string): Promise<ResponseOf<"profiles:get">>;
   status(): Promise<ResponseOf<"profiles:status">>;
   create(
@@ -96,6 +105,9 @@ export function createIpcHandlers(
     "agents:refresh": () => service.refreshAgentCatalog(),
     "agents:save-definition": (request) =>
       profiles.saveAgentDefinition(request),
+    "skills:read": (request) => profiles.readSkill(request),
+    "skills:create": (request) => profiles.createSkill(request),
+    "skills:save": (request) => profiles.saveSkill(request),
     "agents:active": () => service.listActiveAgents(),
     "agents:models": () => service.listAgentModels(),
     "agents:create": ({ definitionName }) =>

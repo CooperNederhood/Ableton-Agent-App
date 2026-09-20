@@ -155,13 +155,51 @@ describe("desktop agent catalog", () => {
       storage,
     });
 
-    expect(
-      (await service.refreshForSession("session-1")).definitions[0],
-    ).toMatchObject({
+    const catalog = await service.refreshForSession("session-1");
+    expect(catalog.sessionId).toBe("session-1");
+    expect(catalog.definitions[0]).toMatchObject({
       description: "Session agent.",
       origin: "session",
       inherited: false,
       overrides: ["bundled"],
+    });
+  });
+
+  it("resolves the latest scoped skill descriptor without replacing the catalog snapshot", async () => {
+    const root = await temporaryRoot();
+    const agentsDirectory = join(root, "bundled", "agents");
+    const skillsDirectory = join(root, "bundled", "skills");
+    await mkdir(agentsDirectory, { recursive: true });
+    await mkdir(join(skillsDirectory, "mix-review"), { recursive: true });
+    await writeFile(
+      join(skillsDirectory, "mix-review", "SKILL.md"),
+      "---\nname: mix-review\ndescription: Review the mix.\n---\n\nBundled body.",
+    );
+    const storage = resolveLiveAgentStorage({
+      environment: { LIVE_AGENT_HOME: join(root, "storage") },
+    });
+    await ensureLiveAgentStorage(storage);
+    const session = resolveArtifactScopePaths(storage, "session", "session-1");
+    await mkdir(join(session.skillsDirectory, "mix-review"), {
+      recursive: true,
+    });
+    const sessionPath = join(session.skillsDirectory, "mix-review", "SKILL.md");
+    await writeFile(
+      sessionPath,
+      "---\nname: mix-review\ndescription: Review the mix.\n---\n\nSession body.",
+    );
+    const service = new AgentCatalogService({
+      agentsDirectory,
+      skillsDirectory,
+      availableTools: [],
+      storage,
+    });
+
+    await expect(
+      service.resolveRuntimeSkill("session-1", "mix-review"),
+    ).resolves.toMatchObject({
+      name: "mix-review",
+      sourcePath: sessionPath,
     });
   });
 });

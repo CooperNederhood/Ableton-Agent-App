@@ -127,6 +127,21 @@ published atomically. Profiles then shows that physical artifact beneath the
 active session, while Agents immediately resolves it as the winning Session
 definition.
 
+Editing any resolved skill in the Skills tab follows the same Session-scope
+copy-on-write rule. Existing skill names and descriptions are immutable in that
+editor; only the Markdown body is replaced. New skills define their name,
+description, and initial body before first publication, after which their
+frontmatter is locked. A successful publication refreshes Profiles, the Skills
+navigator, and Workspace slash-command discovery from the same effective
+catalog.
+
+Persisted inactive sessions are valid drag-and-drop sources and destinations in
+Profiles. Writing into an inactive session changes only its stored scoped
+artifacts and does not reconfigure the active Agent runtime. A newly started
+active session for an unsaved Live Set appears immediately as an in-memory
+Profiles node; its first Session-scope save or transfer promotes the session
+through the canonical session store before publishing the artifact.
+
 Destination conflicts never overwrite silently. The app returns a bounded
 comparison and requires replace, semantic rename, or cancel. Skill rename
 updates same-scope agent references atomically. All filesystem mutation stays

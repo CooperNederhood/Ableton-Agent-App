@@ -24,8 +24,12 @@ export interface AgentCatalogOptions {
   readonly storage?: LiveAgentStorageLayout;
 }
 
-export function toDesktopCatalog(catalog: AgentCatalog): DesktopAgentCatalog {
+export function toDesktopCatalog(
+  catalog: AgentCatalog,
+  sessionId?: string,
+): DesktopAgentCatalog {
   const value = {
+    ...(sessionId === undefined ? {} : { sessionId }),
     definitions: catalog.agents.map((agent) => ({
       version: agent.definition.version,
       name: agent.definition.name,
@@ -97,12 +101,35 @@ export class AgentCatalogService {
       sourcePath: skill.sourcePath,
       fingerprint: skill.fingerprint,
     }));
-    this.#catalog = toDesktopCatalog(loaded);
+    this.#catalog = toDesktopCatalog(loaded, sessionId);
     return this.#catalog;
   }
 
   public refreshForSession(sessionId?: string): Promise<DesktopAgentCatalog> {
     return this.refresh(sessionId);
+  }
+
+  public async resolveRuntimeSkill(
+    sessionId: string | undefined,
+    name: string,
+  ): Promise<AgentSkillDescriptor | undefined> {
+    const loaded =
+      this.options.storage === undefined
+        ? await loadAgentCatalog({
+            agentsDirectory: this.options.agentsDirectory,
+            skillsDirectory: this.options.skillsDirectory,
+            availableTools: this.options.availableTools,
+          })
+        : await this.#loadScopedCatalog(sessionId);
+    const skill = loaded.skills.find(({ metadata }) => metadata.name === name);
+    return skill === undefined
+      ? undefined
+      : {
+          name: skill.metadata.name,
+          description: skill.metadata.description,
+          sourcePath: skill.sourcePath,
+          fingerprint: skill.fingerprint,
+        };
   }
 
   async #loadScopedCatalog(sessionId?: string): Promise<AgentCatalog> {

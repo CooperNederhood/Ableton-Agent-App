@@ -124,6 +124,23 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
         }),
       cancel: (instanceId) => invoke("agents:cancel", { instanceId }),
     },
+    skills: {
+      read: (name) => invoke("skills:read", { name }),
+      create: (name, description, body, expectedRevision) =>
+        invoke("skills:create", {
+          name,
+          description,
+          body,
+          expectedRevision,
+        }),
+      save: (name, body, expectedRevision, expectedFingerprint) =>
+        invoke("skills:save", {
+          name,
+          body,
+          expectedRevision,
+          expectedFingerprint,
+        }),
+    },
     profiles: {
       get: (selectedProfile) =>
         invoke("profiles:get", {

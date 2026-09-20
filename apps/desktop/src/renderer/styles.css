@@ -370,6 +370,10 @@ small,
 .profile-tree-label:hover:not(:disabled) {
   color: var(--focus);
 }
+.profile-session-state {
+  display: block;
+  color: var(--muted);
+}
 .profile-tree-count {
   white-space: nowrap;
 }
@@ -973,6 +977,28 @@ small,
   box-shadow: 0 0 0 2px rgb(91 201 141 / 14%);
 }
 
+.skill-scope-light {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: #72787d;
+  box-shadow: 0 0 0 2px rgb(114 120 125 / 12%);
+}
+
+.skill-scope-light.is-session,
+.skill-scope-light.is-new {
+  background: #5bc98d;
+  box-shadow: 0 0 0 2px rgb(91 201 141 / 14%);
+}
+
+.skill-scope-light.is-profile {
+  background: #63a9e8;
+}
+
+.skill-scope-light.is-system {
+  background: #d4a64f;
+}
+
 .agent-navigation-label {
   min-width: 0;
   display: grid;
@@ -1001,6 +1027,47 @@ small,
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+.skill-overview-grid {
+  display: grid;
+  gap: 16px;
+  max-width: 760px;
+}
+
+.skill-overview-grid label,
+.skill-markdown-editor {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.skill-overview-grid input,
+.skill-overview-grid textarea,
+.skill-markdown-editor textarea {
+  width: 100%;
+  box-sizing: border-box;
+  color: var(--text);
+  font: inherit;
+}
+
+.skill-overview-grid input:disabled,
+.skill-overview-grid textarea:disabled {
+  opacity: 0.72;
+}
+
+.skill-markdown-editor {
+  height: 100%;
+}
+
+.skill-markdown-editor textarea {
+  min-height: 360px;
+  flex: 1;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  line-height: 1.5;
 }
 
 .agent-detail {

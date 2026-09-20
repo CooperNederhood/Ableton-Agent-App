@@ -89,9 +89,9 @@ typed service calls, and sessions use explicit create/resume operations.
 ## Production workflows
 
 - [x] Remove hard-coded workflow layouts in favor of definition-driven agents.
-- [ ] Partition transcript, operations, approvals, and cancellation by active
+- [x] Partition transcript, operations, approvals, and cancellation by active
   agent.
-- [ ] Add per-active-agent Output subscription controls and slash-skill
+- [x] Add per-active-agent Output subscription controls and slash-skill
   discovery.
 - [x] Implement editable structured production plan.
 - [x] Implement arrangement section/timeline visualization.
@@ -146,8 +146,8 @@ typed service calls, and sessions use explicit create/resume operations.
 
 Semantic markup, labels, focus shortcuts, Enter-to-send, and reduced-motion
 support are implemented, but automated accessibility tooling and full keyboard
-scenario automation remain unchecked. Playwright remains blocked on the
-packaged Electron launch harness noted in the desktop checklist.
+scenario automation remain unchecked. Playwright has a packaged Electron
+launch harness; complete live Copilot workflow coverage remains open.
 Histories and result sets are bounded and CSS-contained, and the reducer has a
 long-history regression test. True viewport virtualization, frame-batched
 stream rendering, and browser-list performance instrumentation remain future

@@ -112,6 +112,12 @@ test("launches the packaged desktop contract securely", async () => {
     await expect(
       window.getByRole("heading", { name: "System", exact: true }),
     ).toBeVisible();
+    await window
+      .getByRole("button", { name: "Expand unassigned Live Sets" })
+      .click();
+    await window
+      .getByRole("button", { name: "Expand No connected Live Set Live Set" })
+      .click();
     await expect(
       window.getByText("In memory · saves on first customization"),
     ).toBeVisible();

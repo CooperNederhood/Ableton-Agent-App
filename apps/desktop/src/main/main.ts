@@ -441,6 +441,11 @@ async function bootstrap(): Promise<void> {
   const migration: StorageMigrationResult = await migrateLegacyStorage({
     layout: storage,
     entries: migrationEntries,
+    ...(launchOptions.automation !== undefined
+      ? { skipReason: "automation-profile" as const }
+      : (process.env.LIVE_AGENT_HOME?.trim() ?? "") !== ""
+        ? { skipReason: "explicit-home-override" as const }
+        : {}),
   });
   if (migration.status === "failed") {
     throw new Error(

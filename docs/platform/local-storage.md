@@ -26,6 +26,11 @@ outside individual profiles:
 portable environments, automation, and recovery. Data is isolated below a
 profile:
 
+An explicit `LIVE_AGENT_HOME` is isolated: Desktop does not import legacy
+Electron application-data into that root. Automation profiles likewise skip
+legacy import. The operator-invoked v1-to-v2 migration remains available for
+storage deliberately copied into an isolated root.
+
 ```text
 ~/.live-agent/profiles/{profile}/
 ```

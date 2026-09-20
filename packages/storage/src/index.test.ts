@@ -785,6 +785,45 @@ describe("live agent storage", () => {
     ]);
   });
 
+  it("skips legacy import for an explicitly isolated storage root", async () => {
+    const home = await temporaryRoot();
+    const source = join(home, "legacy-sessions.json");
+    await writeFile(source, JSON.stringify([{ version: 3 }]));
+    const layout = resolveLiveAgentStorage({
+      environment: { LIVE_AGENT_HOME: join(home, "isolated") },
+    });
+
+    const result = await migrateLegacyStorage({
+      layout,
+      entries: [
+        {
+          label: "sessions",
+          source,
+          destination: layout.sessionsPath,
+          kind: "json",
+        },
+      ],
+      skipReason: "explicit-home-override",
+    });
+
+    expect(result.status).toBe("not-needed");
+    expect(result.migrated).toEqual([]);
+    expect(result.events.at(-1)).toMatchObject({
+      name: "storage.migration.cancelled",
+      outcome: "cancelled",
+      attributes: {
+        profile: layout.profile,
+        reason: "explicit-home-override",
+      },
+    });
+    await expect(readFile(layout.sessionsPath, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await expect(
+      readFile(layout.migrationMarkerPath, "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("leaves legacy data untouched when validation fails", async () => {
     const home = await temporaryRoot();
     const source = join(home, "invalid.json");

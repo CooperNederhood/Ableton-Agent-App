@@ -16,8 +16,8 @@ Companion specification: [Custom Agents](custom-agents.md)
   selected native custom agent inherit it so SDK built-ins remain callable.
 - [x] Add Default, Compose, Arrange, Sound, and Mix definitions.
   - [x] Define Default as a general-purpose editing-capable agent.
-- [x] Resolve definitions through bundled, System, Profile, and Session
-      layers with deterministic override metadata and tombstones.
+- [x] Resolve definitions through bundled, System, Profile, Project, and
+      Session layers with deterministic override metadata and tombstones.
 - [x] Add validated copy, move, delete, and semantic rename primitives.
 - [x] Add version-2 definition defaults for label, model, reasoning,
   automatic approval, and Live Event listeners with version-1 migration.

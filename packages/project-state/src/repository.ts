@@ -9,13 +9,13 @@ import {
   changeSetSchema,
   preferenceSchema,
   productionPlanSchema,
-  projectIdentitySchema,
+  liveSetIdentitySchema,
   type AppSession,
   type ApprovalDecision,
   type ChangeSet,
   type Preference,
   type ProductionPlan,
-  type ProjectIdentity,
+  type LiveSetIdentity,
 } from "./schemas.js";
 
 export class RepositoryConflictError extends Error {
@@ -30,24 +30,21 @@ export interface SessionRepository {
   save(session: AppSession): Promise<void>;
 }
 
-export interface ProjectRepository {
-  get(id: string): Promise<ProjectIdentity | undefined>;
-  findByAbletonId(
-    abletonProjectId: string,
-  ): Promise<ProjectIdentity | undefined>;
-  save(project: ProjectIdentity): Promise<void>;
+export interface LiveSetRepository {
+  get(liveSetId: string): Promise<LiveSetIdentity | undefined>;
+  save(liveSet: LiveSetIdentity): Promise<void>;
 }
 
 export interface PlanRepository {
   get(id: string): Promise<ProductionPlan | undefined>;
-  listByProject(projectId: string): Promise<readonly ProductionPlan[]>;
+  listByLiveSet(liveSetId: string): Promise<readonly ProductionPlan[]>;
   save(plan: ProductionPlan, expectedVersion?: number): Promise<void>;
 }
 
 export interface ChangeSetRepository {
   get(id: string): Promise<ChangeSet | undefined>;
   findByCorrelationId(correlationId: string): Promise<ChangeSet | undefined>;
-  listByProject(projectId: string): Promise<readonly ChangeSet[]>;
+  listByLiveSet(liveSetId: string): Promise<readonly ChangeSet[]>;
   save(changeSet: ChangeSet): Promise<void>;
 }
 
@@ -68,7 +65,7 @@ export interface ApprovalRepository {
 
 export interface ProjectStateRepositories {
   readonly sessions: SessionRepository;
-  readonly projects: ProjectRepository;
+  readonly liveSets: LiveSetRepository;
   readonly plans: PlanRepository;
   readonly changeSets: ChangeSetRepository;
   readonly preferences: PreferenceRepository;
@@ -83,7 +80,7 @@ export interface ProjectStateStore extends ProjectStateRepositories {
 
 interface StoreData {
   sessions: Map<string, AppSession>;
-  projects: Map<string, ProjectIdentity>;
+  liveSets: Map<string, LiveSetIdentity>;
   plans: Map<string, ProductionPlan>;
   changeSets: Map<string, ChangeSet>;
   preferences: Map<string, Preference>;
@@ -93,7 +90,7 @@ interface StoreData {
 function emptyData(): StoreData {
   return {
     sessions: new Map(),
-    projects: new Map(),
+    liveSets: new Map(),
     plans: new Map(),
     changeSets: new Map(),
     preferences: new Map(),
@@ -110,8 +107,8 @@ function cloneData(data: StoreData): StoreData {
     sessions: new Map(
       [...data.sessions].map(([key, value]) => [key, clone(value)]),
     ),
-    projects: new Map(
-      [...data.projects].map(([key, value]) => [key, clone(value)]),
+    liveSets: new Map(
+      [...data.liveSets].map(([key, value]) => [key, clone(value)]),
     ),
     plans: new Map([...data.plans].map(([key, value]) => [key, clone(value)])),
     changeSets: new Map(
@@ -128,7 +125,7 @@ function cloneData(data: StoreData): StoreData {
 
 function replaceData(target: StoreData, source: StoreData): void {
   target.sessions = source.sessions;
-  target.projects = source.projects;
+  target.liveSets = source.liveSets;
   target.plans = source.plans;
   target.changeSets = source.changeSets;
   target.preferences = source.preferences;
@@ -141,7 +138,7 @@ function preferenceKey(sessionId: string, key: string): string {
 
 class Repositories implements ProjectStateRepositories {
   public readonly sessions: SessionRepository;
-  public readonly projects: ProjectRepository;
+  public readonly liveSets: LiveSetRepository;
   public readonly plans: PlanRepository;
   public readonly changeSets: ChangeSetRepository;
   public readonly preferences: PreferenceRepository;
@@ -159,36 +156,20 @@ class Repositories implements ProjectStateRepositories {
         this.didWrite();
       },
     };
-    this.projects = {
-      get: async (id) => cloneOrUndefined(this.data.projects.get(id)),
-      findByAbletonId: async (abletonProjectId) =>
-        cloneOrUndefined(
-          [...this.data.projects.values()].find(
-            (project) => project.abletonProjectId === abletonProjectId,
-          ),
-        ),
-      save: async (project) => {
-        const parsed = projectIdentitySchema.parse(project);
-        const conflicting = [...this.data.projects.values()].find(
-          (existing) =>
-            existing.abletonProjectId === parsed.abletonProjectId &&
-            existing.id !== parsed.id,
-        );
-        if (conflicting !== undefined) {
-          throw new RepositoryConflictError(
-            `Ableton project '${parsed.abletonProjectId}' already exists`,
-          );
-        }
-        this.data.projects.set(parsed.id, clone(parsed));
+    this.liveSets = {
+      get: async (id) => cloneOrUndefined(this.data.liveSets.get(id)),
+      save: async (liveSet) => {
+        const parsed = liveSetIdentitySchema.parse(liveSet);
+        this.data.liveSets.set(parsed.liveSetId, clone(parsed));
         this.didWrite();
       },
     };
     this.plans = {
       get: async (id) => cloneOrUndefined(this.data.plans.get(id)),
-      listByProject: async (projectId) =>
+      listByLiveSet: async (liveSetId) =>
         sorted(
           [...this.data.plans.values()].filter(
-            (plan) => plan.projectId === projectId,
+            (plan) => plan.liveSetId === liveSetId,
           ),
         ),
       save: async (plan, expectedVersion) => {
@@ -214,10 +195,10 @@ class Repositories implements ProjectStateRepositories {
             (changeSet) => changeSet.correlationId === correlationId,
           ),
         ),
-      listByProject: async (projectId) =>
+      listByLiveSet: async (liveSetId) =>
         sorted(
           [...this.data.changeSets.values()].filter(
-            (changeSet) => changeSet.projectId === projectId,
+            (changeSet) => changeSet.liveSetId === liveSetId,
           ),
         ),
       save: async (changeSet) => {
@@ -298,8 +279,8 @@ export class InMemoryProjectStateStore implements ProjectStateStore {
     return new Repositories(this.#data, () => this.#version++).sessions;
   }
 
-  public get projects(): ProjectRepository {
-    return new Repositories(this.#data, () => this.#version++).projects;
+  public get liveSets(): LiveSetRepository {
+    return new Repositories(this.#data, () => this.#version++).liveSets;
   }
 
   public get plans(): PlanRepository {

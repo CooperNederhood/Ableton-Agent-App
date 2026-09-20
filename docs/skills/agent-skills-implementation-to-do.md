@@ -10,7 +10,8 @@ Companion specification: [Agent Skills](agent-skills.md)
 - [x] Expose skill metadata and diagnostics through typed Desktop APIs.
 - [x] Replace generic arrangement guidance with a researched, three-level
       techno arrangement assessment and recommendation rubric.
-- [x] Resolve skills through bundled, System, Profile, and Session layers.
+- [x] Resolve skills through bundled, System, Profile, Project, and Session
+  layers.
 - [x] Support tombstones, conflict comparison, and atomic scoped copies.
 - [x] Support semantic skill rename with same-scope agent reference updates.
 - [x] Add atomic Session-scope skill creation and body-only copy-on-write edits.

@@ -27,7 +27,7 @@ import {
   parameterDraftFromSelection,
   parameterDraftFromSnapshot,
   ProjectOutline,
-  ProjectTransitionModal,
+  LiveSetTransitionModal,
   ResolvedToolsDisclosure,
   refreshOutputs,
   refreshProjectSnapshot,
@@ -130,11 +130,13 @@ describe("desktop components", () => {
     activeSessionId: "session",
     sessions: [
       {
-        version: 3 as const,
+        version: 4 as const,
         id: "session",
         title: "Session",
+        createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString(),
-        projectName: "Project",
+        liveSetId: "live-set-1",
+        liveSetName: "Project",
         productionPlan: [],
         outputAssignments: [],
         liveEvents: [],
@@ -167,12 +169,12 @@ describe("desktop components", () => {
   it("renders the required choices for an unassociated Live Set transition", () => {
     const state: DesktopState = {
       ...workspaceState(),
-      pendingProjectTransition: {
+      pendingLiveSetTransition: {
         token: "00000000-0000-4000-8000-000000000099",
         kind: "unassociated",
-        project: {
-          projectId: "project-b",
-          projectName: "Project B",
+        liveSet: {
+          liveSetId: "project-b",
+          liveSetName: "Project B",
           saved: true,
         },
         currentSessionId: "session-a",
@@ -180,7 +182,7 @@ describe("desktop components", () => {
       },
     };
     const html = renderToStaticMarkup(
-      <ProjectTransitionModal state={state} dispatch={vi.fn()} />,
+      <LiveSetTransitionModal state={state} dispatch={vi.fn()} />,
     );
 
     expect(html).toContain('role="dialog"');
@@ -337,11 +339,13 @@ describe("desktop components", () => {
           activeSessionId: "production-session",
           sessions: [
             {
-              version: 3,
+              version: 4,
               id: "production-session",
               title: "Session",
+              createdAt: new Date(0).toISOString(),
               updatedAt: new Date(0).toISOString(),
-              projectName: "Project",
+              liveSetId: "live-set-1",
+              liveSetName: "Project",
               productionPlan: [],
               outputAssignments: [],
               liveEvents: [],
@@ -1317,11 +1321,13 @@ describe("desktop components", () => {
           activeSessionId: "production-session",
           sessions: [
             {
-              version: 3,
+              version: 4,
               id: "production-session",
               title: "Session",
+              createdAt: new Date(0).toISOString(),
               updatedAt: new Date(0).toISOString(),
-              projectName: "Project",
+              liveSetId: "live-set-1",
+              liveSetName: "Project",
               productionPlan: [],
               outputAssignments: [],
               liveEvents: [],
@@ -1893,11 +1899,13 @@ describe("desktop components", () => {
       ...initialState,
       sessions: [
         {
-          version: 3 as const,
+          version: 4 as const,
           id: "session-1",
           title: "Session",
+          createdAt: new Date(0).toISOString(),
           updatedAt: new Date(0).toISOString(),
-          projectName: "Test Set",
+          liveSetId: "live-set-1",
+          liveSetName: "Test Set",
           activeAgents: [
             agent(agentInstanceId, "Groove agent"),
             agent(secondAgentInstanceId, "Mix agent"),
@@ -1909,8 +1917,8 @@ describe("desktop components", () => {
         },
       ],
       snapshot: {
-        id: "project-1",
-        name: "Test Set",
+        liveSetId: "project-1",
+        liveSetName: "Test Set",
         tempo: 120,
         timeSignature: "4/4",
         tracks: [
@@ -2021,8 +2029,8 @@ describe("desktop components", () => {
 
   it("groups outputs by regular Live track order with guarded color matching", () => {
     const snapshot = {
-      id: "project-1",
-      name: "Test Set",
+      liveSetId: "project-1",
+      liveSetName: "Test Set",
       tempo: 120,
       timeSignature: "4/4",
       tracks: [
@@ -2121,8 +2129,8 @@ describe("desktop components", () => {
       devices: [],
     });
     const snapshot = {
-      id: "project-1",
-      name: "Test Set",
+      liveSetId: "project-1",
+      liveSetName: "Test Set",
       tempo: 120,
       timeSignature: "4/4",
       tracks: [
@@ -2253,8 +2261,8 @@ describe("desktop components", () => {
   });
 
   it.each([
-    ["refreshing", "Refreshing…", "disabled", "Refreshing project snapshot."],
-    ["succeeded", "Updated", undefined, "Project snapshot updated."],
+    ["refreshing", "Refreshing…", "disabled", "Refreshing Live Set snapshot."],
+    ["succeeded", "Updated", undefined, "Live Set snapshot updated."],
     ["failed", "Retry", undefined, "Refresh failed locally"],
   ] as const)(
     "renders an accessible %s project refresh control",
@@ -2273,7 +2281,9 @@ describe("desktop components", () => {
               state: "connected",
               liveVersion: "12.1",
               remoteScriptVersion: "1",
-              projectId: "project",
+              liveSetId: "project",
+              liveSetName: "Test Set",
+              saved: true,
             },
             projectRefresh,
           }}
@@ -2281,7 +2291,7 @@ describe("desktop components", () => {
         />,
       );
 
-      expect(html).toContain(`aria-label="${label} project snapshot"`);
+      expect(html).toContain(`aria-label="${label} Live Set snapshot"`);
       expect(html).toContain(`>${label}</button>`);
       expect(html).toContain(message);
       if (disabledAttribute) expect(html).toContain(disabledAttribute);
@@ -2298,14 +2308,16 @@ describe("desktop components", () => {
             state: "connected",
             liveVersion: "12.1",
             remoteScriptVersion: "1",
-            projectId: "project",
+            liveSetId: "project",
+            liveSetName: "Test Set",
+            saved: true,
           },
         }}
         dispatch={vi.fn()}
       />,
     );
 
-    expect(html).toContain('aria-label="Refresh project snapshot"');
+    expect(html).toContain('aria-label="Refresh Live Set snapshot"');
     expect(html).toContain("No snapshot");
     expect(html).not.toContain("<button disabled");
   });
@@ -2399,8 +2411,8 @@ describe("desktop components", () => {
 
   it("builds safe parameter drafts from Live selection and snapshot pickers", () => {
     const snapshot = {
-      id: "project",
-      name: "Project",
+      liveSetId: "project",
+      liveSetName: "Project",
       tempo: 120,
       timeSignature: "4/4",
       tracks: [
@@ -2500,8 +2512,8 @@ describe("desktop components", () => {
     };
     const trackId = "00000000-0000-4000-8000-000000000010";
     const snapshot = {
-      id: "project",
-      name: "Project",
+      liveSetId: "project",
+      liveSetName: "Project",
       tempo: 120,
       timeSignature: "4/4",
       tracks: [
@@ -2736,7 +2748,7 @@ describe("desktop components", () => {
   it("renders history roots, agent lanes, latency, and exact snapshots", () => {
     const traceId = "00000000-0000-4000-8000-000000000100";
     const root = {
-      version: 1 as const,
+      version: 2 as const,
       id: "00000000-0000-4000-8000-000000000101",
       sequence: 1,
       occurredAt: "2026-01-01T00:00:00.000Z",
@@ -2794,7 +2806,7 @@ describe("desktop components", () => {
             traceTotalEvents: 3,
             configurations: [
               {
-                version: 1,
+                version: 2,
                 id: "00000000-0000-4000-8000-000000000105",
                 sequence: 1,
                 capturedAt: "2026-01-01T00:00:00.000Z",
@@ -2884,8 +2896,8 @@ describe("desktop components", () => {
 
   it("reports refresh success after applying the returned snapshot", async () => {
     const snapshot = {
-      id: "project",
-      name: "Project",
+      liveSetId: "project",
+      liveSetName: "Project",
       tempo: 120,
       timeSignature: "4/4",
       tracks: [],
@@ -2896,7 +2908,9 @@ describe("desktop components", () => {
         state: "connected",
         liveVersion: "12.1",
         remoteScriptVersion: "1",
-        projectId: "project",
+        liveSetId: "project",
+        liveSetName: "Test Set",
+        saved: true,
       },
     };
     const dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]> = (

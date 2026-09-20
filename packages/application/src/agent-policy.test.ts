@@ -66,16 +66,18 @@ const connected = {
   state: "connected",
   liveVersion: "12.1",
   remoteScriptVersion: "0.4.0",
-  projectId: "project-1",
+  liveSetId: "set-1",
+  liveSetName: "Test Set",
+  saved: true,
 } as const;
 
 describe("agent policy", () => {
   it("builds fresh action context with exact identities but no musical detail", () => {
     const context = compactProjectContext(connected, snapshot);
 
-    expect(context).toContain("Fresh Ableton project context for this prompt");
+    expect(context).toContain("Fresh Ableton Live Set context for this prompt");
     expect(context).toContain("use these exact identities directly");
-    expect(context).toContain('"projectId":"project-1"');
+    expect(context).toContain('"liveSetId":"set-1"');
     expect(context).toContain('"name":"Drums"');
     expect(context).toContain('"sessionClipCount":1');
     expect(context).toContain('"sessionClips":[{');

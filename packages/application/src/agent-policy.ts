@@ -86,7 +86,7 @@ export function compactProjectContext(
     return `Ableton connection: ${status.state}. Do not attempt mutations until the connection is healthy.`;
   }
   if (snapshot === undefined) {
-    return `Ableton connection: connected to project ${status.projectId}. Inspect the session before making project-specific claims.`;
+    return `Ableton connection: connected to Live Set ${status.liveSetId}. Inspect the session before making Live Set-specific claims.`;
   }
   const tracks = snapshot.tracks
     .slice(0, projectContextTrackLimit)
@@ -111,9 +111,9 @@ export function compactProjectContext(
       kind: clip.kind,
     }));
   return [
-    "Fresh Ableton project context for this prompt (bounded; use these exact identities directly when sufficient):",
+    "Fresh Ableton Live Set context for this prompt (bounded; use these exact identities directly when sufficient):",
     JSON.stringify({
-      projectId: status.projectId,
+      liveSetId: status.liveSetId,
       tempo: snapshot.tempo,
       timeSignature: `${snapshot.timeSignature.numerator}/${snapshot.timeSignature.denominator}`,
       isPlaying: snapshot.isPlaying,

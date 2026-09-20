@@ -273,7 +273,7 @@ class FakeBridge implements LiveEventBridge {
     };
     const resolution = {
       status: "resolved" as const,
-      projectId: "project",
+      liveSetId: "project",
       trackReference,
       track: { name: "Keys" },
     };
@@ -792,7 +792,7 @@ describe("DefaultLiveEventRuntime", () => {
     expect(history).toMatchObject({
       occurredAt: item.observedAt,
       correlationId: item.occurrenceId,
-      projectId: "project",
+      liveSetId: "project",
       liveEventId: item.eventId,
       trace: { traceId: item.occurrenceId, spanId: item.occurrenceId },
       attributes: { occurrenceId: item.occurrenceId, historySize: 1 },
@@ -805,7 +805,7 @@ describe("DefaultLiveEventRuntime", () => {
     expect(dispatch).toMatchObject({
       correlationId: item.occurrenceId,
       causationId: item.occurrenceId,
-      projectId: "project",
+      liveSetId: "project",
       activeAgentId: "agent",
       liveEventId: item.eventId,
     });
@@ -1036,7 +1036,7 @@ describe("DefaultLiveEventRuntime", () => {
           target: { trackReference, track: { name: "Keys" } },
           resolution: {
             status: "resolved",
-            projectId: "project",
+            liveSetId: "project",
             trackReference,
             track: { name: "Keys" },
           },

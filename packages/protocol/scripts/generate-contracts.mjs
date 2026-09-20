@@ -160,7 +160,7 @@ const fixtures = {
     eventEnvelopeSchema.parse({
       protocolVersion: PROTOCOL_VERSION,
       kind: "event",
-      event: "project.changed",
+      event: "live_set.changed",
       sequence: 7,
       payload: { reason: "track_added" },
       projectRevision: 4,

@@ -107,7 +107,7 @@ class SimulatorState(object):
     def live_event_resolution(self, target):
         result = {
             "status": "resolved",
-            "projectId": "simulated-project",
+            "liveSetId": "simulated-live-set",
         }
         result.update(target)
         return result
@@ -714,9 +714,13 @@ def handle(request, token, state):
                 "selectedProtocolVersion": PROTOCOL_VERSION,
                 "liveVersion": "12.1-simulator",
                 "remoteScriptVersion": REMOTE_SCRIPT_VERSION,
-                "projectId": "simulated-project",
+                "liveSetId": "simulated-live-set",
+                "liveSetName": "Simulated Set",
+                "saved": False,
+                "diagnostics": [],
                 "capabilities": {
                     "system.ping": True,
+                    "live_set.get_identity": True,
                     "session.inspect": True,
                     "transport.set_tempo": True,
                     "transport.set_playing": True,
@@ -774,6 +778,16 @@ def handle(request, token, state):
         )
     if command == "system.ping":
         return response(request, {"pong": True})
+    if command == "live_set.get_identity":
+        return response(
+            request,
+            {
+                "liveSetId": "simulated-live-set",
+                "liveSetName": "Simulated Set",
+                "saved": False,
+                "diagnostics": [],
+            },
+        )
     if command == "events.inspect_selection":
         if params:
             return failure(
@@ -814,7 +828,7 @@ def handle(request, token, state):
             not isinstance(event_id, str)
             or not event_id.startswith("live-event.")
             or kind not in kinds
-            or params.get("projectId") != "simulated-project"
+            or params.get("liveSetId") != "simulated-live-set"
             or isinstance(index, bool)
             or not isinstance(index, int)
             or index < 0

@@ -206,28 +206,30 @@ describe("agent catalog loading", () => {
     const bundled = await layer("bundled", "Bundled.", "Bundled prompt.");
     const system = await layer("system", "System.", undefined);
     const profile = await layer("profile", undefined, "Profile prompt.");
-    const session = await layer("session");
+    const project = await layer("project", "Project.", "Project prompt.");
+    const session = await layer("session", undefined, "Session prompt.");
 
     const catalog = await loadLayeredAgentCatalog({
       bundled,
       system,
       profile,
+      project,
       session: { ...session, agentTombstones: ["unused"] },
       availableTools: ["ableton_clips_create"],
     });
 
     expect(catalog.diagnostics).toEqual([]);
     expect(catalog.skills[0]).toMatchObject({
-      metadata: { name: "midi", description: "System." },
-      origin: "system",
+      metadata: { name: "midi", description: "Project." },
+      origin: "project",
       inherited: true,
-      overrides: ["bundled"],
+      overrides: ["bundled", "system"],
     });
     expect(catalog.agents[0]).toMatchObject({
-      definition: { name: "compose", systemPrompt: "Profile prompt." },
-      origin: "profile",
-      inherited: true,
-      overrides: ["bundled"],
+      definition: { name: "compose", systemPrompt: "Session prompt." },
+      origin: "session",
+      inherited: false,
+      overrides: ["bundled", "profile", "project"],
     });
 
     const tombstoned = await loadLayeredAgentCatalog({

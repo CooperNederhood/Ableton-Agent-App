@@ -22,6 +22,7 @@ import {
   LocalObservabilityJournal,
   REDACTED_VALUE,
   createNonBlockingObservabilityRecorder,
+  observabilityMigrations,
   observabilitySchemaVersion,
   type ConfigurationSnapshot,
   type TelemetryEventEnvelope,
@@ -41,16 +42,24 @@ function event(
     source?: string;
     level?: "debug" | "info" | "warn" | "error";
     padding?: string;
+    liveSetId?: string;
+    liveProjectId?: string;
   } = {},
 ): TelemetryEventEnvelope {
   return {
-    version: 1,
+    version: 2,
     id: id(value),
     occurredAt: options.at ?? `2026-08-29T22:00:0${value}.000Z`,
     name: value % 2 === 0 ? "bridge.connected" : "tool.completed",
     source: options.source ?? "agent.runtime",
     level: options.level ?? "info",
     outcome: "success",
+    ...(options.liveSetId === undefined
+      ? {}
+      : { liveSetId: options.liveSetId }),
+    ...(options.liveProjectId === undefined
+      ? {}
+      : { liveProjectId: options.liveProjectId }),
     ...(options.traceId === undefined
       ? {}
       : {
@@ -69,13 +78,23 @@ function event(
 function snapshot(
   value: number,
   component = "agent.runtime",
+  attribution: {
+    liveSetId?: string;
+    liveProjectId?: string;
+  } = {},
 ): ConfigurationSnapshot {
   return {
-    version: 1,
+    version: 2,
     id: id(500 + value),
     capturedAt: `2026-08-29T22:01:0${value}.000Z`,
     component,
     configurationVersion: String(value),
+    ...(attribution.liveSetId === undefined
+      ? {}
+      : { liveSetId: attribution.liveSetId }),
+    ...(attribution.liveProjectId === undefined
+      ? {}
+      : { liveProjectId: attribution.liveProjectId }),
     values: { telemetry_enabled: true, batch_size: 64 + value },
   };
 }
@@ -148,6 +167,30 @@ describe("local observability journal", () => {
     await expect(
       journal.read({ order: "desc", cursor: first.nextCursor }),
     ).rejects.toThrow(JournalCursorError);
+  });
+
+  it("filters Live Set and optional Live Project attribution independently", async () => {
+    const journal = await openJournal({ batchDelayMs: 0 });
+    await Promise.all([
+      journal.enqueue(
+        event(1, {
+          liveSetId: "live-set-a",
+          liveProjectId: "live-project-a",
+        }),
+      ),
+      journal.enqueue(event(2, { liveSetId: "live-set-b" })),
+    ]);
+
+    expect(
+      (await journal.read({ liveSetId: "live-set-a" })).items,
+    ).toMatchObject([
+      { liveSetId: "live-set-a", liveProjectId: "live-project-a" },
+    ]);
+    expect(
+      (await journal.read({ liveProjectId: "live-project-a" })).items,
+    ).toMatchObject([
+      { liveSetId: "live-set-a", liveProjectId: "live-project-a" },
+    ]);
   });
 
   it("paginates root traces server-side and reports complete trace metadata", async () => {
@@ -224,7 +267,12 @@ describe("local observability journal", () => {
       journal.enqueue(event(1, { traceId })),
       journal.enqueue(event(2, { traceId })),
       journal.enqueue(event(3)),
-      journal.enqueueConfigurationSnapshot(snapshot(1)),
+      journal.enqueueConfigurationSnapshot(
+        snapshot(1, "agent.runtime", {
+          liveSetId: "live-set-a",
+          liveProjectId: "live-project-a",
+        }),
+      ),
       journal.enqueueConfigurationSnapshot(snapshot(2)),
     ]);
 
@@ -238,6 +286,16 @@ describe("local observability journal", () => {
         ?.configurationVersion,
     ).toBe("2");
     expect((await journal.readConfigurationSnapshots()).items).toHaveLength(2);
+    expect(
+      (
+        await journal.readConfigurationSnapshots({
+          liveSetId: "live-set-a",
+          liveProjectId: "live-project-a",
+        })
+      ).items,
+    ).toMatchObject([
+      { liveSetId: "live-set-a", liveProjectId: "live-project-a" },
+    ]);
   });
 
   it("reports duplicate writes explicitly without poisoning later batches", async () => {
@@ -605,6 +663,57 @@ describe("local observability journal", () => {
       JournalClosedError,
     );
     await expect(reopened.read()).rejects.toThrow(JournalClosedError);
+  });
+
+  it("migrates legacy project attribution to Live Set attribution", async () => {
+    const path = await databasePath();
+    const sql = await initSqlJs();
+    const database = new sql.Database();
+    const legacyMigration = observabilityMigrations[0];
+    if (legacyMigration === undefined) throw new Error("Missing v1 migration");
+    for (const statement of legacyMigration.statements) database.run(statement);
+    database.run(
+      `INSERT INTO observability_schema_migrations
+        (version, description, applied_at) VALUES (1, ?, ?)`,
+      [legacyMigration.description, "2026-08-29T22:00:00.000Z"],
+    );
+    database.run(
+      `INSERT INTO telemetry_events (
+        event_id, contract_version, occurred_at, recorded_at, name, source,
+        level, root_trace_id, project_id, payload
+      ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id(1),
+        "2026-08-29T22:00:01.000Z",
+        "2026-08-29T22:00:02.000Z",
+        "tool.completed",
+        "agent.runtime",
+        "info",
+        id(1),
+        "legacy-live-set",
+        JSON.stringify({
+          ...event(1),
+          version: 1,
+          projectId: "legacy-live-set",
+        }),
+      ],
+    );
+    await writeFile(path, database.export());
+    database.close();
+
+    const journal = await openJournal({ path });
+    const page = await journal.read({ liveSetId: "legacy-live-set" });
+
+    expect((await journal.getHealth()).schemaVersion).toBe(
+      observabilitySchemaVersion,
+    );
+    expect(page.items).toMatchObject([
+      {
+        version: 2,
+        liveSetId: "legacy-live-set",
+      },
+    ]);
+    expect(page.items[0]).not.toHaveProperty("projectId");
   });
 
   it("refuses a database created by a newer journal schema", async () => {

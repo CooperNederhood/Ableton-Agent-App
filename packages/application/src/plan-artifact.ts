@@ -12,7 +12,6 @@ import {
 
 import { sanitizePersistedText } from "@ableton-agent/observability";
 import type { PlanArtifactSnapshot } from "@ableton-agent/shared";
-import { resolveProductionSessionStorage } from "@ableton-agent/storage";
 
 export const MAX_PLAN_ARTIFACT_CHARACTERS = 100_000;
 export const MAX_PLAN_ARTIFACT_BYTES = 256 * 1024;
@@ -30,6 +29,16 @@ export interface PlanArtifactWrite {
   readonly content: string;
   readonly expectedRevision?: string;
 }
+
+export interface PlanArtifactPaths {
+  readonly sessionDirectory: string;
+  readonly artifactsDirectory: string;
+  readonly planPath: string;
+}
+
+export type PlanArtifactPathResolver = (
+  productionSessionId: string,
+) => PlanArtifactPaths | Promise<PlanArtifactPaths>;
 
 function revision(content: string): string {
   return createHash("sha256").update(content).digest("hex");
@@ -50,15 +59,12 @@ async function rejectSymbolicLink(path: string): Promise<void> {
 export class FilePlanArtifactStore {
   readonly #writeTails = new Map<string, Promise<void>>();
 
-  public constructor(private readonly sessionStateDirectory: string) {}
+  public constructor(private readonly resolvePaths: PlanArtifactPathResolver) {}
 
   public async read(
     productionSessionId: string,
   ): Promise<PlanArtifactSnapshot> {
-    const paths = resolveProductionSessionStorage(
-      this.sessionStateDirectory,
-      productionSessionId,
-    );
+    const paths = await this.resolvePaths(productionSessionId);
     await rejectSymbolicLink(paths.sessionDirectory);
     await rejectSymbolicLink(paths.artifactsDirectory);
     await rejectSymbolicLink(paths.planPath);
@@ -145,10 +151,7 @@ export class FilePlanArtifactStore {
       );
     }
 
-    const paths = resolveProductionSessionStorage(
-      this.sessionStateDirectory,
-      productionSessionId,
-    );
+    const paths = await this.resolvePaths(productionSessionId);
     await rejectSymbolicLink(paths.sessionDirectory);
     await rejectSymbolicLink(paths.artifactsDirectory);
     await mkdir(paths.artifactsDirectory, { recursive: true, mode: 0o700 });

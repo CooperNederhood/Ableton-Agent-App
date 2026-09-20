@@ -16,9 +16,19 @@ describe("product compatibility", () => {
 
   it.each([
     ["protocol-incompatible", "12.0.0", 99, "0.5.0"],
-    ["remote-script-outdated", "12.0.0", 3, "0.4.9"],
-    ["live-unsupported", "10.1.0", 3, "0.5.0"],
-    ["live-unsupported", "11.2.9", 3, "0.5.0"],
+    ["remote-script-outdated", "12.0.0", PRODUCT_VERSIONS.protocol, "0.4.9"],
+    [
+      "live-unsupported",
+      "10.1.0",
+      PRODUCT_VERSIONS.protocol,
+      PRODUCT_VERSIONS.remoteScript,
+    ],
+    [
+      "live-unsupported",
+      "11.2.9",
+      PRODUCT_VERSIONS.protocol,
+      PRODUCT_VERSIONS.remoteScript,
+    ],
   ] as const)(
     "reports %s",
     (reason, liveVersion, protocolVersion, remoteScriptVersion) => {

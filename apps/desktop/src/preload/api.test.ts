@@ -16,6 +16,7 @@ describe("preload API", () => {
       "diagnostics",
       "preferences",
       "project",
+      "liveSet",
       "plan",
       "operations",
       "outputs",
@@ -34,7 +35,9 @@ describe("preload API", () => {
           state: "connected",
           liveVersion: "12",
           remoteScriptVersion: "1",
-          projectId: "p",
+          liveSetId: "p",
+          liveSetName: "Test Set",
+          saved: true,
         },
       },
       listeners,
@@ -187,11 +190,16 @@ describe("preload API", () => {
           active: true,
           reserved: false,
           sessionCount: 1,
+          liveProjects: [],
+          unassignedLiveSets: [],
           sessions: [
             {
               id: "session-1",
               title: "Untitled",
               active: true,
+              liveSetId: "set-1",
+              liveSetName: "Untitled",
+              createdAt: "2026-09-20T12:00:00.000Z",
             },
           ],
         },
@@ -200,6 +208,8 @@ describe("preload API", () => {
           active: false,
           reserved: false,
           sessionCount: 0,
+          liveProjects: [],
+          unassignedLiveSets: [],
           sessions: [],
         },
       ],
@@ -557,11 +567,13 @@ describe("preload API", () => {
     const response = {
       instances: [],
       session: {
-        version: 3,
+        version: 4,
         id: "production-session",
         title: "Production session",
+        createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString(),
-        projectName: "Set",
+        liveSetId: "live-set-1",
+        liveSetName: "Set",
         activeAgents: [],
         productionPlan: [],
         outputAssignments: [],
@@ -590,7 +602,7 @@ describe("preload API", () => {
     const traceId = "00000000-0000-4000-8000-000000000010";
     const transport = transportFor({
       "event-history:search": {
-        version: 1,
+        version: 2,
         items: [],
         page: {
           limit: 20,
@@ -601,7 +613,7 @@ describe("preload API", () => {
         },
       },
       "event-history:trace": {
-        version: 1,
+        version: 2,
         items: [],
         page: {
           limit: 20,
@@ -627,7 +639,7 @@ describe("preload API", () => {
 
     await expect(
       api.eventHistory.search({ sources: ["desktop"], limit: 20 }),
-    ).resolves.toMatchObject({ version: 1, items: [] });
+    ).resolves.toMatchObject({ version: 2, items: [] });
     await expect(
       api.eventHistory.trace(traceId, { limit: 20 }),
     ).resolves.toMatchObject({

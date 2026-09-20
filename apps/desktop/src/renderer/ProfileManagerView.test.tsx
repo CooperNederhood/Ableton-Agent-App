@@ -24,8 +24,71 @@ function snapshot(
         reserved: false,
         sessionCount: 2,
         sessions: [
-          { id: "session-1", title: "Untitled", active: true },
-          { id: "session-2", title: "Second set", active: false },
+          {
+            id: "session-1",
+            title: "Untitled",
+            liveSetId: "set-1",
+            liveSetName: "Untitled",
+            liveProjectId: "project-1",
+            liveProjectName: "Test Project",
+            createdAt: "2026-09-17T00:00:00.000Z",
+            active: true,
+            canonical: true,
+          },
+          {
+            id: "session-2",
+            title: "Second set",
+            liveSetId: "set-2",
+            liveSetName: "Second set",
+            createdAt: "2026-09-18T00:00:00.000Z",
+            active: false,
+            canonical: true,
+          },
+        ],
+        liveProjects: [
+          {
+            id: "project-1",
+            name: "Test Project",
+            active: true,
+            liveSets: [
+              {
+                id: "set-1",
+                name: "Untitled",
+                saved: true,
+                sessions: [
+                  {
+                    id: "session-1",
+                    title: "Untitled",
+                    liveSetId: "set-1",
+                    liveSetName: "Untitled",
+                    liveProjectId: "project-1",
+                    liveProjectName: "Test Project",
+                    createdAt: "2026-09-17T00:00:00.000Z",
+                    active: true,
+                    canonical: true,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        unassignedLiveSets: [
+          {
+            id: "set-2",
+            name: "Second set",
+            saved: false,
+            sessions: [
+              {
+                id: "session-2",
+                title: "Second set",
+                liveSetId: "set-2",
+                liveSetName: "Second set",
+                createdAt: "2026-09-18T00:00:00.000Z",
+                active: false,
+                canonical: true,
+              },
+            ],
+          },
         ],
       },
       {
@@ -34,6 +97,8 @@ function snapshot(
         reserved: false,
         sessionCount: 0,
         sessions: [],
+        liveProjects: [],
+        unassignedLiveSets: [],
       },
     ],
     artifacts: [
@@ -196,6 +261,14 @@ describe("ProfileManagerView", () => {
     expect(container.textContent).not.toContain("Selected artifact");
     expect(container.textContent).not.toContain("Close active session");
 
+    const expandProject = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Expand Test Project Live Project"]',
+    );
+    await act(async () => expandProject?.click());
+    const expandSet = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Expand Untitled Live Set"]',
+    );
+    await act(async () => expandSet?.click());
     const expandSession = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Expand Untitled session"]',
     );
@@ -216,9 +289,33 @@ describe("ProfileManagerView", () => {
               sessions: [
                 {
                   id: "session-new",
-                  title: "Production session",
+                  title: "Untitled",
+                  liveSetId: "set-new",
+                  liveSetName: "Untitled",
+                  createdAt: "2026-09-19T00:00:00.000Z",
                   active: true,
+                  canonical: false,
                   persisted: false,
+                },
+              ],
+              liveProjects: [],
+              unassignedLiveSets: [
+                {
+                  id: "set-new",
+                  name: "Untitled",
+                  saved: false,
+                  sessions: [
+                    {
+                      id: "session-new",
+                      title: "Untitled",
+                      liveSetId: "set-new",
+                      liveSetName: "Untitled",
+                      createdAt: "2026-09-19T00:00:00.000Z",
+                      active: true,
+                      canonical: false,
+                      persisted: false,
+                    },
+                  ],
                 },
               ],
             },
@@ -232,10 +329,94 @@ describe("ProfileManagerView", () => {
       root.render(<ProfileManagerView activeSessionId="session-new" />);
     });
 
-    expect(container.textContent).toContain("Production session");
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Expand unassigned Live Sets"]',
+        )
+        ?.click(),
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Expand Untitled Live Set"]',
+        )
+        ?.click(),
+    );
+    expect(container.textContent).toContain("Untitled");
     expect(container.textContent).toContain(
       "In memory · saves on first customization",
     );
+  });
+
+  it("shows stable Live Set-derived labels for multiple App sessions", async () => {
+    const first = {
+      id: "session-1",
+      title: "Writing-1",
+      liveSetId: "set-1",
+      liveSetName: "Writing",
+      liveProjectId: "project-1",
+      liveProjectName: "Album",
+      createdAt: "2026-09-17T00:00:00.000Z",
+      active: false,
+      canonical: false,
+    };
+    const second = {
+      ...first,
+      id: "session-2",
+      title: "Writing-2",
+      createdAt: "2026-09-18T00:00:00.000Z",
+      active: true,
+      canonical: true,
+    };
+    window.desktop = api({
+      get: vi.fn().mockResolvedValue(
+        snapshot({
+          activeSessionId: "session-2",
+          profiles: [
+            {
+              name: "default",
+              active: true,
+              reserved: false,
+              sessionCount: 2,
+              sessions: [first, second],
+              liveProjects: [
+                {
+                  id: "project-1",
+                  name: "Album",
+                  active: true,
+                  liveSets: [
+                    {
+                      id: "set-1",
+                      name: "Writing",
+                      saved: true,
+                      sessions: [first, second],
+                    },
+                  ],
+                },
+              ],
+              unassignedLiveSets: [],
+            },
+          ],
+        }),
+      ),
+    });
+
+    await act(async () => {
+      root.render(<ProfileManagerView activeSessionId="session-2" />);
+    });
+    const projectButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Expand Album Live Project"]',
+    );
+    await act(async () => projectButton?.click());
+    const liveSetButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Expand Writing Live Set"]',
+    );
+    await act(async () => liveSetButton?.click());
+
+    expect(container.textContent).toContain("Writing-1");
+    expect(container.textContent).toContain("Writing-2");
+    expect(container.textContent).toContain("Canonical App session");
   });
 
   it("reloads when the parent refresh token changes", async () => {
@@ -356,6 +537,34 @@ describe("ProfileManagerView", () => {
       root.render(<ProfileManagerView />);
     });
 
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Expand Test Project Live Project"]',
+        )
+        ?.click(),
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Expand Untitled Live Set"]',
+        )
+        ?.click(),
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Expand unassigned Live Sets"]',
+        )
+        ?.click(),
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Expand Second set Live Set"]',
+        )
+        ?.click(),
+    );
     const mix = container.querySelector<HTMLButtonElement>(
       'button[aria-label="mix, Local"]',
     )!;
@@ -383,6 +592,7 @@ describe("ProfileManagerView", () => {
         destination: {
           scope: "session",
           profile: "default",
+          liveSetId: "set-2",
           sessionId: "session-2",
         },
       }),
@@ -398,6 +608,8 @@ describe("ProfileManagerView", () => {
         destination: {
           scope: "session",
           profile: "default",
+          liveProjectId: "project-1",
+          liveSetId: "set-1",
           sessionId: "session-1",
         },
       }),

@@ -14,12 +14,12 @@ import type {
   DesktopAgentHistoryMessage,
   DesktopPreferences,
   DesktopOutputsState,
-  DesktopProjectSnapshot,
+  DesktopLiveSetSnapshot,
   DesktopSession,
   ConfigurationSnapshotPage,
   JournalHealth,
   LiveEventTrigger,
-  PendingProjectTransition,
+  PendingLiveSetTransition,
   OperationView,
   PlanSection,
   RootTracePage,
@@ -93,13 +93,13 @@ export interface DesktopState {
   dismissedContextIds: string[];
   projectSelectionContextEnabled: boolean;
   approval?: ApprovalRequest | undefined;
-  snapshot?: DesktopProjectSnapshot | undefined;
+  snapshot?: DesktopLiveSetSnapshot | undefined;
   selectedTrackId?: string | undefined;
   selectedClipId?: string | undefined;
   selectedDeviceId?: string | undefined;
   sessions: DesktopSession[];
   activeSessionId?: string | undefined;
-  pendingProjectTransition?: PendingProjectTransition | undefined;
+  pendingLiveSetTransition?: PendingLiveSetTransition | undefined;
   agentCatalog: DesktopAgentCatalog;
   preferences: DesktopPreferences;
   diagnostics: Array<{ level: "info" | "warning" | "error"; message: string }>;
@@ -503,7 +503,7 @@ function reduceEvent(
       return { ...state, lifecycle: event.state };
     case "ableton.connection_changed":
       return { ...state, connection: event.status };
-    case "project.snapshot_changed":
+    case "live_set.snapshot_changed":
       return {
         ...state,
         snapshot: event.snapshot,
@@ -649,11 +649,11 @@ function reduceEvent(
         ),
         plan: event.session.productionPlan,
       };
-    case "project.transition_requested":
-      return { ...state, pendingProjectTransition: event.transition };
-    case "project.transition_cleared":
-      return state.pendingProjectTransition?.token === event.token
-        ? { ...state, pendingProjectTransition: undefined }
+    case "live_set.transition_requested":
+      return { ...state, pendingLiveSetTransition: event.transition };
+    case "live_set.transition_cleared":
+      return state.pendingLiveSetTransition?.token === event.token
+        ? { ...state, pendingLiveSetTransition: undefined }
         : state;
     case "preferences.changed":
       return { ...state, preferences: event.preferences };

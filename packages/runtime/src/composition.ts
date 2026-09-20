@@ -96,7 +96,8 @@ function normalizedEntityId(value: string | undefined): string | undefined {
 
 function createRuntimeObserver(
   recorder: NonBlockingObservabilityRecorder | undefined,
-  currentProjectId?: () => string | undefined,
+  currentLiveSetId?: () => string | undefined,
+  currentLiveProjectId?: () => string | undefined,
 ): AgentRuntimeObserver | undefined {
   if (recorder === undefined) return undefined;
   const toolNames = new Map<string, string>();
@@ -179,24 +180,28 @@ function createRuntimeObserver(
         typeof event.data.eventId === "string" ? event.data.eventId : undefined;
       const outputId =
         tracedOrigin?.startsWith("output.") === true ? occurrenceId : undefined;
-      let providedProjectId: string | undefined;
+      let providedLiveSetId: string | undefined;
+      let providedLiveProjectId: string | undefined;
       try {
-        providedProjectId = currentProjectId?.();
+        providedLiveSetId = currentLiveSetId?.();
+        providedLiveProjectId = currentLiveProjectId?.();
       } catch {
-        // Project ownership enrichment must never disrupt agent event capture.
+        // Live ownership enrichment must never disrupt agent event capture.
       }
-      const projectId = normalizedEntityId(
+      const liveSetId = normalizedEntityId(
         typeof event.data.projectId === "string"
           ? event.data.projectId
-          : providedProjectId,
+          : providedLiveSetId,
       );
+      const liveProjectId = normalizedEntityId(providedLiveProjectId);
       if (event.type === "agent.tool.started" && toolCallId !== undefined) {
         registerCorrelationContext({
           correlationId: toolCallId,
           traceId,
           parentSpanId: spanId,
           ...(turnId === undefined ? {} : { causationId: turnId }),
-          ...(projectId === undefined ? {} : { projectId }),
+          ...(liveSetId === undefined ? {} : { liveSetId }),
+          ...(liveProjectId === undefined ? {} : { liveProjectId }),
           ...(sessionId === undefined ? {} : { sessionId }),
           ...(activeAgentId === undefined ? {} : { activeAgentId }),
           ...(liveEventId === undefined ? {} : { liveEventId }),
@@ -219,7 +224,8 @@ function createRuntimeObserver(
         ...(duration === undefined ? {} : { durationMs: duration }),
         ...(correlationId === undefined ? {} : { correlationId }),
         ...(causationId === undefined ? {} : { causationId }),
-        ...(projectId === undefined ? {} : { projectId }),
+        ...(liveSetId === undefined ? {} : { liveSetId }),
+        ...(liveProjectId === undefined ? {} : { liveProjectId }),
         ...(sessionId === undefined ? {} : { sessionId }),
         ...(activeAgentId === undefined ? {} : { activeAgentId }),
         ...(liveEventId === undefined ? {} : { liveEventId }),
@@ -255,12 +261,13 @@ function createRuntimeObserver(
         recorder.enqueueConfigurationSnapshot !== undefined
       ) {
         const snapshot: ConfigurationSnapshot = {
-          version: 1,
+          version: 2,
           id: randomUUID(),
           capturedAt: event.occurredAt,
           component: "agent-runtime",
           configurationVersion: "runtime-observer-v1",
-          ...(projectId === undefined ? {} : { projectId }),
+          ...(liveSetId === undefined ? {} : { liveSetId }),
+          ...(liveProjectId === undefined ? {} : { liveProjectId }),
           ...(sessionId === undefined ? {} : { sessionId }),
           ...(activeAgentId === undefined ? {} : { activeAgentId }),
           values: runtimeEventAttributes(event),
@@ -294,7 +301,7 @@ export interface AgentSettings {
   reasoningSummary?:
     AgentReasoningSummary | (() => AgentReasoningSummary) | undefined;
   baseDirectory?: string | undefined;
-  sessionStateDirectory?: string | undefined;
+  resolvePlanArtifactPaths?: CopilotAgentServiceOptions["resolvePlanArtifactPaths"];
   turnTimeoutMs?: number | (() => number) | undefined;
   /** Replaces the Copilot client; used by tests and fakes. */
   clientFactory?: CopilotAgentServiceOptions["clientFactory"];
@@ -314,8 +321,10 @@ export interface AgentRuntimeOptions {
   liveEvents?: Omit<LiveEventRuntimeOptions, "bridge" | "logger">;
   /** Non-blocking observability sink shared by bridge and event runtimes. */
   telemetry?: NonBlockingObservabilityRecorder;
-  /** Synchronous cached project identity; must not inspect Live on invocation. */
-  currentProjectId?: () => string | undefined;
+  /** Synchronous cached Live Set identity; must not inspect Live on invocation. */
+  currentLiveSetId?: () => string | undefined;
+  /** Optional synchronous Live Project grouping for the current Live Set. */
+  currentLiveProjectId?: () => string | undefined;
 }
 
 export interface AgentRuntime {
@@ -437,12 +446,12 @@ function isLiveEventBridge(
   );
 }
 
-function isCurrentProjectProvider(
+function isCurrentLiveSetProvider(
   value: AbletonService,
-): value is AbletonService & { getCurrentProjectId(): string | undefined } {
+): value is AbletonService & { getCurrentLiveSetId(): string | undefined } {
   return (
-    typeof (value as Partial<{ getCurrentProjectId(): string | undefined }>)
-      .getCurrentProjectId === "function"
+    typeof (value as Partial<{ getCurrentLiveSetId(): string | undefined }>)
+      .getCurrentLiveSetId === "function"
   );
 }
 
@@ -555,7 +564,7 @@ export function createAbletonService(
         events,
         port: settings.port,
         eventSubscriptions: [
-          "project.changed",
+          "live_set.changed",
           "live_event.occurred",
           "live_event.invalidated",
         ],
@@ -595,10 +604,11 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
   const agentSettings = options.agent ?? {};
   const runtimeObserver = createRuntimeObserver(
     options.telemetry,
-    options.currentProjectId ??
-      (isCurrentProjectProvider(ableton)
-        ? () => ableton.getCurrentProjectId()
+    options.currentLiveSetId ??
+      (isCurrentLiveSetProvider(ableton)
+        ? () => ableton.getCurrentLiveSetId()
         : undefined),
+    options.currentLiveProjectId,
   );
   const signalSecret = options.signal?.secret ?? options.ableton.token;
   const signals = new DefaultSignalRuntime({
@@ -646,9 +656,9 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     ...(agentSettings.baseDirectory === undefined
       ? {}
       : { baseDirectory: agentSettings.baseDirectory }),
-    ...(agentSettings.sessionStateDirectory === undefined
+    ...(agentSettings.resolvePlanArtifactPaths === undefined
       ? {}
-      : { sessionStateDirectory: agentSettings.sessionStateDirectory }),
+      : { resolvePlanArtifactPaths: agentSettings.resolvePlanArtifactPaths }),
     ...(agentSettings.clientFactory === undefined
       ? {}
       : { clientFactory: agentSettings.clientFactory }),

@@ -12,7 +12,11 @@ export type ConnectionStatus =
       state: "connected";
       liveVersion: string;
       remoteScriptVersion: string;
-      projectId: string;
+      liveSetId: string;
+      liveSetName: string;
+      saved: boolean;
+      liveProjectId?: string;
+      liveProjectName?: string;
     }
   | { state: "error"; code: string; message: string };
 

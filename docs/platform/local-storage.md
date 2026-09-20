@@ -40,6 +40,9 @@ Profile selection follows these rules:
 
 The shared resolver in `@ableton-agent/storage` owns these decisions. Callers
 must consume its typed paths rather than reconstructing them.
+App-session paths require a `SessionStorageOwnershipContext` containing
+`liveSetId`, optional `liveProjectId`, and `sessionId`; a session ID alone is
+never sufficient and no flat session-state compatibility path is exposed.
 
 ## Required directory structure
 
@@ -48,12 +51,13 @@ must consume its typed paths rather than reconstructing them.
 ├── storage-version.json
 └── profiles/
     ├── default/
-    │   ├── storage-migration-v1.json
+    │   ├── storage-migration-v2.json
     │   ├── config/
     │   │   └── preferences.json
     │   ├── state/
     │   │   ├── sessions.json
-    │   │   └── project-sessions.json
+    │   │   ├── live-set-sessions.json
+    │   │   └── live-projects.json
     │   ├── credentials/
     │   │   └── {credential-key}
     │   ├── copilot/
@@ -68,16 +72,38 @@ must consume its typed paths rather than reconstructing them.
     │   ├── artifact-state/
     │   │   ├── agents.json
     │   │   └── skills.json
-    │   └── session-state/
-    │       └── {production-session-id}/
-    │           ├── session.json
-    │           ├── agents/
-    │           ├── skills/
-    │           ├── artifact-state/
-    │           │   ├── agents.json
-    │           │   └── skills.json
-    │           └── artifacts/
-    │               └── plan.md
+    │   ├── memory/
+    │   ├── project-state/
+    │   │   └── {project-id}/
+    │   │       ├── project.json
+    │   │       ├── memory/
+    │   │       ├── agents/
+    │   │       ├── skills/
+    │   │       ├── artifact-state/
+    │   │       │   ├── agents.json
+    │   │       │   └── skills.json
+    │   │       └── live-set-state/
+    │   │           └── {live-set-id}/
+    │   │               ├── live-set.json
+    │   │               ├── memory/
+    │   │               └── session-state/
+    │   │                   └── {app-session-id}/
+    │   │                       └── {session-owned contents below}
+    │   └── unassigned-live-set-state/
+    │       └── {live-set-id}/
+    │           ├── live-set.json
+    │           ├── memory/
+    │           └── session-state/
+    │               └── {app-session-id}/
+    │                   ├── session.json
+    │                   ├── memory/
+    │                   ├── agents/
+    │                   ├── skills/
+    │                   ├── artifact-state/
+    │                   │   ├── agents.json
+    │                   │   └── skills.json
+    │                   └── artifacts/
+    │                       └── plan.md
     ├── development/
     │   └── {same profile layout}
     └── automation/
@@ -96,23 +122,29 @@ up or recovered atomically.
 | `config/profiles.json` | Profile registry | Versioned visible-profile registry and selected packaged-app profile. Reserved development and automation profiles are hidden. |
 | `system/` | Scoped artifact manager | Editable System Scope agent and skill additions, overrides, and tombstones. Bundled resources remain immutable fallback content. |
 | `config/` | Desktop/application configuration | Validated, non-secret preferences, including the global Off/Concise/Detailed agent reasoning-summary visibility setting. |
-| `state/` | Desktop production-session stores | Validated session and saved Live Set association records. A future move to SQLite remains inside this directory. |
+| `state/` | Desktop production-session stores | Validated app-session records, Live Set associations, and the bounded, revision-checked Live Projects registry. |
 | `credentials/` | Main process secure store | Ciphertext encrypted through OS-backed facilities. Credentials never enter renderer state, logs, journal payloads, or support bundles. |
 | `copilot/` | Copilot SDK adapter | SDK conversation/session data. Application code must not invent a parallel transcript store. |
 | `observability/` | Local observability journal | One profile-wide SQLite journal for cross-session queries, traces, retention, and health. Do not create one journal per production session. |
 | `logs/` | Structured diagnostic logger | Bounded, redacted newline-delimited JSON logs. |
-| `session-state/{production-session-id}/` | Production-session persistence | Bounded ownership manifest plus session-owned artifacts. It links project, active-agent, and SDK-session IDs without duplicating transcripts or journal rows. `artifacts/plan.md` is the single shared planning document for the production session. |
+| `memory/` | Reserved ownership scope | Reserved at profile, project, Live Set, and app-session scopes. No memory persistence behavior is defined yet. |
+| `project-state/{project-id}/` | Live Project ownership | Project metadata, reserved memory, and child Live Sets. Project association must be explicit; storage never infers it. |
+| `project-state/{project-id}/live-set-state/{live-set-id}/` | Project-owned Live Set persistence | Live Set metadata, reserved memory, and nested app sessions. |
+| `unassigned-live-set-state/{live-set-id}/` | Unassigned Live Set persistence | Live Sets without a known Live Project, including all migrated legacy sets. |
+| `*/session-state/{app-session-id}/` | App-session persistence | Bounded ownership manifest plus session-owned artifacts. `artifacts/plan.md` is the shared planning document for the app session. |
 
-Profile and production-session `agents/`, `skills/`, and `artifact-state/`
-files implement copy-on-write scoped customization.
-Effective resolution is Session, then Profile, then System, then bundled
-fallback. See [Scoped Profiles](scoped-profiles.md).
+Profile, Project, and app-session `agents/`, `skills/`, and `artifact-state/`
+files implement copy-on-write scoped customization. Effective resolution is
+Session, then Project when assigned, then Profile, then System, then bundled
+fallback. Project artifact resolution requires a typed `liveProjectId`
+ownership context. See [Scoped Profiles](scoped-profiles.md).
 
 An active session for an unsaved Live Set may exist only in Desktop memory and
 therefore be absent from `state/sessions.json`. Profiles still presents that
 session as an in-memory active destination. The first Session-scope artifact
 publication or transfer persists the session record and creates its canonical
-`session-state/{production-session-id}/` directories. Conversation history
+`unassigned-live-set-state/{live-set-id}/session-state/{app-session-id}/`
+directories. Conversation history
 alone remains Copilot SDK-owned and does not promote the Desktop session.
 
 ## Data that intentionally remains outside the root
@@ -170,6 +202,52 @@ Migration emits application-owned queued, started, progress, completed, failed,
 and cancelled lifecycle events with trace, correlation, causation, attribution,
 and timing. Bootstrap records are mirrored to the structured log and replayed
 into Desktop History after the journal opens.
+
+### Storage v1 to v2 nested-layout migration
+
+The v1-to-v2 migration is operator invoked. Runtime startup does not migrate or
+silently reinterpret storage.
+
+```sh
+# Dry-run is the default.
+LIVE_AGENT_HOME="$HOME/.live-agent" \
+  pnpm --filter @ableton-agent/storage migrate:v2 -- --profile default
+
+# Apply after reviewing the report.
+LIVE_AGENT_HOME="$HOME/.live-agent" \
+  pnpm --filter @ableton-agent/storage migrate:v2 -- --profile default --apply
+```
+
+`LIVE_AGENT_PROFILE` is honored when `--profile` is omitted. The command:
+
+1. requires a complete supported v1 layout and refuses missing version markers,
+   mixed v1/v2 paths, symbolic links, and incomplete session directories;
+2. creates `backups/storage-v1-{timestamp}/{profile}` and backs up the root
+   version marker before changing profile data;
+3. atomically renames top-level legacy `projectId`/`projectName` session fields
+   to `liveSetId`/`liveSetName`, upgrades the session collection to v4, and
+   populates missing immutable `createdAt` values from `updatedAt`;
+4. renames `state/project-sessions.json` to
+   `state/live-set-sessions.json`;
+5. groups complete legacy session directories below
+   `unassigned-live-set-state/{live-set-id}/session-state/`, never inferring a
+   Live Project;
+6. creates the empty bounded Live Projects registry and reserved `memory/`
+   ownership directories; and
+7. publishes the root storage version only after every profile with legacy
+   session data has been migrated.
+
+Run the command once for each legacy profile. Until the last profile is
+migrated, the root remains marked as v1 and Desktop startup continues to fail
+closed rather than accepting a mixed layout.
+
+Using legacy `updatedAt` as `createdAt` is an explicit approximation because v3
+did not retain the original creation time. Migrated sessions are ordered by
+`createdAt`, with session ID as the deterministic tie-break, so user-facing
+session numbering remains stable across repeated reads and migrations.
+
+Reports are bounded. Validation or application failures return a nonzero exit
+status, preserve the legacy profile, and retain any completed backup.
 
 ## Adding new persisted data
 

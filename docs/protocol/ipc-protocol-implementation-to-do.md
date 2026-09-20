@@ -59,3 +59,9 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
   request/result fixtures remain to be added.
 - [x] Breaking schema changes fail CI.
 - [x] Every production command is represented in the catalog.
+# Live identity terminology
+
+- [x] Version the wire contract for `liveSetId`, `liveSetName`, `saved`, and
+  optional `liveProjectId`/`liveProjectName`.
+- [x] Update capability, identity-command, and Live Event subscription fixtures
+  with bounded diagnostics and Live Set-scoped stale guards.

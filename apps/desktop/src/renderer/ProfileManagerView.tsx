@@ -14,7 +14,10 @@ import type {
   DesktopArtifactConflict,
   DesktopArtifactLocation,
   DesktopArtifactMutationResult,
+  DesktopProfileLiveProjectSummary,
+  DesktopProfileLiveSetSummary,
   DesktopProfileManagerSnapshot,
+  DesktopProfileSessionSummary,
   DesktopScopedArtifact,
 } from "../contracts";
 
@@ -62,10 +65,27 @@ function artifactLocation(
   if (artifact.origin === "profile" && artifact.profile !== undefined) {
     return { scope: "profile", profile: artifact.profile };
   }
+  if (
+    artifact.origin === "project" &&
+    artifact.profile !== undefined &&
+    artifact.liveProjectId !== undefined
+  ) {
+    return {
+      scope: "project",
+      profile: artifact.profile,
+      liveProjectId: artifact.liveProjectId,
+    };
+  }
   if (artifact.profile !== undefined && artifact.sessionId !== undefined) {
     return {
       scope: "session",
       profile: artifact.profile,
+      ...(artifact.liveProjectId === undefined
+        ? {}
+        : { liveProjectId: artifact.liveProjectId }),
+      ...(artifact.liveSetId === undefined
+        ? {}
+        : { liveSetId: artifact.liveSetId }),
       sessionId: artifact.sessionId,
     };
   }
@@ -79,10 +99,27 @@ function ownedLocation(
   if (artifact.scope === "profile" && artifact.profile !== undefined) {
     return { scope: "profile", profile: artifact.profile };
   }
+  if (
+    artifact.scope === "project" &&
+    artifact.profile !== undefined &&
+    artifact.liveProjectId !== undefined
+  ) {
+    return {
+      scope: "project",
+      profile: artifact.profile,
+      liveProjectId: artifact.liveProjectId,
+    };
+  }
   if (artifact.profile !== undefined && artifact.sessionId !== undefined) {
     return {
       scope: "session",
       profile: artifact.profile,
+      ...(artifact.liveProjectId === undefined
+        ? {}
+        : { liveProjectId: artifact.liveProjectId }),
+      ...(artifact.liveSetId === undefined
+        ? {}
+        : { liveSetId: artifact.liveSetId }),
       sessionId: artifact.sessionId,
     };
   }
@@ -100,16 +137,12 @@ function artifactNodeKey(artifact: DesktopScopedArtifact): string {
   return [
     artifact.scope,
     artifact.profile ?? "",
+    artifact.liveProjectId ?? "",
+    artifact.liveSetId ?? "",
     artifact.sessionId ?? "",
     artifact.kind,
     artifact.name,
   ].join(":");
-}
-
-function compactSessionId(sessionId: string): string {
-  return sessionId.length <= 18
-    ? sessionId
-    : `${sessionId.slice(0, 8)}...${sessionId.slice(-6)}`;
 }
 
 function sameLocation(
@@ -119,6 +152,8 @@ function sameLocation(
   return (
     left.scope === right.scope &&
     left.profile === right.profile &&
+    left.liveProjectId === right.liveProjectId &&
+    left.liveSetId === right.liveSetId &&
     left.sessionId === right.sessionId
   );
 }
@@ -325,6 +360,119 @@ function ArtifactGroups({
   );
 }
 
+function AppSessionNode({
+  profileName,
+  session,
+  artifacts,
+  expanded,
+  dropTarget,
+  clipboard,
+  onToggle,
+  onOpenScopeMenu,
+  onOpenArtifactMenu,
+  onDragStart,
+  onDragEnd,
+  scopeDropHandlers,
+}: {
+  profileName: string;
+  session: DesktopProfileSessionSummary;
+  artifacts: DesktopScopedArtifact[];
+  expanded: boolean;
+  dropTarget: string | undefined;
+  clipboard: ArtifactTransfer | undefined;
+  onToggle: () => void;
+  onOpenScopeMenu: (
+    destination: DesktopArtifactLocation,
+    x: number,
+    y: number,
+  ) => void;
+  onOpenArtifactMenu: (
+    artifact: DesktopScopedArtifact,
+    x: number,
+    y: number,
+  ) => void;
+  onDragStart: (
+    event: DragEvent<HTMLButtonElement>,
+    artifact: DesktopScopedArtifact,
+  ) => void;
+  onDragEnd: () => void;
+  scopeDropHandlers: (
+    destination: DesktopArtifactLocation,
+    key: string,
+  ) => {
+    onDragOver: (event: DragEvent<HTMLElement>) => void;
+    onDragLeave: () => void;
+    onDrop: (event: DragEvent<HTMLElement>) => void;
+  };
+}): React.JSX.Element {
+  const node = `session:${profileName}:${session.id}`;
+  const location: DesktopArtifactLocation = {
+    scope: "session",
+    profile: profileName,
+    ...(session.liveProjectId === undefined
+      ? {}
+      : { liveProjectId: session.liveProjectId }),
+    liveSetId: session.liveSetId,
+    sessionId: session.id,
+  };
+  return (
+    <section className="profile-tree-node session-node">
+      <header
+        className={`profile-tree-row ${dropTarget === node ? "drop-target" : ""}`}
+        tabIndex={0}
+        {...contextMenuHandler((x, y) => onOpenScopeMenu(location, x, y))}
+        {...scopeDropHandlers(location, node)}
+      >
+        <button
+          type="button"
+          className="profile-tree-toggle"
+          aria-label={
+            expanded
+              ? `Collapse ${session.title} session`
+              : `Expand ${session.title} session`
+          }
+          aria-expanded={expanded}
+          onClick={onToggle}
+        >
+          {expanded ? "^" : "v"}
+        </button>
+        <div className="profile-tree-label">
+          <span className="scope-name">
+            <strong>{session.title}</strong>
+            {session.active && (
+              <span
+                className="scope-active-indicator"
+                aria-label="Active App session"
+                title="Active App session"
+              />
+            )}
+          </span>
+          <small>
+            {session.canonical
+              ? "Canonical App session"
+              : "Historical App session"}
+          </small>
+          {session.persisted === false && (
+            <small className="profile-session-state">
+              In memory · saves on first customization
+            </small>
+          )}
+        </div>
+        <span className="profile-tree-count">{artifacts.length}</span>
+      </header>
+      {expanded && (
+        <ArtifactGroups
+          artifacts={artifacts}
+          clipboard={clipboard}
+          onOpenMenu={onOpenArtifactMenu}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+        />
+      )}
+    </section>
+  );
+}
+
 export function ProfileManagerView({
   activeSessionId,
   refreshToken = 0,
@@ -391,6 +539,15 @@ export function ProfileManagerView({
       (snapshot?.artifacts ?? []).filter(
         (artifact) =>
           artifact.scope === "profile" &&
+          artifact.profile === snapshot?.selectedProfile,
+      ),
+    [snapshot],
+  );
+  const projectArtifacts = useMemo(
+    () =>
+      (snapshot?.artifacts ?? []).filter(
+        (artifact) =>
+          artifact.scope === "project" &&
           artifact.profile === snapshot?.selectedProfile,
       ),
     [snapshot],
@@ -561,7 +718,7 @@ export function ProfileManagerView({
       <div className="profile-manager-heading">
         <div>
           <h1 id="profiles-title">Profiles</h1>
-          <p className="muted">System / profile / session</p>
+          <p className="muted">System / profile / project / session</p>
         </div>
         <div className="profile-heading-actions">
           <button
@@ -691,6 +848,75 @@ export function ProfileManagerView({
                 scope: "profile",
                 profile: profile.name,
               };
+              const renderLiveSet = (
+                liveSet: DesktopProfileLiveSetSummary,
+                parentNode: string,
+              ): React.JSX.Element => {
+                const liveSetNode = `${parentNode}:live-set:${liveSet.id}`;
+                const liveSetExpanded = expandedNodes.has(liveSetNode);
+                return (
+                  <section
+                    className="profile-tree-node live-set-node"
+                    key={liveSet.id}
+                  >
+                    <header className="profile-tree-row">
+                      <button
+                        type="button"
+                        className="profile-tree-toggle"
+                        aria-label={
+                          liveSetExpanded
+                            ? `Collapse ${liveSet.name} Live Set`
+                            : `Expand ${liveSet.name} Live Set`
+                        }
+                        aria-expanded={liveSetExpanded}
+                        onClick={() => toggleNode(liveSetNode)}
+                      >
+                        {liveSetExpanded ? "^" : "v"}
+                      </button>
+                      <div className="profile-tree-label">
+                        <strong>{liveSet.name}</strong>
+                        <small>Live Set</small>
+                      </div>
+                      <span className="profile-tree-count">
+                        {liveSet.sessions.length}
+                      </span>
+                    </header>
+                    {liveSetExpanded && (
+                      <div className="profile-tree-children">
+                        {liveSet.sessions.map((session) => {
+                          const sessionNode = `session:${profile.name}:${session.id}`;
+                          return (
+                            <AppSessionNode
+                              key={session.id}
+                              profileName={profile.name}
+                              session={session}
+                              artifacts={sessionArtifacts.filter(
+                                (artifact) => artifact.sessionId === session.id,
+                              )}
+                              expanded={expandedNodes.has(sessionNode)}
+                              dropTarget={dropTarget}
+                              clipboard={clipboard}
+                              onToggle={() => toggleNode(sessionNode)}
+                              onOpenScopeMenu={(destination, x, y) =>
+                                setMenu({
+                                  kind: "scope",
+                                  destination,
+                                  x,
+                                  y,
+                                })
+                              }
+                              onOpenArtifactMenu={openArtifactMenu}
+                              onDragStart={beginDrag}
+                              onDragEnd={() => setDragging(undefined)}
+                              scopeDropHandlers={scopeDropHandlers}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+                );
+              };
               return (
                 <section
                   className={`profile-tree-node profile-node ${
@@ -758,97 +984,156 @@ export function ProfileManagerView({
                         onDragEnd={() => setDragging(undefined)}
                       />
                       <div className="profile-tree-children">
-                        {profile.sessions.length === 0 ? (
+                        {profile.liveProjects.length === 0 &&
+                        profile.unassignedLiveSets.length === 0 ? (
                           <p className="profile-tree-empty muted">
-                            No sessions
+                            No Live Sets
                           </p>
                         ) : (
-                          profile.sessions.map((session) => {
-                            const sessionNode = `session:${profile.name}:${session.id}`;
-                            const sessionExpanded =
-                              expandedNodes.has(sessionNode);
-                            const ownedArtifacts = sessionArtifacts.filter(
-                              (artifact) => artifact.sessionId === session.id,
-                            );
-                            const sessionLocation: DesktopArtifactLocation = {
-                              scope: "session",
-                              profile: profile.name,
-                              sessionId: session.id,
-                            };
-                            return (
-                              <section
-                                className="profile-tree-node session-node"
-                                key={session.id}
-                              >
-                                <header
-                                  className={`profile-tree-row ${
-                                    dropTarget === sessionNode
-                                      ? "drop-target"
-                                      : ""
-                                  }`}
-                                  tabIndex={0}
-                                  {...contextMenuHandler((x, y) =>
-                                    setMenu({
-                                      kind: "scope",
-                                      destination: sessionLocation,
-                                      x,
-                                      y,
-                                    }),
-                                  )}
-                                  {...scopeDropHandlers(
-                                    sessionLocation,
-                                    sessionNode,
-                                  )}
-                                >
+                          <>
+                            {profile.liveProjects.map(
+                              (project: DesktopProfileLiveProjectSummary) => {
+                                const projectNode = `project:${profile.name}:${project.id}`;
+                                const projectExpanded =
+                                  expandedNodes.has(projectNode);
+                                const projectLocation: DesktopArtifactLocation =
+                                  {
+                                    scope: "project",
+                                    profile: profile.name,
+                                    liveProjectId: project.id,
+                                  };
+                                const ownedArtifacts = projectArtifacts.filter(
+                                  (artifact) =>
+                                    artifact.liveProjectId === project.id,
+                                );
+                                return (
+                                  <section
+                                    className="profile-tree-node project-node"
+                                    key={project.id}
+                                  >
+                                    <header
+                                      className={`profile-tree-row ${
+                                        dropTarget === projectNode
+                                          ? "drop-target"
+                                          : ""
+                                      }`}
+                                      tabIndex={0}
+                                      {...contextMenuHandler((x, y) =>
+                                        setMenu({
+                                          kind: "scope",
+                                          destination: projectLocation,
+                                          x,
+                                          y,
+                                        }),
+                                      )}
+                                      {...scopeDropHandlers(
+                                        projectLocation,
+                                        projectNode,
+                                      )}
+                                    >
+                                      <button
+                                        type="button"
+                                        className="profile-tree-toggle"
+                                        aria-label={
+                                          projectExpanded
+                                            ? `Collapse ${project.name} Live Project`
+                                            : `Expand ${project.name} Live Project`
+                                        }
+                                        aria-expanded={projectExpanded}
+                                        onClick={() => toggleNode(projectNode)}
+                                      >
+                                        {projectExpanded ? "^" : "v"}
+                                      </button>
+                                      <div className="profile-tree-label">
+                                        <span className="scope-name">
+                                          <strong>{project.name}</strong>
+                                          {project.active && (
+                                            <span
+                                              className="scope-active-indicator"
+                                              aria-label="Active Live Project"
+                                              title="Active Live Project"
+                                            />
+                                          )}
+                                        </span>
+                                        <small>Live Project</small>
+                                      </div>
+                                      <span className="profile-tree-count">
+                                        {ownedArtifacts.length}
+                                      </span>
+                                    </header>
+                                    {projectExpanded && (
+                                      <>
+                                        <ArtifactGroups
+                                          artifacts={ownedArtifacts}
+                                          clipboard={clipboard}
+                                          onOpenMenu={openArtifactMenu}
+                                          onDragStart={beginDrag}
+                                          onDragEnd={() =>
+                                            setDragging(undefined)
+                                          }
+                                        />
+                                        <div className="profile-tree-children">
+                                          {project.liveSets.map((liveSet) =>
+                                            renderLiveSet(liveSet, projectNode),
+                                          )}
+                                        </div>
+                                      </>
+                                    )}
+                                  </section>
+                                );
+                              },
+                            )}
+                            {profile.unassignedLiveSets.length > 0 && (
+                              <section className="profile-tree-node unassigned-node">
+                                <header className="profile-tree-row">
                                   <button
                                     type="button"
                                     className="profile-tree-toggle"
                                     aria-label={
-                                      sessionExpanded
-                                        ? `Collapse ${session.title} session`
-                                        : `Expand ${session.title} session`
+                                      expandedNodes.has(
+                                        `unassigned:${profile.name}`,
+                                      )
+                                        ? "Collapse unassigned Live Sets"
+                                        : "Expand unassigned Live Sets"
                                     }
-                                    aria-expanded={sessionExpanded}
-                                    onClick={() => toggleNode(sessionNode)}
+                                    aria-expanded={expandedNodes.has(
+                                      `unassigned:${profile.name}`,
+                                    )}
+                                    onClick={() =>
+                                      toggleNode(`unassigned:${profile.name}`)
+                                    }
                                   >
-                                    {sessionExpanded ? "^" : "v"}
+                                    {expandedNodes.has(
+                                      `unassigned:${profile.name}`,
+                                    )
+                                      ? "^"
+                                      : "v"}
                                   </button>
                                   <div className="profile-tree-label">
-                                    <span className="scope-name">
-                                      <strong>{session.title}</strong>
-                                      {session.active && (
-                                        <span
-                                          className="scope-active-indicator"
-                                          aria-label="Active session"
-                                          title="Active session"
-                                        />
-                                      )}
-                                    </span>
-                                    <small title={session.id}>
-                                      {compactSessionId(session.id)}
+                                    <strong>Unassigned Live Sets</strong>
+                                    <small>
+                                      Unsaved or outside a Live Project
                                     </small>
-                                    {session.persisted === false && (
-                                      <small className="profile-session-state">
-                                        In memory · saves on first customization
-                                      </small>
-                                    )}
                                   </div>
                                   <span className="profile-tree-count">
-                                    {ownedArtifacts.length}
+                                    {profile.unassignedLiveSets.length}
                                   </span>
                                 </header>
-                                {sessionExpanded && (
-                                  <ArtifactGroups
-                                    artifacts={ownedArtifacts}
-                                    clipboard={clipboard}
-                                    onOpenMenu={openArtifactMenu}
-                                    onDragStart={beginDrag}
-                                    onDragEnd={() => setDragging(undefined)}
-                                  />
+                                {expandedNodes.has(
+                                  `unassigned:${profile.name}`,
+                                ) && (
+                                  <div className="profile-tree-children">
+                                    {profile.unassignedLiveSets.map((liveSet) =>
+                                      renderLiveSet(
+                                        liveSet,
+                                        `unassigned:${profile.name}`,
+                                      ),
+                                    )}
+                                  </div>
                                 )}
                               </section>
-                            );
-                          })
+                            )}
+                          </>
                         )}
                       </div>
                     </>

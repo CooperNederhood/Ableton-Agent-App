@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { commandCatalog } from "./catalog.js";
+import { PROTOCOL_VERSION } from "./constants.js";
 import {
   inspectBrowserChildrenParamsSchema,
   loadBrowserItemParamsSchema,
@@ -22,7 +23,7 @@ import {
   inspectRackChainDevicesParamsSchema,
   inspectRackChainsParamsSchema,
   launchSessionClipParamsSchema,
-  projectIdentitySchema,
+  liveIdentitySchema,
   setDeviceEnabledParamsSchema,
   setDeviceParameterParamsSchema,
   setArrangementLoopParamsSchema,
@@ -98,87 +99,132 @@ describe("protocol negotiation", () => {
   });
 });
 
-describe("project identity schema", () => {
-  it("requires a display name and explicit saved state without a path", () => {
+describe("Live identity schema", () => {
+  it("requires explicit Live Set identity and supports Live Project identity", () => {
     expect(
-      projectIdentitySchema.parse({
-        projectId: "project-1",
-        projectName: "My Set",
+      liveIdentitySchema.parse({
+        liveSetId: "set-1",
+        liveSetName: "My Set",
         saved: true,
+        liveProjectId: "project-1",
+        liveProjectName: "My Project",
       }),
     ).toEqual({
-      projectId: "project-1",
-      projectName: "My Set",
+      liveSetId: "set-1",
+      liveSetName: "My Set",
       saved: true,
+      liveProjectId: "project-1",
+      liveProjectName: "My Project",
+      diagnostics: [],
     });
 
-    describe("Live event protocol schemas", () => {
-      const eventId = "live-event.00000000-0000-4000-8000-000000000099";
-      const trackReference = "00000000-0000-4000-8000-000000000010";
-      const trackIdentity = {
-        index: 0,
-        expectedReference: trackReference,
-        expectedName: "Drums",
-      };
-
-      it("strictly matches command parameters and correlated results", () => {
-        expect(
-          subscribeEventParamsSchema.safeParse({
-            ...trackIdentity,
-            eventId,
-            projectId: "project",
-            kind: "track.playing_clip_changed",
-            deviceIndex: 0,
-          }).success,
-        ).toBe(false);
-        expect(
-          inspectEventSelectionResultSchema.parse({
-            track: trackIdentity,
-            parameter: null,
-          }),
-        ).toEqual({ track: trackIdentity, parameter: null });
-        expect(
-          subscribeEventResultSchema.safeParse({
-            eventId,
-            kind: "track.playing_clip_changed",
-            target: { trackReference, track: { name: "Drums" } },
-            state: { state: "stopped" },
-            resolution: {
-              status: "resolved",
-              projectId: "project",
-              trackReference,
-              track: { name: "Drums" },
-            },
-            initialState: {
-              kind: "track.triggered_clip_changed",
-              state: { state: "none" },
-            },
-          }).success,
-        ).toBe(false);
-      });
-
-      it("parses typed occurred and invalidated event envelopes", () => {
-        expect(
-          liveEventEnvelopeSchema.parse({
-            protocolVersion: 3,
-            kind: "event",
-            event: "live_event.invalidated",
-            sequence: 2,
-            payload: {
-              eventId,
-              observedAt: "2000-01-01T00:00:00Z",
-              reason: "target-deleted",
-            },
-          }).event,
-        ).toBe("live_event.invalidated");
-      });
-    });
     expect(
-      projectIdentitySchema.safeParse({
-        projectId: "project-1",
-        projectName: "My Set",
+      liveIdentitySchema.safeParse({
+        liveSetId: "set-1",
+        liveSetName: "My Set",
       }).success,
     ).toBe(false);
+    expect(
+      liveIdentitySchema.safeParse({
+        liveSetId: "set-1",
+        liveSetName: "My Set",
+        saved: true,
+        projectId: "legacy-project",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts bounded orphan diagnostics without inventing project identity", () => {
+    const parsed = liveIdentitySchema.parse({
+      liveSetId: "set-1",
+      liveSetName: "Orphan Set",
+      saved: true,
+      diagnostics: [
+        {
+          code: "live_project_not_found",
+          message: "No Ableton Project Info ancestor was found",
+        },
+      ],
+    });
+
+    expect(parsed.liveProjectId).toBeUndefined();
+    expect(parsed.liveProjectName).toBeUndefined();
+    expect(
+      liveIdentitySchema.safeParse({
+        ...parsed,
+        diagnostics: Array.from({ length: 5 }, () => parsed.diagnostics[0]),
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("Live event protocol schemas", () => {
+  const eventId = "live-event.00000000-0000-4000-8000-000000000099";
+  const trackReference = "00000000-0000-4000-8000-000000000010";
+  const trackIdentity = {
+    index: 0,
+    expectedReference: trackReference,
+    expectedName: "Drums",
+  };
+
+  it("strictly matches Live Set-scoped parameters and results", () => {
+    expect(
+      subscribeEventParamsSchema.safeParse({
+        ...trackIdentity,
+        eventId,
+        liveSetId: "set",
+        kind: "track.playing_clip_changed",
+        deviceIndex: 0,
+      }).success,
+    ).toBe(false);
+    expect(
+      subscribeEventParamsSchema.safeParse({
+        ...trackIdentity,
+        eventId,
+        projectId: "legacy-project",
+        kind: "track.playing_clip_changed",
+      }).success,
+    ).toBe(false);
+    expect(
+      inspectEventSelectionResultSchema.parse({
+        track: trackIdentity,
+        parameter: null,
+      }),
+    ).toEqual({ track: trackIdentity, parameter: null });
+    expect(
+      subscribeEventResultSchema.safeParse({
+        eventId,
+        kind: "track.playing_clip_changed",
+        target: { trackReference, track: { name: "Drums" } },
+        state: { state: "stopped" },
+        resolution: {
+          status: "resolved",
+          liveSetId: "set",
+          trackReference,
+          track: { name: "Drums" },
+        },
+        initialState: {
+          kind: "track.triggered_clip_changed",
+          state: { state: "none" },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("parses typed occurred and invalidated event envelopes", () => {
+    expect(
+      liveEventEnvelopeSchema.parse({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "event",
+        event: "live_event.invalidated",
+        sequence: 2,
+        payload: {
+          eventId,
+          observedAt: "2000-01-01T00:00:00Z",
+          reason: "target-deleted",
+        },
+      }).event,
+    ).toBe("live_event.invalidated");
   });
 });
 

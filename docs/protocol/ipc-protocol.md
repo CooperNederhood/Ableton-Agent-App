@@ -123,7 +123,9 @@ The Remote Script returns:
 - Selected protocol version.
 - Remote Script version.
 - Ableton version.
-- Project identity.
+- Explicit Live Set identity (`liveSetId`, `liveSetName`, and `saved`) plus
+  optional Live Project identity when the Set is inside the nearest ancestor
+  containing `Ableton Project Info`.
 - Capability document.
 - Limits such as maximum frame and batch size.
 

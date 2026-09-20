@@ -7,11 +7,13 @@ import threading
 import unittest
 import uuid
 from pathlib import Path
+from unittest import mock
 
 REMOTE_SCRIPT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REMOTE_SCRIPT_ROOT))
 
 from AbletonAgent.capabilities import build_capability_document  # noqa: E402
+from AbletonAgent.identity import build_live_identity  # noqa: E402
 from AbletonAgent.executor import MainThreadExecutor  # noqa: E402
 from AbletonAgent.messages import PROTOCOL_VERSION, success  # noqa: E402
 from AbletonAgent.protocol import FrameDecoder, encode_frame  # noqa: E402
@@ -4103,11 +4105,15 @@ class CapabilityAndTokenTests(unittest.TestCase):
         )
 
         self.assertEqual(document["liveVersion"], "12.1-test")
-        self.assertEqual(document["projectName"], "Example")
+        self.assertEqual(document["liveSetName"], "Example")
         self.assertTrue(document["saved"])
         self.assertEqual(
-            document["projectId"],
+            document["liveSetId"],
             hashlib.sha256(b"/tmp/example.als").hexdigest()[:24],
+        )
+        self.assertNotIn("liveProjectId", document)
+        self.assertEqual(
+            document["diagnostics"][0]["code"], "live_project_not_found"
         )
         self.assertTrue(document["capabilities"]["session.inspect"])
         self.assertTrue(
@@ -4150,7 +4156,7 @@ class CapabilityAndTokenTests(unittest.TestCase):
         self.assertTrue(document["capabilities"]["browser.inspect_children"])
         self.assertTrue(document["capabilities"]["browser.search"])
         self.assertTrue(document["capabilities"]["browser.load_item"])
-        self.assertEqual(len(document["projectId"]), 24)
+        self.assertEqual(len(document["liveSetId"]), 24)
 
         legacy_transport_song = FakeSong()
         del legacy_transport_song.cue_points
@@ -4298,42 +4304,69 @@ class CapabilityAndTokenTests(unittest.TestCase):
             ]
         )
 
-    def test_project_identity_is_dynamic_for_saved_and_unsaved_sets(self):
+    def test_live_identity_is_dynamic_for_saved_and_unsaved_sets(self):
         registry = CommandRegistry()
         register_system_commands(registry)
-        command = registry.get("project.get_identity")
+        command = registry.get("live_set.get_identity")
         song = FakeSong()
         context = type("Context", (), {"song": song})()
 
         saved = command.execute(context, {})
-        self.assertEqual(saved["projectName"], "Example")
+        self.assertEqual(saved["liveSetName"], "Example")
         self.assertTrue(saved["saved"])
         self.assertEqual(
-            saved["projectId"],
+            saved["liveSetId"],
             hashlib.sha256(b"/tmp/example.als").hexdigest()[:24],
         )
-        self.assertEqual(
-            set(saved.keys()), {"projectId", "projectName", "saved"}
+        self.assertEqual(saved["diagnostics"][0]["code"], "live_project_not_found")
+        self.assertNotIn("liveProjectId", saved)
+        self.assertLessEqual(
+            len(saved["diagnostics"][0]["message"]), 256
         )
 
         song.file_path = ""
         song.name = "Untitled Session"
         unsaved = command.execute(context, {})
-        self.assertEqual(unsaved["projectName"], "Untitled Session")
+        self.assertEqual(unsaved["liveSetName"], "Untitled Session")
         self.assertFalse(unsaved["saved"])
-        self.assertEqual(
-            unsaved["projectId"],
-            hashlib.sha256(b"Untitled Session").hexdigest()[:24],
+        self.assertEqual(unsaved["diagnostics"], [])
+        renamed_identity = command.execute(context, {})
+        self.assertEqual(renamed_identity["liveSetId"], unsaved["liveSetId"])
+        other_unsaved = build_live_identity(
+            type("Song", (), {"file_path": "", "name": "Untitled Session"})()
         )
-        self.assertNotEqual(unsaved["projectId"], saved["projectId"])
+        self.assertNotEqual(other_unsaved["liveSetId"], unsaved["liveSetId"])
+        self.assertNotEqual(unsaved["liveSetId"], saved["liveSetId"])
 
         song.file_path = "/projects/Saved As.als"
         saved_as = command.execute(context, {})
         self.assertTrue(saved_as["saved"])
         self.assertEqual(
-            saved_as["projectId"],
+            saved_as["liveSetId"],
             hashlib.sha256(b"/projects/Saved As.als").hexdigest()[:24],
         )
+
+    def test_live_identity_detects_nearest_live_project_ancestor(self):
+        song = FakeSong()
+        song.file_path = "/Music/Album/Sets/Nested/Example.als"
+
+        def marker_exists(path):
+            return path in (
+                "/Music/Album/Ableton Project Info",
+                "/Music/Ableton Project Info",
+            )
+
+        with mock.patch(
+            "AbletonAgent.identity.os.path.isdir", side_effect=marker_exists
+        ):
+            identity = build_live_identity(song)
+
+        self.assertEqual(identity["liveProjectName"], "Album")
+        self.assertEqual(
+            identity["liveProjectId"],
+            hashlib.sha256(b"/Music/Album").hexdigest()[:24],
+        )
+        self.assertEqual(identity["diagnostics"], [])
 
     def test_token_is_created_once(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -4363,7 +4396,10 @@ class ServerTests(unittest.TestCase):
                 "selectedProtocolVersion": PROTOCOL_VERSION,
                 "liveVersion": "12.1-test",
                 "remoteScriptVersion": "0.3.0",
-                "projectId": "test-project",
+                "liveSetId": "test-live-set",
+                "liveSetName": "Test Set",
+                "saved": False,
+                "diagnostics": [],
                 "capabilities": {"system.ping": True},
                 "limits": {
                     "maxFrameBytes": 4 * 1024 * 1024,
@@ -4405,7 +4441,7 @@ class ServerTests(unittest.TestCase):
         ping = self.exchange(request("system.ping"))
 
         self.assertTrue(hello["ok"])
-        self.assertEqual(hello["result"]["projectId"], "test-project")
+        self.assertEqual(hello["result"]["liveSetId"], "test-live-set")
         self.assertEqual(ping["result"], {"pong": True})
 
     def test_rejects_commands_before_authentication(self):
@@ -4450,7 +4486,7 @@ class ServerTests(unittest.TestCase):
                     "authenticationToken": self.token,
                     "supportedProtocolVersions": [PROTOCOL_VERSION],
                     "appVersion": "test",
-                    "eventSubscriptions": ["project.changed"],
+                    "eventSubscriptions": ["live_set.changed"],
                 },
             )
         )
@@ -4460,7 +4496,7 @@ class ServerTests(unittest.TestCase):
         )
         self.assertTrue(
             self.server.publish_event(
-                "project.changed", {"reason": "tempo"}, 4
+                "live_set.changed", {"reason": "tempo"}, 4
             )
         )
         message = self.exchange(request("system.ping"))
@@ -4469,7 +4505,7 @@ class ServerTests(unittest.TestCase):
             message = messages[0]
 
         self.assertEqual(message["kind"], "event")
-        self.assertEqual(message["event"], "project.changed")
+        self.assertEqual(message["event"], "live_set.changed")
         self.assertEqual(message["sequence"], 0)
         self.assertEqual(message["projectRevision"], 4)
 

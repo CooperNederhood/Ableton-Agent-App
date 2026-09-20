@@ -16,7 +16,8 @@ import { resolveToolPatterns } from "./tool-patterns.js";
 const maximumDefinitionBytes = 256 * 1024;
 const maximumSkillBytes = 512 * 1024;
 
-export type ArtifactOrigin = "bundled" | "system" | "profile" | "session";
+export type ArtifactOrigin =
+  "bundled" | "system" | "profile" | "project" | "session";
 
 export interface LoadedSkill {
   readonly metadata: SkillMetadata;
@@ -429,6 +430,7 @@ function resolveLayeredEntries<T>(
     "bundled",
     "system",
     "profile",
+    "project",
     "session",
   ];
   for (const origin of order) {
@@ -460,6 +462,7 @@ export async function loadLayeredAgentCatalog(options: {
   readonly bundled: ArtifactLayerDirectories;
   readonly system?: ArtifactLayerDirectories;
   readonly profile?: ArtifactLayerDirectories;
+  readonly project?: ArtifactLayerDirectories;
   readonly session?: ArtifactLayerDirectories;
   readonly availableTools: readonly string[];
 }): Promise<LayeredAgentCatalog> {
@@ -468,6 +471,7 @@ export async function loadLayeredAgentCatalog(options: {
       ["bundled", options.bundled],
       ["system", options.system],
       ["profile", options.profile],
+      ["project", options.project],
       ["session", options.session],
     ] as const
   ).filter(

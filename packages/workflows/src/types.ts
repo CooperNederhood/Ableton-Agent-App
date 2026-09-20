@@ -51,7 +51,7 @@ export interface WorkflowBudget {
 
 export interface WorkflowTransaction<Step extends WorkflowStep = WorkflowStep> {
   readonly id: string;
-  readonly projectId: string;
+  readonly liveSetId: string;
   readonly sessionId: string;
   readonly correlationId: string;
   readonly resource: string;

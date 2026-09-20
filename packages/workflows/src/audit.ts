@@ -41,7 +41,7 @@ export class ProjectStateWorkflowAudit<
         return stepRecords;
       });
     const changeSet = await this.changeSets.create({
-      projectId: transaction.projectId,
+      liveSetId: transaction.liveSetId,
       sessionId: transaction.sessionId,
       correlationId: transaction.correlationId,
       userIntent: transaction.intent,

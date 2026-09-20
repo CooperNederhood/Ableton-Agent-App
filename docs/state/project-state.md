@@ -4,7 +4,7 @@
 
 There are three distinct kinds of state:
 
-1. **Ableton state:** authoritative musical/project state in the LOM.
+1. **Ableton state:** authoritative musical Live Set state in the LOM.
 2. **Application state:** connection, snapshots, selections, plans, approvals,
    and change sets.
 3. **Agent session state:** one conversation and tool history per active agent,
@@ -12,11 +12,11 @@ There are three distinct kinds of state:
 
 Agent conversation is never treated as authoritative project state.
 
-## Project snapshot
+## Live Set snapshot
 
 A normalized snapshot should include:
 
-- Project identity and revision.
+- Required Live Set identity and revision, plus optional Live Project grouping.
 - Live version and capabilities.
 - Tempo, signature, loop, and transport.
 - Track summaries.
@@ -33,7 +33,7 @@ explicitly.
 
 ## Revisions and invalidation
 
-The Remote Script increments a project revision when observed structural or
+The Remote Script increments a Live Set revision when observed structural or
 meaningful state changes occur. Responses and events include the revision.
 
 The application:
@@ -87,7 +87,7 @@ entire Ableton project. Suggested records:
 
 - App sessions.
 - Active agent instances, definition snapshots, bindings, and subscriptions.
-- Ableton project identities.
+- Live Set identities and optional Live Project grouping.
 - Production plans.
 - Change sets.
 - User preferences.
@@ -106,13 +106,21 @@ atomically replaced JSON records under
 `~/.live-agent/profiles/{profile}/state/`:
 
 - `sessions.json` stores production-session and active-agent snapshots;
-- `project-sessions.json` maps a saved Live `projectId` to its canonical
-  production session;
+- `live-set-sessions.json` maps each saved `liveSetId` to its canonical App
+  session without deleting historical sessions;
 - `../copilot/` remains the Copilot SDK's conversation store; and
-- `../session-state/{production-session-id}/session.json` records bounded
-  ownership links to project, active-agent, and SDK-session IDs without
-  duplicating conversation or event content.
+- the owning Live Set's `session-state/{app-session-id}/session.json` records
+  bounded ownership links to the Live Set, optional Live Project, active-agent,
+  and SDK-session IDs without duplicating conversation or event content.
 
-Unsaved Live Sets are deliberately excluded from the project association
-index. A mid-run identity change is a transaction boundary: agent work and
-Output delivery pause until the target project session is selected.
+Desktop session schema v4 requires `liveSetId` and `liveSetName`, with optional
+`liveProjectId` and `liveProjectName`. Connection and snapshot entity ownership
+use `liveSetId`; Live Project identity is grouping metadata only. Unsaved and
+orphan App sessions retain explicit Live Set ownership in memory but are
+excluded from ordinary persistence and canonical association until persisted
+or saved. A Live Set change is a transaction boundary: agent work and Output
+delivery pause until the target App session is selected. Switching between
+Live Sets inside one Live Project still resolves independently by `liveSetId`.
+Consumers that resolve Session-scoped paths must first obtain the typed
+`{ liveSetId, liveProjectId?, sessionId }` ownership context from the validated
+Desktop session registry; a session ID alone never selects a storage path.

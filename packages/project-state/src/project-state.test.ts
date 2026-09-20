@@ -14,11 +14,11 @@ import {
   changeSetSchema,
   metadataValueSchema,
   normalizeSnapshot,
-  projectIdentitySchema,
+  liveSetIdentitySchema,
   type EntityReference,
   type MutationRecord,
-  type ProjectIdentity,
-  type ProjectSnapshot,
+  type LiveSetIdentity,
+  type LiveSetSnapshot,
   type ProjectStateRepositories,
   type ServiceRuntime,
 } from "./index.js";
@@ -37,22 +37,19 @@ const ids = {
 
 const now = "2026-08-09T15:18:51.051Z";
 
-function project(
-  id: string = ids.projectA,
-  abletonProjectId = "live-a",
-): ProjectIdentity {
+function project(liveSetId: string = ids.projectA): LiveSetIdentity {
   return {
-    id,
-    abletonProjectId,
-    displayName: abletonProjectId,
+    liveSetId,
+    liveSetName: liveSetId,
+    saved: true,
     firstSeenAt: now,
     lastSeenAt: now,
   };
 }
 
-function snapshot(projectIdentity = project(), revision = 4): ProjectSnapshot {
+function snapshot(liveSetIdentity = project(), revision = 4): LiveSetSnapshot {
   return {
-    project: projectIdentity,
+    liveSet: liveSetIdentity,
     revision,
     liveVersion: "12.2",
     capabilities: { arrangement: true },
@@ -109,7 +106,7 @@ function snapshot(projectIdentity = project(), revision = 4): ProjectSnapshot {
     cuePoints: [{ id: "cue-1", name: "Start", time: 0 }],
     selected: [
       {
-        projectId: projectIdentity.id,
+        liveSetId: liveSetIdentity.liveSetId,
         kind: "track",
         id: "track-1",
         revision,
@@ -122,9 +119,9 @@ function reference(
   kind: EntityReference["kind"] = "track",
   id = "track-1",
   revision = 4,
-  projectId: string = ids.projectA,
+  liveSetId: string = ids.projectA,
 ): EntityReference {
-  return { projectId, kind, id, revision };
+  return { liveSetId, kind, id, revision };
 }
 
 function runtime(
@@ -150,7 +147,7 @@ function mutation(): MutationRecord {
 describe("strict state schemas", () => {
   it("rejects unknown keys and detailed musical persistence", () => {
     expect(() =>
-      projectIdentitySchema.parse({ ...project(), tempo: 120 }),
+      liveSetIdentitySchema.parse({ ...project(), tempo: 120 }),
     ).toThrow("unexpected key");
     expect(() =>
       metadataValueSchema.parse({ nested: { notes: [{ pitch: 60 }] } }),
@@ -160,7 +157,7 @@ describe("strict state schemas", () => {
   it("validates complete change-set audit records", () => {
     const candidate = {
       id: ids.changeSet,
-      projectId: ids.projectA,
+      liveSetId: ids.projectA,
       sessionId: ids.session,
       correlationId: ids.correlation,
       userIntent: "Rename a track",
@@ -185,7 +182,7 @@ describe("strict state schemas", () => {
         ...candidate,
         targets: [reference("track", "track-1", 4, ids.projectB)],
       }),
-    ).toThrow("must belong to its project");
+    ).toThrow("must belong to its Live Set");
   });
 });
 
@@ -215,7 +212,7 @@ describe("normalized snapshots and reducers", () => {
   it("applies updates/removals and targeted stale markers", () => {
     let state = normalizeSnapshot(snapshot());
     const invalidated = applySnapshotEvent(state, {
-      projectId: ids.projectA,
+      liveSetId: ids.projectA,
       revision: 5,
       sequence: 10,
       change: {
@@ -229,7 +226,7 @@ describe("normalized snapshots and reducers", () => {
 
     state = invalidated.snapshot;
     const updated = applySnapshotEvent(state, {
-      projectId: ids.projectA,
+      liveSetId: ids.projectA,
       revision: 5,
       sequence: 11,
       change: {
@@ -244,7 +241,7 @@ describe("normalized snapshots and reducers", () => {
     ).toMatchObject({ isEnabled: false });
 
     const removed = applySnapshotEvent(updated.snapshot, {
-      projectId: ids.projectA,
+      liveSetId: ids.projectA,
       revision: 6,
       sequence: 12,
       change: {
@@ -271,7 +268,7 @@ describe("normalized snapshots and reducers", () => {
     const state = normalizeSnapshot(snapshot());
     expect(() =>
       applySnapshotEvent(state, {
-        projectId: ids.projectA,
+        liveSetId: ids.projectA,
         revision: 5,
         sequence: 1,
         change: {
@@ -290,7 +287,7 @@ describe("normalized snapshots and reducers", () => {
     };
     expect(
       applySnapshotEvent(state, {
-        projectId: ids.projectA,
+        liveSetId: ids.projectA,
         revision: 3,
         sequence: 21,
         change: { type: "transport.changed", transport: snapshot().transport },
@@ -301,7 +298,7 @@ describe("normalized snapshots and reducers", () => {
     });
     expect(
       applySnapshotEvent(state, {
-        projectId: ids.projectA,
+        liveSetId: ids.projectA,
         revision: 5,
         sequence: 22,
         change: { type: "transport.changed", transport: snapshot().transport },
@@ -322,7 +319,7 @@ describe("cache revisions and mutation guards", () => {
     expect(cache.clipNotes(clip)).toEqual([{ pitch: 60 }]);
 
     cache.apply({
-      projectId: ids.projectA,
+      liveSetId: ids.projectA,
       revision: 5,
       sequence: 1,
       change: {
@@ -349,7 +346,7 @@ describe("cache revisions and mutation guards", () => {
       AmbiguousReferenceError,
     );
     cache.apply({
-      projectId: ids.projectA,
+      liveSetId: ids.projectA,
       revision: 4,
       sequence: 1,
       change: {
@@ -364,7 +361,7 @@ describe("cache revisions and mutation guards", () => {
     const store = new InMemoryProjectStateStore();
     const state = new ProjectStateService(store, runtime([ids.session]));
     await state.startSession();
-    await state.switchProject(project());
+    await state.switchLiveSet(project());
     state.cache.ingest(snapshot());
     const bridgeMutation = vi.fn(() => Promise.resolve("done"));
     const guarded = new GuardedMutationService(state);
@@ -384,7 +381,7 @@ describe("production plan state machine", () => {
       runtime([ids.plan, ids.approval]),
     );
     const draft = await service.create({
-      projectId: ids.projectA,
+      liveSetId: ids.projectA,
       goal: "Build an arrangement",
       tempo: 120,
     });
@@ -421,7 +418,7 @@ describe("change-set state machine", () => {
     const store = new InMemoryProjectStateStore();
     const service = new ChangeSetService(store, runtime([ids.changeSet]));
     const created = await service.create({
-      projectId: ids.projectA,
+      liveSetId: ids.projectA,
       sessionId: ids.session,
       correlationId: ids.correlation,
       userIntent: "Rename the lead",
@@ -460,7 +457,7 @@ describe("change-set state machine", () => {
       runtime([ids.changeSet, ids.extra]),
     );
     const created = await service.create({
-      projectId: ids.projectA,
+      liveSetId: ids.projectA,
       sessionId: ids.session,
       correlationId: ids.correlation,
       userIntent: "Rename",
@@ -473,7 +470,7 @@ describe("change-set state machine", () => {
     ).toBe("recovered");
     await expect(
       service.create({
-        projectId: ids.projectA,
+        liveSetId: ids.projectA,
         sessionId: ids.session,
         correlationId: ids.correlation,
         userIntent: "Duplicate",
@@ -488,15 +485,15 @@ describe("repositories and transactions", () => {
     const store = new InMemoryProjectStateStore();
     await expect(
       store.transaction(async (repositories) => {
-        await repositories.projects.save(project());
+        await repositories.liveSets.save(project());
         throw new Error("rollback");
       }),
     ).rejects.toThrow("rollback");
-    expect(await store.projects.get(ids.projectA)).toBeUndefined();
+    expect(await store.liveSets.get(ids.projectA)).toBeUndefined();
 
     const plans = new ProductionPlanService(store, runtime([ids.plan]));
     const plan = await plans.create({
-      projectId: ids.projectA,
+      liveSetId: ids.projectA,
       goal: "Arrange",
     });
     await expect(store.plans.save({ ...plan, version: 2 }, 99)).rejects.toThrow(
@@ -541,30 +538,30 @@ describe("repositories and transactions", () => {
     const transaction = store.transaction(async (repositories) => {
       transactionStarted();
       await paused;
-      await repositories.projects.save(project(ids.projectB, "live-b"));
+      await repositories.liveSets.save(project(ids.projectB));
     });
 
     await started;
-    await store.projects.save(project());
+    await store.liveSets.save(project());
     releaseTransaction();
 
     await expect(transaction).rejects.toThrow(RepositoryConflictError);
-    expect(await store.projects.get(ids.projectA)).toEqual(project());
-    expect(await store.projects.get(ids.projectB)).toBeUndefined();
+    expect(await store.liveSets.get(ids.projectA)).toEqual(project());
+    expect(await store.liveSets.get(ids.projectB)).toBeUndefined();
   });
 
   it("keeps cached repository handles attached after a transaction commits", async () => {
     const store = new InMemoryProjectStateStore();
-    const cachedProjects = store.projects;
+    const cachedProjects = store.liveSets;
     await store.transaction(async (repositories) => {
-      await repositories.projects.save(project());
+      await repositories.liveSets.save(project());
     });
 
-    await cachedProjects.save(project(ids.projectB, "live-b"));
+    await cachedProjects.save(project(ids.projectB));
 
-    expect(await store.projects.get(ids.projectA)).toEqual(project());
-    expect(await store.projects.get(ids.projectB)).toEqual(
-      project(ids.projectB, "live-b"),
+    expect(await store.liveSets.get(ids.projectA)).toEqual(project());
+    expect(await store.liveSets.get(ids.projectB)).toEqual(
+      project(ids.projectB),
     );
   });
 
@@ -573,28 +570,26 @@ describe("repositories and transactions", () => {
     let transactionRepositories: ProjectStateRepositories | undefined;
     await store.transaction(async (repositories) => {
       transactionRepositories = repositories;
-      await repositories.projects.save(project());
+      await repositories.liveSets.save(project());
     });
 
-    await transactionRepositories!.projects.save(
-      project(ids.projectB, "live-b"),
-    );
+    await transactionRepositories!.liveSets.save(project(ids.projectB));
 
-    expect(await store.projects.get(ids.projectA)).toEqual(project());
-    expect(await store.projects.get(ids.projectB)).toBeUndefined();
+    expect(await store.liveSets.get(ids.projectA)).toEqual(project());
+    expect(await store.liveSets.get(ids.projectB)).toBeUndefined();
   });
 });
 
-describe("project switching and session resume", () => {
-  it("clears snapshots and never leaks plans across projects", async () => {
+describe("Live Set switching and session resume", () => {
+  it("clears snapshots and never leaks plans across Live Sets", async () => {
     const store = new InMemoryProjectStateStore();
     const state = new ProjectStateService(store, runtime([ids.session]));
     const session = await state.startSession();
-    await state.switchProject(project());
+    await state.switchLiveSet(project());
     state.cache.ingest(snapshot());
     await store.plans.save({
       id: ids.plan,
-      projectId: ids.projectA,
+      liveSetId: ids.projectA,
       goal: "A plan",
       sections: [],
       trackRoles: [],
@@ -606,7 +601,7 @@ describe("project switching and session resume", () => {
     });
     await store.plans.save({
       id: ids.extra,
-      projectId: ids.projectB,
+      liveSetId: ids.projectB,
       goal: "B plan",
       sections: [],
       trackRoles: [],
@@ -618,16 +613,18 @@ describe("project switching and session resume", () => {
     });
     expect(await state.activePlans()).toHaveLength(1);
 
-    await state.switchProject(project(ids.projectB, "live-b"));
+    await state.switchLiveSet(project(ids.projectB));
     expect(state.cache.current()).toBeUndefined();
     expect((await state.activePlans()).map((plan) => plan.goal)).toEqual([
       "B plan",
     ]);
-    expect(() => state.assertMutable(reference())).toThrow("different project");
+    expect(() => state.assertMutable(reference())).toThrow(
+      "different Live Set",
+    );
 
     const resumed = new ProjectStateService(store, runtime());
     await resumed.resumeSession(session.id);
-    expect(resumed.activeProject()?.id).toBe(ids.projectB);
+    expect(resumed.activeLiveSet()?.liveSetId).toBe(ids.projectB);
     expect(resumed.cache.current()).toBeUndefined();
   });
 });

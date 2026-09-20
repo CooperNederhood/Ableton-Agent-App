@@ -33,7 +33,9 @@ function services() {
         state: "connected" as const,
         liveVersion: "12.1",
         remoteScriptVersion: "0.4.0",
-        projectId: "project-test",
+        liveSetId: "set-test",
+        liveSetName: "Test Set",
+        saved: true,
       }),
     ),
     inspectSession: vi.fn(() =>

@@ -2,18 +2,20 @@
 
 ## Scope model
 
-Ableton Agent resolves customizable artifacts through three nested user-facing
+Ableton Agent resolves customizable artifacts through four nested user-facing
 scopes:
 
 1. **System Scope** applies to every user profile and production session.
 2. **Profile Scope** represents one musical identity and applies to every
    production session owned by that profile.
-3. **Session Scope** applies only to one production session.
+3. **Project Scope** applies to every App session whose Live Set belongs to one
+   verified Ableton Live Project.
+4. **Session Scope** applies only to one App session.
 
 Agents and skills use copy-on-write inheritance. Resolution order is:
 
 ```text
-session > profile > system > bundled
+session > project > profile > system > bundled
 ```
 
 Bundled resources are immutable fallback content. System Scope is the broadest
@@ -61,21 +63,37 @@ current profile, deactivates its runtime agents, and leaves it resumable later.
         ├── artifact-state/
         │   ├── agents.json
         │   └── skills.json
-        └── session-state/
-            └── {production-session-id}/
-                ├── agents/
-                ├── skills/
-                ├── artifact-state/
-                │   ├── agents.json
-                │   └── skills.json
-                ├── session.json
-                └── artifacts/
-                    └── plan.md
+        ├── project-state/
+        │   └── {live-project-id}/
+        │       ├── project.json
+        │       ├── agents/
+        │       ├── skills/
+        │       ├── artifact-state/
+        │       └── live-set-state/
+        │           └── {live-set-id}/
+        │               ├── live-set.json
+        │               └── session-state/
+        │                   └── {app-session-id}/
+        │                       ├── agents/
+        │                       ├── skills/
+        │                       ├── artifact-state/
+        │                       ├── session.json
+        │                       └── artifacts/plan.md
+        └── unassigned-live-set-state/
+            └── {live-set-id}/
+                ├── live-set.json
+                └── session-state/{app-session-id}/
 ```
 
 Agent identity is the validated YAML `name`. Skill identity is the validated
 `SKILL.md` frontmatter `name`. Directory and file names remain filesystem-safe
 representations of those identities.
+
+A Live Project is the nearest ancestor of a saved `.als` file containing an
+`Ableton Project Info` directory. A Live Set is one `.als` document. Live Set
+is an identity and storage grouping, not a fifth agent/skill scope. Unsaved
+Sets and saved Sets outside a verified Project remain under the unassigned
+area and have no Project Scope.
 
 ## Profile Manager
 
@@ -84,8 +102,12 @@ The Desktop Profile Manager presents the persisted hierarchy directly:
 ```text
 System
 ├── default
-│   ├── session-id
-│   └── another-session-id
+│   ├── Live Project
+│   │   └── Live Set
+│   │       ├── Live Set-1
+│   │       └── Live Set-2
+│   └── Unassigned Live Sets
+│       └── Untitled
 └── another-profile
 ```
 
@@ -94,12 +116,15 @@ nodes separate Agents and Skills and show only artifacts physically defined or
 disabled at that exact scope. The System node also shows immutable bundled
 resources as the application baseline. Inherited artifacts are not repeated
 under every descendant; runtime resolution remains visible in artifact status
-and continues to follow Session, Profile, System, then bundled precedence.
+and continues to follow Session, Project, Profile, System, then bundled
+precedence.
 
-Profile nodes expose their persisted sessions even when the session is closed.
-Session labels use a bounded user-facing title, expose the full identifier as
-accessible supplemental text, and mark the active profile and session without
-exposing filesystem paths. Sessions are display-only in this view.
+Profile nodes expose known Live Projects, their Live Sets, and persisted App
+sessions even when closed. A Live Set with one App session uses the Set name as
+the session label. Multiple App sessions are numbered in immutable creation
+order (`Writing-1`, `Writing-2`, and so on); active and canonical association
+state are separate indicators. Opaque identifiers remain limited to bounded
+diagnostic surfaces and filesystem paths are never exposed.
 
 The Profiles pane owns vertical scrolling inside the Desktop content row, so
 large profile and session trees remain reachable without a Workspace composer.
@@ -113,7 +138,7 @@ Supported operations are:
 - create a profile from the `+` popover beside the Profiles heading;
 - switch, rename, or delete an eligible profile from its context menu;
 - copy or cut an artifact from its context menu and paste it onto a compatible
-  System, Profile, or Session row;
+  System, Profile, Project, or Session row;
 - drag an artifact to another scope, moving it by default or copying it while
   Option is held;
 - semantically rename an agent or skill;
@@ -135,12 +160,18 @@ frontmatter is locked. A successful publication refreshes Profiles, the Skills
 navigator, and Workspace slash-command discovery from the same effective
 catalog.
 
-Persisted inactive sessions are valid drag-and-drop sources and destinations in
-Profiles. Writing into an inactive session changes only its stored scoped
-artifacts and does not reconfigure the active Agent runtime. A newly started
-active session for an unsaved Live Set appears immediately as an in-memory
-Profiles node; its first Session-scope save or transfer promotes the session
-through the canonical session store before publishing the artifact.
+Persisted inactive sessions and known Projects are valid drag-and-drop
+destinations in Profiles. Writing into an inactive session or inactive Project
+changes only stored scoped artifacts and does not reconfigure the active Agent
+runtime. A newly started active session for an unsaved Live Set appears
+immediately under Unassigned Live Sets; its first Session-scope save or
+transfer promotes the session through the canonical session store before
+publishing the artifact.
+
+Agents and Skills editors always publish to the active App session. Project
+definitions are created through Profiles copy/move operations. Catalog refresh
+is dynamic: subsequent agent creation, skill invocation, and Workspace slash
+completion use the current four-scope definition without restarting Desktop.
 
 Destination conflicts never overwrite silently. The app returns a bounded
 comparison and requires replace, semantic rename, or cancel. Skill rename

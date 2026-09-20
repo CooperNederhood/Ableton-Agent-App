@@ -310,12 +310,11 @@ async function composeProfile(
   const next = await createDesktopComposition({
     preferencesPath: layout.preferencesPath,
     sessionsPath: layout.sessionsPath,
-    projectSessionsPath: layout.projectSessionsPath,
+    liveSetSessionsPath: layout.liveSetSessionsPath,
     agentsDirectory: bundledAgentsDirectory,
     skillsDirectory: bundledSkillsDirectory,
     storage: layout,
     agentBaseDirectory: layout.copilotDirectory,
-    sessionStateDirectory: layout.sessionStateDirectory,
     eventJournalPath: layout.eventJournalPath,
     ...(migration === undefined
       ? {}
@@ -412,12 +411,6 @@ async function bootstrap(): Promise<void> {
       label: "sessions",
       source: join(legacyUserDataDirectory, "sessions.json"),
       destination: storage.sessionsPath,
-      kind: "json",
-    },
-    {
-      label: "project-sessions",
-      source: join(legacyUserDataDirectory, "project-sessions.json"),
-      destination: storage.projectSessionsPath,
       kind: "json",
     },
     {

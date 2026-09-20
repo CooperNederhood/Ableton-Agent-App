@@ -4,7 +4,7 @@ import {
   deviceSummarySchema,
   entityKindSchema,
   entityReferenceSchema,
-  projectSnapshotSchema,
+  liveSetSnapshotSchema,
   revisionSchema,
   sceneSummarySchema,
   sessionClipSummarySchema,
@@ -15,8 +15,8 @@ import {
   type ArrangementClipSummary,
   type CuePointSummary,
   type DeviceSummary,
-  type ProjectIdentity,
-  type ProjectSnapshot,
+  type LiveSetIdentity,
+  type LiveSetSnapshot,
   type SceneSummary,
   type SessionClipSummary,
   type TrackSummary,
@@ -32,7 +32,7 @@ export type EntitySummary =
   | CuePointSummary;
 
 export interface NormalizedSnapshot {
-  readonly project: ProjectIdentity;
+  readonly liveSet: LiveSetIdentity;
   readonly revision: number;
   readonly liveVersion: string;
   readonly capabilities: Readonly<Record<string, boolean>>;
@@ -67,7 +67,7 @@ export type SnapshotChange =
     };
 
 export interface SnapshotEvent {
-  readonly projectId: string;
+  readonly liveSetId: string;
   readonly revision: number;
   readonly sequence: number;
   readonly change: SnapshotChange;
@@ -188,17 +188,17 @@ export const snapshotEventSchema = {
   parse(value: unknown): SnapshotEvent {
     const input = strictRecord(
       value,
-      ["projectId", "revision", "sequence", "change"],
+      ["liveSetId", "revision", "sequence", "change"],
       "snapshot event",
     );
     const sequence = revisionSchema.parse(input.sequence);
     return {
-      projectId: entityReferenceSchema.parse({
-        projectId: input.projectId,
+      liveSetId: entityReferenceSchema.parse({
+        liveSetId: input.liveSetId,
         kind: "track",
         id: "_",
         revision: 0,
-      }).projectId,
+      }).liveSetId,
       revision: revisionSchema.parse(input.revision),
       sequence,
       change: parseSnapshotChange(input.change),
@@ -216,7 +216,7 @@ export type RefreshRequest =
   | {
       readonly scope: "full";
       readonly reason:
-        "project-mismatch" | "revision-regression" | "sequence-gap";
+        "live-set-mismatch" | "revision-regression" | "sequence-gap";
     };
 
 export interface EventApplication {
@@ -275,8 +275,8 @@ function trackKind(track: TrackSummary): EntityKind {
   return "track";
 }
 
-export function normalizeSnapshot(input: ProjectSnapshot): NormalizedSnapshot {
-  const snapshot = projectSnapshotSchema.parse(input);
+export function normalizeSnapshot(input: LiveSetSnapshot): NormalizedSnapshot {
+  const snapshot = liveSetSnapshotSchema.parse(input);
   const indexes = mutableIndexes();
   for (const track of snapshot.tracks) {
     insertUnique(indexes, trackKind(track), track);
@@ -318,7 +318,7 @@ export function normalizeSnapshot(input: ProjectSnapshot): NormalizedSnapshot {
 
   for (const reference of snapshot.selected) {
     if (
-      reference.projectId !== snapshot.project.id ||
+      reference.liveSetId !== snapshot.liveSet.liveSetId ||
       reference.revision !== snapshot.revision ||
       indexes.get(reference.kind)?.has(reference.id) !== true
     ) {
@@ -327,7 +327,7 @@ export function normalizeSnapshot(input: ProjectSnapshot): NormalizedSnapshot {
   }
 
   return {
-    project: snapshot.project,
+    liveSet: snapshot.liveSet,
     revision: snapshot.revision,
     liveVersion: snapshot.liveVersion,
     capabilities: { ...snapshot.capabilities },
@@ -338,12 +338,12 @@ export function normalizeSnapshot(input: ProjectSnapshot): NormalizedSnapshot {
   };
 }
 
-function sameProject(
+function sameLiveSet(
   snapshot: NormalizedSnapshot,
   references: readonly EntityReference[],
 ): boolean {
   return references.every(
-    (reference) => reference.projectId === snapshot.project.id,
+    (reference) => reference.liveSetId === snapshot.liveSet.liveSetId,
   );
 }
 
@@ -427,10 +427,10 @@ export function applySnapshotEvent(
   rawEvent: SnapshotEvent,
 ): EventApplication {
   const event = snapshotEventSchema.parse(rawEvent);
-  if (event.projectId !== current.project.id) {
+  if (event.liveSetId !== current.liveSet.liveSetId) {
     return {
       snapshot: current,
-      refresh: { scope: "full", reason: "project-mismatch" },
+      refresh: { scope: "full", reason: "live-set-mismatch" },
       applied: false,
     };
   }
@@ -473,10 +473,10 @@ export function applySnapshotEvent(
     }
     case "entity.removed": {
       const removedReference = event.change.reference;
-      if (!sameProject(current, [removedReference])) {
+      if (!sameLiveSet(current, [removedReference])) {
         return {
           snapshot: current,
-          refresh: { scope: "full", reason: "project-mismatch" },
+          refresh: { scope: "full", reason: "live-set-mismatch" },
           applied: false,
         };
       }
@@ -489,10 +489,10 @@ export function applySnapshotEvent(
       break;
     }
     case "entities.invalidated": {
-      if (!sameProject(current, event.change.references)) {
+      if (!sameLiveSet(current, event.change.references)) {
         return {
           snapshot: current,
-          refresh: { scope: "full", reason: "project-mismatch" },
+          refresh: { scope: "full", reason: "live-set-mismatch" },
           applied: false,
         };
       }
@@ -507,10 +507,10 @@ export function applySnapshotEvent(
       break;
     }
     case "selection.changed": {
-      if (!sameProject(current, event.change.selected)) {
+      if (!sameLiveSet(current, event.change.selected)) {
         return {
           snapshot: current,
-          refresh: { scope: "full", reason: "project-mismatch" },
+          refresh: { scope: "full", reason: "live-set-mismatch" },
           applied: false,
         };
       }
@@ -576,7 +576,7 @@ export class SnapshotCache {
     { revision: number; value: unknown }
   >();
 
-  public ingest(snapshot: ProjectSnapshot): NormalizedSnapshot {
+  public ingest(snapshot: LiveSetSnapshot): NormalizedSnapshot {
     this.#snapshot = normalizeSnapshot(snapshot);
     this.#clipNotes.clear();
     this.#deviceParameters.clear();
@@ -631,7 +631,7 @@ export class SnapshotCache {
       throw new AmbiguousReferenceError(`No ${kind} named '${name}'`);
     }
     return {
-      projectId: snapshot.project.id,
+      liveSetId: snapshot.liveSet.liveSetId,
       kind,
       id: match.id,
       revision: snapshot.revision,
@@ -640,8 +640,8 @@ export class SnapshotCache {
 
   public assertMutable(reference: EntityReference): EntitySummary {
     const snapshot = this.requireSnapshot();
-    if (reference.projectId !== snapshot.project.id) {
-      throw new StaleReferenceError("Reference belongs to another project");
+    if (reference.liveSetId !== snapshot.liveSet.liveSetId) {
+      throw new StaleReferenceError("Reference belongs to another Live Set");
     }
     if (reference.revision !== snapshot.revision) {
       throw new StaleReferenceError("Reference revision is stale");
@@ -712,7 +712,7 @@ export class SnapshotCache {
 
   private requireSnapshot(): NormalizedSnapshot {
     if (this.#snapshot === undefined) {
-      throw new Error("No active project snapshot");
+      throw new Error("No active Live Set snapshot");
     }
     return this.#snapshot;
   }

@@ -445,17 +445,21 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
     stop: vi.fn(async () => undefined),
     getStatus: vi.fn(async () => status),
     getCapabilities: vi.fn(async () => ({
-      selectedProtocolVersion: 3 as const,
+      selectedProtocolVersion: 4 as const,
       liveVersion: "12.1",
       remoteScriptVersion: "0.2.0",
-      projectId: "project",
+      liveSetId: "set",
+      liveSetName: "Test Set",
+      saved: true,
+      diagnostics: [],
       capabilities: {},
       limits: { maxFrameBytes: 1024, maxBatchItems: 128 },
     })),
-    getProjectIdentity: vi.fn(async () => ({
-      projectId: "project",
-      projectName: "Test Set",
+    getLiveIdentity: vi.fn(async () => ({
+      liveSetId: "set",
+      liveSetName: "Test Set",
       saved: true,
+      diagnostics: [],
     })),
     ping: vi.fn(async () => ({ pong: true as const })),
     inspectSession: vi.fn(async () => ({
@@ -958,7 +962,9 @@ describe("CopilotAgentService", () => {
           state: "connected",
           liveVersion: "12.1",
           remoteScriptVersion: "0.1.0",
-          projectId: "project",
+          liveSetId: "set",
+          liveSetName: "Test Set",
+          saved: true,
         }),
       inspectSession: () =>
         Promise.resolve({
@@ -1952,10 +1958,11 @@ describe("HeadlessApplication agent and connection ports", () => {
     );
     await application.resumeAgentSession("created-session");
     expect(resumeSession).toHaveBeenCalledWith("created-session");
-    await expect(application.getProjectIdentity()).resolves.toEqual({
-      projectId: "project",
-      projectName: "Test Set",
+    await expect(application.getLiveIdentity()).resolves.toEqual({
+      liveSetId: "set",
+      liveSetName: "Test Set",
       saved: true,
+      diagnostics: [],
     });
 
     await expect(application.connectAbleton()).resolves.toEqual({

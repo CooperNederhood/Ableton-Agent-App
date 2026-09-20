@@ -59,7 +59,7 @@ import {
   loadBrowserItemParamsSchema,
   loadBrowserItemResultSchema,
   pingResultSchema,
-  projectIdentitySchema,
+  liveIdentitySchema,
   renameTrackParamsSchema,
   renameTrackResultSchema,
   replaceArrangementMidiNotesParamsSchema,
@@ -120,7 +120,7 @@ function command(
 export const commandCatalog = {
   "system.hello": command(helloParamsSchema, capabilityDocumentSchema),
   "system.ping": command(emptyParamsSchema, pingResultSchema),
-  "project.get_identity": command(emptyParamsSchema, projectIdentitySchema),
+  "live_set.get_identity": command(emptyParamsSchema, liveIdentitySchema),
   "session.inspect": command(emptyParamsSchema, sessionSnapshotSchema),
   "events.inspect_selection": command(
     inspectEventSelectionParamsSchema,

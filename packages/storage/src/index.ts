@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync, realpathSync } from "node:fs";
 import {
   access,
   chmod,
@@ -13,20 +14,31 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path";
 
-export const LIVE_AGENT_STORAGE_VERSION = 1;
+export const LIVE_AGENT_STORAGE_VERSION = 2;
 export const LIVE_AGENT_HOME_ENVIRONMENT_VARIABLE = "LIVE_AGENT_HOME";
 export const LIVE_AGENT_PROFILE_ENVIRONMENT_VARIABLE = "LIVE_AGENT_PROFILE";
 export const PROFILE_REGISTRY_VERSION = 1;
 export const ARTIFACT_STATE_VERSION = 1;
+export const STORAGE_METADATA_VERSION = 1;
+export const LIVE_PROJECTS_REGISTRY_VERSION = 1;
+export const MAX_LIVE_PROJECTS = 256;
+export const MAX_LIVE_PROJECT_LIVE_SETS = 1_024;
 
 const profilePattern = /^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/u;
 const artifactPattern = /^[a-z][a-z0-9-]{0,63}$/u;
 const reservedProfileNames = new Set(["development", "automation"]);
 
 export type ArtifactKind = "agent" | "skill";
-export type ArtifactScope = "system" | "profile" | "session";
+export type ArtifactScope = "system" | "profile" | "project" | "session";
 
 export interface LiveAgentStorageLayout {
   readonly version: typeof LIVE_AGENT_STORAGE_VERSION;
@@ -45,14 +57,17 @@ export interface LiveAgentStorageLayout {
   readonly profileSkillTombstonesPath: string;
   readonly preferencesPath: string;
   readonly sessionsPath: string;
-  readonly projectSessionsPath: string;
+  readonly liveSetSessionsPath: string;
+  readonly liveProjectsRegistryPath: string;
   readonly credentialsDirectory: string;
   readonly copilotDirectory: string;
   readonly observabilityDirectory: string;
   readonly eventJournalPath: string;
   readonly logsDirectory: string;
   readonly desktopLogPath: string;
-  readonly sessionStateDirectory: string;
+  readonly memoryDirectory: string;
+  readonly projectStateDirectory: string;
+  readonly unassignedLiveSetStateDirectory: string;
   readonly migrationMarkerPath: string;
 }
 
@@ -63,7 +78,7 @@ export interface ResolveLiveAgentStorageOptions {
   readonly development?: boolean;
 }
 
-export interface ProductionSessionStoragePaths {
+export interface AppSessionStoragePaths {
   readonly sessionDirectory: string;
   readonly manifestPath: string;
   readonly artifactsDirectory: string;
@@ -74,6 +89,53 @@ export interface ProductionSessionStoragePaths {
   readonly agentTombstonesPath: string;
   readonly skillTombstonesPath: string;
 }
+
+export interface ProjectStoragePaths {
+  readonly projectDirectory: string;
+  readonly metadataPath: string;
+  readonly memoryDirectory: string;
+  readonly liveSetStateDirectory: string;
+  readonly agentsDirectory: string;
+  readonly skillsDirectory: string;
+  readonly artifactStateDirectory: string;
+  readonly agentTombstonesPath: string;
+  readonly skillTombstonesPath: string;
+}
+
+export interface LiveSetStoragePaths {
+  readonly liveSetDirectory: string;
+  readonly metadataPath: string;
+  readonly memoryDirectory: string;
+  readonly sessionStateDirectory: string;
+}
+
+export interface SessionStoragePaths extends AppSessionStoragePaths {
+  readonly ownership: "project" | "unassigned";
+  readonly project?: ProjectStoragePaths;
+  readonly liveSet: LiveSetStoragePaths;
+  readonly memoryDirectory: string;
+}
+
+export interface SessionStorageOwnershipContext {
+  readonly liveSetId: string;
+  readonly liveProjectId?: string;
+  readonly sessionId: string;
+}
+
+export interface ProjectStorageOwnershipContext {
+  readonly liveProjectId: string;
+}
+
+export type LiveSetStorageLocation =
+  | {
+      readonly ownership: "project";
+      readonly projectId: string;
+      readonly liveSetId: string;
+    }
+  | {
+      readonly ownership: "unassigned";
+      readonly liveSetId: string;
+    };
 
 export interface ArtifactScopePaths {
   readonly scope: ArtifactScope;
@@ -95,17 +157,30 @@ function productionSessionDirectoryName(productionSessionId: string): string {
   return `session-${createHash("sha256").update(productionSessionId).digest("hex")}`;
 }
 
-export function resolveProductionSessionStorage(
+export function storageEntityDirectoryName(identifier: string): string {
+  if (identifier.length === 0) {
+    throw new Error("Storage entity ID must not be empty");
+  }
+  if (
+    identifier.length <= 200 &&
+    /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/u.test(identifier)
+  ) {
+    return identifier;
+  }
+  return `entity-${createHash("sha256").update(identifier).digest("hex")}`;
+}
+
+function resolveNestedSessionStorageAtRoot(
   sessionStateDirectory: string,
-  productionSessionId: string,
-): ProductionSessionStoragePaths {
-  if (productionSessionId.length === 0) {
-    throw new Error("Production session ID must not be empty");
+  sessionId: string,
+): AppSessionStoragePaths {
+  if (sessionId.length === 0) {
+    throw new Error("App session ID must not be empty");
   }
   const root = resolve(sessionStateDirectory);
   const sessionDirectory = join(
     root,
-    productionSessionDirectoryName(productionSessionId),
+    productionSessionDirectoryName(sessionId),
   );
   assertWithin(root, sessionDirectory);
   const artifactsDirectory = join(sessionDirectory, "artifacts");
@@ -121,6 +196,122 @@ export function resolveProductionSessionStorage(
     agentTombstonesPath: join(artifactStateDirectory, "agents.json"),
     skillTombstonesPath: join(artifactStateDirectory, "skills.json"),
   };
+}
+
+export function resolveProjectStorage(
+  layout: LiveAgentStorageLayout,
+  projectId: string,
+): ProjectStoragePaths {
+  const projectDirectory = join(
+    layout.projectStateDirectory,
+    storageEntityDirectoryName(projectId),
+  );
+  assertWithin(layout.profileRoot, projectDirectory);
+  return {
+    projectDirectory,
+    metadataPath: join(projectDirectory, "project.json"),
+    memoryDirectory: join(projectDirectory, "memory"),
+    liveSetStateDirectory: join(projectDirectory, "live-set-state"),
+    agentsDirectory: join(projectDirectory, "agents"),
+    skillsDirectory: join(projectDirectory, "skills"),
+    artifactStateDirectory: join(projectDirectory, "artifact-state"),
+    agentTombstonesPath: join(
+      projectDirectory,
+      "artifact-state",
+      "agents.json",
+    ),
+    skillTombstonesPath: join(
+      projectDirectory,
+      "artifact-state",
+      "skills.json",
+    ),
+  };
+}
+
+export function resolveLiveSetStorage(
+  layout: LiveAgentStorageLayout,
+  location: LiveSetStorageLocation,
+): LiveSetStoragePaths {
+  const project =
+    location.ownership === "project"
+      ? resolveProjectStorage(layout, location.projectId)
+      : undefined;
+  const liveSetDirectory = join(
+    project?.liveSetStateDirectory ?? layout.unassignedLiveSetStateDirectory,
+    storageEntityDirectoryName(location.liveSetId),
+  );
+  assertWithin(layout.profileRoot, liveSetDirectory);
+  return {
+    liveSetDirectory,
+    metadataPath: join(liveSetDirectory, "live-set.json"),
+    memoryDirectory: join(liveSetDirectory, "memory"),
+    sessionStateDirectory: join(liveSetDirectory, "session-state"),
+  };
+}
+
+export function resolveNestedSessionStorage(
+  layout: LiveAgentStorageLayout,
+  context: SessionStorageOwnershipContext,
+): SessionStoragePaths {
+  const project =
+    context.liveProjectId === undefined
+      ? undefined
+      : resolveProjectStorage(layout, context.liveProjectId);
+  const location: LiveSetStorageLocation =
+    context.liveProjectId === undefined
+      ? { ownership: "unassigned", liveSetId: context.liveSetId }
+      : {
+          ownership: "project",
+          projectId: context.liveProjectId,
+          liveSetId: context.liveSetId,
+        };
+  const liveSet = resolveLiveSetStorage(layout, location);
+  const session = resolveNestedSessionStorageAtRoot(
+    liveSet.sessionStateDirectory,
+    context.sessionId,
+  );
+  assertWithin(layout.profileRoot, session.sessionDirectory);
+  return {
+    ...session,
+    ownership: context.liveProjectId === undefined ? "unassigned" : "project",
+    ...(project === undefined ? {} : { project }),
+    liveSet,
+    memoryDirectory: join(session.sessionDirectory, "memory"),
+  };
+}
+
+export async function relocateLiveSetStorage(
+  layout: LiveAgentStorageLayout,
+  source: LiveSetStorageLocation,
+  destination: LiveSetStorageLocation,
+): Promise<boolean> {
+  const sourcePaths = resolveLiveSetStorage(layout, source);
+  const destinationPaths = resolveLiveSetStorage(layout, destination);
+  if (sourcePaths.liveSetDirectory === destinationPaths.liveSetDirectory) {
+    return false;
+  }
+  let sourceDetails;
+  try {
+    sourceDetails = await lstat(sourcePaths.liveSetDirectory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+  if (sourceDetails.isSymbolicLink() || !sourceDetails.isDirectory()) {
+    throw new Error("Live Set storage source must be a physical directory");
+  }
+  try {
+    await lstat(destinationPaths.liveSetDirectory);
+    throw new Error("Live Set storage destination already exists");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  await mkdir(dirname(destinationPaths.liveSetDirectory), {
+    recursive: true,
+    mode: 0o700,
+  });
+  await rename(sourcePaths.liveSetDirectory, destinationPaths.liveSetDirectory);
+  return true;
 }
 
 export function resolveLiveAgentStorage(
@@ -150,7 +341,7 @@ export function resolveLiveAgentStorage(
       `${LIVE_AGENT_PROFILE_ENVIRONMENT_VARIABLE} must be a filesystem-safe name`,
     );
   }
-  const resolvedRoot = resolve(root);
+  const resolvedRoot = resolvePhysicalAncestors(root);
   const profileRoot = join(resolvedRoot, "profiles", profile);
   const configDirectory = join(resolvedRoot, "config");
   const systemDirectory = join(resolvedRoot, "system");
@@ -179,7 +370,8 @@ export function resolveLiveAgentStorage(
     ),
     preferencesPath: join(profileRoot, "config", "preferences.json"),
     sessionsPath: join(profileRoot, "state", "sessions.json"),
-    projectSessionsPath: join(profileRoot, "state", "project-sessions.json"),
+    liveSetSessionsPath: join(profileRoot, "state", "live-set-sessions.json"),
+    liveProjectsRegistryPath: join(profileRoot, "state", "live-projects.json"),
     credentialsDirectory: join(profileRoot, "credentials"),
     copilotDirectory: join(profileRoot, "copilot"),
     observabilityDirectory: join(profileRoot, "observability"),
@@ -190,12 +382,29 @@ export function resolveLiveAgentStorage(
     ),
     logsDirectory: join(profileRoot, "logs"),
     desktopLogPath: join(profileRoot, "logs", "desktop.log"),
-    sessionStateDirectory: join(profileRoot, "session-state"),
+    memoryDirectory: join(profileRoot, "memory"),
+    projectStateDirectory: join(profileRoot, "project-state"),
+    unassignedLiveSetStateDirectory: join(
+      profileRoot,
+      "unassigned-live-set-state",
+    ),
     migrationMarkerPath: join(
       profileRoot,
       `storage-migration-v${LIVE_AGENT_STORAGE_VERSION}.json`,
     ),
   };
+}
+
+function resolvePhysicalAncestors(path: string): string {
+  let existing = resolve(path);
+  const missingSegments: string[] = [];
+  while (!existsSync(existing)) {
+    const parent = dirname(existing);
+    if (parent === existing) break;
+    missingSegments.unshift(basename(existing));
+    existing = parent;
+  }
+  return join(realpathSync(existing), ...missingSegments);
 }
 
 export function validateProfileName(profile: string): string {
@@ -216,8 +425,22 @@ export function validateArtifactName(name: string): string {
 
 export function resolveArtifactScopePaths(
   layout: LiveAgentStorageLayout,
+  scope: "system" | "profile",
+): ArtifactScopePaths;
+export function resolveArtifactScopePaths(
+  layout: LiveAgentStorageLayout,
+  scope: "project",
+  ownership: ProjectStorageOwnershipContext,
+): ArtifactScopePaths;
+export function resolveArtifactScopePaths(
+  layout: LiveAgentStorageLayout,
+  scope: "session",
+  ownership: SessionStorageOwnershipContext,
+): ArtifactScopePaths;
+export function resolveArtifactScopePaths(
+  layout: LiveAgentStorageLayout,
   scope: ArtifactScope,
-  productionSessionId?: string,
+  ownership?: ProjectStorageOwnershipContext | SessionStorageOwnershipContext,
 ): ArtifactScopePaths {
   if (scope === "system") {
     return {
@@ -249,13 +472,31 @@ export function resolveArtifactScopePaths(
       skillTombstonesPath: layout.profileSkillTombstonesPath,
     };
   }
-  if (productionSessionId === undefined) {
-    throw new Error("Production session ID is required for session scope");
+  if (scope === "project") {
+    if (ownership === undefined || !("liveProjectId" in ownership)) {
+      throw new Error(
+        "Project ownership context is required for project scope",
+      );
+    }
+    const project = resolveProjectStorage(layout, ownership.liveProjectId);
+    return {
+      scope,
+      root: project.projectDirectory,
+      agentsDirectory: project.agentsDirectory,
+      skillsDirectory: project.skillsDirectory,
+      stateDirectory: project.artifactStateDirectory,
+      agentTombstonesPath: project.agentTombstonesPath,
+      skillTombstonesPath: project.skillTombstonesPath,
+    };
   }
-  const session = resolveProductionSessionStorage(
-    layout.sessionStateDirectory,
-    productionSessionId,
-  );
+  if (
+    ownership === undefined ||
+    !("liveSetId" in ownership) ||
+    !("sessionId" in ownership)
+  ) {
+    throw new Error("Session ownership context is required for session scope");
+  }
+  const session = resolveNestedSessionStorage(layout, ownership);
   return {
     scope,
     root: session.sessionDirectory,
@@ -276,6 +517,18 @@ function assertWithin(root: string, path: string): void {
 export async function ensureLiveAgentStorage(
   layout: LiveAgentStorageLayout,
 ): Promise<void> {
+  const versionPath = join(layout.root, "storage-version.json");
+  const hasVersionMarker = await exists(versionPath);
+  if (hasVersionMarker) {
+    const stored = JSON.parse(await readFile(versionPath, "utf8")) as {
+      version?: unknown;
+    };
+    if (stored.version !== LIVE_AGENT_STORAGE_VERSION) {
+      throw new Error(
+        `Storage version ${String(stored.version)} is not supported`,
+      );
+    }
+  }
   const directories = [
     layout.root,
     layout.configDirectory,
@@ -293,7 +546,9 @@ export async function ensureLiveAgentStorage(
     layout.copilotDirectory,
     layout.observabilityDirectory,
     layout.logsDirectory,
-    layout.sessionStateDirectory,
+    layout.memoryDirectory,
+    layout.projectStateDirectory,
+    layout.unassignedLiveSetStateDirectory,
   ];
   for (const directory of directories) {
     assertWithin(layout.root, directory);
@@ -301,18 +556,7 @@ export async function ensureLiveAgentStorage(
     await mkdir(directory, { recursive: true, mode: 0o700 });
     await chmod(directory, 0o700);
   }
-  const versionPath = join(layout.root, "storage-version.json");
-  try {
-    const stored = JSON.parse(await readFile(versionPath, "utf8")) as {
-      version?: unknown;
-    };
-    if (stored.version !== LIVE_AGENT_STORAGE_VERSION) {
-      throw new Error(
-        `Storage version ${String(stored.version)} is not supported`,
-      );
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  if (!hasVersionMarker) {
     await writeJsonAtomically(versionPath, {
       version: LIVE_AGENT_STORAGE_VERSION,
     });
@@ -697,6 +941,957 @@ export async function writeArtifactTombstones(
   await writeJsonAtomically(path, updated);
   return updated;
 }
+
+const MAX_STORAGE_DISPLAY_NAME_CHARACTERS = 512;
+
+function validateStorageIdentifier(value: unknown, label: string): string {
+  if (typeof value !== "string" || value.length === 0 || value.length > 512) {
+    throw new Error(`${label} must be between 1 and 512 characters`);
+  }
+  return value;
+}
+
+function validateStorageDisplayName(value: unknown, label: string): string {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > MAX_STORAGE_DISPLAY_NAME_CHARACTERS
+  ) {
+    throw new Error(
+      `${label} must be between 1 and ${MAX_STORAGE_DISPLAY_NAME_CHARACTERS} characters`,
+    );
+  }
+  return value;
+}
+
+function validateStorageTimestamp(value: unknown, label: string): string {
+  if (
+    typeof value !== "string" ||
+    value.length > 64 ||
+    Number.isNaN(Date.parse(value))
+  ) {
+    throw new Error(`${label} must be an ISO-8601 timestamp`);
+  }
+  return value;
+}
+
+export interface ProjectStorageMetadata {
+  readonly version: typeof STORAGE_METADATA_VERSION;
+  readonly projectId: string;
+  readonly displayName: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface LiveSetStorageMetadata {
+  readonly version: typeof STORAGE_METADATA_VERSION;
+  readonly liveSetId: string;
+  readonly displayName: string;
+  readonly projectId?: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface LiveProjectRegistryEntry {
+  readonly projectId: string;
+  readonly displayName: string;
+  readonly liveSetIds: readonly string[];
+  readonly updatedAt: string;
+}
+
+export interface LiveProjectsRegistry {
+  readonly version: typeof LIVE_PROJECTS_REGISTRY_VERSION;
+  readonly revision: number;
+  readonly projects: readonly LiveProjectRegistryEntry[];
+}
+
+export function validateProjectStorageMetadata(
+  value: unknown,
+): ProjectStorageMetadata {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Project metadata must be an object");
+  }
+  const input = value as Record<string, unknown>;
+  if (input.version !== STORAGE_METADATA_VERSION) {
+    throw new Error("Project metadata version is not supported");
+  }
+  return {
+    version: STORAGE_METADATA_VERSION,
+    projectId: validateStorageIdentifier(input.projectId, "Project ID"),
+    displayName: validateStorageDisplayName(
+      input.displayName,
+      "Project display name",
+    ),
+    createdAt: validateStorageTimestamp(input.createdAt, "Project createdAt"),
+    updatedAt: validateStorageTimestamp(input.updatedAt, "Project updatedAt"),
+  };
+}
+
+export function validateLiveSetStorageMetadata(
+  value: unknown,
+): LiveSetStorageMetadata {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Live Set metadata must be an object");
+  }
+  const input = value as Record<string, unknown>;
+  if (input.version !== STORAGE_METADATA_VERSION) {
+    throw new Error("Live Set metadata version is not supported");
+  }
+  const projectId =
+    input.projectId === undefined
+      ? undefined
+      : validateStorageIdentifier(input.projectId, "Project ID");
+  return {
+    version: STORAGE_METADATA_VERSION,
+    liveSetId: validateStorageIdentifier(input.liveSetId, "Live Set ID"),
+    displayName: validateStorageDisplayName(
+      input.displayName,
+      "Live Set display name",
+    ),
+    ...(projectId === undefined ? {} : { projectId }),
+    createdAt: validateStorageTimestamp(input.createdAt, "Live Set createdAt"),
+    updatedAt: validateStorageTimestamp(input.updatedAt, "Live Set updatedAt"),
+  };
+}
+
+function validateLiveProjectsRegistry(value: unknown): LiveProjectsRegistry {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Live projects registry must be an object");
+  }
+  const input = value as Record<string, unknown>;
+  if (input.version !== LIVE_PROJECTS_REGISTRY_VERSION) {
+    throw new Error("Live projects registry version is not supported");
+  }
+  if (
+    !Number.isInteger(input.revision) ||
+    (input.revision as number) < 0 ||
+    !Array.isArray(input.projects) ||
+    input.projects.length > MAX_LIVE_PROJECTS
+  ) {
+    throw new Error("Live projects registry is invalid or exceeds its limit");
+  }
+  const seenProjects = new Set<string>();
+  const projects = input.projects.map((candidate) => {
+    if (
+      typeof candidate !== "object" ||
+      candidate === null ||
+      Array.isArray(candidate)
+    ) {
+      throw new Error("Live project registry entry must be an object");
+    }
+    const entry = candidate as Record<string, unknown>;
+    const projectId = validateStorageIdentifier(entry.projectId, "Project ID");
+    if (seenProjects.has(projectId)) {
+      throw new Error(`Duplicate live project '${projectId}'`);
+    }
+    seenProjects.add(projectId);
+    if (
+      !Array.isArray(entry.liveSetIds) ||
+      entry.liveSetIds.length > MAX_LIVE_PROJECT_LIVE_SETS
+    ) {
+      throw new Error(`Live project '${projectId}' exceeds its Live Set limit`);
+    }
+    const liveSetIds = [
+      ...new Set(
+        entry.liveSetIds.map((id) =>
+          validateStorageIdentifier(id, "Live Set ID"),
+        ),
+      ),
+    ];
+    return {
+      projectId,
+      displayName: validateStorageDisplayName(
+        entry.displayName,
+        "Project display name",
+      ),
+      liveSetIds,
+      updatedAt: validateStorageTimestamp(entry.updatedAt, "Project updatedAt"),
+    };
+  });
+  return {
+    version: LIVE_PROJECTS_REGISTRY_VERSION,
+    revision: input.revision as number,
+    projects,
+  };
+}
+
+export async function readLiveProjectsRegistry(
+  path: string,
+): Promise<LiveProjectsRegistry> {
+  try {
+    return validateLiveProjectsRegistry(
+      JSON.parse(await boundedReadFile(path, 1024 * 1024)),
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return {
+      version: LIVE_PROJECTS_REGISTRY_VERSION,
+      revision: 0,
+      projects: [],
+    };
+  }
+}
+
+export async function writeLiveProjectsRegistry(
+  path: string,
+  projects: readonly LiveProjectRegistryEntry[],
+  expectedRevision: number,
+): Promise<LiveProjectsRegistry> {
+  const current = await readLiveProjectsRegistry(path);
+  if (current.revision !== expectedRevision) {
+    throw new Error(
+      `Live projects registry revision conflict: expected ${expectedRevision}, current ${current.revision}`,
+    );
+  }
+  const updated = validateLiveProjectsRegistry({
+    version: LIVE_PROJECTS_REGISTRY_VERSION,
+    revision: current.revision + 1,
+    projects,
+  });
+  await writeJsonAtomically(path, updated);
+  return updated;
+}
+
+export async function writeProjectStorageMetadata(
+  path: string,
+  metadata: ProjectStorageMetadata,
+): Promise<void> {
+  await writeJsonAtomically(path, validateProjectStorageMetadata(metadata));
+}
+
+export async function readProjectStorageMetadata(
+  path: string,
+): Promise<ProjectStorageMetadata> {
+  return validateProjectStorageMetadata(
+    JSON.parse(await boundedReadFile(path, 64 * 1024)),
+  );
+}
+
+export async function writeLiveSetStorageMetadata(
+  path: string,
+  metadata: LiveSetStorageMetadata,
+): Promise<void> {
+  await writeJsonAtomically(path, validateLiveSetStorageMetadata(metadata));
+}
+
+export async function readLiveSetStorageMetadata(
+  path: string,
+): Promise<LiveSetStorageMetadata> {
+  return validateLiveSetStorageMetadata(
+    JSON.parse(await boundedReadFile(path, 64 * 1024)),
+  );
+}
+
+export interface NestedStorageMigrationEvent {
+  readonly id: string;
+  readonly name:
+    | "storage.nested-migration.queued"
+    | "storage.nested-migration.started"
+    | "storage.nested-migration.progress"
+    | "storage.nested-migration.completed"
+    | "storage.nested-migration.failed"
+    | "storage.nested-migration.cancelled";
+  readonly occurredAt: string;
+  readonly durationMs?: number;
+  readonly outcome?: "success" | "failure" | "cancelled";
+  readonly traceId: string;
+  readonly spanId: string;
+  readonly parentSpanId?: string;
+  readonly correlationId: string;
+  readonly causationId?: string;
+  readonly attributes: Readonly<Record<string, string | number | boolean>>;
+}
+
+export interface NestedStorageMigrationResult {
+  readonly status: "dry-run" | "completed" | "not-needed" | "failed";
+  readonly applied: boolean;
+  readonly profile: string;
+  readonly sourceVersion?: number;
+  readonly targetVersion: typeof LIVE_AGENT_STORAGE_VERSION;
+  readonly backupPath?: string;
+  readonly actions: readonly string[];
+  readonly events: readonly NestedStorageMigrationEvent[];
+  readonly error?: string;
+}
+
+export interface MigrateNestedStorageOptions {
+  readonly layout: LiveAgentStorageLayout;
+  readonly apply?: boolean;
+  readonly now?: () => Date;
+}
+
+interface LegacySessionLocation {
+  readonly directoryName: string;
+  readonly appSessionId: string;
+  readonly liveSetId: string;
+  readonly liveSetName: string;
+}
+
+const MAX_MIGRATION_REPORT_ACTIONS = 1_000;
+
+function legacyProjectSessionsPath(layout: LiveAgentStorageLayout): string {
+  return join(layout.profileRoot, "state", "project-sessions.json");
+}
+
+function legacySessionStateDirectory(layout: LiveAgentStorageLayout): string {
+  return join(layout.profileRoot, "session-state");
+}
+
+function migrationAction(actions: string[], value: string): void {
+  if (actions.length < MAX_MIGRATION_REPORT_ACTIONS) actions.push(value);
+}
+
+function legacyUnassignedLiveSetId(appSessionId: string): string {
+  return `legacy-unassigned-${createHash("sha256")
+    .update(appSessionId)
+    .digest("hex")
+    .slice(0, 32)}`;
+}
+
+function objectValue(value: unknown, label: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function renameLegacyProjectFields(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  if ("liveSetId" in value || "liveSetName" in value) {
+    throw new Error("Legacy record already contains Live Set fields");
+  }
+  const { projectId, projectName, ...rest } = value;
+  return {
+    ...rest,
+    ...(projectId === undefined ? {} : { liveSetId: projectId }),
+    ...(projectName === undefined ? {} : { liveSetName: projectName }),
+  };
+}
+
+function migrateLegacySessionRecord(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  const id = validateStorageIdentifier(value.id, "Legacy session ID");
+  const updatedAt = validateStorageTimestamp(
+    value.updatedAt,
+    `Legacy session '${id}' updatedAt`,
+  );
+  const createdAt =
+    value.createdAt === undefined
+      ? updatedAt
+      : validateStorageTimestamp(
+          value.createdAt,
+          `Legacy session '${id}' createdAt`,
+        );
+  return {
+    ...renameLegacyProjectFields(value),
+    createdAt,
+  };
+}
+
+function migrateLegacySessionManifest(
+  value: Record<string, unknown>,
+  appSessionId: string,
+): Record<string, unknown> {
+  const updatedAt = validateStorageTimestamp(
+    value.updatedAt,
+    `Legacy session '${appSessionId}' updatedAt`,
+  );
+  const createdAt =
+    value.createdAt === undefined
+      ? updatedAt
+      : validateStorageTimestamp(
+          value.createdAt,
+          `Legacy session '${appSessionId}' createdAt`,
+        );
+  return {
+    ...renameLegacyProjectFields(value),
+    createdAt,
+  };
+}
+
+function compareMigratedSessions(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+): number {
+  const createdAtComparison =
+    Date.parse(String(left.createdAt)) - Date.parse(String(right.createdAt));
+  if (createdAtComparison !== 0) return createdAtComparison;
+  const leftId = String(left.id);
+  const rightId = String(right.id);
+  return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
+}
+
+async function readJsonObject(
+  path: string,
+  label: string,
+): Promise<Record<string, unknown>> {
+  return objectValue(
+    JSON.parse(await boundedReadFile(path, 4 * 1024 * 1024)),
+    label,
+  );
+}
+
+async function discoverLegacySessionLocations(
+  layout: LiveAgentStorageLayout,
+): Promise<LegacySessionLocation[]> {
+  const legacyRoot = legacySessionStateDirectory(layout);
+  if (!(await exists(legacyRoot))) return [];
+  const rootDetails = await lstat(legacyRoot);
+  if (rootDetails.isSymbolicLink() || !rootDetails.isDirectory()) {
+    throw new Error("Legacy session-state must be a regular directory");
+  }
+  const locations: LegacySessionLocation[] = [];
+  for (const directoryName of (await readdir(legacyRoot)).sort()) {
+    const directory = join(legacyRoot, directoryName);
+    const details = await lstat(directory);
+    if (details.isSymbolicLink() || !details.isDirectory()) {
+      throw new Error(
+        `Legacy session-state entry '${directoryName}' is incomplete`,
+      );
+    }
+    const manifestPath = join(directory, "session.json");
+    if (!(await exists(manifestPath))) {
+      throw new Error(
+        `Legacy session-state entry '${directoryName}' has no session.json`,
+      );
+    }
+    const manifest = await readJsonObject(
+      manifestPath,
+      `Legacy session manifest '${directoryName}'`,
+    );
+    renameLegacyProjectFields(manifest);
+    const appSessionId = validateStorageIdentifier(
+      manifest.productionSessionId,
+      "Production session ID",
+    );
+    migrateLegacySessionManifest(manifest, appSessionId);
+    if (productionSessionDirectoryName(appSessionId) !== directoryName) {
+      throw new Error(
+        `Legacy session-state entry '${directoryName}' does not match its session ID`,
+      );
+    }
+    const liveSetId =
+      manifest.projectId === undefined
+        ? legacyUnassignedLiveSetId(appSessionId)
+        : validateStorageIdentifier(manifest.projectId, "Legacy project ID");
+    const liveSetName =
+      manifest.projectName === undefined
+        ? "Unassigned Live Set"
+        : validateStorageDisplayName(
+            manifest.projectName,
+            "Legacy project name",
+          );
+    locations.push({ directoryName, appSessionId, liveSetId, liveSetName });
+  }
+  return locations;
+}
+
+async function assertTreeHasNoSymbolicLinks(path: string): Promise<void> {
+  const details = await lstat(path);
+  if (details.isSymbolicLink()) {
+    throw new Error(`Symbolic links are not allowed in storage path '${path}'`);
+  }
+  if (!details.isDirectory()) return;
+  for (const name of await readdir(path)) {
+    await assertTreeHasNoSymbolicLinks(join(path, name));
+  }
+}
+
+async function validateNestedMigrationSource(
+  layout: LiveAgentStorageLayout,
+): Promise<{
+  readonly sourceVersion: number;
+  readonly sessions?: Record<string, unknown>;
+  readonly associations?: Record<string, unknown>;
+  readonly locations: readonly LegacySessionLocation[];
+}> {
+  const versionPath = join(layout.root, "storage-version.json");
+  if (!(await exists(versionPath))) {
+    throw new Error(
+      "Storage version marker is missing; refusing a partial or unsupported layout",
+    );
+  }
+  const version = await readJsonObject(versionPath, "Storage version marker");
+  if (!Number.isInteger(version.version)) {
+    throw new Error("Storage version marker is invalid");
+  }
+  const sourceVersion = version.version as number;
+  if (sourceVersion !== 1 && sourceVersion !== LIVE_AGENT_STORAGE_VERSION) {
+    throw new Error(`Storage version ${sourceVersion} is not supported`);
+  }
+  const hasLegacyProfileLayout =
+    (await exists(join(layout.profileRoot, "session-state"))) ||
+    (await exists(join(layout.profileRoot, "state", "project-sessions.json")));
+  if (sourceVersion === LIVE_AGENT_STORAGE_VERSION && !hasLegacyProfileLayout) {
+    return { sourceVersion, locations: [] };
+  }
+  if (!(await exists(layout.profileRoot))) {
+    throw new Error(`Profile '${layout.profile}' does not exist`);
+  }
+  await assertNoSymbolicLinkPath(layout.root, layout.profileRoot);
+  await assertTreeHasNoSymbolicLinks(layout.profileRoot);
+  const newLayoutPaths = [
+    layout.liveSetSessionsPath,
+    layout.liveProjectsRegistryPath,
+    layout.projectStateDirectory,
+    layout.unassignedLiveSetStateDirectory,
+    layout.memoryDirectory,
+  ];
+  for (const path of newLayoutPaths) {
+    if (await exists(path)) {
+      throw new Error(
+        `Refusing partial nested layout because '${relative(layout.profileRoot, path)}' already exists`,
+      );
+    }
+  }
+  const sessions = (await exists(layout.sessionsPath))
+    ? await readJsonObject(layout.sessionsPath, "Legacy sessions manifest")
+    : undefined;
+  if (sessions !== undefined) {
+    if (!Array.isArray(sessions.sessions)) {
+      throw new Error("Legacy sessions manifest has no sessions array");
+    }
+    for (const [index, value] of sessions.sessions.entries()) {
+      const session = objectValue(value, `Legacy session ${index}`);
+      migrateLegacySessionRecord(session);
+      if (session.projectId !== undefined) {
+        validateStorageIdentifier(session.projectId, "Legacy project ID");
+      }
+      if (session.projectName !== undefined) {
+        validateStorageDisplayName(session.projectName, "Legacy project name");
+      }
+      renameLegacyProjectFields(session);
+    }
+  }
+  const projectSessionsPath = legacyProjectSessionsPath(layout);
+  const associations = (await exists(projectSessionsPath))
+    ? await readJsonObject(
+        projectSessionsPath,
+        "Legacy project sessions manifest",
+      )
+    : undefined;
+  if (associations !== undefined && !Array.isArray(associations.associations)) {
+    throw new Error(
+      "Legacy project sessions manifest has no associations array",
+    );
+  }
+  if (associations !== undefined) {
+    for (const [index, value] of (
+      associations.associations as unknown[]
+    ).entries()) {
+      const association = objectValue(value, `Legacy association ${index}`);
+      validateStorageIdentifier(association.projectId, "Legacy project ID");
+      validateStorageDisplayName(
+        association.projectName,
+        "Legacy project name",
+      );
+      validateStorageIdentifier(association.sessionId, "Legacy session ID");
+      renameLegacyProjectFields(association);
+    }
+  }
+  const locations = await discoverLegacySessionLocations(layout);
+  const knownSessionIds = new Set(
+    sessions === undefined
+      ? []
+      : (sessions.sessions as unknown[]).map((value, index) =>
+          validateStorageIdentifier(
+            objectValue(value, `Legacy session ${index}`).id,
+            "Legacy session ID",
+          ),
+        ),
+  );
+  for (const location of locations) {
+    if (!knownSessionIds.has(location.appSessionId)) {
+      throw new Error(
+        `Legacy session-state '${location.directoryName}' has no matching session record`,
+      );
+    }
+  }
+  return {
+    sourceVersion: 1,
+    ...(sessions === undefined ? {} : { sessions }),
+    ...(associations === undefined ? {} : { associations }),
+    locations,
+  };
+}
+
+async function everyProfileUsesNestedStorage(
+  layout: LiveAgentStorageLayout,
+): Promise<boolean> {
+  const profilesRoot = join(layout.root, "profiles");
+  for (const entry of await readdir(profilesRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (
+      entry.name.includes(".pre-v2-") ||
+      entry.name.includes(".nested-migration-")
+    ) {
+      continue;
+    }
+    const profileRoot = join(profilesRoot, entry.name);
+    if (
+      (await exists(join(profileRoot, "session-state"))) ||
+      (await exists(join(profileRoot, "state", "project-sessions.json")))
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function transformLegacySessions(
+  document: Record<string, unknown>,
+): Record<string, unknown> {
+  const sessions = (document.sessions as unknown[])
+    .map((value, index) =>
+      migrateLegacySessionRecord(
+        objectValue(value, `Legacy sessions record ${index}`),
+      ),
+    )
+    .sort(compareMigratedSessions);
+  return {
+    ...document,
+    version: 4,
+    sessions,
+  };
+}
+
+function transformLegacyAssociations(
+  document: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    ...document,
+    associations: (document.associations as unknown[]).map((value, index) =>
+      renameLegacyProjectFields(
+        objectValue(value, `Legacy associations record ${index}`),
+      ),
+    ),
+  };
+}
+
+export async function migrateNestedStorage(
+  options: MigrateNestedStorageOptions,
+): Promise<NestedStorageMigrationResult> {
+  const apply = options.apply === true;
+  const now = options.now ?? (() => new Date());
+  const startedAt = now();
+  const traceId = randomUUID();
+  const correlationId = randomUUID();
+  const rootSpanId = randomUUID();
+  const events: NestedStorageMigrationEvent[] = [];
+  const actions: string[] = [];
+  let previousEvent: string | undefined;
+  const emit = (
+    name: NestedStorageMigrationEvent["name"],
+    attributes: NestedStorageMigrationEvent["attributes"],
+    outcome?: NestedStorageMigrationEvent["outcome"],
+    child = false,
+  ): void => {
+    const causationId = previousEvent;
+    const id = randomUUID();
+    previousEvent = id;
+    events.push({
+      id,
+      name,
+      occurredAt: now().toISOString(),
+      traceId,
+      spanId: child ? randomUUID() : rootSpanId,
+      ...(child ? { parentSpanId: rootSpanId } : {}),
+      correlationId,
+      ...(causationId === undefined ? {} : { causationId }),
+      attributes,
+      ...(outcome === undefined ? {} : { outcome }),
+      ...(name.endsWith("completed") ||
+      name.endsWith("failed") ||
+      name.endsWith("cancelled")
+        ? { durationMs: now().getTime() - startedAt.getTime() }
+        : {}),
+    });
+  };
+  emit("storage.nested-migration.queued", {
+    profile: options.layout.profile,
+    apply,
+  });
+  try {
+    emit("storage.nested-migration.started", {
+      profile: options.layout.profile,
+      apply,
+    });
+    const source = await validateNestedMigrationSource(options.layout);
+    if (source.sourceVersion === LIVE_AGENT_STORAGE_VERSION) {
+      emit(
+        "storage.nested-migration.cancelled",
+        { profile: options.layout.profile, reason: "already-current" },
+        "cancelled",
+      );
+      return {
+        status: "not-needed",
+        applied: false,
+        profile: options.layout.profile,
+        sourceVersion: source.sourceVersion,
+        targetVersion: LIVE_AGENT_STORAGE_VERSION,
+        actions,
+        events,
+      };
+    }
+    if (source.sessions !== undefined) {
+      migrationAction(
+        actions,
+        "upgrade state/sessions.json to v4 with deterministic createdAt values and Live Set fields",
+      );
+    }
+    if (source.associations !== undefined) {
+      migrationAction(
+        actions,
+        "rename state/project-sessions.json to state/live-set-sessions.json",
+      );
+    }
+    for (const location of source.locations) {
+      migrationAction(
+        actions,
+        `move session-state/${location.directoryName} to unassigned-live-set-state/${storageEntityDirectoryName(location.liveSetId)}/session-state/${location.directoryName}`,
+      );
+    }
+    migrationAction(actions, "create bounded state/live-projects.json");
+    migrationAction(actions, "reserve nested memory ownership directories");
+    migrationAction(
+      actions,
+      `update storage version to ${LIVE_AGENT_STORAGE_VERSION} after all legacy profiles are migrated`,
+    );
+    emit(
+      "storage.nested-migration.progress",
+      {
+        profile: options.layout.profile,
+        actionCount: actions.length,
+        phase: "validated",
+      },
+      undefined,
+      true,
+    );
+    if (!apply) {
+      emit(
+        "storage.nested-migration.completed",
+        {
+          profile: options.layout.profile,
+          actionCount: actions.length,
+          mode: "dry-run",
+        },
+        "success",
+      );
+      return {
+        status: "dry-run",
+        applied: false,
+        profile: options.layout.profile,
+        sourceVersion: source.sourceVersion,
+        targetVersion: LIVE_AGENT_STORAGE_VERSION,
+        actions,
+        events,
+      };
+    }
+
+    const timestamp = now().toISOString().replace(/[:.]/gu, "-");
+    const backupRoot = join(
+      options.layout.root,
+      "backups",
+      `storage-v1-${timestamp}`,
+    );
+    const backupPath = join(backupRoot, options.layout.profile);
+    const stagingRoot = `${options.layout.profileRoot}.nested-migration-${randomUUID()}`;
+    const previousRoot = `${options.layout.profileRoot}.pre-v2-${randomUUID()}`;
+    await mkdir(backupRoot, { recursive: true, mode: 0o700 });
+    await cp(options.layout.profileRoot, backupPath, {
+      recursive: true,
+      errorOnExist: true,
+      force: false,
+    });
+    await cp(
+      join(options.layout.root, "storage-version.json"),
+      join(backupRoot, "storage-version.json"),
+      { errorOnExist: true, force: false },
+    );
+    await hardenPermissions(backupRoot);
+    emit(
+      "storage.nested-migration.progress",
+      {
+        profile: options.layout.profile,
+        phase: "backup-completed",
+      },
+      undefined,
+      true,
+    );
+
+    try {
+      await cp(options.layout.profileRoot, stagingRoot, {
+        recursive: true,
+        errorOnExist: true,
+        force: false,
+      });
+      if (source.sessions !== undefined) {
+        await writeJsonAtomically(
+          join(stagingRoot, "state", "sessions.json"),
+          transformLegacySessions(source.sessions),
+        );
+      }
+      if (source.associations !== undefined) {
+        const legacyPath = join(stagingRoot, "state", "project-sessions.json");
+        await writeJsonAtomically(
+          join(stagingRoot, "state", "live-set-sessions.json"),
+          transformLegacyAssociations(source.associations),
+        );
+        await rm(legacyPath);
+      }
+      await writeJsonAtomically(
+        join(stagingRoot, "state", "live-projects.json"),
+        {
+          version: LIVE_PROJECTS_REGISTRY_VERSION,
+          revision: 0,
+          projects: [],
+        },
+      );
+      await mkdir(join(stagingRoot, "memory"), {
+        recursive: true,
+        mode: 0o700,
+      });
+      await mkdir(join(stagingRoot, "project-state"), {
+        recursive: true,
+        mode: 0o700,
+      });
+      await mkdir(join(stagingRoot, "unassigned-live-set-state"), {
+        recursive: true,
+        mode: 0o700,
+      });
+      const liveSets = new Map<string, LegacySessionLocation>();
+      for (const location of source.locations) {
+        const liveSetDirectory = join(
+          stagingRoot,
+          "unassigned-live-set-state",
+          storageEntityDirectoryName(location.liveSetId),
+        );
+        const sessionDirectory = join(
+          liveSetDirectory,
+          "session-state",
+          location.directoryName,
+        );
+        await mkdir(dirname(sessionDirectory), {
+          recursive: true,
+          mode: 0o700,
+        });
+        await rename(
+          join(stagingRoot, "session-state", location.directoryName),
+          sessionDirectory,
+        );
+        await mkdir(join(liveSetDirectory, "memory"), {
+          recursive: true,
+          mode: 0o700,
+        });
+        await mkdir(join(sessionDirectory, "memory"), {
+          recursive: true,
+          mode: 0o700,
+        });
+        const manifestPath = join(sessionDirectory, "session.json");
+        const manifest = await readJsonObject(
+          manifestPath,
+          `Legacy session manifest '${location.directoryName}'`,
+        );
+        await writeJsonAtomically(
+          manifestPath,
+          migrateLegacySessionManifest(manifest, location.appSessionId),
+        );
+        liveSets.set(location.liveSetId, location);
+      }
+      await rm(join(stagingRoot, "session-state"), {
+        recursive: true,
+        force: true,
+      });
+      for (const location of liveSets.values()) {
+        const liveSetDirectory = join(
+          stagingRoot,
+          "unassigned-live-set-state",
+          storageEntityDirectoryName(location.liveSetId),
+        );
+        await writeLiveSetStorageMetadata(
+          join(liveSetDirectory, "live-set.json"),
+          {
+            version: STORAGE_METADATA_VERSION,
+            liveSetId: location.liveSetId,
+            displayName: location.liveSetName,
+            createdAt: now().toISOString(),
+            updatedAt: now().toISOString(),
+          },
+        );
+      }
+      await writeJsonAtomically(
+        join(
+          stagingRoot,
+          `storage-migration-v${LIVE_AGENT_STORAGE_VERSION}.json`,
+        ),
+        {
+          version: LIVE_AGENT_STORAGE_VERSION,
+          sourceVersion: source.sourceVersion,
+          completedAt: now().toISOString(),
+          backupPath,
+          actionCount: actions.length,
+        },
+      );
+      await hardenPermissions(stagingRoot);
+      await rename(options.layout.profileRoot, previousRoot);
+      try {
+        await rename(stagingRoot, options.layout.profileRoot);
+        if (await everyProfileUsesNestedStorage(options.layout)) {
+          await writeJsonAtomically(
+            join(options.layout.root, "storage-version.json"),
+            { version: LIVE_AGENT_STORAGE_VERSION },
+          );
+        }
+      } catch (error) {
+        await rm(options.layout.profileRoot, { recursive: true, force: true });
+        await rename(previousRoot, options.layout.profileRoot);
+        throw error;
+      }
+      await rm(previousRoot, { recursive: true, force: true });
+    } catch (error) {
+      await rm(stagingRoot, { recursive: true, force: true });
+      throw error;
+    }
+    emit(
+      "storage.nested-migration.completed",
+      {
+        profile: options.layout.profile,
+        actionCount: actions.length,
+        mode: "apply",
+      },
+      "success",
+    );
+    return {
+      status: "completed",
+      applied: true,
+      profile: options.layout.profile,
+      sourceVersion: source.sourceVersion,
+      targetVersion: LIVE_AGENT_STORAGE_VERSION,
+      backupPath,
+      actions,
+      events,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    emit(
+      "storage.nested-migration.failed",
+      { profile: options.layout.profile, error: message.slice(0, 1_024) },
+      "failure",
+    );
+    return {
+      status: "failed",
+      applied: false,
+      profile: options.layout.profile,
+      targetVersion: LIVE_AGENT_STORAGE_VERSION,
+      actions,
+      events,
+      error: message.slice(0, 4_096),
+    };
+  }
+}
+
 export type LegacyStorageKind = "file" | "json" | "sqlite" | "directory";
 
 export interface LegacyStorageEntry {
@@ -981,14 +2176,17 @@ async function assertNoSymbolicLinkPath(
   root: string,
   target: string,
 ): Promise<void> {
-  assertWithin(dirname(root), root);
   assertWithin(root, target);
   const candidates: string[] = [];
+  const boundary = resolve(root);
   let candidate = resolve(target);
   while (true) {
     candidates.push(candidate);
+    if (candidate === boundary) break;
     const parent = dirname(candidate);
-    if (parent === candidate) break;
+    if (parent === candidate) {
+      throw new Error(`Storage path '${target}' escaped root '${root}'`);
+    }
     candidate = parent;
   }
   candidates.reverse();

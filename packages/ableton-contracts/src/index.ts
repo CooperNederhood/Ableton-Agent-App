@@ -6,7 +6,7 @@ export interface AbletonService {
   stop(): Promise<void>;
   getStatus(): Promise<ConnectionStatus>;
   getCapabilities(): Promise<Protocol.CapabilityDocument>;
-  getProjectIdentity(): Promise<Protocol.ProjectIdentity>;
+  getLiveIdentity(): Promise<Protocol.LiveIdentity>;
   ping(): Promise<Protocol.PingResult>;
   inspectSession(): Promise<Protocol.SessionSnapshot>;
   setTempo(tempo: number): Promise<Protocol.SetTempoResult>;

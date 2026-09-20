@@ -9,7 +9,7 @@ import {
 } from "./index.js";
 
 const event: TelemetryEventEnvelope = {
-  version: 1,
+  version: 2,
   id: "00000000-0000-4000-8000-000000000001",
   occurredAt: "2026-08-29T22:00:00.000Z",
   name: "tool.completed",
@@ -19,7 +19,7 @@ const event: TelemetryEventEnvelope = {
 };
 
 const snapshot: ConfigurationSnapshot = {
-  version: 1,
+  version: 2,
   id: "00000000-0000-4000-8000-000000000002",
   capturedAt: "2026-08-29T22:00:00.000Z",
   component: "agent.runtime",

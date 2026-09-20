@@ -92,9 +92,11 @@ describe("agent safety evaluations", () => {
         state: "connected",
         liveVersion: "12.1",
         remoteScriptVersion: "0.4.0",
-        projectId: "project-1",
+        liveSetId: "set-1",
+        liveSetName: "Test Set",
+        saved: true,
       }),
-    ).toContain("Inspect the session before making project-specific claims");
+    ).toContain("Inspect the session before making Live Set-specific claims");
   });
 
   it.each([

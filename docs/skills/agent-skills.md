@@ -10,6 +10,12 @@ skills/
     SKILL.md
 ```
 
+Skills are resolved through Session, Profile, System, and immutable bundled
+sources in that order. Lower scopes store a physical `SKILL.md` only after an
+explicit copy or edit. A local tombstone may hide an inherited skill. Semantic
+rename updates the skill frontmatter and same-scope agent references as one
+validated operation.
+
 `SKILL.md` begins with YAML frontmatter containing a lowercase `name` and a
 short `description`. The Markdown body contains reusable Ableton instructions.
 The application validates metadata for discovery while retaining the trusted

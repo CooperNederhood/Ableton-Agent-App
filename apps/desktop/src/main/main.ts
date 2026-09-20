@@ -20,7 +20,7 @@ import {
   type DesktopComposition,
 } from "./composition.js";
 import { createDesktopDiagnosticsActions } from "./diagnostics-actions.js";
-import { forwardEvent, registerIpc } from "./ipc.js";
+import { forwardEvent, registerIpc, type DiagnosticsActions } from "./ipc.js";
 import { DesktopFileLogger, parseLogLevel } from "./logger.js";
 import {
   parseDeepLink,
@@ -34,6 +34,7 @@ import {
 } from "./signal-credentials.js";
 import {
   ensureLiveAgentStorage,
+  loadProfileRegistry,
   migrateLegacyStorage,
   resolveLiveAgentStorage,
   type LegacyStorageEntry,
@@ -50,8 +51,10 @@ import {
   applyAutomationStartup,
   createDesktopAutomationServer,
 } from "./automation-host.js";
+import { resolvePackagedCopilotRuntimePath } from "./copilot-runtime.js";
 import { parseDesktopLaunchOptions } from "./launch-options.js";
 import type { AutomationControlServer } from "@ableton-agent/debug-control";
+import { DesktopProfileManager } from "./profile-manager.js";
 
 const currentDirectory = fileURLToPath(new URL(".", import.meta.url));
 const launchOptions = parseDesktopLaunchOptions(process.argv);
@@ -86,23 +89,40 @@ let lifecycleStarted = false;
 let removeSignalSecret: (() => Promise<void>) | undefined;
 let automationServer: AutomationControlServer | undefined;
 
+async function clearSignalSecret(): Promise<void> {
+  const remove = removeSignalSecret;
+  removeSignalSecret = undefined;
+  await remove?.();
+}
+
 const legacyUserDataDirectory = app.getPath("userData");
 const legacyLogsDirectory = app.getPath("logs");
-const storage = resolveLiveAgentStorage({
+const storageEnvironment =
+  launchOptions.automation === undefined
+    ? process.env
+    : {
+        ...process.env,
+        LIVE_AGENT_HOME: join(
+          launchOptions.automation.profilePath,
+          "live-agent",
+        ),
+        LIVE_AGENT_PROFILE: "automation",
+      };
+const explicitProfile =
+  process.env.LIVE_AGENT_PROFILE?.trim() === ""
+    ? undefined
+    : process.env.LIVE_AGENT_PROFILE?.trim();
+let storage = resolveLiveAgentStorage({
   homeDirectory: homedir(),
-  environment:
-    launchOptions.automation === undefined
-      ? process.env
-      : {
-          ...process.env,
-          LIVE_AGENT_HOME: join(
-            launchOptions.automation.profilePath,
-            "live-agent",
-          ),
-          LIVE_AGENT_PROFILE: "automation",
-        },
+  environment: storageEnvironment,
   development: !app.isPackaged,
 });
+const bundledAgentsDirectory = app.isPackaged
+  ? join(process.resourcesPath, "agents")
+  : fileURLToPath(new URL("../../../../agents", import.meta.url));
+const bundledSkillsDirectory = app.isPackaged
+  ? join(process.resourcesPath, "skills")
+  : fileURLToPath(new URL("../../../../skills", import.meta.url));
 let logPath = join(
   legacyLogsDirectory,
   app.isPackaged ? "desktop.log" : "desktop-development.log",
@@ -115,10 +135,11 @@ let activeLoggingLevel: DesktopPreferences["loggingLevel"] =
   environmentLoggingLevel ?? "info";
 // Constructed here so any application-managed credential remains outside
 // preferences and encrypted through Electron's OS-backed safeStorage.
-export const credentialVault = new OsCredentialVault(
+export let credentialVault = new OsCredentialVault(
   storage.credentialsDirectory,
   safeStorage,
 );
+let diagnostics: DiagnosticsActions | undefined;
 // Composed after `app.whenReady()` because preferences and credentials come
 // from Electron-managed paths; every handler below runs after that point.
 function requireService(): DesktopComposition["service"] {
@@ -126,6 +147,28 @@ function requireService(): DesktopComposition["service"] {
     throw new Error("Desktop composition is not initialized");
   return composition.service;
 }
+
+function requireDiagnostics(): DiagnosticsActions {
+  if (diagnostics === undefined)
+    throw new Error("Desktop diagnostics are not initialized");
+  return diagnostics;
+}
+
+const serviceProxy = new Proxy({} as DesktopComposition["service"], {
+  get: (_target, property): unknown => {
+    const service = requireService();
+    const member: unknown = Reflect.get(service, property);
+    return typeof member === "function" ? member.bind(service) : member;
+  },
+});
+
+const diagnosticsProxy = new Proxy({} as DiagnosticsActions, {
+  get: (_target, property): unknown => {
+    const actions = requireDiagnostics();
+    const member: unknown = Reflect.get(actions, property);
+    return typeof member === "function" ? member.bind(actions) : member;
+  },
+});
 
 function secureWebContents(webContents: WebContents): void {
   webContents.setWindowOpenHandler(({ url }) => {
@@ -256,7 +299,96 @@ app.on("open-url", (event, url) => {
 
 let composition: DesktopComposition | undefined;
 
+async function composeProfile(
+  layout: typeof storage,
+  migration?: StorageMigrationResult,
+): Promise<DesktopComposition> {
+  credentialVault = new OsCredentialVault(
+    layout.credentialsDirectory,
+    safeStorage,
+  );
+  const next = await createDesktopComposition({
+    preferencesPath: layout.preferencesPath,
+    sessionsPath: layout.sessionsPath,
+    projectSessionsPath: layout.projectSessionsPath,
+    agentsDirectory: bundledAgentsDirectory,
+    skillsDirectory: bundledSkillsDirectory,
+    storage: layout,
+    agentBaseDirectory: layout.copilotDirectory,
+    sessionStateDirectory: layout.sessionStateDirectory,
+    eventJournalPath: layout.eventJournalPath,
+    ...(migration === undefined
+      ? {}
+      : { storageMigrationEvents: migration.events }),
+    signalDescriptorPath,
+    credentialVault,
+    homeDirectory: homedir(),
+    platform: process.platform,
+    environment: process.env,
+    logger: {
+      debug: (message, context) => void logger.write("debug", message, context),
+      info: (message, context) => void logger.write("info", message, context),
+      warn: (message, context) => void logger.write("warn", message, context),
+      error: (message, context) => void logger.write("error", message, context),
+    },
+    onError: (message, context) => void logger.write("error", message, context),
+    onLoggingLevelChange: (level) => {
+      activeLoggingLevel = environmentLoggingLevel ?? level;
+      logger.setLevel(activeLoggingLevel);
+    },
+  });
+  if (next.bridgeToken !== undefined) {
+    removeSignalSecret = await writeSignalSecret(next.bridgeToken);
+  }
+  activeLoggingLevel = environmentLoggingLevel ?? next.preferences.loggingLevel;
+  logger.setLevel(activeLoggingLevel);
+  return next;
+}
+
+function createDiagnostics(
+  layout: typeof storage,
+  migrationStatus: StorageMigrationResult["status"],
+): DiagnosticsActions {
+  return createDesktopDiagnosticsActions({
+    logPath: layout.desktopLogPath,
+    storage: {
+      version: layout.version,
+      root: layout.root,
+      profile: layout.profile,
+      profileRoot: layout.profileRoot,
+      migrationStatus,
+    },
+    getLoggingLevel: () => activeLoggingLevel,
+    environmentOverride: environmentLoggingLevel !== undefined,
+    appVersion: app.getVersion(),
+    platform: process.platform,
+    chooseExportPath: async () => {
+      const options = {
+        title: "Export support bundle",
+        defaultPath: `ableton-agent-support-${new Date()
+          .toISOString()
+          .slice(0, 10)}.json`,
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      };
+      const result =
+        mainWindow === undefined
+          ? await dialog.showSaveDialog(options)
+          : await dialog.showSaveDialog(mainWindow, options);
+      return result.canceled ? undefined : result.filePath;
+    },
+    revealItem: (path) => shell.showItemInFolder(path),
+    writeClipboard: (text) => clipboard.writeText(text),
+  });
+}
+
 async function bootstrap(): Promise<void> {
+  if (app.isPackaged && (process.env.COPILOT_CLI_PATH?.trim() ?? "") === "") {
+    const runtimePath = resolvePackagedCopilotRuntimePath(
+      process.resourcesPath,
+    );
+    await access(runtimePath);
+    process.env.COPILOT_CLI_PATH = runtimePath;
+  }
   const legacyLogName = app.isPackaged
     ? "desktop.log"
     : "desktop-development.log";
@@ -322,6 +454,17 @@ async function bootstrap(): Promise<void> {
       `Local storage migration failed without modifying legacy data: ${migration.error ?? "unknown error"}`,
     );
   }
+  if (
+    app.isPackaged &&
+    launchOptions.automation === undefined &&
+    explicitProfile === undefined
+  ) {
+    const registry = await loadProfileRegistry(storage);
+    storage = resolveLiveAgentStorage({
+      environment: { LIVE_AGENT_HOME: storage.root },
+      profile: registry.selectedProfile,
+    });
+  }
   await ensureLiveAgentStorage(storage);
   logPath = storage.desktopLogPath;
   logger = new DesktopFileLogger(logPath, environmentLoggingLevel ?? "info");
@@ -345,77 +488,84 @@ async function bootstrap(): Promise<void> {
       event.attributes,
     );
   }
-  composition = await createDesktopComposition({
-    preferencesPath: storage.preferencesPath,
-    sessionsPath: storage.sessionsPath,
-    projectSessionsPath: storage.projectSessionsPath,
-    agentsDirectory: app.isPackaged
-      ? join(process.resourcesPath, "agents")
-      : fileURLToPath(new URL("../../../../agents", import.meta.url)),
-    skillsDirectory: app.isPackaged
-      ? join(process.resourcesPath, "skills")
-      : fileURLToPath(new URL("../../../../skills", import.meta.url)),
-    agentBaseDirectory: storage.copilotDirectory,
-    sessionStateDirectory: storage.sessionStateDirectory,
-    eventJournalPath: storage.eventJournalPath,
-    storageMigrationEvents: migration.events,
-    signalDescriptorPath,
-    credentialVault,
-    homeDirectory: homedir(),
-    platform: process.platform,
-    environment: process.env,
-    logger: {
-      debug: (message, context) => void logger.write("debug", message, context),
-      info: (message, context) => void logger.write("info", message, context),
-      warn: (message, context) => void logger.write("warn", message, context),
-      error: (message, context) => void logger.write("error", message, context),
+  composition = await composeProfile(storage, migration);
+  diagnostics = createDiagnostics(storage, migration.status);
+
+  const switchDesktopProfile = async (profile: string): Promise<void> => {
+    const previousStorage = storage;
+    const previousComposition = requireService();
+    await previousComposition.stop();
+    await clearSignalSecret();
+    const nextStorage = resolveLiveAgentStorage({
+      environment: { LIVE_AGENT_HOME: previousStorage.root },
+      profile,
+    });
+    let nextComposition: DesktopComposition | undefined;
+    try {
+      await ensureLiveAgentStorage(nextStorage);
+      logPath = nextStorage.desktopLogPath;
+      logger = new DesktopFileLogger(
+        logPath,
+        environmentLoggingLevel ?? "info",
+      );
+      await logger.prune();
+      nextComposition = await composeProfile(nextStorage);
+      await nextComposition.service.start();
+      storage = nextStorage;
+      composition = nextComposition;
+      diagnostics = createDiagnostics(storage, "not-needed");
+      setTimeout(() => {
+        const window = mainWindow;
+        if (window !== undefined && !window.isDestroyed()) window.close();
+        void createWindow();
+      }, 50);
+    } catch (error) {
+      await nextComposition?.service.stop().catch(() => undefined);
+      await clearSignalSecret().catch(() => undefined);
+      storage = previousStorage;
+      logPath = previousStorage.desktopLogPath;
+      logger = new DesktopFileLogger(
+        logPath,
+        environmentLoggingLevel ?? "info",
+      );
+      const restored = await composeProfile(previousStorage);
+      await restored.service.start();
+      composition = restored;
+      diagnostics = createDiagnostics(previousStorage, "not-needed");
+      throw error;
+    }
+  };
+  const profileManager = new DesktopProfileManager({
+    rootLayout: storage,
+    bundledAgentsDirectory,
+    bundledSkillsDirectory,
+    ...((explicitProfile ??
+      (!app.isPackaged
+        ? "development"
+        : launchOptions.automation === undefined
+          ? undefined
+          : "automation")) === undefined
+      ? {}
+      : {
+          environmentProfileOverride:
+            explicitProfile ?? (!app.isPackaged ? "development" : "automation"),
+        }),
+    getActiveProfile: () => storage.profile,
+    getActiveSessionId: async () =>
+      (await requireService().listOutputs()).activeSessionId,
+    closeActiveSession: async () => {
+      await requireService().closeSession();
     },
-    onError: (message, context) => void logger.write("error", message, context),
-    onLoggingLevelChange: (level) => {
-      activeLoggingLevel = environmentLoggingLevel ?? level;
-      logger.setLevel(activeLoggingLevel);
+    refreshActiveCatalog: async () => {
+      await requireService().refreshAgentCatalog();
     },
-  });
-  if (composition.bridgeToken !== undefined) {
-    removeSignalSecret = await writeSignalSecret(composition.bridgeToken);
-  }
-  activeLoggingLevel =
-    environmentLoggingLevel ?? composition.preferences.loggingLevel;
-  logger.setLevel(activeLoggingLevel);
-  const diagnostics = createDesktopDiagnosticsActions({
-    logPath,
-    storage: {
-      version: storage.version,
-      root: storage.root,
-      profile: storage.profile,
-      profileRoot: storage.profileRoot,
-      migrationStatus: migration.status,
-    },
-    getLoggingLevel: () => activeLoggingLevel,
-    environmentOverride: environmentLoggingLevel !== undefined,
-    appVersion: app.getVersion(),
-    platform: process.platform,
-    chooseExportPath: async () => {
-      const options = {
-        title: "Export support bundle",
-        defaultPath: `ableton-agent-support-${new Date()
-          .toISOString()
-          .slice(0, 10)}.json`,
-        filters: [{ name: "JSON", extensions: ["json"] }],
-      };
-      const result =
-        mainWindow === undefined
-          ? await dialog.showSaveDialog(options)
-          : await dialog.showSaveDialog(mainWindow, options);
-      return result.canceled ? undefined : result.filePath;
-    },
-    revealItem: (path) => shell.showItemInFolder(path),
-    writeClipboard: (text) => clipboard.writeText(text),
+    switchProfile: switchDesktopProfile,
+    telemetry: (event) => composition?.telemetry.enqueue(event),
   });
   const unregisterIpc = registerIpc(
     ipcMain,
-    composition.service,
-    diagnostics,
+    serviceProxy,
+    diagnosticsProxy,
     (event) =>
       mainWindow !== undefined &&
       event.sender.id === mainWindow.webContents.id &&
@@ -426,6 +576,7 @@ async function bootstrap(): Promise<void> {
       warn: (message, context) => void logger.write("warn", message, context),
       error: (message, context) => void logger.write("error", message, context),
     },
+    profileManager,
   );
   app.on("activate", () => {
     if (!mainWindow) void createWindow();

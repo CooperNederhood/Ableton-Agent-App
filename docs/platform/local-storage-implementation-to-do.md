@@ -17,6 +17,9 @@ Companion specification: [Local Storage Layout](local-storage.md)
   `session-state/{production-session-id}/artifacts/plan.md` through the shared
   resolver with owner-only permissions and atomic revision-checked writes.
 - [x] Keep the event journal profile-wide rather than splitting it per session.
+- [ ] Add root-owned profile registry and editable System Scope artifacts.
+- [ ] Add Profile and Session Scope agent/skill directories and tombstones.
+- [ ] Preserve bundled agents and skills as immutable fallback resources.
 
 ## Migration and safety
 

@@ -657,7 +657,14 @@ export class HeadlessDesktopService implements DesktopService {
     if (this.options.agentCatalog === undefined) {
       throw new Error("Agent definitions are not configured");
     }
-    const catalog = await this.options.agentCatalog.refresh();
+    const scoped = this.options
+      .agentCatalog as typeof this.options.agentCatalog & {
+      refreshForSession?: (sessionId?: string) => Promise<DesktopAgentCatalog>;
+    };
+    const catalog =
+      scoped.refreshForSession === undefined
+        ? await scoped.refresh()
+        : await scoped.refreshForSession(this.#activeProductionSessionId);
     this.emit({ type: "agents.catalog_changed", catalog });
     return catalog;
   }
@@ -1284,6 +1291,64 @@ export class HeadlessDesktopService implements DesktopService {
     });
   }
 
+  public async closeSession(): Promise<void> {
+    this.#assertAccepting();
+    await this.#queueSessionAction(async () => {
+      const session = this.#activeSession();
+      if (session === undefined) return;
+      if (this.#turn) {
+        throw new Error(
+          "Cannot close a session while an agent turn is running",
+        );
+      }
+      if (this.#managedTurns.size > 0 || this.#managedTurnCleanup.size > 0) {
+        throw new Error(
+          "Cannot close a session while a managed agent turn is running",
+        );
+      }
+      if (this.#managedAgentReplacements.size > 0) {
+        throw new Error(
+          "Cannot close a session while managed Agent conversation settings are changing",
+        );
+      }
+      await this.#withSuspendedSignals(async () => {
+        const errors = await this.#deactivateAgents(session.activeAgents);
+        if (errors.length > 0) {
+          throw new AggregateError(
+            errors,
+            `Could not close production session '${session.id}'`,
+          );
+        }
+        if (this.#projectIdentity?.saved === true) {
+          this.#projectAssociations = this.#projectAssociations.filter(
+            ({ projectId }) => projectId !== this.#projectIdentity!.projectId,
+          );
+          await this.options.projectSessionStore?.save(
+            this.#projectAssociations,
+          );
+        }
+        this.#activeProductionSessionId = undefined;
+        this.#pinnedContext = [];
+        await this.#persistSessions();
+        this.#publishAutoApprovedAgentIds();
+        this.#bindActiveOutputAssignments();
+        if (this.options.agentCatalog !== undefined) {
+          const catalog = await this.options.agentCatalog.refresh();
+          this.emit({ type: "agents.catalog_changed", catalog });
+        }
+      });
+      this.emit({
+        type: "sessions.changed",
+        sessions: [...this.#sessions],
+      });
+      this.emit({
+        type: "diagnostic",
+        level: "info",
+        message: `Closed production session ${session.id}.`,
+      });
+    });
+  }
+
   async #resumeSessionInTransaction(sessionId: string): Promise<void> {
     const requested = this.#sessions.find(
       (session) => session.id === sessionId,
@@ -1316,6 +1381,17 @@ export class HeadlessDesktopService implements DesktopService {
     await this.#withSuspendedSignals(async () => {
       const session = this.#sessions.find((item) => item.id === sessionId)!;
       if (this.options.agentCatalog !== undefined) {
+        const scoped = this.options.agentCatalog as
+          | (typeof this.options.agentCatalog & {
+              refreshForSession?: (
+                sessionId?: string,
+              ) => Promise<DesktopAgentCatalog>;
+            })
+          | undefined;
+        if (scoped?.refreshForSession !== undefined) {
+          const catalog = await scoped.refreshForSession(session.id);
+          this.emit({ type: "agents.catalog_changed", catalog });
+        }
         const previous = this.#activeSession();
         if (previous?.id !== session.id) {
           const resumed = await this.#switchManagedProductionSession(
@@ -2841,6 +2917,17 @@ export class HeadlessDesktopService implements DesktopService {
         : undefined);
     if (this.options.agentCatalog !== undefined) {
       if (startupSession !== undefined) {
+        const scoped = this.options.agentCatalog as
+          | (typeof this.options.agentCatalog & {
+              refreshForSession?: (
+                sessionId?: string,
+              ) => Promise<DesktopAgentCatalog>;
+            })
+          | undefined;
+        if (scoped?.refreshForSession !== undefined) {
+          const catalog = await scoped.refreshForSession(startupSession.id);
+          this.emit({ type: "agents.catalog_changed", catalog });
+        }
         const pendingLegacySdkSessionId =
           this.#selectedSdkSessionId(startupSession);
         if (

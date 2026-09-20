@@ -33,6 +33,7 @@ export type WorkspaceView =
   | "outputs"
   | "events"
   | "browser"
+  | "profiles"
   | "diagnostics"
   | "sessions"
   | "settings";

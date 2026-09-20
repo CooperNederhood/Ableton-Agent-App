@@ -112,7 +112,10 @@ function rendererState(active = true): DesktopState {
   };
 }
 
-function desktopApi(overrides: Partial<DesktopApi["agents"]> = {}): DesktopApi {
+function desktopApi(
+  overrides: Partial<DesktopApi["agents"]> = {},
+  profileOverrides: Partial<DesktopApi["profiles"]> = {},
+): DesktopApi {
   return {
     agents: {
       listModels: vi.fn().mockResolvedValue(models),
@@ -123,6 +126,20 @@ function desktopApi(overrides: Partial<DesktopApi["agents"]> = {}): DesktopApi {
       writePlan: vi.fn(),
       resolveElicitation: vi.fn(),
       ...overrides,
+    },
+    profiles: {
+      status: vi.fn().mockResolvedValue({
+        revision: "a".repeat(64),
+        activeProfile: "default",
+        profiles: [
+          {
+            name: "default",
+            active: true,
+            reserved: false,
+          },
+        ],
+      }),
+      ...profileOverrides,
     },
   } as unknown as DesktopApi;
 }
@@ -537,6 +554,64 @@ describe("desktop component interactions", () => {
     expect(readPlan).toHaveBeenNthCalledWith(2, secondAgentId);
     expect(readPlan).toHaveBeenNthCalledWith(3, agentId);
     expect(container.textContent).toContain("First plan");
+  });
+
+  it("waits for an actionable lifecycle before loading the shared plan", async () => {
+    let publish!: (event: DesktopAppEvent) => void;
+    const state = rendererState();
+    const readPlan = vi.fn().mockResolvedValue({
+      exists: false,
+      productionSessionId: sessionId,
+    });
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: {
+        lifecycle: { get: vi.fn().mockResolvedValue("starting") },
+        ableton: {
+          getStatus: vi.fn().mockResolvedValue({ state: "disconnected" }),
+        },
+        preferences: {
+          get: vi.fn().mockResolvedValue(initialState.preferences),
+        },
+        agent: { getSessions: vi.fn().mockResolvedValue(state.sessions) },
+        agents: {
+          getCatalog: vi.fn().mockResolvedValue(state.agentCatalog),
+          hydrateHistory: vi.fn().mockResolvedValue([]),
+          readPlan,
+        },
+        outputs: { list: vi.fn().mockResolvedValue(initialState.outputs) },
+        events: {
+          list: vi.fn().mockResolvedValue(initialState.events),
+          subscribe: vi.fn((listener: (event: DesktopAppEvent) => void) => {
+            publish = listener;
+            return vi.fn();
+          }),
+        },
+      },
+    });
+
+    await act(async () => {
+      root.render(<App />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      publish({
+        type: "session.context_restored",
+        session: state.sessions[0]!,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(readPlan).not.toHaveBeenCalled();
+
+    await act(async () => {
+      publish({ type: "lifecycle.changed", state: "ready" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(readPlan).toHaveBeenCalledOnce();
+    expect(readPlan).toHaveBeenCalledWith(agentId);
   });
 
   it("opens the selected Agent Inspector for a plan event and submits feedback", async () => {
@@ -1177,5 +1252,42 @@ describe("desktop component interactions", () => {
     expect(workspace.style.getPropertyValue("--project-sidebar-width")).toBe(
       "330px",
     );
+  });
+  it("confirms and closes the active session when switching profiles", async () => {
+    const switchProfile = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktopApi(
+        {},
+        {
+          status: vi.fn().mockResolvedValue({
+            revision: "b".repeat(64),
+            activeProfile: "default",
+            activeSessionId: sessionId,
+            profiles: [
+              { name: "default", active: true, reserved: false },
+              { name: "ambient", active: false, reserved: false },
+            ],
+          }),
+          switch: switchProfile,
+        },
+      ),
+    });
+    const state = rendererState();
+    await act(async () => {
+      root.render(<AgentHarness state={state} />);
+    });
+
+    await choose(container, "Active Profile", "ambient");
+    expect(container.textContent).toContain(
+      "The active session will be saved and closed",
+    );
+    await act(async () =>
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Switch")
+        ?.click(),
+    );
+
+    expect(switchProfile).toHaveBeenCalledWith("ambient", "b".repeat(64), true);
   });
 });

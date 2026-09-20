@@ -9,7 +9,9 @@ definition.
 
 ## Definitions and instances
 
-A **defined agent** is loaded from a root `agents/*.yaml` file. It contains:
+A **defined agent** is loaded from the effective scoped catalog. Session,
+Profile, and System Scope definitions override immutable bundled
+`agents/*.yaml` resources by validated semantic name. It contains:
 
 - stable name and user-facing description;
 - a system prompt layered over immutable Ableton safety instructions;
@@ -28,6 +30,12 @@ An **active agent instance** has:
 
 Multiple active instances may use the same definition. Definition refreshes do
 not mutate existing instances until the user resets them.
+
+Scoped agent definitions use copy-on-write inheritance. Deleting a local
+override reveals the next upstream definition; a scope-local tombstone hides an
+inherited definition without deleting it upstream. Profile Manager copy, move,
+and semantic rename operations validate the complete effective catalog before
+publication.
 
 Creating, resuming, resetting, or changing an active instance emits a sanitized
 configuration snapshot to the local detailed event journal. The snapshot

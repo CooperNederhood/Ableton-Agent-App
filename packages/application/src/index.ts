@@ -636,6 +636,10 @@ export interface CopilotAgentServiceOptions {
   turnTimeoutMs?: number | (() => number);
   signalContext?: SignalContextOptions;
   liveEventContext?: LiveEventContextOptions;
+  resolveSkill?: (
+    productionSessionId: string,
+    skillName: string,
+  ) => Promise<AgentSkillDescriptor | undefined>;
   /**
    * Non-blocking ingress for exact, application-level runtime records. The
    * receiver owns buffering and persistence; agent execution never awaits it.
@@ -1917,18 +1921,45 @@ export class CopilotAgentService implements AgentService {
         `Skill '${skillName}' is not enabled for managed agent '${state.configuration.instanceId}'.`,
       );
     }
-    const descriptor = state.configuration.availableSkills?.find(
-      (skill) => skill.name === skillName,
-    );
-    if (descriptor === undefined)
-      throw new Error(`Unknown skill '/${skillName}'.`);
-    const document = await readSkillDocument(descriptor.sourcePath, skillName);
-    if (document.fingerprint !== descriptor.fingerprint) {
-      throw new Error(
-        `Skill '${skillName}' changed after the catalog was loaded. Refresh agent definitions before invoking it.`,
+    const startedAt = Date.now();
+    this.#recordRuntime(state, "agent.skill.read.queued", { skillName });
+    this.#recordRuntime(state, "agent.skill.read.started", { skillName });
+    try {
+      const descriptor =
+        this.options.resolveSkill === undefined
+          ? state.configuration.availableSkills?.find(
+              (skill) => skill.name === skillName,
+            )
+          : await this.options.resolveSkill(
+              state.configuration.productionSessionId,
+              skillName,
+            );
+      if (descriptor === undefined)
+        throw new Error(`Unknown skill '/${skillName}'.`);
+      const document = await readSkillDocument(
+        descriptor.sourcePath,
+        skillName,
       );
+      if (document.fingerprint !== descriptor.fingerprint) {
+        throw new Error(
+          `Skill '${skillName}' changed while it was being loaded. Try again.`,
+        );
+      }
+      this.#recordRuntime(state, "agent.skill.read.completed", {
+        skillName,
+        fingerprint: document.fingerprint,
+        characters: document.body.length,
+        durationMs: Date.now() - startedAt,
+      });
+      return document.body;
+    } catch (error) {
+      this.#recordRuntime(state, "agent.skill.read.failed", {
+        skillName,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     }
-    return document.body;
   }
 
   async #prepareSkillInvocation(
@@ -3183,12 +3214,13 @@ export class CopilotAgentService implements AgentService {
         { trace: turn.trace, sessionId: replacement.sessionId },
       );
     } catch (error) {
+      let reconfigurationError = error;
       if (replacement !== undefined && state.session !== replacement) {
         try {
           await replacement.disconnect();
         } catch (cleanupError) {
-          error = new AggregateError(
-            [error, cleanupError],
+          reconfigurationError = new AggregateError(
+            [reconfigurationError, cleanupError],
             "Copilot session reconfiguration and cleanup failed",
           );
         }
@@ -3202,12 +3234,15 @@ export class CopilotAgentService implements AgentService {
         {
           reason: "reasoning_summary_changed",
           reasoningSummary: config.reasoningSummary,
-          error: error instanceof Error ? error.message : String(error),
+          error:
+            reconfigurationError instanceof Error
+              ? reconfigurationError.message
+              : String(reconfigurationError),
           durationMs: Date.now() - startedAt,
         },
         { trace: turn.trace, sessionId: current.sessionId },
       );
-      throw error;
+      throw reconfigurationError;
     }
   }
 

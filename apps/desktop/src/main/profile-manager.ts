@@ -11,7 +11,9 @@ import {
   loadLayeredAgentCatalog,
   moveArtifact,
   replaceAgentDefinitionInScope,
+  replaceSkillInScope,
   readArtifactTombstones,
+  readSkillDocument,
   renameAgentInScope,
   renameSkillInScope,
   resolveArtifactPathInScope,
@@ -50,6 +52,7 @@ import {
   type DesktopProfileManagerSnapshot,
   type DesktopScopedArtifact,
   type DesktopSession,
+  type DesktopSkillDocument,
 } from "../contracts.js";
 import type { ProfileManagerActions } from "./ipc.js";
 
@@ -87,6 +90,7 @@ export interface ProfileManagerOptions {
   readonly environmentProfileOverride?: string;
   readonly getActiveProfile: () => string;
   readonly getActiveSessionId: () => Promise<string | undefined>;
+  readonly getActiveSession: () => Promise<DesktopSession | undefined>;
   readonly persistActiveSession: () => Promise<DesktopSession>;
   readonly closeActiveSession: () => Promise<void>;
   readonly refreshActiveCatalog: () => Promise<DesktopAgentCatalog>;
@@ -95,6 +99,11 @@ export interface ProfileManagerOptions {
 }
 
 class ProfileOperationCancelledError extends Error {}
+
+type OperationProgress = (
+  phase: string,
+  attributes?: Readonly<Record<string, string>>,
+) => void;
 
 function fingerprint(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -308,10 +317,12 @@ export class DesktopProfileManager implements ProfileManagerActions {
             error instanceof Error ? error.message : String(error),
           );
         }
+
         const sessionId = snapshot.activeSessionId;
         if (sessionId === undefined) {
           throw new Error("An active persisted production session is required");
         }
+
         const selectedLayout = resolveLiveAgentStorage({
           environment: { LIVE_AGENT_HOME: this.options.rootLayout.root },
           profile: snapshot.activeProfile,
@@ -326,6 +337,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
               "The active production session changed during save",
             );
           }
+          snapshot = await this.get(activeProfile);
         }
         const eventIds = new Set(session.liveEvents.map(({ id }) => id));
         const unknownEventIds = definition.eventListeners
@@ -412,6 +424,185 @@ export class DesktopProfileManager implements ProfileManagerActions {
         }
         if (result === undefined) {
           throw new Error("Agent definition save did not produce a snapshot");
+        }
+        return result;
+      },
+    );
+  }
+
+  public async readSkill({
+    name,
+  }: Parameters<
+    ProfileManagerActions["readSkill"]
+  >[0]): Promise<DesktopSkillDocument> {
+    return this.#artifactOperation("read", "skill", name, async () => {
+      const snapshot = await this.get(this.options.getActiveProfile());
+      const catalog = await this.#loadCatalog(
+        snapshot.activeProfile,
+        snapshot.activeSessionId,
+      );
+      const skill = catalog.skills.find(
+        ({ metadata }) => metadata.name === name,
+      );
+      if (skill === undefined)
+        throw new Error(`Skill '${name}' does not exist`);
+      const document = await readSkillDocument(skill.sourcePath, name);
+      return {
+        name: document.metadata.name,
+        description: document.metadata.description,
+        body: document.body,
+        origin: skill.origin,
+        fingerprint: document.fingerprint,
+      };
+    });
+  }
+
+  public createSkill(
+    request: Parameters<ProfileManagerActions["createSkill"]>[0],
+  ): ReturnType<ProfileManagerActions["createSkill"]> {
+    return this.#publishSkill(request, true);
+  }
+
+  public saveSkill(
+    request: Parameters<ProfileManagerActions["saveSkill"]>[0],
+  ): ReturnType<ProfileManagerActions["saveSkill"]> {
+    return this.#publishSkill(request, false);
+  }
+
+  async #publishSkill(
+    request:
+      | Parameters<ProfileManagerActions["createSkill"]>[0]
+      | Parameters<ProfileManagerActions["saveSkill"]>[0],
+    creating: boolean,
+  ): ReturnType<ProfileManagerActions["saveSkill"]> {
+    return this.#artifactOperation(
+      creating ? "create-skill" : "save-skill",
+      "skill",
+      request.name,
+      async () => {
+        const activeProfile = this.options.getActiveProfile();
+        let snapshot: DesktopProfileManagerSnapshot;
+        try {
+          snapshot = await this.#assertRevision(
+            request.expectedRevision,
+            activeProfile,
+          );
+        } catch (error) {
+          throw new ProfileOperationCancelledError(
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        const sessionId = snapshot.activeSessionId;
+        if (sessionId === undefined) {
+          throw new Error("An active persisted production session is required");
+        }
+        const selectedLayout = resolveLiveAgentStorage({
+          environment: { LIVE_AGENT_HOME: this.options.rootLayout.root },
+          profile: snapshot.activeProfile,
+        });
+        let session = (await readSessions(selectedLayout)).find(
+          ({ id }) => id === sessionId,
+        );
+        if (session === undefined) {
+          session = await this.options.persistActiveSession();
+          if (session.id !== sessionId) {
+            throw new Error(
+              "The active production session changed during save",
+            );
+          }
+          snapshot = await this.get(activeProfile);
+        }
+        const sessionPaths = resolveArtifactScopePaths(
+          selectedLayout,
+          "session",
+          sessionId,
+        );
+        await ensureScope(sessionPaths);
+        const load = () => this.#loadCatalog(snapshot.activeProfile, sessionId);
+        const current = (await load()).skills.find(
+          ({ metadata }) => metadata.name === request.name,
+        );
+        if (creating) {
+          if (current !== undefined) {
+            throw new Error(`Skill '${request.name}' already exists`);
+          }
+        } else {
+          if (current === undefined) {
+            throw new Error(`Skill '${request.name}' does not exist`);
+          }
+          const expectedFingerprint =
+            "expectedFingerprint" in request
+              ? request.expectedFingerprint
+              : undefined;
+          if (current.fingerprint !== expectedFingerprint) {
+            throw new ProfileOperationCancelledError(
+              "Skill changed; refresh before trying again",
+            );
+          }
+        }
+        try {
+          await this.#assertSnapshotUnchanged(snapshot);
+        } catch (error) {
+          throw new ProfileOperationCancelledError(
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        const metadata = creating
+          ? {
+              name: request.name,
+              description: "description" in request ? request.description : "",
+            }
+          : current!.metadata;
+        let result:
+          Awaited<ReturnType<ProfileManagerActions["saveSkill"]>> | undefined;
+        try {
+          await replaceSkillInScope({
+            skillsDirectory: sessionPaths.skillsDirectory,
+            metadata,
+            body: request.body,
+            validatePublishedCatalog: async () => {
+              const validated = await load();
+              const saved = validated.skills.find(
+                ({ metadata: candidate }) => candidate.name === request.name,
+              );
+              if (
+                saved?.origin !== "session" ||
+                saved.metadata.description !== metadata.description
+              ) {
+                throw new Error(
+                  `Saved skill '${request.name}' did not resolve from Session Scope (${saved?.origin ?? "missing"}; ${validated.diagnostics
+                    .map(({ code, message }) => `${code}: ${message}`)
+                    .join("; ")})`,
+                );
+              }
+              const document = await readSkillDocument(
+                saved.sourcePath,
+                request.name,
+              );
+              if (document.body !== request.body.trim()) {
+                throw new Error(
+                  `Saved skill '${request.name}' body did not match`,
+                );
+              }
+              result = {
+                document: {
+                  name: document.metadata.name,
+                  description: document.metadata.description,
+                  body: document.body,
+                  origin: saved.origin,
+                  fingerprint: document.fingerprint,
+                },
+                catalog: await this.options.refreshActiveCatalog(),
+                profileSnapshot: await this.get(snapshot.activeProfile),
+              };
+            },
+          });
+        } catch (error) {
+          await this.options.refreshActiveCatalog().catch(() => undefined);
+          throw error;
+        }
+        if (result === undefined) {
+          throw new Error("Skill save did not produce a snapshot");
         }
         return result;
       },
@@ -633,10 +824,18 @@ export class DesktopProfileManager implements ProfileManagerActions {
       operation,
       request.kind,
       request.name,
-      async () => {
+      async (progress) => {
         const snapshot = await this.#assertRevision(request.expectedRevision);
-        const source = await this.#paths(request.source, snapshot);
-        const destination = await this.#paths(request.destination, snapshot);
+        const source = await this.#paths(request.source, snapshot, "source");
+        const destination = await this.#paths(
+          request.destination,
+          snapshot,
+          "destination",
+          () =>
+            progress("persisting-active-session", {
+              destination_session_id: request.destination.sessionId!,
+            }),
+        );
         const sourceDirectory =
           request.kind === "agent"
             ? source.agentsDirectory
@@ -809,8 +1008,16 @@ export class DesktopProfileManager implements ProfileManagerActions {
     const currentActiveSessionId = await this.options.getActiveSessionId();
     const activeSessionId =
       selectedProfile === activeProfile ? currentActiveSessionId : undefined;
+    const activeSessionCandidate = await this.options.getActiveSession();
+    const activeSession =
+      activeSessionCandidate?.id === currentActiveSessionId
+        ? activeSessionCandidate
+        : undefined;
     await Promise.all([system, profile].map(ensureScope));
-    const selectedSessions = await readSessions(selectedLayout);
+    const persistedSelectedSessions = await readSessions(selectedLayout);
+    const persistedSelectedSessionIds = new Set(
+      persistedSelectedSessions.map(({ id }) => id),
+    );
     const bundled = {
       agentsDirectory: this.options.bundledAgentsDirectory,
       skillsDirectory: this.options.bundledSkillsDirectory,
@@ -828,7 +1035,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
     });
     const sessionArtifacts = (
       await Promise.all(
-        selectedSessions.map(async ({ id }) => {
+        persistedSelectedSessions.map(async ({ id }) => {
           const session = resolveArtifactScopePaths(
             selectedLayout,
             "session",
@@ -883,12 +1090,22 @@ export class DesktopProfileManager implements ProfileManagerActions {
     );
     const profiles = await Promise.all(
       registry.profiles.map(async ({ name }) => {
-        const sessions = await readSessions(
+        const persistedSessions = await readSessions(
           resolveLiveAgentStorage({
             environment: { LIVE_AGENT_HOME: this.options.rootLayout.root },
             profile: name,
           }),
         );
+        const sessions =
+          name === activeProfile &&
+          activeSession !== undefined &&
+          !persistedSessions.some(({ id }) => id === activeSession.id)
+            ? [activeSession, ...persistedSessions]
+            : persistedSessions;
+        const persistedSessionIds =
+          name === selectedProfile
+            ? persistedSelectedSessionIds
+            : new Set(persistedSessions.map(({ id }) => id));
         return {
           name,
           active: name === activeProfile,
@@ -898,6 +1115,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
             id,
             title,
             active: name === activeProfile && id === currentActiveSessionId,
+            persisted: persistedSessionIds.has(id),
           })),
         };
       }),
@@ -907,6 +1125,9 @@ export class DesktopProfileManager implements ProfileManagerActions {
       activeProfile,
       selectedProfile,
       activeSessionId,
+      sessions: profiles.flatMap(({ name, sessions }) =>
+        sessions.map(({ id, persisted }) => ({ profile: name, id, persisted })),
+      ),
       artifacts: artifacts.map((artifact) => ({
         scope: artifact.scope,
         kind: artifact.kind,
@@ -973,9 +1194,37 @@ export class DesktopProfileManager implements ProfileManagerActions {
     }
   }
 
+  #loadCatalog(
+    profileName: string,
+    sessionId?: string,
+  ): Promise<LayeredAgentCatalog> {
+    const selectedLayout = resolveLiveAgentStorage({
+      environment: { LIVE_AGENT_HOME: this.options.rootLayout.root },
+      profile: profileName,
+    });
+    const system = resolveArtifactScopePaths(selectedLayout, "system");
+    const profile = resolveArtifactScopePaths(selectedLayout, "profile");
+    const session =
+      sessionId === undefined
+        ? undefined
+        : resolveArtifactScopePaths(selectedLayout, "session", sessionId);
+    return loadLayeredAgentCatalog({
+      bundled: {
+        agentsDirectory: this.options.bundledAgentsDirectory,
+        skillsDirectory: this.options.bundledSkillsDirectory,
+      },
+      system: layer(system),
+      profile: layer(profile),
+      ...(session === undefined ? {} : { session: layer(session) }),
+      availableTools,
+    });
+  }
+
   async #paths(
     location: DesktopArtifactLocation,
     snapshot: DesktopProfileManagerSnapshot,
+    sessionAccess: "active" | "source" | "destination" = "active",
+    onPromote?: () => void,
   ): Promise<ArtifactScopePaths> {
     if (location.scope === "bundled") {
       return {
@@ -1001,14 +1250,38 @@ export class DesktopProfileManager implements ProfileManagerActions {
     });
     await ensureLiveAgentStorage(layout);
     if (location.scope === "session") {
-      if (
-        location.sessionId === undefined ||
-        profile !== this.options.getActiveProfile() ||
-        location.sessionId !== (await this.options.getActiveSessionId())
-      ) {
+      if (location.sessionId === undefined) {
+        throw new Error("Session Scope requires a session");
+      }
+      const sessionIsActive =
+        profile === snapshot.activeProfile &&
+        location.sessionId === snapshot.activeSessionId;
+      const session = snapshot.profiles
+        .find(({ name }) => name === profile)
+        ?.sessions.find(({ id }) => id === location.sessionId);
+      const sessionIsPersisted = session?.persisted !== false;
+      if (sessionAccess === "active" && !sessionIsActive) {
         throw new Error(
           "Session Scope is available only for the active session",
         );
+      }
+      if (session === undefined) {
+        throw new Error("Session Scope target is not a listed session");
+      }
+      if (sessionAccess === "source" && !sessionIsPersisted) {
+        throw new Error("Session Scope source is not a persisted session");
+      }
+      if (sessionAccess === "destination" && !sessionIsPersisted) {
+        if (!sessionIsActive) {
+          throw new Error("Only the active ephemeral session can be promoted");
+        }
+        onPromote?.();
+        const persisted = await this.options.persistActiveSession();
+        if (persisted.id !== location.sessionId) {
+          throw new Error(
+            "The active production session changed during transfer",
+          );
+        }
       }
       const paths = resolveArtifactScopePaths(
         layout,
@@ -1024,10 +1297,15 @@ export class DesktopProfileManager implements ProfileManagerActions {
   }
 
   async #refreshIfActive(location: DesktopArtifactLocation): Promise<void> {
-    if (
+    const activeProfile = this.options.getActiveProfile();
+    const profile = location.profile ?? activeProfile;
+    const affectsActiveScope =
       location.scope === "system" ||
-      location.profile === this.options.getActiveProfile()
-    ) {
+      (location.scope === "profile" && profile === activeProfile) ||
+      (location.scope === "session" &&
+        profile === activeProfile &&
+        location.sessionId === (await this.options.getActiveSessionId()));
+    if (affectsActiveScope) {
       await this.options.refreshActiveCatalog();
     }
   }
@@ -1071,7 +1349,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
     operation: string,
     kind: DesktopArtifactKind,
     name: string,
-    action: () => Promise<T>,
+    action: (progress: OperationProgress) => Promise<T>,
   ): Promise<T> {
     return this.#operation(
       `profile.artifact-${operation}`,
@@ -1083,7 +1361,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
   async #operation<T>(
     name: string,
     attributes: Readonly<Record<string, string>>,
-    action: () => Promise<T>,
+    action: (progress: OperationProgress) => Promise<T>,
   ): Promise<T> {
     const startedAt = Date.now();
     const traceId = randomUUID();
@@ -1112,18 +1390,23 @@ export class DesktopProfileManager implements ProfileManagerActions {
       queuedId,
     );
     try {
-      const progressId = this.#record(
-        `${name}.progress`,
-        traceId,
-        randomUUID(),
-        correlationId,
-        { ...attributes, phase: "validating" },
-        startedSpanId,
-        undefined,
-        undefined,
-        startedId,
-      );
-      const result = await action();
+      let progressId = startedId;
+      const progress: OperationProgress = (phase, progressAttributes = {}) => {
+        const nextProgressId = this.#record(
+          `${name}.progress`,
+          traceId,
+          randomUUID(),
+          correlationId,
+          { ...attributes, ...progressAttributes, phase },
+          startedSpanId,
+          undefined,
+          undefined,
+          progressId,
+        );
+        progressId = nextProgressId;
+      };
+      progress("validating");
+      const result = await action(progress);
       if (
         typeof result === "object" &&
         result !== null &&

@@ -30,6 +30,7 @@ import { preferencesSchema } from "../contracts";
 export type WorkspaceView =
   | "workspace"
   | "agents"
+  | "skills"
   | "outputs"
   | "events"
   | "browser"
@@ -513,6 +514,18 @@ function reduceEvent(
         ...state,
         sessions: event.sessions,
         activeSessionId: event.activeSessionId,
+        agentCatalog:
+          state.activeSessionId !== event.activeSessionId &&
+          state.agentCatalog.sessionId !== event.activeSessionId
+            ? {
+                ...(event.activeSessionId === undefined
+                  ? {}
+                  : { sessionId: event.activeSessionId }),
+                definitions: [],
+                skills: [],
+                diagnostics: [],
+              }
+            : state.agentCatalog,
       };
     case "agents.catalog_changed":
       return { ...state, agentCatalog: event.catalog };

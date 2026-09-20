@@ -112,8 +112,8 @@ Conversation, and Inspector. Project and Inspector can be hidden independently,
 and the connection header plus application navigation can be hidden together.
 All regions return on each application launch. The prompt composer is part of
 the Workspace Conversation column and follows its width as sidebars collapse.
-It is not rendered in Agents, Outputs, Events, Browser, Profiles, Diagnostics,
-Sessions, or Settings.
+It is not rendered in Agents, Skills, Outputs, Events, Browser, Profiles,
+Diagnostics, Sessions, or Settings.
 Composer-focus shortcuts return the application to Workspace. Newly received
 elicitation, plan-approval, and tool-approval requests do so only when they
 belong to the selected active agent. Agents remains mounted for its own
@@ -127,6 +127,12 @@ inactive rows share the same editable definition surface. Every save publishes
 a same-name Session-scope version-2 definition through typed main-process IPC,
 then refreshes the effective catalog and Profile Manager snapshot. Active
 conversation snapshots are unchanged until explicit Reset.
+
+The Skills tab mirrors that scoped editing model for `SKILL.md` resources. A
+narrow skill navigator drives an inspector-style metadata and Markdown editor.
+Published name and description fields are read-only; new drafts can set them
+until their first Session-scope save. Successful publication refreshes the
+Profiles view and Workspace slash-command completion immediately.
 
 After hiding both sidebars and the application toolbar, the desktop window can
 be resized to a 320x360 chat-only view. At that size, conversation status is
@@ -225,6 +231,11 @@ Unsaved Live Sets are ephemeral because a name such as `Untitled` is not a
 durable identity. If the open Live Set changes after startup, Desktop blocks
 agent actions and Output delivery until the user resumes the associated App
 session, forks the current setup for the new set, or starts fresh.
+Profiles still shows the active in-memory session before it is persisted.
+Saving a clean Live Set promotes and associates that same session. Session
+artifact creation or transfer also promotes it, while conversation history by
+itself remains in Copilot SDK storage and does not create a `sessions.json`
+record. Sessions associated with saved Live Sets are persisted immediately.
 Forking creates new active-agent and Copilot SDK session IDs, carries the prior
 transcript forward as bounded conversation context, and leaves the source Live
 Set's stored session unchanged.

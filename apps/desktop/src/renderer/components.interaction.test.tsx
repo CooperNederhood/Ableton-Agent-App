@@ -18,6 +18,8 @@ import {
   DesktopComposer,
   EventsView,
   Inspector,
+  SkillsView,
+  slashCompletionsForState,
   WorkingDisclosure,
   Workspace,
   type WorkspaceSidebarWidths,
@@ -126,6 +128,7 @@ function rendererState(active = true): DesktopState {
 function desktopApi(
   overrides: Partial<DesktopApi["agents"]> = {},
   profileOverrides: Partial<DesktopApi["profiles"]> = {},
+  skillOverrides: Partial<DesktopApi["skills"]> = {},
 ): DesktopApi {
   return {
     agents: {
@@ -138,6 +141,12 @@ function desktopApi(
       writePlan: vi.fn(),
       resolveElicitation: vi.fn(),
       ...overrides,
+    },
+    skills: {
+      read: vi.fn(),
+      create: vi.fn(),
+      save: vi.fn(),
+      ...skillOverrides,
     },
     profiles: {
       get: vi.fn().mockResolvedValue({ revision: "a".repeat(64) }),
@@ -155,6 +164,30 @@ function desktopApi(
       ...profileOverrides,
     },
   } as unknown as DesktopApi;
+}
+
+function SkillHarness({
+  state,
+  onProfilesChanged,
+}: {
+  state: DesktopState;
+  onProfilesChanged?: (() => void) | undefined;
+}): React.JSX.Element {
+  const [current, dispatch] = useReducer(desktopReducer, state);
+  return (
+    <>
+      <SkillsView
+        state={current}
+        dispatch={dispatch}
+        onProfilesChanged={onProfilesChanged}
+      />
+      <output data-testid="skill-completions">
+        {slashCompletionsForState("/", current)
+          .map(({ name }) => `/${name}`)
+          .join(" ")}
+      </output>
+    </>
+  );
 }
 
 function AgentHarness({
@@ -315,6 +348,193 @@ describe("desktop component interactions", () => {
     await act(async () => root.unmount());
     container.remove();
     vi.restoreAllMocks();
+  });
+
+  it("edits an existing skill body without exposing mutable frontmatter", async () => {
+    const state = rendererState();
+    state.agentCatalog.skills = [
+      {
+        name: "mix-review",
+        description: "Review the mix.",
+        origin: "bundled",
+        inherited: true,
+        overrides: [],
+        sourceFile: "mix-review/SKILL.md",
+        fingerprint: "b".repeat(64),
+      },
+    ];
+    const read = vi.fn().mockResolvedValue({
+      name: "mix-review",
+      description: "Review the mix.",
+      body: "# Mix review\n\nPreserve headroom.",
+      origin: "bundled",
+      fingerprint: "b".repeat(64),
+    });
+    const save = vi.fn().mockResolvedValue({
+      document: {
+        name: "mix-review",
+        description: "Review the mix.",
+        body: "# Mix review\n\nPreserve dynamics.",
+        origin: "session",
+        fingerprint: "c".repeat(64),
+      },
+      catalog: {
+        ...state.agentCatalog,
+        revision: "2".repeat(64),
+        skills: [
+          {
+            ...state.agentCatalog.skills[0]!,
+            origin: "session",
+            fingerprint: "c".repeat(64),
+          },
+        ],
+      },
+      profileSnapshot: {
+        revision: "2".repeat(64),
+        activeProfile: "default",
+        selectedProfile: "default",
+        activeSessionId: sessionId,
+        profiles: [],
+        artifacts: [],
+      },
+    });
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktopApi({}, {}, { read, save }),
+    });
+
+    await act(async () => {
+      root.render(<SkillHarness state={state} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const body = container.querySelector<HTMLTextAreaElement>(
+      ".skill-markdown-editor textarea",
+    );
+    if (body === null) throw new Error("Expected skill body editor");
+    await replaceText(body, "# Mix review\n\nPreserve dynamics.");
+    await click(container, "Save to Session");
+
+    expect(save).toHaveBeenCalledWith(
+      "mix-review",
+      "# Mix review\n\nPreserve dynamics.",
+      "a".repeat(64),
+      "b".repeat(64),
+    );
+    await clickAria(container, "Skill overview");
+    expect(
+      container.querySelector<HTMLInputElement>('input[value="mix-review"]')
+        ?.disabled,
+    ).toBe(true);
+    expect(container.textContent).toContain(
+      "Published skill metadata is immutable",
+    );
+  });
+
+  it("does not read a skill catalog that belongs to another session", async () => {
+    const state = rendererState();
+    state.agentCatalog = {
+      ...state.agentCatalog,
+      sessionId: "previous-session",
+      skills: [
+        {
+          name: "interview-me",
+          description: "Interview the user.",
+          origin: "session",
+          sourceFile: "interview-me/SKILL.md",
+          fingerprint: "b".repeat(64),
+        },
+      ],
+    };
+    const read = vi.fn();
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktopApi({}, {}, { read }),
+    });
+
+    await act(async () => {
+      root.render(<SkillHarness state={state} />);
+      await Promise.resolve();
+    });
+
+    expect(read).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain("interview-me");
+    expect(container.textContent).toContain("No valid skills found");
+  });
+
+  it("publishes new skill metadata and adds the skill to the navigator", async () => {
+    const state = rendererState();
+    const create = vi.fn().mockResolvedValue({
+      document: {
+        name: "session-groove",
+        description: "Shape a session groove.",
+        body: "# Groove\n\nUse syncopation.",
+        origin: "session",
+        fingerprint: "c".repeat(64),
+      },
+      catalog: {
+        ...state.agentCatalog,
+        revision: "2".repeat(64),
+        skills: [
+          {
+            name: "session-groove",
+            description: "Shape a session groove.",
+            origin: "session",
+            inherited: false,
+            overrides: [],
+            sourceFile: "session-groove/SKILL.md",
+            fingerprint: "c".repeat(64),
+          },
+        ],
+      },
+      profileSnapshot: {
+        revision: "2".repeat(64),
+        activeProfile: "default",
+        selectedProfile: "default",
+        activeSessionId: sessionId,
+        profiles: [],
+        artifacts: [],
+      },
+    });
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktopApi({}, {}, { create }),
+    });
+
+    await act(async () => root.render(<SkillHarness state={state} />));
+    await click(container, "New skill");
+    const name = container.querySelector<HTMLInputElement>(
+      ".skill-overview-grid input",
+    );
+    const description = container.querySelector<HTMLTextAreaElement>(
+      ".skill-overview-grid textarea",
+    );
+    if (name === null || description === null) {
+      throw new Error("Expected new skill metadata fields");
+    }
+    await replaceText(name, "session-groove");
+    await replaceText(description, "Shape a session groove.");
+    await clickAria(container, "Skill instructions");
+    const body = container.querySelector<HTMLTextAreaElement>(
+      ".skill-markdown-editor textarea",
+    );
+    if (body === null) throw new Error("Expected skill body editor");
+    await replaceText(body, "# Groove\n\nUse syncopation.");
+    await click(container, "Save to Session");
+
+    expect(create).toHaveBeenCalledWith(
+      "session-groove",
+      "Shape a session groove.",
+      "# Groove\n\nUse syncopation.",
+      "a".repeat(64),
+    );
+    expect(container.textContent).toContain("session-groove");
+    expect(
+      container.querySelector('[data-testid="skill-completions"]')?.textContent,
+    ).toContain("/session-groove");
   });
 
   it("saves conversation defaults into the Session definition", async () => {

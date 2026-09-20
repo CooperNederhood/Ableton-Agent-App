@@ -203,6 +203,58 @@ describe("ProfileManagerView", () => {
     expect(container.textContent).toContain("compose");
   });
 
+  it("shows an active in-memory session before it is persisted", async () => {
+    window.desktop = api({
+      get: vi.fn().mockResolvedValue(
+        snapshot({
+          profiles: [
+            {
+              name: "default",
+              active: true,
+              reserved: false,
+              sessionCount: 1,
+              sessions: [
+                {
+                  id: "session-new",
+                  title: "Production session",
+                  active: true,
+                  persisted: false,
+                },
+              ],
+            },
+          ],
+          activeSessionId: "session-new",
+        }),
+      ),
+    });
+
+    await act(async () => {
+      root.render(<ProfileManagerView activeSessionId="session-new" />);
+    });
+
+    expect(container.textContent).toContain("Production session");
+    expect(container.textContent).toContain(
+      "In memory · saves on first customization",
+    );
+  });
+
+  it("reloads when the parent refresh token changes", async () => {
+    const get = vi.fn().mockResolvedValue(snapshot());
+    window.desktop = api({ get });
+    await act(async () => {
+      root.render(
+        <ProfileManagerView activeSessionId="session-1" refreshToken={0} />,
+      );
+    });
+    await act(async () => {
+      root.render(
+        <ProfileManagerView activeSessionId="session-1" refreshToken={1} />,
+      );
+    });
+
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+
   it("creates profiles from the header popover", async () => {
     const create = vi.fn().mockResolvedValue(snapshot());
     window.desktop = api({ create });
@@ -290,7 +342,7 @@ describe("ProfileManagerView", () => {
     );
   });
 
-  it("moves by default and copies when Option is held during drag", async () => {
+  it("moves and copies artifacts into active or inactive sessions", async () => {
     const moveArtifact = vi.fn().mockResolvedValue({
       status: "completed",
       snapshot: snapshot(),
@@ -307,24 +359,48 @@ describe("ProfileManagerView", () => {
     const mix = container.querySelector<HTMLButtonElement>(
       'button[aria-label="mix, Local"]',
     )!;
-    const profileToggle = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Collapse default profile"]',
+    const inactiveToggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Expand Second set session"]',
     );
-    if (profileToggle === null) throw new Error("Profile toggle not found");
-    const profileRow = profileToggle.closest("header");
-    if (profileRow === null) throw new Error("Profile row not found");
+    const activeToggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Expand Untitled session"]',
+    );
+    if (inactiveToggle === null || activeToggle === null) {
+      throw new Error("Session drop targets not found");
+    }
+    const inactiveRow = inactiveToggle.closest("header");
+    const activeRow = activeToggle.closest("header");
+    if (inactiveRow === null || activeRow === null) {
+      throw new Error("Session rows not found");
+    }
     await act(async () => mix.dispatchEvent(dragEvent("dragstart")));
     await act(async () => {
-      profileRow.dispatchEvent(dragEvent("dragover"));
-      profileRow.dispatchEvent(dragEvent("drop"));
+      inactiveRow.dispatchEvent(dragEvent("dragover"));
+      inactiveRow.dispatchEvent(dragEvent("drop"));
     });
-    expect(moveArtifact).toHaveBeenCalledTimes(1);
+    expect(moveArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({
+        destination: {
+          scope: "session",
+          profile: "default",
+          sessionId: "session-2",
+        },
+      }),
+    );
 
     await act(async () => mix.dispatchEvent(dragEvent("dragstart", true)));
     await act(async () => {
-      profileRow.dispatchEvent(dragEvent("dragover", true));
-      profileRow.dispatchEvent(dragEvent("drop", true));
+      activeRow.dispatchEvent(dragEvent("dragover", true));
+      activeRow.dispatchEvent(dragEvent("drop", true));
     });
-    expect(copyArtifact).toHaveBeenCalledTimes(1);
+    expect(copyArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({
+        destination: {
+          scope: "session",
+          profile: "default",
+          sessionId: "session-1",
+        },
+      }),
+    );
   });
 });

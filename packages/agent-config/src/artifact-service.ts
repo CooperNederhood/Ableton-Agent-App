@@ -27,7 +27,9 @@ import {
   agentDefinitionSchema,
   currentAgentDefinitionSchema,
   type AgentDefinition,
+  skillMetadataSchema,
   skillNameSchema,
+  type SkillMetadata,
 } from "./schemas.js";
 
 const maximumAgentBytes = 256 * 1024;
@@ -494,6 +496,7 @@ export async function replaceAgentDefinitionInScope(options: {
       `Artifact path '${basename(destination)}' is already occupied by another or invalid definition`,
     );
   }
+
   const staged = `${destination}.${randomUUID()}.staged`;
   const backup = `${destination}.${randomUUID()}.backup`;
   const content = stringify(definition, { lineWidth: 0 });
@@ -506,7 +509,7 @@ export async function replaceAgentDefinitionInScope(options: {
       flag: "wx",
     });
     if (existing !== undefined) {
-      await rename(existing, backup);
+      await rename(destination, backup);
       backedUp = true;
     }
     await rename(staged, destination);
@@ -521,6 +524,96 @@ export async function replaceAgentDefinitionInScope(options: {
     if (published) await rm(destination, { force: true });
     if (backedUp) await rename(backup, destination);
     await rm(staged, { force: true });
+    throw error;
+  }
+}
+
+function skillDocumentContent(metadata: SkillMetadata, body: string): string {
+  const validatedMetadata = skillMetadataSchema.parse(metadata);
+  const validatedBody = body.trim();
+  if (validatedBody.length === 0) {
+    throw new Error("SKILL.md body must not be empty");
+  }
+  const frontmatter = stringify(validatedMetadata, { lineWidth: 0 }).trimEnd();
+  const content = `---\n${frontmatter}\n---\n\n${validatedBody}\n`;
+  if (Buffer.byteLength(content, "utf8") > maximumSkillBytes) {
+    throw new Error(`SKILL.md exceeds ${maximumSkillBytes} bytes`);
+  }
+  return content;
+}
+
+export async function replaceSkillInScope(options: {
+  readonly skillsDirectory: string;
+  readonly metadata: SkillMetadata;
+  readonly body: string;
+  readonly validatePublishedCatalog: () => Promise<void>;
+}): Promise<{ path: string; fingerprint: string }> {
+  const metadata = skillMetadataSchema.parse(options.metadata);
+  const content = skillDocumentContent(metadata, options.body);
+  await assertPhysicalDirectory(options.skillsDirectory);
+  const existing = await findSkill(options.skillsDirectory, metadata.name);
+  const destinationDirectory =
+    existing ?? join(options.skillsDirectory, metadata.name);
+  const destination = join(destinationDirectory, "SKILL.md");
+  assertWithin(options.skillsDirectory, destinationDirectory);
+  if (existing === undefined && (await pathExists(destinationDirectory))) {
+    throw new Error(
+      `Artifact path '${basename(destinationDirectory)}' is already occupied by another or invalid skill`,
+    );
+  }
+  if (existing !== undefined) {
+    const staged = `${destination}.${randomUUID()}.staged`;
+    const backup = `${destination}.${randomUUID()}.backup`;
+    let backedUp = false;
+    let published = false;
+    try {
+      await writeFile(staged, content, {
+        encoding: "utf8",
+        mode: 0o600,
+        flag: "wx",
+      });
+      await rename(destination, backup);
+      backedUp = true;
+      await rename(staged, destination);
+      published = true;
+      await options.validatePublishedCatalog();
+      await rm(backup, { force: true });
+      return {
+        path: destination,
+        fingerprint: fingerprint(Buffer.from(content, "utf8")),
+      };
+    } catch (error) {
+      if (published) await rm(destination, { force: true });
+      if (backedUp) await rename(backup, destination);
+      await rm(staged, { force: true });
+      throw error;
+    }
+  }
+  const stagingRoot = dirname(options.skillsDirectory);
+  const staged = join(
+    stagingRoot,
+    `.${basename(options.skillsDirectory)}-${metadata.name}-${randomUUID()}.staged`,
+  );
+  let published = false;
+  try {
+    await mkdir(staged, { recursive: false, mode: 0o700 });
+    await writeFile(join(staged, "SKILL.md"), content, {
+      encoding: "utf8",
+      mode: 0o600,
+      flag: "wx",
+    });
+    await rename(staged, destinationDirectory);
+    published = true;
+    await options.validatePublishedCatalog();
+    return {
+      path: destination,
+      fingerprint: fingerprint(Buffer.from(content, "utf8")),
+    };
+  } catch (error) {
+    if (published) {
+      await rm(destinationDirectory, { recursive: true, force: true });
+    }
+    await rm(staged, { recursive: true, force: true });
     throw error;
   }
 }

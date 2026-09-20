@@ -260,6 +260,7 @@ async function harness(
       current: DesktopAgentCatalog;
       runtimeSkills?: readonly AgentSkillDescriptor[];
       refresh: () => Promise<DesktopAgentCatalog>;
+      refreshForSession?: (sessionId?: string) => Promise<DesktopAgentCatalog>;
     };
     signals?: SignalRuntime;
     liveEvents?: LiveEventRuntime;
@@ -3108,9 +3109,38 @@ describe("desktop adapter over the shared application", () => {
     const projectSessionStore = new JsonProjectSessionStore(
       join(directory, "project-sessions.json"),
     );
-    const { service, ableton, events } = await harness(
+    let currentCatalog = defaultCatalog();
+    const refreshForSession = vi.fn(async (sessionId?: string) => {
+      currentCatalog = {
+        ...defaultCatalog(),
+        ...(sessionId === undefined ? {} : { sessionId }),
+        skills:
+          refreshForSession.mock.calls.length === 1
+            ? [
+                {
+                  name: "interview-me",
+                  description: "Interview the user.",
+                  origin: "session",
+                  sourceFile: "interview-me/SKILL.md",
+                  fingerprint: "f".repeat(64),
+                },
+              ]
+            : [],
+      };
+      return currentCatalog;
+    });
+    const { service, ableton, events, sessionStore } = await harness(
       {},
-      { projectSessionStore },
+      {
+        projectSessionStore,
+        agentCatalog: {
+          get current() {
+            return currentCatalog;
+          },
+          refresh: () => Promise.resolve(currentCatalog),
+          refreshForSession,
+        },
+      },
     );
     await service.start();
     ableton.state.projectIdentity = {
@@ -3149,6 +3179,21 @@ describe("desktop adapter over the shared application", () => {
     );
     expect(session.projectId).toBe("project-b");
     expect(session.productionPlan).toEqual([]);
+    expect(await sessionStore.load()).toContainEqual(
+      expect.objectContaining({
+        id: session.id,
+        projectId: "project-b",
+      }),
+    );
+    expect(refreshForSession).toHaveBeenLastCalledWith(session.id);
+    expect(
+      [...events]
+        .reverse()
+        .find(({ type }) => type === "agents.catalog_changed"),
+    ).toMatchObject({
+      type: "agents.catalog_changed",
+      catalog: { sessionId: session.id, skills: [] },
+    });
     await service.stop();
   });
 

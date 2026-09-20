@@ -46,6 +46,51 @@ describe("desktop IPC", () => {
     expect(saveAgentDefinition).toHaveBeenCalledWith(request);
   });
 
+  it("routes skill document operations through the profile manager", async () => {
+    const readSkill = vi.fn();
+    const createSkill = vi.fn();
+    const saveSkill = vi.fn();
+    const handlers = createIpcHandlers(
+      {} as DesktopService,
+      {} as DiagnosticsActions,
+      {
+        readSkill,
+        createSkill,
+        saveSkill,
+      } as unknown as ProfileManagerActions,
+    );
+    const revision = "a".repeat(64);
+    const fingerprint = "b".repeat(64);
+
+    await handlers["skills:read"]({ name: "mix-review" });
+    await handlers["skills:create"]({
+      name: "session-groove",
+      description: "Shape a groove.",
+      body: "# Groove",
+      expectedRevision: revision,
+    });
+    await handlers["skills:save"]({
+      name: "mix-review",
+      body: "# Updated",
+      expectedRevision: revision,
+      expectedFingerprint: fingerprint,
+    });
+
+    expect(readSkill).toHaveBeenCalledWith({ name: "mix-review" });
+    expect(createSkill).toHaveBeenCalledWith({
+      name: "session-groove",
+      description: "Shape a groove.",
+      body: "# Groove",
+      expectedRevision: revision,
+    });
+    expect(saveSkill).toHaveBeenCalledWith({
+      name: "mix-review",
+      body: "# Updated",
+      expectedRevision: revision,
+      expectedFingerprint: fingerprint,
+    });
+  });
+
   it("routes profile and artifact operations through the profile manager", async () => {
     const revision = "a".repeat(64);
     const snapshot = {

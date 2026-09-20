@@ -553,6 +553,15 @@ async function bootstrap(): Promise<void> {
     getActiveProfile: () => storage.profile,
     getActiveSessionId: async () =>
       (await requireService().listOutputs()).activeSessionId,
+    getActiveSession: async () => {
+      const service = requireService();
+      const activeSessionId = (await service.listOutputs()).activeSessionId;
+      return activeSessionId === undefined
+        ? undefined
+        : (await service.getSessions()).find(
+            ({ id }) => id === activeSessionId,
+          );
+    },
     persistActiveSession: async () => requireService().persistActiveSession(),
     closeActiveSession: async () => {
       await requireService().closeSession();

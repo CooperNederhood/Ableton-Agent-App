@@ -327,9 +327,11 @@ function ArtifactGroups({
 
 export function ProfileManagerView({
   activeSessionId,
+  refreshToken = 0,
   onProfilesChanged,
 }: {
   activeSessionId?: string;
+  refreshToken?: number;
   onProfilesChanged?: () => void;
 }): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<DesktopProfileManagerSnapshot>();
@@ -368,7 +370,7 @@ export function ProfileManagerView({
 
   useEffect(() => {
     void load();
-  }, [activeSessionId]);
+  }, [activeSessionId, refreshToken]);
 
   useEffect(() => {
     if (menu === undefined) return;
@@ -825,6 +827,11 @@ export function ProfileManagerView({
                                     <small title={session.id}>
                                       {compactSessionId(session.id)}
                                     </small>
+                                    {session.persisted === false && (
+                                      <small className="profile-session-state">
+                                        In memory · saves on first customization
+                                      </small>
+                                    )}
                                   </div>
                                   <span className="profile-tree-count">
                                     {ownedArtifacts.length}

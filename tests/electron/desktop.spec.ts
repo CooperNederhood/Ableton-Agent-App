@@ -17,6 +17,7 @@ test("launches the packaged desktop contract securely", async () => {
       ...process.env,
       ELECTRON_DISABLE_SECURITY_WARNINGS: "true",
       LIVE_AGENT_HOME: join(profile, "live-agent"),
+      LIVE_AGENT_PROFILE: "default",
       NODE_ENV: "test",
     },
   });
@@ -88,6 +89,21 @@ test("launches the packaged desktop contract securely", async () => {
       ),
     ).toBeVisible();
 
+    await window.getByRole("button", { name: "Skills" }).click();
+    await expect(
+      window.getByRole("heading", { name: "Skills", exact: true }),
+    ).toBeVisible();
+    await expect(composer).toHaveCount(0);
+    await window.getByText("mix-review", { exact: true }).first().click();
+    await expect(
+      window.getByRole("textbox", { name: "Markdown instructions" }),
+    ).toBeVisible();
+    await window.getByRole("tab", { name: "Skill overview" }).click();
+    await expect(window.getByRole("textbox", { name: "Name" })).toBeDisabled();
+    await expect(
+      window.getByRole("textbox", { name: "Description" }),
+    ).toBeDisabled();
+
     await window.getByRole("button", { name: "Profiles" }).click();
     await expect(
       window.getByRole("heading", { name: "Profiles", exact: true }),
@@ -97,9 +113,14 @@ test("launches the packaged desktop contract securely", async () => {
       window.getByRole("heading", { name: "System", exact: true }),
     ).toBeVisible();
     await expect(
+      window.getByText("In memory · saves on first customization"),
+    ).toBeVisible();
+    await expect(
       window.getByText(/Profile switching is disabled/u),
     ).toBeVisible();
-    await expect(window.getByLabel("Active Profile")).toBeDisabled();
+    await expect(
+      window.getByLabel("Active Profile", { exact: true }),
+    ).toBeDisabled();
     await window.getByRole("button", { name: "Create profile" }).click();
     await window.getByLabel("New profile").fill("ambient");
     await window.getByRole("button", { name: "Create", exact: true }).click();

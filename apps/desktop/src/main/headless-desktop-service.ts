@@ -3080,47 +3080,72 @@ export class HeadlessDesktopService implements DesktopService {
     title: string,
     identity = this.#projectIdentity,
   ): Promise<string> {
-    const definition = this.#requireDefinition("default");
     const productionSessionId = randomUUID();
-    const activeAgent = this.#activeAgentFromDefinition(definition);
-    const sdkSessionId = await this.#application.createManagedAgent(
-      this.#managedConfiguration(activeAgent, productionSessionId),
-    );
-    const connected = { ...activeAgent, sdkSessionId };
-    const session: DesktopSession = {
-      version: 3,
-      id: productionSessionId,
-      title,
-      updatedAt: new Date().toISOString(),
-      projectName:
-        identity?.projectName ??
-        projectLabel(await this.#application.getStatus()),
-      ...(identity?.saved === true ? { projectId: identity.projectId } : {}),
-      activeAgents: [connected],
-      selectedAgentInstanceId: connected.id,
-      productionPlan: [],
-      outputAssignments: [],
-      liveEvents: [],
-    };
-    session.activeAgents = await this.#switchManagedProductionSession(
-      this.#activeSession(),
-      session,
-      true,
-    );
-    this.#sessions = [session, ...this.#sessions].slice(0, storedSessionLimit);
-    this.#activeProductionSessionId = productionSessionId;
-    if (identity?.saved !== true) {
-      this.#ephemeralSessionIds.add(productionSessionId);
+    const previousSessionId = this.#activeProductionSessionId;
+    const scopedCatalog = this.options.agentCatalog as
+      | (typeof this.options.agentCatalog & {
+          refreshForSession?: (
+            sessionId?: string,
+          ) => Promise<DesktopAgentCatalog>;
+        })
+      | undefined;
+    const catalog =
+      await scopedCatalog?.refreshForSession?.(productionSessionId);
+    let sessionActivated = false;
+    try {
+      const definition = this.#requireDefinition("default");
+      const activeAgent = this.#activeAgentFromDefinition(definition);
+      const sdkSessionId = await this.#application.createManagedAgent(
+        this.#managedConfiguration(activeAgent, productionSessionId),
+      );
+      const connected = { ...activeAgent, sdkSessionId };
+      const session: DesktopSession = {
+        version: 3,
+        id: productionSessionId,
+        title,
+        updatedAt: new Date().toISOString(),
+        projectName:
+          identity?.projectName ??
+          projectLabel(await this.#application.getStatus()),
+        ...(identity?.saved === true ? { projectId: identity.projectId } : {}),
+        activeAgents: [connected],
+        selectedAgentInstanceId: connected.id,
+        productionPlan: [],
+        outputAssignments: [],
+        liveEvents: [],
+      };
+      session.activeAgents = await this.#switchManagedProductionSession(
+        this.#activeSession(),
+        session,
+        true,
+      );
+      this.#sessions = [session, ...this.#sessions].slice(
+        0,
+        storedSessionLimit,
+      );
+      this.#activeProductionSessionId = productionSessionId;
+      sessionActivated = true;
+      if (identity?.saved !== true) {
+        this.#ephemeralSessionIds.add(productionSessionId);
+      }
+      await this.#persistSessions();
+      if (catalog !== undefined) {
+        this.emit({ type: "agents.catalog_changed", catalog });
+      }
+      await this.#associateActiveSession(identity);
+      this.#publishAutoApprovedAgentIds();
+      this.emit({
+        type: "agent.instance_changed",
+        instance: connected,
+        change: "created",
+      });
+      return productionSessionId;
+    } catch (error) {
+      if (!sessionActivated) {
+        await scopedCatalog?.refreshForSession?.(previousSessionId);
+      }
+      throw error;
     }
-    await this.#persistSessions();
-    await this.#associateActiveSession(identity);
-    this.#publishAutoApprovedAgentIds();
-    this.emit({
-      type: "agent.instance_changed",
-      instance: connected,
-      change: "created",
-    });
-    return productionSessionId;
   }
 
   async #resumeManagedAgents(

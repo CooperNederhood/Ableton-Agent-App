@@ -37,6 +37,7 @@ import type {
   DesktopOutputConnection,
   DesktopProjectSnapshot,
   DesktopProfileStatus,
+  DesktopSkillDocument,
   DesktopLiveEventState,
   LatestAcceptedOutput,
   DesktopTrack,
@@ -188,9 +189,13 @@ export function slashCompletionsForState(
   input: string,
   state: DesktopState,
 ): SlashCompletionEntry[] {
+  const session = activeSession(state);
+  const catalogMatchesSession =
+    state.agentCatalog.sessionId === undefined ||
+    state.agentCatalog.sessionId === session?.id;
   return matchingSlashCompletions(
     input,
-    selectedAgentInstance(state) === undefined
+    selectedAgentInstance(state) === undefined || !catalogMatchesSession
       ? undefined
       : state.agentCatalog.skills,
   );
@@ -1010,6 +1015,7 @@ export function App(): React.JSX.Element {
             [
               "workspace",
               "agents",
+              "skills",
               "outputs",
               "events",
               "browser",
@@ -1096,6 +1102,14 @@ export function App(): React.JSX.Element {
               setProfileRefreshToken((current) => current + 1)
             }
           />
+        ) : state.activeView === "skills" ? (
+          <SkillsView
+            state={state}
+            dispatch={dispatch}
+            onProfilesChanged={() =>
+              setProfileRefreshToken((current) => current + 1)
+            }
+          />
         ) : state.activeView === "outputs" ? (
           <OutputsView state={state} dispatch={dispatch} />
         ) : state.activeView === "events" ? (
@@ -1105,6 +1119,7 @@ export function App(): React.JSX.Element {
         ) : state.activeView === "profiles" ? (
           <ProfileManagerView
             {...(activeSessionId === undefined ? {} : { activeSessionId })}
+            refreshToken={profileRefreshToken}
             onProfilesChanged={() =>
               setProfileRefreshToken((current) => current + 1)
             }
@@ -3509,6 +3524,473 @@ function AgentDetailTabs({
         </button>
       ))}
     </div>
+  );
+}
+
+interface SkillEditorDraft {
+  readonly key: string;
+  readonly published: boolean;
+  readonly fingerprint?: string;
+  readonly origin?: DesktopSkillDocument["origin"];
+  name: string;
+  description: string;
+  body: string;
+  dirty: boolean;
+  loading: boolean;
+  error?: string;
+}
+
+export function SkillsView({
+  state,
+  dispatch,
+  onProfilesChanged,
+}: {
+  state: DesktopState;
+  dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+  onProfilesChanged?: (() => void) | undefined;
+}): React.JSX.Element {
+  const session = activeSession(state);
+  const [selectedKey, setSelectedKey] = useState<string | undefined>(
+    state.agentCatalog.skills[0]?.name,
+  );
+  const [drafts, setDrafts] = useState<Record<string, SkillEditorDraft>>({});
+  const [activePanel, setActivePanel] = useState<"overview" | "instructions">(
+    "instructions",
+  );
+  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const catalogSkills = useMemo(
+    () =>
+      state.agentCatalog.sessionId === undefined ||
+      state.agentCatalog.sessionId === session?.id
+        ? state.agentCatalog.skills
+        : [],
+    [session?.id, state.agentCatalog],
+  );
+  const selectedCatalogSkill = catalogSkills.find(
+    ({ name }) => name === selectedKey,
+  );
+  const selectedDraft =
+    selectedKey === undefined ? undefined : drafts[selectedKey];
+
+  const reportError = useCallback(
+    (error: unknown, fallback: string): void => {
+      dispatch({
+        type: "event",
+        event: {
+          type: "diagnostic",
+          level: "error",
+          message: error instanceof Error ? error.message : fallback,
+        },
+      });
+    },
+    [dispatch],
+  );
+
+  useEffect(() => {
+    if (
+      selectedKey === undefined ||
+      selectedKey.startsWith("new:") ||
+      drafts[selectedKey] !== undefined ||
+      selectedCatalogSkill === undefined
+    ) {
+      return;
+    }
+    const placeholder: SkillEditorDraft = {
+      key: selectedKey,
+      published: true,
+      fingerprint: selectedCatalogSkill.fingerprint,
+      origin: selectedCatalogSkill.origin ?? "bundled",
+      name: selectedCatalogSkill.name,
+      description: selectedCatalogSkill.description,
+      body: "",
+      dirty: false,
+      loading: true,
+    };
+    setDrafts((current) => ({ ...current, [selectedKey]: placeholder }));
+    let cancelled = false;
+    void window.desktop.skills
+      .read(selectedCatalogSkill.name)
+      .then((document) => {
+        if (cancelled) return;
+        setDrafts((current) => ({
+          ...current,
+          [selectedKey]: {
+            key: selectedKey,
+            published: true,
+            fingerprint: document.fingerprint,
+            origin: document.origin,
+            name: document.name,
+            description: document.description,
+            body: document.body,
+            dirty: false,
+            loading: false,
+          },
+        }));
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        const message =
+          error instanceof Error ? error.message : "Skill could not be loaded";
+        setDrafts((current) => ({
+          ...current,
+          [selectedKey]: { ...placeholder, loading: false, error: message },
+        }));
+        reportError(error, "Skill could not be loaded");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reportError, selectedCatalogSkill, selectedKey]);
+
+  useEffect(() => {
+    if (selectedKey?.startsWith("new:")) return;
+    if (
+      selectedKey !== undefined &&
+      catalogSkills.some(({ name }) => name === selectedKey)
+    ) {
+      return;
+    }
+    setSelectedKey(catalogSkills[0]?.name);
+  }, [catalogSkills, selectedKey]);
+
+  const updateDraft = (
+    key: string,
+    update: Partial<Pick<SkillEditorDraft, "name" | "description" | "body">>,
+  ): void => {
+    setDrafts((current) => {
+      const draft = current[key];
+      return draft === undefined
+        ? current
+        : { ...current, [key]: { ...draft, ...update, dirty: true } };
+    });
+  };
+
+  const refresh = async (): Promise<void> => {
+    setRefreshing(true);
+    try {
+      const catalog = await window.desktop.agents.refreshCatalog();
+      dispatch({
+        type: "event",
+        event: { type: "agents.catalog_changed", catalog },
+      });
+      if (selectedKey !== undefined && !selectedKey.startsWith("new:")) {
+        setDrafts((current) => {
+          const next = { ...current };
+          delete next[selectedKey];
+          return next;
+        });
+      }
+    } catch (error) {
+      reportError(error, "Skills could not be refreshed");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const createDraft = (): void => {
+    const key = `new:${Date.now()}`;
+    setDrafts((current) => ({
+      ...current,
+      [key]: {
+        key,
+        published: false,
+        name: "",
+        description: "",
+        body: "# New skill\n\nDescribe the workflow and constraints here.",
+        dirty: true,
+        loading: false,
+      },
+    }));
+    setSelectedKey(key);
+    setActivePanel("overview");
+  };
+
+  const save = async (): Promise<void> => {
+    if (selectedDraft === undefined || session === undefined) return;
+    setSaving(true);
+    try {
+      const profileStatus = await window.desktop.profiles.status();
+      const profileSnapshot = await window.desktop.profiles.get(
+        profileStatus.activeProfile,
+      );
+      const result = selectedDraft.published
+        ? await window.desktop.skills.save(
+            selectedDraft.name,
+            selectedDraft.body,
+            profileSnapshot.revision,
+            selectedDraft.fingerprint!,
+          )
+        : await window.desktop.skills.create(
+            selectedDraft.name,
+            selectedDraft.description,
+            selectedDraft.body,
+            profileSnapshot.revision,
+          );
+      dispatch({
+        type: "event",
+        event: { type: "agents.catalog_changed", catalog: result.catalog },
+      });
+      const savedKey = result.document.name;
+      setDrafts((current) => {
+        const next = { ...current };
+        delete next[selectedDraft.key];
+        next[savedKey] = {
+          key: savedKey,
+          published: true,
+          fingerprint: result.document.fingerprint,
+          origin: result.document.origin,
+          name: result.document.name,
+          description: result.document.description,
+          body: result.document.body,
+          dirty: false,
+          loading: false,
+        };
+        return next;
+      });
+      setSelectedKey(savedKey);
+      onProfilesChanged?.();
+    } catch (error) {
+      reportError(error, "Skill could not be saved");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section
+      className="agents-view skills-view"
+      aria-labelledby="skills-heading"
+    >
+      <div className="panel-heading">
+        <div>
+          <h2 id="skills-heading">Skills</h2>
+          <p>
+            Scoped Markdown instructions available to agents and Workspace slash
+            commands.
+          </p>
+        </div>
+        <div className="agent-header-actions">
+          <button type="button" onClick={createDraft}>
+            New skill
+          </button>
+          <button disabled={refreshing} onClick={() => void refresh()}>
+            {refreshing ? "Refreshing…" : "Refresh skills"}
+          </button>
+        </div>
+      </div>
+      {session === undefined && (
+        <div className="notice" role="status">
+          Skill saves will be available after the production session is
+          restored.
+        </div>
+      )}
+      {catalogSkills.length === 0 && !selectedKey?.startsWith("new:") ? (
+        <EmptyState
+          title="No valid skills found"
+          detail="Create a Session-defined Skill to add reusable instructions."
+        />
+      ) : (
+        <div className="agents-workspace">
+          <nav className="agent-navigation" aria-label="Skills">
+            <div className="agent-navigation-list">
+              {catalogSkills.map((skill) => (
+                <button
+                  type="button"
+                  className={`agent-navigation-item ${selectedKey === skill.name ? "active" : ""}`}
+                  aria-current={selectedKey === skill.name ? "page" : undefined}
+                  onClick={() => setSelectedKey(skill.name)}
+                  key={skill.name}
+                >
+                  <span
+                    className={`skill-scope-light is-${skill.origin ?? "bundled"}`}
+                    aria-hidden="true"
+                  />
+                  <span className="agent-navigation-label">
+                    <strong>{skill.name}</strong>
+                    <small>{skill.description}</small>
+                  </span>
+                </button>
+              ))}
+              {Object.values(drafts)
+                .filter(({ published }) => !published)
+                .map((draft) => (
+                  <button
+                    type="button"
+                    className={`agent-navigation-item ${selectedKey === draft.key ? "active" : ""}`}
+                    aria-current={
+                      selectedKey === draft.key ? "page" : undefined
+                    }
+                    onClick={() => setSelectedKey(draft.key)}
+                    key={draft.key}
+                  >
+                    <span
+                      className="skill-scope-light is-new"
+                      aria-hidden="true"
+                    />
+                    <span className="agent-navigation-label">
+                      <strong>{draft.name || "Untitled skill"}</strong>
+                      <small>New Session skill</small>
+                    </span>
+                  </button>
+                ))}
+            </div>
+          </nav>
+          <div className="agent-detail-workspace">
+            {selectedDraft === undefined ? (
+              <EmptyState
+                title="Select a skill"
+                detail="Choose a skill from the navigator or create a new one."
+              />
+            ) : (
+              <article className="agent-detail">
+                <header className="agent-detail-header">
+                  <div>
+                    <div className="agent-title-line">
+                      <h3>{selectedDraft.name || "New skill"}</h3>
+                      <span className="scope-badge">
+                        {selectedDraft.published
+                          ? selectedDraft.origin
+                          : "new session"}
+                      </span>
+                      {selectedDraft.dirty && (
+                        <span className="scope-badge">Unsaved</span>
+                      )}
+                    </div>
+                    <p>{selectedDraft.description || "Add skill metadata."}</p>
+                  </div>
+                  <div className="agent-header-actions">
+                    <button
+                      type="button"
+                      disabled={!selectedDraft.dirty || saving}
+                      onClick={() => {
+                        if (selectedDraft.published) {
+                          setDrafts((current) => {
+                            const next = { ...current };
+                            delete next[selectedDraft.key];
+                            return next;
+                          });
+                        } else {
+                          setDrafts((current) => {
+                            const next = { ...current };
+                            delete next[selectedDraft.key];
+                            return next;
+                          });
+                          setSelectedKey(state.agentCatalog.skills[0]?.name);
+                        }
+                      }}
+                    >
+                      Discard
+                    </button>
+                    <button
+                      type="button"
+                      disabled={
+                        saving ||
+                        session === undefined ||
+                        selectedDraft.loading ||
+                        !selectedDraft.dirty ||
+                        selectedDraft.name.trim().length === 0 ||
+                        selectedDraft.description.trim().length === 0 ||
+                        selectedDraft.body.trim().length === 0
+                      }
+                      onClick={() => void save()}
+                    >
+                      {saving ? "Saving…" : "Save to Session"}
+                    </button>
+                  </div>
+                </header>
+                <div className="agent-detail-tabs" role="tablist">
+                  <button
+                    type="button"
+                    className={`agent-detail-tab ${activePanel === "overview" ? "active" : ""}`}
+                    role="tab"
+                    aria-selected={activePanel === "overview"}
+                    aria-label="Skill overview"
+                    title="Overview"
+                    onClick={() => setActivePanel("overview")}
+                  >
+                    i
+                  </button>
+                  <button
+                    type="button"
+                    className={`agent-detail-tab ${activePanel === "instructions" ? "active" : ""}`}
+                    role="tab"
+                    aria-selected={activePanel === "instructions"}
+                    aria-label="Skill instructions"
+                    title="Instructions"
+                    onClick={() => setActivePanel("instructions")}
+                  >
+                    &lt;/&gt;
+                  </button>
+                </div>
+                <div className="agent-detail-body">
+                  {selectedDraft.loading ? (
+                    <p role="status">Loading skill…</p>
+                  ) : selectedDraft.error !== undefined ? (
+                    <div className="notice" role="alert">
+                      <span>{selectedDraft.error}</span>
+                      <button type="button" onClick={() => void refresh()}>
+                        Reload
+                      </button>
+                    </div>
+                  ) : activePanel === "overview" ? (
+                    <div className="skill-overview-grid">
+                      <label>
+                        Name
+                        <input
+                          value={selectedDraft.name}
+                          readOnly={selectedDraft.published}
+                          disabled={selectedDraft.published}
+                          onChange={(event) =>
+                            updateDraft(selectedDraft.key, {
+                              name: event.currentTarget.value,
+                            })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Description
+                        <textarea
+                          value={selectedDraft.description}
+                          readOnly={selectedDraft.published}
+                          disabled={selectedDraft.published}
+                          rows={4}
+                          onChange={(event) =>
+                            updateDraft(selectedDraft.key, {
+                              description: event.currentTarget.value,
+                            })
+                          }
+                        />
+                      </label>
+                      {selectedDraft.published && (
+                        <p className="field-help">
+                          Published skill metadata is immutable. Create a new
+                          skill to use a different name or description.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <label className="skill-markdown-editor">
+                      Markdown instructions
+                      <textarea
+                        value={selectedDraft.body}
+                        rows={24}
+                        spellCheck
+                        onChange={(event) =>
+                          updateDraft(selectedDraft.key, {
+                            body: event.currentTarget.value,
+                          })
+                        }
+                      />
+                    </label>
+                  )}
+                </div>
+              </article>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 

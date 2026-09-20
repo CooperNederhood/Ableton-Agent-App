@@ -21,6 +21,10 @@ async function fixture(
     switchFailure?: Error;
     closeFailure?: Error;
     refreshFailure?: Error;
+    getActiveSessionId?: () => Promise<string | undefined>;
+    getActiveSession?: () => Promise<
+      ReturnType<typeof sessionSchema.parse> | undefined
+    >;
   } = {},
 ) {
   const root = await mkdtemp(join(process.cwd(), ".test-profile-manager-"));
@@ -84,6 +88,7 @@ async function fixture(
     correlationId: string;
     causationId?: string;
     trace: { traceId: string };
+    attributes: Readonly<Record<string, string | number | boolean>>;
   }> = [];
   let activeProfile = options.activeProfile ?? "default";
   let activeSessionId = options.activeSessionId;
@@ -122,7 +127,26 @@ async function fixture(
     bundledAgentsDirectory,
     bundledSkillsDirectory,
     getActiveProfile: () => activeProfile,
-    getActiveSessionId: () => Promise.resolve(activeSessionId),
+    getActiveSessionId:
+      options.getActiveSessionId ?? (() => Promise.resolve(activeSessionId)),
+    getActiveSession:
+      options.getActiveSession ??
+      (() =>
+        Promise.resolve(
+          activeSessionId === undefined
+            ? undefined
+            : sessionSchema.parse({
+                version: 3,
+                id: activeSessionId,
+                title: "Production session",
+                updatedAt: "2026-09-19T00:00:00.000Z",
+                projectName: "Test Set",
+                activeAgents: [],
+                productionPlan: [],
+                outputAssignments: [],
+                liveEvents: [],
+              }),
+        )),
     persistActiveSession,
     closeActiveSession,
     refreshActiveCatalog,
@@ -150,6 +174,74 @@ afterEach(async () => {
 });
 
 describe("DesktopProfileManager", () => {
+  it("creates and edits Session skills while preserving published metadata", async () => {
+    const { manager, layout } = await fixture({
+      activeSessionId: "session-skills",
+    });
+    const initial = await manager.get();
+
+    const created = await manager.createSkill({
+      name: "session-groove",
+      description: "Shape a session groove.",
+      body: "# Groove\n\nUse syncopation.",
+      expectedRevision: initial.revision,
+    });
+
+    expect(created.document).toMatchObject({
+      name: "session-groove",
+      description: "Shape a session groove.",
+      body: "# Groove\n\nUse syncopation.",
+      origin: "session",
+    });
+    expect(
+      created.profileSnapshot.artifacts.find(
+        ({ kind, name, scope }) =>
+          kind === "skill" && name === "session-groove" && scope === "session",
+      ),
+    ).toBeDefined();
+
+    const edited = await manager.saveSkill({
+      name: "session-groove",
+      body: "# Groove\n\nUse a straighter pulse.",
+      expectedRevision: created.profileSnapshot.revision,
+      expectedFingerprint: created.document.fingerprint,
+    });
+
+    expect(edited.document.description).toBe("Shape a session groove.");
+    expect(edited.document.body).toContain("straighter pulse");
+    expect(
+      await readFile(
+        join(
+          resolveArtifactScopePaths(layout, "session", "session-skills")
+            .skillsDirectory,
+          "session-groove",
+          "SKILL.md",
+        ),
+        "utf8",
+      ),
+    ).toContain("description: Shape a session groove.");
+  });
+
+  it("copies an inherited skill into Session Scope when its body is saved", async () => {
+    const { manager } = await fixture({ activeSessionId: "session-skills" });
+    const initial = await manager.get();
+    const inherited = await manager.readSkill({ name: "mix-review" });
+
+    const saved = await manager.saveSkill({
+      name: "mix-review",
+      body: "Review the newly balanced mix.",
+      expectedRevision: initial.revision,
+      expectedFingerprint: inherited.fingerprint,
+    });
+
+    expect(saved.document).toMatchObject({
+      name: "mix-review",
+      description: "Review the mix.",
+      body: "Review the newly balanced mix.",
+      origin: "session",
+    });
+  });
+
   it("shows the System baseline without repeating it in lower scopes", async () => {
     const { manager, events } = await fixture({
       activeSessionId: "session-1",
@@ -173,6 +265,7 @@ describe("DesktopProfileManager", () => {
         id: "session-1",
         title: "Production session",
         active: true,
+        persisted: true,
       },
     ]);
 
@@ -228,6 +321,209 @@ describe("DesktopProfileManager", () => {
           scope === "profile" && kind === "agent" && name === "default",
       ),
     ).toMatchObject({ state: "disabled", origin: "bundled" });
+  });
+
+  it("moves skills and copies agents into an inactive persisted session", async () => {
+    const { manager, layout, refreshActiveCatalog } = await fixture({
+      activeSessionId: "session-active",
+    });
+    const sourceSession = sessionSchema.parse({
+      version: 3,
+      id: "session-source",
+      title: "Older session",
+      updatedAt: "2026-09-18T00:00:00.000Z",
+      projectName: "Older Set",
+      activeAgents: [],
+      productionPlan: [],
+      outputAssignments: [],
+      liveEvents: [],
+    });
+    const targetSession = sessionSchema.parse({
+      version: 3,
+      id: "session-target",
+      title: "Target session",
+      updatedAt: "2026-09-17T00:00:00.000Z",
+      projectName: "Target Set",
+      activeAgents: [],
+      productionPlan: [],
+      outputAssignments: [],
+      liveEvents: [],
+    });
+    const activeSession = sessionSchema.parse({
+      version: 3,
+      id: "session-active",
+      title: "Production session",
+      updatedAt: "2026-09-19T00:00:00.000Z",
+      projectName: "Current Set",
+      activeAgents: [],
+      productionPlan: [],
+      outputAssignments: [],
+      liveEvents: [],
+    });
+    await writeFile(
+      layout.sessionsPath,
+      JSON.stringify([activeSession, sourceSession, targetSession]),
+    );
+    const sourcePaths = resolveArtifactScopePaths(
+      layout,
+      "session",
+      sourceSession.id,
+    );
+    await mkdir(join(sourcePaths.skillsDirectory, "interview-me"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(sourcePaths.skillsDirectory, "interview-me", "SKILL.md"),
+      [
+        "---",
+        "name: interview-me",
+        "description: Interview the user.",
+        "---",
+        "Ask focused questions.",
+      ].join("\n"),
+    );
+    const initial = await manager.get();
+
+    const moved = await manager.moveArtifact({
+      kind: "skill",
+      name: "interview-me",
+      source: {
+        scope: "session",
+        profile: "default",
+        sessionId: sourceSession.id,
+      },
+      destination: {
+        scope: "session",
+        profile: "default",
+        sessionId: targetSession.id,
+      },
+      expectedRevision: initial.revision,
+    });
+
+    expect(moved.status).toBe("completed");
+    if (moved.status !== "completed") throw new Error("Expected completion");
+    expect(
+      moved.snapshot.artifacts.find(
+        ({ scope, kind, name, sessionId }) =>
+          scope === "session" &&
+          kind === "skill" &&
+          name === "interview-me" &&
+          sessionId === targetSession.id,
+      ),
+    ).toMatchObject({ origin: "session" });
+    expect(
+      moved.snapshot.artifacts.some(
+        ({ scope, kind, name, sessionId }) =>
+          scope === "session" &&
+          kind === "skill" &&
+          name === "interview-me" &&
+          sessionId === sourceSession.id,
+      ),
+    ).toBe(false);
+
+    const copiedAgent = await manager.copyArtifact({
+      kind: "agent",
+      name: "default",
+      source: { scope: "bundled" },
+      destination: {
+        scope: "session",
+        profile: "default",
+        sessionId: targetSession.id,
+      },
+      expectedRevision: moved.snapshot.revision,
+    });
+    expect(copiedAgent.status).toBe("completed");
+    if (copiedAgent.status !== "completed") {
+      throw new Error("Expected completion");
+    }
+    expect(
+      copiedAgent.snapshot.artifacts.find(
+        ({ scope, kind, name, sessionId }) =>
+          scope === "session" &&
+          kind === "agent" &&
+          name === "default" &&
+          sessionId === targetSession.id,
+      ),
+    ).toMatchObject({ origin: "session" });
+    expect(refreshActiveCatalog).not.toHaveBeenCalled();
+  });
+
+  it("shows and promotes an active ephemeral session on first transfer", async () => {
+    const {
+      manager,
+      layout,
+      persistActiveSession,
+      refreshActiveCatalog,
+      events,
+    } = await fixture({
+      activeSessionId: "session-ephemeral",
+    });
+    await rm(layout.sessionsPath);
+    const initial = await manager.get();
+
+    expect(initial.profiles[0]?.sessions).toEqual([
+      {
+        id: "session-ephemeral",
+        title: "Production session",
+        active: true,
+        persisted: false,
+      },
+    ]);
+
+    const copied = await manager.copyArtifact({
+      kind: "skill",
+      name: "mix-review",
+      source: { scope: "bundled" },
+      destination: {
+        scope: "session",
+        profile: "default",
+        sessionId: "session-ephemeral",
+      },
+      expectedRevision: initial.revision,
+    });
+
+    expect(copied.status).toBe("completed");
+    if (copied.status !== "completed") throw new Error("Expected completion");
+    expect(persistActiveSession).toHaveBeenCalledOnce();
+    expect(refreshActiveCatalog).toHaveBeenCalledOnce();
+    expect(
+      events
+        .filter(({ name }) => name === "profile.artifact-copy.progress")
+        .map(({ attributes }) => attributes.phase),
+    ).toEqual(["validating", "persisting-active-session"]);
+    expect(copied.snapshot.profiles[0]?.sessions[0]).toMatchObject({
+      id: "session-ephemeral",
+      active: true,
+      persisted: true,
+    });
+    expect(
+      copied.snapshot.artifacts.find(
+        ({ scope, kind, name, sessionId }) =>
+          scope === "session" &&
+          kind === "skill" &&
+          name === "mix-review" &&
+          sessionId === "session-ephemeral",
+      ),
+    ).toMatchObject({ origin: "session" });
+  });
+
+  it("rejects transfers into sessions that are not listed", async () => {
+    const { manager } = await fixture({ activeSessionId: "session-active" });
+    const initial = await manager.get();
+
+    await expect(
+      manager.copyArtifact({
+        kind: "skill",
+        name: "mix-review",
+        source: { scope: "bundled" },
+        destination: {
+          scope: "session",
+          profile: "default",
+          sessionId: "session-missing",
+        },
+        expectedRevision: initial.revision,
+      }),
+    ).rejects.toThrow("not a listed session");
   });
 
   it("saves a same-name Session-scope definition and refreshes both views", async () => {
@@ -302,6 +598,11 @@ describe("DesktopProfileManager", () => {
     });
     await rm(layout.sessionsPath);
     const initial = await manager.get();
+    expect(initial.profiles[0]?.sessions[0]).toMatchObject({
+      id: "session-1",
+      active: true,
+      persisted: false,
+    });
     const inherited = initial.artifacts.find(
       ({ kind, name }) => kind === "agent" && name === "default",
     )!;

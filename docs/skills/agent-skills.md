@@ -22,6 +22,19 @@ The application validates metadata for discovery while retaining the trusted
 main-process source path needed to load the body on demand. Skill bodies and
 source paths are not copied into renderer state.
 
+The Desktop **Skills** tab uses the same effective catalog as Profiles. Its
+left navigator selects a resolved skill; the detail pane shows immutable
+published `name` and `description` metadata and an editable Markdown body.
+Creating a skill starts an unpublished draft whose name, description, and body
+can all be edited. The metadata becomes immutable after the first successful
+publication.
+
+Every create or save from Skills writes a Session-scope `SKILL.md` for the
+active production session. Editing an inherited skill is copy-on-write:
+Profile, System, and bundled sources are never changed. Publication is staged,
+validated against the complete layered catalog, and rolled back on failure.
+Profiles and the effective skill navigator refresh from the same result.
+
 ## Agent configuration
 
 An agent definition opts into skills by name:
@@ -57,6 +70,15 @@ loads the skill by itself; text after the name asks the agent to apply the skill
 to that request. The application validates the command and loads the body in
 the main process before starting the user turn. Raw skill contents are not
 copied into renderer state.
+
+Newly published Session skills enter the Workspace `/` completion list
+immediately. Both direct slash invocation and the application-owned `skill`
+tool resolve the current effective scoped skill by production session and name
+at invocation time. A saved body is therefore used on the next invocation
+without resetting or reconfiguring the active Agent conversation. Model-driven
+loads still require the skill name in the active Agent definition's allowlist.
+Changing production sessions invalidates the previous session's catalog before
+the Skills editor or Workspace completion list can read from it.
 
 The two authorization paths are intentionally different: agent-driven
 `skill(...)` calls use the agent definition's allowlist, while user-driven slash

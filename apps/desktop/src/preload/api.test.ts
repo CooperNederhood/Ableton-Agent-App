@@ -9,6 +9,7 @@ describe("preload API", () => {
       "lifecycle",
       "agent",
       "agents",
+      "skills",
       "profiles",
       "ableton",
       "approvals",
@@ -117,6 +118,61 @@ describe("preload API", () => {
         expectedFingerprint: fingerprint,
       },
     );
+  });
+
+  it("exposes typed skill document operations", async () => {
+    const revision = "a".repeat(64);
+    const fingerprint = "b".repeat(64);
+    const document = {
+      name: "mix-review",
+      description: "Review the mix.",
+      body: "# Mix review",
+      origin: "session" as const,
+      fingerprint,
+    };
+    const profileSnapshot = {
+      revision,
+      activeProfile: "default",
+      selectedProfile: "default",
+      profiles: [],
+      artifacts: [],
+    };
+    const result = {
+      document,
+      catalog: { revision, definitions: [], skills: [], diagnostics: [] },
+      profileSnapshot,
+    };
+    const transport = transportFor({
+      "skills:read": document,
+      "skills:create": result,
+      "skills:save": result,
+    });
+    const api = createDesktopApi(transport);
+
+    await api.skills.read("mix-review");
+    await api.skills.create(
+      "session-groove",
+      "Shape a groove.",
+      "# Groove",
+      revision,
+    );
+    await api.skills.save("mix-review", "# Updated", revision, fingerprint);
+
+    expect(vi.mocked(transport).invoke).toHaveBeenCalledWith("skills:read", {
+      name: "mix-review",
+    });
+    expect(vi.mocked(transport).invoke).toHaveBeenCalledWith("skills:create", {
+      name: "session-groove",
+      description: "Shape a groove.",
+      body: "# Groove",
+      expectedRevision: revision,
+    });
+    expect(vi.mocked(transport).invoke).toHaveBeenCalledWith("skills:save", {
+      name: "mix-review",
+      body: "# Updated",
+      expectedRevision: revision,
+      expectedFingerprint: fingerprint,
+    });
   });
 
   it("exposes typed profile and artifact operations", async () => {

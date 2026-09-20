@@ -56,8 +56,9 @@ header plus application tabs can be hidden as one top-chrome region.
 These visibility choices are intentionally transient and reset on launch. The
 composer belongs exclusively to the Workspace center conversation column,
 expanding with it when either sidebar is hidden so users can isolate chat
-without losing input. Agents, Outputs, Events, Browser, Profiles, Diagnostics,
-Sessions, and Settings use their full content area without a chat composer.
+without losing input. Agents, Skills, Outputs, Events, Browser, Profiles,
+Diagnostics, Sessions, and Settings use their full content area without a
+chat composer.
 The global focus-composer shortcut returns to Workspace before focusing the
 saved draft, and incoming questions or plan approvals return to Workspace so a
 blocking interaction is never hidden on a management tab.
@@ -129,6 +130,19 @@ Ableton mutations remain blocked even when ordinary mutation auto-approval is
 enabled. Duplicate submissions are disabled, stale revisions remain visible
 with an actionable error, and only normalized actions offered by the SDK
 request are rendered.
+
+The Skills tab follows the Agents tab's narrow navigator and Inspector-style
+detail layout. Published skills expose read-only discovery metadata and an
+editable Markdown instruction body. New drafts allow name and description
+entry until first publication. Saving creates a Session-scope skill, refreshes
+Profiles, and immediately adds the resolved skill to Workspace slash-command
+completion.
+
+Profiles lists the active production session immediately, including a new
+in-memory session for an unsaved Live Set. Drag-and-drop can copy or move agents
+and skills between any listed persisted sessions. Dropping onto the active
+in-memory session persists it first; writing into an inactive session does not
+change the active runtime.
 
 Settings exposes the agent's cumulative active-work timeout in minutes. It
 defaults to 10 minutes, accepts values from 1 through 120, applies to subsequent

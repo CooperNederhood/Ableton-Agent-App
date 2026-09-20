@@ -108,6 +108,13 @@ files implement copy-on-write scoped customization.
 Effective resolution is Session, then Profile, then System, then bundled
 fallback. See [Scoped Profiles](scoped-profiles.md).
 
+An active session for an unsaved Live Set may exist only in Desktop memory and
+therefore be absent from `state/sessions.json`. Profiles still presents that
+session as an in-memory active destination. The first Session-scope artifact
+publication or transfer persists the session record and creates its canonical
+`session-state/{production-session-id}/` directories. Conversation history
+alone remains Copilot SDK-owned and does not promote the Desktop session.
+
 ## Data that intentionally remains outside the root
 
 - The installed Remote Script token remains in the managed Ableton Remote

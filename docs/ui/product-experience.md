@@ -153,9 +153,11 @@ alone. Cards show current state, resolution, continuous/discrete classification,
 and listening agents. A bounded **Recent activity** disclosure is hidden by
 default.
 
-Active-agent editing provides a Skills-style **Listening Events** selector.
-Each selected event has an `Automatic` or `Next prompt` response mode and
-an optional message prefix.
+The Agents editor provides a Skills-style **Listening Events** selector for
+active and inactive definitions. Each selected event has an `Automatic` or
+`Next prompt` response mode, an optional message prefix, and prepared-context
+settings. Saving creates a Session-scope definition; an active conversation
+adopts it only after Reset.
 
 ## History
 

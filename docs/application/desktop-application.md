@@ -114,9 +114,19 @@ All regions return on each application launch. The prompt composer is part of
 the Workspace Conversation column and follows its width as sidebars collapse.
 It is not rendered in Agents, Outputs, Events, Browser, Profiles, Diagnostics,
 Sessions, or Settings.
-Composer-focus shortcuts and newly received elicitation or plan-approval
-requests return the application to Workspace before focusing or presenting the
-required interaction.
+Composer-focus shortcuts return the application to Workspace. Newly received
+elicitation, plan-approval, and tool-approval requests do so only when they
+belong to the selected active agent. Agents remains mounted for its own
+selected-agent request so an unsaved definition draft is never discarded by
+forced navigation. Structured interaction controls receive focus instead of
+the absent ordinary composer.
+
+The Agents tab reads the same effective scoped catalog as Profiles. Its
+active-first navigator uses activity lights only for runtime status; active and
+inactive rows share the same editable definition surface. Every save publishes
+a same-name Session-scope version-2 definition through typed main-process IPC,
+then refreshes the effective catalog and Profile Manager snapshot. Active
+conversation snapshots are unchanged until explicit Reset.
 
 After hiding both sidebars and the application toolbar, the desktop window can
 be resized to a 320x360 chat-only view. At that size, conversation status is

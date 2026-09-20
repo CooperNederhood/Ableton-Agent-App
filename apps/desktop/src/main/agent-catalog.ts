@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { basename } from "node:path";
 
 import {
@@ -23,10 +24,12 @@ export interface AgentCatalogOptions {
   readonly storage?: LiveAgentStorageLayout;
 }
 
-function toDesktopCatalog(catalog: AgentCatalog): DesktopAgentCatalog {
-  return desktopAgentCatalogSchema.parse({
+export function toDesktopCatalog(catalog: AgentCatalog): DesktopAgentCatalog {
+  const value = {
     definitions: catalog.agents.map((agent) => ({
+      version: agent.definition.version,
       name: agent.definition.name,
+      label: agent.definition.label,
       description: agent.definition.description,
       systemPrompt: agent.definition.systemPrompt,
       tools: agent.definition.tools,
@@ -34,12 +37,22 @@ function toDesktopCatalog(catalog: AgentCatalog): DesktopAgentCatalog {
       editScope: agent.definition.editScope,
       skills: agent.definition.skills,
       inputChannels: agent.definition.inputChannels,
+      model: agent.definition.model,
+      reasoningEffort: agent.definition.reasoningEffort,
+      autoApprove: agent.definition.autoApprove,
+      eventListeners: agent.definition.eventListeners,
+      origin: "origin" in agent ? agent.origin : "bundled",
+      inherited: "inherited" in agent ? agent.inherited : false,
+      overrides: "overrides" in agent ? agent.overrides : [],
       sourceFile: basename(agent.sourcePath),
       fingerprint: agent.fingerprint,
     })),
     skills: catalog.skills.map((skill) => ({
       name: skill.metadata.name,
       description: skill.metadata.description,
+      origin: "origin" in skill ? skill.origin : "bundled",
+      inherited: "inherited" in skill ? skill.inherited : false,
+      overrides: "overrides" in skill ? skill.overrides : [],
       sourceFile: `${basename(skill.directory)}/SKILL.md`,
       fingerprint: skill.fingerprint,
     })),
@@ -48,6 +61,10 @@ function toDesktopCatalog(catalog: AgentCatalog): DesktopAgentCatalog {
       code: diagnostic.code,
       message: diagnostic.message,
     })),
+  };
+  return desktopAgentCatalogSchema.parse({
+    ...value,
+    revision: createHash("sha256").update(JSON.stringify(value)).digest("hex"),
   });
 }
 

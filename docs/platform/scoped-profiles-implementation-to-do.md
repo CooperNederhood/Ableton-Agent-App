@@ -26,6 +26,8 @@ Companion specification: [Scoped Profiles](scoped-profiles.md)
 - [x] Delete local overrides and reveal inherited artifacts.
 - [x] Disable and restore inherited artifacts with tombstones.
 - [x] Compare conflicts and require replace, rename, or cancel.
+- [x] Publish complete agent definitions from Agents as atomic Session-scope
+  copy-on-write artifacts.
 
 ## Desktop and observability
 
@@ -36,16 +38,21 @@ Companion specification: [Scoped Profiles](scoped-profiles.md)
       and an anchored create-profile popover.
 - [x] Add bounded Copy/Cut/Paste state and scope-targeted Paste actions.
 - [x] Add Move-by-default drag-and-drop with Option-drag Copy.
-- [x] Keep the Profiles content pane scrollable above the persistent composer.
+- [x] Keep the Profiles content pane scrollable while the Workspace-only
+  composer is absent.
 - [x] Reset profile-owned renderer state atomically after switching.
 - [x] Emit complete lifecycle, timing, redaction, and trace events.
 - [x] Surface validation and switching failures as actionable diagnostics.
+- [x] Refresh Agents and Profiles from the same scoped source after definition
+  publication.
 
 ## Verification
 
 - [x] Cover paths, permissions, bounds, symlinks, and registry concurrency.
 - [x] Cover precedence, tombstones, invalid definitions, and fallback.
 - [x] Cover mutation rollback, semantic rename, conflicts, and references.
+- [x] Cover agent-definition publication, stale-write cancellation, invalid
+  listener references, and effective-origin refresh.
 - [x] Cover profile switch guards, teardown/startup ordering, and rollback.
 - [x] Cover renderer interactions, accessibility, and state replacement.
 - [x] Add isolated Electron profile lifecycle and artifact workflow coverage.

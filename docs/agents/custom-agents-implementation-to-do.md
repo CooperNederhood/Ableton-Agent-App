@@ -19,6 +19,10 @@ Companion specification: [Custom Agents](custom-agents.md)
 - [x] Resolve definitions through bundled, System, Profile, and Session
       layers with deterministic override metadata and tombstones.
 - [x] Add validated copy, move, delete, and semantic rename primitives.
+- [x] Add version-2 definition defaults for label, model, reasoning,
+  automatic approval, and Live Event listeners with version-1 migration.
+- [x] Add revision-checked atomic Session-scope definition publication and
+  effective-catalog/Profile refresh.
 
 ## Runtime
 
@@ -46,8 +50,8 @@ Companion specification: [Custom Agents](custom-agents.md)
 
 - [ ] Add versioned production sessions with multiple active instances.
 - [ ] Persist definition snapshots, overrides, bindings, and selected instance.
-- [x] Persist `autoApprove` per active instance with a migration default of
-  `false`.
+- [x] Persist definition-owned model, reasoning, automatic-approval, and
+  listener defaults while retaining active runtime snapshots until reset.
 - [x] Remove the obsolete turn-mode field, prompt injection, IPC surface, and
   session migration path; active agents are the only workflow selector.
 - [ ] Preserve SDK session histories, production plans, and output settings.
@@ -65,6 +69,8 @@ Companion specification: [Custom Agents](custom-agents.md)
   effective-policy warning, and layered Settings status.
 - [x] Add typed Profile Manager contracts and a scoped artifact view.
 - [x] Add profile lifecycle and artifact-management main-process actions.
+- [x] Give active and inactive definitions the same complete editable
+  General, Capabilities, and Connections workspace.
 
 ## Verification
 
@@ -77,3 +83,5 @@ Companion specification: [Custom Agents](custom-agents.md)
 - [ ] Test snapshot revision/hash attribution, redaction, and History visibility.
 - [x] Test per-agent selected/all updates, switching, deactivation, restart,
   shutdown, races, policy precedence, and structural scope denials.
+- [x] Test Session definition publication, stale revisions/fingerprints,
+  listener validation, rollback, origin refresh, and active reset adoption.

@@ -30,6 +30,9 @@ export interface DiagnosticsActions {
 }
 
 export interface ProfileManagerActions {
+  saveAgentDefinition(
+    request: RequestOf<"agents:save-definition">,
+  ): Promise<ResponseOf<"agents:save-definition">>;
   get(selectedProfile?: string): Promise<ResponseOf<"profiles:get">>;
   status(): Promise<ResponseOf<"profiles:status">>;
   create(
@@ -91,6 +94,8 @@ export function createIpcHandlers(
     },
     "agents:catalog": () => service.getAgentCatalog(),
     "agents:refresh": () => service.refreshAgentCatalog(),
+    "agents:save-definition": (request) =>
+      profiles.saveAgentDefinition(request),
     "agents:active": () => service.listActiveAgents(),
     "agents:models": () => service.listAgentModels(),
     "agents:create": ({ definitionName }) =>

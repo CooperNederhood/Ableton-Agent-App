@@ -8,6 +8,7 @@ import {
   copyArtifact,
   disableArtifact,
   readArtifactTombstones,
+  replaceAgentDefinitionInScope,
   renameAgentInScope,
   renameSkillInScope,
   restoreArtifact,
@@ -127,6 +128,7 @@ describe("artifact service", () => {
       currentName: "compose",
       replacementName: "arrange",
     });
+
     expect(await readFile(renamed, "utf8")).toContain("name: arrange");
     await writeAgent(agents, "compose", []);
     await expect(
@@ -136,6 +138,70 @@ describe("artifact service", () => {
         replacementName: "arrange",
       }),
     ).rejects.toThrow("already exists");
+  });
+
+  it("rolls back a staged agent replacement when catalog validation fails", async () => {
+    const root = await temporaryRoot();
+    const agents = join(root, "agents");
+    await mkdir(agents);
+    const path = await writeAgent(agents, "compose", []);
+    const original = await readFile(path, "utf8");
+
+    await expect(
+      replaceAgentDefinitionInScope({
+        agentsDirectory: agents,
+        definition: {
+          version: 2,
+          name: "compose",
+          label: "Composer",
+          description: "Changed.",
+          systemPrompt: "Changed prompt.",
+          tools: ["ableton_session_inspect"],
+          editScope: ["session"],
+          skills: [],
+          inputChannels: [],
+          model: null,
+          reasoningEffort: null,
+          autoApprove: false,
+          eventListeners: [],
+        },
+        validatePublishedCatalog: () =>
+          Promise.reject(new Error("catalog rejected")),
+      }),
+    ).rejects.toThrow("catalog rejected");
+
+    expect(await readFile(path, "utf8")).toBe(original);
+  });
+
+  it("does not overwrite an occupied semantic destination", async () => {
+    const root = await temporaryRoot();
+    const agents = join(root, "agents");
+    await mkdir(agents);
+    const occupied = join(agents, "compose.yaml");
+    await writeFile(occupied, "not: a valid agent\n");
+
+    await expect(
+      replaceAgentDefinitionInScope({
+        agentsDirectory: agents,
+        definition: {
+          version: 2,
+          name: "compose",
+          label: "Composer",
+          description: "Changed.",
+          systemPrompt: "Changed prompt.",
+          tools: ["ableton_session_inspect"],
+          editScope: ["session"],
+          skills: [],
+          inputChannels: [],
+          model: null,
+          reasoningEffort: null,
+          autoApprove: false,
+          eventListeners: [],
+        },
+        validatePublishedCatalog: () => Promise.resolve(),
+      }),
+    ).rejects.toThrow("already occupied");
+    expect(await readFile(occupied, "utf8")).toBe("not: a valid agent\n");
   });
 
   it("disables and restores artifacts with revision checks", async () => {

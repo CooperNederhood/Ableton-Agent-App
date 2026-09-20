@@ -557,7 +557,7 @@ async function bootstrap(): Promise<void> {
       await requireService().closeSession();
     },
     refreshActiveCatalog: async () => {
-      await requireService().refreshAgentCatalog();
+      return requireService().refreshAgentCatalog();
     },
     switchProfile: switchDesktopProfile,
     telemetry: (event) => composition?.telemetry.enqueue(event),

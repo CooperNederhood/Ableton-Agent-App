@@ -809,12 +809,6 @@ export class HeadlessDesktopService implements DesktopService {
             current.sdkSessionId,
             current.id,
           ),
-          label: current.label,
-          autoApprove: current.autoApprove,
-          ...(current.model === undefined ? {} : { model: current.model }),
-          ...(current.reasoningEffort === undefined
-            ? {}
-            : { reasoningEffort: current.reasoningEffort }),
           forkedHistory: current.forkedHistory ?? [],
         });
         await this.#application.reconfigureManagedAgent(
@@ -826,6 +820,8 @@ export class HeadlessDesktopService implements DesktopService {
         await this.#replaceAgent(session, reset);
         await this.#recordAgentConfiguration(session, reset);
         this.#bindActiveOutputAssignments();
+        this.#publishAutoApprovedAgentIds();
+        this.#emitLiveEvents();
         this.emit({
           type: "agent.instance_changed",
           instance: reset,
@@ -3300,10 +3296,15 @@ export class HeadlessDesktopService implements DesktopService {
       definitionName: definition.name,
       definitionFingerprint: definition.fingerprint,
       label:
-        definition.name === "default"
+        definition.label ??
+        (definition.name === "default"
           ? "Default"
-          : `${definition.name[0]?.toUpperCase()}${definition.name.slice(1)}`,
-      autoApprove: false,
+          : `${definition.name[0]?.toUpperCase()}${definition.name.slice(1)}`),
+      autoApprove: definition.autoApprove ?? false,
+      ...(definition.model == null ? {} : { model: definition.model }),
+      ...(definition.reasoningEffort == null
+        ? {}
+        : { reasoningEffort: definition.reasoningEffort }),
       forkedHistory: [],
       triggerHistory: [],
       config: {
@@ -3320,7 +3321,10 @@ export class HeadlessDesktopService implements DesktopService {
       mode: "interactive",
       boundTracks: [],
       modified: false,
-      eventListeners: [],
+      eventListeners: (definition.eventListeners ?? []).map((listener) => ({
+        ...listener,
+        id: createAgentEventListenerId(randomUUID()),
+      })),
       outputSubscriptions: [...new Set(definition.inputChannels)].map(
         (producerId) => ({
           assignmentId: createAgentInstanceAssignmentId(instanceId, producerId),

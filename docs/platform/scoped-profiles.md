@@ -17,9 +17,9 @@ session > profile > system > bundled
 ```
 
 Bundled resources are immutable fallback content. System Scope is the broadest
-editable layer. A lower scope stores a physical copy only after an explicit
-copy, move, rename, or external edit. Scope-local tombstones can hide inherited
-artifacts without modifying their upstream source.
+editable layer. A lower scope stores a physical copy only after an explicit copy, move, rename,
+external edit, or an Agents-tab definition save. Scope-local tombstones can hide
+inherited artifacts without modifying their upstream source.
 
 ## Profiles
 
@@ -102,8 +102,8 @@ accessible supplemental text, and mark the active profile and session without
 exposing filesystem paths. Sessions are display-only in this view.
 
 The Profiles pane owns vertical scrolling inside the Desktop content row, so
-large profile and session trees remain reachable above the persistent
-composer. The application toolbar presents compact Profile and Agent selectors.
+large profile and session trees remain reachable without a Workspace composer.
+The application toolbar presents compact Profile and Agent selectors.
 Changing Profile while a production session is active requires confirmation;
 the app persists and deactivates that session before switching and leaves it
 available to resume.
@@ -119,6 +119,13 @@ Supported operations are:
 - semantically rename an agent or skill;
 - delete a local override, revealing the next inherited definition;
 - disable or restore an inherited artifact with a tombstone.
+
+Editing any resolved agent in the Agents tab is a Session-scope copy-on-write
+operation for the active production session. The same-name version-2 YAML
+definition is staged, validated against the complete layered catalog, and
+published atomically. Profiles then shows that physical artifact beneath the
+active session, while Agents immediately resolves it as the winning Session
+definition.
 
 Destination conflicts never overwrite silently. The app returns a bounded
 comparison and requires replace, semantic rename, or cancel. Skill rename

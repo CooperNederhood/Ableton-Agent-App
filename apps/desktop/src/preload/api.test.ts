@@ -74,6 +74,51 @@ describe("preload API", () => {
     );
   });
 
+  it("saves a complete agent definition with optimistic concurrency", async () => {
+    const revision = "a".repeat(64);
+    const fingerprint = "b".repeat(64);
+    const definition = {
+      version: 2 as const,
+      name: "default",
+      label: "Default",
+      description: "General agent.",
+      systemPrompt: "Help with Ableton.",
+      tools: ["*"],
+      editScope: ["session"] as "session"[],
+      skills: [],
+      inputChannels: [],
+      model: null,
+      reasoningEffort: null,
+      autoApprove: false,
+      eventListeners: [],
+    };
+    const profileSnapshot = {
+      revision,
+      activeProfile: "default",
+      selectedProfile: "default",
+      profiles: [],
+      artifacts: [],
+    };
+    const transport = transportFor({
+      "agents:save-definition": {
+        catalog: { revision, definitions: [], skills: [], diagnostics: [] },
+        profileSnapshot,
+      },
+    });
+    const api = createDesktopApi(transport);
+
+    await api.agents.saveDefinition(definition, revision, fingerprint);
+
+    expect(vi.mocked(transport).invoke).toHaveBeenCalledWith(
+      "agents:save-definition",
+      {
+        definition,
+        expectedRevision: revision,
+        expectedFingerprint: fingerprint,
+      },
+    );
+  });
+
   it("exposes typed profile and artifact operations", async () => {
     const revision = "a".repeat(64);
     const snapshot = {

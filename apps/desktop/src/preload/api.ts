@@ -51,6 +51,12 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
     agents: {
       getCatalog: () => invoke("agents:catalog", {}),
       refreshCatalog: () => invoke("agents:refresh", {}),
+      saveDefinition: (definition, expectedRevision, expectedFingerprint) =>
+        invoke("agents:save-definition", {
+          definition,
+          expectedRevision,
+          expectedFingerprint,
+        }),
       listActive: () => invoke("agents:active", {}),
       listModels: () => invoke("agents:models", {}),
       create: (definitionName) => invoke("agents:create", { definitionName }),

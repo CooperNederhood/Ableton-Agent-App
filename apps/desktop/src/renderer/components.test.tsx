@@ -1405,14 +1405,14 @@ describe("desktop components", () => {
     expect(html).toContain('aria-label="Connections"');
     expect(html).toContain("Selected");
     expect(html).toContain("Modified");
-    expect(html).toContain("retired-model · unavailable");
-    expect(html).toContain(">max<");
+    expect(html).toContain("retired-model (unavailable)");
+    expect(html).toContain("max (unavailable)");
     expect(html).toContain("Loading Copilot models");
     expect(html).toContain("default.yaml");
     expect(html).toContain("newer definition available");
     expect(html).toContain("Definition diagnostics");
     expect(html).toContain("broken.yaml: Missing system prompt");
-    expect(html).toContain("Save changes");
+    expect(html).toContain("Save Session definition");
     expect(html).toContain("Reset to current definition");
     expect(html).toContain("Deactivate");
     expect(html).toContain("Open");

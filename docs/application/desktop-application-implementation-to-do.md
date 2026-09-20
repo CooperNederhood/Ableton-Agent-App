@@ -67,6 +67,10 @@ never left pending, when no renderer is listening or the app is shutting down.
   controls while keeping the composer aligned with the conversation column.
 - [x] Render the prompt composer only in Workspace and let every management or
   diagnostic view consume the full remaining application height.
+- [x] Route only selected-agent blocking interactions to Workspace, preserve
+  Agents drafts, and focus structured question/approval controls.
+- [x] Add typed atomic Session-scope agent-definition saves and refresh Agents
+  and Profiles from the same scoped source.
 - [x] Preserve optional tool identity in desktop operation view models and
   render compact typed activity rows without removing recovery details.
 - [x] Add opt-in isolated desktop automation launch flags, selected-agent

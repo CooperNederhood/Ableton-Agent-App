@@ -23,6 +23,8 @@ typed service calls, and sessions use explicit create/resume operations.
 - [x] Add an Agents tab with definition discovery, diagnostics, active-first
   navigation, and semantic icon-based detail views.
 - [x] Add active-agent creation, editing, reset, deactivate, and modified state.
+- [x] Unify active/inactive definition editing and publish every save as a
+  Session-scope override visible in Profiles.
 - [x] Build application shell, connection header, and active-agent selector
   without redundant SDK/model-default status.
 - [x] Add transient independent Project/Inspector sidebars and combined
@@ -70,6 +72,8 @@ typed service calls, and sessions use explicit create/resume operations.
   render only normalized actions offered by the pending request.
 - [x] Preserve ordinary message drafts during composer takeover and enforce
   elicitation, approval, manual editor, then ordinary-composer priority.
+- [x] Route selected-agent blocking interactions to Workspace, preserve Agents
+  drafts, and focus the structured interaction control.
 - [x] Render model-authored GFM while applying narrow presentation-only cleanup
   to recognized compact labeled plans, preserving raw plan state, History, and
   approval IPC.

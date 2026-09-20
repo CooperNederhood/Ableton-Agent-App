@@ -14,19 +14,23 @@ Profile, and System Scope definitions override immutable bundled
 `agents/*.yaml` resources by validated semantic name. It contains:
 
 - stable name and user-facing description;
+- user-facing label plus model and reasoning defaults;
+- an automatic-approval default;
 - a system prompt layered over immutable Ableton safety instructions;
 - exact or wildcard tool patterns;
 - session-wide or track-selector edit scope;
 - configured Agent Skills;
-- initial input-channel producer IDs.
+- initial input-channel producer IDs;
+- Live Event listeners with response and prepared-context settings.
 
 An **active agent instance** has:
 
-- an application instance ID and editable label;
+- an application instance ID;
 - one independent Copilot SDK session and conversation history;
 - a snapshot of its source definition;
 - project-bound track references for scoped edits;
-- session-level overrides and output subscriptions.
+- runtime lifecycle, pending interactions, trigger history, and output
+  subscriptions.
 
 Multiple active instances may use the same definition. Definition refreshes do
 not mutate existing instances until the user resets them.
@@ -122,29 +126,33 @@ Read-only work may run concurrently. Mutations acquire application locks:
 
 ## Persistence
 
-The application production-session record stores active instances, definition
-snapshots, selected instance, scope bindings, overrides, and output
-subscriptions. Editing an active agent updates this session artifact, not the
-canonical repository YAML.
+Version-2 definitions persist label, model, reasoning effort, automatic
+approval, and [Live Event](../events/live-events.md) listeners alongside prompt,
+tools, edit scope, skills, and inputs. Version-1 definitions load with bounded
+safe defaults and are serialized as version 2 after editing.
 
-An active instance also stores `autoApprove`, which defaults to `false` during
-schema migration. This is a production-session override, not part of the
-canonical YAML definition: it follows that instance across selection changes
-and restarts, remains isolated from instances created from the same definition,
-and disappears when the instance is deactivated.
+Saving from the Agents tab always performs copy-on-write into the active
+production session's Session Scope. It never overwrites Profile, System, or
+bundled content. The main process stages the YAML, validates the complete
+effective catalog, publishes atomically, refreshes the effective catalog, and
+returns the refreshed Profile Manager snapshot. Stale Profile Manager revisions
+or definition fingerprints cancel rather than overwrite.
 
-Active instances may also listen to project-scoped
-[Live Events](../events/live-events.md). Each listener stores its own response
-mode and message prefix. These listeners are session overrides and are not
-seeded from canonical agent YAML in the initial implementation. One event may
-feed multiple agents without creating duplicate LOM subscriptions.
+The production-session record stores active runtime snapshots, selected
+instance, bound project identities, runtime delivery state, and output
+subscriptions. Existing active instances retain their current model, reasoning,
+approval, and listener snapshot when a definition is saved. Explicit Reset
+adopts the newest resolved definition. New instances use all defaults from that
+definition.
 
 ## Approval layering and safety
 
-`/yolo`, `/yolo on`, and `/yolo off` change automatic approval for the selected
-instance. Appending `all` changes all instances active in the current production
-session. These exact lowercase, single-spaced forms are local desktop commands;
-they never become SDK messages or history turns.
+`/yolo`, `/yolo on`, and `/yolo off` change the current runtime snapshot for the
+selected active instance. Appending `all` changes all instances active in the
+current production session. The definition default remains editable for active
+or inactive agents in the Agents tab. These exact lowercase, single-spaced
+forms are local desktop commands; they never become SDK messages or history
+turns.
 
 Per-agent automatic approval is subordinate to the global base policy:
 deny-all always denies, approve-all always approves, and the per-agent override
@@ -168,31 +176,35 @@ instances created from one definition remain separate rows. Selecting a row
 only changes the inspected agent; it does not retarget the production
 conversation until the user invokes **Select** or **Open**.
 
-The detail workspace uses compact semantic icon tabs:
+Every active and inactive row uses the same editable definition workspace with
+compact semantic icon tabs:
 
-- **General** contains identity, lifecycle, source/revision details, model and
-  reasoning settings, and instance lifecycle actions.
+- **General** contains identity, source/revision details, model, reasoning, and
+  automatic-approval defaults.
 - **Capabilities** contains the session prompt, tool patterns and resolution,
   edit scope, and skills.
-- **Connections** contains input channels and session-specific Live Event
-  listeners with prepared-context settings.
+- **Connections** contains input channels and Live Event listeners with
+  prepared-context settings.
 
-Active instances expose editable session overrides and preserve the existing
-model-change, reset, and deactivation safeguards. Inactive definitions present
-the same groups read-only with an action to create an instance. Active
-instances also expose **Create another** because a production session may own
-multiple independent instances of one definition. Catalog diagnostics and
-refresh remain visible at the workspace level.
+**Save Session definition** creates or replaces the same-name Session-scope
+artifact and immediately refreshes the Agents and Profiles views. A Session
+origin or unsaved draft supplies the row's modified state. Active rows add only
+runtime status and lifecycle actions: Select, Open, Create another, Reset, and
+Deactivate. Inactive rows expose the same full editor and Create agent. Active
+instances show when a newer resolved definition is available and require Reset
+to adopt it. Catalog diagnostics and refresh remain visible at the workspace
+level.
 
 The workspace's **Active Agent** selector switches among instances and
 therefore switches the visible transcript, activity, approvals, composer
 target, and cancellation target.
 
-**Edit overrides** includes a **Listening Events** selector populated from the
-current session's event catalog. Each selected event configures `Automatic` or
-`Next prompt` response plus an optional message prefix. The existing **Inputs**
-editor remains unchanged. Output subscriptions remain managed in Outputs until
-those workflows are deliberately consolidated.
+**Listening Events** is populated from the current session's event catalog for
+active and inactive definitions. Each selected event configures `Automatic` or
+`Next prompt` response, an optional message prefix, and prepared context. A
+save is rejected when a listener references an event outside the active
+production session. Output subscriptions remain managed in Outputs until those
+workflows are deliberately consolidated.
 
 The canonical definitions are Default, Compose, Arrange, Sound, and Mix. They
 initially have every Ableton tool and session scope. Default is the

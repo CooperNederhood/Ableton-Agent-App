@@ -1,6 +1,7 @@
 import {
   MAX_LIVE_EVENTS_PER_SESSION,
   activeAgentInstanceSchema,
+  agentDefinitionSchema,
   agentReasoningEffortSchema,
   agentEventListenerSchema,
   liveEventDefinitionSchema,
@@ -1028,7 +1029,9 @@ const desktopTrackScopeSelectorSchema = z.object({
 });
 
 export const desktopAgentDefinitionSchema = z.object({
+  version: z.literal(2).optional(),
   name: z.string().min(1),
+  label: z.string().trim().min(1).max(128).optional(),
   description: z.string().min(1),
   systemPrompt: z.string().min(1),
   tools: z.array(z.string().min(1)),
@@ -1038,6 +1041,15 @@ export const desktopAgentDefinitionSchema = z.object({
   ),
   skills: z.array(z.string().min(1)),
   inputChannels: z.array(z.string().min(1)),
+  model: z.string().trim().min(1).max(256).nullable().optional(),
+  reasoningEffort: agentReasoningEffortSchema.nullable().optional(),
+  autoApprove: z.boolean().optional(),
+  eventListeners: z.array(agentEventListenerSchema).optional(),
+  origin: z.enum(["bundled", "system", "profile", "session"]).optional(),
+  inherited: z.boolean().optional(),
+  overrides: z
+    .array(z.enum(["bundled", "system", "profile", "session"]))
+    .optional(),
   sourceFile: z.string().min(1),
   fingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
 });
@@ -1046,12 +1058,21 @@ export type DesktopAgentDefinition = z.infer<
 >;
 
 export const desktopAgentCatalogSchema = z.object({
+  revision: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/u)
+    .optional(),
   definitions: z.array(desktopAgentDefinitionSchema).default([]),
   skills: z
     .array(
       z.object({
         name: z.string().min(1),
         description: z.string().min(1),
+        origin: z.enum(["bundled", "system", "profile", "session"]).optional(),
+        inherited: z.boolean().optional(),
+        overrides: z
+          .array(z.enum(["bundled", "system", "profile", "session"]))
+          .optional(),
         sourceFile: z.string().min(1),
         fingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
       }),
@@ -1484,6 +1505,21 @@ export const ipcSchemas = {
   "agents:refresh": {
     request: z.object({}),
     response: desktopAgentCatalogSchema,
+  },
+  "agents:save-definition": {
+    request: z
+      .object({
+        definition: agentDefinitionSchema,
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+        expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: z
+      .object({
+        catalog: desktopAgentCatalogSchema,
+        profileSnapshot: desktopProfileManagerSnapshotSchema,
+      })
+      .strict(),
   },
   "agents:active": {
     request: z.object({}),
@@ -2004,6 +2040,14 @@ export interface DesktopApi {
   agents: {
     getCatalog(): Promise<DesktopAgentCatalog>;
     refreshCatalog(): Promise<DesktopAgentCatalog>;
+    saveDefinition(
+      definition: z.infer<typeof agentDefinitionSchema>,
+      expectedRevision: string,
+      expectedFingerprint: string,
+    ): Promise<{
+      catalog: DesktopAgentCatalog;
+      profileSnapshot: DesktopProfileManagerSnapshot;
+    }>;
     listActive(): Promise<DesktopActiveAgent[]>;
     listModels(): Promise<DesktopAgentModel[]>;
     create(definitionName: string): Promise<DesktopActiveAgent>;

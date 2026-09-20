@@ -646,6 +646,25 @@ export class HeadlessDesktopService implements DesktopService {
     return [...this.#sessions];
   }
 
+  public async persistActiveSession(): Promise<DesktopSession> {
+    this.#assertAccepting();
+    return this.#queueSessionAction(async () => {
+      const session = this.#requireActiveSession();
+      if (!this.#ephemeralSessionIds.has(session.id)) return session;
+      this.#ephemeralSessionIds.delete(session.id);
+      try {
+        await this.options.sessionStore.save(
+          this.#sessions.filter(({ id }) => !this.#ephemeralSessionIds.has(id)),
+        );
+      } catch (error) {
+        this.#ephemeralSessionIds.add(session.id);
+        throw error;
+      }
+      this.emit({ type: "sessions.changed", sessions: [...this.#sessions] });
+      return session;
+    });
+  }
+
   public async getAgentCatalog(): Promise<DesktopAgentCatalog> {
     return (
       this.options.agentCatalog?.current ?? desktopAgentCatalogSchema.parse({})

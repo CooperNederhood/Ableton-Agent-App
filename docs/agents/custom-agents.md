@@ -138,6 +138,11 @@ effective catalog, publishes atomically, refreshes the effective catalog, and
 returns the refreshed Profile Manager snapshot. Stale Profile Manager revisions
 or definition fingerprints cancel rather than overwrite.
 
+When the open Live Set is unsaved, the active production session is normally
+ephemeral. An explicit Agents-tab save promotes that session to durable local
+storage before publishing the Session Scope override, so the definition remains
+resolvable and appears under Session-defined Agents in Profiles.
+
 The production-session record stores active runtime snapshots, selected
 instance, bound project identities, runtime delivery state, and output
 subscriptions. Existing active instances retain their current model, reasoning,

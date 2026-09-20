@@ -50,6 +50,7 @@ import {
   type DesktopAgentCatalog,
   type DesktopProfileManagerSnapshot,
   type DesktopScopedArtifact,
+  type DesktopSession,
 } from "../contracts.js";
 import type { ProfileManagerActions } from "./ipc.js";
 
@@ -87,6 +88,7 @@ export interface ProfileManagerOptions {
   readonly environmentProfileOverride?: string;
   readonly getActiveProfile: () => string;
   readonly getActiveSessionId: () => Promise<string | undefined>;
+  readonly persistActiveSession: () => Promise<DesktopSession>;
   readonly closeActiveSession: () => Promise<void>;
   readonly refreshActiveCatalog: () => Promise<DesktopAgentCatalog>;
   readonly switchProfile: (profile: string) => Promise<void>;
@@ -330,13 +332,16 @@ export class DesktopProfileManager implements ProfileManagerActions {
           environment: { LIVE_AGENT_HOME: this.options.rootLayout.root },
           profile: snapshot.activeProfile,
         });
-        const session = (await readSessions(selectedLayout)).find(
+        let session = (await readSessions(selectedLayout)).find(
           ({ id }) => id === sessionId,
         );
         if (session === undefined) {
-          throw new Error(
-            `Active production session '${sessionId}' is not persisted`,
-          );
+          session = await this.options.persistActiveSession();
+          if (session.id !== sessionId) {
+            throw new Error(
+              "The active production session changed during save",
+            );
+          }
         }
         const eventIds = new Set(session.liveEvents.map(({ id }) => id));
         const unknownEventIds = definition.eventListeners

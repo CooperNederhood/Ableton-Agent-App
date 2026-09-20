@@ -8,7 +8,7 @@ import {
   resolveArtifactScopePaths,
   resolveLiveAgentStorage,
 } from "@ableton-agent/storage";
-import { desktopAgentCatalogSchema } from "../contracts.js";
+import { desktopAgentCatalogSchema, sessionSchema } from "../contracts.js";
 
 import { DesktopProfileManager } from "./profile-manager.js";
 
@@ -99,12 +99,31 @@ async function fixture(
     if (options.refreshFailure !== undefined) throw options.refreshFailure;
     return desktopAgentCatalogSchema.parse({});
   });
+  const persistActiveSession = vi.fn(async () => {
+    if (activeSessionId === undefined) {
+      throw new Error("No active production session");
+    }
+    const session = sessionSchema.parse({
+      version: 3,
+      id: activeSessionId,
+      title: "Production session",
+      updatedAt: "2026-09-19T00:00:00.000Z",
+      projectName: "Test Set",
+      activeAgents: [],
+      productionPlan: [],
+      outputAssignments: [],
+      liveEvents: [],
+    });
+    await writeFile(layout.sessionsPath, JSON.stringify([session]));
+    return session;
+  });
   const manager = new DesktopProfileManager({
     rootLayout: layout,
     bundledAgentsDirectory,
     bundledSkillsDirectory,
     getActiveProfile: () => activeProfile,
     getActiveSessionId: () => Promise.resolve(activeSessionId),
+    persistActiveSession,
     closeActiveSession,
     refreshActiveCatalog,
     switchProfile,
@@ -120,6 +139,7 @@ async function fixture(
     closeActiveSession,
     refreshActiveCatalog,
     layout,
+    persistActiveSession,
   };
 }
 
@@ -274,6 +294,45 @@ describe("DesktopProfileManager", () => {
     expect(
       events.slice(1).every(({ causationId }) => causationId !== undefined),
     ).toBe(true);
+  });
+
+  it("persists an ephemeral active session before saving its definition", async () => {
+    const { manager, layout, persistActiveSession } = await fixture({
+      activeSessionId: "session-1",
+    });
+    await rm(layout.sessionsPath);
+    const initial = await manager.get();
+    const inherited = initial.artifacts.find(
+      ({ kind, name }) => kind === "agent" && name === "default",
+    )!;
+
+    const result = await manager.saveAgentDefinition({
+      definition: {
+        version: 2,
+        name: "default",
+        label: "Persisted session default",
+        description: "Saved from an unsaved Live Set.",
+        systemPrompt: "Help with this session.",
+        tools: ["*"],
+        editScope: ["session"],
+        skills: [],
+        inputChannels: [],
+        model: null,
+        reasoningEffort: null,
+        autoApprove: false,
+        eventListeners: [],
+      },
+      expectedRevision: initial.revision,
+      expectedFingerprint: inherited.fingerprint!,
+    });
+
+    expect(persistActiveSession).toHaveBeenCalledOnce();
+    expect(
+      result.profileSnapshot.artifacts.find(
+        ({ scope, kind, name }) =>
+          scope === "session" && kind === "agent" && name === "default",
+      ),
+    ).toMatchObject({ origin: "session", sessionId: "session-1" });
   });
 
   it("saves definitions for an environment-selected reserved profile", async () => {

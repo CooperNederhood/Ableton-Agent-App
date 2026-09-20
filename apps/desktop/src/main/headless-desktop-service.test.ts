@@ -1214,9 +1214,7 @@ describe("desktop adapter over the shared application", () => {
       responseMode: before.eventListeners[0]!.responseMode,
       messagePrefix: before.eventListeners[0]!.messagePrefix,
     });
-    expect(reset.eventListeners[0]!.id).not.toBe(
-      before.eventListeners[0]!.id,
-    );
+    expect(reset.eventListeners[0]!.id).not.toBe(before.eventListeners[0]!.id);
     expect(agent.managedConfigurations.get(original.id)?.model).toBe("model-b");
     expect(agent.managedConfigurations.get(original.id)?.reasoningEffort).toBe(
       "low",
@@ -3059,6 +3057,42 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
 
     await expect(sessionStore.load()).resolves.toEqual([]);
+  });
+
+  it("persists an unsaved Live Set session when Session Scope is requested", async () => {
+    const directory = await temporaryDirectory();
+    const ableton = defaultFakeState();
+    ableton.projectIdentity = {
+      projectId: "untitled-name-hash",
+      projectName: "Untitled",
+      saved: false,
+    };
+    const fake = createFakeApplication({ ableton });
+    const sessionStore = new JsonSessionStore(join(directory, "sessions.json"));
+    const service = new HeadlessDesktopService({
+      application: fake.application,
+      approvals: new ApprovalCoordinator(),
+      preferencesStore: new JsonPreferencesStore(
+        join(directory, "preferences.json"),
+      ),
+      sessionStore,
+      projectSessionStore: new JsonProjectSessionStore(
+        join(directory, "project-sessions.json"),
+      ),
+      agentCatalog: {
+        current: defaultCatalog(),
+        refresh: () => Promise.resolve(defaultCatalog()),
+      },
+    });
+
+    await service.start();
+    const active = await service.persistActiveSession();
+    await service.stop();
+
+    const persisted = await sessionStore.load();
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]).toMatchObject({ id: active.id });
+    expect(persisted[0]).not.toHaveProperty("projectId");
   });
 
   it("requests a decision when the open Live Set changes mid-run", async () => {

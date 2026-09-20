@@ -23,6 +23,8 @@ Companion specification: [Custom Agents](custom-agents.md)
   automatic approval, and Live Event listeners with version-1 migration.
 - [x] Add revision-checked atomic Session-scope definition publication and
   effective-catalog/Profile refresh.
+- [x] Promote an ephemeral unsaved-Set production session when the user
+  explicitly saves a Session-scope agent definition.
 
 ## Runtime
 

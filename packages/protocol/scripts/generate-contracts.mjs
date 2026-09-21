@@ -13,6 +13,7 @@ import {
   failureResponseEnvelopeSchema,
   liveEventInvalidatedEnvelopeSchema,
   liveEventOccurredEnvelopeSchema,
+  liveSetSaveObservedEnvelopeSchema,
   messageEnvelopeSchema,
   protocolErrorCodeSchema,
   requestEnvelopeSchema,
@@ -98,6 +99,7 @@ const schemaDocument = {
     successResponse: z.toJSONSchema(successResponseEnvelopeSchema),
     failureResponse: z.toJSONSchema(failureResponseEnvelopeSchema),
     event: z.toJSONSchema(eventEnvelopeSchema),
+    liveSetSaveObserved: z.toJSONSchema(liveSetSaveObservedEnvelopeSchema),
   },
   commands: Object.fromEntries(
     Object.entries(commandCatalog).map(([name, definition]) => [
@@ -207,6 +209,19 @@ const fixtures = {
         observedAt: "2000-01-01T00:00:01Z",
         projectRevision: 4,
         reason: "target-deleted",
+      },
+      projectRevision: 4,
+    }),
+    liveSetSaveObservedEnvelopeSchema.parse({
+      protocolVersion: PROTOCOL_VERSION,
+      kind: "event",
+      event: "live_set.save_observed",
+      sequence: 10,
+      payload: {
+        liveSetId: "saved-live-set",
+        observedAt: "2000-01-01T00:00:02Z",
+        fileModifiedTimeNs: "1700000000000000000",
+        fileSizeBytes: 4096,
       },
       projectRevision: 4,
     }),

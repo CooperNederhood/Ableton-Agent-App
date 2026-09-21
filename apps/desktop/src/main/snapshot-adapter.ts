@@ -1,6 +1,8 @@
 import type {
+  CuePointSummary,
   DeviceParameterSummary,
   DeviceSummary,
+  InspectArrangementResult,
   SessionSnapshot,
 } from "@ableton-agent/protocol";
 import type { ConnectionStatus } from "@ableton-agent/shared";
@@ -14,6 +16,26 @@ import {
 } from "../contracts.js";
 
 type TrackSummary = SessionSnapshot["tracks"][number];
+type ArrangementClipSummary = InspectArrangementResult["clips"][number];
+const sessionClipLimit = 4096;
+const sceneLimit = 512;
+const snapshotDeviceLimit = 2048;
+
+export interface SnapshotSupplement {
+  source?: "startup" | "manual" | "internal" | "save";
+  capturedAt?: string;
+  arrangementClips?: readonly ArrangementClipSummary[];
+  arrangementClipsTruncated?: boolean;
+  cuePoints?: readonly CuePointSummary[];
+  cuePointsTruncated?: boolean;
+  arrangementLoop?: {
+    readonly enabled: boolean;
+    readonly start: number;
+    readonly length: number;
+  };
+  capabilities?: readonly string[];
+  unsupportedDomains?: readonly string[];
+}
 
 /** Devices reported for a track, paired with the parameters actually read. */
 export interface TrackDevices {
@@ -67,10 +89,16 @@ function desktopTrack(
     id: track.reference,
     name: track.name,
     kind: track.kind,
+    index: track.index,
     color: colorFromLiveValue(track.color),
     volume: track.volume,
     pan: track.pan,
     muted: track.isMuted,
+    soloed: track.isSoloed,
+    armed: track.isArmed,
+    ...(track.devicesTruncated === undefined
+      ? {}
+      : { devicesTruncated: track.devicesTruncated }),
     clips: (snapshot.clips ?? [])
       .filter((clip) => clip.trackReference === track.reference)
       .map((clip) => ({
@@ -105,6 +133,7 @@ export function toDesktopSnapshot(
   snapshot: SessionSnapshot,
   status: ConnectionStatus | DesktopConnectionStatus,
   trackDevices: readonly TrackDevices[] = [],
+  supplement: SnapshotSupplement = {},
 ): DesktopLiveSetSnapshot {
   const desktopStatus = connectionStatusSchema.parse(status);
   if (desktopStatus.state !== "connected") {
@@ -113,6 +142,53 @@ export function toDesktopSnapshot(
   const devicesByTrack = new Map(
     trackDevices.map((entry) => [entry.trackReference, entry]),
   );
+  const sessionClips = (snapshot.clips ?? []).slice(0, sessionClipLimit);
+  const sceneIndexes = [...new Set(sessionClips.map((clip) => clip.sceneIndex))]
+    .sort((left, right) => left - right)
+    .slice(0, sceneLimit);
+  const topLevelDevices = snapshot.tracks
+    .flatMap((track) => {
+      const enriched = devicesByTrack.get(track.reference)?.devices;
+      return (enriched ?? track.devices ?? []).map((entry) => {
+        const device = "device" in entry ? entry.device : entry;
+        return {
+          id: device.reference,
+          trackId: track.reference,
+          trackIndex: track.index,
+          index: device.index,
+          name: device.name,
+          className: device.className,
+          classDisplayName: device.classDisplayName,
+          enabled: device.enabled,
+          parameterCount: device.parameterCount,
+          canHaveChains:
+            "canHaveChains" in device &&
+            typeof device.canHaveChains === "boolean"
+              ? device.canHaveChains
+              : false,
+          canHaveDrumPads:
+            "canHaveDrumPads" in device &&
+            typeof device.canHaveDrumPads === "boolean"
+              ? device.canHaveDrumPads
+              : false,
+        };
+      });
+    })
+    .slice(0, snapshotDeviceLimit);
+  const truncatedDomains = [
+    ...(snapshot.clips !== undefined && snapshot.clips.length > sessionClipLimit
+      ? ["session_clips"]
+      : []),
+    ...(sceneIndexes.length >= sceneLimit ? ["scenes"] : []),
+    ...(supplement.arrangementClipsTruncated === true
+      ? ["arrangement_clips"]
+      : []),
+    ...(supplement.cuePointsTruncated === true ? ["cue_points"] : []),
+    ...(snapshot.tracks.some((track) => track.devicesTruncated === true) ||
+    topLevelDevices.length >= snapshotDeviceLimit
+      ? ["devices"]
+      : []),
+  ];
   return liveSetSnapshotSchema.parse({
     liveSetId: desktopStatus.liveSetId,
     liveSetName: liveSetLabel(desktopStatus),
@@ -124,9 +200,63 @@ export function toDesktopSnapshot(
       : { liveProjectName: desktopStatus.liveProjectName }),
     tempo: snapshot.tempo,
     timeSignature: `${snapshot.timeSignature.numerator}/${snapshot.timeSignature.denominator}`,
+    capabilities: [...(supplement.capabilities ?? [])],
+    transport: {
+      isPlaying: snapshot.isPlaying,
+      ...(supplement.arrangementLoop === undefined
+        ? {}
+        : { arrangementLoop: supplement.arrangementLoop }),
+    },
+    capturedAt: supplement.capturedAt ?? new Date().toISOString(),
+    source: supplement.source ?? "internal",
     tracks: snapshot.tracks.map((track) =>
       desktopTrack(track, snapshot, devicesByTrack.get(track.reference)),
     ),
+    scenes: sceneIndexes.map((index) => ({
+      id: `scene:${index}`,
+      index,
+      derived: true,
+    })),
+    sessionClips: sessionClips.map((clip) => ({
+      id: clip.reference,
+      trackId: clip.trackReference,
+      trackIndex: clip.trackIndex,
+      sceneIndex: clip.sceneIndex,
+      name: clip.name,
+      kind: clip.kind,
+      lengthBeats: clip.length,
+      noteCount: clip.noteCount,
+      ...(clip.muted === undefined ? {} : { muted: clip.muted }),
+      ...(clip.looping === undefined ? {} : { looping: clip.looping }),
+      status: clipStatus(clip),
+    })),
+    arrangementClips: (supplement.arrangementClips ?? []).map((clip) => ({
+      id: clip.reference,
+      trackId: clip.trackReference,
+      trackIndex: clip.trackIndex,
+      name: clip.name,
+      kind: clip.kind,
+      startTime: clip.startTime,
+      endTime: clip.endTime,
+      lengthBeats: clip.length,
+      noteCount: clip.noteCount,
+      ...(clip.muted === undefined ? {} : { muted: clip.muted }),
+      ...(clip.looping === undefined ? {} : { looping: clip.looping }),
+    })),
+    cuePoints: (supplement.cuePoints ?? []).map((cuePoint) => ({
+      id: cuePoint.reference,
+      name: cuePoint.name,
+      time: cuePoint.time,
+    })),
+    devices: topLevelDevices,
+    completeness: {
+      truncatedDomains,
+      unsupportedDomains: [
+        "track_groups",
+        "track_routing",
+        ...(supplement.unsupportedDomains ?? []),
+      ],
+    },
   } satisfies DesktopLiveSetSnapshot);
 }
 

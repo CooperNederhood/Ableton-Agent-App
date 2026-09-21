@@ -378,7 +378,7 @@ export function resolveLiveAgentStorage(
     eventJournalPath: join(
       profileRoot,
       "observability",
-      "event-history.sqlite",
+      "agent-set-event-history.sqlite",
     ),
     logsDirectory: join(profileRoot, "logs"),
     desktopLogPath: join(profileRoot, "logs", "desktop.log"),

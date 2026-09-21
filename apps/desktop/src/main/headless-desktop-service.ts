@@ -23,6 +23,7 @@ import type {
 } from "@ableton-agent/protocol";
 import {
   DefaultSignalRuntime,
+  type LiveSetSaveActionContext,
   type LiveEventRuntime,
   type LiveEventRuntimeEvent,
   type SignalRuntime,
@@ -125,6 +126,43 @@ const storedSessionLimit = 100;
 const defaultLiveSetIdentityPollIntervalMs = 10_000;
 const maximumLiveSetIdentityPollBackoffMs = 60_000;
 
+function cancellableDelay(
+  durationMs: number,
+  signal: AbortSignal,
+): Promise<void> {
+  if (signal.aborted) {
+    return Promise.reject(new DOMException("Cancelled", "AbortError"));
+  }
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", abort);
+      resolve();
+    }, durationMs);
+    const abort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("Cancelled", "AbortError"));
+    };
+    signal.addEventListener("abort", abort, { once: true });
+  });
+}
+
+export interface LiveSetSnapshotHistoryRecord {
+  readonly snapshot: DesktopLiveSetSnapshot;
+  readonly capturedAt: string;
+  readonly trigger: "manual" | "save";
+  readonly observedAt?: string;
+  readonly fileModifiedTimeNs?: string;
+  readonly fileSizeBytes?: number;
+  readonly productionSessionId?: string;
+  readonly activeAgentInstanceIds: readonly string[];
+  readonly sdkSessionIds: readonly string[];
+}
+
+/** Persistence seam implemented by the unified history database owner. */
+export interface LiveSetSnapshotHistoryRepository {
+  save(record: LiveSetSnapshotHistoryRecord): Promise<void>;
+}
+
 export interface HeadlessDesktopServiceOptions {
   application: HeadlessApplication;
   approvals: ApprovalCoordinator;
@@ -159,17 +197,22 @@ export interface HeadlessDesktopServiceOptions {
   ) => void;
   logger?: Logger;
   liveSetIdentityPollIntervalMs?: number;
+  /** Quiet period after an observed Save before reading the LOM. */
+  saveCaptureDelayMs?: number;
   /** Main-process-owned journal. It is never exposed to the renderer. */
   eventJournal?: DesktopEventJournal;
   reconfigureEventJournal?: (policy: RetentionPolicy) => Promise<void>;
   onEventHistoryEnabledChange?: (enabled: boolean) => void;
   eventHistoryUnavailable?: boolean;
+  snapshotHistory?: LiveSetSnapshotHistoryRepository;
 }
 
 export type DesktopEventJournal = Pick<
   LocalObservabilityJournal,
   | "enqueue"
   | "enqueueConfigurationSnapshot"
+  | "appendAgentHistory"
+  | "appendSetHistory"
   | "readRootTraces"
   | "readTrace"
   | "readConfigurationSnapshots"
@@ -234,6 +277,8 @@ export class HeadlessDesktopService implements DesktopService {
     Extract<DesktopLifecycleState, "ready" | "degraded"> | undefined;
   #latestOutputs = new Map<string, LatestAcceptedOutput>();
   #snapshotRefresh: Promise<DesktopLiveSetSnapshot> | undefined;
+  #snapshotRefreshTrigger: "startup" | "manual" | "save" | undefined;
+  #manualSnapshotCapture: Promise<DesktopLiveSetSnapshot> | undefined;
   #snapshotEnrichmentGeneration = 0;
   #activeAppSessionId: string | undefined;
   readonly #sdkSessionIds = new Map<string, string>();
@@ -363,10 +408,10 @@ export class HeadlessDesktopService implements DesktopService {
       clearTimeout(this.#liveSetIdentityTimer);
       this.#liveSetIdentityTimer = undefined;
     }
-    await this.#liveSetIdentityRefresh;
     this.#pendingActionableLifecycle = undefined;
     this.#approvals.denyAll();
     await this.#preferenceSaveTail;
+    await this.#liveSetIdentityRefresh;
     await this.#drainSnapshotRefresh();
     await this.#sessionActionTail;
     await this.#drainAgentActions();
@@ -1874,12 +1919,56 @@ export class HeadlessDesktopService implements DesktopService {
    * while resolving callers with the final enriched snapshot on full success.
    */
   public getSnapshot(): Promise<DesktopLiveSetSnapshot> {
-    return this.#beginSnapshotRefresh(true, "manual");
+    if (!this.#acceptingActions) {
+      return Promise.reject(
+        new Error("Desktop service is not accepting actions"),
+      );
+    }
+    if (this.#manualSnapshotCapture !== undefined) {
+      return this.#manualSnapshotCapture;
+    }
+    const capture = this.#captureAndPersistSnapshot("manual");
+    this.#manualSnapshotCapture = capture;
+    void capture.then(
+      () => {
+        if (this.#manualSnapshotCapture === capture) {
+          this.#manualSnapshotCapture = undefined;
+        }
+      },
+      () => {
+        if (this.#manualSnapshotCapture === capture) {
+          this.#manualSnapshotCapture = undefined;
+        }
+      },
+    );
+    return capture;
+  }
+
+  public async captureObservedSave(
+    context: LiveSetSaveActionContext,
+  ): Promise<void> {
+    await cancellableDelay(
+      this.options.saveCaptureDelayMs ?? 2_000,
+      context.signal,
+    );
+    context.reportProgress({ phase: "capture_started" });
+    const snapshot = await this.#beginSnapshotRefresh(true, "save");
+    if (snapshot.liveSetId !== context.observation.liveSetId) {
+      throw new Error(
+        "The active Live Set changed before the observed-save snapshot completed",
+      );
+    }
+    await this.#persistSnapshot(snapshot, "save", {
+      observedAt: context.receivedAt,
+      fileModifiedTimeNs: context.observation.fileModifiedTimeNs,
+      fileSizeBytes: context.observation.fileSizeBytes,
+    });
+    context.reportProgress({ phase: "persisted" });
   }
 
   #beginSnapshotRefresh(
     includeEnrichment: boolean,
-    trigger: "startup" | "manual",
+    trigger: "startup" | "manual" | "save",
   ): Promise<DesktopLiveSetSnapshot> {
     if (!this.#acceptingActions) {
       return Promise.reject(
@@ -1888,6 +1977,16 @@ export class HeadlessDesktopService implements DesktopService {
     }
     if (this.#snapshotRefresh !== undefined) {
       this.#logger.debug("Live Set refresh coalesced", { trigger });
+      if (trigger !== "startup" && this.#snapshotRefreshTrigger === "startup") {
+        const activeRefresh = this.#snapshotRefresh;
+        return activeRefresh.then(() => {
+          if (this.#snapshotRefresh === activeRefresh) {
+            this.#snapshotRefresh = undefined;
+            this.#snapshotRefreshTrigger = undefined;
+          }
+          return this.#beginSnapshotRefresh(true, trigger);
+        });
+      }
       return this.#snapshotRefresh;
     }
 
@@ -1897,10 +1996,12 @@ export class HeadlessDesktopService implements DesktopService {
     });
     const refresh = this.#refreshSnapshot(includeEnrichment, trigger);
     this.#snapshotRefresh = refresh;
+    this.#snapshotRefreshTrigger = trigger;
     void refresh.then(
       () => {
         if (this.#snapshotRefresh === refresh) {
           this.#snapshotRefresh = undefined;
+          this.#snapshotRefreshTrigger = undefined;
         }
       },
       (error) => {
@@ -1914,6 +2015,7 @@ export class HeadlessDesktopService implements DesktopService {
         });
         if (this.#snapshotRefresh === refresh) {
           this.#snapshotRefresh = undefined;
+          this.#snapshotRefreshTrigger = undefined;
         }
       },
     );
@@ -1921,7 +2023,7 @@ export class HeadlessDesktopService implements DesktopService {
   }
 
   async #drainSnapshotRefresh(): Promise<void> {
-    const refresh = this.#snapshotRefresh;
+    const refresh = this.#manualSnapshotCapture ?? this.#snapshotRefresh;
     if (refresh === undefined) return;
     try {
       await refresh;
@@ -1932,7 +2034,7 @@ export class HeadlessDesktopService implements DesktopService {
 
   async #refreshSnapshot(
     includeEnrichment: boolean,
-    trigger: "startup" | "manual",
+    trigger: "startup" | "manual" | "save",
   ): Promise<DesktopLiveSetSnapshot> {
     const refreshId = randomUUID();
     const startedAt = Date.now();
@@ -1959,10 +2061,15 @@ export class HeadlessDesktopService implements DesktopService {
     }
     const coreStartedAt = Date.now();
     const snapshot = await this.#application.inspectSession();
+    const capabilityDocument = await this.#application.getCapabilities();
+    const capabilities = toDesktopCapabilities(capabilityDocument.capabilities);
     const identity = await this.#readLiveIdentity();
     this.#liveSetIdentityPollFailures = 0;
     if (identity !== undefined) await this.#observeLiveIdentity(identity);
-    const baseSnapshot = toDesktopSnapshot(snapshot, status);
+    const baseSnapshot = toDesktopSnapshot(snapshot, status, [], {
+      source: trigger,
+      capabilities,
+    });
     const coreSnapshot =
       identity === undefined
         ? baseSnapshot
@@ -2011,6 +2118,48 @@ export class HeadlessDesktopService implements DesktopService {
       snapshot,
       enrichmentGeneration,
     );
+    const unsupportedDomains: string[] = [];
+    let arrangement:
+      | Awaited<ReturnType<HeadlessApplication["inspectArrangement"]>>
+      | undefined;
+    if (capabilityDocument.capabilities["arrangement.inspect"] === true) {
+      try {
+        arrangement = await this.#application.inspectArrangement({
+          offset: 0,
+          limit: 512,
+        });
+      } catch (error) {
+        unsupportedDomains.push("arrangement_clips");
+        this.#warnOptionalEnrichment(
+          "Could not inspect Arrangement clips",
+          error,
+        );
+      }
+    } else {
+      unsupportedDomains.push("arrangement_clips");
+    }
+    let arrangementTransport:
+      | Awaited<ReturnType<HeadlessApplication["inspectArrangementTransport"]>>
+      | undefined;
+    if (
+      capabilityDocument.capabilities["transport.inspect_arrangement"] === true
+    ) {
+      try {
+        arrangementTransport =
+          await this.#application.inspectArrangementTransport({
+            offset: 0,
+            limit: 512,
+          });
+      } catch (error) {
+        unsupportedDomains.push("cue_points", "arrangement_loop");
+        this.#warnOptionalEnrichment(
+          "Could not inspect Arrangement transport",
+          error,
+        );
+      }
+    } else {
+      unsupportedDomains.push("cue_points", "arrangement_loop");
+    }
     if (enrichmentGeneration !== this.#snapshotEnrichmentGeneration) {
       this.#logger.debug("Live Set enrichment interrupted", {
         refreshId,
@@ -2025,6 +2174,23 @@ export class HeadlessDesktopService implements DesktopService {
       snapshot,
       status,
       trackDevices,
+      {
+        source: trigger,
+        capabilities,
+        arrangementClips: arrangement?.clips ?? [],
+        arrangementClipsTruncated:
+          arrangement !== undefined &&
+          arrangement.total > arrangement.clips.length,
+        cuePoints: arrangementTransport?.cuePoints ?? [],
+        cuePointsTruncated:
+          arrangementTransport !== undefined &&
+          arrangementTransport.totalCuePoints >
+            arrangementTransport.cuePoints.length,
+        ...(arrangementTransport === undefined
+          ? {}
+          : { arrangementLoop: arrangementTransport.loop }),
+        unsupportedDomains,
+      },
     );
     const enrichedSnapshot =
       identity === undefined
@@ -2053,6 +2219,50 @@ export class HeadlessDesktopService implements DesktopService {
       snapshot: enrichedSnapshot,
     });
     return enrichedSnapshot;
+  }
+
+  async #captureAndPersistSnapshot(
+    trigger: "manual" | "save",
+  ): Promise<DesktopLiveSetSnapshot> {
+    const snapshot = await this.#beginSnapshotRefresh(true, trigger);
+    await this.#persistSnapshot(snapshot, trigger);
+    return snapshot;
+  }
+
+  async #persistSnapshot(
+    snapshot: DesktopLiveSetSnapshot,
+    trigger: "manual" | "save",
+    observation: {
+      observedAt?: string;
+      fileModifiedTimeNs?: string;
+      fileSizeBytes?: number;
+    } = {},
+  ): Promise<void> {
+    if (this.options.snapshotHistory === undefined) return;
+    const activeSession = this.#activeSession();
+    await this.options.snapshotHistory.save({
+      snapshot,
+      capturedAt: snapshot.capturedAt ?? new Date().toISOString(),
+      trigger,
+      ...observation,
+      ...(activeSession === undefined
+        ? {}
+        : { productionSessionId: activeSession.id }),
+      activeAgentInstanceIds:
+        activeSession?.activeAgents.map((agent) => agent.id) ?? [],
+      sdkSessionIds:
+        activeSession?.activeAgents.flatMap((agent) =>
+          agent.sdkSessionId === undefined ? [] : [agent.sdkSessionId],
+        ) ?? [],
+    });
+  }
+
+  public get activeSessionId(): string | undefined {
+    return this.#activeAppSessionId;
+  }
+
+  public get activeLiveProjectId(): string | undefined {
+    return this.#liveSetIdentity?.liveProjectId;
   }
 
   async #readTrackDevices(

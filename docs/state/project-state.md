@@ -31,6 +31,21 @@ refresh may enrich it with top-level device and parameter summaries, bounded to
 32 devices per track and 64 parameters per device, with truncation reported
 explicitly.
 
+The Desktop snapshot contract also carries bounded, query-ready scene,
+Session-clip, Arrangement-clip, cue-point, and top-level device collections.
+Scene identities are derived from the scene indices exposed by the current
+protocol; group membership and routing are marked unsupported until those
+fields are available through a reviewed Live 11 protocol surface. Manual user
+Refresh persists the completed snapshot through an injected history repository.
+Startup and internal refreshes update current UI state only and never create
+history records.
+
+Set History storage exposes a read-only application service rather than a raw
+database handle. Agent SQL is restricted to one `SELECT` or CTE, allowlisted
+public views, and a caller-supplied result limit capped at 200 rows. The
+repository remains responsible for read-only database access, cancellation, and
+returning bounded scalar rows.
+
 ## Revisions and invalidation
 
 The Remote Script increments a Live Set revision when observed structural or

@@ -119,7 +119,9 @@ import {
   createAbletonTools,
   parseAbletonToolFailure,
   runAuthorizedAbletonMutation,
+  SET_SQL_SEARCH_TOOL_NAME,
   type AbletonMutationAuthorizationContext,
+  type SetHistoryQueryService,
   type ToolApprovalRequester,
 } from "@ableton-agent/tools";
 import { resolveLiveAgentStorage } from "@ableton-agent/storage";
@@ -533,6 +535,7 @@ interface CopilotClientAdapter {
 export interface CopilotAgentServiceOptions {
   events: EventPublisher;
   logger?: Logger;
+  setHistoryQuery?: SetHistoryQueryService;
   getAbletonStatus: () => Promise<ConnectionStatus>;
   inspectSession: () => Promise<SessionSnapshot>;
   preparedContextProvider?: PreparedContextProvider;
@@ -1457,6 +1460,9 @@ export class CopilotAgentService implements AgentService {
 
   #abletonToolSet(): ReturnType<typeof createAbletonTools> {
     this.#toolSet ??= createAbletonTools({
+      ...(this.options.setHistoryQuery === undefined
+        ? {}
+        : { setHistoryQuery: this.options.setHistoryQuery }),
       getConnectionStatus: this.options.getAbletonStatus,
       inspectSession: this.options.inspectSession,
       setTempo: this.options.setTempo,
@@ -2362,6 +2368,7 @@ export class CopilotAgentService implements AgentService {
       ...bareToolNames(state.configuration.resolvedTools).filter(
         (name) => name !== SKILL_TOOL_NAME,
       ),
+      SET_SQL_SEARCH_TOOL_NAME,
       READ_PLAN_TOOL_NAME,
       WRITE_PLAN_TOOL_NAME,
       ...(skillTool === undefined ? [] : [SKILL_TOOL_NAME]),
@@ -2431,6 +2438,9 @@ export class CopilotAgentService implements AgentService {
       typeof configuredReasoningSummary === "function"
         ? configuredReasoningSummary()
         : (configuredReasoningSummary ?? "concise");
+    const historyGuidance = configuredToolNames.includes("set_sql_search")
+      ? "\n\nFor questions about prior Live Sets, saves, devices, clips, or agent trajectories, use set_sql_search against the local read-only Set History views. Treat it as historical evidence and inspect the current Live Set before acting."
+      : "";
     const config: SessionConfig = {
       clientName: "ableton-agent-app",
       ...(model === undefined ? {} : { model }),
@@ -2445,7 +2455,7 @@ export class CopilotAgentService implements AgentService {
           name: state.configuration.definitionName,
           displayName: state.configuration.label,
           description: state.configuration.description,
-          prompt: state.configuration.systemPrompt,
+          prompt: `${state.configuration.systemPrompt}${historyGuidance}`,
           infer: false,
         },
       ],
@@ -2602,6 +2612,7 @@ export class CopilotAgentService implements AgentService {
       ...bareToolNames(state.configuration.resolvedTools).filter(
         (name) => name !== SKILL_TOOL_NAME,
       ),
+      SET_SQL_SEARCH_TOOL_NAME,
       READ_PLAN_TOOL_NAME,
       WRITE_PLAN_TOOL_NAME,
       ...(state.configuration.skills.length === 0 ? [] : [SKILL_TOOL_NAME]),

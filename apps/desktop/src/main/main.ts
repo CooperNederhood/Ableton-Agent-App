@@ -426,12 +426,6 @@ async function bootstrap(): Promise<void> {
       kind: "directory",
     },
     {
-      label: "event-history",
-      source: join(legacyUserDataDirectory, "event-history.sqlite"),
-      destination: storage.eventJournalPath,
-      kind: "sqlite",
-    },
-    {
       label: "desktop-log",
       source: join(legacyLogsDirectory, legacyLogName),
       destination: storage.desktopLogPath,

@@ -53,6 +53,7 @@ import { JsonPreferencesStore, JsonSessionStore } from "./desktop-service.js";
 import {
   HeadlessDesktopService,
   type DesktopEventJournal,
+  type LiveSetSnapshotHistoryRepository,
 } from "./headless-desktop-service.js";
 import {
   JsonLiveSetSessionStore,
@@ -282,8 +283,10 @@ async function harness(
     ) => void;
     liveSetSessionStore?: LiveSetSessionStore;
     liveSetIdentityPollIntervalMs?: number;
+    saveCaptureDelayMs?: number;
     eventJournal?: DesktopEventJournal;
     reconfigureEventJournal?: (policy: RetentionPolicy) => Promise<void>;
+    snapshotHistory?: LiveSetSnapshotHistoryRepository;
   } = {},
 ) {
   const directory = await temporaryDirectory();
@@ -2763,6 +2766,126 @@ describe("desktop adapter over the shared application", () => {
     ).toBe(true);
     await service.stop();
     expect(await service.getLifecycleState()).toBe("stopped");
+  });
+
+  it("persists explicit Refresh snapshots but not startup refreshes", async () => {
+    const save = vi.fn<LiveSetSnapshotHistoryRepository["save"]>(() =>
+      Promise.resolve(),
+    );
+    const { service } = await harness({}, { snapshotHistory: { save } });
+
+    await service.start();
+    expect(save).not.toHaveBeenCalled();
+
+    const snapshot = await service.getSnapshot();
+
+    expect(save).toHaveBeenCalledOnce();
+    const persisted = save.mock.calls[0]?.[0];
+    expect(persisted?.snapshot).toBe(snapshot);
+    expect(persisted?.capturedAt).toBe(snapshot.capturedAt);
+    expect(persisted?.trigger).toBe("manual");
+    expect(persisted?.productionSessionId).toEqual(expect.any(String));
+    expect(persisted?.activeAgentInstanceIds).toEqual([expect.any(String)]);
+    expect(persisted?.sdkSessionIds).toEqual([expect.any(String)]);
+    await service.stop();
+  });
+
+  it("persists an observed Save after the configured quiet period", async () => {
+    const save = vi.fn<LiveSetSnapshotHistoryRepository["save"]>(() =>
+      Promise.resolve(),
+    );
+    const { service } = await harness(
+      {},
+      { snapshotHistory: { save }, saveCaptureDelayMs: 0 },
+    );
+    await service.start();
+    const reportProgress = vi.fn();
+    const status = await service.getStatus();
+    expect(status.state).toBe("connected");
+    if (status.state !== "connected") throw new Error("Expected connection");
+
+    await service.captureObservedSave({
+      observation: {
+        liveSetId: status.liveSetId,
+        observedAt: "2026-09-20T20:00:00.000Z",
+        fileModifiedTimeNs: "1234567890123456789",
+        fileSizeBytes: 4096,
+      },
+      receivedAt: "2026-09-20T20:00:00.000Z",
+      signal: new AbortController().signal,
+      reportProgress,
+    });
+
+    expect(save).toHaveBeenCalledOnce();
+    expect(save.mock.calls[0]?.[0]).toMatchObject({
+      trigger: "save",
+      observedAt: "2026-09-20T20:00:00.000Z",
+      fileModifiedTimeNs: "1234567890123456789",
+      fileSizeBytes: 4096,
+    });
+    expect(reportProgress).toHaveBeenCalledWith({
+      phase: "capture_started",
+    });
+    expect(reportProgress).toHaveBeenCalledWith({ phase: "persisted" });
+    await service.stop();
+  });
+
+  it("captures bounded Arrangement clips and cue points on manual Refresh", async () => {
+    const { service, ableton } = await harness();
+    ableton.state.capabilities = {
+      ...ableton.state.capabilities,
+      capabilities: {
+        ...ableton.state.capabilities.capabilities,
+        "arrangement.inspect": true,
+        "transport.inspect_arrangement": true,
+      },
+    };
+    vi.spyOn(ableton, "inspectArrangement").mockResolvedValue({
+      clips: [
+        {
+          reference: "00000000-0000-4000-8000-000000000090",
+          trackReference: ableton.state.snapshot.tracks[0]!.reference,
+          trackIndex: 0,
+          name: "Verse",
+          kind: "midi",
+          startTime: 8,
+          endTime: 24,
+          length: 16,
+          noteCount: 8,
+        },
+      ],
+      total: 513,
+      offset: 0,
+      limit: 512,
+    });
+    vi.spyOn(ableton, "inspectArrangementTransport").mockResolvedValue({
+      loop: { enabled: true, start: 8, length: 16 },
+      cuePoints: [
+        {
+          reference: "00000000-0000-4000-8000-000000000091",
+          name: "Drop",
+          time: 32,
+        },
+      ],
+      totalCuePoints: 1,
+      offset: 0,
+      limit: 512,
+    });
+
+    await service.start();
+    const snapshot = await service.getSnapshot();
+
+    expect(snapshot.arrangementClips?.[0]).toMatchObject({ name: "Verse" });
+    expect(snapshot.cuePoints?.[0]).toMatchObject({ name: "Drop" });
+    expect(snapshot.transport?.arrangementLoop).toEqual({
+      enabled: true,
+      start: 8,
+      length: 16,
+    });
+    expect(snapshot.completeness?.truncatedDomains).toContain(
+      "arrangement_clips",
+    );
+    await service.stop();
   });
 
   it("streams a turn under one assistant message id distinct from the request", async () => {

@@ -17,6 +17,7 @@ import {
   JournalClosedError,
   JournalCursorError,
   JournalDuplicateError,
+  JournalQueryError,
   JournalQueueFullError,
   JournalSchemaVersionError,
   LocalObservabilityJournal,
@@ -25,6 +26,8 @@ import {
   observabilityMigrations,
   observabilitySchemaVersion,
   type ConfigurationSnapshot,
+  type AgentHistoryRecord,
+  type SetHistoryRecord,
   type TelemetryEventEnvelope,
 } from "./index.js";
 
@@ -97,6 +100,159 @@ function snapshot(
       : { liveProjectId: attribution.liveProjectId }),
     values: { telemetry_enabled: true, batch_size: 64 + value },
   };
+}
+
+function agentHistoryRecords(): AgentHistoryRecord[] {
+  const base = {
+    version: 1 as const,
+    appSessionId: "app-session-1",
+    liveSetId: "live-set-1",
+    liveProjectId: "live-project-1",
+    agentSessionId: "agent-session-1",
+    activeAgentId: "active-agent-1",
+  };
+  return [
+    {
+      ...base,
+      kind: "agent_session",
+      id: id(1_001),
+      occurredAt: "2026-08-29T22:10:00.000Z",
+      status: "active",
+      metadata: { model: "test-model" },
+    },
+    {
+      ...base,
+      kind: "turn",
+      id: id(1_002),
+      turnId: "turn-1",
+      occurredAt: "2026-08-29T22:10:01.000Z",
+      status: "completed",
+      prompt: "Use token=secret-value to set tempo",
+      durationMs: 12,
+      metadata: {},
+    },
+    {
+      ...base,
+      kind: "message",
+      id: id(1_003),
+      turnId: "turn-1",
+      occurredAt: "2026-08-29T22:10:02.000Z",
+      role: "assistant",
+      content: "Tempo updated",
+      messageIndex: 0,
+      metadata: {},
+    },
+    {
+      ...base,
+      kind: "tool_call",
+      id: id(1_004),
+      turnId: "turn-1",
+      toolCallId: "tool-call-1",
+      occurredAt: "2026-08-29T22:10:03.000Z",
+      toolName: "ableton.set_tempo",
+      status: "completed",
+      arguments: { authorization: "secret-value", tempo: 120 },
+      metadata: {},
+    },
+    {
+      ...base,
+      kind: "tool_result",
+      id: id(1_005),
+      turnId: "turn-1",
+      toolCallId: "tool-call-1",
+      occurredAt: "2026-08-29T22:10:04.000Z",
+      outcome: "success",
+      result: { tempo: 120 },
+      metadata: {},
+    },
+    {
+      ...base,
+      kind: "approval",
+      id: id(1_006),
+      turnId: "turn-1",
+      toolCallId: "tool-call-1",
+      occurredAt: "2026-08-29T22:10:05.000Z",
+      status: "approved",
+      summary: "Approve tempo change",
+      details: {},
+    },
+  ];
+}
+
+function setHistoryRecords(): SetHistoryRecord[] {
+  const base = {
+    version: 1 as const,
+    appSessionId: "app-session-1",
+    liveSetId: "live-set-1",
+    liveProjectId: "live-project-1",
+  };
+  return [
+    {
+      ...base,
+      kind: "set_save",
+      id: id(1_101),
+      occurredAt: "2026-08-29T22:11:00.000Z",
+      path: "/Users/example/My Set.als",
+      trigger: "agent",
+      outcome: "success",
+      details: {},
+    },
+    {
+      ...base,
+      kind: "set_snapshot",
+      id: id(1_102),
+      occurredAt: "2026-08-29T22:11:01.000Z",
+      snapshotKind: "checkpoint",
+      revision: "revision-1",
+      snapshot: {
+        liveSetId: "live-set-1",
+        liveSetName: "History Test",
+        tempo: 120,
+        timeSignature: "4/4",
+        source: "manual",
+        tracks: [
+          {
+            id: "track-1",
+            index: 0,
+            name: "Lead",
+            kind: "midi",
+            color: "#ff0000",
+            volume: 0.8,
+            pan: 0,
+            muted: false,
+            clips: [],
+            devices: [
+              {
+                id: "device-1",
+                name: "Operator",
+                type: "instrument",
+                enabled: true,
+                parameters: [],
+              },
+            ],
+          },
+        ],
+        scenes: [{ id: "scene-1", index: 0, name: "Verse", derived: false }],
+        sessionClips: [],
+        arrangementClips: [],
+        cuePoints: [{ id: "cue-1", name: "Drop", time: 16 }],
+        devices: [],
+      },
+    },
+    {
+      ...base,
+      kind: "set_trajectory",
+      id: id(1_103),
+      occurredAt: "2026-08-29T22:11:02.000Z",
+      trajectoryType: "tool.mutation",
+      agentSessionId: "agent-session-1",
+      turnId: "turn-1",
+      toolCallId: "tool-call-1",
+      activeAgentId: "active-agent-1",
+      summary: "Changed tempo",
+      data: { before: 110, after: 120 },
+    },
+  ];
 }
 
 async function databasePath(name = "observability.sqlite"): Promise<string> {
@@ -298,6 +454,206 @@ describe("local observability journal", () => {
     ]);
   });
 
+  it("writes and queries separate typed agent and Set history views", async () => {
+    const path = await databasePath();
+    const journal = await openJournal({ path, batchDelayMs: 0 });
+    await Promise.all([
+      ...agentHistoryRecords().map((record) =>
+        journal.appendAgentHistory(record),
+      ),
+      ...setHistoryRecords().map((record) => journal.appendSetHistory(record)),
+    ]);
+
+    const firstAgentPage = await journal.readAgentHistory({
+      appSessionId: "app-session-1",
+      order: "asc",
+      limit: 3,
+    });
+    expect(firstAgentPage.items.map((record) => record.kind)).toEqual([
+      "agent_session",
+      "turn",
+      "message",
+    ]);
+    expect(firstAgentPage.nextCursor).toBeDefined();
+    expect(
+      (
+        await journal.readAgentHistory({
+          appSessionId: "app-session-1",
+          order: "asc",
+          limit: 3,
+          cursor: firstAgentPage.nextCursor,
+        })
+      ).items.map((record) => record.kind),
+    ).toEqual(["tool_call", "tool_result", "approval"]);
+    expect(
+      (
+        await journal.readAgentHistory({
+          kinds: ["tool_call"],
+          toolCallId: "tool-call-1",
+        })
+      ).items[0],
+    ).toMatchObject({
+      kind: "tool_call",
+      arguments: { authorization: REDACTED_VALUE, tempo: 120 },
+    });
+    expect(
+      (await journal.readSetHistory({ liveSetId: "live-set-1" })).items.map(
+        (record) => record.kind,
+      ),
+    ).toEqual(["set_trajectory", "set_snapshot", "set_save"]);
+    expect(firstAgentPage.page.totalItems).toBe(6);
+    expect(
+      (await journal.readSetHistory({ liveSetId: "live-set-1" })).page
+        .totalItems,
+    ).toBe(3);
+
+    await journal.shutdown();
+    openJournals.splice(openJournals.indexOf(journal), 1);
+    const sql = await initSqlJs();
+    const database = new sql.Database(new Uint8Array(await readFile(path)));
+    const objects = database.exec(
+      `SELECT type, name FROM sqlite_master
+       WHERE name IN (
+         'app_events', 'app_configuration_snapshots', 'agent_sessions',
+         'agent_turns', 'agent_messages', 'agent_tool_calls',
+         'agent_tool_results', 'agent_approvals', 'set_saves',
+         'set_snapshots', 'set_trajectory_records', 'agent_history',
+         'set_history', 'telemetry_events', 'configuration_snapshots'
+       ) ORDER BY name`,
+    )[0]?.values;
+    expect(objects).toEqual([
+      ["table", "agent_approvals"],
+      ["view", "agent_history"],
+      ["table", "agent_messages"],
+      ["table", "agent_sessions"],
+      ["table", "agent_tool_calls"],
+      ["table", "agent_tool_results"],
+      ["table", "agent_turns"],
+      ["table", "app_configuration_snapshots"],
+      ["table", "app_events"],
+      ["view", "set_history"],
+      ["table", "set_saves"],
+      ["table", "set_snapshots"],
+      ["table", "set_trajectory_records"],
+    ]);
+    const persisted = String(
+      database.exec(
+        "SELECT payload FROM agent_turns WHERE turn_id = 'turn-1'",
+      )[0]?.values[0]?.[0],
+    );
+    expect(persisted).toContain(REDACTED_VALUE);
+    expect(persisted).not.toContain("secret-value");
+    database.close();
+  });
+
+  it("queries only bounded scalar rows from granular public history views", async () => {
+    const journal = await openJournal({ batchDelayMs: 0 });
+    await Promise.all([
+      ...agentHistoryRecords().map((record) =>
+        journal.appendAgentHistory(record),
+      ),
+      ...setHistoryRecords().map((record) => journal.appendSetHistory(record)),
+    ]);
+    const publicViews = [
+      "set_history_saves",
+      "set_history_snapshots",
+      "set_history_tracks",
+      "set_history_devices",
+      "set_history_session_clips",
+      "set_history_arrangement_clips",
+      "set_history_scenes",
+      "set_history_cue_points",
+      "set_history_trajectories",
+      "set_history_agent_links",
+      "agent_history_sessions",
+      "agent_history_turns",
+      "agent_history_messages",
+      "agent_history_tool_calls",
+      "agent_history_tool_results",
+      "agent_history_approvals",
+    ] as const;
+    for (const view of publicViews) {
+      await expect(
+        journal.queryPublicHistory(`SELECT * FROM ${view} LIMIT 0`, [], 1),
+      ).resolves.toMatchObject({ rows: [], rowCount: 0, truncated: false });
+    }
+
+    const tracks = await journal.queryPublicHistory(
+      `SELECT track_id, name, volume
+       FROM set_history_tracks
+       WHERE live_set_id = ?
+       ORDER BY track_index`,
+      ["live-set-1"],
+      10,
+    );
+    expect(tracks).toMatchObject({
+      version: 1,
+      schemaVersion: observabilitySchemaVersion,
+      columns: ["track_id", "name", "volume"],
+      rows: [{ track_id: "track-1", name: "Lead", volume: 0.8 }],
+      rowCount: 1,
+      truncated: false,
+    });
+    expect(tracks.elapsedMs).toBeGreaterThanOrEqual(0);
+
+    const agent = await journal.queryPublicHistory(
+      `WITH completed AS (
+         SELECT turn_id, prompt FROM agent_history_turns
+         WHERE status = ?
+       )
+       SELECT turn_id, prompt FROM completed`,
+      ["completed"],
+      10,
+    );
+    expect(agent.rows).toEqual([
+      { turn_id: "turn-1", prompt: "Use token=[REDACTED] to set tempo" },
+    ]);
+
+    const truncated = await journal.queryPublicHistory(
+      "SELECT record_id FROM agent_history_messages UNION ALL SELECT record_id FROM agent_history_tool_calls",
+      [],
+      1,
+    );
+    expect(truncated).toMatchObject({ rowCount: 1, truncated: true });
+
+    await expect(
+      journal.queryPublicHistory("SELECT * FROM set_snapshots", [], 10),
+    ).rejects.toThrow(JournalQueryError);
+    await expect(
+      journal.queryPublicHistory("SELECT * FROM app_events", [], 10),
+    ).rejects.toThrow(JournalQueryError);
+    await expect(
+      journal.queryPublicHistory("DELETE FROM agent_history_messages", [], 10),
+    ).rejects.toThrow(JournalQueryError);
+    await expect(
+      journal.queryPublicHistory(
+        "SELECT randomblob(4) AS value FROM agent_history_sessions",
+        [],
+        10,
+      ),
+    ).rejects.toThrow(JournalQueryError);
+    await expect(
+      journal.queryPublicHistory(
+        "WITH values_only AS (SELECT 1 AS value) SELECT value FROM values_only",
+        [],
+        10,
+      ),
+    ).rejects.toThrow(JournalQueryError);
+    await expect(
+      journal.queryPublicHistory(
+        "SELECT record_id FROM agent_history_sessions",
+        [],
+        201,
+      ),
+    ).rejects.toThrow(JournalQueryError);
+
+    await journal.appendSetHistory({
+      ...setHistoryRecords()[0]!,
+      id: id(1_104),
+    });
+    expect((await journal.readSetHistory()).items).toHaveLength(4);
+  });
+
   it("reports duplicate writes explicitly without poisoning later batches", async () => {
     const journal = await openJournal({ batchDelayMs: 0 });
     await journal.enqueue(event(1));
@@ -381,9 +737,8 @@ describe("local observability journal", () => {
 
     const sql = await initSqlJs();
     const database = new sql.Database(new Uint8Array(await readFile(path)));
-    const persistedPayload = database.exec(
-      "SELECT payload FROM telemetry_events",
-    )[0]?.values[0]?.[0];
+    const persistedPayload = database.exec("SELECT payload FROM app_events")[0]
+      ?.values[0]?.[0];
     database.close();
 
     expect(persistedPayload).toBeTypeOf("string");
@@ -425,9 +780,8 @@ describe("local observability journal", () => {
 
     const sql = await initSqlJs();
     const database = new sql.Database(new Uint8Array(await readFile(path)));
-    const persistedPayload = database.exec(
-      "SELECT payload FROM telemetry_events",
-    )[0]?.values[0]?.[0];
+    const persistedPayload = database.exec("SELECT payload FROM app_events")[0]
+      ?.values[0]?.[0];
     database.close();
 
     expect(persistedPayload).toBeTypeOf("string");
@@ -490,6 +844,46 @@ describe("local observability journal", () => {
     expect((await journal.readTrace(oldTrace)).items).toHaveLength(0);
     expect((await journal.readTrace(mixedTrace)).items).toHaveLength(2);
     expect((await journal.readConfigurationSnapshots()).items).toHaveLength(0);
+  });
+
+  it("keeps agent and Set history outside App age retention", async () => {
+    let now = new Date("2026-08-29T22:12:00.000Z");
+    const journal = await openJournal({
+      batchDelayMs: 0,
+      now: () => now,
+      retention: { maxAgeDays: 1, maxBytes: 10 * 1024 * 1024 },
+    });
+    await Promise.all([
+      journal.appendAgentHistory(agentHistoryRecords()[0]!),
+      journal.appendSetHistory(setHistoryRecords()[0]!),
+    ]);
+    expect((await journal.readAgentHistory()).items).toHaveLength(1);
+    expect((await journal.readSetHistory()).items).toHaveLength(1);
+
+    now = new Date("2026-09-01T22:12:00.000Z");
+    await journal.runRetention();
+    expect((await journal.readAgentHistory()).items).toHaveLength(1);
+    expect((await journal.readSetHistory()).items).toHaveLength(1);
+  });
+
+  it("keeps agent and Set history outside App size retention", async () => {
+    const path = await databasePath();
+    const journal = await openJournal({ path, batchDelayMs: 0 });
+    await Promise.all([
+      journal.enqueue(event(1, { padding: "x".repeat(10_000) })),
+      journal.appendAgentHistory(agentHistoryRecords()[0]!),
+      journal.appendSetHistory(setHistoryRecords()[0]!),
+    ]);
+    await journal.shutdown();
+    openJournals.splice(openJournals.indexOf(journal), 1);
+
+    const constrained = await openJournal({
+      path,
+      retention: { maxAgeDays: 30, maxBytes: 1 },
+    });
+    expect((await constrained.read()).items).toHaveLength(0);
+    expect((await constrained.readAgentHistory()).items).toHaveLength(1);
+    expect((await constrained.readSetHistory()).items).toHaveLength(1);
   });
 
   it("enforces max bytes by deleting the oldest whole root trace", async () => {
@@ -652,9 +1046,9 @@ describe("local observability journal", () => {
     ]);
     expect(
       database.exec(
-        "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'telemetry_events_trace'",
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'app_events_trace'",
       )[0]?.values,
-    ).toEqual([["telemetry_events_trace"]]);
+    ).toEqual([["app_events_trace"]]);
     database.close();
 
     await reopened.shutdown();

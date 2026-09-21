@@ -94,6 +94,9 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [x] Persist SDK interaction mode independently for each active-agent
   instance.
 - [x] Handle project switches without leaking stale context.
+- [x] Dispatch observed saves through ordered, per-Live-Set injectable actions
+  with deduplication, Set-switch/shutdown cancellation, and full lifecycle
+  observability.
 - [x] Implement context compaction/refresh strategy for long sessions.
 
 ## Tests
@@ -115,6 +118,8 @@ Companion specification: [Agent Runtime](agent-runtime.md)
   disabling, deduplication, and replacement between turns.
 - [x] Regression-test final plan-reminder ordering after direct skill expansion,
   interactive exclusion, source/dist prompt copying, and reminder attribution.
+- [x] Regression-test save-action ordering, deduplication, failure, progress,
+  trace attribution, Set-switch cancellation, and shutdown cleanup.
 - [ ] Test configuration snapshot revisions, SDK event coverage, redaction,
   lifecycle ordering, cancellation/failure timing, and trace propagation.
 - [x] Unit-test hook decisions for every risk and error class.

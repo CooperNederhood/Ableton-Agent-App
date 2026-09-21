@@ -3035,6 +3035,7 @@ def serve(
     connections=1,
     delay_command=None,
     delay_ms=0,
+    emit_save_event=False,
 ):
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -3063,6 +3064,34 @@ def serve(
                         result = handle(request, token, state)
                         if result is not None:
                             connection.sendall(encode_frame(result))
+                        if (
+                            emit_save_event
+                            and request.get("command") == "system.hello"
+                            and "live_set.save_observed"
+                            in request.get("params", {}).get(
+                                "eventSubscriptions", []
+                            )
+                        ):
+                            state.live_event_messages.append(
+                                {
+                                    "protocolVersion": PROTOCOL_VERSION,
+                                    "kind": "event",
+                                    "event": "live_set.save_observed",
+                                    "sequence": state.live_event_sequence,
+                                    "payload": {
+                                        "liveSetId": "simulated-live-set",
+                                        "observedAt": (
+                                            "2000-01-01T00:00:00.000Z"
+                                        ),
+                                        "fileModifiedTimeNs": (
+                                            "1700000000000000000"
+                                        ),
+                                        "fileSizeBytes": 4096,
+                                    },
+                                    "projectRevision": 0,
+                                }
+                            )
+                            state.live_event_sequence += 1
                         while state.live_event_messages:
                             connection.sendall(
                                 encode_frame(
@@ -3085,6 +3114,7 @@ def main():
     parser.add_argument("--connections", type=int, default=1)
     parser.add_argument("--delay-command")
     parser.add_argument("--delay-ms", type=int, default=0)
+    parser.add_argument("--emit-save-event", action="store_true")
     args = parser.parse_args()
     if args.connections < 1:
         parser.error("--connections must be at least 1")
@@ -3097,6 +3127,7 @@ def main():
         args.connections,
         args.delay_command,
         args.delay_ms,
+        args.emit_save_event,
     )
 
 

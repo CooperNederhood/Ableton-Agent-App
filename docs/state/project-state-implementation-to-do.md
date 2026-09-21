@@ -16,6 +16,11 @@ Companion specification: [Project State](project-state.md)
 - [x] Implement normalized snapshot ingestion.
 - [x] Include bounded top-level device summaries in Session snapshots and
   prepared agent context.
+- [x] Define bounded Desktop capture contracts for available tracks, derived
+  scenes, Session and Arrangement clips, cue points, and top-level devices,
+  with explicit truncation and unsupported group/routing domains.
+- [x] Persist explicit user Refresh captures through an injectable history
+  repository while keeping startup/internal refresh non-persistent.
 - [x] Implement entity indexes and targeted stale markers.
 - [x] Apply Remote Script events with revision checks.
 - [x] Invalidate prepared context after successful bridge mutations even when
@@ -40,6 +45,7 @@ Companion specification: [Project State](project-state.md)
 - [x] Integration-test event application and sequence-gap recovery.
 - [x] Integration-test session resume and project switching.
 - [x] Test that stale references are rejected before bridge mutation.
+- [x] Test manual-only snapshot persistence and expanded adapter projection.
 
 ## Exit criteria
 

@@ -8,6 +8,35 @@ import { parentPort } from "node:worker_threads";
 import initSqlJs from "sql.js";
 
 const RETENTION_PRUNE_BATCH_SIZE = 128;
+const MAX_PUBLIC_HISTORY_SQL_CHARACTERS = 20_000;
+const MAX_PUBLIC_HISTORY_PARAMETERS = 128;
+const MAX_PUBLIC_HISTORY_ROWS = 200;
+const MAX_PUBLIC_HISTORY_COLUMNS = 64;
+const MAX_PUBLIC_HISTORY_CELL_CHARACTERS = 4_096;
+const PUBLIC_HISTORY_VIEWS = new Set([
+  "set_history_saves",
+  "set_history_snapshots",
+  "set_history_tracks",
+  "set_history_devices",
+  "set_history_session_clips",
+  "set_history_arrangement_clips",
+  "set_history_scenes",
+  "set_history_cue_points",
+  "set_history_trajectories",
+  "set_history_agent_links",
+  "agent_history_sessions",
+  "agent_history_turns",
+  "agent_history_messages",
+  "agent_history_tool_calls",
+  "agent_history_tool_results",
+  "agent_history_approvals",
+]);
+const PUBLIC_HISTORY_FORBIDDEN_KEYWORD =
+  /\b(?:alter|analyze|attach|begin|commit|create|delete|detach|drop|insert|pragma|reindex|release|replace|rollback|savepoint|update|vacuum)\b/iu;
+const PUBLIC_HISTORY_SOURCE_REFERENCE =
+  /\b(?:from|join)\s+([a-z_][a-z0-9_]*)/giu;
+const PUBLIC_HISTORY_CTE_NAME =
+  /(?:\bwith\b|,)\s*([a-z_][a-z0-9_]*)\s+as\s*\(/giu;
 
 let sql;
 let database;
@@ -377,6 +406,21 @@ function decodePayload(value, sequence, recordedAt) {
   }
 }
 
+function decodeHistoryPayload(value, recordedAt) {
+  if (typeof value !== "string") {
+    throw failure("corrupt_database", "A history payload is not text");
+  }
+  try {
+    return { ...JSON.parse(value), recordedAt };
+  } catch (error) {
+    throw failure(
+      "corrupt_database",
+      "A history payload is not valid JSON",
+      error,
+    );
+  }
+}
+
 function pageMetadata(limit, items, totalItems, hasMore, order) {
   return {
     limit,
@@ -385,6 +429,212 @@ function pageMetadata(limit, items, totalItems, hasMore, order) {
     hasMore,
     order,
   };
+}
+
+function validatePublicHistorySql(sqlText) {
+  if (
+    typeof sqlText !== "string" ||
+    sqlText.length === 0 ||
+    sqlText.length > MAX_PUBLIC_HISTORY_SQL_CHARACTERS
+  ) {
+    throw failure(
+      "invalid_query",
+      `Public history SQL must contain 1-${MAX_PUBLIC_HISTORY_SQL_CHARACTERS} characters`,
+    );
+  }
+  if (/--|\/\*|\*\//u.test(sqlText)) {
+    throw failure(
+      "invalid_query",
+      "Public history SQL comments are not allowed",
+    );
+  }
+  const trimmed = sqlText.trim();
+  const statement = trimmed.endsWith(";")
+    ? trimmed.slice(0, -1).trimEnd()
+    : trimmed;
+  if (statement.includes(";")) {
+    throw failure(
+      "invalid_query",
+      "Exactly one public history SQL statement is allowed",
+    );
+  }
+  if (!/^(?:select|with)\b/iu.test(statement)) {
+    throw failure(
+      "invalid_query",
+      "Public history SQL must be a SELECT or CTE query",
+    );
+  }
+  if (PUBLIC_HISTORY_FORBIDDEN_KEYWORD.test(statement)) {
+    throw failure(
+      "invalid_query",
+      "Public history SQL contains a prohibited statement keyword",
+    );
+  }
+  const ctes = new Set();
+  for (const match of statement.matchAll(PUBLIC_HISTORY_CTE_NAME)) {
+    if (match[1] !== undefined) ctes.add(match[1].toLowerCase());
+  }
+  let sourceCount = 0;
+  let publicSourceCount = 0;
+  for (const match of statement.matchAll(PUBLIC_HISTORY_SOURCE_REFERENCE)) {
+    const source = match[1]?.toLowerCase();
+    if (source === undefined) continue;
+    sourceCount += 1;
+    if (PUBLIC_HISTORY_VIEWS.has(source)) {
+      publicSourceCount += 1;
+    } else if (!ctes.has(source)) {
+      throw failure(
+        "invalid_query",
+        `SQL source '${source}' is not an allowlisted public history view`,
+      );
+    }
+  }
+  if (sourceCount === 0) {
+    throw failure(
+      "invalid_query",
+      "Public history SQL must read from an allowlisted view",
+    );
+  }
+  if (publicSourceCount === 0) {
+    throw failure(
+      "invalid_query",
+      "Public history SQL must reference at least one allowlisted view",
+    );
+  }
+  return statement;
+}
+
+function validatePublicHistoryParameters(parameters) {
+  if (
+    !Array.isArray(parameters) ||
+    parameters.length > MAX_PUBLIC_HISTORY_PARAMETERS
+  ) {
+    throw failure(
+      "invalid_query",
+      `Public history SQL accepts at most ${MAX_PUBLIC_HISTORY_PARAMETERS} parameters`,
+    );
+  }
+  return parameters.map((value) => {
+    if (
+      value === null ||
+      (typeof value === "number" && Number.isFinite(value))
+    ) {
+      return value;
+    }
+    if (typeof value === "boolean") return value ? 1 : 0;
+    if (typeof value === "string") {
+      if (value.length > MAX_PUBLIC_HISTORY_CELL_CHARACTERS) {
+        throw failure(
+          "invalid_query",
+          `Public history SQL string parameters cannot exceed ${MAX_PUBLIC_HISTORY_CELL_CHARACTERS} characters`,
+        );
+      }
+      return value;
+    }
+    throw failure(
+      "invalid_query",
+      "Public history SQL parameters must be scalar values",
+    );
+  });
+}
+
+function boundedPublicHistoryCell(value) {
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    (typeof value === "number" && Number.isFinite(value))
+  ) {
+    return { value, truncated: false };
+  }
+  if (typeof value === "string") {
+    return value.length <= MAX_PUBLIC_HISTORY_CELL_CHARACTERS
+      ? { value, truncated: false }
+      : {
+          value: `${value.slice(
+            0,
+            MAX_PUBLIC_HISTORY_CELL_CHARACTERS - 12,
+          )}…[truncated]`,
+          truncated: true,
+        };
+  }
+  throw failure(
+    "invalid_query",
+    "Public history queries may return only scalar values",
+  );
+}
+
+function queryPublicHistory(sqlText, parameters, maxRows) {
+  const startedAt = Date.now();
+  const statementText = validatePublicHistorySql(sqlText);
+  const boundParameters = validatePublicHistoryParameters(parameters);
+  if (
+    !Number.isSafeInteger(maxRows) ||
+    maxRows < 1 ||
+    maxRows > MAX_PUBLIC_HISTORY_ROWS
+  ) {
+    throw failure(
+      "invalid_query",
+      `Public history maxRows must be between 1 and ${MAX_PUBLIC_HISTORY_ROWS}`,
+    );
+  }
+  let statement;
+  database.run("PRAGMA query_only = ON");
+  try {
+    statement = database.prepare(
+      `SELECT * FROM (${statementText}) AS public_history_query LIMIT ?`,
+    );
+    statement.bind([...boundParameters, maxRows + 1]);
+    const allColumns = statement.getColumnNames();
+    if (
+      allColumns.some(
+        (column) =>
+          typeof column !== "string" ||
+          column.length === 0 ||
+          column.length > 256,
+      ) ||
+      new Set(allColumns).size !== allColumns.length
+    ) {
+      throw failure(
+        "invalid_query",
+        "Public history result columns must be unique names of at most 256 characters",
+      );
+    }
+    const columns = allColumns.slice(0, MAX_PUBLIC_HISTORY_COLUMNS);
+    let truncated = allColumns.length > columns.length;
+    const selectedRows = [];
+    while (statement.step() && selectedRows.length <= maxRows) {
+      selectedRows.push(statement.getAsObject());
+    }
+    if (selectedRows.length > maxRows) truncated = true;
+    const resultRows = selectedRows.slice(0, maxRows).map((source) => {
+      const result = {};
+      for (const column of columns) {
+        const bounded = boundedPublicHistoryCell(source[column]);
+        result[column] = bounded.value;
+        if (bounded.truncated) truncated = true;
+      }
+      return result;
+    });
+    return {
+      version: 1,
+      schemaVersion,
+      columns,
+      rows: resultRows,
+      rowCount: resultRows.length,
+      truncated,
+      elapsedMs: Math.max(0, Date.now() - startedAt),
+    };
+  } catch (error) {
+    if (error?.code === "invalid_query") throw error;
+    throw failure(
+      "invalid_query",
+      "Public history SQL could not be executed",
+      error,
+    );
+  } finally {
+    statement?.free();
+    database.run("PRAGMA query_only = OFF");
+  }
 }
 
 function readEvents(query, rootTraceId) {
@@ -396,7 +646,7 @@ function readEvents(query, rootTraceId) {
   }
   const totalItems = number(
     row(
-      `SELECT count(*) AS count FROM telemetry_events${whereSql(clauses)}`,
+      `SELECT count(*) AS count FROM app_events${whereSql(clauses)}`,
       parameters,
     ),
     "count",
@@ -408,7 +658,7 @@ function readEvents(query, rootTraceId) {
   }
   const queryParameters = [...parameters, limit + 1];
   const selected = rows(
-    `SELECT sequence, recorded_at, payload FROM telemetry_events
+    `SELECT sequence, recorded_at, payload FROM app_events
      ${whereSql(clauses)}
      ORDER BY sequence ${order === "asc" ? "ASC" : "DESC"}
      LIMIT ?`,
@@ -432,7 +682,7 @@ function readEvents(query, rootTraceId) {
   if (rootTraceId === undefined) return result;
   const traceRange = row(
     `SELECT min(sequence) AS first_sequence, max(sequence) AS last_sequence
-     FROM telemetry_events WHERE root_trace_id = ?`,
+     FROM app_events WHERE root_trace_id = ?`,
     [rootTraceId],
   );
   return {
@@ -451,7 +701,7 @@ function readSnapshots(query) {
   const { clauses, parameters } = snapshotWhere(filter);
   const totalItems = number(
     row(
-      `SELECT count(*) AS count FROM configuration_snapshots${whereSql(clauses)}`,
+      `SELECT count(*) AS count FROM app_configuration_snapshots${whereSql(clauses)}`,
       parameters,
     ),
     "count",
@@ -462,7 +712,7 @@ function readSnapshots(query) {
     parameters.push(decoded.sequence);
   }
   const selected = rows(
-    `SELECT sequence, recorded_at, payload FROM configuration_snapshots
+    `SELECT sequence, recorded_at, payload FROM app_configuration_snapshots
      ${whereSql(clauses)}
      ORDER BY sequence ${order === "asc" ? "ASC" : "DESC"}
      LIMIT ?`,
@@ -485,12 +735,134 @@ function readSnapshots(query) {
   };
 }
 
+function historyWhere(query, domain) {
+  const clauses = [];
+  const parameters = [];
+  appendListFilter("record_type", query.kinds, clauses, parameters);
+  for (const [column, property] of [
+    ["app_session_id", "appSessionId"],
+    ["live_set_id", "liveSetId"],
+    ["live_project_id", "liveProjectId"],
+    ...(domain === "agent"
+      ? [
+          ["agent_session_id", "agentSessionId"],
+          ["turn_id", "turnId"],
+          ["tool_call_id", "toolCallId"],
+          ["active_agent_id", "activeAgentId"],
+        ]
+      : []),
+  ]) {
+    if (query[property] !== undefined) {
+      clauses.push(`${column} = ?`);
+      parameters.push(query[property]);
+    }
+  }
+  if (query.from !== undefined) {
+    clauses.push("occurred_at >= ?");
+    parameters.push(query.from);
+  }
+  if (query.to !== undefined) {
+    clauses.push("occurred_at <= ?");
+    parameters.push(query.to);
+  }
+  return { clauses, parameters };
+}
+
+function historyCursor(value, view, order) {
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (
+      parsed?.version !== 1 ||
+      parsed.view !== view ||
+      parsed.order !== order ||
+      typeof parsed.occurredAt !== "string" ||
+      typeof parsed.recordedAt !== "string" ||
+      typeof parsed.recordType !== "string" ||
+      typeof parsed.recordId !== "string"
+    ) {
+      throw new Error("Invalid history cursor");
+    }
+    return parsed;
+  } catch {
+    throw failure(
+      "invalid_cursor",
+      "The history query cursor is invalid or belongs to another query type/order",
+    );
+  }
+}
+
+function encodeHistoryCursor(view, item, order) {
+  return Buffer.from(
+    JSON.stringify({
+      version: 1,
+      view,
+      order,
+      occurredAt: item.occurred_at,
+      recordedAt: item.recorded_at,
+      recordType: item.record_type,
+      recordId: item.record_id,
+    }),
+    "utf8",
+  ).toString("base64url");
+}
+
+function readHistory(query, domain) {
+  const view = domain === "agent" ? "agent_history" : "set_history";
+  const { cursor: encoded, limit, order, ...filter } = query;
+  const { clauses, parameters } = historyWhere(filter, domain);
+  const totalItems = number(
+    row(
+      `SELECT count(*) AS count FROM ${view}${whereSql(clauses)}`,
+      parameters,
+    ),
+    "count",
+  );
+  if (encoded !== undefined) {
+    const decoded = historyCursor(encoded, view, order);
+    clauses.push(
+      `(occurred_at, recorded_at, record_type, record_id) ${
+        order === "asc" ? ">" : "<"
+      } (?, ?, ?, ?)`,
+    );
+    parameters.push(
+      decoded.occurredAt,
+      decoded.recordedAt,
+      decoded.recordType,
+      decoded.recordId,
+    );
+  }
+  const selected = rows(
+    `SELECT record_type, record_id, occurred_at, recorded_at, payload
+     FROM ${view}${whereSql(clauses)}
+     ORDER BY occurred_at ${order === "asc" ? "ASC" : "DESC"},
+       recorded_at ${order === "asc" ? "ASC" : "DESC"},
+       record_type ${order === "asc" ? "ASC" : "DESC"},
+       record_id ${order === "asc" ? "ASC" : "DESC"}
+     LIMIT ?`,
+    [...parameters, limit + 1],
+  );
+  const hasMore = selected.length > limit;
+  const pageRows = selected.slice(0, limit);
+  const items = pageRows.map((value) =>
+    decodeHistoryPayload(value.payload, value.recorded_at),
+  );
+  const last = pageRows.at(-1);
+  return {
+    version: 1,
+    items,
+    ...(hasMore && last !== undefined
+      ? { nextCursor: encodeHistoryCursor(view, last, order) }
+      : {}),
+    page: pageMetadata(limit, items, totalItems, hasMore, order),
+  };
+}
+
 function rootSummaries(query) {
   const { cursor: encoded, limit, order, ...filter } = query;
   const { clauses, parameters } = eventWhere(filter);
   const matchingWhere = whereSql(clauses);
   const cte = `WITH matching_roots AS (
-      SELECT DISTINCT root_trace_id FROM telemetry_events${matchingWhere}
+      SELECT DISTINCT root_trace_id FROM app_events${matchingWhere}
     ), summaries AS (
       SELECT
         events.root_trace_id,
@@ -500,12 +872,12 @@ function rootSummaries(query) {
         min(events.occurred_at) AS first_occurred_at,
         max(events.occurred_at) AS last_occurred_at,
         (
-          SELECT first.name FROM telemetry_events AS first
+          SELECT first.name FROM app_events AS first
           WHERE first.root_trace_id = events.root_trace_id
           ORDER BY first.sequence ASC LIMIT 1
         ) AS first_event_name,
         (
-          SELECT last.name FROM telemetry_events AS last
+          SELECT last.name FROM app_events AS last
           WHERE last.root_trace_id = events.root_trace_id
           ORDER BY last.sequence DESC LIMIT 1
         ) AS last_event_name,
@@ -513,7 +885,7 @@ function rootSummaries(query) {
           WHEN events.level = 'error' OR events.outcome = 'failure' THEN 1
           ELSE 0
         END) AS has_errors
-      FROM telemetry_events AS events
+      FROM app_events AS events
       INNER JOIN matching_roots
         ON matching_roots.root_trace_id = events.root_trace_id
       GROUP BY events.root_trace_id
@@ -559,6 +931,169 @@ function rootSummaries(query) {
   };
 }
 
+function insertHistoryRecord(record, recordedAt) {
+  const common = [
+    record.id,
+    record.occurredAt,
+    recordedAt,
+    record.appSessionId ?? null,
+  ];
+  switch (record.kind) {
+    case "agent_session":
+      database.run(
+        `INSERT OR IGNORE INTO agent_sessions (
+          record_id, occurred_at, recorded_at, app_session_id,
+          agent_session_id, active_agent_id, live_set_id, live_project_id,
+          status, payload
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          ...common,
+          record.agentSessionId,
+          record.activeAgentId,
+          record.liveSetId ?? null,
+          record.liveProjectId ?? null,
+          record.status,
+          JSON.stringify(record),
+        ],
+      );
+      return;
+    case "turn":
+      database.run(
+        `INSERT OR IGNORE INTO agent_turns (
+          record_id, occurred_at, recorded_at, app_session_id,
+          agent_session_id, turn_id, active_agent_id, live_set_id,
+          live_project_id, status, payload
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          ...common,
+          record.agentSessionId,
+          record.turnId,
+          record.activeAgentId,
+          record.liveSetId ?? null,
+          record.liveProjectId ?? null,
+          record.status,
+          JSON.stringify(record),
+        ],
+      );
+      return;
+    case "message":
+      database.run(
+        `INSERT OR IGNORE INTO agent_messages (
+          record_id, occurred_at, recorded_at, app_session_id,
+          agent_session_id, turn_id, active_agent_id, live_set_id,
+          live_project_id, status, payload
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          ...common,
+          record.agentSessionId,
+          record.turnId ?? null,
+          record.activeAgentId,
+          record.liveSetId ?? null,
+          record.liveProjectId ?? null,
+          record.role,
+          JSON.stringify(record),
+        ],
+      );
+      return;
+    case "tool_call":
+    case "tool_result": {
+      const table =
+        record.kind === "tool_call" ? "agent_tool_calls" : "agent_tool_results";
+      database.run(
+        `INSERT OR IGNORE INTO ${table} (
+          record_id, occurred_at, recorded_at, app_session_id,
+          agent_session_id, turn_id, tool_call_id, active_agent_id,
+          live_set_id, live_project_id, status, payload
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          ...common,
+          record.agentSessionId,
+          record.turnId,
+          record.toolCallId,
+          record.activeAgentId,
+          record.liveSetId ?? null,
+          record.liveProjectId ?? null,
+          record.kind === "tool_call" ? record.status : record.outcome,
+          JSON.stringify(record),
+        ],
+      );
+      return;
+    }
+    case "approval":
+      database.run(
+        `INSERT OR IGNORE INTO agent_approvals (
+          record_id, occurred_at, recorded_at, app_session_id,
+          agent_session_id, turn_id, tool_call_id, active_agent_id,
+          live_set_id, live_project_id, status, payload
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          ...common,
+          record.agentSessionId,
+          record.turnId ?? null,
+          record.toolCallId ?? null,
+          record.activeAgentId,
+          record.liveSetId ?? null,
+          record.liveProjectId ?? null,
+          record.status,
+          JSON.stringify(record),
+        ],
+      );
+      return;
+    case "set_save":
+      database.run(
+        `INSERT OR IGNORE INTO set_saves (
+          record_id, occurred_at, recorded_at, app_session_id, live_set_id,
+          live_project_id, status, payload
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          ...common,
+          record.liveSetId,
+          record.liveProjectId ?? null,
+          record.outcome,
+          JSON.stringify(record),
+        ],
+      );
+      return;
+    case "set_snapshot":
+      database.run(
+        `INSERT OR IGNORE INTO set_snapshots (
+          record_id, occurred_at, recorded_at, app_session_id, live_set_id,
+          live_project_id, status, payload
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          ...common,
+          record.liveSetId,
+          record.liveProjectId ?? null,
+          record.snapshotKind,
+          JSON.stringify(record),
+        ],
+      );
+      return;
+    case "set_trajectory":
+      database.run(
+        `INSERT OR IGNORE INTO set_trajectory_records (
+          record_id, occurred_at, recorded_at, app_session_id,
+          agent_session_id, turn_id, tool_call_id, active_agent_id,
+          live_set_id, live_project_id, status, payload
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          ...common,
+          record.agentSessionId ?? null,
+          record.turnId ?? null,
+          record.toolCallId ?? null,
+          record.activeAgentId ?? null,
+          record.liveSetId,
+          record.liveProjectId ?? null,
+          record.trajectoryType,
+          JSON.stringify(record),
+        ],
+      );
+      return;
+    default:
+      throw failure("corrupt_database", "Unknown history record kind");
+  }
+}
+
 function insertBatch(writes, recordedAt) {
   const failures = [];
   database.run("BEGIN IMMEDIATE");
@@ -567,7 +1102,7 @@ function insertBatch(writes, recordedAt) {
       if (item.kind === "event") {
         const event = item.value;
         database.run(
-          `INSERT OR IGNORE INTO telemetry_events (
+          `INSERT OR IGNORE INTO app_events (
             event_id, contract_version, occurred_at, recorded_at, name,
             category, source, stage, level, outcome, correlation_id,
             causation_id, trace_id, span_id, parent_span_id, root_trace_id,
@@ -606,10 +1141,10 @@ function insertBatch(writes, recordedAt) {
             JSON.stringify(event),
           ],
         );
-      } else {
+      } else if (item.kind === "snapshot") {
         const snapshot = item.value;
         database.run(
-          `INSERT OR IGNORE INTO configuration_snapshots (
+          `INSERT OR IGNORE INTO app_configuration_snapshots (
             snapshot_id, contract_version, captured_at, recorded_at,
             component, configuration_version, live_set_id, live_project_id,
             session_id, active_agent_id, payload
@@ -628,14 +1163,16 @@ function insertBatch(writes, recordedAt) {
             JSON.stringify(snapshot),
           ],
         );
+      } else {
+        insertHistoryRecord(item.value, recordedAt);
       }
       if (database.getRowsModified() === 0) {
         failures.push({
           index,
           code: "duplicate",
-          message: `A ${
-            item.kind === "event" ? "event" : "configuration snapshot"
-          } with id '${item.value.id}' is already journaled`,
+          message: `A ${item.kind.replaceAll("_", " ")} with id '${
+            item.value.id
+          }' is already journaled`,
         });
       }
     });
@@ -659,7 +1196,7 @@ function deleteRoots(rootIds) {
   let deleted = 0;
   for (const batch of chunks(rootIds)) {
     database.run(
-      `DELETE FROM telemetry_events
+      `DELETE FROM app_events
        WHERE root_trace_id IN (${placeholders(batch)})`,
       batch,
     );
@@ -676,7 +1213,7 @@ function retentionCandidates(limit = RETENTION_PRUNE_BATCH_SIZE) {
        min(occurred_at) AS oldest_at,
        min(sequence) AS oldest_sequence,
        sum(length(payload)) + count(*) * 2048 AS estimated_bytes
-     FROM telemetry_events
+     FROM app_events
      GROUP BY root_trace_id
      UNION ALL
      SELECT
@@ -685,14 +1222,14 @@ function retentionCandidates(limit = RETENTION_PRUNE_BATCH_SIZE) {
        captured_at AS oldest_at,
        sequence AS oldest_sequence,
        length(payload) + 2048 AS estimated_bytes
-     FROM configuration_snapshots
+     FROM app_configuration_snapshots
      ORDER BY oldest_at, oldest_sequence, kind, id
      LIMIT ?`,
     [limit],
   );
   return candidates.filter(
     (candidate) =>
-      (candidate.kind === "trace" || candidate.kind === "snapshot") &&
+      typeof candidate.kind === "string" &&
       typeof candidate.id === "string" &&
       typeof candidate.estimated_bytes === "number",
   );
@@ -702,7 +1239,7 @@ function deleteSnapshots(snapshotIds) {
   let deleted = 0;
   for (const batch of chunks(snapshotIds)) {
     database.run(
-      `DELETE FROM configuration_snapshots
+      `DELETE FROM app_configuration_snapshots
        WHERE snapshot_id IN (${placeholders(batch)})`,
       batch,
     );
@@ -711,12 +1248,24 @@ function deleteSnapshots(snapshotIds) {
   return deleted;
 }
 
+const historyTables = new Set([
+  "agent_sessions",
+  "agent_turns",
+  "agent_messages",
+  "agent_tool_calls",
+  "agent_tool_results",
+  "agent_approvals",
+  "set_saves",
+  "set_snapshots",
+  "set_trajectory_records",
+]);
+
 function applyRetention(nowIso) {
   const cutoff = new Date(
     new Date(nowIso).getTime() - retention.maxAgeDays * 86_400_000,
   ).toISOString();
   const expiredRoots = rows(
-    `SELECT root_trace_id FROM telemetry_events
+    `SELECT root_trace_id FROM app_events
      GROUP BY root_trace_id
      HAVING max(occurred_at) < ?
      ORDER BY min(sequence)`,
@@ -725,9 +1274,10 @@ function applyRetention(nowIso) {
     .map((value) => value.root_trace_id)
     .filter((value) => typeof value === "string");
   let deletedEvents = deleteRoots(expiredRoots);
-  database.run("DELETE FROM configuration_snapshots WHERE captured_at < ?", [
-    cutoff,
-  ]);
+  database.run(
+    "DELETE FROM app_configuration_snapshots WHERE captured_at < ?",
+    [cutoff],
+  );
   let deletedConfigurationSnapshots = database.getRowsModified();
   let deletedTraces = expiredRoots.length;
 
@@ -871,19 +1421,22 @@ async function dispatch(method, args) {
       return readSnapshots(args.query);
     case "readRootTraces":
       return rootSummaries(args.query);
+    case "readAgentHistory":
+      return readHistory(args.query, "agent");
+    case "readSetHistory":
+      return readHistory(args.query, "set");
+    case "queryPublicHistory":
+      return queryPublicHistory(args.sql, args.parameters, args.maxRows);
     case "deleteEvents": {
       const { clauses, parameters } = eventWhere(args.filter);
       return mutate(() => {
-        database.run(
-          `DELETE FROM telemetry_events${whereSql(clauses)}`,
-          parameters,
-        );
+        database.run(`DELETE FROM app_events${whereSql(clauses)}`, parameters);
         return database.getRowsModified();
       }, "Event deletion failed");
     }
     case "deleteTrace":
       return mutate(() => {
-        database.run("DELETE FROM telemetry_events WHERE root_trace_id = ?", [
+        database.run("DELETE FROM app_events WHERE root_trace_id = ?", [
           args.rootTraceId,
         ]);
         return database.getRowsModified();
@@ -892,7 +1445,7 @@ async function dispatch(method, args) {
       const { clauses, parameters } = snapshotWhere(args.filter);
       return mutate(() => {
         database.run(
-          `DELETE FROM configuration_snapshots${whereSql(clauses)}`,
+          `DELETE FROM app_configuration_snapshots${whereSql(clauses)}`,
           parameters,
         );
         return database.getRowsModified();
@@ -901,15 +1454,16 @@ async function dispatch(method, args) {
     case "clear":
       return mutate(() => {
         const deletedEvents = number(
-          row("SELECT count(*) AS count FROM telemetry_events"),
+          row("SELECT count(*) AS count FROM app_events"),
           "count",
         );
         const deletedConfigurationSnapshots = number(
-          row("SELECT count(*) AS count FROM configuration_snapshots"),
+          row("SELECT count(*) AS count FROM app_configuration_snapshots"),
           "count",
         );
-        database.run("DELETE FROM telemetry_events");
-        database.run("DELETE FROM configuration_snapshots");
+        database.run("DELETE FROM app_events");
+        database.run("DELETE FROM app_configuration_snapshots");
+        for (const table of historyTables) database.run(`DELETE FROM ${table}`);
         return { deletedEvents, deletedConfigurationSnapshots };
       }, "Journal clearing failed");
     case "retention": {
@@ -940,18 +1494,18 @@ async function dispatch(method, args) {
     case "health": {
       const range = row(
         `SELECT min(occurred_at) AS oldest, max(occurred_at) AS newest
-         FROM telemetry_events`,
+         FROM app_events`,
       );
       return {
         version: 2,
         status: lastError === null ? "healthy" : "degraded",
         schemaVersion,
         persistedEvents: number(
-          row("SELECT count(*) AS count FROM telemetry_events"),
+          row("SELECT count(*) AS count FROM app_events"),
           "count",
         ),
         persistedConfigurationSnapshots: number(
-          row("SELECT count(*) AS count FROM configuration_snapshots"),
+          row("SELECT count(*) AS count FROM app_configuration_snapshots"),
           "count",
         ),
         databaseBytes: database.export().byteLength,
@@ -965,11 +1519,11 @@ async function dispatch(method, args) {
     case "shutdown": {
       const counts = {
         persistedEvents: number(
-          row("SELECT count(*) AS count FROM telemetry_events"),
+          row("SELECT count(*) AS count FROM app_events"),
           "count",
         ),
         persistedConfigurationSnapshots: number(
-          row("SELECT count(*) AS count FROM configuration_snapshots"),
+          row("SELECT count(*) AS count FROM app_configuration_snapshots"),
           "count",
         ),
         databaseBytes: database.export().byteLength,

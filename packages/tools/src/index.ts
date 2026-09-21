@@ -80,6 +80,21 @@ import {
 } from "@github/copilot-sdk";
 import { z } from "zod";
 import type { MutationTarget } from "./mutation-policy.js";
+import {
+  SET_SQL_DEFAULT_MAX_ROWS,
+  SET_SQL_MAX_CELL_CHARACTERS,
+  SET_SQL_MAX_PARAMETER_NAME_LENGTH,
+  SET_SQL_MAX_PARAMETERS,
+  SET_SQL_MAX_ROWS,
+  SET_SQL_SEARCH_TOOL_NAME,
+  bindSetSqlParameters,
+  boundSetSqlSearchResult,
+  validateSetSqlSearch,
+  type SetHistoryQueryService,
+  type SetSqlParameters,
+} from "./set-sql-search.js";
+
+export * from "./set-sql-search.js";
 
 export type ToolRisk = "read" | "reversible" | "destructive" | "broad";
 export type ToolDuration = "instant" | "short" | "long";
@@ -94,6 +109,7 @@ export interface AbletonToolMetadata {
 }
 
 export interface AbletonToolServices {
+  setHistoryQuery?: SetHistoryQueryService;
   getConnectionStatus(): Promise<ConnectionStatus>;
   inspectSession(): Promise<SessionSnapshot>;
   setTempo(tempo: number): Promise<SetTempoResult>;
@@ -496,6 +512,13 @@ export const abletonToolMetadata = [
     mutationTarget: "track",
     requiredCapability: "arrangement.fill_region",
   },
+  {
+    name: SET_SQL_SEARCH_TOOL_NAME,
+    title: "Search Set and Agent History with SQL",
+    risk: "read",
+    duration: "short",
+    mutationTarget: "read",
+  },
 ] as const satisfies readonly AbletonToolMetadata[];
 
 export interface ToolApprovalRequest {
@@ -607,6 +630,11 @@ export interface AbletonToolSet {
     Tool<ExternalPluginSearchParams>,
     Tool<LoadBrowserItemParams>,
     Tool<FillArrangementRegionParams>,
+    Tool<{
+      sql: string;
+      parameters?: SetSqlParameters | undefined;
+      limit: number;
+    }>,
   ];
   availableTools: string[];
 }
@@ -859,6 +887,74 @@ export function createAbletonTools(
       "Ableton tool catalog exceeds the eager-registration limit; split it into deferred groups",
     );
   }
+  const setSqlSearchTool = defineTool(SET_SQL_SEARCH_TOOL_NAME, {
+    description:
+      "Runs one bounded read-only SELECT or non-recursive CTE against allowlisted agent_history_* and set_history_* public views. Select only needed columns; filter narrowly by Live Set, time range, and IDs using named scalar parameters; use a modest LIMIT; query summaries and IDs before details; avoid SELECT *, broad joins, broad scans, and recursive CTEs. If truncated, narrow the query instead of increasing scope. Use the set-history-sql-search skill for public views, schemas, and examples.",
+    parameters: z
+      .object({
+        sql: z
+          .string()
+          .trim()
+          .min(1)
+          .max(20_000)
+          .describe("One SELECT or WITH query over public Set History views"),
+        parameters: z
+          .record(
+            z
+              .string()
+              .max(SET_SQL_MAX_PARAMETER_NAME_LENGTH)
+              .regex(/^[a-z_][a-z0-9_]*$/iu),
+            z.union([
+              z.string().max(SET_SQL_MAX_CELL_CHARACTERS),
+              z.number().finite(),
+              z.boolean(),
+              z.null(),
+            ]),
+          )
+          .refine(
+            (value) => Object.keys(value).length <= SET_SQL_MAX_PARAMETERS,
+            `At most ${SET_SQL_MAX_PARAMETERS} named parameters are allowed`,
+          )
+          .optional()
+          .describe(
+            "Named scalar bindings referenced as :name, @name, or $name in SQL",
+          ),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(SET_SQL_MAX_ROWS)
+          .default(SET_SQL_DEFAULT_MAX_ROWS)
+          .describe("Maximum result rows returned"),
+      })
+      .strict(),
+    handler: async ({ sql, parameters, limit }, invocation) => {
+      if (services.setHistoryQuery === undefined) {
+        throw new AbletonToolPreconditionError(
+          "set_history_unavailable",
+          "Set History search is not configured",
+        );
+      }
+      const signal = (invocation as { signal?: AbortSignal }).signal;
+      if (signal?.aborted === true) {
+        throw new AbletonToolPreconditionError(
+          "cancelled",
+          "Set History search was cancelled",
+        );
+      }
+      const boundQuery = bindSetSqlParameters(
+        validateSetSqlSearch(sql),
+        parameters,
+      );
+      const result = await services.setHistoryQuery.query({
+        sql: boundQuery.sql,
+        parameters: boundQuery.parameters,
+        maxRows: limit,
+        ...(signal === undefined ? {} : { signal }),
+      });
+      return boundSetSqlSearchResult(result, limit);
+    },
+  });
   const connectionStatusTool = defineTool("ableton_connection_status", {
     description:
       "Returns the current connection status for the Ableton Live Remote Script bridge.",
@@ -1624,6 +1720,7 @@ export function createAbletonTools(
       requireConnectedTool(searchExternalPluginsTool, services),
       requireConnectedTool(loadBrowserItemTool, services),
       requireConnectedTool(fillArrangementRegionTool, services),
+      withStructuredFailures(setSqlSearchTool),
     ],
     availableTools: abletonToolMetadata.map(
       (metadata) => `custom:${metadata.name}`,

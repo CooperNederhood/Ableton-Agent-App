@@ -94,6 +94,18 @@ Return two representations:
 Do not return enormous browser trees or parameter lists to the model. Support
 filtering, pagination, and targeted detail.
 
+`set_sql_search` is the read-only agent surface for local Set History. It
+accepts one `SELECT` or CTE, rejects comments and mutation/administrative
+keywords and recursive CTEs, restricts sources to documented `agent_history_*`
+and `set_history_*` public views, accepts bounded named scalar parameters, and
+caps returned rows. Results report the database `schemaVersion` and query
+`elapsedMs`. Tool guidance requires needed columns, narrow Live Set/time/ID
+filters, modest limits, summary/ID discovery before detail queries, and narrower
+follow-ups after truncation; it warns against `SELECT *`, broad joins, and broad
+scans. The injected query service must open storage read-only, honor
+cancellation, and must not expose a database handle or filesystem path to the
+model or renderer.
+
 Custom tool failures use the Copilot SDK's native failure result rather than a
 thrown handler exception. The bounded failure payload retains a stable code,
 message, retryability, and sanitized details for model guidance, operation UI,

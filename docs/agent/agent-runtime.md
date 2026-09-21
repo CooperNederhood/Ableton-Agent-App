@@ -265,3 +265,17 @@ An agent turn is complete only when:
 Use the SDK's idle event as the mechanical completion signal. Application
 workflow completion should be represented separately by operation and
 change-set status.
+
+## Live Set save actions
+
+The runtime consumes typed `live_set.save_observed` bridge events through a
+per-Live-Set dispatcher. Duplicate metadata tuples are ignored, observations
+for one Set are serialized, and registered actions execute in deterministic
+order. A Set switch or runtime shutdown aborts obsolete work.
+
+Actions are injected through `LiveSetSaveAction`, allowing snapshot capture or
+persistence to remain a separate package. Each action receives the bounded
+metadata observation, bridge receipt time, project revision, `AbortSignal`, and
+a progress hook. Observation and action queued, started, progress, completed,
+failed, and cancelled stages emit application-owned telemetry with stable
+trace/correlation/causation relationships.

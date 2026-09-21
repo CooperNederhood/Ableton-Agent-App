@@ -95,6 +95,19 @@
         "reason": "target-deleted"
       },
       "projectRevision": 4
+    },
+    {
+      "protocolVersion": 4,
+      "kind": "event",
+      "event": "live_set.save_observed",
+      "sequence": 10,
+      "payload": {
+        "liveSetId": "saved-live-set",
+        "observedAt": "2000-01-01T00:00:02Z",
+        "fileModifiedTimeNs": "1700000000000000000",
+        "fileSizeBytes": 4096
+      },
+      "projectRevision": 4
     }
   ],
   "errors": [

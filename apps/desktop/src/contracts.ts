@@ -291,6 +291,7 @@ const journalHealthSchema = z
           "corrupt_database",
           "duplicate",
           "invalid_cursor",
+          "invalid_query",
           "io",
           "queue_full",
           "schema_version",
@@ -347,10 +348,17 @@ export const trackSchema = z.object({
   id: z.string(),
   name: z.string(),
   kind: z.enum(["midi", "audio", "return", "master"]),
+  index: z.number().int().nonnegative().optional(),
   color: z.string(),
   volume: z.number().min(0).max(1),
   pan: z.number().min(-1).max(1),
   muted: z.boolean(),
+  soloed: z.boolean().optional(),
+  armed: z.boolean().optional(),
+  groupTrackId: z.string().optional(),
+  inputRouting: z.string().max(512).optional(),
+  outputRouting: z.string().max(512).optional(),
+  devicesTruncated: z.boolean().optional(),
   clips: z.array(
     z.object({
       id: z.string(),
@@ -379,6 +387,61 @@ export const trackSchema = z.object({
 });
 export type DesktopTrack = z.infer<typeof trackSchema>;
 
+export const desktopSceneSchema = z.object({
+  id: z.string().min(1),
+  index: z.number().int().nonnegative(),
+  name: z.string().max(512).optional(),
+  derived: z.boolean().default(false),
+});
+
+export const desktopSessionClipSchema = z.object({
+  id: z.string().min(1),
+  trackId: z.string().min(1),
+  trackIndex: z.number().int().nonnegative(),
+  sceneIndex: z.number().int().nonnegative(),
+  name: z.string().max(512),
+  kind: z.enum(["midi", "audio"]),
+  lengthBeats: z.number().positive(),
+  noteCount: z.number().int().nonnegative().nullable(),
+  muted: z.boolean().nullable().optional(),
+  looping: z.boolean().nullable().optional(),
+  status: z.enum(["playing", "queued", "stopped"]),
+});
+
+export const desktopArrangementClipSchema = z.object({
+  id: z.string().min(1),
+  trackId: z.string().min(1),
+  trackIndex: z.number().int().nonnegative(),
+  name: z.string().max(512),
+  kind: z.enum(["midi", "audio"]),
+  startTime: z.number().nonnegative(),
+  endTime: z.number().positive(),
+  lengthBeats: z.number().positive(),
+  noteCount: z.number().int().nonnegative().nullable(),
+  muted: z.boolean().optional(),
+  looping: z.boolean().nullable().optional(),
+});
+
+export const desktopCuePointSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().max(512),
+  time: z.number().nonnegative(),
+});
+
+export const desktopSnapshotDeviceSchema = z.object({
+  id: z.string().min(1),
+  trackId: z.string().min(1),
+  trackIndex: z.number().int().nonnegative(),
+  index: z.number().int().nonnegative(),
+  name: z.string().max(512),
+  className: z.string().max(512),
+  classDisplayName: z.string().max(512),
+  enabled: z.boolean().nullable(),
+  parameterCount: z.number().int().nonnegative(),
+  canHaveChains: z.boolean(),
+  canHaveDrumPads: z.boolean(),
+});
+
 export const liveSetSnapshotSchema = z.object({
   liveSetId: z.string().min(1),
   liveSetName: z.string().min(1),
@@ -386,7 +449,33 @@ export const liveSetSnapshotSchema = z.object({
   liveProjectName: z.string().min(1).optional(),
   tempo: z.number().positive(),
   timeSignature: z.string(),
-  tracks: z.array(trackSchema),
+  capabilities: z.array(z.string().min(1).max(256)).max(256).optional(),
+  transport: z
+    .object({
+      isPlaying: z.boolean(),
+      arrangementLoop: z
+        .object({
+          enabled: z.boolean(),
+          start: z.number().nonnegative(),
+          length: z.number().positive(),
+        })
+        .optional(),
+    })
+    .optional(),
+  capturedAt: z.string().datetime({ offset: true }).optional(),
+  source: z.enum(["startup", "manual", "internal", "save"]).optional(),
+  tracks: z.array(trackSchema).max(1024),
+  scenes: z.array(desktopSceneSchema).max(512).optional(),
+  sessionClips: z.array(desktopSessionClipSchema).max(4096).optional(),
+  arrangementClips: z.array(desktopArrangementClipSchema).max(512).optional(),
+  cuePoints: z.array(desktopCuePointSchema).max(512).optional(),
+  devices: z.array(desktopSnapshotDeviceSchema).max(2048).optional(),
+  completeness: z
+    .object({
+      truncatedDomains: z.array(z.string().min(1).max(128)).max(16),
+      unsupportedDomains: z.array(z.string().min(1).max(128)).max(16),
+    })
+    .optional(),
 });
 export type DesktopLiveSetSnapshot = z.infer<typeof liveSetSnapshotSchema>;
 

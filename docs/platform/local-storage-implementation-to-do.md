@@ -17,6 +17,20 @@ Companion specification: [Local Storage Layout](local-storage.md)
   `*/session-state/{app-session-id}/artifacts/plan.md` path through the shared
   resolver with owner-only permissions and atomic revision-checked writes.
 - [x] Keep the event journal profile-wide rather than splitting it per session.
+- [x] Rename fresh profile history storage to
+  `observability/agent-set-event-history.sqlite` without migrating the former
+  event-only database.
+- [x] Physically separate App event/configuration tables, agent history tables,
+  and Live Set history tables while exposing stable typed agent/Set views.
+- [x] Expose bounded scalar, parameterized, worker-owned read-only SQL over the
+  granular `agent_history_*` and `set_history_*` public views while rejecting
+  physical tables, SQLite metadata, mutation statements, and multiple
+  statements.
+- [x] Index Live Set/Project ownership filters and agent-session, turn, and
+  tool-call trajectory joins used by public history queries.
+- [x] Keep v1 automatic age/size retention scoped to App events and
+  configuration snapshots; retain agent and Live Set history until explicit
+  clear.
 - [x] Add root-owned profile registry and editable System Scope artifacts.
 - [x] Add Profile and Session Scope agent/skill directories and tombstones.
 - [ ] Preserve bundled agents and skills as immutable fallback resources.
@@ -54,6 +68,8 @@ Companion specification: [Local Storage Layout](local-storage.md)
 - [x] Include bounded storage diagnostics in local support bundles.
 - [x] Cover path resolution, permissions, migration, conflicts, rollback,
   lifecycle events, Desktop History, and session manifests.
+- [x] Cover typed agent session, turn, message, tool, approval, Live Set save,
+  snapshot, and trajectory persistence, filtering, redaction, and bounds.
 - [x] Cover plan artifact ownership, normalization, redaction, concurrent
   writers, and optimistic conflicts.
 - [x] Document the canonical structure and require future persistence changes

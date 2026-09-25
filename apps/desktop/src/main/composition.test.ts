@@ -5,7 +5,10 @@ import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   LocalObservabilityJournal,
+  type AgentHistoryRecord,
   type ConfigurationSnapshot,
+  type PublicHistoryQueryResult,
+  type SetHistoryRecord,
   type TelemetryEventEnvelope,
 } from "@ableton-agent/observability";
 
@@ -79,7 +82,10 @@ describe("desktop composition", () => {
 
   it("degrades safely and preserves a corrupt journal file", async () => {
     const location = await paths();
-    const journalPath = join(location.directory, "event-history.sqlite");
+    const journalPath = join(
+      location.directory,
+      "agent-set-event-history.sqlite",
+    );
     const corruptBytes = "not a sqlite database";
     await writeFile(journalPath, corruptBytes, "utf8");
 
@@ -101,7 +107,10 @@ describe("desktop composition", () => {
 
   it("degrades safely when another process holds the journal lock", async () => {
     const location = await paths();
-    const journalPath = join(location.directory, "event-history.sqlite");
+    const journalPath = join(
+      location.directory,
+      "agent-set-event-history.sqlite",
+    );
     const blocker = await LocalObservabilityJournal.open({ path: journalPath });
     try {
       const { preferences, service } = await createDesktopComposition({
@@ -128,6 +137,7 @@ describe("desktop composition", () => {
       await releaseShutdown.promise;
       first.closed = true;
     });
+
     const open = vi
       .fn()
       .mockResolvedValueOnce(first)
@@ -152,6 +162,70 @@ describe("desktop composition", () => {
     await host.shutdown();
     expect(first.shutdown).toHaveBeenCalledOnce();
     expect(second.shutdown).toHaveBeenCalledOnce();
+  });
+
+  it("keeps agent and Set history active when detailed App events are disabled", async () => {
+    const journal = fakeJournal();
+    const host = await DesktopJournalHost.create({
+      path: "journal.sqlite",
+      retention: { maxAgeDays: 30, maxBytes: 1_000 },
+      enabled: false,
+      open: vi.fn().mockResolvedValue(journal) as never,
+    });
+    const occurredAt = "2026-01-01T00:00:00.000Z";
+    const agentRecord: AgentHistoryRecord = {
+      version: 1,
+      id: "agent-history-record",
+      kind: "agent_session",
+      appSessionId: "app-session",
+      agentSessionId: "sdk-session",
+      activeAgentId: "agent-instance",
+      occurredAt,
+      status: "active",
+      metadata: {},
+    };
+    const setRecord: SetHistoryRecord = {
+      version: 1,
+      id: "set-history-record",
+      kind: "set_save",
+      appSessionId: "app-session",
+      liveSetId: "live-set",
+      occurredAt,
+      trigger: "live",
+      outcome: "success",
+      details: {},
+    };
+    const queryResult: PublicHistoryQueryResult = {
+      version: 1,
+      schemaVersion: 4,
+      columns: ["record_id"],
+      rows: [{ record_id: "set-history-record" }],
+      rowCount: 1,
+      truncated: false,
+      elapsedMs: 1,
+    };
+    journal.queryPublicHistory.mockResolvedValue(queryResult);
+
+    await host.enqueue(telemetryEvent("00000000-0000-4000-8000-000000000010"));
+    await host.appendAgentHistory(agentRecord);
+    await host.appendSetHistory(setRecord);
+    await expect(
+      host.queryPublicHistory(
+        "SELECT record_id FROM set_history_saves LIMIT 1",
+        [],
+        1,
+      ),
+    ).resolves.toEqual(queryResult);
+
+    expect(journal.enqueue).not.toHaveBeenCalled();
+    expect(journal.appendAgentHistory).toHaveBeenCalledWith(agentRecord);
+    expect(journal.appendSetHistory).toHaveBeenCalledWith(setRecord);
+    expect(journal.queryPublicHistory).toHaveBeenCalledWith(
+      "SELECT record_id FROM set_history_saves LIMIT 1",
+      [],
+      1,
+    );
+    await host.shutdown();
   });
 
   it("rolls retention swaps back and drains buffered writes without loss", async () => {
@@ -373,6 +447,13 @@ describe("desktop composition", () => {
       }) {
         if (this.closed) throw new Error("closed journal");
       }),
+      appendAgentHistory: vi.fn(async function (this: { closed: boolean }) {
+        if (this.closed) throw new Error("closed journal");
+      }),
+      appendSetHistory: vi.fn(async function (this: { closed: boolean }) {
+        if (this.closed) throw new Error("closed journal");
+      }),
+      queryPublicHistory: vi.fn(),
       shutdown: vi.fn(async function (this: { closed: boolean }) {
         this.closed = true;
       }),

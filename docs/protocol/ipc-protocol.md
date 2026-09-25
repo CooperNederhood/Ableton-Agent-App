@@ -103,6 +103,13 @@ The Remote Script emits typed `live_event.occurred` and
 transport; discrete transitions preserve sequence order. See
 [Live Events](../events/live-events.md).
 
+The lifecycle subscription `live_set.save_observed` reports a settled
+filesystem-metadata change for the current saved Set. Its payload contains only
+`liveSetId`, `observedAt`, decimal-string `fileModifiedTimeNs`, and a
+non-negative JavaScript-safe `fileSizeBytes`; it never contains the path or
+file contents. A connection starts from a baseline, so reconnecting does not
+replay a save. Save As emits only after the new path's metadata is stable.
+
 Requests and unsolicited events carry application-provided trace/correlation
 context when available. The bridge preserves it across request/response and
 Live Event ingestion so the local journal can connect Remote Script work to SDK

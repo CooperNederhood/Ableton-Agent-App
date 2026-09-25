@@ -71,6 +71,7 @@ import {
   listEventSubscriptionsParamsSchema,
   listEventSubscriptionsResultSchema,
   liveEventEnvelopeSchema,
+  liveSetSaveObservedEnvelopeSchema,
   replaceMidiNotesParamsSchema,
   replaceMidiNotesResultSchema,
   replaceArrangementMidiNotesParamsSchema,
@@ -148,6 +149,7 @@ import {
   type MessageEnvelope,
   type PingResult,
   type LiveIdentity,
+  type LiveSetSaveObservedPayload,
   type RequestEnvelope,
   type ResponseEnvelope,
   type SessionSnapshot,
@@ -293,6 +295,14 @@ export type AbletonLiveEvent =
       readonly projectRevision?: number;
     };
 
+export interface AbletonLiveSetSaveEvent {
+  readonly event: "live_set.save_observed";
+  readonly sequence: number;
+  readonly payload: LiveSetSaveObservedPayload;
+  readonly receivedAt: string;
+  readonly projectRevision?: number;
+}
+
 export type LiveEventSubscriptionStatus =
   | {
       readonly eventId: string;
@@ -342,6 +352,9 @@ export interface AbletonBridge {
   clearLiveEventSubscriptions(): Promise<ClearEventSubscriptionsResult>;
   subscribe(listener: (event: AbletonBridgeEvent) => void): () => void;
   subscribeLiveEvents(listener: (event: AbletonLiveEvent) => void): () => void;
+  subscribeLiveSetSaves(
+    listener: (event: AbletonLiveSetSaveEvent) => void,
+  ): () => void;
   subscribeLiveEventReconciliation(
     listener: (signal: LiveEventReconciliationSignal) => void,
   ): () => void;
@@ -385,6 +398,9 @@ export class AbletonBridgeService implements AbletonService {
   readonly #pending = new Map<string, PendingRequest>();
   readonly #eventListeners = new Set<(event: AbletonBridgeEvent) => void>();
   readonly #liveEventListeners = new Set<(event: AbletonLiveEvent) => void>();
+  readonly #liveSetSaveListeners = new Set<
+    (event: AbletonLiveSetSaveEvent) => void
+  >();
   readonly #reconciliationListeners = new Set<
     (signal: LiveEventReconciliationSignal) => void
   >();
@@ -471,6 +487,15 @@ export class AbletonBridgeService implements AbletonService {
     this.#liveEventListeners.add(listener);
     return () => {
       this.#liveEventListeners.delete(listener);
+    };
+  }
+
+  public subscribeLiveSetSaves(
+    listener: (event: AbletonLiveSetSaveEvent) => void,
+  ): () => void {
+    this.#liveSetSaveListeners.add(listener);
+    return () => {
+      this.#liveSetSaveListeners.delete(listener);
     };
   }
 
@@ -1737,6 +1762,7 @@ export class AbletonBridgeService implements AbletonService {
       this.#projectRevision = message.projectRevision;
     }
     let liveEvent: AbletonLiveEvent | undefined;
+    let liveSetSaveEvent: AbletonLiveSetSaveEvent | undefined;
     if (
       message.event === "live_event.occurred" ||
       message.event === "live_event.invalidated"
@@ -1759,10 +1785,23 @@ export class AbletonBridgeService implements AbletonService {
         });
       }
     }
+    if (message.event === "live_set.save_observed") {
+      const envelope = liveSetSaveObservedEnvelopeSchema.parse(message);
+      liveSetSaveEvent = {
+        event: envelope.event,
+        sequence: envelope.sequence,
+        payload: envelope.payload,
+        receivedAt: receivedAt.toISOString(),
+        ...(envelope.projectRevision === undefined
+          ? {}
+          : { projectRevision: envelope.projectRevision }),
+      };
+    }
     const event: AbletonBridgeEvent = {
       event: message.event,
       sequence: message.sequence,
-      payload: liveEvent?.payload ?? message.payload,
+      payload:
+        liveEvent?.payload ?? liveSetSaveEvent?.payload ?? message.payload,
       receivedAt: receivedAt.toISOString(),
       ...(message.projectRevision === undefined
         ? {}
@@ -1802,6 +1841,11 @@ export class AbletonBridgeService implements AbletonService {
       },
     });
     for (const listener of this.#eventListeners) listener(event);
+    if (liveSetSaveEvent !== undefined) {
+      for (const listener of this.#liveSetSaveListeners) {
+        listener(liveSetSaveEvent);
+      }
+    }
     if (liveEvent !== undefined) {
       this.#record({
         name:

@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 
 import {
@@ -7,15 +8,20 @@ import {
 import {
   createNonBlockingObservabilityRecorder,
   LocalObservabilityJournal,
+  sanitizeTelemetryAttributes,
+  type AgentHistoryRecord,
   type ConfigurationSnapshot,
   type ConfigurationSnapshotPage,
   type ConfigurationSnapshotQuery,
   type DeleteResult,
   type JournalHealth,
+  type PublicHistoryQueryResult,
+  type PublicHistorySqlValue,
   type RetentionPolicy,
   type RetentionResult,
   type RootTracePage,
   type RootTraceQuery,
+  type SetHistoryRecord,
   type TelemetryEventEnvelope,
   type TelemetryEventPage,
   type TraceReadOptions,
@@ -29,14 +35,20 @@ import {
   createAgentRuntime,
   RuntimeConfigurationError,
   type AgentRuntime,
+  type LiveSetSaveAction,
 } from "@ableton-agent/runtime";
 import type { Logger } from "@ableton-agent/shared";
 import {
   abletonToolMetadata,
+  type SetHistoryQueryService,
   type ToolApprovalRequest,
 } from "@ableton-agent/tools";
 
-import { preferencesSchema, type DesktopPreferences } from "../contracts.js";
+import {
+  preferencesSchema,
+  type DesktopLiveSetSnapshot,
+  type DesktopPreferences,
+} from "../contracts.js";
 import { AgentCatalogService } from "./agent-catalog.js";
 import { ApprovalCoordinator, ApprovalPolicyController } from "./approvals.js";
 import {
@@ -47,6 +59,8 @@ import { JsonPreferencesStore, JsonSessionStore } from "./desktop-service.js";
 import {
   HeadlessDesktopService,
   type DesktopEventJournal,
+  type LiveSetSnapshotHistoryRecord,
+  type LiveSetSnapshotHistoryRepository,
 } from "./headless-desktop-service.js";
 import { JsonLiveSetSessionStore } from "./live-set-session-store.js";
 
@@ -72,6 +86,10 @@ export interface DesktopCompositionOptions {
   onLoggingLevelChange?: (level: DesktopPreferences["loggingLevel"]) => void;
   storageMigrationEvents?: readonly StorageMigrationEvent[];
   storageMigrationFailure?: string;
+  /** Injected read-only Set History SQL boundary owned by the unified store. */
+  setHistoryQuery?: SetHistoryQueryService;
+  /** Injected snapshot writer until the unified history repository lands. */
+  snapshotHistory?: LiveSetSnapshotHistoryRepository;
 }
 
 export interface DesktopComposition {
@@ -108,9 +126,119 @@ interface Notice {
   detail: string;
 }
 
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableJson(entry)).join(",")}]`;
+  }
+  if (value !== null && typeof value === "object") {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function snapshotContent(snapshot: DesktopLiveSetSnapshot): object {
+  const { capturedAt, source, transport, ...musical } = snapshot;
+  void capturedAt;
+  void source;
+  return {
+    ...musical,
+    ...(transport === undefined
+      ? {}
+      : {
+          transport: {
+            ...(transport.arrangementLoop === undefined
+              ? {}
+              : { arrangementLoop: transport.arrangementLoop }),
+          },
+        }),
+  };
+}
+
+function createSnapshotHistoryRepository(
+  journal: DesktopJournalHost,
+): LiveSetSnapshotHistoryRepository {
+  return {
+    save: async (record: LiveSetSnapshotHistoryRecord) => {
+      const normalized = snapshotContent(record.snapshot);
+      const contentHash = createHash("sha256")
+        .update(stableJson(normalized))
+        .digest("hex");
+      const snapshotId = `snapshot:${contentHash}`;
+      const observationId = randomUUID();
+      const common = {
+        version: 1 as const,
+        appSessionId: record.productionSessionId,
+        liveSetId: record.snapshot.liveSetId,
+        liveProjectId: record.snapshot.liveProjectId,
+      };
+      await journal.appendSetHistory({
+        ...common,
+        kind: "set_save",
+        id: observationId,
+        occurredAt: record.observedAt ?? record.capturedAt,
+        trigger: record.trigger === "manual" ? "user" : "live",
+        outcome: "success",
+        details: sanitizeTelemetryAttributes({
+          snapshotId,
+          source: record.trigger,
+          fileModifiedTimeNs: record.fileModifiedTimeNs,
+          fileSizeBytes: record.fileSizeBytes,
+          activeAgentInstanceIds: record.activeAgentInstanceIds,
+          sdkSessionIds: record.sdkSessionIds,
+        }),
+      });
+      await journal.appendSetHistory({
+        ...common,
+        kind: "set_snapshot",
+        id: snapshotId,
+        occurredAt: record.capturedAt,
+        snapshotKind: record.trigger === "manual" ? "checkpoint" : "detailed",
+        revision: contentHash,
+        snapshot: sanitizeTelemetryAttributes({
+          ...record.snapshot,
+          normalizedHash: contentHash,
+        }),
+      });
+      await Promise.all(
+        record.activeAgentInstanceIds.map((activeAgentId, index) =>
+          journal.appendSetHistory({
+            ...common,
+            kind: "set_trajectory",
+            id: randomUUID(),
+            occurredAt: record.capturedAt,
+            trajectoryType:
+              record.trigger === "manual"
+                ? "manual_checkpoint"
+                : "active_at_save",
+            activeAgentId,
+            ...(record.sdkSessionIds[index] === undefined
+              ? {}
+              : { agentSessionId: record.sdkSessionIds[index] }),
+            summary: "Agent active when the Live Set checkpoint was captured",
+            data: sanitizeTelemetryAttributes({
+              observationId,
+              snapshotId,
+              relation:
+                record.trigger === "manual"
+                  ? "manual_checkpoint"
+                  : "active_at_save",
+              confidence: 1,
+            }),
+          }),
+        ),
+      );
+    },
+  };
+}
+
 type JournalWrite =
   | { kind: "event"; value: TelemetryEventEnvelope }
-  | { kind: "configuration"; value: ConfigurationSnapshot };
+  | { kind: "configuration"; value: ConfigurationSnapshot }
+  | { kind: "agent_history"; value: AgentHistoryRecord }
+  | { kind: "set_history"; value: SetHistoryRecord };
 
 export interface DesktopJournalHostOptions {
   path: string;
@@ -193,6 +321,26 @@ export class DesktopJournalHost implements DesktopEventJournal {
     snapshot: ConfigurationSnapshot,
   ): Promise<void> {
     return this.#write({ kind: "configuration", value: snapshot });
+  }
+
+  public appendAgentHistory(record: AgentHistoryRecord): Promise<void> {
+    return this.#write({ kind: "agent_history", value: record });
+  }
+
+  public appendSetHistory(record: SetHistoryRecord): Promise<void> {
+    return this.#write({ kind: "set_history", value: record });
+  }
+
+  public async queryPublicHistory(
+    sql: string,
+    parameters: readonly PublicHistorySqlValue[],
+    maxRows: number,
+  ): Promise<PublicHistoryQueryResult> {
+    return (await this.#activeJournal()).queryPublicHistory(
+      sql,
+      parameters,
+      maxRows,
+    );
   }
 
   public async reconfigure(retention: RetentionPolicy): Promise<void> {
@@ -387,14 +535,25 @@ export class DesktopJournalHost implements DesktopEventJournal {
   }
 
   #write(write: JournalWrite): Promise<void> {
-    if (!this.#enabled || this.#shutdown) return Promise.resolve();
+    if (this.#shutdown) return Promise.resolve();
+    if (
+      !this.#enabled &&
+      (write.kind === "event" || write.kind === "configuration")
+    ) {
+      return Promise.resolve();
+    }
     if (this.#switching || this.#journal === undefined) {
       this.#buffer.push(write);
       return Promise.resolve();
     }
-    return write.kind === "event"
-      ? this.#journal.enqueue(write.value)
-      : this.#journal.enqueueConfigurationSnapshot(write.value);
+    if (write.kind === "event") return this.#journal.enqueue(write.value);
+    if (write.kind === "configuration") {
+      return this.#journal.enqueueConfigurationSnapshot(write.value);
+    }
+    if (write.kind === "agent_history") {
+      return this.#journal.appendAgentHistory(write.value);
+    }
+    return this.#journal.appendSetHistory(write.value);
   }
 
   async #drain(): Promise<void> {
@@ -402,7 +561,13 @@ export class DesktopJournalHost implements DesktopEventJournal {
       const write = this.#buffer.shift();
       if (write === undefined || this.#journal === undefined) return;
       if (write.kind === "event") await this.#journal.enqueue(write.value);
-      else await this.#journal.enqueueConfigurationSnapshot(write.value);
+      else if (write.kind === "configuration") {
+        await this.#journal.enqueueConfigurationSnapshot(write.value);
+      } else if (write.kind === "agent_history") {
+        await this.#journal.appendAgentHistory(write.value);
+      } else {
+        await this.#journal.appendSetHistory(write.value);
+      }
     }
   }
 }
@@ -450,7 +615,7 @@ export async function createDesktopComposition(
   const preferences = await loadPreferences(preferencesStore, notices);
   const eventJournalPath =
     options.eventJournalPath ??
-    join(dirname(options.preferencesPath), "event-history.sqlite");
+    join(dirname(options.preferencesPath), "agent-set-event-history.sqlite");
   const journalHost = await DesktopJournalHost.create({
     path: eventJournalPath,
     retention: {
@@ -546,6 +711,38 @@ export async function createDesktopComposition(
   const inMemorySessionSource: {
     read?: () => ReturnType<HeadlessDesktopService["getSessions"]>;
   } = {};
+  const serviceRef: { current?: HeadlessDesktopService } = {};
+  const snapshotHistory =
+    options.snapshotHistory ??
+    (journalHost.journal === undefined
+      ? undefined
+      : createSnapshotHistoryRepository(journalHost));
+  const setHistoryQuery: SetHistoryQueryService | undefined =
+    options.setHistoryQuery ??
+    (journalHost.journal === undefined
+      ? undefined
+      : {
+          query: async ({ sql, parameters, maxRows, signal }) => {
+            signal?.throwIfAborted();
+            const result = await journalHost.queryPublicHistory(
+              sql,
+              parameters,
+              maxRows,
+            );
+            signal?.throwIfAborted();
+            return result;
+          },
+        });
+  const snapshotCaptureAction: LiveSetSaveAction = {
+    id: "capture-lom-snapshot",
+    lifecycleName: "live_set.snapshot_capture",
+    execute: async (context) => {
+      if (serviceRef.current === undefined) {
+        throw new Error("Desktop snapshot capture is not ready");
+      }
+      await serviceRef.current.captureObservedSave(context);
+    },
+  };
 
   const runtimeOptions = {
     ableton: {
@@ -591,6 +788,17 @@ export async function createDesktopComposition(
     requestToolApproval: (request: ToolApprovalRequest) =>
       approvalPolicy.request(request),
     askForReadApproval: approvalPolicy.askForReads,
+    ...(journalHost.journal === undefined
+      ? {}
+      : {
+          agentHistory: journalHost,
+          currentAppSessionId: () => serviceRef.current?.activeSessionId,
+          currentLiveProjectId: () => serviceRef.current?.activeLiveProjectId,
+        }),
+    ...(setHistoryQuery === undefined ? {} : { setHistoryQuery }),
+    liveSetSaves: {
+      actions: snapshotHistory === undefined ? [] : [snapshotCaptureAction],
+    },
     signal: {
       port: preferences.signalPort,
       ...(options.signalDescriptorPath === undefined
@@ -629,7 +837,7 @@ export async function createDesktopComposition(
     });
   }
 
-  const service = new HeadlessDesktopService({
+  const desktopService = new HeadlessDesktopService({
     application: runtime.application,
     approvals,
     preferencesStore,
@@ -638,6 +846,7 @@ export async function createDesktopComposition(
     agentCatalog,
     signals: runtime.signals,
     liveEvents: runtime.liveEvents,
+    ...(snapshotHistory === undefined ? {} : { snapshotHistory }),
     ...(journalHost.journal === undefined ? {} : { eventJournal: journalHost }),
     eventHistoryUnavailable: journalHost.journal === undefined,
     reconfigureEventJournal,
@@ -658,9 +867,10 @@ export async function createDesktopComposition(
     onAutoApprovedAgentIdsChange: (ids) =>
       approvalPolicy.setAutoApprovedAgentInstanceIds(ids),
   });
-  inMemorySessionSource.read = () => service.getSessions();
+  serviceRef.current = desktopService;
+  inMemorySessionSource.read = () => desktopService.getSessions();
   return {
-    service,
+    service: desktopService,
     runtime,
     telemetry,
     ...(token === undefined ? {} : { bridgeToken: token }),

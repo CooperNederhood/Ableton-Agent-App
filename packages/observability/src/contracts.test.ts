@@ -6,8 +6,11 @@ import {
   DEFAULT_RETENTION_DAYS,
   MAX_SANITIZED_DEPTH,
   MAX_SANITIZED_STRING_CHARACTERS,
+  agentHistoryQuerySchema,
+  agentMessageHistoryRecordSchema,
   configurationSnapshotSchema,
   retentionPolicySchema,
+  setSnapshotHistoryRecordSchema,
   telemetryEventEnvelopeSchema,
   telemetryQuerySchema,
 } from "./contracts.js";
@@ -130,5 +133,39 @@ describe("observability contracts", () => {
         projectId: "live-set-1",
       }).success,
     ).toBe(false);
+  });
+
+  it("validates bounded typed agent and Set history contracts", () => {
+    expect(
+      agentMessageHistoryRecordSchema.parse({
+        version: 1,
+        kind: "message",
+        id: "message-1",
+        appSessionId: "app-session-1",
+        agentSessionId: "agent-session-1",
+        activeAgentId: "agent-1",
+        occurredAt: "2026-08-29T18:00:00-04:00",
+        role: "assistant",
+        content: "Created the requested clip.",
+        messageIndex: 0,
+      }),
+    ).toMatchObject({
+      occurredAt: "2026-08-29T22:00:00.000Z",
+      metadata: {},
+    });
+    expect(
+      setSnapshotHistoryRecordSchema.safeParse({
+        version: 1,
+        kind: "set_snapshot",
+        id: "snapshot-1",
+        liveSetId: "live-set-1",
+        occurredAt: "2026-08-29T22:00:00.000Z",
+        snapshotKind: "core",
+        snapshot: {},
+      }).success,
+    ).toBe(true);
+    expect(
+      agentHistoryQuerySchema.parse({ kinds: ["tool_call"], limit: 10 }),
+    ).toMatchObject({ limit: 10, order: "desc" });
   });
 });

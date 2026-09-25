@@ -13,6 +13,13 @@ export const MAX_ATTRIBUTES_BYTES = 2 * 1024 * 1024;
 export const MAX_EVENT_BYTES = 2_250 * 1024;
 export const DEFAULT_QUERY_LIMIT = 100;
 export const MAX_QUERY_LIMIT = 500;
+export const HISTORY_CONTRACT_VERSION = 1 as const;
+export const MAX_HISTORY_TEXT_CHARACTERS = 256 * 1024;
+export const MAX_PUBLIC_HISTORY_SQL_CHARACTERS = 20_000;
+export const MAX_PUBLIC_HISTORY_PARAMETERS = 128;
+export const MAX_PUBLIC_HISTORY_ROWS = 200;
+export const MAX_PUBLIC_HISTORY_COLUMNS = 64;
+export const MAX_PUBLIC_HISTORY_CELL_CHARACTERS = 4_096;
 
 export const isoTimestampSchema = z
   .string()
@@ -385,6 +392,7 @@ export const journalFailureCodeSchema = z.enum([
   "corrupt_database",
   "duplicate",
   "invalid_cursor",
+  "invalid_query",
   "io",
   "queue_full",
   "schema_version",
@@ -479,6 +487,317 @@ export const rootTracePageSchema = z
   })
   .strict();
 
+const historyTextSchema = z.string().max(MAX_HISTORY_TEXT_CHARACTERS);
+
+const historyBaseShape = {
+  version: z.literal(HISTORY_CONTRACT_VERSION),
+  id: telemetryEntityIdSchema,
+  liveSetId: telemetryEntityIdSchema.optional(),
+  liveProjectId: telemetryEntityIdSchema.optional(),
+  traceId: telemetryIdSchema.optional(),
+  correlationId: telemetryEntityIdSchema.optional(),
+  causationId: telemetryEntityIdSchema.optional(),
+};
+
+const agentHistoryBaseShape = {
+  ...historyBaseShape,
+  appSessionId: telemetryEntityIdSchema,
+};
+
+const setHistoryBaseShape = {
+  ...historyBaseShape,
+  appSessionId: telemetryEntityIdSchema.optional(),
+};
+
+export const agentSessionHistoryRecordSchema = z
+  .object({
+    ...agentHistoryBaseShape,
+    kind: z.literal("agent_session"),
+    agentSessionId: telemetryEntityIdSchema,
+    activeAgentId: telemetryEntityIdSchema,
+    sdkSessionId: telemetryEntityIdSchema.optional(),
+    occurredAt: isoTimestampSchema,
+    endedAt: isoTimestampSchema.optional(),
+    status: z.enum(["queued", "active", "completed", "failed", "cancelled"]),
+    metadata: sanitizedAttributesSchema.default({}),
+  })
+  .strict();
+
+export const agentTurnHistoryRecordSchema = z
+  .object({
+    ...agentHistoryBaseShape,
+    kind: z.literal("turn"),
+    agentSessionId: telemetryEntityIdSchema,
+    turnId: telemetryEntityIdSchema,
+    activeAgentId: telemetryEntityIdSchema,
+    occurredAt: isoTimestampSchema,
+    completedAt: isoTimestampSchema.optional(),
+    status: z.enum(["queued", "active", "completed", "failed", "cancelled"]),
+    prompt: historyTextSchema.optional(),
+    durationMs: z.number().finite().nonnegative().optional(),
+    metadata: sanitizedAttributesSchema.default({}),
+  })
+  .strict();
+
+export const agentMessageHistoryRecordSchema = z
+  .object({
+    ...agentHistoryBaseShape,
+    kind: z.literal("message"),
+    agentSessionId: telemetryEntityIdSchema,
+    turnId: telemetryEntityIdSchema.optional(),
+    activeAgentId: telemetryEntityIdSchema,
+    occurredAt: isoTimestampSchema,
+    role: z.enum(["user", "assistant", "system", "tool"]),
+    content: historyTextSchema,
+    messageIndex: z.number().int().nonnegative(),
+    metadata: sanitizedAttributesSchema.default({}),
+  })
+  .strict();
+
+export const agentToolCallHistoryRecordSchema = z
+  .object({
+    ...agentHistoryBaseShape,
+    kind: z.literal("tool_call"),
+    agentSessionId: telemetryEntityIdSchema,
+    turnId: telemetryEntityIdSchema,
+    toolCallId: telemetryEntityIdSchema,
+    activeAgentId: telemetryEntityIdSchema,
+    occurredAt: isoTimestampSchema,
+    toolName: telemetryNameSchema,
+    status: z.enum([
+      "queued",
+      "approval_required",
+      "approved",
+      "denied",
+      "active",
+      "completed",
+      "failed",
+      "cancelled",
+    ]),
+    arguments: sanitizedAttributesSchema,
+    metadata: sanitizedAttributesSchema.default({}),
+  })
+  .strict();
+
+export const agentToolResultHistoryRecordSchema = z
+  .object({
+    ...agentHistoryBaseShape,
+    kind: z.literal("tool_result"),
+    agentSessionId: telemetryEntityIdSchema,
+    turnId: telemetryEntityIdSchema,
+    toolCallId: telemetryEntityIdSchema,
+    activeAgentId: telemetryEntityIdSchema,
+    occurredAt: isoTimestampSchema,
+    outcome: z.enum(["success", "failure", "cancelled"]),
+    durationMs: z.number().finite().nonnegative().optional(),
+    result: sanitizedAttributesSchema.optional(),
+    error: historyTextSchema.optional(),
+    metadata: sanitizedAttributesSchema.default({}),
+  })
+  .strict();
+
+export const agentApprovalHistoryRecordSchema = z
+  .object({
+    ...agentHistoryBaseShape,
+    kind: z.literal("approval"),
+    agentSessionId: telemetryEntityIdSchema,
+    turnId: telemetryEntityIdSchema.optional(),
+    toolCallId: telemetryEntityIdSchema.optional(),
+    activeAgentId: telemetryEntityIdSchema,
+    occurredAt: isoTimestampSchema,
+    resolvedAt: isoTimestampSchema.optional(),
+    status: z.enum(["requested", "approved", "denied", "cancelled", "expired"]),
+    summary: historyTextSchema,
+    details: sanitizedAttributesSchema.default({}),
+  })
+  .strict();
+
+export const agentHistoryRecordSchema = z.discriminatedUnion("kind", [
+  agentSessionHistoryRecordSchema,
+  agentTurnHistoryRecordSchema,
+  agentMessageHistoryRecordSchema,
+  agentToolCallHistoryRecordSchema,
+  agentToolResultHistoryRecordSchema,
+  agentApprovalHistoryRecordSchema,
+]);
+
+export const setSaveHistoryRecordSchema = z
+  .object({
+    ...setHistoryBaseShape,
+    kind: z.literal("set_save"),
+    occurredAt: isoTimestampSchema,
+    path: historyTextSchema.optional(),
+    trigger: z.enum(["user", "agent", "live", "unknown"]),
+    outcome: z.enum(["success", "failure", "cancelled"]),
+    durationMs: z.number().finite().nonnegative().optional(),
+    details: sanitizedAttributesSchema.default({}),
+  })
+  .strict()
+  .refine((record) => record.liveSetId !== undefined, {
+    message: "Set save history requires liveSetId",
+    path: ["liveSetId"],
+  });
+
+export const setSnapshotHistoryRecordSchema = z
+  .object({
+    ...setHistoryBaseShape,
+    kind: z.literal("set_snapshot"),
+    occurredAt: isoTimestampSchema,
+    snapshotKind: z.enum(["core", "detailed", "checkpoint"]),
+    revision: telemetryEntityIdSchema.optional(),
+    snapshot: sanitizedAttributesSchema,
+  })
+  .strict()
+  .refine((record) => record.liveSetId !== undefined, {
+    message: "Set snapshot history requires liveSetId",
+    path: ["liveSetId"],
+  });
+
+export const setTrajectoryHistoryRecordSchema = z
+  .object({
+    ...setHistoryBaseShape,
+    kind: z.literal("set_trajectory"),
+    occurredAt: isoTimestampSchema,
+    trajectoryType: telemetryNameSchema,
+    agentSessionId: telemetryEntityIdSchema.optional(),
+    turnId: telemetryEntityIdSchema.optional(),
+    toolCallId: telemetryEntityIdSchema.optional(),
+    activeAgentId: telemetryEntityIdSchema.optional(),
+    summary: historyTextSchema.optional(),
+    data: sanitizedAttributesSchema.default({}),
+  })
+  .strict()
+  .refine((record) => record.liveSetId !== undefined, {
+    message: "Set trajectory history requires liveSetId",
+    path: ["liveSetId"],
+  });
+
+export const setHistoryRecordSchema = z.union([
+  setSaveHistoryRecordSchema,
+  setSnapshotHistoryRecordSchema,
+  setTrajectoryHistoryRecordSchema,
+]);
+
+const agentHistoryKinds = [
+  "agent_session",
+  "turn",
+  "message",
+  "tool_call",
+  "tool_result",
+  "approval",
+] as const;
+const setHistoryKinds = ["set_save", "set_snapshot", "set_trajectory"] as const;
+
+const historyQueryShape = {
+  cursor: z.string().min(1).max(1_024).optional(),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_QUERY_LIMIT)
+    .default(DEFAULT_QUERY_LIMIT),
+  order: z.enum(["asc", "desc"]).default("desc"),
+  appSessionId: telemetryEntityIdSchema.optional(),
+  liveSetId: telemetryEntityIdSchema.optional(),
+  liveProjectId: telemetryEntityIdSchema.optional(),
+  from: isoTimestampSchema.optional(),
+  to: isoTimestampSchema.optional(),
+};
+
+export const agentHistoryQuerySchema = z
+  .object({
+    ...historyQueryShape,
+    kinds: z
+      .array(z.enum(agentHistoryKinds))
+      .min(1)
+      .max(agentHistoryKinds.length)
+      .optional(),
+    agentSessionId: telemetryEntityIdSchema.optional(),
+    turnId: telemetryEntityIdSchema.optional(),
+    toolCallId: telemetryEntityIdSchema.optional(),
+    activeAgentId: telemetryEntityIdSchema.optional(),
+  })
+  .strict()
+  .refine(validTimeRange, {
+    message: "'from' must not be later than 'to'",
+    path: ["from"],
+  });
+
+export const setHistoryQuerySchema = z
+  .object({
+    ...historyQueryShape,
+    kinds: z
+      .array(z.enum(setHistoryKinds))
+      .min(1)
+      .max(setHistoryKinds.length)
+      .optional(),
+  })
+  .strict()
+  .refine(validTimeRange, {
+    message: "'from' must not be later than 'to'",
+    path: ["from"],
+  });
+
+const journaledHistoryMetadataShape = {
+  recordedAt: isoTimestampSchema,
+};
+
+export const journaledAgentHistoryRecordSchema = z.discriminatedUnion("kind", [
+  agentSessionHistoryRecordSchema.extend(journaledHistoryMetadataShape),
+  agentTurnHistoryRecordSchema.extend(journaledHistoryMetadataShape),
+  agentMessageHistoryRecordSchema.extend(journaledHistoryMetadataShape),
+  agentToolCallHistoryRecordSchema.extend(journaledHistoryMetadataShape),
+  agentToolResultHistoryRecordSchema.extend(journaledHistoryMetadataShape),
+  agentApprovalHistoryRecordSchema.extend(journaledHistoryMetadataShape),
+]);
+
+export const journaledSetHistoryRecordSchema = z.union([
+  setSaveHistoryRecordSchema.safeExtend(journaledHistoryMetadataShape),
+  setSnapshotHistoryRecordSchema.safeExtend(journaledHistoryMetadataShape),
+  setTrajectoryHistoryRecordSchema.safeExtend(journaledHistoryMetadataShape),
+]);
+
+export const agentHistoryPageSchema = z
+  .object({
+    version: z.literal(HISTORY_CONTRACT_VERSION),
+    items: z.array(journaledAgentHistoryRecordSchema),
+    nextCursor: z.string().min(1).optional(),
+    page: pageMetadataSchema,
+  })
+  .strict();
+
+export const setHistoryPageSchema = z
+  .object({
+    version: z.literal(HISTORY_CONTRACT_VERSION),
+    items: z.array(journaledSetHistoryRecordSchema),
+    nextCursor: z.string().min(1).optional(),
+    page: pageMetadataSchema,
+  })
+  .strict();
+
+export const publicHistorySqlValueSchema = z.union([
+  z.string().max(MAX_PUBLIC_HISTORY_CELL_CHARACTERS),
+  z.number().finite(),
+  z.boolean(),
+  z.null(),
+]);
+
+export const publicHistoryQueryResultSchema = z
+  .object({
+    version: z.literal(HISTORY_CONTRACT_VERSION),
+    schemaVersion: z.number().int().nonnegative(),
+    columns: z
+      .array(z.string().min(1).max(256))
+      .max(MAX_PUBLIC_HISTORY_COLUMNS),
+    rows: z
+      .array(z.record(z.string().min(1).max(256), publicHistorySqlValueSchema))
+      .max(MAX_PUBLIC_HISTORY_ROWS),
+    rowCount: z.number().int().nonnegative().max(MAX_PUBLIC_HISTORY_ROWS),
+    truncated: z.boolean(),
+    elapsedMs: z.number().finite().nonnegative(),
+  })
+  .strict();
+
 export type SanitizedValue = z.infer<typeof sanitizedValueSchema>;
 export type SanitizedAttributes = z.infer<typeof sanitizedAttributesSchema>;
 export type TraceContext = z.infer<typeof traceContextSchema>;
@@ -519,3 +838,44 @@ export type RootTraceSummary = z.infer<typeof rootTraceSummarySchema>;
 export type RootTraceQuery = z.input<typeof rootTraceQuerySchema>;
 export type ParsedRootTraceQuery = z.output<typeof rootTraceQuerySchema>;
 export type RootTracePage = z.infer<typeof rootTracePageSchema>;
+export type AgentSessionHistoryRecord = z.infer<
+  typeof agentSessionHistoryRecordSchema
+>;
+export type AgentTurnHistoryRecord = z.infer<
+  typeof agentTurnHistoryRecordSchema
+>;
+export type AgentMessageHistoryRecord = z.infer<
+  typeof agentMessageHistoryRecordSchema
+>;
+export type AgentToolCallHistoryRecord = z.infer<
+  typeof agentToolCallHistoryRecordSchema
+>;
+export type AgentToolResultHistoryRecord = z.infer<
+  typeof agentToolResultHistoryRecordSchema
+>;
+export type AgentApprovalHistoryRecord = z.infer<
+  typeof agentApprovalHistoryRecordSchema
+>;
+export type AgentHistoryRecord = z.infer<typeof agentHistoryRecordSchema>;
+export type JournaledAgentHistoryRecord = z.infer<
+  typeof journaledAgentHistoryRecordSchema
+>;
+export type AgentHistoryQuery = z.input<typeof agentHistoryQuerySchema>;
+export type AgentHistoryPage = z.infer<typeof agentHistoryPageSchema>;
+export type SetSaveHistoryRecord = z.infer<typeof setSaveHistoryRecordSchema>;
+export type SetSnapshotHistoryRecord = z.infer<
+  typeof setSnapshotHistoryRecordSchema
+>;
+export type SetTrajectoryHistoryRecord = z.infer<
+  typeof setTrajectoryHistoryRecordSchema
+>;
+export type SetHistoryRecord = z.infer<typeof setHistoryRecordSchema>;
+export type JournaledSetHistoryRecord = z.infer<
+  typeof journaledSetHistoryRecordSchema
+>;
+export type SetHistoryQuery = z.input<typeof setHistoryQuerySchema>;
+export type SetHistoryPage = z.infer<typeof setHistoryPageSchema>;
+export type PublicHistorySqlValue = z.infer<typeof publicHistorySqlValueSchema>;
+export type PublicHistoryQueryResult = z.infer<
+  typeof publicHistoryQueryResultSchema
+>;

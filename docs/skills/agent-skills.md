@@ -10,6 +10,10 @@ skills/
     SKILL.md
 ```
 
+The bundled `set-history-sql-search` skill documents the local Set History
+public views and safe query workflow. It reinforces that historical snapshots
+are evidence and that agents must inspect the current Live Set before acting.
+
 Skills are resolved through Session, Profile, System, and immutable bundled
 sources in that order. Lower scopes store a physical `SKILL.md` only after an
 explicit copy or edit. A local tombstone may hide an inherited skill. Semantic

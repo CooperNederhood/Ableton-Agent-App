@@ -83,7 +83,8 @@ Companion specification: [Test Strategy](test-strategy.md)
 ## CI
 
 - [x] Add formatting, lint, typecheck, unit, contract, and integration jobs.
-- [x] Add macOS and Windows build/smoke jobs.
+- [x] Add macOS build/smoke jobs.
+- [ ] Restore Windows build/smoke jobs before Windows release support.
 - [x] Cache dependencies without caching generated test results.
 - [x] Publish validation/build diagnostics on failure.
 - [x] Enforce package build and protocol compatibility checks.

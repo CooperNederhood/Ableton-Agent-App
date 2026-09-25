@@ -1,28 +1,47 @@
 import { Worker } from "node:worker_threads";
 
 import {
+  agentHistoryPageSchema,
+  agentHistoryQuerySchema,
+  agentHistoryRecordSchema,
   configurationSnapshotDeleteFilterSchema,
   configurationSnapshotPageSchema,
   configurationSnapshotQuerySchema,
   configurationSnapshotSchema,
   DEFAULT_MAX_PENDING_WRITES,
   journalHealthSchema,
+  MAX_PUBLIC_HISTORY_CELL_CHARACTERS,
+  MAX_PUBLIC_HISTORY_PARAMETERS,
+  MAX_PUBLIC_HISTORY_ROWS,
+  MAX_PUBLIC_HISTORY_SQL_CHARACTERS,
   OBSERVABILITY_CONTRACT_VERSION,
+  publicHistoryQueryResultSchema,
   retentionPolicySchema,
   retentionResultSchema,
   rootTracePageSchema,
   rootTraceQuerySchema,
+  setHistoryPageSchema,
+  setHistoryQuerySchema,
+  setHistoryRecordSchema,
   telemetryDeleteFilterSchema,
   telemetryEventEnvelopeSchema,
   telemetryEventPageSchema,
   telemetryIdSchema,
   telemetryQuerySchema,
+  type AgentHistoryPage,
+  type AgentHistoryQuery,
+  type AgentHistoryRecord,
   type ConfigurationSnapshot,
   type ConfigurationSnapshotPage,
   type ConfigurationSnapshotQuery,
   type JournalHealth,
+  type PublicHistoryQueryResult,
+  type PublicHistorySqlValue,
   type RootTracePage,
   type RootTraceQuery,
+  type SetHistoryPage,
+  type SetHistoryQuery,
+  type SetHistoryRecord,
   type RetentionPolicy,
   type RetentionPolicyInput,
   type RetentionResult,
@@ -36,6 +55,7 @@ import {
   JournalConflictError,
   JournalCursorError,
   JournalDuplicateError,
+  JournalQueryError,
   JournalQueueFullError,
   JournalSchemaVersionError,
   ObservabilityJournalError,
@@ -64,7 +84,22 @@ interface PendingSnapshot {
   readonly reject: (error: unknown) => void;
 }
 
-type PendingWrite = PendingEvent | PendingSnapshot;
+interface PendingAgentHistory {
+  readonly kind: "agent_history";
+  readonly value: AgentHistoryRecord;
+  readonly resolve: () => void;
+  readonly reject: (error: unknown) => void;
+}
+
+interface PendingSetHistory {
+  readonly kind: "set_history";
+  readonly value: SetHistoryRecord;
+  readonly resolve: () => void;
+  readonly reject: (error: unknown) => void;
+}
+
+type PendingWrite =
+  PendingEvent | PendingSnapshot | PendingAgentHistory | PendingSetHistory;
 
 interface WorkerSuccess {
   readonly id: number;
@@ -303,6 +338,28 @@ export class LocalObservabilityJournal implements ObservabilitySink {
     return this.#enqueueWrite("snapshot", parsed);
   }
 
+  public appendAgentHistory(record: AgentHistoryRecord): Promise<void> {
+    if (this.#terminalFailure !== undefined)
+      return Promise.reject(this.#terminalFailure);
+    if (!this.#accepting || this.#closed)
+      return Promise.reject(new JournalClosedError());
+    const parsed = agentHistoryRecordSchema.parse(
+      sanitizeTelemetryAttributes(record),
+    );
+    return this.#enqueueWrite("agent_history", parsed);
+  }
+
+  public appendSetHistory(record: SetHistoryRecord): Promise<void> {
+    if (this.#terminalFailure !== undefined)
+      return Promise.reject(this.#terminalFailure);
+    if (!this.#accepting || this.#closed)
+      return Promise.reject(new JournalClosedError());
+    const parsed = setHistoryRecordSchema.parse(
+      sanitizeTelemetryAttributes(record),
+    );
+    return this.#enqueueWrite("set_history", parsed);
+  }
+
   public async read(query: TelemetryQuery = {}): Promise<TelemetryEventPage> {
     return this.readEvents(query);
   }
@@ -359,6 +416,85 @@ export class LocalObservabilityJournal implements ObservabilitySink {
     await this.#flushPending();
     return configurationSnapshotPageSchema.parse(
       await this.#call("readSnapshots", { query: parsed }),
+    );
+  }
+
+  public async readAgentHistory(
+    query: AgentHistoryQuery = {},
+  ): Promise<AgentHistoryPage> {
+    this.#assertOpen();
+    const parsed = agentHistoryQuerySchema.parse(query);
+    await this.#flushPending();
+    return agentHistoryPageSchema.parse(
+      await this.#call("readAgentHistory", { query: parsed }),
+    );
+  }
+
+  public async readSetHistory(
+    query: SetHistoryQuery = {},
+  ): Promise<SetHistoryPage> {
+    this.#assertOpen();
+    const parsed = setHistoryQuerySchema.parse(query);
+    await this.#flushPending();
+    return setHistoryPageSchema.parse(
+      await this.#call("readSetHistory", { query: parsed }),
+    );
+  }
+
+  public async queryPublicHistory(
+    sql: string,
+    parameters: readonly PublicHistorySqlValue[],
+    maxRows: number,
+  ): Promise<PublicHistoryQueryResult> {
+    this.#assertOpen();
+    if (
+      typeof sql !== "string" ||
+      sql.length === 0 ||
+      sql.length > MAX_PUBLIC_HISTORY_SQL_CHARACTERS
+    ) {
+      throw new JournalQueryError(
+        `Public history SQL must contain 1-${MAX_PUBLIC_HISTORY_SQL_CHARACTERS} characters`,
+      );
+    }
+    if (
+      !Array.isArray(parameters) ||
+      parameters.length > MAX_PUBLIC_HISTORY_PARAMETERS
+    ) {
+      throw new JournalQueryError(
+        `Public history SQL accepts at most ${MAX_PUBLIC_HISTORY_PARAMETERS} parameters`,
+      );
+    }
+    for (const value of parameters) {
+      if (
+        value !== null &&
+        typeof value !== "boolean" &&
+        !(typeof value === "number" && Number.isFinite(value)) &&
+        !(
+          typeof value === "string" &&
+          value.length <= MAX_PUBLIC_HISTORY_CELL_CHARACTERS
+        )
+      ) {
+        throw new JournalQueryError(
+          "Public history SQL parameters must be bounded scalar values",
+        );
+      }
+    }
+    if (
+      !Number.isSafeInteger(maxRows) ||
+      maxRows < 1 ||
+      maxRows > MAX_PUBLIC_HISTORY_ROWS
+    ) {
+      throw new JournalQueryError(
+        `Public history maxRows must be between 1 and ${MAX_PUBLIC_HISTORY_ROWS}`,
+      );
+    }
+    await this.#flushPending();
+    return publicHistoryQueryResultSchema.parse(
+      await this.#call("queryPublicHistory", {
+        sql,
+        parameters,
+        maxRows,
+      }),
     );
   }
 
@@ -486,7 +622,11 @@ export class LocalObservabilityJournal implements ObservabilitySink {
 
   #enqueueWrite(
     kind: PendingWrite["kind"],
-    value: TelemetryEventEnvelope | ConfigurationSnapshot,
+    value:
+      | TelemetryEventEnvelope
+      | ConfigurationSnapshot
+      | AgentHistoryRecord
+      | SetHistoryRecord,
   ): Promise<void> {
     if (this.#pending.length + this.#inFlightWrites >= this.#maxPendingWrites) {
       this.#rejectedWrites += 1;
@@ -509,10 +649,24 @@ export class LocalObservabilityJournal implements ObservabilitySink {
           resolve,
           reject,
         });
-      } else {
+      } else if (kind === "snapshot") {
         this.#pending.push({
           kind,
           value: value as ConfigurationSnapshot,
+          resolve,
+          reject,
+        });
+      } else if (kind === "agent_history") {
+        this.#pending.push({
+          kind,
+          value: value as AgentHistoryRecord,
+          resolve,
+          reject,
+        });
+      } else {
+        this.#pending.push({
+          kind,
+          value: value as SetHistoryRecord,
           resolve,
           reject,
         });
@@ -558,7 +712,13 @@ export class LocalObservabilityJournal implements ObservabilitySink {
               this.#rejectedWrites += 1;
               item.reject(
                 new JournalDuplicateError(
-                  item.kind === "event" ? "event" : "configuration snapshot",
+                  item.kind === "event"
+                    ? "event"
+                    : item.kind === "snapshot"
+                      ? "configuration snapshot"
+                      : item.kind === "agent_history"
+                        ? "agent history"
+                        : "set history",
                   item.value.id,
                 ),
               );
@@ -691,6 +851,8 @@ function workerError(error: WorkerFailure["error"]): Error {
       return new JournalConflictError(error.message);
     case "invalid_cursor":
       return new JournalCursorError(error.message);
+    case "invalid_query":
+      return new JournalQueryError(error.message);
     case "schema_version":
       return new JournalSchemaVersionError(error.message);
     default:

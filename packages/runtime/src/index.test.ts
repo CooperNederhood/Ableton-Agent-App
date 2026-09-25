@@ -10,10 +10,13 @@ import {
   type CopilotAgentServiceOptions,
 } from "@ableton-agent/application";
 import {
+  agentHistoryRecordSchema,
   configurationSnapshotSchema,
   LocalObservabilityJournal,
   REDACTED_VALUE,
+  sanitizeTelemetryAttributes,
   telemetryEventEnvelopeSchema,
+  type AgentHistoryRecord,
   type ConfigurationSnapshot,
   type TelemetryEventEnvelope,
 } from "@ableton-agent/observability";
@@ -168,6 +171,7 @@ describe("agent runtime composition", () => {
   it("maps exact agent runtime events to sanitized observability records", async () => {
     const telemetry: TelemetryEventEnvelope[] = [];
     const snapshots: ConfigurationSnapshot[] = [];
+    const agentHistory: AgentHistoryRecord[] = [];
     const runtime = createAgentRuntime({
       ableton: { port: 8765 },
       agent: {
@@ -183,6 +187,15 @@ describe("agent runtime composition", () => {
         },
         enqueueConfigurationSnapshot: (snapshot) => {
           snapshots.push(snapshot);
+        },
+      },
+      currentAppSessionId: () => "app-session",
+      agentHistory: {
+        appendAgentHistory: (record) => {
+          agentHistory.push(
+            agentHistoryRecordSchema.parse(sanitizeTelemetryAttributes(record)),
+          );
+          return Promise.resolve();
         },
       },
     });
@@ -204,10 +217,26 @@ describe("agent runtime composition", () => {
       configurationSnapshotSchema.parse(snapshot),
     );
     const serializedTelemetry = JSON.stringify(telemetry);
-    expect(serializedTelemetry).toContain("Preserve this exact user request.");
-    expect(serializedTelemetry).toContain('"response":"done"');
-    expect(serializedTelemetry).toContain(REDACTED_VALUE);
+    expect(serializedTelemetry).not.toContain(
+      "Preserve this exact user request.",
+    );
+    expect(serializedTelemetry).not.toContain('"response":"done"');
     expect(serializedTelemetry).not.toContain(credential);
+    const serializedAgentHistory = JSON.stringify(agentHistory);
+    expect(serializedAgentHistory).toContain(
+      "Preserve this exact user request.",
+    );
+    expect(serializedAgentHistory).toContain('"content":"done"');
+    expect(serializedAgentHistory).toContain(REDACTED_VALUE);
+    expect(serializedAgentHistory).not.toContain(credential);
+    expect(agentHistory).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "agent_session" }),
+        expect.objectContaining({ kind: "turn", status: "completed" }),
+        expect.objectContaining({ kind: "message", role: "user" }),
+        expect.objectContaining({ kind: "message", role: "assistant" }),
+      ]),
+    );
     expect(snapshots).toHaveLength(1);
     expect(snapshots[0]?.component).toBe("agent-runtime");
     expect(snapshots[0]?.configurationVersion).toBe("runtime-observer-v1");

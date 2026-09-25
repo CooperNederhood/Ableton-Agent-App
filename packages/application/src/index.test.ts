@@ -1312,12 +1312,13 @@ describe("CopilotAgentService", () => {
       "custom:ableton_browser_search_external_plugins",
       "custom:ableton_browser_load_item",
       "custom:ableton_arrangement_fill_region",
+      "custom:set_sql_search",
       "custom:read_plan",
       "custom:write_plan",
       "builtin:ask_user",
       "builtin:exit_plan_mode",
     ]);
-    expect(config?.tools).toHaveLength(41);
+    expect(config?.tools).toHaveLength(42);
     expect(config?.customAgents).toEqual([
       {
         name: "default-agent",
@@ -1325,7 +1326,7 @@ describe("CopilotAgentService", () => {
         description:
           "Primary Ableton Live production assistant for the current session.",
         prompt:
-          "Act as the general-purpose Ableton production agent for the current Live Set. Inspect when needed, then directly perform the user's requested supported edits with the available tools. Mutations are restricted by tool approval, edit scope, connection, and automatic-analysis policies. Follow the session system message and clearly report observed state, applied changes, and real limitations.",
+          "Act as the general-purpose Ableton production agent for the current Live Set. Inspect when needed, then directly perform the user's requested supported edits with the available tools. Mutations are restricted by tool approval, edit scope, connection, and automatic-analysis policies. Follow the session system message and clearly report observed state, applied changes, and real limitations.\n\nFor questions about prior Live Sets, saves, devices, clips, or agent trajectories, use set_sql_search against the local read-only Set History views. Treat it as historical evidence and inspect the current Live Set before acting.",
         infer: false,
       },
     ]);

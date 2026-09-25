@@ -21,10 +21,12 @@ describe("generated protocol contracts", () => {
       ),
     ) as {
       protocolVersion: number;
+      envelopes: Record<string, unknown>;
       commands: Record<string, unknown>;
     };
 
     expect(document.protocolVersion).toBe(PROTOCOL_VERSION);
+    expect(document.envelopes).toHaveProperty("liveSetSaveObserved");
     expect(Object.keys(document.commands).sort()).toEqual(
       Object.keys(commandCatalog).sort(),
     );
@@ -41,7 +43,7 @@ describe("generated protocol contracts", () => {
     expect(fixture.producer).toBe("typescript");
     expect(
       fixture.messages.map((message) => messageEnvelopeSchema.parse(message)),
-    ).toHaveLength(7);
+    ).toHaveLength(8);
     const errors = fixture.errors.map((message) =>
       failureResponseEnvelopeSchema.parse(message),
     );

@@ -394,10 +394,16 @@ preserved. Credentials and tokens embedded in any string are redacted, while
 binary/audio bodies are replaced with visible omission markers. Sanitization
 occurs at the producer boundary and again in the journal writer.
 
-The journal is stored only at
-`~/.live-agent/profiles/{profile}/observability/event-history.sqlite` (or the
-explicit `LIVE_AGENT_HOME` override). It has no uploader or network transport
-and is excluded from anonymous telemetry.
+The unified history database is stored only at
+`~/.live-agent/profiles/{profile}/observability/agent-set-event-history.sqlite`
+(or the explicit `LIVE_AGENT_HOME` override). App events and configuration
+snapshots, agent sessions/turns/messages/tool calls/results/approvals, and Live
+Set saves/snapshots/trajectory records use physically separate tables. Stable,
+granular `agent_history_*` and `set_history_*` views back typed repository
+reads and a worker-owned, parameterized, read-only SQL boundary. That boundary
+allowlists only public views and returns bounded scalar rows; physical tables,
+SQLite metadata, mutations, and multi-statement SQL are rejected. The database
+has no uploader or network transport and is excluded from anonymous telemetry.
 Capture defaults on, remains on across upgrades, and has explicit pause, clear,
 and per-session deletion controls. The default rolling retention is 30 days
 with a 250 MiB hard cap per application profile; age pruning runs first and

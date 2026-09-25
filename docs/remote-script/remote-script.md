@@ -129,6 +129,22 @@ the dynamic command share the same helper so Save As and reconnect behavior
 cannot use different identity rules. Entity stale guards use `liveSetId`; Live
 Project identity never participates in object-reference validation.
 
+## Save observation
+
+The script polls only `Song.file_path` filesystem metadata and never opens,
+reads, hashes, or transmits the `.als` path or contents. Existing saved Sets
+establish a baseline on startup/reconnect. A changed `(mtime_ns, size)` tuple
+must remain stable across two scheduled samples before the script publishes
+`live_set.save_observed`; temporary file absence and intermediate replacement
+metadata are ignored.
+
+The nanosecond modification time crosses the protocol as a decimal string to
+avoid JavaScript precision loss. File size is limited to JavaScript's maximum
+safe integer. The first save of an unsaved Set and Save As are observed after
+stabilization. Replacing the Song object establishes a fresh baseline so
+switching Sets cannot be mistaken for a save. Script shutdown cancels future
+sampling.
+
 ## Events
 
 The script has two listener layers:

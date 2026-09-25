@@ -103,7 +103,7 @@ describe("live agent storage", () => {
         "profiles",
         "default",
         "observability",
-        "event-history.sqlite",
+        "agent-set-event-history.sqlite",
       ),
     );
     expect(development.profileRoot).not.toBe(production.profileRoot);

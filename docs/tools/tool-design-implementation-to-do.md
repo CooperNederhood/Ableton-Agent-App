@@ -20,6 +20,8 @@ Companion specification: [Tool Design](tool-design.md)
 
 ## Inspection tools
 
+- [x] Add bounded read-only `set_sql_search` over allowlisted Set History
+  public views through an injected query service.
 - [~] Implement project overview and capability tools.
 - [x] Implement track, clip, arrangement, and transport inspection.
 - [~] Implement device/parameter, rack, Drum Rack, and browser inspection.

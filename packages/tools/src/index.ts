@@ -80,6 +80,21 @@ import {
 } from "@github/copilot-sdk";
 import { z } from "zod";
 import type { MutationTarget } from "./mutation-policy.js";
+import {
+  SET_SQL_DEFAULT_MAX_ROWS,
+  SET_SQL_MAX_CELL_CHARACTERS,
+  SET_SQL_MAX_PARAMETER_NAME_LENGTH,
+  SET_SQL_MAX_PARAMETERS,
+  SET_SQL_MAX_ROWS,
+  SET_SQL_SEARCH_TOOL_NAME,
+  bindSetSqlParameters,
+  boundSetSqlSearchResult,
+  validateSetSqlSearch,
+  type SetHistoryQueryService,
+  type SetSqlParameters,
+} from "./set-sql-search.js";
+
+export * from "./set-sql-search.js";
 
 export type ToolRisk = "read" | "reversible" | "destructive" | "broad";
 export type ToolDuration = "instant" | "short" | "long";
@@ -94,6 +109,7 @@ export interface AbletonToolMetadata {
 }
 
 export interface AbletonToolServices {
+  setHistoryQuery?: SetHistoryQueryService;
   getConnectionStatus(): Promise<ConnectionStatus>;
   inspectSession(): Promise<SessionSnapshot>;
   setTempo(tempo: number): Promise<SetTempoResult>;
@@ -496,6 +512,13 @@ export const abletonToolMetadata = [
     mutationTarget: "track",
     requiredCapability: "arrangement.fill_region",
   },
+  {
+    name: SET_SQL_SEARCH_TOOL_NAME,
+    title: "Search Set and Agent History with SQL",
+    risk: "read",
+    duration: "short",
+    mutationTarget: "read",
+  },
 ] as const satisfies readonly AbletonToolMetadata[];
 
 export interface ToolApprovalRequest {
@@ -607,6 +630,11 @@ export interface AbletonToolSet {
     Tool<ExternalPluginSearchParams>,
     Tool<LoadBrowserItemParams>,
     Tool<FillArrangementRegionParams>,
+    Tool<{
+      sql: string;
+      parameters?: SetSqlParameters | undefined;
+      limit: number;
+    }>,
   ];
   availableTools: string[];
 }
@@ -859,6 +887,81 @@ export function createAbletonTools(
       "Ableton tool catalog exceeds the eager-registration limit; split it into deferred groups",
     );
   }
+  const setSqlSearchTool = defineTool(SET_SQL_SEARCH_TOOL_NAME, {
+    description: `Runs one bounded read-only SELECT or non-recursive CTE against these allowlisted public views.
+
+Set schema: set_history_saves(save_id, saved_at, app_session_id, live_set_id, live_project_id, outcome, trigger); set_history_snapshots(snapshot_id, captured_at, app_session_id, live_set_id, live_project_id, tempo, track_count, scene_count, session_clip_count, arrangement_clip_count, device_count, cue_point_count); set_history_tracks(snapshot_id, captured_at, live_set_id, track_id, track_index, name, kind, volume, pan, muted, soloed, armed, group_track_id); set_history_devices(snapshot_id, captured_at, live_set_id, device_id, track_id, track_index, device_index, name, class_name, enabled, parameter_count); set_history_session_clips(snapshot_id, captured_at, live_set_id, clip_id, track_id, track_index, scene_id, scene_index, name, kind, length_beats, note_count); set_history_arrangement_clips(snapshot_id, captured_at, live_set_id, clip_id, track_id, track_index, name, kind, start_time, end_time, length_beats, note_count); set_history_scenes(snapshot_id, captured_at, live_set_id, scene_id, scene_index, name); set_history_cue_points(snapshot_id, captured_at, live_set_id, cue_point_id, name, time); set_history_trajectories(trajectory_id, occurred_at, app_session_id, agent_session_id, turn_id, tool_call_id, active_agent_id, live_set_id, live_project_id, trajectory_type, summary); set_history_agent_links(trajectory_id, occurred_at, app_session_id, live_set_id, agent_session_id, turn_id, tool_call_id, active_agent_id).
+
+Agent schema: agent_history_sessions(record_id, occurred_at, app_session_id, agent_session_id, sdk_session_id, active_agent_id, live_set_id, live_project_id, status); agent_history_turns(record_id, occurred_at, app_session_id, agent_session_id, turn_id, active_agent_id, live_set_id, status, completed_at, prompt, duration_ms); agent_history_messages(record_id, occurred_at, app_session_id, agent_session_id, turn_id, active_agent_id, live_set_id, role, content, message_index); agent_history_tool_calls(record_id, occurred_at, agent_session_id, turn_id, tool_call_id, live_set_id, status, tool_name, arguments_json); agent_history_tool_results(record_id, occurred_at, agent_session_id, turn_id, tool_call_id, live_set_id, outcome, duration_ms, result_json, error); agent_history_approvals(record_id, occurred_at, agent_session_id, turn_id, tool_call_id, live_set_id, status, resolved_at, summary).
+
+Join musical entities to snapshots with snapshot_id. Join trajectories to agent history with agent_session_id, turn_id, or tool_call_id; app_session_id and live_set_id provide broader ownership. First discover recent snapshot/trajectory IDs, then request bounded detail. Example: SELECT snapshot_id, captured_at, track_count FROM set_history_snapshots WHERE live_set_id = :liveSetId ORDER BY captured_at DESC LIMIT 10. Example detail: SELECT role, occurred_at, content FROM agent_history_messages WHERE turn_id = :turnId ORDER BY occurred_at, message_index LIMIT 20.
+
+Select only needed columns; filter narrowly by Live Set, time range, and IDs using named scalar parameters; use a modest LIMIT; query summaries and IDs before details; avoid SELECT *, broad joins, broad scans, and recursive CTEs. If truncated, narrow the query instead of increasing scope. The set-history-sql-search skill provides deeper comparison and interpretation patterns but is not required for basic queries.`,
+    parameters: z
+      .object({
+        sql: z
+          .string()
+          .trim()
+          .min(1)
+          .max(20_000)
+          .describe("One SELECT or WITH query over public Set History views"),
+        parameters: z
+          .record(
+            z
+              .string()
+              .max(SET_SQL_MAX_PARAMETER_NAME_LENGTH)
+              .regex(/^[a-z_][a-z0-9_]*$/iu),
+            z.union([
+              z.string().max(SET_SQL_MAX_CELL_CHARACTERS),
+              z.number().finite(),
+              z.boolean(),
+              z.null(),
+            ]),
+          )
+          .refine(
+            (value) => Object.keys(value).length <= SET_SQL_MAX_PARAMETERS,
+            `At most ${SET_SQL_MAX_PARAMETERS} named parameters are allowed`,
+          )
+          .optional()
+          .describe(
+            "Named scalar bindings referenced as :name, @name, or $name in SQL",
+          ),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(SET_SQL_MAX_ROWS)
+          .default(SET_SQL_DEFAULT_MAX_ROWS)
+          .describe("Maximum result rows returned"),
+      })
+      .strict(),
+    handler: async ({ sql, parameters, limit }, invocation) => {
+      if (services.setHistoryQuery === undefined) {
+        throw new AbletonToolPreconditionError(
+          "set_history_unavailable",
+          "Set History search is not configured",
+        );
+      }
+      const signal = (invocation as { signal?: AbortSignal }).signal;
+      if (signal?.aborted === true) {
+        throw new AbletonToolPreconditionError(
+          "cancelled",
+          "Set History search was cancelled",
+        );
+      }
+      const boundQuery = bindSetSqlParameters(
+        validateSetSqlSearch(sql),
+        parameters,
+      );
+      const result = await services.setHistoryQuery.query({
+        sql: boundQuery.sql,
+        parameters: boundQuery.parameters,
+        maxRows: limit,
+        ...(signal === undefined ? {} : { signal }),
+      });
+      return boundSetSqlSearchResult(result, limit);
+    },
+  });
   const connectionStatusTool = defineTool("ableton_connection_status", {
     description:
       "Returns the current connection status for the Ableton Live Remote Script bridge.",
@@ -1624,6 +1727,7 @@ export function createAbletonTools(
       requireConnectedTool(searchExternalPluginsTool, services),
       requireConnectedTool(loadBrowserItemTool, services),
       requireConnectedTool(fillArrangementRegionTool, services),
+      withStructuredFailures(setSqlSearchTool),
     ],
     availableTools: abletonToolMetadata.map(
       (metadata) => `custom:${metadata.name}`,

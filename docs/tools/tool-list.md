@@ -34,6 +34,29 @@ if the target changed.
 | `ableton_connection_status` | Return the current Remote Script bridge connection status. | `read` | `read` | `instant` | None |
 | `ableton_session_inspect` | Inspect transport, tempo, time signature, project identity, tracks, scenes, clips, and capabilities. | `read` | `read` | `short` | None |
 
+## Set History
+
+| Tool | Purpose | Risk | Scope | Duration | Key inputs |
+| --- | --- | --- | --- | --- | --- |
+| `set_sql_search` | Run one bounded parameterized read-only SQL query over the documented agent and Set History public views. | `read` | `read` | `short` | `sql`, optional named scalar `parameters`, optional `limit` (1–200) |
+
+The allowlisted views are `agent_history_sessions`, `agent_history_turns`,
+`agent_history_messages`, `agent_history_tool_calls`,
+`agent_history_tool_results`, `agent_history_approvals`, `set_history_saves`,
+`set_history_snapshots`, `set_history_tracks`, `set_history_devices`,
+`set_history_session_clips`, `set_history_arrangement_clips`,
+`set_history_scenes`, `set_history_cue_points`, `set_history_trajectories`,
+and `set_history_agent_links`. Results include `schemaVersion` and `elapsedMs`.
+The backing service, not the agent, owns read-only database access and
+cancellation.
+
+Every agent receives a compact schema directly in the tool description,
+including the important columns for each view, the `snapshot_id`,
+`agent_session_id`, `turn_id`, and `tool_call_id` join paths, and bounded
+discovery/detail examples. The bundled Set History skill adds deeper comparison
+and interpretation patterns, but basic SQL queries do not depend on loading the
+skill.
+
 ## Transport, Arrangement loop, and cue points
 
 | Tool | Purpose | Risk | Scope | Duration | Key inputs |

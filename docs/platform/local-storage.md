@@ -68,8 +68,8 @@ never sufficient and no flat session-state compatibility path is exposed.
     │   ├── copilot/
     │   │   └── {Copilot SDK-owned data}
     │   ├── observability/
-    │   │   ├── event-history.sqlite
-    │   │   └── event-history.sqlite.lock
+    │   │   ├── agent-set-event-history.sqlite
+    │   │   └── agent-set-event-history.sqlite.lock
     │   ├── logs/
     │   │   └── desktop.log
     │   ├── agents/
@@ -130,7 +130,7 @@ up or recovered atomically.
 | `state/` | Desktop production-session stores | Validated app-session records, Live Set associations, and the bounded, revision-checked Live Projects registry. |
 | `credentials/` | Main process secure store | Ciphertext encrypted through OS-backed facilities. Credentials never enter renderer state, logs, journal payloads, or support bundles. |
 | `copilot/` | Copilot SDK adapter | SDK conversation/session data. Application code must not invent a parallel transcript store. |
-| `observability/` | Local observability journal | One profile-wide SQLite journal for cross-session queries, traces, retention, and health. Do not create one journal per production session. |
+| `observability/` | Unified local history database | One profile-wide SQLite database for App events, agent history, Live Set history, cross-session queries, traces, retention, and health. Do not create one database per App session. |
 | `logs/` | Structured diagnostic logger | Bounded, redacted newline-delimited JSON logs. |
 | `memory/` | Reserved ownership scope | Reserved at profile, project, Live Set, and app-session scopes. No memory persistence behavior is defined yet. |
 | `project-state/{project-id}/` | Live Project ownership | Project metadata, reserved memory, and child Live Sets. Project association must be explicit; storage never infers it. |
@@ -180,6 +180,15 @@ alone remains Copilot SDK-owned and does not promote the Desktop session.
   raw SQLite access, or a generic storage IPC channel.
 - Keep one writer lock per profile-wide journal. A second writer degrades with
   an actionable diagnostic instead of forking or corrupting history.
+- Keep App events and configuration snapshots physically separate from agent
+  sessions/turns/messages/tool calls/results/approvals and Live Set
+  saves/snapshots/trajectory records. The worker exposes only bounded,
+  parameterized, read-only queries over the stable `agent_history_*` and
+  `set_history_*` public views; physical tables and SQLite metadata are not
+  queryable through that API.
+- The v1 age and size retention policy prunes App events and App configuration
+  snapshots only. Agent and Live Set history remains until an explicit clear or
+  a future independently versioned retention policy is introduced.
 - Publish files atomically and preserve the prior valid state when validation,
   migration, or publication fails.
 - Plan artifact updates require the current SHA-256 revision once the file
@@ -201,6 +210,12 @@ Legacy Electron application-data/log locations and
 5. Harden permissions and reject symbolic links.
 6. Atomically publish the complete profile.
 7. Write the migration marker and retain legacy sources for rollback.
+
+The former `event-history.sqlite` is intentionally not copied or renamed into
+`agent-set-event-history.sqlite`. The unified history database starts fresh so
+its distinct App, agent, and Live Set ownership contracts are never inferred
+from the legacy event-only file. The old file remains in place for rollback or
+manual diagnostics.
 
 A destination conflict or corrupt source fails without overwriting either side.
 Migration emits application-owned queued, started, progress, completed, failed,

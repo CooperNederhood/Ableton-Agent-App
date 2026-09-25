@@ -32,6 +32,8 @@ import {
   subscribeEventParamsSchema,
   subscribeEventResultSchema,
   liveEventEnvelopeSchema,
+  liveSetSaveObservedEnvelopeSchema,
+  liveSetSaveObservedPayloadSchema,
 } from "./schemas.js";
 
 const identity = {
@@ -225,6 +227,46 @@ describe("Live event protocol schemas", () => {
         },
       }).event,
     ).toBe("live_event.invalidated");
+  });
+
+  it("validates metadata-only Live Set save observations", () => {
+    expect(
+      liveSetSaveObservedEnvelopeSchema.parse({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "event",
+        event: "live_set.save_observed",
+        sequence: 10,
+        payload: {
+          liveSetId: "set-1",
+          observedAt: "2026-09-20T20:00:00.000Z",
+          fileModifiedTimeNs: "1700000000000000000",
+          fileSizeBytes: 4096,
+        },
+        projectRevision: 4,
+      }).payload,
+    ).toEqual({
+      liveSetId: "set-1",
+      observedAt: "2026-09-20T20:00:00.000Z",
+      fileModifiedTimeNs: "1700000000000000000",
+      fileSizeBytes: 4096,
+    });
+    expect(() =>
+      liveSetSaveObservedPayloadSchema.parse({
+        liveSetId: "set-1",
+        observedAt: "2026-09-20T20:00:00.000Z",
+        fileModifiedTimeNs: 1_700_000_000_000_000_000,
+        fileSizeBytes: 4096,
+        filePath: "/private/set.als",
+      }),
+    ).toThrow();
+    expect(() =>
+      liveSetSaveObservedPayloadSchema.parse({
+        liveSetId: "set-1",
+        observedAt: "2026-09-20T20:00:00.000Z",
+        fileModifiedTimeNs: "1",
+        fileSizeBytes: Number.MAX_SAFE_INTEGER + 1,
+      }),
+    ).toThrow();
   });
 });
 

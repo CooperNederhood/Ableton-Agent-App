@@ -4,6 +4,8 @@ Companion specification: [Agent Skills](agent-skills.md)
 
 ## Resources and loading
 
+- [x] Bundle Set History SQL query guidance for the read-only
+  `set_sql_search` tool.
 - [x] Add root canonical skill directories and `SKILL.md` files.
 - [x] Validate bounded YAML frontmatter and duplicate skill names.
 - [x] Resolve development and packaged skill roots.

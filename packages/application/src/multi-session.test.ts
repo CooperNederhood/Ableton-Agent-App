@@ -2251,6 +2251,7 @@ describe("CopilotAgentService managed sessions", () => {
     expect(latestResumeConfig?.availableTools).toEqual([
       "custom:ableton_session_inspect",
       "custom:ableton_tracks_create",
+      "custom:set_sql_search",
       "custom:read_plan",
       "custom:write_plan",
       "custom:skill",
@@ -2262,7 +2263,8 @@ describe("CopilotAgentService managed sessions", () => {
         name: "managed-updated",
         displayName: "Updated Managed Agent",
         description: "Updated managed session",
-        prompt: "Updated managed prompt",
+        prompt:
+          "Updated managed prompt\n\nFor questions about prior Live Sets, saves, devices, clips, or agent trajectories, use set_sql_search against the local read-only Set History views. Treat it as historical evidence and inspect the current Live Set before acting.",
         infer: false,
       },
     ]);
@@ -2569,6 +2571,7 @@ it("always exposes bounded planning controls across empty and deduplicated agent
   );
 
   expect(configs[1]?.availableTools).toEqual([
+    "custom:set_sql_search",
     "custom:read_plan",
     "custom:write_plan",
     "builtin:ask_user",
@@ -2577,6 +2580,7 @@ it("always exposes bounded planning controls across empty and deduplicated agent
   expect(configs[1]?.customAgents?.[0]).not.toHaveProperty("tools");
   expect(configs[2]?.availableTools).toEqual([
     "custom:ableton_session_inspect",
+    "custom:set_sql_search",
     "custom:read_plan",
     "custom:write_plan",
     "builtin:ask_user",

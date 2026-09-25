@@ -50,7 +50,8 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 
 ## Tests
 
-- [x] Build installers in CI for macOS and Windows.
+- [x] Build macOS installers in CI.
+- [ ] Restore Windows installer CI before Windows release support.
 - [ ] Test clean install, upgrade, repair, and uninstall in fresh environments.
 - [x] Test Remote Script detection and all install-path variants.
 - [x] Test clean-install credential auto-provisioning, precedence, invalid

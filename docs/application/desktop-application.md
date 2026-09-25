@@ -203,7 +203,7 @@ and development builds use `development`; `LIVE_AGENT_HOME` and
 `LIVE_AGENT_PROFILE` provide explicit overrides. The profile contains
 preferences, App-session JSON, saved Live Set associations, OS-encrypted
 credential blobs, Copilot SDK conversation data, structured logs, and
-`observability/event-history.sqlite`. See
+`observability/agent-set-event-history.sqlite`. See
 [Local Storage Layout](../platform/local-storage.md) for the canonical tree,
 ownership boundaries, exceptions, and migration contract.
 

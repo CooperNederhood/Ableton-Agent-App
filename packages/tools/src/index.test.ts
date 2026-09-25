@@ -1074,6 +1074,18 @@ describe("Ableton tools", () => {
     expect(setSqlSearch?.description).toContain("Select only needed columns");
     expect(setSqlSearch?.description).toContain("named scalar parameters");
     expect(setSqlSearch?.description).toContain("If truncated, narrow");
+    expect(setSqlSearch?.description).toContain(
+      "set_history_snapshots(snapshot_id",
+    );
+    expect(setSqlSearch?.description).toContain(
+      "agent_history_messages(record_id",
+    );
+    expect(setSqlSearch?.description).toContain(
+      "Join musical entities to snapshots with snapshot_id",
+    );
+    expect(setSqlSearch?.description).toContain(
+      "not required for basic queries",
+    );
     expect(abletonToolMetadata.map((metadata) => metadata.risk)).toEqual([
       "read",
       "read",

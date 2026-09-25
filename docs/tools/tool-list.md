@@ -50,6 +50,13 @@ and `set_history_agent_links`. Results include `schemaVersion` and `elapsedMs`.
 The backing service, not the agent, owns read-only database access and
 cancellation.
 
+Every agent receives a compact schema directly in the tool description,
+including the important columns for each view, the `snapshot_id`,
+`agent_session_id`, `turn_id`, and `tool_call_id` join paths, and bounded
+discovery/detail examples. The bundled Set History skill adds deeper comparison
+and interpretation patterns, but basic SQL queries do not depend on loading the
+skill.
+
 ## Transport, Arrangement loop, and cue points
 
 | Tool | Purpose | Risk | Scope | Duration | Key inputs |

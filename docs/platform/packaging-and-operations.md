@@ -203,9 +203,11 @@ Initial supported matrix:
 | macOS 13, 14, 15 | Intel, Apple Silicon | 11.3.42 |
 | Windows 10 22H2, Windows 11 | x64 | 11.3.42 |
 
-Installer production is exercised on macOS 14 and Windows Server 2022 CI
-runners. Real Live smoke testing on every supported OS/Live combination remains
-a release requirement.
+Installer production is currently exercised on macOS 14 CI only while the
+application is in macOS-first development. Windows packaging and smoke jobs
+must be restored before Windows support is claimed for a release. Real Live
+smoke testing on every supported OS/Live combination remains a release
+requirement.
 
 Capability detection handles feature variance, but a supported matrix is still
 required.

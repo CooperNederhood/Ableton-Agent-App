@@ -207,7 +207,9 @@ Every pull request should run:
 - Protocol contract tests.
 - Simulated bridge integration tests.
 - CLI integration and transcript tests.
-- Electron smoke tests on macOS and Windows where practical.
+- Electron smoke tests on macOS. Windows CI is deferred during macOS-first
+  development and must be restored before Windows support is claimed for a
+  release.
 - Package/build validation.
 - Packaged agents and skills resource validation.
 - Journal schema/migration, redaction, trace continuity, retention/cap, query,

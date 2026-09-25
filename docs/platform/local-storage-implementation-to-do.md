@@ -26,6 +26,8 @@ Companion specification: [Local Storage Layout](local-storage.md)
   granular `agent_history_*` and `set_history_*` public views while rejecting
   physical tables, SQLite metadata, mutation statements, and multiple
   statements.
+- [x] Index Live Set/Project ownership filters and agent-session, turn, and
+  tool-call trajectory joins used by public history queries.
 - [x] Keep v1 automatic age/size retention scoped to App events and
   configuration snapshots; retain agent and Live Set history until explicit
   clear.

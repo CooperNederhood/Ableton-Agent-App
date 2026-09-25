@@ -672,6 +672,36 @@ export const observabilityMigrations: readonly ObservabilityMigration[] = [
         FROM agent_approvals`,
     ],
   },
+  {
+    version: 5,
+    description: "Index public history ownership and trajectory joins",
+    statements: [
+      `CREATE INDEX agent_sessions_live_set
+        ON agent_sessions (live_set_id, occurred_at)`,
+      `CREATE INDEX agent_turns_live_set
+        ON agent_turns (live_set_id, occurred_at)`,
+      `CREATE INDEX agent_messages_live_set
+        ON agent_messages (live_set_id, occurred_at)`,
+      `CREATE INDEX agent_tool_calls_live_set
+        ON agent_tool_calls (live_set_id, occurred_at)`,
+      `CREATE INDEX agent_tool_results_live_set
+        ON agent_tool_results (live_set_id, occurred_at)`,
+      `CREATE INDEX agent_approvals_live_set
+        ON agent_approvals (live_set_id, occurred_at)`,
+      `CREATE INDEX set_saves_project
+        ON set_saves (live_project_id, occurred_at)`,
+      `CREATE INDEX set_snapshots_project
+        ON set_snapshots (live_project_id, occurred_at)`,
+      `CREATE INDEX set_trajectory_project
+        ON set_trajectory_records (live_project_id, occurred_at)`,
+      `CREATE INDEX set_trajectory_agent_session
+        ON set_trajectory_records (agent_session_id, occurred_at)`,
+      `CREATE INDEX set_trajectory_turn
+        ON set_trajectory_records (turn_id, occurred_at)`,
+      `CREATE INDEX set_trajectory_tool_call
+        ON set_trajectory_records (tool_call_id, occurred_at)`,
+    ],
+  },
 ];
 
 export const observabilitySchemaVersion = observabilityMigrations.reduce(

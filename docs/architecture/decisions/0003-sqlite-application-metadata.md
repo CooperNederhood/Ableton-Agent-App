@@ -52,5 +52,10 @@ packaging matrix without weakening reproducibility.
   implementations must demonstrate these semantics and must not make the
   in-memory image or atomic publication strategy block SDK, bridge, Live Event,
   or renderer critical paths at the cap.
+- Agent and Set history indexes cover Live Set/Project filtering and the
+  `agent_session_id`, `turn_id`, and `tool_call_id` trajectory join paths used
+  by public queries. Full-text indexing is deferred until dogfooding shows that
+  bounded transcript or musical-name search is common enough to justify a
+  synchronized search projection.
 - The journal remains local-only and default-on. Anonymous product telemetry
   consent and transport are separate concerns.

@@ -518,13 +518,17 @@ describe("local observability journal", () => {
          'agent_turns', 'agent_messages', 'agent_tool_calls',
          'agent_tool_results', 'agent_approvals', 'set_saves',
          'set_snapshots', 'set_trajectory_records', 'agent_history',
-         'set_history', 'telemetry_events', 'configuration_snapshots'
+         'set_history', 'telemetry_events', 'configuration_snapshots',
+         'agent_messages_live_set', 'set_snapshots_project',
+         'set_trajectory_agent_session', 'set_trajectory_turn',
+         'set_trajectory_tool_call'
        ) ORDER BY name`,
     )[0]?.values;
     expect(objects).toEqual([
       ["table", "agent_approvals"],
       ["view", "agent_history"],
       ["table", "agent_messages"],
+      ["index", "agent_messages_live_set"],
       ["table", "agent_sessions"],
       ["table", "agent_tool_calls"],
       ["table", "agent_tool_results"],
@@ -534,7 +538,11 @@ describe("local observability journal", () => {
       ["view", "set_history"],
       ["table", "set_saves"],
       ["table", "set_snapshots"],
+      ["index", "set_snapshots_project"],
+      ["index", "set_trajectory_agent_session"],
       ["table", "set_trajectory_records"],
+      ["index", "set_trajectory_tool_call"],
+      ["index", "set_trajectory_turn"],
     ]);
     const persisted = String(
       database.exec(

@@ -26,6 +26,7 @@ import {
   type NonBlockingObservabilityRecorder,
   type SanitizedAttributes,
 } from "@ableton-agent/observability";
+import type { LiveIdentity } from "@ableton-agent/protocol";
 import {
   recordSignalTelemetry,
   stableTelemetryId,
@@ -747,6 +748,20 @@ function isCurrentLiveSetProvider(
   );
 }
 
+function isCurrentLiveIdentityProvider(
+  value: AbletonService,
+): value is AbletonService & {
+  getCurrentLiveIdentity(): LiveIdentity | undefined;
+} {
+  return (
+    typeof (
+      value as Partial<{
+        getCurrentLiveIdentity(): LiveIdentity | undefined;
+      }>
+    ).getCurrentLiveIdentity === "function"
+  );
+}
+
 function isLiveSetSaveBridge(
   value: AbletonService,
 ): value is AbletonService & LiveSetSaveBridge {
@@ -915,6 +930,24 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     ? { ableton: options.abletonService, configured: true }
     : createAbletonService(options.ableton, events, logger, options.telemetry);
   const agentSettings = options.agent ?? {};
+  const currentIdentityContext = () => {
+    const bridgeIdentity = isCurrentLiveIdentityProvider(ableton)
+      ? ableton.getCurrentLiveIdentity()
+      : undefined;
+    const liveSetId =
+      bridgeIdentity?.liveSetId ??
+      options.currentLiveSetId?.() ??
+      (isCurrentLiveSetProvider(ableton)
+        ? ableton.getCurrentLiveSetId()
+        : undefined);
+    if (liveSetId === undefined) return undefined;
+    const liveProjectId =
+      bridgeIdentity?.liveProjectId ?? options.currentLiveProjectId?.();
+    return {
+      liveSetId,
+      ...(liveProjectId === undefined ? {} : { liveProjectId }),
+    };
+  };
   const runtimeObserver = createRuntimeObserver(
     options.telemetry,
     options.agentHistory,
@@ -1004,6 +1037,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     getAbletonStatus: () => ableton.getStatus(),
     inspectSession: () => ableton.inspectSession(),
     preparedContextProvider: preparedContext,
+    currentIdentityContext,
     setTempo: (tempo) => ableton.setTempo(tempo),
     setPlaying: (isPlaying) => ableton.setPlaying(isPlaying),
     inspectArrangementTransport: (params) =>

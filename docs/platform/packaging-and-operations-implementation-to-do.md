@@ -5,6 +5,8 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 ## Desktop distribution
 
 - [x] Configure reproducible development and production builds.
+- [x] Bundle architecture-matched Copilot SDK and Koffi native runtimes in
+  Intel and Apple Silicon macOS artifacts.
 - [x] Configure branded macOS, Windows, and runtime application icons.
 - [ ] Configure macOS and Windows signing/notarization.
 - [x] Build installers with explicit Remote Script setup.
@@ -51,6 +53,7 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 ## Tests
 
 - [x] Build macOS installers in CI.
+- [x] Smoke-test the generated macOS application in packaged production mode.
 - [ ] Restore Windows installer CI before Windows release support.
 - [ ] Test clean install, upgrade, repair, and uninstall in fresh environments.
 - [x] Test Remote Script detection and all install-path variants.

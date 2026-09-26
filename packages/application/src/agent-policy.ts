@@ -30,6 +30,40 @@ const projectContextSessionClipLimit = 128;
 export const AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE =
   "Automatic Listening Event identity policy: cached-context freshness describes mutable state age, not exact identity validity. When the required track and Session clip are present as one unambiguous exact-reference match, use those references directly with the tool's expected-reference guards. Do not inspect solely because freshness is stale or project revisions differ. Inspect only when a required identity is missing, ambiguous, unresolved, or truncated, or after a guarded tool rejects an identity as stale or ambiguous. Never retry unchanged rejected mutation arguments.";
 
+export interface AgentIdentityContext {
+  readonly liveSetId: string;
+  readonly liveProjectId?: string;
+  readonly appSessionId?: string;
+}
+
+export function formatAgentIdentityContext(
+  context: AgentIdentityContext,
+  kind: "initial" | "changed",
+): string {
+  const heading =
+    kind === "initial"
+      ? "Current Ableton identity context:"
+      : "Ableton identity_changed context (this supersedes the identity in the system message):";
+  return [
+    heading,
+    JSON.stringify({
+      type: kind === "initial" ? "identity_initial" : "identity_changed",
+      liveSetId: context.liveSetId,
+      ...(context.liveProjectId === undefined
+        ? {}
+        : { liveProjectId: context.liveProjectId }),
+      ...(context.appSessionId === undefined
+        ? {}
+        : { appSessionId: context.appSessionId }),
+    }),
+    "Live Set and Live Project IDs are owned by Ableton integration. App-session ID is application-owned.",
+  ].join("\n");
+}
+
+function identityContextKey(context: AgentIdentityContext): string {
+  return JSON.stringify(context);
+}
+
 export interface AgentPolicyServices {
   getAbletonStatus(): Promise<ConnectionStatus>;
   /** Retained for tool-service compatibility; prompt hooks never call it. */
@@ -43,6 +77,11 @@ export interface AgentPolicyServices {
   promptContextEnabled?: () => boolean;
   mutationBlocked?: () => boolean;
   mutationBlockReason?: () => string | undefined;
+  identityContext?: {
+    readonly initial: AgentIdentityContext | undefined;
+    current(): AgentIdentityContext | undefined;
+    delivered?(kind: "changed", context: AgentIdentityContext): void;
+  };
 }
 
 export interface AgentPolicy {
@@ -86,7 +125,7 @@ export function compactProjectContext(
     return `Ableton connection: ${status.state}. Do not attempt mutations until the connection is healthy.`;
   }
   if (snapshot === undefined) {
-    return `Ableton connection: connected to Live Set ${status.liveSetId}. Inspect the session before making Live Set-specific claims.`;
+    return "Ableton connection: connected. Inspect the session before making Live Set-specific claims.";
   }
   const tracks = snapshot.tracks
     .slice(0, projectContextTrackLimit)
@@ -111,9 +150,8 @@ export function compactProjectContext(
       kind: clip.kind,
     }));
   return [
-    "Fresh Ableton Live Set context for this prompt (bounded; use these exact identities directly when sufficient):",
+    "Fresh Ableton Live Set state for this prompt (bounded; use exact object references directly when sufficient):",
     JSON.stringify({
-      liveSetId: status.liveSetId,
       tempo: snapshot.tempo,
       timeSignature: `${snapshot.timeSignature.numerator}/${snapshot.timeSignature.denominator}`,
       isPlaying: snapshot.isPlaying,
@@ -182,6 +220,20 @@ function attemptKey(toolName: string, toolArgs: unknown): string {
 
 export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
   const blockedAttempts = new Map<string, string>();
+  let deliveredIdentityKey =
+    services.identityContext?.initial === undefined
+      ? undefined
+      : identityContextKey(services.identityContext.initial);
+
+  function changedIdentityContext(): string | undefined {
+    const current = services.identityContext?.current();
+    if (current === undefined) return undefined;
+    const key = identityContextKey(current);
+    if (key === deliveredIdentityKey) return undefined;
+    deliveredIdentityKey = key;
+    services.identityContext?.delivered?.("changed", current);
+    return formatAgentIdentityContext(current, "changed");
+  }
 
   async function context(): Promise<string> {
     const listener = services.preparedContext?.activeListener?.();
@@ -203,7 +255,11 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
     }),
     onUserPromptSubmitted: async (input) => ({
       additionalContext: await (async () => {
-        const parts = [await context(), browserIntentGuidance(input.prompt)];
+        const parts = [
+          changedIdentityContext(),
+          await context(),
+          browserIntentGuidance(input.prompt),
+        ];
         const signalOptions = services.signalContext;
         if (
           signalOptions?.provider !== undefined &&

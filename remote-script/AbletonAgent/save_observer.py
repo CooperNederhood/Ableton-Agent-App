@@ -130,14 +130,17 @@ class LiveSetSaveObserver(object):
         self._candidate = None
         self._candidate_samples = 0
         self._had_unsaved_identity = False
-        self._publish_event(
-            "live_set.save_observed",
+        payload = dict(identity)
+        payload.update(
             {
-                "liveSetId": live_set_id,
                 "observedAt": _observed_at(),
                 "fileModifiedTimeNs": str(metadata[0]),
                 "fileSizeBytes": metadata[1],
-            },
+            }
+        )
+        self._publish_event(
+            "live_set.save_observed",
+            payload,
             self._context.project_revision,
         )
 

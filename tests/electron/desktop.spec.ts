@@ -8,7 +8,7 @@ const desktopPath = resolve("apps/desktop");
 
 test.setTimeout(60_000);
 
-test("launches the packaged desktop contract securely", async () => {
+async function launchIsolatedDesktop() {
   const profile = await mkdtemp(join(process.cwd(), "ableton-agent-electron-"));
   const application = await electron.launch({
     args: [desktopPath, `--user-data-dir=${join(profile, "electron")}`],
@@ -21,6 +21,11 @@ test("launches the packaged desktop contract securely", async () => {
       NODE_ENV: "test",
     },
   });
+  return { application, profile };
+}
+
+test("launches the built desktop contract securely", async () => {
+  const { application, profile } = await launchIsolatedDesktop();
   try {
     const window = await application.firstWindow();
     await window.waitForLoadState("domcontentloaded");
@@ -187,10 +192,7 @@ test("launches the packaged desktop contract securely", async () => {
 });
 
 test("exposes essential landmarks and labels", async () => {
-  const application = await electron.launch({
-    args: [desktopPath],
-    cwd: process.cwd(),
-  });
+  const { application, profile } = await launchIsolatedDesktop();
   try {
     const window = await application.firstWindow();
     await window.waitForLoadState("domcontentloaded");
@@ -210,19 +212,12 @@ test("exposes essential landmarks and labels", async () => {
     expect(unnamedButtons).toBe(0);
   } finally {
     await application.close();
+    await rm(profile, { recursive: true, force: true });
   }
 });
 
 test("supports a terminal-sized chat-only window", async () => {
-  const application = await electron.launch({
-    args: [desktopPath],
-    cwd: process.cwd(),
-    env: {
-      ...process.env,
-      ELECTRON_DISABLE_SECURITY_WARNINGS: "true",
-      NODE_ENV: "test",
-    },
-  });
+  const { application, profile } = await launchIsolatedDesktop();
 
   try {
     const window = await application.firstWindow();
@@ -267,6 +262,7 @@ test("supports a terminal-sized chat-only window", async () => {
     ).toBeVisible();
   } finally {
     await application.close();
+    await rm(profile, { recursive: true, force: true });
   }
 });
 
@@ -322,15 +318,7 @@ test("accepts an MCP-style user message in the visible desktop session", async (
 });
 
 test("renders plan.md in the Inspector and routes composer approval through IPC", async () => {
-  const application = await electron.launch({
-    args: [desktopPath],
-    cwd: process.cwd(),
-    env: {
-      ...process.env,
-      ELECTRON_DISABLE_SECURITY_WARNINGS: "true",
-      NODE_ENV: "test",
-    },
-  });
+  const { application, profile } = await launchIsolatedDesktop();
   try {
     const window = await application.firstWindow();
     await window.waitForLoadState("domcontentloaded");
@@ -605,19 +593,12 @@ test("renders plan.md in the Inspector and routes composer approval through IPC"
     await expect(composer).toHaveValue("Preserve this ordinary draft");
   } finally {
     await application.close();
+    await rm(profile, { recursive: true, force: true });
   }
 });
 
 test("resizes both workspace sidebars and restores their session widths", async () => {
-  const application = await electron.launch({
-    args: [desktopPath],
-    cwd: process.cwd(),
-    env: {
-      ...process.env,
-      ELECTRON_DISABLE_SECURITY_WARNINGS: "true",
-      NODE_ENV: "test",
-    },
-  });
+  const { application, profile } = await launchIsolatedDesktop();
   try {
     const window = await application.firstWindow();
     await window.waitForLoadState("domcontentloaded");
@@ -731,5 +712,6 @@ test("resizes both workspace sidebars and restores their session widths", async 
       .toBeCloseTo(expandedInspector.width, 0);
   } finally {
     await application.close();
+    await rm(profile, { recursive: true, force: true });
   }
 });

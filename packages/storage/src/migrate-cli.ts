@@ -22,7 +22,9 @@ function parseMigrationCliArgs(args: readonly string[]): MigrationCliOptions {
   let profile: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
-    if (argument === "--apply") {
+    if (argument === "--") {
+      continue;
+    } else if (argument === "--apply") {
       if (modeWasSet) {
         throw new Error("Choose exactly one of --dry-run or --apply");
       }

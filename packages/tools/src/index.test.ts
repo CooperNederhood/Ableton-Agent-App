@@ -2888,7 +2888,7 @@ describe("Ableton tools", () => {
     expect(result).toMatchObject({ resultType: "failure" });
   });
 
-  it("rejects targetless destructive approvals before prompting", async () => {
+  it("routes invalid arguments through structured tool validation", async () => {
     const requestApproval = vi.fn(() => Promise.resolve(true));
     const permission = createAbletonPermissionHandler(requestApproval);
     const result = await permission(
@@ -2901,11 +2901,25 @@ describe("Ableton tools", () => {
       { sessionId: "session", managedSettingsEnabled: false },
     );
 
-    expect(result).toEqual({
-      kind: "reject",
-      feedback:
-        "Destructive and broad operations require explicit target arguments",
-    });
+    expect(result).toEqual({ kind: "approve-once" });
+    expect(requestApproval).not.toHaveBeenCalled();
+  });
+
+  it("does not misclassify invalid Browser arguments as user rejection", async () => {
+    const requestApproval = vi.fn(() => Promise.resolve(true));
+    const permission = createAbletonPermissionHandler(requestApproval);
+
+    await expect(
+      permission(
+        {
+          kind: "custom-tool",
+          toolName: "ableton_browser",
+          toolDescription: "Load Browser item",
+          args: { action: "load-item" },
+        },
+        { sessionId: "session", managedSettingsEnabled: false },
+      ),
+    ).resolves.toEqual({ kind: "approve-once" });
     expect(requestApproval).not.toHaveBeenCalled();
   });
 

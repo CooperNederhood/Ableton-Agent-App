@@ -465,16 +465,10 @@ export function createAbletonPermissionHandler(
     if (actionDescriptor !== undefined) {
       const parsed = actionDescriptor.inputSchema.safeParse(request.args ?? {});
       if (!parsed.success) {
-        const missingTarget = parsed.error.issues.some(
-          (issue) => issue.path[0] === "target",
-        );
-        return {
-          kind: "reject",
-          feedback:
-            missingTarget && requiresExplicitTarget(metadata.risk)
-              ? "Destructive and broad operations require explicit target arguments"
-              : "Invalid Ableton tool arguments",
-        };
+        // Permission rejection is reserved for policy/user denial. The tool
+        // handler validates again before any side effect and returns structured,
+        // retryable argument guidance to the model.
+        return { kind: "approve-once" };
       }
     }
     if (

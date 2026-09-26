@@ -38,6 +38,10 @@ Large multi-track or arrangement changes. Requires preview and approval.
 - Never accept stale references silently.
 - Clamp only when the API contract explicitly promises clamping and report it.
 - Validate file paths and supported media before import.
+- Permit shell execution only for application-approved read-only commands over
+  canonical Copilot spill files. Reject unapproved executables, writes,
+  redirects, network access, environment/command substitution, path escapes,
+  symlinks, and sandbox escalation.
 - Detect unsupported Live capabilities before mutation.
 - Limit workflow mutation counts and payload sizes.
 

@@ -10,6 +10,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import type {
   ModelInfo,
+  PermissionRequest,
   ResumeSessionConfig,
   SessionConfig,
   SessionEvent,
@@ -108,6 +109,7 @@ function baseOptions(
   );
   return {
     events: new InMemoryEventPublisher(),
+    largeOutputDirectory: join(sessionStateDirectory, "tool-output"),
     resolvePlanArtifactPaths: (productionSessionId: string) => {
       const sessionDirectory = join(sessionStateDirectory, productionSessionId);
       const artifactsDirectory = join(sessionDirectory, "artifacts");
@@ -461,7 +463,7 @@ describe("CopilotAgentService managed sessions", () => {
     await service.start();
     await service.createManagedAgent(
       configuration("planner", {
-        resolvedTools: ["task", "skill"],
+        resolvedTools: ["task", "skill", "bash"],
         skills: [],
       }),
     );
@@ -472,6 +474,7 @@ describe("CopilotAgentService managed sessions", () => {
       throw new Error("Expected user-input compatibility handler");
     }
     expect(configs[1]?.availableTools).toContain("builtin:task");
+    expect(configs[1]?.availableTools).toContain("builtin:bash");
     expect(configs[1]?.availableTools).toContain("builtin:ask_user");
     expect(configs[1]?.availableTools).not.toContain("builtin:skill");
     expect(configs[1]?.availableTools).not.toContain("custom:skill");
@@ -2588,6 +2591,9 @@ it("always exposes bounded planning controls across empty and deduplicated agent
   ]);
   expect(configs[2]?.customAgents?.[0]).not.toHaveProperty("tools");
   for (const config of configs) {
+    expect(config.largeOutput?.enabled).toBe(true);
+    expect(config.largeOutput?.maxSizeBytes).toBe(20 * 1024);
+    expect(config.largeOutput?.outputDirectory).toContain("tool-output");
     expect(config.availableTools).toContain("builtin:ask_user");
     expect(config.availableTools).not.toContain("builtin:task");
     expect(config.availableTools).not.toContain("builtin:task_complete");
@@ -2596,6 +2602,93 @@ it("always exposes bounded planning controls across empty and deduplicated agent
   }
 
   await service.stop();
+});
+
+it("configures profile-owned spill output and gates bash to read-only spill inspection", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ableton-agent-shell-"));
+  const largeOutputDirectory = join(root, "copilot", "tool-output");
+  const configs: SessionConfig[] = [];
+  const runtimeEvents: AgentRuntimeEvent[] = [];
+  const service = new CopilotAgentService(
+    baseOptions({
+      largeOutputDirectory,
+      runtimeObserver: {
+        enqueue: (event) => runtimeEvents.push(event),
+      },
+      clientFactory: () => ({
+        createSession: vi.fn(async (config: SessionConfig) => {
+          configs.push(config);
+          return createFakeSession("shell-session");
+        }),
+        resumeSession: vi.fn(async () => {
+          throw new Error("resume not expected");
+        }),
+        stop: vi.fn(async () => undefined),
+      }),
+    }),
+  );
+  try {
+    await service.start();
+    const spillFile = join(
+      largeOutputDirectory,
+      "123-copilot-tool-output-abcdef0123456789.txt",
+    );
+    await writeFile(spillFile, '{"pads":[]}\n');
+    const request = {
+      kind: "shell",
+      canOfferSessionApproval: false,
+      commands: [{ identifier: "jq", readOnly: true }],
+      commandSegments: [
+        {
+          identifier: "jq",
+          fullCommandText: `jq '.pads | length' '${spillFile}'`,
+        },
+      ],
+      fullCommandText: `jq '.pads | length' '${spillFile}'`,
+      hasWriteFileRedirection: false,
+      intention: "Inspect spilled JSON",
+      possiblePaths: [spillFile],
+      possibleUrls: [],
+      resolvedPaths: { [spillFile]: spillFile },
+      resolvedWorkingDirectory: largeOutputDirectory,
+    } satisfies Extract<PermissionRequest, { kind: "shell" }>;
+    expect(configs[0]?.largeOutput).toEqual({
+      enabled: true,
+      maxSizeBytes: 20 * 1024,
+      outputDirectory: largeOutputDirectory,
+    });
+    expect(configs[0]?.workingDirectory).toBe(largeOutputDirectory);
+    expect(
+      runtimeEvents
+        .filter((event) => event.type.startsWith("agent.large_output_storage."))
+        .map((event) => event.type),
+    ).toEqual([
+      "agent.large_output_storage.queued",
+      "agent.large_output_storage.started",
+      "agent.large_output_storage.completed",
+    ]);
+    await expect(
+      configs[0]?.onPermissionRequest?.(request, {
+        sessionId: "shell-session",
+      }),
+    ).resolves.toEqual({ kind: "approve-once" });
+    await expect(
+      configs[0]?.onPermissionRequest?.(
+        {
+          ...request,
+          commands: [{ identifier: "rm", readOnly: false }],
+          commandSegments: [
+            { identifier: "rm", fullCommandText: `rm '${spillFile}'` },
+          ],
+          fullCommandText: `rm '${spillFile}'`,
+        },
+        { sessionId: "shell-session" },
+      ),
+    ).resolves.toMatchObject({ kind: "reject" });
+  } finally {
+    await service.stop();
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 it("blocks plan-mode mutations until interactive approval", async () => {

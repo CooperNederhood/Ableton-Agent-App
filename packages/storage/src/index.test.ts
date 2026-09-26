@@ -117,6 +117,16 @@ describe("live agent storage", () => {
     expect(production.profileSkillsDirectory).toBe(
       join(home, ".live-agent", "profiles", "default", "skills"),
     );
+    expect(production.copilotToolOutputDirectory).toBe(
+      join(
+        home,
+        ".live-agent",
+        "profiles",
+        "default",
+        "copilot",
+        "tool-output",
+      ),
+    );
   });
 
   it("resolves typed system, profile, and session artifact scopes", async () => {

@@ -98,6 +98,9 @@ export * from "./set-sql-search.js";
 
 export type ToolRisk = "read" | "reversible" | "destructive" | "broad";
 export type ToolDuration = "instant" | "short" | "long";
+type InspectDrumRackPadsToolParams = InspectDrumRackPadsParams & {
+  includeEmpty: boolean;
+};
 
 export interface AbletonToolMetadata {
   name: string;
@@ -619,7 +622,7 @@ export interface AbletonToolSet {
     Tool<InspectDeviceParametersParams>,
     Tool<InspectRackChainsParams>,
     Tool<InspectRackChainDevicesParams>,
-    Tool<InspectDrumRackPadsParams>,
+    Tool<InspectDrumRackPadsToolParams>,
     Tool<InspectDrumPadChainsParams>,
     Tool<InspectDrumPadChainDevicesParams>,
     Tool<SetDeviceEnabledParams>,
@@ -1465,7 +1468,7 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
   );
   const inspectDrumRackPadsTool = defineTool("ableton_drum_rack_pads_inspect", {
     description:
-      "Returns one bounded page of pads for one exact top-level Drum Rack using documented Drum Rack APIs.",
+      "Returns occupied pads for one exact top-level Drum Rack by default. Set includeEmpty to inspect a bounded diagnostic page containing empty pads. Inspect a returned pad's chains and chain devices for loaded instrument or sample details.",
     parameters: z
       .object({
         index: z.number().int().nonnegative(),
@@ -1474,11 +1477,45 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
         deviceIndex: z.number().int().nonnegative(),
         expectedDeviceReference: z.string().uuid(),
         expectedDeviceName: z.string(),
+        includeEmpty: z.boolean().default(false),
         offset: z.number().int().nonnegative().default(0),
         limit: z.number().int().min(1).max(128).default(32),
       })
       .strict(),
-    handler: async (params) => services.inspectDrumRackPads(params),
+    handler: async ({ includeEmpty, ...params }) => {
+      const result = await services.inspectDrumRackPads(
+        includeEmpty ? params : { ...params, offset: 0, limit: 128 },
+      );
+      if (includeEmpty) {
+        return {
+          ...result,
+          totalPadCount: result.total,
+          occupiedPadCount: result.pads.filter(
+            ({ chainCount }) => chainCount > 0,
+          ).length,
+          emptyPadCount: result.pads.filter(
+            ({ chainCount }) => chainCount === 0,
+          ).length,
+          returnedPadCount: result.pads.length,
+          scanComplete:
+            result.offset === 0 && result.pads.length >= result.total,
+          includesEmptyPads: true,
+        };
+      }
+      const occupiedPads = result.pads.filter(
+        ({ chainCount }) => chainCount > 0,
+      );
+      return {
+        ...result,
+        pads: occupiedPads,
+        totalPadCount: result.total,
+        occupiedPadCount: occupiedPads.length,
+        emptyPadCount: Math.max(0, result.total - occupiedPads.length),
+        returnedPadCount: occupiedPads.length,
+        scanComplete: result.offset === 0 && result.pads.length >= result.total,
+        includesEmptyPads: false,
+      };
+    },
   });
   const inspectDrumPadChainsTool = defineTool(
     "ableton_drum_pad_chains_inspect",

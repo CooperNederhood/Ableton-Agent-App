@@ -66,7 +66,9 @@ never sufficient and no flat session-state compatibility path is exposed.
     │   ├── credentials/
     │   │   └── {credential-key}
     │   ├── copilot/
-    │   │   └── {Copilot SDK-owned data}
+    │   │   ├── {Copilot SDK-owned data}
+    │   │   └── tool-output/
+    │   │       └── {bounded transient SDK spill files}
     │   ├── observability/
     │   │   ├── agent-set-event-history.sqlite
     │   │   └── agent-set-event-history.sqlite.lock
@@ -129,7 +131,7 @@ up or recovered atomically.
 | `config/` | Desktop/application configuration | Validated, non-secret preferences, including the global Off/Concise/Detailed agent reasoning-summary visibility setting. |
 | `state/` | Desktop production-session stores | Validated app-session records, Live Set associations, and the bounded, revision-checked Live Projects registry. |
 | `credentials/` | Main process secure store | Ciphertext encrypted through OS-backed facilities. Credentials never enter renderer state, logs, journal payloads, or support bundles. |
-| `copilot/` | Copilot SDK adapter | SDK conversation/session data. Application code must not invent a parallel transcript store. |
+| `copilot/` | Copilot SDK adapter | SDK conversation/session data plus transient `tool-output/` spill files. Application code must not invent a parallel transcript store. Spill files are owner-only, age/size-pruned, and are not durable history. |
 | `observability/` | Unified local history database | One profile-wide SQLite database for App events, agent history, Live Set history, cross-session queries, traces, retention, and health. Do not create one database per App session. |
 | `logs/` | Structured diagnostic logger | Bounded, redacted newline-delimited JSON logs. |
 | `memory/` | Reserved ownership scope | Reserved at profile, project, Live Set, and app-session scopes. No memory persistence behavior is defined yet. |
@@ -178,6 +180,10 @@ alone remains Copilot SDK-owned and does not promote the Desktop session.
   profile-wide observability journal and typed renderer history.
 - Keep renderer access typed and redacted. Never expose raw filesystem access,
   raw SQLite access, or a generic storage IPC channel.
+- Restrict agent shell reads to validated regular
+  `copilot/tool-output/*-copilot-tool-output-*.txt` files in the active
+  profile. Spill files must not grant access to sibling profile data or other
+  filesystem paths.
 - Keep one writer lock per profile-wide journal. A second writer degrades with
   an actionable diagnostic instead of forking or corrupting history.
 - Keep App events and configuration snapshots physically separate from agent

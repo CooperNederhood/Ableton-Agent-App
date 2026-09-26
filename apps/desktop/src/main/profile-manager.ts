@@ -23,6 +23,7 @@ import {
 import {
   APPLICATION_TOOL_NAMES,
   APPROVED_BUILTIN_TOOL_NAMES,
+  EXPLICIT_ONLY_BUILTIN_TOOL_NAMES,
 } from "@ableton-agent/application";
 import {
   createProfile,
@@ -63,6 +64,7 @@ const availableTools = [
   ...APPLICATION_TOOL_NAMES,
   ...APPROVED_BUILTIN_TOOL_NAMES,
 ];
+const wildcardExcludedTools = EXPLICIT_ONLY_BUILTIN_TOOL_NAMES;
 const maximumSessionsFileBytes = 4 * 1024 * 1024;
 
 type TelemetryWriter = (event: {
@@ -430,6 +432,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
             ...(project === undefined ? {} : { project: layer(project) }),
             session: layer(sessionPaths),
             availableTools,
+            wildcardExcludedTools,
           });
         const current = (await load()).agents.find(
           ({ definition: candidate }) => candidate.name === definition.name,
@@ -1095,12 +1098,14 @@ export class DesktopProfileManager implements ProfileManagerActions {
       bundled,
       system: layer(system),
       availableTools,
+      wildcardExcludedTools,
     });
     const profileCatalog = await loadLayeredAgentCatalog({
       bundled,
       system: layer(system),
       profile: layer(profile),
       availableTools,
+      wildcardExcludedTools,
     });
     const selectedProjectRegistry = await readLiveProjectsRegistry(
       selectedLayout.liveProjectsRegistryPath,
@@ -1127,6 +1132,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
             profile: layer(profile),
             project: layer(projectPaths),
             availableTools,
+            wildcardExcludedTools,
           });
           projectCatalogs.set(liveProjectId, catalog);
           const artifacts = catalogArtifacts(
@@ -1170,6 +1176,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
             ...(project === undefined ? {} : { project: layer(project) }),
             session: layer(session),
             availableTools,
+            wildcardExcludedTools,
           });
           const artifacts = catalogArtifacts(
             "session",
@@ -1220,7 +1227,11 @@ export class DesktopProfileManager implements ProfileManagerActions {
       artifacts,
       "system",
       system,
-      await loadLayeredAgentCatalog({ bundled, availableTools }),
+      await loadLayeredAgentCatalog({
+        bundled,
+        availableTools,
+        wildcardExcludedTools,
+      }),
     );
     await this.#appendDisabledArtifacts(
       artifacts,
@@ -1484,6 +1495,7 @@ export class DesktopProfileManager implements ProfileManagerActions {
       ...(project === undefined ? {} : { project: layer(project) }),
       ...(session === undefined ? {} : { session: layer(session) }),
       availableTools,
+      wildcardExcludedTools,
     });
   }
 

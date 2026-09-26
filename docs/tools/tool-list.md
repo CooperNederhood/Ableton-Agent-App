@@ -47,6 +47,9 @@ The allowlisted views are `agent_history_sessions`, `agent_history_turns`,
 `set_history_session_clips`, `set_history_arrangement_clips`,
 `set_history_scenes`, `set_history_cue_points`, `set_history_trajectories`,
 and `set_history_agent_links`. Results include `schemaVersion` and `elapsedMs`.
+Grouped Ableton calls expose their stable `operation_id`, discriminated
+`action`, `mutation_target`, and bounded `target_identity_json`; terminal
+mutations are linked across agent and Set history by `tool_call_id`.
 The backing service, not the agent, owns read-only database access and
 cancellation.
 

@@ -2785,8 +2785,11 @@ describe("desktop adapter over the shared application", () => {
     expect(persisted?.capturedAt).toBe(snapshot.capturedAt);
     expect(persisted?.trigger).toBe("manual");
     expect(persisted?.productionSessionId).toEqual(expect.any(String));
-    expect(persisted?.activeAgentInstanceIds).toEqual([expect.any(String)]);
-    expect(persisted?.sdkSessionIds).toEqual([expect.any(String)]);
+    expect(persisted?.activeAgents).toHaveLength(1);
+    expect(persisted?.activeAgents[0]?.activeAgentId).toEqual(
+      expect.any(String),
+    );
+    expect(persisted?.activeAgents[0]?.sdkSessionId).toEqual(expect.any(String));
     await service.stop();
   });
 

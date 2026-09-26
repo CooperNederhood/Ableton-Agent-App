@@ -15,9 +15,11 @@ import {
   LocalObservabilityJournal,
   REDACTED_VALUE,
   sanitizeTelemetryAttributes,
+  setHistoryRecordSchema,
   telemetryEventEnvelopeSchema,
   type AgentHistoryRecord,
   type ConfigurationSnapshot,
+  type SetHistoryRecord,
   type TelemetryEventEnvelope,
 } from "@ableton-agent/observability";
 import {
@@ -406,6 +408,256 @@ describe("agent runtime composition", () => {
       toolName: "ableton_connection_status",
     });
     telemetry.forEach((event) => telemetryEventEnvelopeSchema.parse(event));
+    await runtime.application.stop();
+  });
+
+  it("links grouped mutating tools into semantic Set trajectories", async () => {
+    const listeners = new Set<(event: TestSessionEvent) => void>();
+    const emit = (event: TestSessionEvent): void => {
+      for (const listener of listeners) listener(event);
+    };
+    const session = {
+      sessionId: "sdk-session",
+      send: async () => {
+        emit({
+          type: "tool.execution_start",
+          id: "tool-start",
+          parentId: null,
+          timestamp: "2026-09-26T16:00:01.000Z",
+          data: {
+            toolCallId: "tool-call-1",
+            toolName: "ableton_scenes",
+            arguments: { action: "create", index: -1, name: "Verse" },
+          },
+        });
+        emit({
+          type: "tool.execution_complete",
+          id: "tool-complete",
+          parentId: null,
+          timestamp: "2026-09-26T16:00:02.000Z",
+          data: { toolCallId: "tool-call-1", success: true },
+        });
+        emit({
+          type: "assistant.message",
+          id: "assistant",
+          parentId: null,
+          timestamp: "2026-09-26T16:00:03.000Z",
+          data: { messageId: "message", content: "Created Verse." },
+        });
+        emit({
+          type: "session.idle",
+          id: "idle",
+          parentId: null,
+          timestamp: "2026-09-26T16:00:04.000Z",
+          ephemeral: true,
+          data: { mode: "interactive" },
+        });
+        return "message";
+      },
+      abort: () => Promise.resolve(),
+      disconnect: () => Promise.resolve(),
+      on: (next: (event: TestSessionEvent) => void) => {
+        listeners.add(next);
+        return () => {
+          listeners.delete(next);
+        };
+      },
+    } satisfies TestSession;
+    const agentHistory: AgentHistoryRecord[] = [];
+    const setHistory: SetHistoryRecord[] = [];
+    const runtime = createAgentRuntime({
+      ableton: { port: 8765 },
+      abletonService: Object.assign(
+        new UnconfiguredAbletonService("no bridge in tests"),
+        { getCurrentLiveSetId: () => "live-set-1" },
+      ),
+      agent: {
+        clientFactory: () => ({
+          createSession: () => Promise.resolve(session),
+          resumeSession: () => Promise.reject(new Error("not expected")),
+          stop: () => Promise.resolve([]),
+        }),
+      },
+      currentAppSessionId: () => "app-session-1",
+      currentLiveProjectId: () => "live-project-1",
+      agentHistory: {
+        appendAgentHistory: (record) => {
+          agentHistory.push(agentHistoryRecordSchema.parse(record));
+          return Promise.resolve();
+        },
+      },
+      setHistory: {
+        appendSetHistory: (record) => {
+          setHistory.push(setHistoryRecordSchema.parse(record));
+          return Promise.resolve();
+        },
+      },
+    });
+
+    await runtime.application.start();
+    await runtime.application.send("Create a scene named Verse.");
+
+    expect(
+      agentHistory.find((record) => record.kind === "tool_call"),
+    ).toMatchObject({
+      kind: "tool_call",
+      toolName: "ableton_scenes",
+      metadata: {
+        operationDescriptorId: "scenes.create",
+        action: "create",
+        mutationTarget: "session",
+        targetIdentity: {
+          domain: "scenes",
+          action: "create",
+          targetKind: "session",
+        },
+      },
+    });
+    const successfulTrajectory = setHistory.find(
+      (record) =>
+        record.kind === "set_trajectory" &&
+        record.toolCallId === "tool-call-1",
+    );
+    expect(successfulTrajectory).toMatchObject({
+      kind: "set_trajectory",
+      liveSetId: "live-set-1",
+      liveProjectId: "live-project-1",
+      agentSessionId: "sdk-session",
+      toolCallId: "tool-call-1",
+      trajectoryType: "tool.mutation.completed",
+      data: {
+        toolName: "ableton_scenes",
+        operationDescriptorId: "scenes.create",
+        action: "create",
+        mutationTarget: "session",
+        outcome: "success",
+      },
+    });
+    expect(
+      setHistory.filter((record) => record.kind === "set_trajectory"),
+    ).toHaveLength(1);
+    await runtime.application.stop();
+  });
+
+  it("retains failed grouped mutations in Set trajectories", async () => {
+    const listeners = new Set<(event: TestSessionEvent) => void>();
+    const emit = (event: TestSessionEvent): void => {
+      for (const listener of listeners) listener(event);
+    };
+    const session = {
+      sessionId: "sdk-session",
+      send: async () => {
+        emit({
+          type: "tool.execution_start",
+          id: "tool-start",
+          parentId: null,
+          timestamp: "2026-09-26T16:00:01.000Z",
+          data: {
+            toolCallId: "tool-call-failed",
+            toolName: "ableton_scenes",
+            arguments: { action: "create", index: -1, name: "Bridge" },
+          },
+        });
+        emit({
+          type: "tool.execution_complete",
+          id: "tool-complete",
+          parentId: null,
+          timestamp: "2026-09-26T16:00:02.000Z",
+          data: {
+            toolCallId: "tool-call-failed",
+            success: false,
+            error: { code: "failure", message: "Live rejected the mutation" },
+          },
+        });
+        emit({
+          type: "assistant.message",
+          id: "assistant",
+          parentId: null,
+          timestamp: "2026-09-26T16:00:03.000Z",
+          data: { messageId: "message", content: "The mutation failed." },
+        });
+        emit({
+          type: "session.idle",
+          id: "idle",
+          parentId: null,
+          timestamp: "2026-09-26T16:00:04.000Z",
+          ephemeral: true,
+          data: { mode: "interactive" },
+        });
+        return "message";
+      },
+      abort: () => Promise.resolve(),
+      disconnect: () => Promise.resolve(),
+      on: (next: (event: TestSessionEvent) => void) => {
+        listeners.add(next);
+        return () => {
+          listeners.delete(next);
+        };
+      },
+    } satisfies TestSession;
+    const agentHistory: AgentHistoryRecord[] = [];
+    const setHistory: SetHistoryRecord[] = [];
+    const runtime = createAgentRuntime({
+      ableton: { port: 8765 },
+      abletonService: Object.assign(
+        new UnconfiguredAbletonService("no bridge in tests"),
+        { getCurrentLiveSetId: () => "live-set-1" },
+      ),
+      agent: {
+        clientFactory: () => ({
+          createSession: () => Promise.resolve(session),
+          resumeSession: () => Promise.reject(new Error("not expected")),
+          stop: () => Promise.resolve([]),
+        }),
+      },
+      currentAppSessionId: () => "app-session-1",
+      agentHistory: {
+        appendAgentHistory: (record) => {
+          agentHistory.push(agentHistoryRecordSchema.parse(record));
+          return Promise.resolve();
+        },
+      },
+      setHistory: {
+        appendSetHistory: (record) => {
+          setHistory.push(setHistoryRecordSchema.parse(record));
+          return Promise.resolve();
+        },
+      },
+    });
+
+    await runtime.application.start();
+    await expect(
+      runtime.application.send("Create a scene named Bridge."),
+    ).resolves.toBe("The mutation failed.");
+
+    expect(
+      agentHistory.find(
+        (record) =>
+          record.kind === "tool_call" &&
+          record.toolCallId === "tool-call-failed",
+      ),
+    ).toMatchObject({
+      kind: "tool_call",
+      status: "failed",
+      metadata: {
+        operationDescriptorId: "scenes.create",
+        mutationTarget: "session",
+      },
+    });
+    const failedTrajectory = setHistory.find(
+      (record) =>
+        record.kind === "set_trajectory" &&
+        record.toolCallId === "tool-call-failed",
+    );
+    expect(failedTrajectory).toMatchObject({
+      kind: "set_trajectory",
+      toolCallId: "tool-call-failed",
+      trajectoryType: "tool.mutation.failed",
+      data: {
+        operationDescriptorId: "scenes.create",
+        outcome: "failure",
+      },
+    });
     await runtime.application.stop();
   });
 

@@ -188,8 +188,7 @@ function createSnapshotHistoryRepository(
           source: record.trigger,
           fileModifiedTimeNs: record.fileModifiedTimeNs,
           fileSizeBytes: record.fileSizeBytes,
-          activeAgentInstanceIds: record.activeAgentInstanceIds,
-          sdkSessionIds: record.sdkSessionIds,
+          activeAgents: record.activeAgents,
         }),
       });
       await journal.appendSetHistory({
@@ -205,7 +204,7 @@ function createSnapshotHistoryRepository(
         }),
       });
       await Promise.all(
-        record.activeAgentInstanceIds.map((activeAgentId, index) =>
+        record.activeAgents.map(({ activeAgentId, sdkSessionId }) =>
           journal.appendSetHistory({
             ...common,
             kind: "set_trajectory",
@@ -216,9 +215,9 @@ function createSnapshotHistoryRepository(
                 ? "manual_checkpoint"
                 : "active_at_save",
             activeAgentId,
-            ...(record.sdkSessionIds[index] === undefined
+            ...(sdkSessionId === undefined
               ? {}
-              : { agentSessionId: record.sdkSessionIds[index] }),
+              : { agentSessionId: sdkSessionId }),
             summary: "Agent active when the Live Set checkpoint was captured",
             data: sanitizeTelemetryAttributes({
               observationId,
@@ -796,6 +795,7 @@ export async function createDesktopComposition(
       ? {}
       : {
           agentHistory: journalHost,
+          setHistory: journalHost,
           currentAppSessionId: () => serviceRef.current?.activeSessionId,
           currentLiveSetId: () => serviceRef.current?.activeLiveSetId,
           currentLiveProjectId: () => serviceRef.current?.activeLiveProjectId,

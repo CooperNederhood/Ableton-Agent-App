@@ -40,6 +40,14 @@ Refresh persists the completed snapshot through an injected history repository.
 Startup and internal refreshes update current UI state only and never create
 history records.
 
+Persisted snapshots are bounded checkpoints rather than one full capture after
+every tool call. Each terminal mutating agent tool call is persisted separately
+as a Set trajectory record with the exact tool-call, turn, agent, operation,
+action, mutation scope, and target identity. Ordering those trajectories
+between save/manual snapshot checkpoints reconstructs how the Set evolved
+without repeatedly serializing the full Live Set. Failed, cancelled, and
+indeterminate mutations remain visible so history does not imply success.
+
 Set History storage exposes a read-only application service rather than a raw
 database handle. Agent SQL is restricted to one `SELECT` or CTE, allowlisted
 public views, and a caller-supplied result limit capped at 200 rows. The

@@ -1228,6 +1228,9 @@ describe("Ableton tools", () => {
       "Join musical entities to snapshots with snapshot_id",
     );
     expect(setSqlSearch?.description).toContain(
+      "operation_id, action, mutation_target, target_identity_json",
+    );
+    expect(setSqlSearch?.description).toContain(
       "not required for basic queries",
     );
     expect(

@@ -154,8 +154,10 @@ export interface LiveSetSnapshotHistoryRecord {
   readonly fileModifiedTimeNs?: string;
   readonly fileSizeBytes?: number;
   readonly productionSessionId?: string;
-  readonly activeAgentInstanceIds: readonly string[];
-  readonly sdkSessionIds: readonly string[];
+  readonly activeAgents: readonly {
+    readonly activeAgentId: string;
+    readonly sdkSessionId?: string;
+  }[];
 }
 
 /** Persistence seam implemented by the unified history database owner. */
@@ -2255,12 +2257,13 @@ export class HeadlessDesktopService implements DesktopService {
       ...(activeSession === undefined
         ? {}
         : { productionSessionId: activeSession.id }),
-      activeAgentInstanceIds:
-        activeSession?.activeAgents.map((agent) => agent.id) ?? [],
-      sdkSessionIds:
-        activeSession?.activeAgents.flatMap((agent) =>
-          agent.sdkSessionId === undefined ? [] : [agent.sdkSessionId],
-        ) ?? [],
+      activeAgents:
+        activeSession?.activeAgents.map((agent) => ({
+          activeAgentId: agent.id,
+          ...(agent.sdkSessionId === undefined
+            ? {}
+            : { sdkSessionId: agent.sdkSessionId }),
+        })) ?? [],
     });
   }
 

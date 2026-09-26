@@ -19,6 +19,8 @@ import {
 import {
   type AgentHistoryRecord,
   type AgentHistoryStore,
+  type SetHistoryRecord,
+  type SetHistoryStore,
   telemetryIdSchema,
   telemetryEntityIdSchema,
   sanitizeTelemetryAttributes,
@@ -112,12 +114,19 @@ function normalizedEntityId(value: string | undefined): string | undefined {
 function createRuntimeObserver(
   recorder: NonBlockingObservabilityRecorder | undefined,
   agentHistory: Pick<AgentHistoryStore, "appendAgentHistory"> | undefined,
+  setHistory: Pick<SetHistoryStore, "appendSetHistory"> | undefined,
   currentAppSessionId: (() => string | undefined) | undefined,
   currentLiveSetId?: () => string | undefined,
   currentLiveProjectId?: () => string | undefined,
   logger: Logger = noopLogger,
 ): AgentRuntimeObserver | undefined {
-  if (recorder === undefined && agentHistory === undefined) return undefined;
+  if (
+    recorder === undefined &&
+    agentHistory === undefined &&
+    setHistory === undefined
+  ) {
+    return undefined;
+  }
   const toolNames = new Map<string, string>();
   const turnOrigins = new Map<string, string>();
   const persistAgentHistory = (record: AgentHistoryRecord): void => {
@@ -133,6 +142,25 @@ function createRuntimeObserver(
       });
     } catch (error) {
       logger.warn("Agent history projection failed", {
+        kind: record.kind,
+        id: record.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+  const persistSetHistory = (record: SetHistoryRecord): void => {
+    if (setHistory === undefined) return;
+    try {
+      const write = setHistory.appendSetHistory(record);
+      void write.catch((error) => {
+        logger.warn("Set trajectory projection failed", {
+          kind: record.kind,
+          id: record.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    } catch (error) {
+      logger.warn("Set trajectory projection failed", {
         kind: record.kind,
         id: record.id,
         error: error instanceof Error ? error.message : String(error),
@@ -403,6 +431,10 @@ function createRuntimeObserver(
           metadata: sanitizeTelemetryAttributes({
             sdkEventId: event.data.sdkEventId,
             parentSdkEventId: event.data.parentSdkEventId,
+            operationDescriptorId: event.data.operationDescriptorId,
+            action: event.data.action,
+            mutationTarget: event.data.mutationTarget,
+            targetIdentity: event.data.targetIdentity,
           }),
         });
         persistAgentHistory({
@@ -431,8 +463,54 @@ function createRuntimeObserver(
           metadata: sanitizeTelemetryAttributes({
             toolName,
             structuredFailure: event.data.structuredFailure,
+            operationDescriptorId: event.data.operationDescriptorId,
+            action: event.data.action,
+            mutationTarget: event.data.mutationTarget,
+            targetIdentity: event.data.targetIdentity,
           }),
         });
+        const mutationTarget = event.data.mutationTarget;
+        if (
+          liveSetId !== undefined &&
+          (mutationTarget === "session" ||
+            mutationTarget === "track" ||
+            mutationTarget === "tracks")
+        ) {
+          const recordedOutcome =
+            typeof event.data.outcome === "string"
+              ? event.data.outcome
+              : success
+                ? "success"
+                : "failure";
+          persistSetHistory({
+            ...historyBase,
+            kind: "set_trajectory",
+            id: stableTelemetryId(`set-trajectory:${sessionId}:${toolCallId}`),
+            occurredAt: event.occurredAt,
+            liveSetId,
+            agentSessionId: sessionId,
+            turnId,
+            toolCallId,
+            activeAgentId,
+            trajectoryType: success
+              ? "tool.mutation.completed"
+              : recordedOutcome === "applied_indeterminate"
+                ? "tool.mutation.indeterminate"
+                : recordedOutcome === "cancelled"
+                  ? "tool.mutation.cancelled"
+                  : "tool.mutation.failed",
+            summary: `${typeof event.data.operationDescriptorId === "string" ? event.data.operationDescriptorId : toolName} ${success ? "completed" : recordedOutcome}`,
+            data: sanitizeTelemetryAttributes({
+              toolName,
+              operationDescriptorId: event.data.operationDescriptorId,
+              action: event.data.action,
+              mutationTarget,
+              targetIdentity: event.data.targetIdentity,
+              outcome: recordedOutcome,
+              requiresReinspection: event.data.requiresReinspection,
+            }),
+          });
+        }
       }
       if (
         historyBase !== undefined &&
@@ -603,6 +681,8 @@ export interface AgentRuntimeOptions {
   setHistoryQuery?: SetHistoryQueryService;
   /** Searchable application-owned projection of SDK agent history. */
   agentHistory?: Pick<AgentHistoryStore, "appendAgentHistory">;
+  /** Semantic Set trajectory projection for mutating agent tool calls. */
+  setHistory?: Pick<SetHistoryStore, "appendSetHistory">;
   /** Synchronous active App-session attribution for agent history records. */
   currentAppSessionId?: () => string | undefined;
   /** Replaces the bridge, used by tests and fakes. */
@@ -961,6 +1041,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
   const runtimeObserver = createRuntimeObserver(
     options.telemetry,
     options.agentHistory,
+    options.setHistory,
     options.currentAppSessionId,
     options.currentLiveSetId ??
       (isCurrentLiveSetProvider(ableton)

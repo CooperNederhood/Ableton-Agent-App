@@ -288,3 +288,11 @@ identity and metadata observation, bridge receipt time, project revision,
 `AbortSignal`, and a progress hook. Observation and action queued, started,
 progress, completed, failed, and cancelled stages emit application-owned
 telemetry with stable trace/correlation/causation relationships.
+
+The runtime also projects each terminal mutating tool call into Set History.
+The trajectory record retains the grouped tool name plus its stable operation
+ID, discriminated action, mutation scope, bounded target identity, outcome,
+and exact agent-session/turn/tool-call links. The corresponding agent-history
+rows retain sanitized arguments and results, so a save/manual snapshot can be
+interpreted as a checkpoint reached through the ordered trajectories since the
+previous checkpoint.

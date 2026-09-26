@@ -96,6 +96,12 @@ the originating trace/correlation context and records relevant queue/execution
 timing. Bounded tool definitions, arguments, and results are required in the
 local journal for useful history; the shared sanitizer redacts embedded
 credentials and replaces binary/audio bodies with visible omission markers.
+Grouped public tools must preserve their stable operation ID, discriminated
+action, mutation target, and bounded target identity in agent tool-call/result
+history. Terminal mutations also project a Set trajectory record linked by
+agent session, turn, and tool-call ID. This keeps domain-tool consolidation
+queryable as semantic operations instead of collapsing history into generic
+tool names such as `ableton_tracks`.
 
 ## Tool results
 

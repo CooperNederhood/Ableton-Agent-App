@@ -152,7 +152,17 @@ function agentHistoryRecords(): AgentHistoryRecord[] {
       toolName: "ableton.set_tempo",
       status: "completed",
       arguments: { authorization: "secret-value", tempo: 120 },
-      metadata: {},
+      metadata: {
+        operationDescriptorId: "transport.set-tempo",
+        action: "set-tempo",
+        mutationTarget: "session",
+        targetIdentity: {
+          domain: "transport",
+          action: "set-tempo",
+          targetKind: "live-set",
+          targetReferences: [],
+        },
+      },
     },
     {
       ...base,
@@ -163,7 +173,18 @@ function agentHistoryRecords(): AgentHistoryRecord[] {
       occurredAt: "2026-08-29T22:10:04.000Z",
       outcome: "success",
       result: { tempo: 120 },
-      metadata: {},
+      metadata: {
+        toolName: "ableton.set_tempo",
+        operationDescriptorId: "transport.set-tempo",
+        action: "set-tempo",
+        mutationTarget: "session",
+        targetIdentity: {
+          domain: "transport",
+          action: "set-tempo",
+          targetKind: "live-set",
+          targetReferences: [],
+        },
+      },
     },
     {
       ...base,
@@ -250,7 +271,21 @@ function setHistoryRecords(): SetHistoryRecord[] {
       toolCallId: "tool-call-1",
       activeAgentId: "active-agent-1",
       summary: "Changed tempo",
-      data: { before: 110, after: 120 },
+      data: {
+        toolName: "ableton_transport",
+        operationDescriptorId: "transport.set-tempo",
+        action: "set-tempo",
+        mutationTarget: "session",
+        targetIdentity: {
+          domain: "transport",
+          action: "set-tempo",
+          targetKind: "live-set",
+          targetReferences: [],
+        },
+        outcome: "success",
+        before: 110,
+        after: 120,
+      },
     },
   ];
 }
@@ -615,6 +650,42 @@ describe("local observability journal", () => {
     );
     expect(agent.rows).toEqual([
       { turn_id: "turn-1", prompt: "Use token=[REDACTED] to set tempo" },
+    ]);
+    const semanticTool = await journal.queryPublicHistory(
+      `SELECT operation_id, action, mutation_target, target_identity_json
+       FROM agent_history_tool_calls
+       WHERE tool_call_id = ?`,
+      ["tool-call-1"],
+      10,
+    );
+    expect(semanticTool.rows).toEqual([
+      {
+        operation_id: "transport.set-tempo",
+        action: "set-tempo",
+        mutation_target: "session",
+        target_identity_json: JSON.stringify({
+          domain: "transport",
+          action: "set-tempo",
+          targetKind: "live-set",
+          targetReferences: [],
+        }),
+      },
+    ]);
+    const trajectory = await journal.queryPublicHistory(
+      `SELECT tool_call_id, operation_id, action, mutation_target, outcome
+       FROM set_history_trajectories
+       WHERE tool_call_id = ?`,
+      ["tool-call-1"],
+      10,
+    );
+    expect(trajectory.rows).toEqual([
+      {
+        tool_call_id: "tool-call-1",
+        operation_id: "transport.set-tempo",
+        action: "set-tempo",
+        mutation_target: "session",
+        outcome: "success",
+      },
     ]);
 
     const truncated = await journal.queryPublicHistory(

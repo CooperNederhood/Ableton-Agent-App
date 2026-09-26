@@ -186,6 +186,10 @@ alone remains Copilot SDK-owned and does not promote the Desktop session.
   parameterized, read-only queries over the stable `agent_history_*` and
   `set_history_*` public views; physical tables and SQLite metadata are not
   queryable through that API.
+- Preserve grouped-tool semantics in those views: stable operation ID,
+  discriminated action, mutation scope, bounded target identity, and exact
+  tool-call/turn/agent links. Save/manual snapshots are checkpoints; terminal
+  mutation trajectories describe the causal operations between checkpoints.
 - The v1 age and size retention policy prunes App events and App configuration
   snapshots only. Agent and Live Set history remains until an explicit clear or
   a future independently versioned retention policy is introduced.

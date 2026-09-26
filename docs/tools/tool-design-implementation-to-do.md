@@ -32,6 +32,8 @@ Companion specification: [Tool Design](tool-design.md)
   - [x] Add operation-level custom-agent patterns, strict domain-schema
     pruning, capability pruning, and exact-only compatibility-alias
     resolution.
+  - [x] Project grouped-tool operation/action/target metadata into durable
+    agent history and link terminal mutations into Set trajectory history.
   - [ ] Migrate remaining genuinely equivalent legacy tools onto canonical
     descriptors and add complete persisted trace-continuity coverage.
 
@@ -120,8 +122,10 @@ Companion specification: [Tool Design](tool-design.md)
 - [~] Add Copilot SDK invocation tests for representative tools.
   - [x] Cover structured Ableton failure results and application event
     recovery when the SDK reports the generic `failure` event code.
-- [ ] Test journal lifecycle completeness, redaction, trace continuity, timing,
+- [~] Test journal lifecycle completeness, redaction, trace continuity, timing,
   cancellation/failure, and Desktop History visibility for every tool family.
+  - [x] Cover semantic grouped-tool metadata and terminal mutation trajectory
+    linkage across agent and Set history.
 - [x] Test descriptor-based argument resolution and affected-track
   authorization/locking for cross-track device movement.
 - [ ] Validate every mutation against real Live before marking supported.

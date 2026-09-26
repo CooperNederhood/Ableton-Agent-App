@@ -179,6 +179,7 @@ import {
   type AbletonOperationLifecycleIdentity,
   SET_SQL_SEARCH_TOOL_NAME,
   type AbletonMutationAuthorizationContext,
+  type MutationTarget,
   type SetHistoryQueryService,
   type ToolApprovalRequester,
 } from "@ableton-agent/tools";
@@ -1191,6 +1192,7 @@ interface ObservedOperation {
   label: string;
   toolName: string;
   mutates: boolean;
+  mutationTarget?: MutationTarget;
   arguments: Readonly<Record<string, unknown>>;
   startedAt: number;
   operationDescriptorId?: string;
@@ -1982,6 +1984,7 @@ export class CopilotAgentService implements AgentService {
           toolName: tool.name,
           operationDescriptorId: operation.descriptor.operationId,
           action: operation.descriptor.action,
+          mutationTarget: operation.descriptor.mutationTarget,
           targetIdentity: operation.lifecycleIdentity,
         };
         this.#recordRuntime(
@@ -2099,6 +2102,7 @@ export class CopilotAgentService implements AgentService {
                 toolName: tool.name,
                 operationDescriptorId: operation.descriptor.operationId,
                 action: operation.descriptor.action,
+                mutationTarget: operation.descriptor.mutationTarget,
                 targetIdentity: operation.lifecycleIdentity,
                 ...([
                   "verification",
@@ -3385,6 +3389,7 @@ export class CopilotAgentService implements AgentService {
             arguments: operation?.arguments,
             operationDescriptorId: operation?.operationDescriptorId,
             action: operation?.action,
+            mutationTarget: operation?.mutationTarget,
             targetIdentity: operation?.targetIdentity,
             durationMs:
               operation === undefined
@@ -3558,6 +3563,9 @@ export class CopilotAgentService implements AgentService {
           label,
           toolName: event.data.toolName,
           mutates: metadata !== undefined && metadata.mutationTarget !== "read",
+          ...(metadata?.mutationTarget === undefined
+            ? {}
+            : { mutationTarget: metadata.mutationTarget }),
           arguments: recordValue(event.data.arguments),
           startedAt: Date.parse(event.timestamp),
           ...(metadata?.operationId === undefined
@@ -3580,6 +3588,7 @@ export class CopilotAgentService implements AgentService {
           arguments: recordValue(event.data.arguments),
           operationDescriptorId: metadata?.operationId,
           action: metadata?.action,
+          mutationTarget: metadata?.mutationTarget,
           targetIdentity: metadata?.lifecycleIdentity,
         });
         this.options.events.publish({
@@ -4025,6 +4034,10 @@ export class CopilotAgentService implements AgentService {
           toolCallId: operationId,
           toolName: operation.toolName,
           arguments: operation.arguments,
+          operationDescriptorId: operation.operationDescriptorId,
+          action: operation.action,
+          mutationTarget: operation.mutationTarget,
+          targetIdentity: operation.targetIdentity,
           code,
           message,
           outcome: operation.mutates ? "applied_indeterminate" : "timed_out",

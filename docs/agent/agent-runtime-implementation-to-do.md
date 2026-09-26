@@ -102,6 +102,8 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [x] Dispatch observed saves through ordered, per-Live-Set injectable actions
   with deduplication, Set-switch/shutdown cancellation, and full lifecycle
   observability.
+- [x] Project terminal mutating tool calls into Set trajectories with grouped
+  operation/action/target metadata and exact agent/turn/tool-call attribution.
 - [x] Implement context compaction/refresh strategy for long sessions.
 
 ## Tests

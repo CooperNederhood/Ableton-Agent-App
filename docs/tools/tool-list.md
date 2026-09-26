@@ -121,7 +121,7 @@ required and must never place a full tile past `regionEnd`.
 | `ableton_device_parameters_inspect` | Inspect a bounded page of parameters on an exact top-level device. | `read` | `read` | `long` | Track/device identity, `offset`, `limit` |
 | `ableton_rack_chains_inspect` | Inspect direct chains of an exact top-level rack without recursive expansion. | `read` | `read` | `short` | Track/rack identity, `offset`, `limit` |
 | `ableton_rack_chain_devices_inspect` | Inspect direct devices in an exact rack chain. | `read` | `read` | `short` | Track/rack/chain identity, `offset`, `limit` |
-| `ableton_drum_rack_pads_inspect` | Inspect a bounded page of pads on an exact top-level Drum Rack. | `read` | `read` | `short` | Track/Drum Rack identity, `offset`, `limit` |
+| `ableton_drum_rack_pads_inspect` | Inspect occupied pads on an exact top-level Drum Rack by default, or an explicitly requested bounded page including empty pads. | `read` | `read` | `short` | Track/Drum Rack identity, `includeEmpty`, `offset`, `limit` |
 | `ableton_drum_pad_chains_inspect` | Inspect direct chains for an exact Drum Rack pad. | `read` | `read` | `short` | Track/rack/pad identity, `offset`, `limit` |
 | `ableton_drum_pad_chain_devices_inspect` | Inspect direct devices in an exact Drum Rack pad chain. | `read` | `read` | `short` | Track/rack/pad/chain identity, `offset`, `limit` |
 | `ableton_device_set_enabled` | Enable or disable an exact top-level device through its Device On parameter. | `reversible` | `track` | `short` | Track/device identity, `enabled` |
@@ -129,7 +129,10 @@ required and must never place a full tile past `regionEnd`.
 
 Device inspection is intentionally bounded and non-recursive. Nested rack
 contents are reached through the rack-, chain-, pad-, and device-specific
-inspection tools.
+inspection tools. Drum Rack pad inspection scans the bounded 128-pad map and
+returns only occupied pads by default, with total/occupied/empty counts.
+`includeEmpty: true` preserves paginated diagnostic access to the complete pad
+map.
 
 ## Ableton Browser and content loading
 

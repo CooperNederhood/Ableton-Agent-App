@@ -939,6 +939,81 @@ function services() {
 }
 
 describe("Ableton tools", () => {
+  it("returns only occupied Drum Rack pads by default", async () => {
+    const ports = services();
+    const pads = Array.from({ length: 128 }, (_, index) => ({
+      reference: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      rackDeviceReference: "00000000-0000-4000-8000-000000000040",
+      index,
+      note: index,
+      name: index === 36 ? "Clap 707" : `Pad ${index}`,
+      mute: false,
+      solo: false,
+      chainCount: index === 36 ? 1 : 0,
+    }));
+    ports.inspectDrumRackPads.mockResolvedValue({
+      rack: {
+        reference: "00000000-0000-4000-8000-000000000040",
+        trackReference: "00000000-0000-4000-8000-000000000001",
+        trackIndex: 0,
+        index: 0,
+        name: "Drum Rack",
+        className: "DrumGroupDevice",
+        classDisplayName: "Drum Rack",
+        enabled: true,
+        parameterCount: 17,
+        canHaveChains: true,
+        canHaveDrumPads: true,
+      },
+      pads,
+      total: 128,
+      offset: 0,
+      limit: 128,
+    });
+    const tool = createAbletonTools(ports).tools[28];
+
+    const result = await tool?.handler?.(
+      {
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Drums",
+        deviceIndex: 0,
+        expectedDeviceReference: "00000000-0000-4000-8000-000000000040",
+        expectedDeviceName: "Drum Rack",
+        includeEmpty: false,
+        offset: 0,
+        limit: 32,
+      },
+      {
+        sessionId: "session",
+        toolCallId: "call",
+        toolName: "ableton_drum_rack_pads_inspect",
+        arguments: {},
+      },
+    );
+
+    expect(ports.inspectDrumRackPads).toHaveBeenCalledWith({
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000001",
+      expectedName: "Drums",
+      deviceIndex: 0,
+      expectedDeviceReference: "00000000-0000-4000-8000-000000000040",
+      expectedDeviceName: "Drum Rack",
+      offset: 0,
+      limit: 128,
+    });
+    expect(result).toMatchObject({
+      pads: [{ index: 36, note: 36, name: "Clap 707", chainCount: 1 }],
+      totalPadCount: 128,
+      occupiedPadCount: 1,
+      emptyPadCount: 127,
+      returnedPadCount: 1,
+      scanComplete: true,
+      includesEmptyPads: false,
+    });
+    expect(JSON.stringify(result).length).toBeLessThan(20 * 1024);
+  });
+
   it("blocks all project tools before transport calls while disconnected", async () => {
     const ports = services();
     ports.getConnectionStatus.mockResolvedValue({ state: "disconnected" });
@@ -1415,7 +1490,7 @@ describe("Ableton tools", () => {
       invocation,
     );
     await toolSet.tools[28].handler?.(
-      { ...deviceTarget, offset: 0, limit: 10 },
+      { ...deviceTarget, includeEmpty: true, offset: 0, limit: 10 },
       invocation,
     );
     const padTarget = {

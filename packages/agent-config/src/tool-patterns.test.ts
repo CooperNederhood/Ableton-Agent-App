@@ -33,7 +33,7 @@ describe("tool pattern resolution", () => {
     });
   });
 
-  it("expands a global wildcard across application and SDK tool sources", () => {
+  it("excludes explicit-only tools from wildcard patterns", () => {
     expect(
       resolveToolPatterns(
         ["*"],
@@ -44,15 +44,21 @@ describe("tool pattern resolution", () => {
           "ask_user",
           "task",
         ],
+        { wildcardExcludedTools: ["task"] },
       ),
     ).toEqual({
-      tools: [
-        "ableton_session_inspect",
-        "ask_user",
-        "read_plan",
-        "task",
-        "write_plan",
-      ],
+      tools: ["ableton_session_inspect", "ask_user", "read_plan", "write_plan"],
+      unmatchedPatterns: [],
+    });
+  });
+
+  it("still resolves an explicit orchestration tool", () => {
+    expect(
+      resolveToolPatterns(["*", "task"], ["ableton_session_inspect", "task"], {
+        wildcardExcludedTools: ["task"],
+      }),
+    ).toEqual({
+      tools: ["ableton_session_inspect", "task"],
       unmatchedPatterns: [],
     });
   });

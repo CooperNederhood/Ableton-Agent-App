@@ -82,14 +82,22 @@ tools:
 ```
 
 Patterns are expanded against the application tool catalog before creating the
-SDK session. The catalog contains Ableton tools, application-owned tools, and
-the approved session-isolated SDK built-ins, so `tools: ["*"]` grants all three
-groups. Unmatched patterns invalidate the definition. SDK built-ins are
-source-qualified when the session is configured; host-capable coding, shell,
-filesystem, and network tools are not in the catalog. The SDK `skill` built-in
-is always excluded, and SDK tool search is disabled rather than inserted as an
-implicit discovery tool. The application-owned `skill` tool is added
-independently only when the definition enables at least one skill.
+SDK session. The catalog contains Ableton tools, application-owned tools, the
+approved session-isolated SDK built-ins, and policy-gated `bash`.
+`tools: ["*"]` grants those ordinary capabilities but does not grant
+orchestration tools. `task`, `task_complete`, `read_agent`, `write_agent`,
+`list_agents`, `send_inbox`, and `context_board` are explicit-only: a
+definition must name them exactly. Unmatched patterns invalidate the
+definition. SDK built-ins are source-qualified when the session is configured.
+The SDK `skill` built-in is always excluded, and SDK tool search is disabled
+rather than inserted as an implicit discovery tool. The application-owned
+`skill` tool is added independently only when the definition enables at least
+one skill.
+
+`bash` is not a general host shell. The application automatically approves
+only a small read-only command grammar for partial inspection of SDK
+large-output spill files in the active profile. Other shell commands are
+rejected.
 
 ## Edit scopes
 

@@ -99,15 +99,17 @@ describe("desktop agent catalog", () => {
         "ableton_session_inspect",
         "read_plan",
         "ask_user",
+        "bash",
         "task",
       ],
+      wildcardExcludedTools: ["task"],
     });
 
     expect((await service.refresh()).definitions[0]?.resolvedTools).toEqual([
       "ableton_session_inspect",
       "ask_user",
+      "bash",
       "read_plan",
-      "task",
     ]);
   });
 

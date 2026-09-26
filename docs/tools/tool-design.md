@@ -94,6 +94,18 @@ Return two representations:
 Do not return enormous browser trees or parameter lists to the model. Support
 filtering, pagination, and targeted detail.
 
+Drum Rack pad inspection filters empty pads by default after one bounded
+128-pad bridge read and reports total, occupied, empty, returned, and
+scan-completeness metadata. Callers can explicitly request paginated empty-pad
+mapping for diagnostics. The complete bridge result remains available to
+bounded local observability while the model-facing result stays compact.
+
+The SDK may externalize other legitimate large results, including SQL query
+results. Those files live in profile-owned transient Copilot storage. Agents
+inspect them with policy-gated SDK `bash` commands such as `grep`, bounded
+`head`/`tail`, `wc`, or restricted `jq`; arbitrary host shell access remains
+denied.
+
 `set_sql_search` is the read-only agent surface for local Set History. It
 accepts one `SELECT` or CTE, rejects comments and mutation/administrative
 keywords and recursive CTEs, restricts sources to documented `agent_history_*`

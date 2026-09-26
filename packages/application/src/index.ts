@@ -166,6 +166,10 @@ import {
   type PlanArtifactPathResolver,
   type PlanArtifactWrite,
 } from "./plan-artifact.js";
+import {
+  evaluateSpillFileShellPermission,
+  prepareSpillDirectory,
+} from "./shell-policy.js";
 
 type SdkUserInputHandler = NonNullable<SessionConfig["onUserInputRequest"]>;
 type SdkUserInputRequest = Parameters<SdkUserInputHandler>[0];
@@ -642,6 +646,7 @@ export interface CopilotAgentServiceOptions {
   askForReadApproval?: boolean | (() => boolean);
   clientFactory?: () => CopilotClientAdapter;
   baseDirectory?: string;
+  largeOutputDirectory?: string;
   resolvePlanArtifactPaths?: PlanArtifactPathResolver;
   model?: string;
   reasoningEffort?: AgentReasoningEffort;
@@ -743,13 +748,24 @@ export function composeAgentTurnPrompt(
 }
 
 export const SKILL_TOOL_NAME = "skill";
+export const BASH_TOOL_NAME = "bash";
 const EXIT_PLAN_MODE_TOOL_NAME = "exit_plan_mode";
 const ASK_USER_TOOL_NAME = "ask_user";
 export const READ_PLAN_TOOL_NAME = "read_plan";
 export const WRITE_PLAN_TOOL_NAME = "write_plan";
-export const APPROVED_BUILTIN_TOOL_NAMES = BuiltInTools.Isolated.filter(
-  (name) => name !== SKILL_TOOL_NAME,
-);
+export const EXPLICIT_ONLY_BUILTIN_TOOL_NAMES = [
+  "task",
+  "task_complete",
+  "read_agent",
+  "write_agent",
+  "list_agents",
+  "send_inbox",
+  "context_board",
+] as const;
+export const APPROVED_BUILTIN_TOOL_NAMES = [
+  ...BuiltInTools.Isolated.filter((name) => name !== SKILL_TOOL_NAME),
+  BASH_TOOL_NAME,
+] as const;
 export const APPLICATION_TOOL_NAMES = [
   SKILL_TOOL_NAME,
   READ_PLAN_TOOL_NAME,
@@ -1413,10 +1429,13 @@ export class CopilotAgentService implements AgentService {
   readonly #states = new Map<string, ManagedSessionState>();
   readonly #lifecycleTails = new Map<string, Promise<void>>();
   readonly #planArtifacts: FilePlanArtifactStore;
+  readonly #largeOutputDirectory: string;
 
   public constructor(private readonly options: CopilotAgentServiceOptions) {
     this.#logger = options.logger ?? noopLogger;
     const storage = resolveLiveAgentStorage({ homeDirectory: homedir() });
+    this.#largeOutputDirectory =
+      options.largeOutputDirectory ?? storage.copilotToolOutputDirectory;
     this.#planArtifacts = new FilePlanArtifactStore(
       options.resolvePlanArtifactPaths ??
         (() => {
@@ -2477,12 +2496,21 @@ export class CopilotAgentService implements AgentService {
     const historyGuidance = configuredToolNames.includes("set_sql_search")
       ? "\n\nFor questions about prior Live Sets, saves, devices, clips, or agent trajectories, use set_sql_search against the local read-only Set History views. Treat it as historical evidence and inspect the current Live Set before acting."
       : "";
+    const shellGuidance = configuredToolNames.includes(BASH_TOOL_NAME)
+      ? "\n\nThe bash tool is restricted to bounded, read-only inspection of Copilot large-output spill files. Use grep, bounded head/tail, wc, or jq against the exact spill path returned by a tool. Do not attempt writes, network access, arbitrary filesystem reads, or command execution outside that purpose."
+      : "";
     const config: SessionConfig = {
       clientName: "ableton-agent-app",
       ...(model === undefined ? {} : { model }),
       ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
       reasoningSummary,
       streaming: true,
+      largeOutput: {
+        enabled: true,
+        maxSizeBytes: 20 * 1024,
+        outputDirectory: this.#largeOutputDirectory,
+      },
+      workingDirectory: this.#largeOutputDirectory,
       tools,
       availableTools: qualifyAvailableTools(configuredToolNames),
       toolSearch: { enabled: false },
@@ -2491,7 +2519,7 @@ export class CopilotAgentService implements AgentService {
           name: state.configuration.definitionName,
           displayName: state.configuration.label,
           description: state.configuration.description,
-          prompt: `${state.configuration.systemPrompt}${historyGuidance}`,
+          prompt: `${state.configuration.systemPrompt}${historyGuidance}${shellGuidance}`,
           infer: false,
         },
       ],
@@ -2506,7 +2534,13 @@ export class CopilotAgentService implements AgentService {
           invocation,
         });
         let result;
-        if (
+        const shellDecision = evaluateSpillFileShellPermission(
+          request,
+          this.#largeOutputDirectory,
+        );
+        if (shellDecision !== undefined) {
+          result = shellDecision;
+        } else if (
           request.kind === "custom-tool" &&
           [SKILL_TOOL_NAME, READ_PLAN_TOOL_NAME, WRITE_PLAN_TOOL_NAME].includes(
             request.toolName,
@@ -2676,6 +2710,8 @@ export class CopilotAgentService implements AgentService {
         reasoningEffort: config.reasoningEffort,
         reasoningSummary: config.reasoningSummary,
         streaming: config.streaming,
+        largeOutput: config.largeOutput,
+        workingDirectory: config.workingDirectory,
         tools: tools.map((tool) => ({
           name: tool.name,
           description: tool.description,
@@ -3490,6 +3526,26 @@ export class CopilotAgentService implements AgentService {
         this.#defaultSessionConfiguration(),
         false,
       );
+      const spillPreparationStartedAt = Date.now();
+      this.#recordRuntime(state, "agent.large_output_storage.queued", {
+        outputDirectory: this.#largeOutputDirectory,
+      });
+      this.#recordRuntime(state, "agent.large_output_storage.started", {
+        outputDirectory: this.#largeOutputDirectory,
+      });
+      try {
+        const preparation = prepareSpillDirectory(this.#largeOutputDirectory);
+        this.#recordRuntime(state, "agent.large_output_storage.completed", {
+          ...preparation,
+          durationMs: Date.now() - spillPreparationStartedAt,
+        });
+      } catch (error) {
+        this.#recordRuntime(state, "agent.large_output_storage.failed", {
+          durationMs: Date.now() - spillPreparationStartedAt,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
       let session: CopilotSessionAdapter;
       if (preferredSessionId === undefined) {
         session = await this.#connectCreatedState(state);

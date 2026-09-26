@@ -189,6 +189,7 @@ async function loadAgents(
   agentsDirectory: string,
   availableTools: readonly string[],
   skills: readonly LoadedSkill[],
+  wildcardExcludedTools: readonly string[] = [],
 ): Promise<{
   agents: LoadedAgentDefinition[];
   diagnostics: DefinitionDiagnostic[];
@@ -236,7 +237,9 @@ async function loadAgents(
         );
         continue;
       }
-      const resolution = resolveToolPatterns(definition.tools, availableTools);
+      const resolution = resolveToolPatterns(definition.tools, availableTools, {
+        wildcardExcludedTools,
+      });
       if (resolution.unmatchedPatterns.length > 0) {
         diagnostics.push(
           diagnostic(
@@ -296,6 +299,7 @@ export async function loadAgentCatalog(options: {
   readonly agentsDirectory: string;
   readonly skillsDirectory: string;
   readonly availableTools: readonly string[];
+  readonly wildcardExcludedTools?: readonly string[];
 }): Promise<AgentCatalog> {
   const loadedSkills = await loadSkills(options.skillsDirectory);
   const deduplicatedSkills = removeDuplicates(
@@ -308,6 +312,7 @@ export async function loadAgentCatalog(options: {
     options.agentsDirectory,
     options.availableTools,
     deduplicatedSkills.unique,
+    options.wildcardExcludedTools,
   );
   const deduplicatedAgents = removeDuplicates(
     loadedAgents.agents,
@@ -465,6 +470,7 @@ export async function loadLayeredAgentCatalog(options: {
   readonly project?: ArtifactLayerDirectories;
   readonly session?: ArtifactLayerDirectories;
   readonly availableTools: readonly string[];
+  readonly wildcardExcludedTools?: readonly string[];
 }): Promise<LayeredAgentCatalog> {
   const layers = (
     [
@@ -506,6 +512,7 @@ export async function loadLayeredAgentCatalog(options: {
         layer.agentsDirectory,
         options.availableTools,
         allSkills,
+        options.wildcardExcludedTools,
       );
       const deduplicated = removeDuplicates(
         loaded.agents,

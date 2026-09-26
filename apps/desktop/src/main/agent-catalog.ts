@@ -22,6 +22,7 @@ export interface AgentCatalogOptions {
   readonly agentsDirectory: string;
   readonly skillsDirectory: string;
   readonly availableTools: readonly string[];
+  readonly wildcardExcludedTools?: readonly string[];
   readonly storage?: LiveAgentStorageLayout;
   readonly resolveSessionOwnership?: (
     sessionId: string,
@@ -97,6 +98,11 @@ export class AgentCatalogService {
             agentsDirectory: this.options.agentsDirectory,
             skillsDirectory: this.options.skillsDirectory,
             availableTools: this.options.availableTools,
+            ...(this.options.wildcardExcludedTools === undefined
+              ? {}
+              : {
+                  wildcardExcludedTools: this.options.wildcardExcludedTools,
+                }),
           })
         : await this.#loadScopedCatalog(sessionId);
     this.#runtimeSkills = loaded.skills.map((skill) => ({
@@ -123,6 +129,11 @@ export class AgentCatalogService {
             agentsDirectory: this.options.agentsDirectory,
             skillsDirectory: this.options.skillsDirectory,
             availableTools: this.options.availableTools,
+            ...(this.options.wildcardExcludedTools === undefined
+              ? {}
+              : {
+                  wildcardExcludedTools: this.options.wildcardExcludedTools,
+                }),
           })
         : await this.#loadScopedCatalog(sessionId);
     const skill = loaded.skills.find(({ metadata }) => metadata.name === name);
@@ -192,6 +203,9 @@ export class AgentCatalogService {
             },
           }),
       availableTools: this.options.availableTools,
+      ...(this.options.wildcardExcludedTools === undefined
+        ? {}
+        : { wildcardExcludedTools: this.options.wildcardExcludedTools }),
     });
   }
 }

@@ -1304,7 +1304,7 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
   });
   const browserTool = defineTool("ableton_browser", {
     description:
-      "Inspects, traverses, searches, and loads exact identity-bound Ableton Browser items through strict action variants.",
+      "Inspects, traverses, searches, and loads exact identity-bound Ableton Browser items through strict action variants. For load-item, first inspect the destination track and call roots, children, or search; then copy the selected result's reference, root, path, name, and uri into expectedItemReference, expectedItemRoot, expectedItemPath, expectedItemName, and expectedItemUri. Copy the inspected track's index, reference, and name into index, expectedReference, and expectedName. Never invent or omit identity fields.",
     parameters: abletonBrowserParamsSchema,
     handler: async (params) => {
       switch (params.action) {

@@ -1427,6 +1427,46 @@ describe("Ableton tools", () => {
     expect(ports.fillArrangementRegion).not.toHaveBeenCalled();
   });
 
+  it("describes the exact Browser load identity handoff to the agent", () => {
+    const parameters = toolByName(
+      createAbletonTools(services()),
+      "ableton_browser",
+    ).parameters as { toJSONSchema(): Record<string, unknown> };
+    const schema = parameters.toJSONSchema();
+    const loadBranch = (schema.oneOf as Record<string, unknown>[]).find(
+      (branch) =>
+        (branch.properties as Record<string, Record<string, unknown>>).action
+          ?.const === "load-item",
+    );
+    const properties = loadBranch?.properties as
+      Record<string, Record<string, unknown>> | undefined;
+
+    expect(loadBranch?.required).toEqual(
+      expect.arrayContaining([
+        "action",
+        "index",
+        "expectedReference",
+        "expectedName",
+        "expectedItemReference",
+        "expectedItemRoot",
+        "expectedItemPath",
+        "expectedItemName",
+        "expectedItemUri",
+      ]),
+    );
+    expect(loadBranch?.description).toContain(
+      "copy all track and item identity fields verbatim",
+    );
+    expect(properties?.expectedReference?.description).toContain(
+      "destination track reference",
+    );
+    expect(properties?.expectedItemReference?.description).toContain(
+      "item.reference",
+    );
+    expect(properties?.expectedItemPath?.description).toContain("item.path");
+    expect(properties?.expectedItemUri?.description).toContain("item.uri");
+  });
+
   it("adds structural JSON Schema for hidden runtime constraints", () => {
     const tool = (
       createAbletonTools(services()).tools as unknown as readonly Tool[]

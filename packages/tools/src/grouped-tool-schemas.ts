@@ -270,10 +270,40 @@ export const browserSearchExternalPluginsParamsSchema =
   searchBrowserParamsSchema.omit({ roots: true }).safeExtend({
     action: z.literal("search-external-plugins"),
   });
-export const browserLoadItemParamsSchema =
-  loadBrowserItemParamsSchema.safeExtend({
-    action: z.literal("load-item"),
-  });
+const browserLoadItemShape = loadBrowserItemParamsSchema.shape;
+export const browserLoadItemParamsSchema = loadBrowserItemParamsSchema
+  .safeExtend({
+    index: browserLoadItemShape.index.describe(
+      "Copy the zero-based regular track index from a recent ableton_session inspect or ableton_tracks get/list result.",
+    ),
+    expectedReference: browserLoadItemShape.expectedReference.describe(
+      "Copy the destination track reference verbatim from the same recent track inspection.",
+    ),
+    expectedName: browserLoadItemShape.expectedName.describe(
+      "Copy the destination track name verbatim from the same recent track inspection.",
+    ),
+    expectedItemReference: browserLoadItemShape.expectedItemReference.describe(
+      "Copy item.reference verbatim from a recent ableton_browser roots, children, or search result.",
+    ),
+    expectedItemRoot: browserLoadItemShape.expectedItemRoot.describe(
+      "Copy item.root verbatim from the selected Browser result.",
+    ),
+    expectedItemPath: browserLoadItemShape.expectedItemPath.describe(
+      "Copy item.path verbatim from the selected Browser result, preserving every segment index and name.",
+    ),
+    expectedItemName: browserLoadItemShape.expectedItemName.describe(
+      "Copy item.name verbatim from the selected Browser result.",
+    ),
+    expectedItemUri: browserLoadItemShape.expectedItemUri.describe(
+      "Copy item.uri verbatim from the selected Browser result; use an empty string only when that result returned an empty URI.",
+    ),
+    action: z
+      .literal("load-item")
+      .describe("Load one exact item selected from a prior Browser result."),
+  })
+  .describe(
+    "Load one exact supported Browser item onto one exact regular track. Inspect the track and search or traverse the Browser first, then copy all track and item identity fields verbatim; never invent or omit identity values.",
+  );
 export const abletonBrowserParamsSchema = z.discriminatedUnion("action", [
   browserRootsParamsSchema,
   browserChildrenParamsSchema,

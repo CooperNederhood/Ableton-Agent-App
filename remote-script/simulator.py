@@ -185,11 +185,11 @@ class SimulatorState(object):
                 "index": 0,
                 "reference": str(uuid.uuid4()),
                 "name": "Swing 16-66",
-                "base": 0.25,
-                "quantizationAmount": 1.0,
-                "timingAmount": 1.0,
+                "base": 3,
+                "quantizationAmount": 0.0,
+                "timingAmount": 100.0,
                 "randomAmount": 0.0,
-                "velocityAmount": 1.0,
+                "velocityAmount": 100.0,
             }
         ]
         self.selected_track_reference = self.tracks[0]["reference"]

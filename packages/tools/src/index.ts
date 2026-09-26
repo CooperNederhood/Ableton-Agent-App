@@ -154,6 +154,7 @@ import { z, type ZodType } from "zod";
 import type { MutationTarget } from "./mutation-policy.js";
 import {
   abletonOperationDescriptors,
+  getAbletonOperationDescriptorForAction,
   resolveAbletonOperation,
   type AbletonOperationEditScope,
   type AbletonOperationLifecycleIdentity,
@@ -171,8 +172,13 @@ import {
   type SetHistoryQueryService,
   type SetSqlParameters,
 } from "./set-sql-search.js";
+import {
+  abletonToolArgumentError,
+  agentFacingParameters,
+} from "./argument-validation.js";
 
 export * from "./set-sql-search.js";
+export * from "./argument-validation.js";
 
 export type ToolRisk = "read" | "reversible" | "destructive" | "broad";
 export type ToolDuration = "instant" | "short" | "long";
@@ -409,14 +415,6 @@ export const abletonToolMetadata = [
     duration: "short",
     mutationTarget: "session",
     requiredCapability: "tracks.create",
-  },
-  {
-    name: "ableton_tracks_delete",
-    title: "Delete Ableton track",
-    risk: "destructive",
-    duration: "short",
-    mutationTarget: "track",
-    requiredCapability: "tracks.delete",
   },
   {
     name: "ableton_tracks_rename",
@@ -679,8 +677,37 @@ export function resolveAbletonToolMetadata(
   toolName: string,
   args: unknown,
 ): AbletonToolMetadata | undefined {
-  const operation = resolveAbletonOperation(toolName, args);
+  let operation;
+  try {
+    operation = resolveAbletonOperation(toolName, args);
+  } catch {
+    operation = undefined;
+  }
   if (operation !== undefined) return operation.metadata;
+  const action =
+    args !== null &&
+    typeof args === "object" &&
+    !Array.isArray(args) &&
+    typeof Reflect.get(args, "action") === "string"
+      ? String(Reflect.get(args, "action"))
+      : undefined;
+  const descriptor =
+    action === undefined
+      ? undefined
+      : getAbletonOperationDescriptorForAction(toolName, action);
+  if (descriptor !== undefined) {
+    return {
+      name: descriptor.toolName,
+      title: descriptor.title,
+      risk: descriptor.risk,
+      duration: descriptor.duration,
+      mutationTarget: descriptor.mutationTarget,
+      requiredCapability: descriptor.requiredCapability,
+      operationId: descriptor.operationId,
+      action: descriptor.action,
+      editScope: descriptor.editScope,
+    };
+  }
   return abletonToolMetadata.find((candidate) => candidate.name === toolName);
 }
 
@@ -715,6 +742,28 @@ export function createAbletonPermissionHandler(
     );
     if (!metadata) {
       return { kind: "reject", feedback: "Unknown Ableton tool" };
+    }
+    const actionDescriptor =
+      typeof metadata.action === "string"
+        ? getAbletonOperationDescriptorForAction(
+            request.toolName,
+            metadata.action,
+          )
+        : undefined;
+    if (actionDescriptor !== undefined) {
+      const parsed = actionDescriptor.inputSchema.safeParse(request.args ?? {});
+      if (!parsed.success) {
+        const missingTarget = parsed.error.issues.some(
+          (issue) => issue.path[0] === "target",
+        );
+        return {
+          kind: "reject",
+          feedback:
+            missingTarget && requiresExplicitTarget(metadata.risk)
+              ? "Destructive and broad operations require explicit target arguments"
+              : "Invalid Ableton tool arguments",
+        };
+      }
     }
     if (
       requiresExplicitTarget(metadata.risk) &&
@@ -828,14 +877,10 @@ export const toolCatalogPolicy = {
   maximumEagerTools: 64,
 } as const;
 
-/**
- * Exact-name compatibility aliases are intentionally explicit. A name belongs
- * here only after its handler has been migrated to the same canonical
- * operation descriptor and protocol route.
- */
-export const abletonCompatibilityAliases = {
-  ableton_tracks_delete: "tracks.delete",
-} as const satisfies Readonly<Record<string, string>>;
+export const abletonCompatibilityAliases = {} as const satisfies Readonly<
+  Record<string, string>
+>;
+export const deprecatedAbletonToolNames = ["ableton_tracks_delete"] as const;
 
 export class AbletonToolPreconditionError extends Error {
   public readonly code: string;
@@ -1030,7 +1075,7 @@ export function parseAbletonToolFailure(
   }
 }
 
-function failureToolResult(error: unknown): ToolResultObject {
+export function failureToolResult(error: unknown): ToolResultObject {
   const payload = abletonToolFailurePayload(error);
   const serialized = `${abletonToolFailurePrefix}${JSON.stringify(payload)}`;
   const details = Object.keys(payload.details).length
@@ -1046,10 +1091,25 @@ function failureToolResult(error: unknown): ToolResultObject {
 
 function withStructuredFailures<T>(tool: Tool<T>): Tool<T> {
   const handler = tool.handler;
-  if (handler === undefined) return tool;
+  const parameters = agentFacingParameters(tool.name, tool.parameters);
+  const configuredTool =
+    parameters === undefined ? tool : { ...tool, parameters };
+  if (handler === undefined) return configuredTool;
   return {
-    ...tool,
+    ...configuredTool,
     handler: async (params, invocation) => {
+      const suppliedArguments =
+        Reflect.get(invocation, "__abletonArgumentsValidated") === true
+          ? invocation.arguments
+          : params;
+      const argumentError = abletonToolArgumentError(
+        tool.name,
+        parameters,
+        suppliedArguments,
+      );
+      if (argumentError !== undefined) {
+        return failureToolResult(argumentError);
+      }
       try {
         return await handler(params, invocation);
       } catch (error) {
@@ -1407,6 +1467,9 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
           length: z.number().finite().positive().max(1576800).optional(),
         })
         .strict()
+        .describe(
+          "At least one loop property is required; start plus length must not exceed 1576800 beats",
+        )
         .refine(
           (params) =>
             params.enabled !== undefined ||
@@ -1460,7 +1523,7 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
   });
   const deleteTrackTool = defineTool("ableton_tracks_delete", {
     description:
-      "Deletes a track by zero-based index after approval. Refuses to delete the last remaining track.",
+      "Deprecated internal implementation. Use ableton_tracks with action 'delete'.",
     parameters: z
       .object({
         index: z.number().int().nonnegative(),
@@ -1499,6 +1562,7 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
         pan: z.number().min(-1).max(1).optional(),
       })
       .strict()
+      .describe("At least one track mixer property is required")
       .refine(
         (params) =>
           params.isMuted !== undefined ||
@@ -1616,6 +1680,7 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
           looping: z.boolean().optional(),
         })
         .strict()
+        .describe("At least one clip property is required")
         .refine(
           (params) =>
             params.name !== undefined ||
@@ -1641,6 +1706,7 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
           name: z.string().trim().min(1).max(128).optional(),
         })
         .strict()
+        .describe("startTime plus length must not exceed 1576800 beats")
         .refine((params) => params.startTime + params.length <= 1576800, {
           message: "Arrangement clip end exceeds Live's maximum time",
         }),
@@ -1740,6 +1806,7 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
           regionEnd: z.number().positive().max(1576800),
         })
         .strict()
+        .describe("regionEnd must be greater than regionStart")
         .refine((params) => params.regionEnd > params.regionStart, {
           message: "regionEnd must be greater than regionStart",
           path: ["regionEnd"],
@@ -1764,6 +1831,7 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
           looping: z.boolean().optional(),
         })
         .strict()
+        .describe("At least one clip property is required")
         .refine(
           (params) =>
             params.name !== undefined ||
@@ -2049,6 +2117,7 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
           limit: z.number().int().min(1).max(64).default(32),
         })
         .strict()
+        .describe("offset plus limit minus one must not exceed 4096")
         .refine((params) => params.offset + params.limit - 1 <= 4096, {
           message: "Browser page exceeds the maximum addressable child index",
         }),
@@ -2080,6 +2149,7 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
           )
           .min(1)
           .max(12)
+          .describe("Browser roots must be unique")
           .refine((roots) => new Set(roots).size === roots.length)
           .default(["instruments", "audio_effects", "midi_effects"]),
         maxNodes: z.number().int().min(1).max(256).default(128),
@@ -2233,7 +2303,28 @@ export function scopeAbletonTools(
               ...ZodType[],
             ],
           );
-    return [{ ...tool, parameters }];
+    const scopedParameters = agentFacingParameters(tool.name, parameters);
+    if (scopedParameters === undefined) return [tool];
+    if (tool.handler === undefined) {
+      return [{ ...tool, parameters: scopedParameters }];
+    }
+    const handler = tool.handler;
+    return [
+      {
+        ...tool,
+        parameters: scopedParameters,
+        handler: async (params, invocation) => {
+          const argumentError = abletonToolArgumentError(
+            tool.name,
+            scopedParameters,
+            params,
+          );
+          return argumentError === undefined
+            ? handler(params, invocation)
+            : failureToolResult(argumentError);
+        },
+      },
+    ];
   });
 }
 

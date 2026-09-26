@@ -12,7 +12,7 @@
     "ableton_arrangement_inspect",
     "ableton_arrangement_delete_clip",
     "ableton_clips_delete",
-    "ableton_tracks_delete"
+    "ableton_tracks"
   ],
   "allowedRisks": ["read", "reversible", "destructive"],
   "maxToolCalls": 12,
@@ -41,7 +41,7 @@
     },
     {
       "before": "ableton_clips_delete",
-      "after": "ableton_tracks_delete"
+      "after": "ableton_tracks"
     }
   ],
   "trackNameSuffixes": ["Track"],

@@ -418,6 +418,28 @@ export class ScenarioApprovalController {
     toolName: string,
     args: Readonly<Record<string, unknown>>,
   ): boolean {
+    const trackDeleteTarget =
+      toolName === "ableton_tracks" &&
+      args.action === "delete" &&
+      args.target !== null &&
+      typeof args.target === "object" &&
+      !Array.isArray(args.target)
+        ? (args.target as Readonly<Record<string, unknown>>)
+        : undefined;
+    const requiresCanonicalTrackDelete = this.context.manifest.assertions.some(
+      (assertion) =>
+        assertion.type === "track-lifecycle" ||
+        assertion.type === "session-clip-lifecycle" ||
+        assertion.type === "arrangement-clip-lifecycle" ||
+        assertion.type === "arrangement-region-fill-lifecycle",
+    );
+    if (
+      requiresCanonicalTrackDelete &&
+      toolName === "ableton_tracks" &&
+      trackDeleteTarget === undefined
+    ) {
+      return false;
+    }
     const lifecycle = this.context.manifest.assertions.find(
       (assertion) => assertion.type === "track-lifecycle",
     );
@@ -446,9 +468,9 @@ export class ScenarioApprovalController {
         return false;
       }
       if (
-        toolName === "ableton_tracks_delete" &&
-        (args.expectedName !== finalName ||
-          args.expectedKind !== lifecycle.trackKind)
+        trackDeleteTarget !== undefined &&
+        (trackDeleteTarget.kind !== "regular" ||
+          trackDeleteTarget.expectedName !== finalName)
       ) {
         return false;
       }
@@ -516,8 +538,9 @@ export class ScenarioApprovalController {
         return false;
       }
       if (
-        toolName === "ableton_tracks_delete" &&
-        (args.expectedName !== trackName || args.expectedKind !== "midi")
+        trackDeleteTarget !== undefined &&
+        (trackDeleteTarget.kind !== "regular" ||
+          trackDeleteTarget.expectedName !== trackName)
       ) {
         return false;
       }
@@ -573,8 +596,9 @@ export class ScenarioApprovalController {
             (args.expectedName !== trackName ||
               args.sceneIndex !==
                 arrangementRegionFillLifecycle.sourceSceneIndex)) ||
-          (toolName === "ableton_tracks_delete" &&
-            (args.expectedName !== trackName || args.expectedKind !== "midi"))
+          (trackDeleteTarget !== undefined &&
+            (trackDeleteTarget.kind !== "regular" ||
+              trackDeleteTarget.expectedName !== trackName))
         ) {
           return false;
         }
@@ -604,8 +628,9 @@ export class ScenarioApprovalController {
         return false;
       }
       if (
-        toolName === "ableton_tracks_delete" &&
-        (args.expectedName !== trackName || args.expectedKind !== "midi")
+        trackDeleteTarget !== undefined &&
+        (trackDeleteTarget.kind !== "regular" ||
+          trackDeleteTarget.expectedName !== trackName)
       ) {
         return false;
       }
@@ -764,10 +789,7 @@ export async function verifyScenario(
           "ableton_tracks_set_mixer",
           { expectedName: finalName, ...assertion.mixer },
         ],
-        [
-          "ableton_tracks_delete",
-          { expectedName: finalName, expectedKind: assertion.trackKind },
-        ],
+        ["ableton_tracks", { action: "delete" }],
       ] as const;
       const callEvidence = expectedCalls.map(([toolName, expected]) => {
         const matches = context.approvals.decisions.filter(
@@ -777,7 +799,16 @@ export async function verifyScenario(
             Object.entries(expected).every(
               ([key, value]) =>
                 (decision.arguments as Record<string, unknown>)[key] === value,
-            ),
+            ) &&
+            (toolName !== "ableton_tracks" ||
+              ((decision.arguments as Record<string, unknown>).target !==
+                null &&
+                typeof (decision.arguments as Record<string, unknown>)
+                  .target === "object" &&
+                (
+                  (decision.arguments as Record<string, unknown>)
+                    .target as Record<string, unknown>
+                ).expectedName === finalName)),
         );
         return { toolName, matches: matches.length };
       });
@@ -814,7 +845,7 @@ export async function verifyScenario(
         ["ableton_clips_launch", 1],
         ["ableton_transport_set_playing", 1],
         ["ableton_clips_delete", 2],
-        ["ableton_tracks_delete", 1],
+        ["ableton_tracks", 1],
       ] as const;
       const callEvidence = expectedCalls.map(([toolName, count]) => ({
         toolName,
@@ -857,7 +888,7 @@ export async function verifyScenario(
         ["ableton_arrangement_inspect", 1],
         ["ableton_arrangement_delete_clip", 1],
         ["ableton_clips_delete", 1],
-        ["ableton_tracks_delete", 1],
+        ["ableton_tracks", 1],
       ] as const;
       const callEvidence = expectedCalls.map(([toolName, count]) => ({
         toolName,
@@ -902,7 +933,7 @@ export async function verifyScenario(
         ["ableton_arrangement_inspect", 1],
         ["ableton_arrangement_delete_clip", assertion.expectedTileCount],
         ["ableton_clips_delete", 1],
-        ["ableton_tracks_delete", 1],
+        ["ableton_tracks", 1],
       ] as const;
       const callEvidence = expectedCalls.map(([toolName, count]) => ({
         toolName,

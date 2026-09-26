@@ -86,10 +86,10 @@ tools:
 Operation patterns compile to their canonical grouped domain tool with a
 pruned strict action schema. Connected capability flags remove unsupported
 actions before the SDK session is created; bridge execution remains
-fail-closed if capabilities later change. Tool-name wildcards omit deprecated
-compatibility aliases and route any matching migrated alias to its canonical
-operation. An exact legacy alias remains available only when the definition
-names it exactly. Unmatched patterns invalidate the definition. Permission
+fail-closed if capabilities later change. Superseded direct names are not
+registered as compatibility aliases: wildcard and exact references to a
+removed name are unmatched and invalidate the definition. Use the canonical
+operation ID, such as `tracks.delete`, or the grouped tool name. Permission
 policy rechecks both the resolved tool and operation allowlists. The
 application-owned `skill` tool is added independently when the definition
 enables at least one skill.

@@ -3,9 +3,11 @@ import type { ConnectionStatus } from "@ableton-agent/shared";
 import type { Tool } from "@github/copilot-sdk";
 
 import {
+  abletonAgentSemanticPreconditions,
   abletonToolMetadata,
   createAbletonPermissionHandler,
   createAbletonTools,
+  deprecatedAbletonToolNames,
   parseAbletonToolFailure,
   resolveAbletonOperation,
   scopeAbletonTools,
@@ -1141,11 +1143,101 @@ describe("Ableton tools", () => {
     expect(String(parsed?.details.oversized)).toContain("[TRUNCATED]");
   });
 
+  it("returns retryable corrective guidance for invalid grouped arguments", async () => {
+    const ports = services();
+    const tool = (
+      createAbletonTools(ports).tools as unknown as readonly Tool[]
+    ).find((candidate) => candidate.name === "ableton_live_history");
+    const supplied = { action: "undo" };
+    const result = await tool?.handler?.(supplied, {
+      sessionId: "session",
+      toolCallId: "invalid-history",
+      toolName: "ableton_live_history",
+      arguments: supplied,
+    });
+    const failureResult = result as
+      { resultType?: string; error?: string } | undefined;
+    const parsed = parseAbletonToolFailure(failureResult?.error);
+
+    expect(parsed).toMatchObject({
+      code: "invalid_tool_arguments",
+      retryable: true,
+      details: {
+        toolName: "ableton_live_history",
+        suppliedAction: "undo",
+        validActions: ["inspect", "redo", "undo"],
+        expectedShape: {
+          required: ["action", "confirmation"],
+          literals: {
+            action: "undo",
+            confirmation: "global-live-history",
+          },
+        },
+      },
+    });
+    expect(ports.getConnectionStatus).not.toHaveBeenCalled();
+  });
+
+  it("adds structural JSON Schema for hidden runtime constraints", () => {
+    const tool = (
+      createAbletonTools(services()).tools as unknown as readonly Tool[]
+    ).find((candidate) => candidate.name === "ableton_recording");
+    const schema = (
+      tool?.parameters as { toJSONSchema(): Record<string, unknown> }
+    ).toJSONSchema();
+    const serialized = JSON.stringify(schema);
+    const properties = schema.properties as Record<string, unknown>;
+    const action = properties.action as Record<string, unknown>;
+
+    expect(schema.type).toBe("object");
+    expect(action.type).toBe("string");
+    expect(action.enum).toEqual(
+      expect.arrayContaining(["inspect", "set-punch"]),
+    );
+    expect(schema.required).toEqual(["action"]);
+    expect(Array.isArray(schema.oneOf)).toBe(true);
+    expect(serialized).toContain('"const":"set-punch"');
+    expect(serialized).toContain('"required":["punchIn"]');
+    expect(serialized).toContain('"required":["punchOut"]');
+    expect(serialized).toContain('"const":"record-session-slot"');
+    expect(serialized).toContain('"kind":{"type":"string","const":"regular"}');
+    expect(serialized).toContain(
+      '"expectedHasClip":{"type":"boolean","const":false}',
+    );
+    expect(serialized).toContain('"required":["expectedClipReference"]');
+    expect(serialized).toContain('"required":["expectedClipName"]');
+    expect(serialized).not.toContain('"enum":["regular","return","master"]');
+  });
+
+  it("documents every classified semantic precondition in the wire schema", () => {
+    const toolSet = createAbletonTools(services());
+    const tools = toolSet.tools as unknown as readonly Tool[];
+
+    for (const rule of abletonAgentSemanticPreconditions) {
+      const tool = tools.find((candidate) => candidate.name === rule.toolName);
+      expect(tool, rule.toolName).toBeDefined();
+      const schema = (
+        tool?.parameters as { toJSONSchema(): Record<string, unknown> }
+      ).toJSONSchema();
+      expect(JSON.stringify(schema), rule.toolName).toContain(rule.description);
+    }
+  });
+
   it("defines complete metadata for every registered tool", () => {
     const toolSet = createAbletonTools(services());
 
-    expect(toolSet.tools.map((tool) => tool.name)).toEqual(
-      abletonToolMetadata.map((metadata) => metadata.name),
+    expect(
+      toolSet.tools
+        .map((tool) => tool.name)
+        .filter(
+          (name) =>
+            !deprecatedAbletonToolNames.includes(
+              name as (typeof deprecatedAbletonToolNames)[number],
+            ),
+        ),
+    ).toEqual(abletonToolMetadata.map((metadata) => metadata.name));
+    expect(toolSet.availableTools).not.toContain(
+      "custom:ableton_tracks_delete",
     );
     expect(toolSet.availableTools).toEqual([
       "custom:ableton_connection_status",
@@ -1157,7 +1249,6 @@ describe("Ableton tools", () => {
       "custom:ableton_transport_create_cue_point",
       "custom:ableton_transport_delete_cue_point",
       "custom:ableton_tracks_create",
-      "custom:ableton_tracks_delete",
       "custom:ableton_tracks_rename",
       "custom:ableton_tracks_set_mixer",
       "custom:ableton_clips_create_midi",
@@ -1288,19 +1379,21 @@ describe("Ableton tools", () => {
 
   it("prunes grouped tool actions by operation allowlist and capabilities", () => {
     const scoped = scopeAbletonTools(createAbletonTools(services()), {
-      allowedToolNames: ["ableton_recording", "ableton_tracks_delete"],
+      allowedToolNames: ["ableton_recording", "ableton_tracks"],
       allowedOperationIds: [
         "recording.inspect",
         "recording.set_arrangement_record",
+        "tracks.delete",
       ],
       capabilities: {
         "recording.inspect": true,
         "recording.set_arrangement_record": false,
+        "tracks.delete": true,
       },
     });
 
     expect(scoped.map((tool) => tool.name)).toEqual([
-      "ableton_tracks_delete",
+      "ableton_tracks",
       "ableton_recording",
     ]);
     const recording = scoped.find((tool) => tool.name === "ableton_recording");
@@ -1318,6 +1411,22 @@ describe("Ableton tools", () => {
         },
       }).success,
     ).toBe(false);
+    const tracks = scoped.find((tool) => tool.name === "ableton_tracks");
+    const trackParameters = tracks?.parameters as {
+      safeParse(value: unknown): { success: boolean };
+    };
+    expect(
+      trackParameters.safeParse({
+        action: "delete",
+        target: {
+          kind: "regular",
+          index: 0,
+          expectedReference: "00000000-0000-4000-8000-000000000001",
+          expectedName: "Drums",
+        },
+      }).success,
+    ).toBe(true);
+    expect(trackParameters.safeParse({ action: "list" }).success).toBe(false);
   });
 
   it("fails closed when a connected capability document omits an action", () => {
@@ -2160,9 +2269,9 @@ describe("Ableton tools", () => {
 
   it("does not start a Set History query after cancellation", async () => {
     const ports = services();
-    const tool = (
-      createAbletonTools(ports).tools as readonly Tool[]
-    ).find((candidate) => candidate.name === "set_sql_search")!;
+    const tool = (createAbletonTools(ports).tools as readonly Tool[]).find(
+      (candidate) => candidate.name === "set_sql_search",
+    )!;
     const controller = new AbortController();
     controller.abort();
 
@@ -2187,9 +2296,9 @@ describe("Ableton tools", () => {
     const result = await permission(
       {
         kind: "custom-tool",
-        toolName: "ableton_tracks_delete",
-        toolDescription: "Delete a track",
-        args: {},
+        toolName: "ableton_tracks",
+        toolDescription: "Track operations",
+        args: { action: "delete" },
       },
       { sessionId: "session", managedSettingsEnabled: false },
     );

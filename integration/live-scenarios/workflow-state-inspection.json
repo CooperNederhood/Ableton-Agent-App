@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "id": "workflow-state-inspection",
   "group": "inspection",
-  "prompt": "Inspect Live 11 recording state, the bounded Groove Pool, exact current selection and view state, global undo/redo availability, and the bounded workflow-job list. Do not mutate Live, invoke undo/redo, or start/cancel a job.",
+  "prompt": "Use the grouped Live 11 tools to inspect workflow state: call ableton_recording with action inspect, ableton_grooves with action list, ableton_selection_view once with action inspect-selection and once with action inspect-view, ableton_live_history with action inspect, and ableton_workflow_jobs with action list. Do not call any other tool, mutate Live, invoke undo/redo, or start/cancel a job.",
   "artifactPrefix": "AA_SMOKE_WORKFLOW_STATE_",
   "allowedTools": [
     "ableton_recording",

@@ -16,7 +16,9 @@
 - [x] Preserve boolean capability compatibility while adding evidence,
   minimum/tested versions, and bounded limitations.
 - [x] Compile operation-ID agent patterns into capability-pruned canonical
-  domain schemas and keep migrated compatibility aliases exact-only.
+  domain schemas and remove superseded direct names from agent registration.
+- [x] Preserve a root object and root action enum for grouped agent schemas, and
+  model Groove Pool amounts in Live's percentage units and 130% global range.
 
 ## Runtime
 

@@ -114,6 +114,21 @@ describe("tool pattern resolution", () => {
     });
   });
 
+  it("rejects removed direct names when no compatibility alias is configured", () => {
+    expect(
+      resolveToolPatterns(["ableton_tracks_delete"], ["ableton_tracks"], {
+        operations: [
+          { operationId: "tracks.delete", toolName: "ableton_tracks" },
+        ],
+      }),
+    ).toEqual({
+      tools: [],
+      operationIds: [],
+      explicitAliases: [],
+      unmatchedPatterns: ["ableton_tracks_delete"],
+    });
+  });
+
   it("expands a global wildcard across application and SDK tool sources", () => {
     expect(
       resolveToolPatterns(

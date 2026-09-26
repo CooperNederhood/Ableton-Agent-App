@@ -5,7 +5,10 @@ import {
   PROTOCOL_VERSION,
   recordingCommandParamsSchema,
 } from "@ableton-agent/protocol";
-import { serializeAbletonToolFailure } from "@ableton-agent/tools";
+import {
+  parseAbletonToolFailure,
+  serializeAbletonToolFailure,
+} from "@ableton-agent/tools";
 
 import {
   InMemoryEventPublisher,
@@ -1426,7 +1429,7 @@ describe("CopilotAgentService", () => {
       name: string;
       handler: (
         args: unknown,
-        invocation: { toolCallId: string },
+        invocation: { toolCallId: string; arguments?: unknown },
       ) => Promise<unknown>;
     };
     const configuredTools = config?.tools as unknown as TestTool[];
@@ -1439,6 +1442,28 @@ describe("CopilotAgentService", () => {
     if (recordingTool === undefined || renameTool === undefined) {
       throw new Error("Expected recording and rename tools");
     }
+    const invalidRecordingArguments = { action: "set-punch" };
+    const invalidRecordingResult = (await recordingTool.handler(
+      invalidRecordingArguments,
+      {
+        toolCallId: "recording-invalid",
+        arguments: invalidRecordingArguments,
+      },
+    )) as { error?: string };
+    expect(parseAbletonToolFailure(invalidRecordingResult.error)).toMatchObject(
+      {
+        code: "invalid_tool_arguments",
+        retryable: true,
+      },
+    );
+    expect(
+      runtimeEvents.filter(
+        (event) =>
+          event.data.toolCallId === "recording-invalid" &&
+          (event.type === "agent.operation.requested" ||
+            event.type === "agent.operation.failed"),
+      ),
+    ).toHaveLength(2);
     await recordingTool.handler(
       {
         action: "record-session-slot",

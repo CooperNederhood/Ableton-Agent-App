@@ -164,6 +164,7 @@ import type {
 import { noopLogger } from "@ableton-agent/shared";
 import {
   AbletonMutationAuthorizationError,
+  abletonToolArgumentError,
   abletonCompatibilityAliases,
   abletonToolMetadata,
   abletonToolOperationPatterns,
@@ -171,6 +172,8 @@ import {
   createAbletonMutationLockManager,
   createAbletonPermissionHandler,
   createAbletonTools,
+  failureToolResult,
+  getAbletonOperationDescriptorForAction,
   parseAbletonToolFailure,
   resolveAbletonOperation,
   resolveAbletonToolMetadata,
@@ -2035,12 +2038,70 @@ export class CopilotAgentService implements AgentService {
       return {
         ...tool,
         handler: async (args: unknown, invocation: ToolInvocation) => {
+          const argumentError = abletonToolArgumentError(
+            tool.name,
+            tool.parameters,
+            args,
+          );
+          if (argumentError !== undefined) {
+            const action =
+              args !== null &&
+              typeof args === "object" &&
+              !Array.isArray(args) &&
+              typeof Reflect.get(args, "action") === "string"
+                ? String(Reflect.get(args, "action"))
+                : undefined;
+            const descriptor =
+              action === undefined
+                ? undefined
+                : getAbletonOperationDescriptorForAction(tool.name, action);
+            if (descriptor === undefined) {
+              this.#recordRuntime(state, "agent.operation.failed", {
+                toolCallId: invocation.toolCallId,
+                toolName: tool.name,
+                stage: "argument-validation",
+                errorCode: argumentError.code,
+                error: argumentError.message,
+              });
+            } else {
+              const base = {
+                toolCallId: invocation.toolCallId,
+                toolName: tool.name,
+                operationDescriptorId: descriptor.operationId,
+                action: descriptor.action,
+                mutationTarget: descriptor.mutationTarget,
+                targetIdentity: {
+                  domain: descriptor.operationId.split(".")[0] ?? tool.name,
+                  action: descriptor.action,
+                  targetKind: "invalid-arguments",
+                  targetReferences: [],
+                },
+              };
+              this.#recordRuntime(
+                state,
+                descriptor.lifecycleEvents.requested,
+                base,
+              );
+              this.#recordRuntime(state, descriptor.lifecycleEvents.failed, {
+                ...base,
+                durationMs: 0,
+                errorCode: argumentError.code,
+                error: argumentError.message,
+              });
+            }
+            return failureToolResult(argumentError);
+          }
           const executionArgs = this.#workflowExecutionArgs(
             state,
             tool.name,
             args,
             invocation,
           );
+          const modelInvocation = {
+            ...invocation,
+            arguments: args,
+            __abletonArgumentsValidated: true,
+          };
           const mutationTarget = this.#mutationAuthorizer.resolveMutationTarget(
             tool.name,
             args,
@@ -2053,7 +2114,7 @@ export class CopilotAgentService implements AgentService {
           }
           if (mutationTarget === "read") {
             return runOperation(args, invocation, () =>
-              Promise.resolve(handler(executionArgs, invocation)),
+              Promise.resolve(handler(executionArgs, modelInvocation)),
             );
           }
           if (state.activeAgentMode === "plan") {
@@ -2074,7 +2135,8 @@ export class CopilotAgentService implements AgentService {
             lockManager: this.#mutationLockManager,
             getContext: () => this.#mutationContext(state),
             invocation: { toolName: tool.name, args },
-            handler: () => Promise.resolve(handler(executionArgs, invocation)),
+            handler: () =>
+              Promise.resolve(handler(executionArgs, modelInvocation)),
             deferCompletion: (result) => {
               const operation = resolveAbletonOperation(tool.name, args);
               return operation?.descriptor.duration === "long"

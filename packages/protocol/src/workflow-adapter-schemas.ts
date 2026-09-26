@@ -291,11 +291,11 @@ export const grooveSummarySchema = z
     index: z.number().int().nonnegative(),
     reference: referenceSchema,
     name: nameSchema,
-    base: z.number().finite().nullable(),
-    quantizationAmount: z.number().finite().min(0).max(1).nullable(),
-    timingAmount: z.number().finite().min(0).max(1).nullable(),
-    randomAmount: z.number().finite().min(0).max(1).nullable(),
-    velocityAmount: z.number().finite().min(0).max(1).nullable(),
+    base: z.number().int().min(0).max(5).nullable(),
+    quantizationAmount: z.number().finite().min(0).max(100).nullable(),
+    timingAmount: z.number().finite().min(-100).max(100).nullable(),
+    randomAmount: z.number().finite().min(0).max(100).nullable(),
+    velocityAmount: z.number().finite().min(-100).max(100).nullable(),
   })
   .strict();
 export const grooveTargetSchema = z
@@ -332,10 +332,10 @@ export const grooveOperationParamsSchema = z.discriminatedUnion("action", [
     .object({
       action: z.literal("set-properties"),
       target: grooveTargetSchema,
-      quantizationAmount: z.number().finite().min(0).max(1).optional(),
-      timingAmount: z.number().finite().min(0).max(1).optional(),
-      randomAmount: z.number().finite().min(0).max(1).optional(),
-      velocityAmount: z.number().finite().min(0).max(1).optional(),
+      quantizationAmount: z.number().finite().min(0).max(100).optional(),
+      timingAmount: z.number().finite().min(-100).max(100).optional(),
+      randomAmount: z.number().finite().min(0).max(100).optional(),
+      velocityAmount: z.number().finite().min(-100).max(100).optional(),
     })
     .strict()
     .refine(
@@ -349,7 +349,7 @@ export const grooveOperationParamsSchema = z.discriminatedUnion("action", [
   z
     .object({
       action: z.literal("set-global-amount"),
-      amount: z.number().finite().min(0).max(1),
+      amount: z.number().finite().min(0).max(1.3),
     })
     .strict(),
 ]);
@@ -368,7 +368,7 @@ export const grooveOperationResultSchema = z.discriminatedUnion("action", [
       offset: z.number().int().nonnegative(),
       limit: z.number().int().positive(),
       poolRevision: z.string().min(16).max(128),
-      globalAmount: z.number().finite().min(0).max(1),
+      globalAmount: z.number().finite().min(0).max(1.3),
     })
     .strict(),
   z

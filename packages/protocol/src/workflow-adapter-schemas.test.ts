@@ -4,6 +4,8 @@ import { PROTOCOL_VERSION } from "./constants.js";
 import {
   browserAdapterOperationParamsSchema,
   clipAutomationOperationParamsSchema,
+  grooveOperationParamsSchema,
+  grooveOperationResultSchema,
   liveHistoryOperationParamsSchema,
   recordingCommandParamsSchema,
   recordingOperationParamsSchema,
@@ -104,6 +106,43 @@ describe("workflow adapter schemas", () => {
         confirmation: "global-live-history",
       }).action,
     ).toBe("undo");
+  });
+
+  it("uses Live groove percentage units and the 130 percent global range", () => {
+    expect(
+      grooveOperationResultSchema.safeParse({
+        action: "list",
+        grooves: [
+          {
+            index: 0,
+            reference: "55555555-5555-4555-8555-555555555555",
+            name: "Swing",
+            base: 3,
+            quantizationAmount: 0,
+            timingAmount: 100,
+            randomAmount: 0,
+            velocityAmount: -25,
+          },
+        ],
+        total: 1,
+        offset: 0,
+        limit: 64,
+        poolRevision: "0123456789abcdef",
+        globalAmount: 1.3,
+      }).success,
+    ).toBe(true);
+    expect(
+      grooveOperationParamsSchema.safeParse({
+        action: "set-properties",
+        target: {
+          index: 0,
+          expectedReference: "55555555-5555-4555-8555-555555555555",
+          expectedName: "Swing",
+          poolRevision: "0123456789abcdef",
+        },
+        timingAmount: 100,
+      }).success,
+    ).toBe(true);
   });
 
   it("rejects direct Arrangement automation", () => {

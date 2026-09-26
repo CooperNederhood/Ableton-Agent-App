@@ -44,7 +44,7 @@ Companion specification: [Custom Agents](custom-agents.md)
 ## Safety
 
 - [x] Register only tools resolved by an agent's tool and operation allowlists,
-  with connected-capability pruning and exact-only compatibility aliases.
+  with connected-capability pruning and no superseded direct aliases.
 - [x] Classify every mutation as global, one-track, or multi-track.
 - [x] Bind track selectors to current project identities.
 - [x] Deny stale, ambiguous, cross-project, or unclassified mutations.

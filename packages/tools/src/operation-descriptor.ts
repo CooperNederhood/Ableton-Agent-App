@@ -907,3 +907,12 @@ export function getAbletonOperationDescriptor(
 ): AbletonOperationDescriptor | undefined {
   return operationsByToolName.get(toolName)?.[0];
 }
+
+export function getAbletonOperationDescriptorForAction(
+  toolName: string,
+  action: string,
+): AbletonOperationDescriptor | undefined {
+  return operationsByToolName
+    .get(toolName)
+    ?.find((descriptor) => descriptor.action === action);
+}

@@ -76,9 +76,12 @@ skill.
 | Tool | Purpose | Risk | Scope | Duration | Key inputs |
 | --- | --- | --- | --- | --- | --- |
 | `ableton_tracks_create` | Create one MIDI or audio track at the end of the Live Set. | `reversible` | `session` | `short` | `kind`, optional `name` |
-| `ableton_tracks_delete` | Delete an exact track; refuses to delete the final remaining track. | `destructive` | `track` | `short` | Track `index`, identity, expected kind |
 | `ableton_tracks_rename` | Rename an exact inspected track. | `reversible` | `track` | `short` | Track identity, `name` |
 | `ableton_tracks_set_mixer` | Update mute, solo, arm, normalized volume, and/or pan. | `reversible` | `track` | `short` | Track identity plus one or more mixer properties |
+
+Track deletion is exposed only through `ableton_tracks` with
+`action: "delete"`. The removed `ableton_tracks_delete` name is not available
+to default, wildcard, or exact custom-agent definitions.
 
 ## Live 11 core-domain operations
 
@@ -96,7 +99,7 @@ identity.
 | `ableton_midi_notes` | Modern note-ID `query`, `add`, `update`, exact destructive `remove`, `duplicate`, and `quantize`, preserving probability, velocity deviation, and release velocity |
 | `ableton_audio_clips` | Metadata `inspect`, including currently available warp modes; gain, pitch, warp state/mode, start/end/loop markers, and RAM mode updates; bounded warp-marker reads |
 | `ableton_recording` | Recording-state inspection and verified Arrangement/Session record, overdub, automation record, punch, Capture MIDI, and timed empty-slot recording jobs |
-| `ableton_grooves` | Revision-bound Groove Pool inspection, clip assignment/clear, supported property edits, and global amount |
+| `ableton_grooves` | Revision-bound Groove Pool inspection, clip assignment/clear, percentage-unit property edits, and global amount up to Live's 130% limit |
 | `ableton_selection_view` | Exact selection reads/setters and supported major view, follow, draw, fold, and collapse controls |
 | `ableton_live_history` | Global `canUndo`/`canRedo`, undo, and redo with explicit warning/confirmation |
 | `ableton_browser_adapters` | Preview/stop preview and capability-detected Hot-Swap, adjacent insertion, and empty Drum Rack pad loading with state restoration |
@@ -217,11 +220,9 @@ tools:
 
 `"*"` enables the canonical catalog. Operation patterns select only matching
 actions and prune the grouped tool's strict schema. Connected capability flags
-prune unsupported actions as the session is configured. Legacy aliases are
-excluded from wildcard expansion and remain available only by exact name;
-non-equivalent exact tools remain canonical until a descriptor-backed
-replacement exists. Unmatched patterns are reported as definition
-diagnostics.
-
-The currently migrated alias is `ableton_tracks_delete`, whose canonical
-operation is `tracks.delete` on `ableton_tracks`.
+prune unsupported actions as the session is configured. Superseded direct
+names are removed rather than registered beside canonical grouped tools.
+Definitions that still name a removed tool are invalid and receive an
+unmatched-pattern diagnostic; use the documented canonical operation ID or
+grouped tool instead. Non-equivalent direct tools remain canonical until a
+descriptor-backed grouped replacement exists.

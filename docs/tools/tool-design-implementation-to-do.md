@@ -30,12 +30,17 @@ Companion specification: [Tool Design](tool-design.md)
     mixer/routing, transport, modern MIDI notes, and audio clips with bounded
     identities and timing.
   - [x] Add operation-level custom-agent patterns, strict domain-schema
-    pruning, capability pruning, and exact-only compatibility-alias
-    resolution.
+    pruning, capability pruning, and canonical grouped resolution.
   - [x] Project grouped-tool operation/action/target metadata into durable
     agent history and link terminal mutations into Set trajectory history.
-  - [ ] Migrate remaining genuinely equivalent legacy tools onto canonical
-    descriptors and add complete persisted trace-continuity coverage.
+  - [x] Remove superseded direct tools from the public catalog once their
+    canonical grouped operation is available; removed exact names are unmatched
+    rather than compatibility aliases.
+  - [ ] Delete disabled legacy handler/service code after no internal tests or
+    callers depend on it.
+  - [x] Emit JSON-Schema-visible required-field alternatives, classify
+    non-expressible semantic preconditions, and return retryable bounded
+    `invalid_tool_arguments` guidance before side effects.
 
 ## Inspection tools
 

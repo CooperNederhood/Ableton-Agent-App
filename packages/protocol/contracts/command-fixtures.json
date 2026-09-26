@@ -1282,9 +1282,9 @@
             "name": "x",
             "base": 0,
             "quantizationAmount": 0,
-            "timingAmount": 0,
+            "timingAmount": -100,
             "randomAmount": 0,
-            "velocityAmount": 0
+            "velocityAmount": -100
           },
           "poolRevision": "xxxxxxxxxxxxxxxx"
         },
@@ -1340,9 +1340,9 @@
               "name": "x",
               "base": 0,
               "quantizationAmount": 0,
-              "timingAmount": 0,
+              "timingAmount": -100,
               "randomAmount": 0,
-              "velocityAmount": 0
+              "velocityAmount": -100
             }
           }
         },
@@ -1404,9 +1404,9 @@
               "name": "x",
               "base": 0,
               "quantizationAmount": 0,
-              "timingAmount": 0,
+              "timingAmount": -100,
               "randomAmount": 0,
-              "velocityAmount": 0
+              "velocityAmount": -100
             }
           },
           "after": {
@@ -1417,9 +1417,9 @@
               "name": "x",
               "base": 0,
               "quantizationAmount": 0,
-              "timingAmount": 0,
+              "timingAmount": -100,
               "randomAmount": 0,
-              "velocityAmount": 0
+              "velocityAmount": -100
             }
           },
           "verified": true
@@ -1476,9 +1476,9 @@
               "name": "x",
               "base": 0,
               "quantizationAmount": 0,
-              "timingAmount": 0,
+              "timingAmount": -100,
               "randomAmount": 0,
-              "velocityAmount": 0
+              "velocityAmount": -100
             }
           },
           "after": {
@@ -1489,9 +1489,9 @@
               "name": "x",
               "base": 0,
               "quantizationAmount": 0,
-              "timingAmount": 0,
+              "timingAmount": -100,
               "randomAmount": 0,
-              "velocityAmount": 0
+              "velocityAmount": -100
             }
           },
           "verified": true
@@ -1541,9 +1541,9 @@
             "name": "x",
             "base": 0,
             "quantizationAmount": 0,
-            "timingAmount": 0,
+            "timingAmount": -100,
             "randomAmount": 0,
-            "velocityAmount": 0
+            "velocityAmount": -100
           },
           "after": {
             "index": 0,
@@ -1551,9 +1551,9 @@
             "name": "x",
             "base": 0,
             "quantizationAmount": 0,
-            "timingAmount": 0,
+            "timingAmount": -100,
             "randomAmount": 0,
-            "velocityAmount": 0
+            "velocityAmount": -100
           },
           "poolRevision": "xxxxxxxxxxxxxxxx",
           "verified": true

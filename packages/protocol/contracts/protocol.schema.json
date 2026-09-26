@@ -17142,28 +17142,33 @@
                   "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                 },
                 "name": { "type": "string", "maxLength": 128 },
-                "base": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+                "base": {
+                  "anyOf": [
+                    { "type": "integer", "minimum": 0, "maximum": 5 },
+                    { "type": "null" }
+                  ]
+                },
                 "quantizationAmount": {
                   "anyOf": [
-                    { "type": "number", "minimum": 0, "maximum": 1 },
+                    { "type": "number", "minimum": 0, "maximum": 100 },
                     { "type": "null" }
                   ]
                 },
                 "timingAmount": {
                   "anyOf": [
-                    { "type": "number", "minimum": 0, "maximum": 1 },
+                    { "type": "number", "minimum": -100, "maximum": 100 },
                     { "type": "null" }
                   ]
                 },
                 "randomAmount": {
                   "anyOf": [
-                    { "type": "number", "minimum": 0, "maximum": 1 },
+                    { "type": "number", "minimum": 0, "maximum": 100 },
                     { "type": "null" }
                   ]
                 },
                 "velocityAmount": {
                   "anyOf": [
-                    { "type": "number", "minimum": 0, "maximum": 1 },
+                    { "type": "number", "minimum": -100, "maximum": 100 },
                     { "type": "null" }
                   ]
                 }
@@ -17201,7 +17206,7 @@
             "minLength": 16,
             "maxLength": 128
           },
-          "globalAmount": { "type": "number", "minimum": 0, "maximum": 1 }
+          "globalAmount": { "type": "number", "minimum": 0, "maximum": 1.3 }
         },
         "required": [
           "action",
@@ -17274,28 +17279,33 @@
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
               "name": { "type": "string", "maxLength": 128 },
-              "base": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+              "base": {
+                "anyOf": [
+                  { "type": "integer", "minimum": 0, "maximum": 5 },
+                  { "type": "null" }
+                ]
+              },
               "quantizationAmount": {
                 "anyOf": [
-                  { "type": "number", "minimum": 0, "maximum": 1 },
+                  { "type": "number", "minimum": 0, "maximum": 100 },
                   { "type": "null" }
                 ]
               },
               "timingAmount": {
                 "anyOf": [
-                  { "type": "number", "minimum": 0, "maximum": 1 },
+                  { "type": "number", "minimum": -100, "maximum": 100 },
                   { "type": "null" }
                 ]
               },
               "randomAmount": {
                 "anyOf": [
-                  { "type": "number", "minimum": 0, "maximum": 1 },
+                  { "type": "number", "minimum": 0, "maximum": 100 },
                   { "type": "null" }
                 ]
               },
               "velocityAmount": {
                 "anyOf": [
-                  { "type": "number", "minimum": 0, "maximum": 1 },
+                  { "type": "number", "minimum": -100, "maximum": 100 },
                   { "type": "null" }
                 ]
               }
@@ -17462,29 +17472,32 @@
                       },
                       "name": { "type": "string", "maxLength": 128 },
                       "base": {
-                        "anyOf": [{ "type": "number" }, { "type": "null" }]
+                        "anyOf": [
+                          { "type": "integer", "minimum": 0, "maximum": 5 },
+                          { "type": "null" }
+                        ]
                       },
                       "quantizationAmount": {
                         "anyOf": [
-                          { "type": "number", "minimum": 0, "maximum": 1 },
+                          { "type": "number", "minimum": 0, "maximum": 100 },
                           { "type": "null" }
                         ]
                       },
                       "timingAmount": {
                         "anyOf": [
-                          { "type": "number", "minimum": 0, "maximum": 1 },
+                          { "type": "number", "minimum": -100, "maximum": 100 },
                           { "type": "null" }
                         ]
                       },
                       "randomAmount": {
                         "anyOf": [
-                          { "type": "number", "minimum": 0, "maximum": 1 },
+                          { "type": "number", "minimum": 0, "maximum": 100 },
                           { "type": "null" }
                         ]
                       },
                       "velocityAmount": {
                         "anyOf": [
-                          { "type": "number", "minimum": 0, "maximum": 1 },
+                          { "type": "number", "minimum": -100, "maximum": 100 },
                           { "type": "null" }
                         ]
                       }
@@ -17681,29 +17694,32 @@
                       },
                       "name": { "type": "string", "maxLength": 128 },
                       "base": {
-                        "anyOf": [{ "type": "number" }, { "type": "null" }]
+                        "anyOf": [
+                          { "type": "integer", "minimum": 0, "maximum": 5 },
+                          { "type": "null" }
+                        ]
                       },
                       "quantizationAmount": {
                         "anyOf": [
-                          { "type": "number", "minimum": 0, "maximum": 1 },
+                          { "type": "number", "minimum": 0, "maximum": 100 },
                           { "type": "null" }
                         ]
                       },
                       "timingAmount": {
                         "anyOf": [
-                          { "type": "number", "minimum": 0, "maximum": 1 },
+                          { "type": "number", "minimum": -100, "maximum": 100 },
                           { "type": "null" }
                         ]
                       },
                       "randomAmount": {
                         "anyOf": [
-                          { "type": "number", "minimum": 0, "maximum": 1 },
+                          { "type": "number", "minimum": 0, "maximum": 100 },
                           { "type": "null" }
                         ]
                       },
                       "velocityAmount": {
                         "anyOf": [
-                          { "type": "number", "minimum": 0, "maximum": 1 },
+                          { "type": "number", "minimum": -100, "maximum": 100 },
                           { "type": "null" }
                         ]
                       }
@@ -17752,29 +17768,32 @@
                       },
                       "name": { "type": "string", "maxLength": 128 },
                       "base": {
-                        "anyOf": [{ "type": "number" }, { "type": "null" }]
+                        "anyOf": [
+                          { "type": "integer", "minimum": 0, "maximum": 5 },
+                          { "type": "null" }
+                        ]
                       },
                       "quantizationAmount": {
                         "anyOf": [
-                          { "type": "number", "minimum": 0, "maximum": 1 },
+                          { "type": "number", "minimum": 0, "maximum": 100 },
                           { "type": "null" }
                         ]
                       },
                       "timingAmount": {
                         "anyOf": [
-                          { "type": "number", "minimum": 0, "maximum": 1 },
+                          { "type": "number", "minimum": -100, "maximum": 100 },
                           { "type": "null" }
                         ]
                       },
                       "randomAmount": {
                         "anyOf": [
-                          { "type": "number", "minimum": 0, "maximum": 1 },
+                          { "type": "number", "minimum": 0, "maximum": 100 },
                           { "type": "null" }
                         ]
                       },
                       "velocityAmount": {
                         "anyOf": [
-                          { "type": "number", "minimum": 0, "maximum": 1 },
+                          { "type": "number", "minimum": -100, "maximum": 100 },
                           { "type": "null" }
                         ]
                       }
@@ -17944,29 +17963,32 @@
                       },
                       "name": { "type": "string", "maxLength": 128 },
                       "base": {
-                        "anyOf": [{ "type": "number" }, { "type": "null" }]
+                        "anyOf": [
+                          { "type": "integer", "minimum": 0, "maximum": 5 },
+                          { "type": "null" }
+                        ]
                       },
                       "quantizationAmount": {
                         "anyOf": [
-                          { "type": "number", "minimum": 0, "maximum": 1 },
+                          { "type": "number", "minimum": 0, "maximum": 100 },
                           { "type": "null" }
                         ]
                       },
                       "timingAmount": {
                         "anyOf": [
-                          { "type": "number", "minimum": 0, "maximum": 1 },
+                          { "type": "number", "minimum": -100, "maximum": 100 },
                           { "type": "null" }
                         ]
                       },
                       "randomAmount": {
                         "anyOf": [
-                          { "type": "number", "minimum": 0, "maximum": 1 },
+                          { "type": "number", "minimum": 0, "maximum": 100 },
                           { "type": "null" }
                         ]
                       },
                       "velocityAmount": {
                         "anyOf": [
-                          { "type": "number", "minimum": 0, "maximum": 1 },
+                          { "type": "number", "minimum": -100, "maximum": 100 },
                           { "type": "null" }
                         ]
                       }
@@ -18015,29 +18037,32 @@
                       },
                       "name": { "type": "string", "maxLength": 128 },
                       "base": {
-                        "anyOf": [{ "type": "number" }, { "type": "null" }]
+                        "anyOf": [
+                          { "type": "integer", "minimum": 0, "maximum": 5 },
+                          { "type": "null" }
+                        ]
                       },
                       "quantizationAmount": {
                         "anyOf": [
-                          { "type": "number", "minimum": 0, "maximum": 1 },
+                          { "type": "number", "minimum": 0, "maximum": 100 },
                           { "type": "null" }
                         ]
                       },
                       "timingAmount": {
                         "anyOf": [
-                          { "type": "number", "minimum": 0, "maximum": 1 },
+                          { "type": "number", "minimum": -100, "maximum": 100 },
                           { "type": "null" }
                         ]
                       },
                       "randomAmount": {
                         "anyOf": [
-                          { "type": "number", "minimum": 0, "maximum": 1 },
+                          { "type": "number", "minimum": 0, "maximum": 100 },
                           { "type": "null" }
                         ]
                       },
                       "velocityAmount": {
                         "anyOf": [
-                          { "type": "number", "minimum": 0, "maximum": 1 },
+                          { "type": "number", "minimum": -100, "maximum": 100 },
                           { "type": "null" }
                         ]
                       }
@@ -18106,11 +18131,15 @@
           "quantizationAmount": {
             "type": "number",
             "minimum": 0,
-            "maximum": 1
+            "maximum": 100
           },
-          "timingAmount": { "type": "number", "minimum": 0, "maximum": 1 },
-          "randomAmount": { "type": "number", "minimum": 0, "maximum": 1 },
-          "velocityAmount": { "type": "number", "minimum": 0, "maximum": 1 }
+          "timingAmount": { "type": "number", "minimum": -100, "maximum": 100 },
+          "randomAmount": { "type": "number", "minimum": 0, "maximum": 100 },
+          "velocityAmount": {
+            "type": "number",
+            "minimum": -100,
+            "maximum": 100
+          }
         },
         "required": ["action", "target"],
         "additionalProperties": false
@@ -18134,28 +18163,33 @@
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
               "name": { "type": "string", "maxLength": 128 },
-              "base": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+              "base": {
+                "anyOf": [
+                  { "type": "integer", "minimum": 0, "maximum": 5 },
+                  { "type": "null" }
+                ]
+              },
               "quantizationAmount": {
                 "anyOf": [
-                  { "type": "number", "minimum": 0, "maximum": 1 },
+                  { "type": "number", "minimum": 0, "maximum": 100 },
                   { "type": "null" }
                 ]
               },
               "timingAmount": {
                 "anyOf": [
-                  { "type": "number", "minimum": 0, "maximum": 1 },
+                  { "type": "number", "minimum": -100, "maximum": 100 },
                   { "type": "null" }
                 ]
               },
               "randomAmount": {
                 "anyOf": [
-                  { "type": "number", "minimum": 0, "maximum": 1 },
+                  { "type": "number", "minimum": 0, "maximum": 100 },
                   { "type": "null" }
                 ]
               },
               "velocityAmount": {
                 "anyOf": [
-                  { "type": "number", "minimum": 0, "maximum": 1 },
+                  { "type": "number", "minimum": -100, "maximum": 100 },
                   { "type": "null" }
                 ]
               }
@@ -18186,28 +18220,33 @@
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
               "name": { "type": "string", "maxLength": 128 },
-              "base": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+              "base": {
+                "anyOf": [
+                  { "type": "integer", "minimum": 0, "maximum": 5 },
+                  { "type": "null" }
+                ]
+              },
               "quantizationAmount": {
                 "anyOf": [
-                  { "type": "number", "minimum": 0, "maximum": 1 },
+                  { "type": "number", "minimum": 0, "maximum": 100 },
                   { "type": "null" }
                 ]
               },
               "timingAmount": {
                 "anyOf": [
-                  { "type": "number", "minimum": 0, "maximum": 1 },
+                  { "type": "number", "minimum": -100, "maximum": 100 },
                   { "type": "null" }
                 ]
               },
               "randomAmount": {
                 "anyOf": [
-                  { "type": "number", "minimum": 0, "maximum": 1 },
+                  { "type": "number", "minimum": 0, "maximum": 100 },
                   { "type": "null" }
                 ]
               },
               "velocityAmount": {
                 "anyOf": [
-                  { "type": "number", "minimum": 0, "maximum": 1 },
+                  { "type": "number", "minimum": -100, "maximum": 100 },
                   { "type": "null" }
                 ]
               }
@@ -18243,7 +18282,7 @@
         "type": "object",
         "properties": {
           "action": { "type": "string", "const": "set-global-amount" },
-          "amount": { "type": "number", "minimum": 0, "maximum": 1 }
+          "amount": { "type": "number", "minimum": 0, "maximum": 1.3 }
         },
         "required": ["action", "amount"],
         "additionalProperties": false

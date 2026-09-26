@@ -175,3 +175,24 @@ descriptor before authorization, so read and mutation variants preserve their
 individual risk, capability, edit-scope, lock, target-identity, and lifecycle
 semantics. The protocol keeps inspection and mutation commands separate to
 avoid mutation invalidation for reads.
+
+The binding catalog topology is eager domain grouping with `action` as the
+discriminator. SDK tool search remains disabled. Splitting the same operations
+into action-specific tools does not materially reduce total schema information,
+but it multiplies tool names and exceeds the bounded eager-catalog strategy.
+Superseded direct names must not be registered beside their canonical grouped
+action. A direct tool remains only when no equivalent grouped action exists.
+
+The schema transmitted to the SDK must be the application-owned wire contract,
+not an accidental projection that drops runtime-only refinements. Constraints
+that JSON Schema can express, including required-field alternatives and strict
+identity variants, are emitted structurally. Relational constraints that JSON
+Schema cannot express, such as cross-field ordering or uniqueness by one object
+field, remain explicit semantic preconditions in the tool description and
+runtime validator. A grouped tool remains a root `type: object` schema and
+advertises the complete action enum at the root while `oneOf` carries each
+complete action branch; function-tool runtimes may omit a top-level union that
+does not declare an object root. Invalid model-authored arguments fail before
+connection, authorization, queueing, or mutation with
+`invalid_tool_arguments`, `retryable: true`, bounded issue paths, valid
+actions, and the selected branch's expected shape.

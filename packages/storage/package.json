@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "ableton-agent-storage-migrate": "./dist/migrate-storage.js"
+    "ableton-agent-storage-migrate": "./bin/ableton-agent-storage-migrate.mjs"
   },
   "exports": {
     ".": {

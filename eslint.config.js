@@ -8,12 +8,17 @@ export default tseslint.config(
       "**/dist/**",
       "**/coverage/**",
       "**/node_modules/**",
+      "release/**",
       "eslint.config.js",
     ],
   },
   eslint.configs.recommended,
   {
-    files: ["scripts/**/*.mjs", "apps/*/scripts/**/*.mjs"],
+    files: [
+      "scripts/**/*.mjs",
+      "apps/*/scripts/**/*.mjs",
+      "packages/*/{bin,scripts}/**/*.mjs",
+    ],
     languageOptions: {
       globals: {
         console: "readonly",

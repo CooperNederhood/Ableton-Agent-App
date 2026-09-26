@@ -66,6 +66,9 @@ class SaveObserverTests(unittest.TestCase):
         self.assertEqual(len(published), 1)
         name, payload, revision = published[0]
         self.assertEqual(name, "live_set.save_observed")
+        self.assertEqual(payload["liveSetId"], build_live_identity(song)["liveSetId"])
+        self.assertEqual(payload["liveSetName"], "Set")
+        self.assertTrue(payload["saved"])
         self.assertEqual(payload["fileModifiedTimeNs"], "201")
         self.assertEqual(payload["fileSizeBytes"], 20)
         self.assertNotIn("filePath", payload)

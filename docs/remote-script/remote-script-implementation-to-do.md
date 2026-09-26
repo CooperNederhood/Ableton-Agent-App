@@ -19,6 +19,8 @@ Companion specification: [Remote Script](remote-script.md)
 - [x] Implement the single main-thread LOM executor.
 - [x] Route reads and mutations through the executor.
 - [x] Implement per-command validation and stable error mapping.
+- [x] Publish complete bounded Live Set/Project identity with settled save
+  observations so first save and Save As can update clients atomically.
 - [~] Implement capability discovery by Live version and attribute checks.
 - [ ] Preserve bounded opaque trace/correlation context through queue,
   main-thread execution, response, and outbound Live Event lifecycle metadata.

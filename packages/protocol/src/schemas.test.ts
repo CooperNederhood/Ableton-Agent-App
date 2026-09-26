@@ -229,7 +229,7 @@ describe("Live event protocol schemas", () => {
     ).toBe("live_event.invalidated");
   });
 
-  it("validates metadata-only Live Set save observations", () => {
+  it("validates identity-complete metadata-only Live Set save observations", () => {
     expect(
       liveSetSaveObservedEnvelopeSchema.parse({
         protocolVersion: PROTOCOL_VERSION,
@@ -238,6 +238,11 @@ describe("Live event protocol schemas", () => {
         sequence: 10,
         payload: {
           liveSetId: "set-1",
+          liveSetName: "Saved Set",
+          saved: true,
+          liveProjectId: "project-1",
+          liveProjectName: "Project",
+          diagnostics: [],
           observedAt: "2026-09-20T20:00:00.000Z",
           fileModifiedTimeNs: "1700000000000000000",
           fileSizeBytes: 4096,
@@ -246,6 +251,11 @@ describe("Live event protocol schemas", () => {
       }).payload,
     ).toEqual({
       liveSetId: "set-1",
+      liveSetName: "Saved Set",
+      saved: true,
+      liveProjectId: "project-1",
+      liveProjectName: "Project",
+      diagnostics: [],
       observedAt: "2026-09-20T20:00:00.000Z",
       fileModifiedTimeNs: "1700000000000000000",
       fileSizeBytes: 4096,
@@ -253,6 +263,8 @@ describe("Live event protocol schemas", () => {
     expect(() =>
       liveSetSaveObservedPayloadSchema.parse({
         liveSetId: "set-1",
+        liveSetName: "Saved Set",
+        saved: true,
         observedAt: "2026-09-20T20:00:00.000Z",
         fileModifiedTimeNs: 1_700_000_000_000_000_000,
         fileSizeBytes: 4096,

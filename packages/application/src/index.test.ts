@@ -445,7 +445,7 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
     stop: vi.fn(async () => undefined),
     getStatus: vi.fn(async () => status),
     getCapabilities: vi.fn(async () => ({
-      selectedProtocolVersion: 4 as const,
+      selectedProtocolVersion: 5 as const,
       liveVersion: "12.1",
       remoteScriptVersion: "0.2.0",
       liveSetId: "set",
@@ -950,6 +950,11 @@ describe("CopilotAgentService", () => {
     );
     const service = new CopilotAgentService({
       events,
+      currentIdentityContext: () => ({
+        liveSetId: "set",
+        liveProjectId: "project",
+        appSessionId: "app-session",
+      }),
       runtimeObserver: {
         enqueue: (event) => runtimeEvents.push(event),
       },
@@ -1336,6 +1341,10 @@ describe("CopilotAgentService", () => {
     expect(config?.systemMessage?.content).toContain(
       "Ableton Live production assistant",
     );
+    expect(config?.systemMessage?.content).toContain(
+      '"type":"identity_initial"',
+    );
+    expect(config?.systemMessage?.content).toContain('"appSessionId":');
     expect(config?.systemMessage?.content).not.toContain(
       "Active plan-mode reminder",
     );

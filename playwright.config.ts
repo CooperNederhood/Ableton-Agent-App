@@ -6,7 +6,13 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   reporter: [["list"]],
-  projects: [{ name: "electron", testMatch: /desktop\.spec\.ts/u }],
+  projects: [
+    { name: "electron", testMatch: /(^|\/)desktop\.spec\.ts$/u },
+    {
+      name: "electron-packaged",
+      testMatch: /(^|\/)packaged-desktop\.spec\.ts$/u,
+    },
+  ],
   use: {
     trace: "retain-on-failure",
   },

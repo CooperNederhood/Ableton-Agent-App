@@ -126,6 +126,9 @@ These tests are not expected to run on ordinary hosted CI.
 
 Critical workflows:
 
+- Launch the generated macOS application with `app.isPackaged`, packaged
+  resources, production profile selection, and isolated local storage.
+
 - Definition refresh and active-agent creation.
 - Switching independent active-agent conversations.
 - Duplicate instances of one definition.
@@ -200,6 +203,8 @@ enough diagnostics to explain regressions.
 
 Every pull request should run:
 
+- A full workspace build before checks or tests that execute compiled entry
+  points.
 - Formatting and linting.
 - Type checking.
 - TypeScript unit tests.
@@ -214,6 +219,11 @@ Every pull request should run:
 - Packaged agents and skills resource validation.
 - Journal schema/migration, redaction, trace continuity, retention/cap, query,
   and bounded-ingestion tests.
+
+Typed ESLint runs each application and package workspace in an isolated process,
+followed by a separate support-file process, so TypeScript project state is
+released between source groups. Generated `dist/` and `release/` artifacts are
+never lint inputs.
 
 ## Quality gates
 

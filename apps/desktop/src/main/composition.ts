@@ -793,6 +793,7 @@ export async function createDesktopComposition(
       : {
           agentHistory: journalHost,
           currentAppSessionId: () => serviceRef.current?.activeSessionId,
+          currentLiveSetId: () => serviceRef.current?.activeLiveSetId,
           currentLiveProjectId: () => serviceRef.current?.activeLiveProjectId,
         }),
     ...(setHistoryQuery === undefined ? {} : { setHistoryQuery }),

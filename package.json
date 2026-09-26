@@ -9,13 +9,15 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "electron"
+      "electron",
+      "koffi"
     ]
   },
   "scripts": {
     "bootstrap": "pnpm install --frozen-lockfile && pnpm build",
     "build": "pnpm -r build",
-    "check": "pnpm format:check && pnpm lint && pnpm docs:check && pnpm max-patch-knowledge:check && pnpm midi-capture:check && pnpm tests:ownership && pnpm versions:check && pnpm contracts:check && pnpm contracts:compat:self-test && pnpm typecheck && pnpm test",
+    "check": "pnpm build && pnpm check:quality",
+    "check:quality": "pnpm format:check && pnpm lint && pnpm docs:check && pnpm max-patch-knowledge:check && pnpm midi-capture:check && pnpm tests:ownership && pnpm versions:check && pnpm contracts:check && pnpm contracts:compat:self-test && pnpm typecheck && pnpm test",
     "clean": "pnpm -r clean",
     "contracts:check": "pnpm --filter @ableton-agent/protocol contracts:check",
     "contracts:compat": "node scripts/check-protocol-compatibility.mjs",
@@ -25,9 +27,13 @@
     "desktop:debug-mcp": "pnpm --filter @ableton-agent/debug-mcp dev",
     "docs:check": "node scripts/check-docs.mjs",
     "desktop:dist": "pnpm build && pnpm --filter @ableton-agent/desktop dist",
+    "desktop:verify-production": "pnpm check && playwright test --project=electron && pnpm --filter @ableton-agent/desktop dist && playwright test --project=electron-packaged",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "node --max-old-space-size=6144 ./node_modules/eslint/bin/eslint.js .",
+    "lint": "pnpm lint:apps && pnpm lint:packages && pnpm lint:support",
+    "lint:apps": "for workspace in apps/*; do node --max-old-space-size=3072 ./node_modules/eslint/bin/eslint.js \"$workspace\" || exit; done",
+    "lint:packages": "for workspace in packages/*; do node --max-old-space-size=3072 ./node_modules/eslint/bin/eslint.js \"$workspace\" || exit; done",
+    "lint:support": "node --max-old-space-size=3072 ./node_modules/eslint/bin/eslint.js tests scripts max-patches playwright.config.ts vitest.config.ts",
     "live:validate": "pnpm build && node scripts/live-validation.mjs",
     "live:agent-smoke": "node scripts/agent-smoke.mjs",
     "live:ux-host": "node scripts/live-ux-host.mjs",
@@ -39,6 +45,7 @@
     "test": "pnpm test:ts && pnpm test:max-patches && pnpm test:python",
     "test:max-patches": "node --test max-patches/**/*.test.cjs",
     "test:electron": "pnpm build && playwright test --project=electron",
+    "test:electron:packaged": "playwright test --project=electron-packaged",
     "test:ts": "vitest run",
     "test:python": "python3 -m unittest discover -s remote-script/tests -p 'test_*.py'",
     "tests:ownership": "node scripts/check-package-tests.mjs",

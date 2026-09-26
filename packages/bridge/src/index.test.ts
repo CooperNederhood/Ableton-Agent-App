@@ -74,7 +74,7 @@ afterEach(() => {
 });
 
 describe("AbletonBridgeService", () => {
-  it("validates and publishes metadata-only Live Set save events", async () => {
+  it("validates and publishes identity-complete Live Set save events", async () => {
     const port = await startSimulator(token, { emitSaveEvent: true });
     const service = new AbletonBridgeService({
       authenticationToken: token,
@@ -93,6 +93,8 @@ describe("AbletonBridgeService", () => {
       projectRevision: 0,
       payload: {
         liveSetId: "simulated-live-set",
+        liveSetName: "Simulator Set",
+        saved: true,
         fileModifiedTimeNs: "1700000000000000000",
         fileSizeBytes: 4096,
       },

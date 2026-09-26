@@ -84,6 +84,9 @@ Companion specification: [Remote Script](remote-script.md)
 - [~] Implement device, rack, Drum Rack, and parameter handlers.
   - [x] Inspect top-level regular-track devices and exact-device parameters
     with independent bounded pages and runtime-stable references.
+  - [x] Batch runtime-reference allocation for bounded device-parameter pages
+    so one inspection does not repeatedly rescan every reachable Set parameter
+    and stall subsequent bridge commands.
   - [x] Enable/disable devices through the exposed `Device On` parameter and
     set exact enabled/writable parameters from normalized values with
     quantization, verification, and rollback.

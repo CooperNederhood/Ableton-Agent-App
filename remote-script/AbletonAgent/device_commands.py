@@ -31,19 +31,28 @@ def _is_finite_number(value):
 
 
 def _runtime_reference(context, attribute, target, reachable):
+    return _runtime_references(context, attribute, [target], reachable)[0]
+
+
+def _runtime_references(context, attribute, targets, reachable):
     entries = [
         (candidate, reference)
         for candidate, reference in getattr(context, attribute, [])
         if any(_same_lom_object(candidate, current) for current in reachable)
     ]
-    for candidate, reference in entries:
-        if _same_lom_object(candidate, target):
-            setattr(context, attribute, entries)
-            return reference
-    reference = str(uuid.uuid4())
-    entries.append((target, reference))
+    references = []
+    for target in targets:
+        reference = None
+        for candidate, candidate_reference in entries:
+            if _same_lom_object(candidate, target):
+                reference = candidate_reference
+                break
+        if reference is None:
+            reference = str(uuid.uuid4())
+            entries.append((target, reference))
+        references.append(reference)
     setattr(context, attribute, entries)
-    return reference
+    return references
 
 
 def _device_reference(context, device):
@@ -160,10 +169,20 @@ def _value_item_count(parameter):
         return 0
 
 
-def _parameter_summary(context, device_reference, index, parameter):
+def _parameter_summary(
+    context,
+    device_reference,
+    index,
+    parameter,
+    parameter_reference=None,
+):
     minimum, maximum, value = _parameter_bounds(parameter)
     return {
-        "reference": _parameter_reference(context, parameter),
+        "reference": (
+            parameter_reference
+            if parameter_reference is not None
+            else _parameter_reference(context, parameter)
+        ),
         "deviceReference": device_reference,
         "index": index,
         "name": getattr(parameter, "name", "") or "",
@@ -537,6 +556,13 @@ def inspect_device_parameters(context, params):
     device_reference = _device_reference(context, device)
     offset = params["offset"]
     limit = params["limit"]
+    page_parameters = list(parameters[offset : offset + limit])
+    parameter_references = _runtime_references(
+        context,
+        "_parameter_references",
+        page_parameters,
+        all_reachable_parameters(context.song),
+    )
     return {
         "device": _device_summary(
             context,
@@ -551,9 +577,12 @@ def inspect_device_parameters(context, params):
                 device_reference,
                 index,
                 parameter,
+                parameter_reference,
             )
-            for index, parameter in enumerate(
-                parameters[offset : offset + limit], start=offset
+            for index, parameter, parameter_reference in zip(
+                range(offset, offset + len(page_parameters)),
+                page_parameters,
+                parameter_references,
             )
         ],
         "total": len(parameters),

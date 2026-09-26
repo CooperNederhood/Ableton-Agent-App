@@ -2004,6 +2004,62 @@ class ExecutorTests(unittest.TestCase):
             )
         )
 
+    def test_large_device_parameter_page_scans_reachable_parameters_once(self):
+        from AbletonAgent import device_commands
+
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        track = context.song.tracks[0]
+        device = track.devices[0]
+        device.name = "Operator"
+        device.parameters = [
+            FakeParameter(0.5, name="Parameter {0}".format(index))
+            for index in range(195)
+        ]
+        track_reference = "00000000-0000-4000-8000-000000000001"
+        context._track_references = [(track, track_reference)]
+        device_reference = device_commands._device_reference(context, device)
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+
+        with mock.patch.object(
+            device_commands,
+            "all_reachable_parameters",
+            wraps=device_commands.all_reachable_parameters,
+        ) as reachable_parameters:
+            executor.submit(
+                request(
+                    "devices.inspect_parameters",
+                    {
+                        "index": 0,
+                        "expectedReference": track_reference,
+                        "expectedName": track.name,
+                        "deviceIndex": 0,
+                        "expectedDeviceReference": device_reference,
+                        "expectedDeviceName": device.name,
+                        "offset": 0,
+                        "limit": 128,
+                    },
+                ),
+                responses.append,
+            )
+            scheduled.pop()()
+
+        result = responses[-1]["result"]
+        self.assertEqual(result["total"], 195)
+        self.assertEqual(len(result["parameters"]), 128)
+        self.assertEqual(
+            len(set(parameter["reference"] for parameter in result["parameters"])),
+            128,
+        )
+        self.assertEqual(reachable_parameters.call_count, 1)
+
     def test_device_parameter_rolls_back_partial_setter_failure(self):
         scheduled = []
         responses = []

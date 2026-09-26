@@ -80,6 +80,11 @@ All LOM access should flow through one executor:
 Large traversals such as browser discovery should be bounded and paginated.
 Avoid blocking Live's thread for recursive full-tree scans.
 
+Bounded device-parameter inspection snapshots the Set-wide reachable parameter
+collection once per requested page and allocates runtime references in one
+batch. It must not rescan the complete Live Set separately for every returned
+parameter because all LOM access runs on Live's main thread.
+
 Opaque bounded trace/correlation IDs from the request are carried through
 queueing, main-thread execution, response, and outbound Live Events. Remote
 Script logs and protocol metadata may record lifecycle and timing, but never

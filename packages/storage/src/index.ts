@@ -61,6 +61,7 @@ export interface LiveAgentStorageLayout {
   readonly liveProjectsRegistryPath: string;
   readonly credentialsDirectory: string;
   readonly copilotDirectory: string;
+  readonly copilotToolOutputDirectory: string;
   readonly observabilityDirectory: string;
   readonly eventJournalPath: string;
   readonly logsDirectory: string;
@@ -374,6 +375,7 @@ export function resolveLiveAgentStorage(
     liveProjectsRegistryPath: join(profileRoot, "state", "live-projects.json"),
     credentialsDirectory: join(profileRoot, "credentials"),
     copilotDirectory: join(profileRoot, "copilot"),
+    copilotToolOutputDirectory: join(profileRoot, "copilot", "tool-output"),
     observabilityDirectory: join(profileRoot, "observability"),
     eventJournalPath: join(
       profileRoot,

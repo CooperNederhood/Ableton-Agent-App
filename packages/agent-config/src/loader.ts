@@ -196,6 +196,7 @@ async function loadAgents(
   availableOperations: readonly ToolOperationPatternEntry[],
   compatibilityAliases: Readonly<Record<string, string>>,
   skills: readonly LoadedSkill[],
+  wildcardExcludedTools: readonly string[] = [],
 ): Promise<{
   agents: LoadedAgentDefinition[];
   diagnostics: DefinitionDiagnostic[];
@@ -246,6 +247,7 @@ async function loadAgents(
       const resolution = resolveToolPatterns(definition.tools, availableTools, {
         operations: availableOperations,
         compatibilityAliases,
+        wildcardExcludedTools,
       });
       if (resolution.unmatchedPatterns.length > 0) {
         diagnostics.push(
@@ -310,6 +312,7 @@ export async function loadAgentCatalog(options: {
   readonly availableTools: readonly string[];
   readonly availableOperations?: readonly ToolOperationPatternEntry[];
   readonly compatibilityAliases?: Readonly<Record<string, string>>;
+  readonly wildcardExcludedTools?: readonly string[];
 }): Promise<AgentCatalog> {
   const loadedSkills = await loadSkills(options.skillsDirectory);
   const deduplicatedSkills = removeDuplicates(
@@ -324,6 +327,7 @@ export async function loadAgentCatalog(options: {
     options.availableOperations ?? [],
     options.compatibilityAliases ?? {},
     deduplicatedSkills.unique,
+    options.wildcardExcludedTools,
   );
   const deduplicatedAgents = removeDuplicates(
     loadedAgents.agents,
@@ -483,6 +487,7 @@ export async function loadLayeredAgentCatalog(options: {
   readonly availableTools: readonly string[];
   readonly availableOperations?: readonly ToolOperationPatternEntry[];
   readonly compatibilityAliases?: Readonly<Record<string, string>>;
+  readonly wildcardExcludedTools?: readonly string[];
 }): Promise<LayeredAgentCatalog> {
   const layers = (
     [
@@ -526,6 +531,7 @@ export async function loadLayeredAgentCatalog(options: {
         options.availableOperations ?? [],
         options.compatibilityAliases ?? {},
         allSkills,
+        options.wildcardExcludedTools,
       );
       const deduplicated = removeDuplicates(
         loaded.agents,

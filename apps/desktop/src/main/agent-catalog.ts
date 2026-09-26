@@ -25,6 +25,7 @@ export interface AgentCatalogOptions {
   readonly availableTools: readonly string[];
   readonly availableOperations?: readonly ToolOperationPatternEntry[];
   readonly compatibilityAliases?: Readonly<Record<string, string>>;
+  readonly wildcardExcludedTools?: readonly string[];
   readonly storage?: LiveAgentStorageLayout;
   readonly resolveSessionOwnership?: (
     sessionId: string,
@@ -108,6 +109,11 @@ export class AgentCatalogService {
             ...(this.options.compatibilityAliases === undefined
               ? {}
               : { compatibilityAliases: this.options.compatibilityAliases }),
+            ...(this.options.wildcardExcludedTools === undefined
+              ? {}
+              : {
+                  wildcardExcludedTools: this.options.wildcardExcludedTools,
+                }),
           })
         : await this.#loadScopedCatalog(sessionId);
     this.#runtimeSkills = loaded.skills.map((skill) => ({
@@ -140,6 +146,11 @@ export class AgentCatalogService {
             ...(this.options.compatibilityAliases === undefined
               ? {}
               : { compatibilityAliases: this.options.compatibilityAliases }),
+            ...(this.options.wildcardExcludedTools === undefined
+              ? {}
+              : {
+                  wildcardExcludedTools: this.options.wildcardExcludedTools,
+                }),
           })
         : await this.#loadScopedCatalog(sessionId);
     const skill = loaded.skills.find(({ metadata }) => metadata.name === name);
@@ -215,6 +226,9 @@ export class AgentCatalogService {
       ...(this.options.compatibilityAliases === undefined
         ? {}
         : { compatibilityAliases: this.options.compatibilityAliases }),
+      ...(this.options.wildcardExcludedTools === undefined
+        ? {}
+        : { wildcardExcludedTools: this.options.wildcardExcludedTools }),
     });
   }
 }

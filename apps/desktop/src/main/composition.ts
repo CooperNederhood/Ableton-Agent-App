@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import {
   APPLICATION_TOOL_NAMES,
   APPROVED_BUILTIN_TOOL_NAMES,
+  EXPLICIT_ONLY_BUILTIN_TOOL_NAMES,
 } from "@ableton-agent/application";
 import {
   createNonBlockingObservabilityRecorder,
@@ -601,6 +602,7 @@ export async function createDesktopComposition(
     ],
     availableOperations: abletonToolOperationPatterns,
     compatibilityAliases: abletonCompatibilityAliases,
+    wildcardExcludedTools: EXPLICIT_ONLY_BUILTIN_TOOL_NAMES,
     ...(options.storage === undefined ? {} : { storage: options.storage }),
     resolveSessionOwnership: (sessionId) =>
       sessionStore.resolveOwnership(sessionId),
@@ -755,6 +757,9 @@ export async function createDesktopComposition(
     },
     agent: {
       baseDirectory: options.agentBaseDirectory,
+      largeOutputDirectory:
+        storage?.copilotToolOutputDirectory ??
+        join(options.agentBaseDirectory, "tool-output"),
       turnTimeoutMs: () => agentTurnTimeoutMs,
       reasoningSummary: () => agentReasoningVisibility,
       resolveSkill: (sessionId: string, skillName: string) =>

@@ -53,6 +53,8 @@ Companion specification: [Tool Design](tool-design.md)
     inspection for identity-bound regular tracks.
   - [x] Add read-risk bounded exact-rack chain/device and Drum Rack
     pad/chain/device inspection without recursive expansion.
+  - [x] Return occupied Drum Rack pads by default with explicit counts while
+    preserving opt-in paginated empty-pad diagnostics.
   - [x] Add read-risk Browser root/direct-child inspection and deterministic
     bounded search with explicit truncation reporting.
 - [x] Implement external plug-in search with bounded runtime-cached results.
@@ -142,5 +144,7 @@ Companion specification: [Tool Design](tool-design.md)
 
 - [x] No accepted parameter is silently ignored.
 - [x] Large results are filtered or paginated.
+- [x] SDK-spilled large results can be inspected only through bounded,
+  policy-gated read-only shell commands.
 - [x] Every mutation is classified and verified.
 - [x] CLI and React can render all tool outcomes from shared metadata.

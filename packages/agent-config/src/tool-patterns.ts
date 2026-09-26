@@ -13,6 +13,7 @@ export interface ToolOperationPatternEntry {
 export interface ToolPatternOptions {
   readonly operations?: readonly ToolOperationPatternEntry[];
   readonly compatibilityAliases?: Readonly<Record<string, string>>;
+  readonly wildcardExcludedTools?: readonly string[];
 }
 
 function patternExpression(pattern: string): RegExp {
@@ -33,6 +34,7 @@ export function resolveToolPatterns(
     left.operationId.localeCompare(right.operationId),
   );
   const aliases = options.compatibilityAliases ?? {};
+  const wildcardExcluded = new Set(options.wildcardExcludedTools ?? []);
   const selected = new Set<string>();
   const selectedOperations = new Set<string>();
   const explicitAliases = new Set<string>();
@@ -42,7 +44,10 @@ export function resolveToolPatterns(
     const isWildcard = pattern.includes("*");
     const aliasMatches = isWildcard
       ? available.filter(
-          (tool) => expression.test(tool) && aliases[tool] !== undefined,
+          (tool) =>
+            expression.test(tool) &&
+            aliases[tool] !== undefined &&
+            !wildcardExcluded.has(tool),
         )
       : [];
     const canonicalAliasMatches = aliasMatches.flatMap((alias) => {
@@ -56,7 +61,9 @@ export function resolveToolPatterns(
     });
     const toolMatches = available.filter(
       (tool) =>
-        expression.test(tool) && (!isWildcard || aliases[tool] === undefined),
+        expression.test(tool) &&
+        (!isWildcard ||
+          (aliases[tool] === undefined && !wildcardExcluded.has(tool))),
     );
     const operationMatches = operations.filter((operation) =>
       expression.test(operation.operationId),

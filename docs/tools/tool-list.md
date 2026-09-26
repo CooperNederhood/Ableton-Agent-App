@@ -167,7 +167,7 @@ required and must never place a full tile past `regionEnd`.
 | `ableton_device_parameters_inspect` | Inspect a bounded page of parameters on an exact top-level device. | `read` | `read` | `long` | Track/device identity, `offset`, `limit` |
 | `ableton_rack_chains_inspect` | Inspect direct chains of an exact top-level rack without recursive expansion. | `read` | `read` | `short` | Track/rack identity, `offset`, `limit` |
 | `ableton_rack_chain_devices_inspect` | Inspect direct devices in an exact rack chain. | `read` | `read` | `short` | Track/rack/chain identity, `offset`, `limit` |
-| `ableton_drum_rack_pads_inspect` | Inspect a bounded page of pads on an exact top-level Drum Rack. | `read` | `read` | `short` | Track/Drum Rack identity, `offset`, `limit` |
+| `ableton_drum_rack_pads_inspect` | Inspect occupied pads on an exact top-level Drum Rack by default, or an explicitly requested bounded page including empty pads. | `read` | `read` | `short` | Track/Drum Rack identity, `includeEmpty`, `offset`, `limit` |
 | `ableton_drum_pad_chains_inspect` | Inspect direct chains for an exact Drum Rack pad. | `read` | `read` | `short` | Track/rack/pad identity, `offset`, `limit` |
 | `ableton_drum_pad_chain_devices_inspect` | Inspect direct devices in an exact Drum Rack pad chain. | `read` | `read` | `short` | Track/rack/pad/chain identity, `offset`, `limit` |
 | `ableton_rack_chain_mixer_inspect` | Inspect an exact existing chain's mute, solo, volume, pan, sends, and mixer parameter identities. | `read` | `read` | `short` | Exact rack or Drum Rack pad chain topology |
@@ -185,7 +185,10 @@ they preflight with `Song.find_device_position`, account for same-parent index
 shifts in both forward moves and rollback, mutate chain colors through the
 exact `Chain.color_index` palette index, verify the canonical state, and fail
 closed on stale or ambiguous topology. Chain-property results retain Live's
-observed RGB `color` alongside `colorIndex`.
+observed RGB `color` alongside `colorIndex`. Drum Rack pad inspection scans
+the bounded 128-pad map and returns only occupied pads by default, with
+total/occupied/empty counts. `includeEmpty: true` preserves paginated
+diagnostic access to the complete pad map.
 
 This slice does **not** support creating empty rack chains, direct native
 device insertion, deleting one chain, or reordering chains. Those operations

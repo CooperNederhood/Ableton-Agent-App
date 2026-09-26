@@ -13,8 +13,9 @@ The default session should:
 - Use the Node.js Copilot SDK.
 - Enable streaming.
 - Register approved application tools plus the SDK's session-isolated built-ins.
-- Exclude host-capable coding, shell, unrestricted filesystem, and network
-  tools.
+- Exclude host-capable coding, unrestricted filesystem, and network tools.
+- Expose SDK `bash` only through the application permission gate for bounded,
+  read-only inspection of profile-owned large-tool-output spill files.
 - Provide a custom permission handler.
 - Register lifecycle and tool hooks.
 - Use a stable application-owned session ID.
@@ -22,6 +23,23 @@ The default session should:
 
 The app should prefer an empty or tightly restricted tool environment rather
 than inheriting the general Copilot CLI tool set.
+
+SDK large-output handling remains enabled with an explicit threshold and a
+profile-owned transient output directory under `copilot/tool-output/`. When a
+tool result is externalized, the agent may use only `grep`, bounded
+`head`/`tail`, `wc`, restricted `jq`, and safe pipelines over the exact
+application-owned spill file. Shell permission checks reject writes, arbitrary
+filesystem paths, network targets, command substitution, environment access,
+unsafe command flags, and sandbox escalation. Large files are inspected in
+bounded pieces or projected with `jq`; they are not copied wholesale back into
+model context.
+
+The runtime protocol contains native filesystem/network sandbox policy, but
+the pinned public SDK session API does not currently expose that configuration.
+The application therefore treats its command/path permission gate as the
+enforcement boundary and does not use unsupported generated RPC internals.
+Native sandboxing remains defense-in-depth to enable through a supported SDK
+surface when available.
 
 At SDK session creation, resume, and each effective configuration change, the
 runtime writes a sanitized configuration snapshot to the local event journal.
@@ -65,8 +83,9 @@ boundary: inspection tools remain available, but every Ableton mutation is
 rejected before approval, locking, or bridge dispatch. The SDK client still
 runs in `empty` mode. The application then
 source-qualifies the approved `BuiltInTools.Isolated` set, excluding the SDK
-`skill` implementation, disables SDK tool search so every allowed definition
-is loaded directly, and adds application-owned Ableton, `read_plan`,
+`skill` implementation, adds the policy-gated SDK `bash` tool, disables SDK
+tool search so every allowed definition is loaded directly, and adds
+application-owned Ableton, `read_plan`,
 `write_plan`, and progressive-disclosure `skill` tools. Planning controls
 (`ask_user`, `read_plan`, `write_plan`, and `exit_plan_mode`) remain available
 even when an agent definition has an otherwise empty tool list. The

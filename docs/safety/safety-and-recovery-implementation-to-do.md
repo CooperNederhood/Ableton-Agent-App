@@ -36,6 +36,9 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
     references and expected identity fields, prune unreachable references, and
     bound every independently requested page without recursion.
 - [x] Validate file imports and supported media.
+- [x] Restrict SDK shell approval to read-only commands over canonical
+  profile-owned Copilot spill files and reject path, syntax, network, write,
+  environment, and escalation bypasses.
 - [x] Report all clamping and coercion.
 - [x] Add workflow mutation-count and duration budgets.
 - [x] Investigate and capability-gate native Live undo grouping.

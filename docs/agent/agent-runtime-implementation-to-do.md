@@ -26,8 +26,12 @@ Companion specification: [Agent Runtime](agent-runtime.md)
   boundaries, then permit same-turn implementation only after interactive
   approval.
 - [x] Restore the approved SDK session-isolated built-ins while excluding
-  `builtin:skill` and all host-capable coding, shell, filesystem, and network
-  tools.
+  `builtin:skill` and host-capable coding, unrestricted filesystem, and
+  network tools.
+- [x] Enable SDK `bash` only through a fail-closed command/path policy for
+  bounded read-only inspection of profile-owned large-output spill files.
+- [ ] Enable the runtime's native filesystem/network sandbox as defense in
+  depth when the public SDK exposes supported `sandboxConfig` session wiring.
 - [x] Disable SDK tool search so the runtime never injects an implicit
   discovery tool into agent turns.
 - [x] Add permission-free fixed-target `read_plan` and `write_plan` tools with

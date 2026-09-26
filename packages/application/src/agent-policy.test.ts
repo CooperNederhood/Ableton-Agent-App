@@ -326,8 +326,12 @@ describe("agent policy", () => {
       sessionId: "session-1",
       timestamp: new Date(),
       workingDirectory: "/tmp",
-      toolName: "ableton_tracks_rename",
-      toolArgs: { index: 1, expectedReference: "old" },
+      toolName: "ableton_tracks",
+      toolArgs: {
+        action: "rename",
+        index: 1,
+        expectedReference: "old",
+      },
     };
 
     const failure = await hooks.onPostToolUseFailure?.(
@@ -358,8 +362,12 @@ describe("agent policy", () => {
         sessionId: "session-1",
         timestamp: new Date(),
         workingDirectory: "/tmp",
-        toolName: "ableton_tracks_create",
-        toolArgs: { kind: "midi", name: "Planned track" },
+        toolName: "ableton_tracks",
+        toolArgs: {
+          action: "create",
+          kind: "midi",
+          name: "Planned track",
+        },
       },
       { sessionId: "session-1" },
     );
@@ -368,8 +376,8 @@ describe("agent policy", () => {
         sessionId: "session-1",
         timestamp: new Date(),
         workingDirectory: "/tmp",
-        toolName: "ableton_session_inspect",
-        toolArgs: {},
+        toolName: "ableton_session",
+        toolArgs: { action: "inspect" },
       },
       { sessionId: "session-1" },
     );
@@ -407,8 +415,8 @@ describe("agent policy", () => {
       sessionId: "session-1",
       timestamp: new Date(),
       workingDirectory: "/tmp",
-      toolName: "ableton_tracks_create",
-      toolArgs: { kind: "midi", name: "808 Drums" },
+      toolName: "ableton_tracks",
+      toolArgs: { action: "create", kind: "midi", name: "808 Drums" },
     };
 
     const failure = await hooks.onPostToolUseFailure?.(
@@ -435,8 +443,8 @@ describe("agent policy", () => {
       sessionId: "session-1",
       timestamp: new Date(),
       workingDirectory: "/tmp",
-      toolName: "ableton_arrangement_duplicate_clip",
-      toolArgs: { destinationTime: 8 },
+      toolName: "ableton_arrangement",
+      toolArgs: { action: "duplicate-clip", destinationTime: 8 },
     };
     const error = serializeAbletonToolFailure(
       Object.assign(new Error("Arrangement duplication failed"), {
@@ -464,8 +472,8 @@ describe("agent policy", () => {
       inspectSession: async () => snapshot,
     });
     policy.blockAttempt(
-      "ableton_tracks_delete",
-      { index: 1 },
+      "ableton_tracks",
+      { action: "delete", index: 1 },
       "User denied this operation",
     );
 
@@ -474,8 +482,8 @@ describe("agent policy", () => {
         sessionId: "session-1",
         timestamp: new Date(),
         workingDirectory: "/tmp",
-        toolName: "ableton_tracks_delete",
-        toolArgs: { index: 1 },
+        toolName: "ableton_tracks",
+        toolArgs: { action: "delete", index: 1 },
       },
       { sessionId: "session-1" },
     );

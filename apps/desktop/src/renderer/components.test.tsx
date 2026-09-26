@@ -362,7 +362,8 @@ describe("desktop components", () => {
                     description: "General agent.",
                     systemPrompt: "Help.",
                     tools: ["*"],
-                    resolvedTools: ["ableton_session_inspect"],
+                    resolvedTools: ["ableton_session"],
+                    resolvedOperations: ["session.inspect"],
                     editScope: ["session"],
                     skills: ["mix-review"],
                     inputChannels: [],
@@ -1035,7 +1036,7 @@ describe("desktop components", () => {
       <Inspector state={malformed} dispatch={vi.fn()} />,
     );
     const compactPlan =
-      "**Techno Arrangement Plan** Using existing clips: - **Intro:** kick only - **Build:** add hats - **Peak:** add synth Implementation: use `ableton_arrangement_fill_region` and verify.";
+      "**Techno Arrangement Plan** Using existing clips: - **Intro:** kick only - **Build:** add hats - **Peak:** add synth Implementation: use `ableton_arrangement` with action `fill-region` and verify.";
     const compact = workspaceState(firstAgentId);
     compact.agentWorkspaces[firstAgentId] = {
       messages: [],
@@ -1346,10 +1347,7 @@ describe("desktop components", () => {
                     description: "General-purpose Ableton agent.",
                     systemPrompt: "Help with Ableton.",
                     tools: ["ableton_*"],
-                    resolvedTools: [
-                      "ableton_session_inspect",
-                      "ableton_transport_get",
-                    ],
+                    resolvedTools: ["ableton_session", "ableton_transport"],
                     editScope: ["session"],
                     skills: ["mix-review"],
                     inputChannels: ["midi:drums"],
@@ -1369,7 +1367,8 @@ describe("desktop components", () => {
                 description: "General-purpose Ableton agent.",
                 systemPrompt: "Help with Ableton.",
                 tools: ["*"],
-                resolvedTools: ["ableton_session_inspect"],
+                resolvedTools: ["ableton_session"],
+                resolvedOperations: ["session.inspect"],
                 editScope: ["session"],
                 skills: [],
                 inputChannels: [],
@@ -1381,7 +1380,8 @@ describe("desktop components", () => {
                 description: "Composition-focused Ableton agent.",
                 systemPrompt: "Develop musical ideas.",
                 tools: ["ableton_*"],
-                resolvedTools: ["ableton_session_inspect"],
+                resolvedTools: ["ableton_session"],
+                resolvedOperations: ["session.inspect"],
                 editScope: ["session"],
                 skills: [],
                 inputChannels: [],
@@ -1620,30 +1620,35 @@ describe("desktop components", () => {
   it("collapses resolved tools for wildcard selections", () => {
     const html = renderToStaticMarkup(
       <ResolvedToolsDisclosure
-        patterns={["ableton_devices_*"]}
-        resolvedTools={[
-          "ableton_devices_inspect",
-          "ableton_device_set_parameter",
+        patterns={["devices.inspect_*"]}
+        resolvedTools={["ableton_devices"]}
+        resolvedOperations={[
+          "devices.inspect_parameters",
+          "devices.inspect_rack_chains",
         ]}
       />,
     );
 
     expect(html).toContain("<details");
     expect(html).not.toContain("<details open");
-    expect(html).toContain("Resolved tools (2)");
-    expect(html).toContain("ableton_devices_inspect");
+    expect(html).toContain("Resolved tools (1)");
+    expect(html).toContain("ableton_devices");
+    expect(html).toContain(
+      "Operations: devices.inspect_parameters, devices.inspect_rack_chains",
+    );
   });
 
   it("shows exact tool resolutions without a disclosure", () => {
     const html = renderToStaticMarkup(
       <ResolvedToolsDisclosure
-        patterns={["ableton_session_inspect"]}
-        resolvedTools={["ableton_session_inspect"]}
+        patterns={["session.inspect"]}
+        resolvedTools={["ableton_session"]}
+        resolvedOperations={["session.inspect"]}
       />,
     );
 
     expect(html).not.toContain("<details");
-    expect(html).toContain("Resolves to: ableton_session_inspect");
+    expect(html).toContain("Resolves to: ableton_session · session.inspect");
   });
 
   it("shows an empty wildcard resolution inside the disclosure", () => {
@@ -1676,7 +1681,8 @@ describe("desktop components", () => {
         operation={{
           id: "1",
           label: "Place clips",
-          toolName: "ableton_clip_fire",
+          toolName: "ableton_session_clips",
+          action: "launch",
           status: "partial",
           detail: "2 of 3",
           warnings: ["Track locked"],
@@ -1690,17 +1696,15 @@ describe("desktop components", () => {
     );
     expect(html).toContain("partial");
     expect(html).toContain("activity-icon-ableton");
-    expect(html).toContain("ableton_clip_fire");
+    expect(html).toContain("ableton_session_clips · launch");
     expect(html).toContain("Retry safely");
     expect(html).toContain("Not changed:");
   });
 
   it("classifies compact operation icons from tool names and labels", () => {
-    expect(operationPresentation("ableton_session_inspect", "Inspect")).toEqual(
-      {
-        type: "ableton",
-      },
-    );
+    expect(operationPresentation("ableton_session", "Inspect")).toEqual({
+      type: "ableton",
+    });
     expect(operationPresentation("shell_exec", "Run tests")).toEqual({
       type: "terminal",
     });

@@ -1093,8 +1093,12 @@ describe("CopilotAgentService", () => {
             timestamp: new Date().toISOString(),
             data: {
               toolCallId: "mutation-call",
-              toolName: "ableton_arrangement_fill_region",
-              arguments: { regionStart: 0, regionEnd: 32 },
+              toolName: "ableton_arrangement",
+              arguments: {
+                action: "fill-region",
+                regionStart: 0,
+                regionEnd: 32,
+              },
             },
           });
           emit({
@@ -1104,8 +1108,8 @@ describe("CopilotAgentService", () => {
             timestamp: new Date().toISOString(),
             data: {
               toolCallId: "read-call",
-              toolName: "ableton_arrangement_inspect",
-              arguments: {},
+              toolName: "ableton_arrangement",
+              arguments: { action: "inspect" },
             },
           });
         }
@@ -1437,7 +1441,7 @@ describe("CopilotAgentService", () => {
       (tool) => tool.name === "ableton_recording",
     );
     const renameTool = configuredTools.find(
-      (tool) => tool.name === "ableton_tracks_rename",
+      (tool) => tool.name === "ableton_tracks",
     );
     if (recordingTool === undefined || renameTool === undefined) {
       throw new Error("Expected recording and rename tools");
@@ -1498,6 +1502,7 @@ describe("CopilotAgentService", () => {
     ]);
     const renamePromise = renameTool.handler(
       {
+        action: "rename",
         index: 0,
         expectedReference: "00000000-0000-4000-8000-000000000001",
         expectedName: "Drums",
@@ -1548,52 +1553,15 @@ describe("CopilotAgentService", () => {
       "finished",
     ]);
     expect(config?.availableTools).toEqual([
-      "custom:ableton_connection_status",
-      "custom:ableton_session_inspect",
-      "custom:ableton_transport_set_tempo",
-      "custom:ableton_transport_set_playing",
-      "custom:ableton_transport_inspect_arrangement",
-      "custom:ableton_transport_set_arrangement_loop",
-      "custom:ableton_transport_create_cue_point",
-      "custom:ableton_transport_delete_cue_point",
-      "custom:ableton_tracks_create",
-      "custom:ableton_tracks_rename",
-      "custom:ableton_tracks_set_mixer",
-      "custom:ableton_clips_create_midi",
-      "custom:ableton_clips_replace_notes",
-      "custom:ableton_clips_launch",
-      "custom:ableton_clips_duplicate",
-      "custom:ableton_clips_delete",
-      "custom:ableton_clips_set_properties",
-      "custom:ableton_arrangement_create_midi_clip",
-      "custom:ableton_arrangement_inspect",
-      "custom:ableton_arrangement_delete_clip",
-      "custom:ableton_arrangement_replace_notes",
-      "custom:ableton_arrangement_duplicate_clip",
-      "custom:ableton_arrangement_set_clip_properties",
-      "custom:ableton_devices_inspect",
-      "custom:ableton_device_parameters_inspect",
-      "custom:ableton_rack_chains_inspect",
-      "custom:ableton_rack_chain_devices_inspect",
-      "custom:ableton_drum_rack_pads_inspect",
-      "custom:ableton_drum_pad_chains_inspect",
-      "custom:ableton_drum_pad_chain_devices_inspect",
-      "custom:ableton_device_set_enabled",
-      "custom:ableton_device_set_parameter",
-      "custom:ableton_browser_roots_inspect",
-      "custom:ableton_browser_children_inspect",
-      "custom:ableton_browser_search",
-      "custom:ableton_browser_search_external_plugins",
-      "custom:ableton_browser_load_item",
-      "custom:ableton_rack_chain_mixer_inspect",
-      "custom:ableton_device_find_position",
-      "custom:ableton_device_move",
-      "custom:ableton_rack_chain_set_properties",
-      "custom:ableton_rack_chain_set_mixer",
-      "custom:ableton_scenes",
+      "custom:ableton_session",
       "custom:ableton_tracks",
       "custom:ableton_mixer_routing",
       "custom:ableton_transport",
+      "custom:ableton_session_clips",
+      "custom:ableton_arrangement",
+      "custom:ableton_devices",
+      "custom:ableton_browser",
+      "custom:ableton_scenes",
       "custom:ableton_midi_notes",
       "custom:ableton_audio_clips",
       "custom:ableton_recording",
@@ -1605,14 +1573,13 @@ describe("CopilotAgentService", () => {
       "custom:ableton_warp_markers",
       "custom:ableton_special_devices",
       "custom:ableton_workflow_jobs",
-      "custom:ableton_arrangement_fill_region",
       "custom:set_sql_search",
       "custom:read_plan",
       "custom:write_plan",
       "builtin:ask_user",
       "builtin:exit_plan_mode",
     ]);
-    expect(config?.tools).toHaveLength(61);
+    expect(config?.tools).toHaveLength(23);
     expect(config?.customAgents).toEqual([
       {
         name: "default-agent",
@@ -1676,21 +1643,21 @@ describe("CopilotAgentService", () => {
       config?.onPermissionRequest?.(
         {
           kind: "custom-tool",
-          toolName: "ableton_transport_set_tempo",
+          toolName: "ableton_transport",
           toolDescription: "Set tempo",
-          args: { tempo: 132 },
+          args: { action: "set-tempo", tempo: 132 },
         },
         { sessionId: "session" },
       ),
     ).resolves.toEqual({ kind: "approve-once" });
     expect(requestToolApproval).toHaveBeenCalledOnce();
     requestToolApproval.mockResolvedValueOnce(false);
-    const deniedArgs = { tempo: 140 };
+    const deniedArgs = { action: "set-tempo", tempo: 140 };
     await expect(
       config?.onPermissionRequest?.(
         {
           kind: "custom-tool",
-          toolName: "ableton_transport_set_tempo",
+          toolName: "ableton_transport",
           toolDescription: "Set tempo",
           args: deniedArgs,
         },
@@ -1703,7 +1670,7 @@ describe("CopilotAgentService", () => {
           sessionId: "session",
           timestamp: new Date(),
           workingDirectory: "/tmp",
-          toolName: "ableton_transport_set_tempo",
+          toolName: "ableton_transport",
           toolArgs: deniedArgs,
         },
         { sessionId: "session" },
@@ -1728,7 +1695,7 @@ describe("CopilotAgentService", () => {
       "Ableton Live production assistant",
     );
     expect(JSON.stringify(snapshot?.data.tools)).toContain(
-      '"name":"ableton_transport_set_tempo"',
+      '"name":"ableton_transport"',
     );
     expect(JSON.stringify(snapshot?.data.tools)).toContain(
       '"parameterSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema',
@@ -1770,10 +1737,14 @@ describe("CopilotAgentService", () => {
         expect.objectContaining({
           operationId: "mutation-call",
           code: "applied_indeterminate",
+          operationDescriptorId: "arrangement.fill_region",
+          action: "fill-region",
         }),
         expect.objectContaining({
           operationId: "read-call",
           code: "operation_timeout",
+          operationDescriptorId: "arrangement.inspect",
+          action: "inspect",
         }),
       ]),
     );
@@ -2074,17 +2045,8 @@ describe("CopilotAgentService", () => {
       timestamp: "2026-08-08T00:00:01.000Z",
       data: {
         toolCallId: "tool-1",
-        toolName: "ableton_session_inspect",
-      },
-    });
-    listener?.({
-      type: "tool.execution_complete",
-      id: "event-3",
-      parentId: "event-2",
-      timestamp: "2026-08-08T00:00:02.000Z",
-      data: {
-        toolCallId: "tool-1",
-        success: true,
+        toolName: "ableton_session",
+        arguments: { action: "inspect" },
       },
     });
     listener?.({
@@ -2102,6 +2064,16 @@ describe("CopilotAgentService", () => {
       timestamp: "2026-08-08T00:00:01.500Z",
       ephemeral: true,
       data: { toolCallId: "tool-1", partialOutput: "Track 1" },
+    });
+    listener?.({
+      type: "tool.execution_complete",
+      id: "event-3",
+      parentId: "event-2",
+      timestamp: "2026-08-08T00:00:02.000Z",
+      data: {
+        toolCallId: "tool-1",
+        success: true,
+      },
     });
     listener?.({
       type: "assistant.message",
@@ -2136,7 +2108,8 @@ describe("CopilotAgentService", () => {
       timestamp: "2026-08-08T00:00:03.000Z",
       data: {
         toolCallId: "tool-2",
-        toolName: "ableton_connection_status",
+        toolName: "ableton_session",
+        arguments: { action: "connection-status" },
       },
     });
     listener?.({
@@ -2170,23 +2143,41 @@ describe("CopilotAgentService", () => {
         type: "operation.started",
         operationId: "tool-1",
         label: "Inspect Ableton session",
-        toolName: "ableton_session_inspect",
-        arguments: {},
+        toolName: "ableton_session",
+        arguments: { action: "inspect" },
+        operationDescriptorId: "session.inspect",
+        action: "inspect",
+        targetIdentity: {
+          domain: "session",
+          action: "inspect",
+          targetKind: "session",
+          targetReferences: [],
+        },
         sdkSessionId: "session-1",
       },
       {
         type: "operation.completed",
         operationId: "tool-1",
         summary: "Inspect Ableton session completed",
-        toolName: "ableton_session_inspect",
+        toolName: "ableton_session",
+        operationDescriptorId: "session.inspect",
+        action: "inspect",
         sdkSessionId: "session-1",
       },
       {
         type: "operation.started",
         operationId: "tool-2",
         label: "Check Ableton connection",
-        toolName: "ableton_connection_status",
-        arguments: {},
+        toolName: "ableton_session",
+        arguments: { action: "connection-status" },
+        operationDescriptorId: "session.connection_status",
+        action: "connection-status",
+        targetIdentity: {
+          domain: "session",
+          action: "connection-status",
+          targetKind: "connection",
+          targetReferences: [],
+        },
         sdkSessionId: "session-1",
       },
       {
@@ -2196,7 +2187,9 @@ describe("CopilotAgentService", () => {
         message: "Ableton is offline",
         retryable: true,
         details: { state: "disconnected" },
-        toolName: "ableton_connection_status",
+        toolName: "ableton_session",
+        operationDescriptorId: "session.connection_status",
+        action: "connection-status",
         sdkSessionId: "session-1",
       },
     ]);
@@ -2219,13 +2212,31 @@ describe("CopilotAgentService", () => {
         ?.data,
     ).toMatchObject({
       toolCallId: "tool-1",
-      arguments: {},
+      arguments: { action: "inspect" },
+      operationDescriptorId: "session.inspect",
+      action: "inspect",
       durationMs: 1_000,
+    });
+    expect(
+      runtimeEvents.find((event) => event.type === "agent.tool.progress")?.data,
+    ).toMatchObject({
+      toolCallId: "tool-1",
+      operationDescriptorId: "session.inspect",
+      action: "inspect",
+    });
+    expect(
+      runtimeEvents.find((event) => event.type === "agent.tool.partial")?.data,
+    ).toMatchObject({
+      toolCallId: "tool-1",
+      operationDescriptorId: "session.inspect",
+      action: "inspect",
     });
     expect(
       runtimeEvents.find((event) => event.type === "agent.tool.failed")?.data,
     ).toMatchObject({
       toolCallId: "tool-2",
+      operationDescriptorId: "session.connection_status",
+      action: "connection-status",
       structuredFailure: {
         code: "offline",
         message: "Ableton is offline",
@@ -2283,7 +2294,7 @@ describe("HeadlessApplication agent and connection ports", () => {
       label: "Compose",
       description: "Compose MIDI phrases.",
       systemPrompt: "Compose MIDI phrases safely.",
-      resolvedTools: ["ableton_session_inspect"],
+      resolvedTools: ["ableton_session"],
       editScope: ["session"],
       boundTracks: [],
       skills: ["midi"],

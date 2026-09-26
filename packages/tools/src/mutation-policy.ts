@@ -129,37 +129,6 @@ export interface RunAuthorizedMutationOptions<T> {
   }) => void;
 }
 
-const abletonTrackReferenceArgumentsByToolName: Record<
-  string,
-  readonly string[]
-> = {
-  ableton_tracks_delete: ["expectedReference"],
-  ableton_tracks_rename: ["expectedReference"],
-  ableton_tracks_set_mixer: ["expectedReference"],
-  ableton_clips_create_midi: ["expectedReference"],
-  ableton_clips_replace_notes: ["expectedReference"],
-  ableton_clips_launch: ["expectedReference"],
-  ableton_clips_duplicate: [
-    "expectedReference",
-    "expectedDestinationTrackReference",
-  ],
-  ableton_clips_delete: ["expectedReference"],
-  ableton_clips_set_properties: ["expectedReference"],
-  ableton_arrangement_create_midi_clip: ["expectedReference"],
-  ableton_arrangement_delete_clip: ["expectedReference"],
-  ableton_arrangement_replace_notes: ["expectedReference"],
-  ableton_arrangement_duplicate_clip: ["expectedReference"],
-  ableton_arrangement_fill_region: ["expectedReference"],
-  ableton_arrangement_set_clip_properties: ["expectedReference"],
-  ableton_device_set_enabled: ["expectedReference"],
-  ableton_device_set_parameter: ["expectedReference"],
-  ableton_browser_load_item: ["expectedReference"],
-} as const satisfies Record<string, readonly string[]>;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 function hasSessionScope(
   editScope: AbletonMutationAgentConfig["editScope"],
 ): boolean {
@@ -174,25 +143,6 @@ function normalizeTrackReferences(
   );
 }
 
-function resolveTrackReferences(
-  toolName: string,
-  args: unknown,
-): readonly string[] | undefined {
-  const fields = abletonTrackReferenceArgumentsByToolName[toolName];
-  if (fields === undefined) return undefined;
-  if (!isRecord(args)) return undefined;
-  const trackReferences: string[] = [];
-  for (const field of fields) {
-    const value = args[field];
-    if (typeof value !== "string" || value.trim().length === 0) {
-      return undefined;
-    }
-    trackReferences.push(value);
-  }
-  if (trackReferences.length === 0) return undefined;
-  return normalizeTrackReferences(trackReferences);
-}
-
 function resolveInvocationTrackReferences(
   toolName: string,
   args: unknown,
@@ -203,7 +153,7 @@ function resolveInvocationTrackReferences(
   } catch {
     return undefined;
   }
-  return resolveTrackReferences(toolName, args);
+  return undefined;
 }
 
 function deny(

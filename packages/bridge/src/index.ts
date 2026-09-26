@@ -1855,6 +1855,14 @@ export class AbletonBridgeService implements AbletonService {
         ? {}
         : { toolName: correlationContext.toolName }),
     };
+    const operationAttributes = {
+      ...(correlationContext?.operationId === undefined
+        ? {}
+        : { operationId: correlationContext.operationId }),
+      ...(correlationContext?.action === undefined
+        ? {}
+        : { action: correlationContext.action }),
+    };
     const timeoutClass = this.#timeoutClass(command);
     const timeoutMs =
       timeoutClass === "long"
@@ -1878,6 +1886,7 @@ export class AbletonBridgeService implements AbletonService {
           queueLimit: this.#requestQueueLimit,
           timeoutClass,
           timeoutMs,
+          ...operationAttributes,
         },
       });
       throw new AbletonBridgeError(
@@ -1905,6 +1914,7 @@ export class AbletonBridgeService implements AbletonService {
         queueDepth: this.#requestQueueDepth,
         timeoutClass,
         timeoutMs,
+        ...operationAttributes,
         ...(correlationId === undefined ? {} : { correlationId }),
       },
     });
@@ -1940,6 +1950,7 @@ export class AbletonBridgeService implements AbletonService {
             queueWaitMs,
             timeoutClass,
             timeoutMs,
+            ...operationAttributes,
           },
         });
         throw new AbletonBridgeError(
@@ -1978,6 +1989,7 @@ export class AbletonBridgeService implements AbletonService {
           queueWaitMs,
           timeoutClass,
           timeoutMs,
+          ...operationAttributes,
           ...(correlationId === undefined ? {} : { correlationId }),
         },
       });
@@ -2057,6 +2069,7 @@ export class AbletonBridgeService implements AbletonService {
             totalDurationMs,
             timeoutClass,
             timeoutMs,
+            ...operationAttributes,
             ...(correlationId === undefined ? {} : { correlationId }),
           },
         });
@@ -2099,6 +2112,7 @@ export class AbletonBridgeService implements AbletonService {
             totalDurationMs,
             timeoutClass,
             timeoutMs,
+            ...operationAttributes,
             ...(correlationId === undefined ? {} : { correlationId }),
           },
         });
@@ -2148,6 +2162,7 @@ export class AbletonBridgeService implements AbletonService {
           totalDurationMs,
           timeoutClass,
           timeoutMs,
+          ...operationAttributes,
           ...(correlationId === undefined ? {} : { correlationId }),
         },
       });

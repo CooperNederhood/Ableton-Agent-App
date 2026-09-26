@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars -- Action discriminants are intentionally removed before service dispatch. */
 import type {
   AudioClipsOperationParams,
   AudioClipsOperationResult,
@@ -84,9 +85,7 @@ import type {
   ScenesOperationParams,
   ScenesOperationResult,
   SessionSnapshot,
-  SetPlayingParams,
   SetPlayingResult,
-  SetTempoParams,
   SetTempoResult,
   RecordingOperationParams,
   RecordingOperationResult,
@@ -123,13 +122,10 @@ import {
   liveHistoryOperationResultSchema,
   midiNotesOperationParamsSchema,
   midiNotesOperationResultSchema,
-  mixerRoutingOperationParamsSchema,
   mixerRoutingOperationResultSchema,
   scenesOperationParamsSchema,
   scenesOperationResultSchema,
-  tracksOperationParamsSchema,
   tracksOperationResultSchema,
-  transportOperationParamsSchema,
   transportOperationResultSchema,
   recordingOperationParamsSchema,
   recordingOperationResultSchema,
@@ -176,15 +172,31 @@ import {
   abletonToolArgumentError,
   agentFacingParameters,
 } from "./argument-validation.js";
+import {
+  abletonArrangementParamsSchema,
+  abletonBrowserParamsSchema,
+  abletonDevicesParamsSchema,
+  abletonMixerRoutingParamsSchema,
+  abletonSessionClipsParamsSchema,
+  abletonSessionParamsSchema,
+  abletonTracksParamsSchema,
+  abletonTransportParamsSchema,
+  type AbletonArrangementParams,
+  type AbletonBrowserParams,
+  type AbletonDevicesParams,
+  type AbletonMixerRoutingParams,
+  type AbletonSessionClipsParams,
+  type AbletonSessionParams,
+  type AbletonTracksParams,
+  type AbletonTransportParams,
+} from "./grouped-tool-schemas.js";
 
 export * from "./set-sql-search.js";
 export * from "./argument-validation.js";
+export * from "./grouped-tool-schemas.js";
 
 export type ToolRisk = "read" | "reversible" | "destructive" | "broad";
 export type ToolDuration = "instant" | "short" | "long";
-type InspectDrumRackPadsToolParams = InspectDrumRackPadsParams & {
-  includeEmpty: boolean;
-};
 
 export interface AbletonToolMetadata {
   name: string;
@@ -348,301 +360,6 @@ export interface AbletonToolServices {
 export type ExternalPluginSearchParams = Omit<SearchBrowserParams, "roots">;
 
 export const abletonToolMetadata = [
-  {
-    name: "ableton_connection_status",
-    title: "Check Ableton connection",
-    risk: "read",
-    duration: "instant",
-    mutationTarget: "read",
-  },
-  {
-    name: "ableton_session_inspect",
-    title: "Inspect Ableton session",
-    risk: "read",
-    duration: "short",
-    mutationTarget: "read",
-    requiredCapability: "session.inspect",
-  },
-  {
-    name: "ableton_transport_set_tempo",
-    title: "Set Ableton tempo",
-    risk: "reversible",
-    duration: "instant",
-    mutationTarget: "session",
-    requiredCapability: "transport.set_tempo",
-  },
-  {
-    name: "ableton_transport_set_playing",
-    title: "Set Ableton transport playback",
-    risk: "reversible",
-    duration: "instant",
-    mutationTarget: "session",
-    requiredCapability: "transport.set_playing",
-  },
-  {
-    name: "ableton_transport_inspect_arrangement",
-    title: "Inspect Arrangement transport",
-    risk: "read",
-    duration: "short",
-    mutationTarget: "read",
-    requiredCapability: "transport.inspect_arrangement",
-  },
-  {
-    name: "ableton_transport_set_arrangement_loop",
-    title: "Set Arrangement loop",
-    risk: "reversible",
-    duration: "instant",
-    mutationTarget: "session",
-    requiredCapability: "transport.set_arrangement_loop",
-  },
-  {
-    name: "ableton_transport_create_cue_point",
-    title: "Create Arrangement cue point",
-    risk: "reversible",
-    duration: "short",
-    mutationTarget: "session",
-    requiredCapability: "transport.create_cue_point",
-  },
-  {
-    name: "ableton_transport_delete_cue_point",
-    title: "Delete Arrangement cue point",
-    risk: "destructive",
-    duration: "short",
-    mutationTarget: "session",
-    requiredCapability: "transport.delete_cue_point",
-  },
-  {
-    name: "ableton_tracks_create",
-    title: "Create Ableton track",
-    risk: "reversible",
-    duration: "short",
-    mutationTarget: "session",
-    requiredCapability: "tracks.create",
-  },
-  {
-    name: "ableton_tracks_rename",
-    title: "Rename Ableton track",
-    risk: "reversible",
-    duration: "short",
-    mutationTarget: "track",
-    requiredCapability: "tracks.rename",
-  },
-  {
-    name: "ableton_tracks_set_mixer",
-    title: "Set Ableton track mixer",
-    risk: "reversible",
-    duration: "short",
-    mutationTarget: "track",
-    requiredCapability: "tracks.set_mixer",
-  },
-  {
-    name: "ableton_clips_create_midi",
-    title: "Create Ableton MIDI clip",
-    risk: "reversible",
-    duration: "short",
-    mutationTarget: "track",
-    requiredCapability: "clips.create_midi",
-  },
-  {
-    name: "ableton_clips_replace_notes",
-    title: "Replace Ableton MIDI notes",
-    risk: "destructive",
-    duration: "short",
-    mutationTarget: "track",
-    requiredCapability: "clips.replace_notes",
-  },
-  {
-    name: "ableton_clips_launch",
-    title: "Launch Session clip",
-    risk: "reversible",
-    duration: "instant",
-    mutationTarget: "track",
-    requiredCapability: "clips.launch",
-  },
-  {
-    name: "ableton_clips_duplicate",
-    title: "Duplicate Session clip",
-    risk: "reversible",
-    duration: "short",
-    mutationTarget: "tracks",
-    requiredCapability: "clips.duplicate",
-  },
-  {
-    name: "ableton_clips_delete",
-    title: "Delete Session clip",
-    risk: "destructive",
-    duration: "short",
-    mutationTarget: "track",
-    requiredCapability: "clips.delete",
-  },
-  {
-    name: "ableton_clips_set_properties",
-    title: "Set Session clip properties",
-    risk: "reversible",
-    duration: "short",
-    mutationTarget: "track",
-    requiredCapability: "clips.set_properties",
-  },
-  {
-    name: "ableton_arrangement_create_midi_clip",
-    title: "Create Arrangement MIDI clip",
-    risk: "reversible",
-    duration: "short",
-    mutationTarget: "track",
-    requiredCapability: "arrangement.create_midi_clip",
-  },
-  {
-    name: "ableton_arrangement_inspect",
-    title: "Inspect Ableton Arrangement",
-    risk: "read",
-    duration: "short",
-    mutationTarget: "read",
-    requiredCapability: "arrangement.inspect",
-  },
-  {
-    name: "ableton_arrangement_delete_clip",
-    title: "Delete Arrangement clip",
-    risk: "destructive",
-    duration: "short",
-    mutationTarget: "track",
-    requiredCapability: "arrangement.delete_clip",
-  },
-  {
-    name: "ableton_arrangement_replace_notes",
-    title: "Replace Arrangement MIDI notes",
-    risk: "destructive",
-    duration: "short",
-    mutationTarget: "track",
-    requiredCapability: "arrangement.replace_notes",
-  },
-  {
-    name: "ableton_arrangement_duplicate_clip",
-    title: "Duplicate Session clip to Arrangement",
-    risk: "reversible",
-    duration: "short",
-    mutationTarget: "track",
-    requiredCapability: "arrangement.duplicate_clip",
-  },
-  {
-    name: "ableton_arrangement_set_clip_properties",
-    title: "Set Arrangement clip properties",
-    risk: "reversible",
-    duration: "short",
-    mutationTarget: "track",
-    requiredCapability: "arrangement.set_clip_properties",
-  },
-  {
-    name: "ableton_devices_inspect",
-    title: "Inspect track devices",
-    risk: "read",
-    duration: "short",
-    mutationTarget: "read",
-    requiredCapability: "devices.inspect",
-  },
-  {
-    name: "ableton_device_parameters_inspect",
-    title: "Inspect device parameters",
-    risk: "read",
-    duration: "short",
-    mutationTarget: "read",
-    requiredCapability: "devices.inspect_parameters",
-  },
-  {
-    name: "ableton_rack_chains_inspect",
-    title: "Inspect rack chains",
-    risk: "read",
-    duration: "short",
-    mutationTarget: "read",
-    requiredCapability: "devices.inspect_rack_chains",
-  },
-  {
-    name: "ableton_rack_chain_devices_inspect",
-    title: "Inspect rack chain devices",
-    risk: "read",
-    duration: "short",
-    mutationTarget: "read",
-    requiredCapability: "devices.inspect_rack_chain_devices",
-  },
-  {
-    name: "ableton_drum_rack_pads_inspect",
-    title: "Inspect Drum Rack pads",
-    risk: "read",
-    duration: "short",
-    mutationTarget: "read",
-    requiredCapability: "devices.inspect_drum_rack_pads",
-  },
-  {
-    name: "ableton_drum_pad_chains_inspect",
-    title: "Inspect Drum Rack pad chains",
-    risk: "read",
-    duration: "short",
-    mutationTarget: "read",
-    requiredCapability: "devices.inspect_drum_pad_chains",
-  },
-  {
-    name: "ableton_drum_pad_chain_devices_inspect",
-    title: "Inspect Drum Rack pad chain devices",
-    risk: "read",
-    duration: "short",
-    mutationTarget: "read",
-    requiredCapability: "devices.inspect_drum_pad_chain_devices",
-  },
-  {
-    name: "ableton_device_set_enabled",
-    title: "Enable or disable device",
-    risk: "reversible",
-    duration: "short",
-    mutationTarget: "track",
-    requiredCapability: "devices.set_enabled",
-  },
-  {
-    name: "ableton_device_set_parameter",
-    title: "Set normalized device parameter",
-    risk: "reversible",
-    duration: "short",
-    mutationTarget: "track",
-    requiredCapability: "devices.set_parameter",
-  },
-  {
-    name: "ableton_browser_roots_inspect",
-    title: "Inspect Ableton browser roots",
-    risk: "read",
-    duration: "instant",
-    mutationTarget: "read",
-    requiredCapability: "browser.inspect_roots",
-  },
-  {
-    name: "ableton_browser_children_inspect",
-    title: "Inspect Ableton browser category",
-    risk: "read",
-    duration: "short",
-    mutationTarget: "read",
-    requiredCapability: "browser.inspect_children",
-  },
-  {
-    name: "ableton_browser_search",
-    title: "Search Ableton browser",
-    risk: "read",
-    duration: "short",
-    mutationTarget: "read",
-    requiredCapability: "browser.search",
-  },
-  {
-    name: "ableton_browser_search_external_plugins",
-    title: "Search installed external plug-ins",
-    risk: "read",
-    duration: "short",
-    mutationTarget: "read",
-    requiredCapability: "browser.search",
-  },
-  {
-    name: "ableton_browser_load_item",
-    title: "Load built-in Ableton browser item",
-    risk: "reversible",
-    duration: "long",
-    mutationTarget: "track",
-    requiredCapability: "browser.load_item",
-  },
   ...new Map(
     abletonOperationDescriptors.map((descriptor) => [
       descriptor.toolName,
@@ -659,14 +376,6 @@ export const abletonToolMetadata = [
       },
     ]),
   ).values(),
-  {
-    name: "ableton_arrangement_fill_region",
-    title: "Fill Arrangement region",
-    risk: "reversible",
-    duration: "long",
-    mutationTarget: "track",
-    requiredCapability: "arrangement.fill_region",
-  },
   {
     name: SET_SQL_SEARCH_TOOL_NAME,
     title: "Search Set and Agent History with SQL",
@@ -807,53 +516,15 @@ export function createAbletonPermissionHandler(
 
 export interface AbletonToolSet {
   tools: [
-    Tool<Record<string, never>>,
-    Tool<Record<string, never>>,
-    Tool<SetTempoParams>,
-    Tool<SetPlayingParams>,
-    Tool<InspectArrangementTransportParams>,
-    Tool<SetArrangementLoopParams>,
-    Tool<CreateCuePointParams>,
-    Tool<DeleteCuePointParams>,
-    Tool<CreateTrackParams>,
-    Tool<DeleteTrackParams>,
-    Tool<RenameTrackParams>,
-    Tool<SetTrackMixerParams>,
-    Tool<CreateMidiClipParams>,
-    Tool<ReplaceMidiNotesParams>,
-    Tool<LaunchSessionClipParams>,
-    Tool<DuplicateSessionClipParams>,
-    Tool<DeleteSessionClipParams>,
-    Tool<SetSessionClipPropertiesParams>,
-    Tool<CreateArrangementMidiClipParams>,
-    Tool<InspectArrangementParams>,
-    Tool<DeleteArrangementClipParams>,
-    Tool<ReplaceArrangementMidiNotesParams>,
-    Tool<DuplicateClipToArrangementParams>,
-    Tool<SetArrangementClipPropertiesParams>,
-    Tool<InspectDevicesParams>,
-    Tool<InspectDeviceParametersParams>,
-    Tool<InspectRackChainsParams>,
-    Tool<InspectRackChainDevicesParams>,
-    Tool<InspectDrumRackPadsToolParams>,
-    Tool<InspectDrumPadChainsParams>,
-    Tool<InspectDrumPadChainDevicesParams>,
-    Tool<SetDeviceEnabledParams>,
-    Tool<SetDeviceParameterParams>,
-    Tool<Record<string, never>>,
-    Tool<InspectBrowserChildrenParams>,
-    Tool<SearchBrowserParams>,
-    Tool<ExternalPluginSearchParams>,
-    Tool<LoadBrowserItemParams>,
-    Tool<InspectChainMixerParams>,
-    Tool<FindDevicePositionParams>,
-    Tool<MoveDeviceParams>,
-    Tool<SetChainPropertiesParams>,
-    Tool<SetChainMixerParams>,
+    Tool<AbletonSessionParams>,
+    Tool<AbletonTracksParams>,
+    Tool<AbletonMixerRoutingParams>,
+    Tool<AbletonTransportParams>,
+    Tool<AbletonSessionClipsParams>,
+    Tool<AbletonArrangementParams>,
+    Tool<AbletonDevicesParams>,
+    Tool<AbletonBrowserParams>,
     Tool<ScenesOperationParams>,
-    Tool<TracksOperationParams>,
-    Tool<MixerRoutingOperationParams>,
-    Tool<TransportOperationParams>,
     Tool<MidiNotesOperationParams>,
     Tool<AudioClipsOperationParams>,
     Tool<RecordingOperationParams>,
@@ -865,7 +536,6 @@ export interface AbletonToolSet {
     Tool<WarpMarkerOperationParams>,
     Tool<SpecializedDeviceOperationParams>,
     Tool<WorkflowJobOperationParams>,
-    Tool<FillArrangementRegionParams>,
     Tool<{
       sql: string;
       parameters?: SetSqlParameters | undefined;
@@ -883,7 +553,7 @@ export const toolCatalogPolicy = {
 export const abletonCompatibilityAliases = {} as const satisfies Readonly<
   Record<string, string>
 >;
-export const deprecatedAbletonToolNames = ["ableton_tracks_delete"] as const;
+export const deprecatedAbletonToolNames = [] as const;
 
 export class AbletonToolPreconditionError extends Error {
   public readonly code: string;
@@ -1122,6 +792,20 @@ function withStructuredFailures<T>(tool: Tool<T>): Tool<T> {
   };
 }
 
+async function requireAbletonConnection(
+  services: AbletonToolServices,
+): Promise<void> {
+  const status = await services.getConnectionStatus();
+  if (status.state !== "connected") {
+    throw new AbletonToolPreconditionError(
+      status.state === "error" ? status.code : "not_connected",
+      status.state === "error"
+        ? status.message
+        : "Ableton Live must be connected before using this tool",
+    );
+  }
+}
+
 function requireConnectedTool<T extends Record<string, unknown>>(
   tool: Tool<T>,
   services: AbletonToolServices,
@@ -1132,15 +816,7 @@ function requireConnectedTool<T extends Record<string, unknown>>(
     ...tool,
     handler: async (params, invocation) => {
       return withCorrelation(invocation.toolCallId, async () => {
-        const status = await services.getConnectionStatus();
-        if (status.state !== "connected") {
-          throw new AbletonToolPreconditionError(
-            status.state === "error" ? status.code : "not_connected",
-            status.state === "error"
-              ? status.message
-              : "Ableton Live must be connected before using this tool",
-          );
-        }
+        await requireAbletonConnection(services);
         return handler(params, invocation);
       });
     },
@@ -1230,17 +906,19 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
       return boundSetSqlSearchResult(result, limit);
     },
   });
-  const connectionStatusTool = defineTool("ableton_connection_status", {
+  const sessionTool = defineTool("ableton_session", {
     description:
-      "Returns the current connection status for the Ableton Live Remote Script bridge.",
-    parameters: z.object({}),
-    handler: async () => services.getConnectionStatus(),
-  });
-  const inspectSessionTool = defineTool("ableton_session_inspect", {
-    description:
-      "Inspects the current Ableton Live set, including transport, tempo, time signature, and track summaries.",
-    parameters: z.object({}),
-    handler: async () => services.inspectSession(),
+      "Checks the Ableton Live Remote Script bridge connection or inspects the current set, including transport, tempo, time signature, and track summaries.",
+    parameters: abletonSessionParamsSchema,
+    handler: async (params) => {
+      switch (params.action) {
+        case "connection-status":
+          return services.getConnectionStatus();
+        case "inspect":
+          await requireAbletonConnection(services);
+          return services.inspectSession();
+      }
+    },
   });
   const scenesTool = defineTool("ableton_scenes", {
     description:
@@ -1256,39 +934,80 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
   });
   const tracksTool = defineTool("ableton_tracks", {
     description:
-      "Lists and inspects regular, group, return, and master tracks, or performs supported Live 11 track actions with exact identity checks. It does not provide arbitrary track reordering.",
-    parameters: tracksOperationParamsSchema,
-    handler: async (params) =>
-      verifyOperationResultAction(
-        params.action,
-        tracksOperationResultSchema.parse(
-          await services.executeTracksOperation!(params),
-        ),
-      ),
+      "Lists, inspects, creates, renames, and performs supported Live 11 track actions with exact identity checks. It does not provide arbitrary track reordering.",
+    parameters: abletonTracksParamsSchema,
+    handler: async (params) => {
+      switch (params.action) {
+        case "create": {
+          const { action: _action, ...input } = params;
+          return services.createTrack(input);
+        }
+        case "rename": {
+          const { action: _action, ...input } = params;
+          return services.renameTrack(input);
+        }
+        default:
+          return verifyOperationResultAction(
+            params.action,
+            tracksOperationResultSchema.parse(
+              await services.executeTracksOperation!(params),
+            ),
+          );
+      }
+    },
   });
   const mixerRoutingTool = defineTool("ableton_mixer_routing", {
     description:
       "Inspects or changes Live 11 track, return, and master mixer state; reads bounded meters; and discovers or assigns routing through exact recent snapshot tokens with feedback and external-MIDI warnings.",
-    parameters: mixerRoutingOperationParamsSchema,
-    handler: async (params) =>
-      verifyOperationResultAction(
+    parameters: abletonMixerRoutingParamsSchema,
+    handler: async (params) => {
+      if (params.action === "set-track-mixer") {
+        const { action: _action, ...input } = params;
+        return services.setTrackMixer(input);
+      }
+      return verifyOperationResultAction(
         params.action,
         mixerRoutingOperationResultSchema.parse(
           await services.executeMixerRoutingOperation!(params),
         ),
-      ),
+      );
+    },
   });
   const transportTool = defineTool("ableton_transport", {
     description:
       "Inspects and controls Live 11 song position, time signature, metronome, launch and record quantization, Link when exposed, cue names/jumps, and Back to Arrangement. Recording controls are intentionally excluded.",
-    parameters: transportOperationParamsSchema,
-    handler: async (params) =>
-      verifyOperationResultAction(
-        params.action,
-        transportOperationResultSchema.parse(
-          await services.executeTransportOperation!(params),
-        ),
-      ),
+    parameters: abletonTransportParamsSchema,
+    handler: async (params) => {
+      switch (params.action) {
+        case "set-tempo":
+          return services.setTempo(params.tempo);
+        case "set-playing":
+          return services.setPlaying(params.isPlaying);
+        case "inspect-arrangement": {
+          const { action: _action, ...input } = params;
+          return services.inspectArrangementTransport(input);
+        }
+        case "set-arrangement-loop": {
+          const { action: _action, ...input } = params;
+          return services.setArrangementLoop(input);
+        }
+        case "create-cue-point": {
+          const { action: _action, ...input } = params;
+          return services.createCuePoint(input);
+        }
+        case "delete-cue-point": {
+          const { action: _action, ...input } = params;
+          return services.deleteCuePoint(input);
+        }
+        default:
+          return verifyOperationResultAction(
+            params.action,
+            transportOperationResultSchema.parse(
+              await services.executeTransportOperation!(params),
+            ),
+          );
+      }
+    },
   });
   const midiNotesTool = defineTool("ableton_midi_notes", {
     description:
@@ -1422,862 +1141,211 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
         ),
       ),
   });
-  const setTempoTool = defineTool("ableton_transport_set_tempo", {
+  const sessionClipsTool = defineTool("ableton_session_clips", {
     description:
-      "Sets the Ableton Live tempo in BPM and returns the before and verified after values.",
-    parameters: z
-      .object({
-        tempo: z.number().min(20).max(999).describe("Target tempo in BPM"),
-      })
-      .strict(),
-    handler: async ({ tempo }) => services.setTempo(tempo),
-  });
-  const setPlayingTool = defineTool("ableton_transport_set_playing", {
-    description:
-      "Starts or stops Ableton Live transport and returns verified before and after playback state.",
-    parameters: z
-      .object({
-        isPlaying: z
-          .boolean()
-          .describe("True to start playback, false to stop playback"),
-      })
-      .strict(),
-    handler: async ({ isPlaying }) => services.setPlaying(isPlaying),
-  });
-  const inspectArrangementTransportTool = defineTool(
-    "ableton_transport_inspect_arrangement",
-    {
-      description:
-        "Returns the Arrangement loop state and a bounded page of identity-bound cue points.",
-      parameters: z
-        .object({
-          offset: z.number().int().nonnegative().default(0),
-          limit: z.number().int().min(1).max(512).default(100),
-        })
-        .strict(),
-      handler: async (params) => services.inspectArrangementTransport(params),
-    },
-  );
-  const setArrangementLoopTool = defineTool(
-    "ableton_transport_set_arrangement_loop",
-    {
-      description:
-        "Updates one or more Arrangement loop properties, verifies the full before/after state, and restores prior values if a partial update fails.",
-      parameters: z
-        .object({
-          enabled: z.boolean().optional(),
-          start: z.number().finite().nonnegative().max(1576800).optional(),
-          length: z.number().finite().positive().max(1576800).optional(),
-        })
-        .strict()
-        .describe(
-          "At least one loop property is required; start plus length must not exceed 1576800 beats",
-        )
-        .refine(
-          (params) =>
-            params.enabled !== undefined ||
-            params.start !== undefined ||
-            params.length !== undefined,
-          { message: "At least one Arrangement loop property is required" },
-        )
-        .refine(
-          (params) =>
-            params.start === undefined ||
-            params.length === undefined ||
-            params.start + params.length <= 1576800,
-          { message: "Arrangement loop end exceeds Live's maximum time" },
-        ),
-      handler: async (params) => services.setArrangementLoop(params),
-    },
-  );
-  const createCuePointTool = defineTool("ableton_transport_create_cue_point", {
-    description:
-      "Creates a cue point at an unoccupied Arrangement time, assigns a stable runtime reference, verifies it, and removes it if creation partially fails.",
-    parameters: z
-      .object({
-        time: z.number().finite().nonnegative().max(1576800),
-        name: z.string().trim().min(1).max(128).optional(),
-      })
-      .strict(),
-    handler: async (params) => services.createCuePoint(params),
-  });
-  const deleteCuePointTool = defineTool("ableton_transport_delete_cue_point", {
-    description:
-      "Destructively deletes the exact cue point identified by a recent Arrangement transport inspection after revalidating its runtime reference, name, and time.",
-    parameters: z
-      .object({
-        expectedReference: z.string().uuid(),
-        expectedName: z.string(),
-        expectedTime: z.number().finite().nonnegative().max(1576800),
-      })
-      .strict(),
-    handler: async (params) => services.deleteCuePoint(params),
-  });
-  const createTrackTool = defineTool("ableton_tracks_create", {
-    description:
-      "Creates exactly one MIDI or audio track at the end of the Ableton Live set and verifies its resulting identity and state. For requests that also load Browser content, resolve a supported exact Browser item before creating the track. If this mutation reports an indeterminate outcome, inspect the session and never retry creation unchanged.",
-    parameters: z
-      .object({
-        kind: z.enum(["midi", "audio"]),
-        name: z.string().trim().min(1).max(128).optional(),
-      })
-      .strict(),
-    handler: async (params) => services.createTrack(params),
-  });
-  const deleteTrackTool = defineTool("ableton_tracks_delete", {
-    description:
-      "Deprecated internal implementation. Use ableton_tracks with action 'delete'.",
-    parameters: z
-      .object({
-        index: z.number().int().nonnegative(),
-        expectedReference: z.string().uuid(),
-        expectedName: z.string().min(1),
-        expectedKind: z.enum(["midi", "audio"]),
-      })
-      .strict(),
-    handler: async (params) => services.deleteTrack(params),
-  });
-  const renameTrackTool = defineTool("ableton_tracks_rename", {
-    description:
-      "Renames the exact Ableton track identified by a recent session inspection.",
-    parameters: z
-      .object({
-        index: z.number().int().nonnegative(),
-        expectedReference: z.string().uuid(),
-        expectedName: z.string().min(1),
-        name: z.string().trim().min(1).max(128),
-      })
-      .strict(),
-    handler: async (params) => services.renameTrack(params),
-  });
-  const setTrackMixerTool = defineTool("ableton_tracks_set_mixer", {
-    description:
-      "Updates mute, solo, arm, normalized volume, or pan for an identity-bound Ableton track.",
-    parameters: z
-      .object({
-        index: z.number().int().nonnegative(),
-        expectedReference: z.string().uuid(),
-        expectedName: z.string().min(1),
-        isMuted: z.boolean().optional(),
-        isSoloed: z.boolean().optional(),
-        isArmed: z.boolean().optional(),
-        volume: z.number().min(0).max(1).optional(),
-        pan: z.number().min(-1).max(1).optional(),
-      })
-      .strict()
-      .describe("At least one track mixer property is required")
-      .refine(
-        (params) =>
-          params.isMuted !== undefined ||
-          params.isSoloed !== undefined ||
-          params.isArmed !== undefined ||
-          params.volume !== undefined ||
-          params.pan !== undefined,
-        { message: "At least one mixer property is required" },
-      ),
-    handler: async (params) => services.setTrackMixer(params),
-  });
-  const createMidiClipTool = defineTool("ableton_clips_create_midi", {
-    description:
-      "Creates a MIDI clip in an empty Session View clip slot on an identity-bound MIDI track.",
-    parameters: z
-      .object({
-        index: z.number().int().nonnegative(),
-        expectedReference: z.string().uuid(),
-        expectedName: z.string().min(1),
-        sceneIndex: z.number().int().nonnegative(),
-        length: z.number().positive().max(4096),
-        name: z.string().trim().min(1).max(128).optional(),
-      })
-      .strict(),
-    handler: async (params) => services.createMidiClip(params),
-  });
-  const replaceMidiNotesTool = defineTool("ableton_clips_replace_notes", {
-    description:
-      "Destructively replaces every MIDI note in an identity-bound Session View clip. Existing per-note MPE/expression cannot be preserved, so allowPerNoteExpressionLoss must be explicitly approved for non-empty clips.",
-    parameters: z
-      .object({
-        index: z.number().int().nonnegative(),
-        expectedReference: z.string().uuid(),
-        expectedName: z.string().min(1),
-        sceneIndex: z.number().int().nonnegative(),
-        expectedClipReference: z.string().uuid(),
-        allowPerNoteExpressionLoss: z.boolean(),
-        notes: z
-          .array(
-            z
-              .object({
-                pitch: z.number().int().min(0).max(127),
-                startTime: z.number().nonnegative(),
-                duration: z.number().positive(),
-                velocity: z.number().int().min(1).max(127),
-                mute: z.boolean().default(false),
-              })
-              .strict(),
-          )
-          .max(2048),
-      })
-      .strict(),
-    handler: async (params) => services.replaceMidiNotes(params),
-  });
-  const launchSessionClipTool = defineTool("ableton_clips_launch", {
-    description:
-      "Launches the exact identity-bound MIDI or audio Session View clip, verifies playing or triggered state, and restores prior Session playback if launch fails. Refuses to replace Arrangement playback or another pending trigger.",
-    parameters: z
-      .object({
-        index: z.number().int().nonnegative(),
-        expectedReference: z.string().uuid(),
-        expectedName: z.string().min(1),
-        sceneIndex: z.number().int().nonnegative(),
-        expectedClipReference: z.string().uuid(),
-      })
-      .strict(),
-    handler: async (params) => services.launchSessionClip(params),
-  });
-  const duplicateSessionClipTool = defineTool("ableton_clips_duplicate", {
-    description:
-      "Duplicates the exact identity-bound MIDI or audio Session View clip into an empty slot on an exact identity-bound destination track, verifies the copy, and removes it on failure.",
-    parameters: z
-      .object({
-        index: z.number().int().nonnegative(),
-        expectedReference: z.string().uuid(),
-        expectedName: z.string().min(1),
-        sceneIndex: z.number().int().nonnegative(),
-        expectedClipReference: z.string().uuid(),
-        destinationTrackIndex: z.number().int().nonnegative(),
-        expectedDestinationTrackReference: z.string().uuid(),
-        expectedDestinationTrackName: z.string().min(1),
-        destinationSceneIndex: z.number().int().nonnegative(),
-      })
-      .strict(),
-    handler: async (params) => services.duplicateSessionClip(params),
-  });
-  const deleteSessionClipTool = defineTool("ableton_clips_delete", {
-    description:
-      "Destructively deletes the exact identity-bound MIDI or audio Session View clip from its exact track and scene after approval.",
-    parameters: z
-      .object({
-        index: z.number().int().nonnegative(),
-        expectedReference: z.string().uuid(),
-        expectedName: z.string().min(1),
-        sceneIndex: z.number().int().nonnegative(),
-        expectedClipReference: z.string().uuid(),
-      })
-      .strict(),
-    handler: async (params) => services.deleteSessionClip(params),
-  });
-  const setSessionClipPropertiesTool = defineTool(
-    "ableton_clips_set_properties",
-    {
-      description:
-        "Conservatively updates name, mute, or supported loop state on the exact identity-bound MIDI or audio Session View clip and restores prior values on failure.",
-      parameters: z
-        .object({
-          index: z.number().int().nonnegative(),
-          expectedReference: z.string().uuid(),
-          expectedName: z.string().min(1),
-          sceneIndex: z.number().int().nonnegative(),
-          expectedClipReference: z.string().uuid(),
-          name: z.string().trim().min(1).max(128).optional(),
-          muted: z.boolean().optional(),
-          looping: z.boolean().optional(),
-        })
-        .strict()
-        .describe("At least one clip property is required")
-        .refine(
-          (params) =>
-            params.name !== undefined ||
-            params.muted !== undefined ||
-            params.looping !== undefined,
-          { message: "At least one clip property is required" },
-        ),
-      handler: async (params) => services.setSessionClipProperties(params),
-    },
-  );
-  const createArrangementMidiClipTool = defineTool(
-    "ableton_arrangement_create_midi_clip",
-    {
-      description:
-        "Creates an empty MIDI clip in a non-overlapping Arrangement range on an identity-bound MIDI track.",
-      parameters: z
-        .object({
-          index: z.number().int().nonnegative(),
-          expectedReference: z.string().uuid(),
-          expectedName: z.string().min(1),
-          startTime: z.number().nonnegative().max(1576800),
-          length: z.number().positive().max(4096),
-          name: z.string().trim().min(1).max(128).optional(),
-        })
-        .strict()
-        .describe("startTime plus length must not exceed 1576800 beats")
-        .refine((params) => params.startTime + params.length <= 1576800, {
-          message: "Arrangement clip end exceeds Live's maximum time",
-        }),
-      handler: async (params) => services.createArrangementMidiClip(params),
-    },
-  );
-  const inspectArrangementTool = defineTool("ableton_arrangement_inspect", {
-    description:
-      "Returns a bounded page of Arrangement clips ordered by start time and track.",
-    parameters: z
-      .object({
-        offset: z.number().int().nonnegative().default(0),
-        limit: z.number().int().min(1).max(512).default(100),
-      })
-      .strict(),
-    handler: async (params) => services.inspectArrangement(params),
-  });
-  const deleteArrangementClipTool = defineTool(
-    "ableton_arrangement_delete_clip",
-    {
-      description:
-        "Destructively deletes an identity-bound Arrangement clip after revalidating its track and start time. expectedName is the track name; expectedClipReference identifies the clip.",
-      parameters: z
-        .object({
-          index: z.number().int().nonnegative(),
-          expectedReference: z.string().uuid(),
-          expectedName: z.string().min(1),
-          expectedClipReference: z.string().uuid(),
-          expectedStartTime: z.number().nonnegative(),
-        })
-        .strict(),
-      handler: async (params) => services.deleteArrangementClip(params),
-    },
-  );
-  const replaceArrangementMidiNotesTool = defineTool(
-    "ableton_arrangement_replace_notes",
-    {
-      description:
-        "Destructively replaces every note in an identity-bound Arrangement MIDI clip. Existing per-note MPE/expression cannot be preserved, so explicit opt-in is required for non-empty clips.",
-      parameters: z
-        .object({
-          index: z.number().int().nonnegative(),
-          expectedReference: z.string().uuid(),
-          expectedName: z.string().min(1),
-          expectedClipReference: z.string().uuid(),
-          expectedStartTime: z.number().nonnegative(),
-          allowPerNoteExpressionLoss: z.boolean(),
-          notes: z
-            .array(
-              z
-                .object({
-                  pitch: z.number().int().min(0).max(127),
-                  startTime: z.number().nonnegative(),
-                  duration: z.number().positive(),
-                  velocity: z.number().int().min(1).max(127),
-                  mute: z.boolean().default(false),
-                })
-                .strict(),
-            )
-            .max(2048),
-        })
-        .strict(),
-      handler: async (params) => services.replaceArrangementMidiNotes(params),
-    },
-  );
-  const duplicateClipToArrangementTool = defineTool(
-    "ableton_arrangement_duplicate_clip",
-    {
-      description:
-        "Duplicates an identity-bound Session View MIDI or audio clip to a verified, non-overlapping Arrangement destination on the same track. Use only for isolated placements; never use it to compensate for a region-fill remainder when the full clip would extend past the requested region end.",
-      parameters: z
-        .object({
-          index: z.number().int().nonnegative(),
-          expectedReference: z.string().uuid(),
-          expectedName: z.string().min(1),
-          sceneIndex: z.number().int().nonnegative(),
-          expectedClipReference: z.string().uuid(),
-          destinationTime: z.number().nonnegative().max(1576800),
-        })
-        .strict(),
-      handler: async (params) => services.duplicateClipToArrangement(params),
-    },
-  );
-  const fillArrangementRegionTool = defineTool(
-    "ableton_arrangement_fill_region",
-    {
-      description:
-        "Fills a half-open Arrangement region without overhang using every complete copy of one identity-bound Session MIDI or audio clip that fits. Reports any uncovered tail in unusedRemainder; never add a full tile past regionEnd.",
-      parameters: z
-        .object({
-          index: z.number().int().nonnegative(),
-          expectedReference: z.string().uuid(),
-          expectedName: z.string().min(1),
-          sceneIndex: z.number().int().nonnegative(),
-          expectedClipReference: z.string().uuid(),
-          regionStart: z.number().nonnegative().max(1576800),
-          regionEnd: z.number().positive().max(1576800),
-        })
-        .strict()
-        .describe("regionEnd must be greater than regionStart")
-        .refine((params) => params.regionEnd > params.regionStart, {
-          message: "regionEnd must be greater than regionStart",
-          path: ["regionEnd"],
-        }),
-      handler: async (params) => services.fillArrangementRegion(params),
-    },
-  );
-  const setArrangementClipPropertiesTool = defineTool(
-    "ableton_arrangement_set_clip_properties",
-    {
-      description:
-        "Conservatively updates name, mute, or loop state on an identity-bound Arrangement clip and restores prior values if verification fails.",
-      parameters: z
-        .object({
-          index: z.number().int().nonnegative(),
-          expectedReference: z.string().uuid(),
-          expectedName: z.string().min(1),
-          expectedClipReference: z.string().uuid(),
-          expectedStartTime: z.number().nonnegative(),
-          name: z.string().trim().min(1).max(128).optional(),
-          muted: z.boolean().optional(),
-          looping: z.boolean().optional(),
-        })
-        .strict()
-        .describe("At least one clip property is required")
-        .refine(
-          (params) =>
-            params.name !== undefined ||
-            params.muted !== undefined ||
-            params.looping !== undefined,
-          { message: "At least one clip property is required" },
-        ),
-      handler: async (params) => services.setArrangementClipProperties(params),
-    },
-  );
-  const inspectDevicesTool = defineTool("ableton_devices_inspect", {
-    description:
-      "Returns one bounded page of top-level devices on an exact regular track. Return tracks, group tracks, rack chains, and recursive device traversal are not included.",
-    parameters: z
-      .object({
-        index: z.number().int().nonnegative(),
-        expectedReference: z.string().uuid(),
-        expectedName: z.string().min(1),
-        offset: z.number().int().nonnegative().default(0),
-        limit: z.number().int().min(1).max(128).default(32),
-      })
-      .strict(),
-    handler: async (params) => services.inspectDevices(params),
-  });
-  const inspectDeviceParametersTool = defineTool(
-    "ableton_device_parameters_inspect",
-    {
-      description:
-        "Returns one bounded page of parameters for an exact runtime-identity-bound top-level device on a regular track.",
-      parameters: z
-        .object({
-          index: z.number().int().nonnegative(),
-          expectedReference: z.string().uuid(),
-          expectedName: z.string().min(1),
-          deviceIndex: z.number().int().nonnegative(),
-          expectedDeviceReference: z.string().uuid(),
-          expectedDeviceName: z.string(),
-          offset: z.number().int().nonnegative().default(0),
-          limit: z.number().int().min(1).max(256).default(64),
-        })
-        .strict(),
-      handler: async (params) => services.inspectDeviceParameters(params),
-    },
-  );
-  const inspectRackChainsTool = defineTool("ableton_rack_chains_inspect", {
-    description:
-      "Returns one bounded page of direct chains for one exact top-level rack device. It never recursively expands nested racks.",
-    parameters: z
-      .object({
-        index: z.number().int().nonnegative(),
-        expectedReference: z.string().uuid(),
-        expectedName: z.string().min(1),
-        deviceIndex: z.number().int().nonnegative(),
-        expectedDeviceReference: z.string().uuid(),
-        expectedDeviceName: z.string(),
-        offset: z.number().int().nonnegative().default(0),
-        limit: z.number().int().min(1).max(64).default(16),
-      })
-      .strict(),
-    handler: async (params) => services.inspectRackChains(params),
-  });
-  const inspectRackChainDevicesTool = defineTool(
-    "ableton_rack_chain_devices_inspect",
-    {
-      description:
-        "Returns one bounded page of direct devices in one exact chain of one exact top-level rack. Nested rack contents are not expanded.",
-      parameters: z
-        .object({
-          index: z.number().int().nonnegative(),
-          expectedReference: z.string().uuid(),
-          expectedName: z.string().min(1),
-          deviceIndex: z.number().int().nonnegative(),
-          expectedDeviceReference: z.string().uuid(),
-          expectedDeviceName: z.string(),
-          chainIndex: z.number().int().nonnegative(),
-          expectedChainReference: z.string().uuid(),
-          expectedChainName: z.string(),
-          offset: z.number().int().nonnegative().default(0),
-          limit: z.number().int().min(1).max(128).default(32),
-        })
-        .strict(),
-      handler: async (params) => services.inspectRackChainDevices(params),
-    },
-  );
-  const inspectDrumRackPadsTool = defineTool("ableton_drum_rack_pads_inspect", {
-    description:
-      "Returns occupied pads for one exact top-level Drum Rack by default. Set includeEmpty to inspect a bounded diagnostic page containing empty pads. Inspect a returned pad's chains and chain devices for loaded instrument or sample details.",
-    parameters: z
-      .object({
-        index: z.number().int().nonnegative(),
-        expectedReference: z.string().uuid(),
-        expectedName: z.string().min(1),
-        deviceIndex: z.number().int().nonnegative(),
-        expectedDeviceReference: z.string().uuid(),
-        expectedDeviceName: z.string(),
-        includeEmpty: z.boolean().default(false),
-        offset: z.number().int().nonnegative().default(0),
-        limit: z.number().int().min(1).max(128).default(32),
-      })
-      .strict(),
-    handler: async ({ includeEmpty, ...params }) => {
-      const result = await services.inspectDrumRackPads(
-        includeEmpty ? params : { ...params, offset: 0, limit: 128 },
-      );
-      if (includeEmpty) {
-        return {
-          ...result,
-          totalPadCount: result.total,
-          occupiedPadCount: result.pads.filter(
-            ({ chainCount }) => chainCount > 0,
-          ).length,
-          emptyPadCount: result.pads.filter(
-            ({ chainCount }) => chainCount === 0,
-          ).length,
-          returnedPadCount: result.pads.length,
-          scanComplete:
-            result.offset === 0 && result.pads.length >= result.total,
-          includesEmptyPads: true,
-        };
+      "Creates, edits, launches, duplicates, deletes, or updates exact identity-bound Session View clips through strict action variants.",
+    parameters: abletonSessionClipsParamsSchema,
+    handler: async (params) => {
+      switch (params.action) {
+        case "create-midi": {
+          const { action: _action, ...input } = params;
+          return services.createMidiClip(input);
+        }
+        case "replace-notes": {
+          const { action: _action, ...input } = params;
+          return services.replaceMidiNotes(input);
+        }
+        case "launch": {
+          const { action: _action, ...input } = params;
+          return services.launchSessionClip(input);
+        }
+        case "duplicate": {
+          const { action: _action, ...input } = params;
+          return services.duplicateSessionClip(input);
+        }
+        case "delete": {
+          const { action: _action, ...input } = params;
+          return services.deleteSessionClip(input);
+        }
+        case "set-properties": {
+          const { action: _action, ...input } = params;
+          return services.setSessionClipProperties(input);
+        }
       }
-      const occupiedPads = result.pads.filter(
-        ({ chainCount }) => chainCount > 0,
-      );
-      return {
-        ...result,
-        pads: occupiedPads,
-        totalPadCount: result.total,
-        occupiedPadCount: occupiedPads.length,
-        emptyPadCount: Math.max(0, result.total - occupiedPads.length),
-        returnedPadCount: occupiedPads.length,
-        scanComplete: result.offset === 0 && result.pads.length >= result.total,
-        includesEmptyPads: false,
-      };
     },
   });
-  const inspectDrumPadChainsTool = defineTool(
-    "ableton_drum_pad_chains_inspect",
-    {
-      description:
-        "Returns one bounded page of chains for one exact pad in one exact top-level Drum Rack.",
-      parameters: z
-        .object({
-          index: z.number().int().nonnegative(),
-          expectedReference: z.string().uuid(),
-          expectedName: z.string().min(1),
-          deviceIndex: z.number().int().nonnegative(),
-          expectedDeviceReference: z.string().uuid(),
-          expectedDeviceName: z.string(),
-          padIndex: z.number().int().nonnegative(),
-          expectedPadReference: z.string().uuid(),
-          expectedPadNote: z.number().int().min(0).max(127),
-          expectedPadName: z.string(),
-          offset: z.number().int().nonnegative().default(0),
-          limit: z.number().int().min(1).max(64).default(8),
-        })
-        .strict(),
-      handler: async (params) => services.inspectDrumPadChains(params),
+  const arrangementTool = defineTool("ableton_arrangement", {
+    description:
+      "Inspects and mutates exact identity-bound Arrangement clips, including one efficient long-running region-fill action that never decomposes into repeated agent calls.",
+    parameters: abletonArrangementParamsSchema,
+    handler: async (params) => {
+      switch (params.action) {
+        case "create-midi-clip": {
+          const { action: _action, ...input } = params;
+          return services.createArrangementMidiClip(input);
+        }
+        case "inspect": {
+          const { action: _action, ...input } = params;
+          return services.inspectArrangement(input);
+        }
+        case "delete-clip": {
+          const { action: _action, ...input } = params;
+          return services.deleteArrangementClip(input);
+        }
+        case "replace-notes": {
+          const { action: _action, ...input } = params;
+          return services.replaceArrangementMidiNotes(input);
+        }
+        case "duplicate-clip": {
+          const { action: _action, ...input } = params;
+          return services.duplicateClipToArrangement(input);
+        }
+        case "fill-region": {
+          const { action: _action, ...input } = params;
+          return services.fillArrangementRegion(input);
+        }
+        case "set-clip-properties": {
+          const { action: _action, ...input } = params;
+          return services.setArrangementClipProperties(input);
+        }
+      }
     },
-  );
-  const inspectDrumPadChainDevicesTool = defineTool(
-    "ableton_drum_pad_chain_devices_inspect",
-    {
-      description:
-        "Returns one bounded page of direct devices in one exact Drum Rack pad chain. Nested rack contents are not expanded.",
-      parameters: z
-        .object({
-          index: z.number().int().nonnegative(),
-          expectedReference: z.string().uuid(),
-          expectedName: z.string().min(1),
-          deviceIndex: z.number().int().nonnegative(),
-          expectedDeviceReference: z.string().uuid(),
-          expectedDeviceName: z.string(),
-          padIndex: z.number().int().nonnegative(),
-          expectedPadReference: z.string().uuid(),
-          expectedPadNote: z.number().int().min(0).max(127),
-          expectedPadName: z.string(),
-          chainIndex: z.number().int().nonnegative(),
-          expectedChainReference: z.string().uuid(),
-          expectedChainName: z.string(),
-          offset: z.number().int().nonnegative().default(0),
-          limit: z.number().int().min(1).max(128).default(32),
-        })
-        .strict(),
-      handler: async (params) => services.inspectDrumPadChainDevices(params),
+  });
+  const devicesTool = defineTool("ableton_devices", {
+    description:
+      "Inspects and mutates exact identity-bound Live 11 devices, parameters, rack chains, Drum Rack pads, chain mixers, and device positions through strict action variants.",
+    parameters: abletonDevicesParamsSchema,
+    handler: async (params) => {
+      switch (params.action) {
+        case "inspect": {
+          const { action: _action, ...input } = params;
+          return services.inspectDevices(input);
+        }
+        case "inspect-parameters": {
+          const { action: _action, ...input } = params;
+          return services.inspectDeviceParameters(input);
+        }
+        case "inspect-rack-chains": {
+          const { action: _action, ...input } = params;
+          return services.inspectRackChains(input);
+        }
+        case "inspect-rack-chain-devices": {
+          const { action: _action, ...input } = params;
+          return services.inspectRackChainDevices(input);
+        }
+        case "inspect-drum-rack-pads": {
+          const { action: _action, includeEmpty, ...input } = params;
+          const result = await services.inspectDrumRackPads(
+            includeEmpty ? input : { ...input, offset: 0, limit: 128 },
+          );
+          if (includeEmpty) {
+            return {
+              ...result,
+              totalPadCount: result.total,
+              occupiedPadCount: result.pads.filter(
+                ({ chainCount }) => chainCount > 0,
+              ).length,
+              emptyPadCount: result.pads.filter(
+                ({ chainCount }) => chainCount === 0,
+              ).length,
+              returnedPadCount: result.pads.length,
+              scanComplete:
+                result.offset === 0 && result.pads.length >= result.total,
+              includesEmptyPads: true,
+            };
+          }
+          const occupiedPads = result.pads.filter(
+            ({ chainCount }) => chainCount > 0,
+          );
+          return {
+            ...result,
+            pads: occupiedPads,
+            totalPadCount: result.total,
+            occupiedPadCount: occupiedPads.length,
+            emptyPadCount: Math.max(0, result.total - occupiedPads.length),
+            returnedPadCount: occupiedPads.length,
+            scanComplete:
+              result.offset === 0 && result.pads.length >= result.total,
+            includesEmptyPads: false,
+          };
+        }
+        case "inspect-drum-pad-chains": {
+          const { action: _action, ...input } = params;
+          return services.inspectDrumPadChains(input);
+        }
+        case "inspect-drum-pad-chain-devices": {
+          const { action: _action, ...input } = params;
+          return services.inspectDrumPadChainDevices(input);
+        }
+        case "inspect-chain-mixer": {
+          const { action: _action, ...input } = params;
+          return services.inspectChainMixer(input);
+        }
+        case "find-position": {
+          const { action: _action, ...input } = params;
+          return services.findDevicePosition(input);
+        }
+        case "move": {
+          const { action: _action, ...input } = params;
+          return services.moveDevice(input);
+        }
+        case "set-chain-properties": {
+          const { action: _action, ...input } = params;
+          return services.setChainProperties(input);
+        }
+        case "set-chain-mixer": {
+          const { action: _action, ...input } = params;
+          return services.setChainMixer(input);
+        }
+        case "set-enabled": {
+          const { action: _action, ...input } = params;
+          return services.setDeviceEnabled(input);
+        }
+        case "set-parameter": {
+          const { action: _action, ...input } = params;
+          return services.setDeviceParameter(input);
+        }
+      }
     },
-  );
-  const inspectChainMixerDescriptor = abletonOperationDescriptors[0];
-  const inspectChainMixerTool = defineTool("ableton_rack_chain_mixer_inspect", {
-    description:
-      "Inspects mute, solo, volume, pan, and exposed sends for one exact existing rack or Drum Rack pad chain, including runtime parameter identities required for safe mixer edits.",
-    parameters: inspectChainMixerDescriptor.inputSchema,
-    handler: async (params) =>
-      inspectChainMixerDescriptor.resultSchema.parse(
-        await services.inspectChainMixer(params),
-      ),
   });
-  const findPositionDescriptor = abletonOperationDescriptors[1];
-  const findDevicePositionTool = defineTool("ableton_device_find_position", {
+  const browserTool = defineTool("ableton_browser", {
     description:
-      "Preflights the exact Live 11 destination position for an existing top-level or existing rack/Drum Rack chain device using Song.find_device_position. It does not mutate, create chains, or traverse unsupported nested topology.",
-    parameters: findPositionDescriptor.inputSchema,
-    handler: async (params) =>
-      findPositionDescriptor.resultSchema.parse(
-        await services.findDevicePosition(params),
-      ),
-  });
-  const moveDescriptor = abletonOperationDescriptors[2];
-  const moveDeviceTool = defineTool("ableton_device_move", {
-    description:
-      "Moves or reorders one exact existing device within a track, within an existing rack or Drum Rack pad chain, or between those existing parents using Live 11 Song.find_device_position and Song.move_device. It verifies the canonical parent and final index; it never creates a chain or inserts a new device.",
-    parameters: moveDescriptor.inputSchema,
-    handler: async (params) =>
-      moveDescriptor.resultSchema.parse(await services.moveDevice(params)),
-  });
-  const chainPropertiesDescriptor = abletonOperationDescriptors[3];
-  const setChainPropertiesTool = defineTool(
-    "ableton_rack_chain_set_properties",
-    {
-      description:
-        "Renames and/or recolors one exact existing rack or Drum Rack pad chain, with verified before/after state and rollback on failure. It cannot create, delete, or reorder chains.",
-      parameters: chainPropertiesDescriptor.inputSchema,
-      handler: async (params) =>
-        chainPropertiesDescriptor.resultSchema.parse(
-          await services.setChainProperties(params),
-        ),
+      "Inspects, traverses, searches, and loads exact identity-bound Ableton Browser items through strict action variants.",
+    parameters: abletonBrowserParamsSchema,
+    handler: async (params) => {
+      switch (params.action) {
+        case "roots":
+          return services.inspectBrowserRoots();
+        case "children": {
+          const { action: _action, ...input } = params;
+          return services.inspectBrowserChildren(input);
+        }
+        case "search": {
+          const { action: _action, ...input } = params;
+          return services.searchBrowser(input);
+        }
+        case "search-external-plugins": {
+          const { action: _action, ...input } = params;
+          return services.searchBrowser({ ...input, roots: ["plugins"] });
+        }
+        case "load-item": {
+          const { action: _action, ...input } = params;
+          return services.loadBrowserItem(input);
+        }
+      }
     },
-  );
-  const chainMixerDescriptor = abletonOperationDescriptors[4];
-  const setChainMixerTool = defineTool("ableton_rack_chain_set_mixer", {
-    description:
-      "Sets mute, solo, and exposed chain mixer volume, pan, or sends on one exact existing rack or Drum Rack pad chain. Parameter changes use normalized values plus exact runtime parameter identities, and the full update is verified and rolled back on failure.",
-    parameters: chainMixerDescriptor.inputSchema,
-    handler: async (params) =>
-      chainMixerDescriptor.resultSchema.parse(
-        await services.setChainMixer(params),
-      ),
   });
-  const setDeviceEnabledTool = defineTool("ableton_device_set_enabled", {
-    description:
-      "Enables or disables an exact top-level device through its documented Device On parameter, with before/after verification and rollback.",
-    parameters: z
-      .object({
-        index: z.number().int().nonnegative(),
-        expectedReference: z.string().uuid(),
-        expectedName: z.string().min(1),
-        deviceIndex: z.number().int().nonnegative(),
-        expectedDeviceReference: z.string().uuid(),
-        expectedDeviceName: z.string(),
-        enabled: z.boolean(),
-      })
-      .strict(),
-    handler: async (params) => services.setDeviceEnabled(params),
-  });
-  const setDeviceParameterTool = defineTool("ableton_device_set_parameter", {
-    description:
-      "Sets a writable enabled parameter on an exact top-level device using normalized 0..1 input mapped through its current min/max range. Quantized parameters snap to the nearest discrete value; the update is verified and rolled back on failure.",
-    parameters: z
-      .object({
-        index: z.number().int().nonnegative(),
-        expectedReference: z.string().uuid(),
-        expectedName: z.string().min(1),
-        deviceIndex: z.number().int().nonnegative(),
-        expectedDeviceReference: z.string().uuid(),
-        expectedDeviceName: z.string(),
-        parameterIndex: z.number().int().nonnegative(),
-        expectedParameterReference: z.string().uuid(),
-        expectedParameterName: z.string(),
-        normalizedValue: z.number().finite().min(0).max(1),
-      })
-      .strict(),
-    handler: async (params) => services.setDeviceParameter(params),
-  });
-  const inspectBrowserRootsTool = defineTool("ableton_browser_roots_inspect", {
-    description:
-      "Returns the bounded documented Ableton Browser root categories and runtime-stable references. It does not traverse their trees.",
-    parameters: z.object({}).strict(),
-    handler: async () => services.inspectBrowserRoots(),
-  });
-  const browserItemTargetParameters = {
-    expectedItemReference: z.string().uuid(),
-    expectedItemRoot: z.enum([
-      "sounds",
-      "drums",
-      "instruments",
-      "audio_effects",
-      "midi_effects",
-      "max_for_live",
-      "plugins",
-      "clips",
-      "samples",
-      "packs",
-      "user_library",
-      "current_project",
-    ]),
-    expectedItemPath: z
-      .array(
-        z
-          .object({
-            index: z.number().int().nonnegative().max(1_000_000),
-            name: z.string().min(1).max(256),
-          })
-          .strict(),
-      )
-      .max(16),
-    expectedItemName: z.string().min(1).max(256),
-    expectedItemUri: z.string().max(2048),
-  } as const;
-  const inspectBrowserChildrenTool = defineTool(
-    "ableton_browser_children_inspect",
-    {
-      description:
-        "Returns one bounded page of direct children for an exact identity-bound Ableton Browser container, including Live virtual categories that expose children without reporting themselves as folders. It never recursively traverses the browser tree.",
-      parameters: z
-        .object({
-          ...browserItemTargetParameters,
-          offset: z.number().int().nonnegative().max(4096).default(0),
-          limit: z.number().int().min(1).max(64).default(32),
-        })
-        .strict()
-        .describe("offset plus limit minus one must not exceed 4096")
-        .refine((params) => params.offset + params.limit - 1 <= 4096, {
-          message: "Browser page exceeds the maximum addressable child index",
-        }),
-      handler: async (params) => services.inspectBrowserChildren(params),
-    },
-  );
-  const searchBrowserTool = defineTool("ableton_browser_search", {
-    description:
-      'Performs a deterministic bounded Ableton Browser search. Search each distinct requested sound separately and choose roots by intent: instruments for stock instruments/devices, sounds for curated playable presets, drums for kits and Drum Racks, packs for installed Pack content, user_library for user presets, and audio_effects/midi_effects only for effects. Examples: piano or warm pad -> ["sounds","instruments","packs","user_library"]; 808 kit -> ["drums","packs","user_library"]; "my preset" -> ["user_library"]. Prefer exact loadable device/preset results. Always inspect truncated and stopReason; when results are weak or truncated, retry with narrower roots or a literal synonym such as upright bass/double bass rather than loading the first loose substring match. Results are runtime identity-bound and report whether each item has a supported load target.',
-    parameters: z
-      .object({
-        query: z.string().trim().min(1).max(128),
-        roots: z
-          .array(
-            z.enum([
-              "sounds",
-              "drums",
-              "instruments",
-              "audio_effects",
-              "midi_effects",
-              "max_for_live",
-              "plugins",
-              "clips",
-              "samples",
-              "packs",
-              "user_library",
-              "current_project",
-            ]),
-          )
-          .min(1)
-          .max(12)
-          .describe("Browser roots must be unique")
-          .refine((roots) => new Set(roots).size === roots.length)
-          .default(["instruments", "audio_effects", "midi_effects"]),
-        maxNodes: z.number().int().min(1).max(256).default(128),
-        maxResults: z.number().int().min(1).max(32).default(20),
-        maxDepth: z.number().int().min(0).max(6).default(4),
-        maxDurationMs: z.number().int().min(10).max(250).default(100),
-      })
-      .strict(),
-    handler: async (params) => services.searchBrowser(params),
-  });
-  const searchExternalPluginsTool = defineTool(
-    "ableton_browser_search_external_plugins",
-    {
-      description:
-        "Searches only Ableton's Plug-ins browser root using bounded breadth-first traversal. Results use runtime-cached identity references for inspection and selection; this tool does not load a plug-in.",
-      parameters: z
-        .object({
-          query: z.string().trim().min(1).max(128),
-          maxNodes: z.number().int().min(1).max(256).default(128),
-          maxResults: z.number().int().min(1).max(32).default(20),
-          maxDepth: z.number().int().min(0).max(6).default(4),
-          maxDurationMs: z.number().int().min(10).max(250).default(100),
-        })
-        .strict(),
-      handler: async (params) =>
-        services.searchBrowser({ ...params, roots: ["plugins"] }),
-    },
-  );
-  const loadBrowserItemTool = defineTool("ableton_browser_load_item", {
-    description:
-      "Loads one explicitly selected, exact runtime identity-bound device or device preset from the Ableton Browser onto one exact compatible regular track. Supported items may come from any Browser root, but folders, samples, clips, grooves, unknown load types, arbitrary paths, incompatible tracks, and active hotswap are rejected before mutation. Live may add a top-level device or apply a preset by reconfiguring an existing device; the operation captures bounded before/after state and reports the verified mutation mode.",
-    parameters: z
-      .object({
-        index: z.number().int().nonnegative(),
-        expectedReference: z.string().uuid(),
-        expectedName: z.string().min(1),
-        ...browserItemTargetParameters,
-      })
-      .strict(),
-    handler: async (params) => services.loadBrowserItem(params),
-  });
-
   return {
     tools: [
-      withStructuredFailures(connectionStatusTool),
-      requireConnectedTool(inspectSessionTool, services),
-      requireConnectedTool(setTempoTool, services),
-      requireConnectedTool(setPlayingTool, services),
-      requireConnectedTool(inspectArrangementTransportTool, services),
-      requireConnectedTool(setArrangementLoopTool, services),
-      requireConnectedTool(createCuePointTool, services),
-      requireConnectedTool(deleteCuePointTool, services),
-      requireConnectedTool(createTrackTool, services),
-      requireConnectedTool(deleteTrackTool, services),
-      requireConnectedTool(renameTrackTool, services),
-      requireConnectedTool(setTrackMixerTool, services),
-      requireConnectedTool(createMidiClipTool, services),
-      requireConnectedTool(replaceMidiNotesTool, services),
-      requireConnectedTool(launchSessionClipTool, services),
-      requireConnectedTool(duplicateSessionClipTool, services),
-      requireConnectedTool(deleteSessionClipTool, services),
-      requireConnectedTool(setSessionClipPropertiesTool, services),
-      requireConnectedTool(createArrangementMidiClipTool, services),
-      requireConnectedTool(inspectArrangementTool, services),
-      requireConnectedTool(deleteArrangementClipTool, services),
-      requireConnectedTool(replaceArrangementMidiNotesTool, services),
-      requireConnectedTool(duplicateClipToArrangementTool, services),
-      requireConnectedTool(setArrangementClipPropertiesTool, services),
-      requireConnectedTool(inspectDevicesTool, services),
-      requireConnectedTool(inspectDeviceParametersTool, services),
-      requireConnectedTool(inspectRackChainsTool, services),
-      requireConnectedTool(inspectRackChainDevicesTool, services),
-      requireConnectedTool(inspectDrumRackPadsTool, services),
-      requireConnectedTool(inspectDrumPadChainsTool, services),
-      requireConnectedTool(inspectDrumPadChainDevicesTool, services),
-      requireConnectedTool(setDeviceEnabledTool, services),
-      requireConnectedTool(setDeviceParameterTool, services),
-      requireConnectedTool(inspectBrowserRootsTool, services),
-      requireConnectedTool(inspectBrowserChildrenTool, services),
-      requireConnectedTool(searchBrowserTool, services),
-      requireConnectedTool(searchExternalPluginsTool, services),
-      requireConnectedTool(loadBrowserItemTool, services),
-      requireConnectedTool(inspectChainMixerTool, services),
-      requireConnectedTool(findDevicePositionTool, services),
-      requireConnectedTool(moveDeviceTool, services),
-      requireConnectedTool(setChainPropertiesTool, services),
-      requireConnectedTool(setChainMixerTool, services),
-      requireConnectedTool(scenesTool, services),
+      withStructuredFailures(sessionTool),
       requireConnectedTool(tracksTool, services),
       requireConnectedTool(mixerRoutingTool, services),
       requireConnectedTool(transportTool, services),
+      requireConnectedTool(sessionClipsTool, services),
+      requireConnectedTool(arrangementTool, services),
+      requireConnectedTool(devicesTool, services),
+      requireConnectedTool(browserTool, services),
+      requireConnectedTool(scenesTool, services),
       requireConnectedTool(midiNotesTool, services),
       requireConnectedTool(audioClipsTool, services),
       requireConnectedTool(recordingTool, services),
@@ -2289,7 +1357,6 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
       requireConnectedTool(warpMarkersTool, services),
       requireConnectedTool(specializedDevicesTool, services),
       requireConnectedTool(workflowJobsTool, services),
-      requireConnectedTool(fillArrangementRegionTool, services),
       withStructuredFailures(setSqlSearchTool),
     ],
     availableTools: [

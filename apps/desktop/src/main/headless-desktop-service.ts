@@ -3110,6 +3110,20 @@ export class HeadlessDesktopService implements DesktopService {
           ? normalized.messageId
           : randomUUID();
     const toolName = "toolName" in event ? event.toolName : undefined;
+    const operationMetadata =
+      normalized.type === "operation.changed"
+        ? {
+            ...(normalized.operation.operationDescriptorId === undefined
+              ? {}
+              : {
+                  operation_descriptor_id:
+                    normalized.operation.operationDescriptorId,
+                }),
+            ...(normalized.operation.action === undefined
+              ? {}
+              : { action: normalized.operation.action }),
+          }
+        : {};
     const attributes =
       event.type === "agent.message_delta" ||
       event.type === "agent.message_complete"
@@ -3140,12 +3154,14 @@ export class HeadlessDesktopService implements DesktopService {
                 operation_id: event.operationId,
                 label: event.label.slice(0, 2_048),
                 status: "running",
+                ...operationMetadata,
               }
             : event.type === "operation.completed"
               ? {
                   operation_id: event.operationId,
                   summary: event.summary.slice(0, 2_048),
                   status: "completed",
+                  ...operationMetadata,
                 }
               : {
                   operation_id: event.operationId,
@@ -3156,6 +3172,7 @@ export class HeadlessDesktopService implements DesktopService {
                     ? {}
                     : { error_details: event.details }),
                   status: "failed",
+                  ...operationMetadata,
                 };
     const activeSession = this.#activeSession();
     void this.#eventJournal

@@ -282,7 +282,8 @@ describe("agent runtime composition", () => {
           timestamp: "2026-08-29T18:00:02.000Z",
           data: {
             toolCallId: "tool-call-1",
-            toolName: "ableton_connection_status",
+            toolName: "ableton_session",
+            arguments: { action: "connection-status" },
           },
         });
         invocationContext = withCorrelation("tool-call-1", () =>
@@ -392,20 +393,32 @@ describe("agent runtime composition", () => {
     expect(turnCompleted?.trace?.spanId).toBe(turnStarted?.trace?.spanId);
     expect(toolStarted).toMatchObject({
       correlationId: "tool-call-1",
-      toolName: "ableton_connection_status",
+      toolName: "ableton_session",
       trace: {
         traceId: occurrenceId,
         parentSpanId: turnStarted?.trace?.spanId,
       },
     });
+    expect(toolStarted?.attributes).toMatchObject({
+      operationDescriptorId: "session.connection_status",
+      action: "connection-status",
+    });
     expect(typeof toolStarted?.causationId).toBe("string");
     expect(toolCompleted?.trace?.spanId).toBe(toolStarted?.trace?.spanId);
-    expect(toolCompleted?.toolName).toBe("ableton_connection_status");
+    expect(toolCompleted).toMatchObject({
+      toolName: "ableton_session",
+    });
+    expect(toolCompleted?.attributes).toMatchObject({
+      operationDescriptorId: "session.connection_status",
+      action: "connection-status",
+    });
     expect(invocationContext).toMatchObject({
       correlationId: "tool-call-1",
       traceId: occurrenceId,
       parentSpanId: toolStarted?.trace?.spanId,
-      toolName: "ableton_connection_status",
+      toolName: "ableton_session",
+      operationId: "session.connection_status",
+      action: "connection-status",
     });
     telemetry.forEach((event) => telemetryEventEnvelopeSchema.parse(event));
     await runtime.application.stop();
@@ -515,8 +528,7 @@ describe("agent runtime composition", () => {
     });
     const successfulTrajectory = setHistory.find(
       (record) =>
-        record.kind === "set_trajectory" &&
-        record.toolCallId === "tool-call-1",
+        record.kind === "set_trajectory" && record.toolCallId === "tool-call-1",
     );
     expect(successfulTrajectory).toMatchObject({
       kind: "set_trajectory",
@@ -752,7 +764,8 @@ describe("agent runtime composition", () => {
       label: "Compose",
       description: "Compose MIDI phrases.",
       systemPrompt: "Compose MIDI phrases safely.",
-      resolvedTools: ["ableton_session_inspect"],
+      resolvedTools: ["ableton_session"],
+      resolvedOperations: ["session.inspect"],
       editScope: ["session"],
       boundTracks: [],
       skills: [],
@@ -975,7 +988,8 @@ describe("composed agent session control", () => {
       label: "Compose",
       description: "Compose MIDI phrases.",
       systemPrompt: "Compose MIDI phrases safely.",
-      resolvedTools: ["ableton_session_inspect"],
+      resolvedTools: ["ableton_session"],
+      resolvedOperations: ["session.inspect"],
       editScope: ["session"],
       boundTracks: [],
       skills: [],
@@ -1023,7 +1037,8 @@ describe("composed agent session control", () => {
       label: "Compose",
       description: "Compose MIDI phrases.",
       systemPrompt: "Compose MIDI phrases safely.",
-      resolvedTools: ["ableton_session_inspect"],
+      resolvedTools: ["ableton_session"],
+      resolvedOperations: ["session.inspect"],
       editScope: ["session"],
       boundTracks: [],
       skills: [],

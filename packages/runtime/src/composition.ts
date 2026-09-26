@@ -90,6 +90,18 @@ function runtimeEventAttributes(
           deliveryCount: event.trace.deliveryIds.length,
         }),
     ...(event.sessionId === undefined ? {} : { sdkSessionId: event.sessionId }),
+    ...(typeof event.data.operationDescriptorId === "string"
+      ? { operationDescriptorId: event.data.operationDescriptorId }
+      : {}),
+    ...(typeof event.data.action === "string"
+      ? { action: event.data.action }
+      : {}),
+    ...(typeof event.data.mutationTarget === "string"
+      ? { mutationTarget: event.data.mutationTarget }
+      : {}),
+    ...(event.data.targetIdentity === undefined
+      ? {}
+      : { targetIdentity: event.data.targetIdentity }),
     ...(includeData ? { data: event.data } : {}),
   });
 }
@@ -559,6 +571,12 @@ function createRuntimeObserver(
           ...(liveEventId === undefined ? {} : { liveEventId }),
           ...(outputId === undefined ? {} : { outputId }),
           ...(toolName === undefined ? {} : { toolName }),
+          ...(typeof event.data.operationDescriptorId === "string"
+            ? { operationId: event.data.operationDescriptorId }
+            : {}),
+          ...(typeof event.data.action === "string"
+            ? { action: event.data.action }
+            : {}),
         });
       }
       if (recorder !== undefined)

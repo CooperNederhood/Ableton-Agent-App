@@ -12,6 +12,8 @@ export interface CorrelationTraceContext {
   readonly liveEventId?: string;
   readonly outputId?: string;
   readonly toolName?: string;
+  readonly operationId?: string;
+  readonly action?: string;
 }
 
 const storage = new AsyncLocalStorage<CorrelationTraceContext>();

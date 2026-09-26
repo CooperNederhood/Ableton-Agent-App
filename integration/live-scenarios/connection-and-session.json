@@ -4,7 +4,10 @@
   "group": "inspection",
   "prompt": "Check the Ableton connection and inspect the current Live Set. Do not make any changes.",
   "artifactPrefix": "AA_SMOKE_INSPECT_",
-  "allowedTools": ["ableton_connection_status", "ableton_session_inspect"],
+  "allowedTools": ["ableton_session"],
+  "allowedActions": {
+    "ableton_session": ["connection-status", "inspect"]
+  },
   "allowedRisks": ["read"],
   "maxToolCalls": 2,
   "maxMutations": 0,
@@ -18,14 +21,16 @@
       "type": "tool-calls",
       "required": [
         {
-          "toolName": "ableton_connection_status",
+          "toolName": "ableton_session",
           "min": 1,
-          "max": 1
+          "max": 1,
+          "action": "connection-status"
         },
         {
-          "toolName": "ableton_session_inspect",
+          "toolName": "ableton_session",
           "min": 1,
-          "max": 1
+          "max": 1,
+          "action": "inspect"
         }
       ]
     },

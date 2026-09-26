@@ -84,27 +84,27 @@ describe("Ableton mutation policy", () => {
     ).toBe(true);
 
     const authorizer = createAbletonMutationAuthorizer(abletonToolMetadata);
-    expect(authorizer.resolveMutationTarget("ableton_tracks_create")).toBe(
-      "session",
-    );
+    expect(
+      authorizer.resolveMutationTarget("ableton_tracks", {
+        action: "create",
+        kind: "midi",
+      }),
+    ).toBe("session");
     expect(authorizer.resolveMutationTarget("made_up_tool")).toBeUndefined();
   });
 
   it("denies tools outside the resolvedTools allowlist", () => {
     const authorizer = createAbletonMutationAuthorizer(abletonToolMetadata);
-    const result = authorizer.authorize(
-      sessionContext(["ableton_tracks_create"]),
-      {
-        toolName: "ableton_session_inspect",
-        args: {},
-      },
-    );
+    const result = authorizer.authorize(sessionContext(["ableton_tracks"]), {
+      toolName: "ableton_session",
+      args: { action: "inspect" },
+    });
 
     expect(result).toEqual({
       kind: "deny",
       code: "tool_not_allowed",
       message:
-        "Ableton tool ableton_session_inspect is not present in the agent's resolvedTools allowlist",
+        "Ableton tool ableton_session is not present in the agent's resolvedTools allowlist",
     });
   });
 
@@ -139,26 +139,25 @@ describe("Ableton mutation policy", () => {
   it("requires session scope for global mutations", () => {
     const authorizer = createAbletonMutationAuthorizer(abletonToolMetadata);
     const trackScoped = trackContext(
-      ["ableton_tracks_create"],
+      ["ableton_tracks"],
       [trackBinding("Drums", 0, drumsReference, 0)],
     );
 
     expect(
       authorizer.authorize(trackScoped, {
-        toolName: "ableton_tracks_create",
-        args: { kind: "midi" },
+        toolName: "ableton_tracks",
+        args: { action: "create", kind: "midi" },
       }),
     ).toEqual({
       kind: "deny",
       code: "session_scope_required",
-      message:
-        "Ableton session edit scope is required for ableton_tracks_create",
+      message: "Ableton session edit scope is required for ableton_tracks",
     });
 
     expect(
-      authorizer.authorize(sessionContext(["ableton_tracks_create"]), {
-        toolName: "ableton_tracks_create",
-        args: { kind: "midi" },
+      authorizer.authorize(sessionContext(["ableton_tracks"]), {
+        toolName: "ableton_tracks",
+        args: { action: "create", kind: "midi" },
       }),
     ).toMatchObject({
       kind: "allow",
@@ -198,8 +197,9 @@ describe("Ableton mutation policy", () => {
       trackBinding("Bass", 0, bassReference, 1),
     ];
     const invocation = {
-      toolName: "ableton_clips_duplicate",
+      toolName: "ableton_session_clips",
       args: {
+        action: "duplicate",
         index: 0,
         expectedReference: drumsReference,
         expectedName: "Drums",
@@ -252,8 +252,9 @@ describe("Ableton mutation policy", () => {
       trackBinding("Bass", 0, bassReference, 1),
     ];
     const invocation = {
-      toolName: "ableton_device_move",
+      toolName: "ableton_devices",
       args: {
+        action: "move",
         source: {
           kind: "track-device",
           track: {
@@ -315,11 +316,7 @@ describe("Ableton mutation policy", () => {
     const gate = deferred();
     const started: string[] = [];
     const context = trackContext(
-      [
-        "ableton_session_inspect",
-        "ableton_tracks_rename",
-        "ableton_clips_launch",
-      ],
+      ["ableton_session", "ableton_tracks", "ableton_session_clips"],
       [
         trackBinding("Drums", 0, drumsReference, 0),
         trackBinding("Bass", 0, bassReference, 1),
@@ -343,12 +340,13 @@ describe("Ableton mutation policy", () => {
       });
 
     const read = run("read", {
-      toolName: "ableton_session_inspect",
-      args: {},
+      toolName: "ableton_session",
+      args: { action: "inspect" },
     });
     const drums = run("drums", {
-      toolName: "ableton_tracks_rename",
+      toolName: "ableton_tracks",
       args: {
+        action: "rename",
         index: 0,
         expectedReference: drumsReference,
         expectedName: "Drums",
@@ -356,8 +354,9 @@ describe("Ableton mutation policy", () => {
       },
     });
     const bass = run("bass", {
-      toolName: "ableton_tracks_rename",
+      toolName: "ableton_tracks",
       args: {
+        action: "rename",
         index: 1,
         expectedReference: bassReference,
         expectedName: "Bass",
@@ -383,7 +382,7 @@ describe("Ableton mutation policy", () => {
     const gate = deferred();
     const started: string[] = [];
     const context = trackContext(
-      ["ableton_clips_duplicate", "ableton_tracks_rename"],
+      ["ableton_session_clips", "ableton_tracks"],
       [
         trackBinding("Drums", 0, drumsReference, 0),
         trackBinding("Bass", 0, bassReference, 1),
@@ -395,8 +394,9 @@ describe("Ableton mutation policy", () => {
       lockManager,
       getContext: async () => context,
       invocation: {
-        toolName: "ableton_clips_duplicate",
+        toolName: "ableton_session_clips",
         args: {
+          action: "duplicate",
           index: 0,
           expectedReference: drumsReference,
           expectedName: "Drums",
@@ -420,8 +420,9 @@ describe("Ableton mutation policy", () => {
       lockManager,
       getContext: async () => context,
       invocation: {
-        toolName: "ableton_tracks_rename",
+        toolName: "ableton_tracks",
         args: {
+          action: "rename",
           index: 1,
           expectedReference: bassReference,
           expectedName: "Bass",
@@ -448,12 +449,13 @@ describe("Ableton mutation policy", () => {
     const authorizer = createAbletonMutationAuthorizer(abletonToolMetadata);
     const lockManager = createAbletonMutationLockManager();
     const context = trackContext(
-      ["ableton_tracks_rename"],
+      ["ableton_tracks"],
       [trackBinding("Drums", 0, drumsReference, 0)],
     );
     const invocation = {
-      toolName: "ableton_tracks_rename",
+      toolName: "ableton_tracks",
       args: {
+        action: "rename",
         index: 0,
         expectedReference: drumsReference,
         expectedName: "Drums",
@@ -499,12 +501,13 @@ describe("Ableton mutation policy", () => {
     const authorizer = createAbletonMutationAuthorizer(abletonToolMetadata);
     const lockManager = createAbletonMutationLockManager();
     const context = trackContext(
-      ["ableton_tracks_rename"],
+      ["ableton_tracks"],
       [trackBinding("Drums", 0, drumsReference, 0)],
     );
     const invocation = {
-      toolName: "ableton_tracks_rename",
+      toolName: "ableton_tracks",
       args: {
+        action: "rename",
         index: 0,
         expectedReference: drumsReference,
         expectedName: "Drums",
@@ -550,18 +553,15 @@ describe("Ableton mutation policy", () => {
     const lockManager = createAbletonMutationLockManager();
     const gate = deferred();
     const started: string[] = [];
-    const context = sessionContext([
-      "ableton_tracks_create",
-      "ableton_tracks_rename",
-    ]);
+    const context = sessionContext(["ableton_tracks"]);
 
     const session = runAuthorizedAbletonMutation({
       authorizer,
       lockManager,
       getContext: async () => context,
       invocation: {
-        toolName: "ableton_tracks_create",
-        args: { kind: "midi" },
+        toolName: "ableton_tracks",
+        args: { action: "create", kind: "midi" },
       },
       handler: async () => {
         started.push("session");
@@ -575,8 +575,9 @@ describe("Ableton mutation policy", () => {
       lockManager,
       getContext: async () => context,
       invocation: {
-        toolName: "ableton_tracks_rename",
+        toolName: "ableton_tracks",
         args: {
+          action: "rename",
           index: 0,
           expectedReference: drumsReference,
           expectedName: "Drums",
@@ -608,7 +609,7 @@ describe("Ableton mutation policy", () => {
       .fn<() => Promise<AbletonMutationAuthorizationContext>>()
       .mockResolvedValueOnce(
         trackContext(
-          ["ableton_tracks_rename"],
+          ["ableton_tracks"],
           [trackBinding("Drums", 0, drumsReference, 0)],
         ),
       )
@@ -622,8 +623,9 @@ describe("Ableton mutation policy", () => {
         lockManager,
         getContext,
         invocation: {
-          toolName: "ableton_tracks_rename",
+          toolName: "ableton_tracks",
           args: {
+            action: "rename",
             index: 0,
             expectedReference: drumsReference,
             expectedName: "Drums",
@@ -653,10 +655,11 @@ describe("Ableton mutation policy", () => {
       runAuthorizedAbletonMutation({
         authorizer,
         lockManager: createAbletonMutationLockManager(),
-        getContext: async () => sessionContext(["ableton_device_move"]),
+        getContext: async () => sessionContext(["ableton_devices"]),
         invocation: {
-          toolName: "ableton_device_move",
+          toolName: "ableton_devices",
           args: {
+            action: "move",
             source: {
               kind: "track-device",
               track: {
@@ -703,7 +706,7 @@ describe("Ableton mutation policy", () => {
     const gate = deferred();
     const started: string[] = [];
     const context = trackContext(
-      ["ableton_tracks_rename"],
+      ["ableton_tracks"],
       [
         trackBinding("Drums", 0, drumsReference, 0),
         trackBinding("Bass", 0, bassReference, 1),
@@ -716,8 +719,9 @@ describe("Ableton mutation policy", () => {
       lockManager,
       getContext: async () => context,
       invocation: {
-        toolName: "ableton_tracks_rename",
+        toolName: "ableton_tracks",
         args: {
+          action: "rename",
           index: 0,
           expectedReference: drumsReference,
           expectedName: "Drums",
@@ -736,8 +740,9 @@ describe("Ableton mutation policy", () => {
       lockManager,
       getContext: async () => context,
       invocation: {
-        toolName: "ableton_tracks_rename",
+        toolName: "ableton_tracks",
         args: {
+          action: "rename",
           index: 2,
           expectedReference: leadReference,
           expectedName: "Lead",

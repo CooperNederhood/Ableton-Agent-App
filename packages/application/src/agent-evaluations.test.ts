@@ -130,8 +130,8 @@ describe("agent safety evaluations", () => {
       },
     });
     policy.blockAttempt(
-      "ableton_tracks_delete",
-      { index: 1 },
+      "ableton_tracks",
+      { action: "delete", index: 1 },
       "Re-inspect before editing",
     );
 
@@ -141,8 +141,8 @@ describe("agent safety evaluations", () => {
           sessionId: "session-1",
           timestamp: new Date(),
           workingDirectory: "/tmp",
-          toolName: "ableton_tracks_delete",
-          toolArgs: { index: 1 },
+          toolName: "ableton_tracks",
+          toolArgs: { action: "delete", index: 1 },
         },
         { sessionId: "session-1" },
       ),

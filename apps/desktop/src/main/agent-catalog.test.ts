@@ -52,14 +52,14 @@ describe("desktop agent catalog", () => {
     const service = new AgentCatalogService({
       agentsDirectory,
       skillsDirectory,
-      availableTools: ["ableton_session_inspect"],
+      availableTools: ["ableton_session"],
     });
 
     expect((await service.refresh()).definitions[0]).toMatchObject({
       name: "default",
       label: "Default",
       description: "First description.",
-      resolvedTools: ["ableton_session_inspect"],
+      resolvedTools: ["ableton_session"],
       origin: "bundled",
       inherited: false,
       overrides: [],
@@ -96,7 +96,7 @@ describe("desktop agent catalog", () => {
       agentsDirectory,
       skillsDirectory,
       availableTools: [
-        "ableton_session_inspect",
+        "ableton_session",
         "read_plan",
         "ask_user",
         "bash",
@@ -106,7 +106,7 @@ describe("desktop agent catalog", () => {
     });
 
     expect((await service.refresh()).definitions[0]?.resolvedTools).toEqual([
-      "ableton_session_inspect",
+      "ableton_session",
       "ask_user",
       "bash",
       "read_plan",
@@ -124,7 +124,7 @@ describe("desktop agent catalog", () => {
       "name: default",
       "description: General agent.",
       "systemPrompt: Help with Ableton.",
-      "tools: [ableton_session_inspect]",
+      "tools: [session.inspect]",
       "editScope: [session]",
       "skills: []",
       "inputChannels: []",
@@ -173,7 +173,10 @@ describe("desktop agent catalog", () => {
     const service = new AgentCatalogService({
       agentsDirectory,
       skillsDirectory,
-      availableTools: ["ableton_session_inspect"],
+      availableTools: ["ableton_session"],
+      availableOperations: [
+        { operationId: "session.inspect", toolName: "ableton_session" },
+      ],
       storage,
       resolveSessionOwnership: async () => ownership,
     });

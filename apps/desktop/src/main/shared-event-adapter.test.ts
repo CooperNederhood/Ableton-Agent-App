@@ -12,8 +12,10 @@ describe("shared application event adapter", () => {
           code: "bridge_timeout",
           message: "Timed out",
           retryable: true,
-          toolName: "ableton_session_inspect",
-        },
+          toolName: "ableton_session",
+          operationDescriptorId: "session.inspect",
+          action: "inspect",
+        } as never,
         () => "message-1",
       ),
     ).toMatchObject({
@@ -22,7 +24,30 @@ describe("shared application event adapter", () => {
         id: "op-1",
         status: "failed",
         retryable: true,
-        toolName: "ableton_session_inspect",
+        toolName: "ableton_session",
+        operationDescriptorId: "session.inspect",
+        action: "inspect",
+      },
+    });
+  });
+
+  it("preserves grouped action metadata from operation arguments", () => {
+    expect(
+      normalizeSharedEvent(
+        {
+          type: "operation.started",
+          operationId: "op-2",
+          label: "Set Ableton tempo",
+          toolName: "ableton_transport",
+          arguments: { action: "set-tempo", tempo: 128 },
+        },
+        () => "message-2",
+      ),
+    ).toMatchObject({
+      type: "operation.changed",
+      operation: {
+        toolName: "ableton_transport",
+        action: "set-tempo",
       },
     });
   });
@@ -35,7 +60,7 @@ describe("shared application event adapter", () => {
         label: "Custom tool",
         toolName: `custom:${"x".repeat(150)}`,
       },
-      () => "message-2",
+      () => "message-3",
     );
 
     expect(event).toMatchObject({
@@ -56,7 +81,7 @@ describe("shared application event adapter", () => {
             status: "completed",
           },
         },
-        () => "message-3",
+        () => "message-4",
       ),
     ).toEqual({
       type: "diagnostic",

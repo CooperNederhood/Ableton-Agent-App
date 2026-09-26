@@ -159,23 +159,32 @@ describe("automatic signal delivery", () => {
       inspectSession: async () => emptySnapshot,
       mutationBlocked: () => blocked,
     });
-    const hookInput = (toolName: string) => ({
+    const hookInput = (
+      toolName: string,
+      toolArgs: Readonly<Record<string, unknown>>,
+    ) => ({
       sessionId: "session",
       timestamp: new Date(),
       workingDirectory: ".",
       toolName,
-      toolArgs: {},
+      toolArgs,
     });
 
     expect(
-      await policy.hooks.onPreToolUse?.(hookInput("ableton_tracks_create"), {
-        sessionId: "session",
-      }),
+      await policy.hooks.onPreToolUse?.(
+        hookInput("ableton_tracks", { action: "create", kind: "midi" }),
+        {
+          sessionId: "session",
+        },
+      ),
     ).toMatchObject({ permissionDecision: "deny" });
     expect(
-      await policy.hooks.onPreToolUse?.(hookInput("ableton_session_inspect"), {
-        sessionId: "session",
-      }),
+      await policy.hooks.onPreToolUse?.(
+        hookInput("ableton_session", { action: "inspect" }),
+        {
+          sessionId: "session",
+        },
+      ),
     ).toBeUndefined();
     const audioTarget = {
       view: "session" as const,
@@ -192,8 +201,10 @@ describe("automatic signal delivery", () => {
     expect(
       await policy.hooks.onPreToolUse?.(
         {
-          ...hookInput("ableton_audio_clips"),
-          toolArgs: { action: "inspect", target: audioTarget },
+          ...hookInput("ableton_audio_clips", {
+            action: "inspect",
+            target: audioTarget,
+          }),
         },
         { sessionId: "session" },
       ),
@@ -201,17 +212,23 @@ describe("automatic signal delivery", () => {
     expect(
       await policy.hooks.onPreToolUse?.(
         {
-          ...hookInput("ableton_audio_clips"),
-          toolArgs: { action: "set-gain", target: audioTarget, gain: 0.5 },
+          ...hookInput("ableton_audio_clips", {
+            action: "set-gain",
+            target: audioTarget,
+            gain: 0.5,
+          }),
         },
         { sessionId: "session" },
       ),
     ).toMatchObject({ permissionDecision: "deny" });
     blocked = false;
     expect(
-      await policy.hooks.onPreToolUse?.(hookInput("ableton_tracks_create"), {
-        sessionId: "session",
-      }),
+      await policy.hooks.onPreToolUse?.(
+        hookInput("ableton_tracks", { action: "create", kind: "midi" }),
+        {
+          sessionId: "session",
+        },
+      ),
     ).toBeUndefined();
   });
 
@@ -251,8 +268,8 @@ describe("automatic signal delivery", () => {
                 sessionId: "session",
                 timestamp: new Date(),
                 workingDirectory: ".",
-                toolName: "ableton_tracks_create",
-                toolArgs: {},
+                toolName: "ableton_tracks",
+                toolArgs: { action: "create", kind: "midi" },
               },
               { sessionId: "session" },
             ),
@@ -261,8 +278,8 @@ describe("automatic signal delivery", () => {
                 sessionId: "session",
                 timestamp: new Date(),
                 workingDirectory: ".",
-                toolName: "ableton_session_inspect",
-                toolArgs: {},
+                toolName: "ableton_session",
+                toolArgs: { action: "inspect" },
               },
               { sessionId: "session" },
             ),
@@ -274,17 +291,17 @@ describe("automatic signal delivery", () => {
                 sessionId: "session",
                 timestamp: new Date(),
                 workingDirectory: ".",
-                toolName: "ableton_tracks_create",
-                toolArgs: {},
+                toolName: "ableton_tracks",
+                toolArgs: { action: "create", kind: "midi" },
               },
               { sessionId: "session" },
             ),
             await config?.onPermissionRequest?.(
               {
                 kind: "custom-tool",
-                toolName: "ableton_tracks_create",
+                toolName: "ableton_tracks",
                 toolDescription: "Create track",
-                args: {},
+                args: { action: "create", kind: "midi" },
               },
               { sessionId: "session" },
             ),

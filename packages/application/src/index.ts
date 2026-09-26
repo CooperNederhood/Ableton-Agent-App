@@ -3395,6 +3395,17 @@ export class CopilotAgentService implements AgentService {
         sdkEventId: event.id,
         parentSdkEventId: event.parentId,
       };
+      let toolMetadata;
+      if (event.type === "tool.execution_start") {
+        try {
+          toolMetadata = resolveAbletonToolMetadata(
+            event.data.toolName,
+            event.data.arguments ?? {},
+          );
+        } catch {
+          toolMetadata = undefined;
+        }
+      }
       if (
         event.type === "assistant.message_start" ||
         event.type === "assistant.turn_start"
@@ -3463,20 +3474,55 @@ export class CopilotAgentService implements AgentService {
         });
       } else if (event.type === "tool.execution_start") {
         if (state.activeTurn !== undefined) state.activeTurn.toolStarted = true;
-        this.#recordRuntime(state, "agent.tool.started", sdkData, {
-          occurredAt: event.timestamp,
-          sessionId: session.sessionId,
-        });
+        this.#recordRuntime(
+          state,
+          "agent.tool.started",
+          {
+            ...sdkData,
+            operationDescriptorId: toolMetadata?.operationId,
+            action: toolMetadata?.action,
+            mutationTarget: toolMetadata?.mutationTarget,
+            targetIdentity: toolMetadata?.lifecycleIdentity,
+          },
+          {
+            occurredAt: event.timestamp,
+            sessionId: session.sessionId,
+          },
+        );
       } else if (event.type === "tool.execution_progress") {
-        this.#recordRuntime(state, "agent.tool.progress", sdkData, {
-          occurredAt: event.timestamp,
-          sessionId: session.sessionId,
-        });
+        const operation = state.operations.get(event.data.toolCallId);
+        this.#recordRuntime(
+          state,
+          "agent.tool.progress",
+          {
+            ...sdkData,
+            operationDescriptorId: operation?.operationDescriptorId,
+            action: operation?.action,
+            mutationTarget: operation?.mutationTarget,
+            targetIdentity: operation?.targetIdentity,
+          },
+          {
+            occurredAt: event.timestamp,
+            sessionId: session.sessionId,
+          },
+        );
       } else if (event.type === "tool.execution_partial_result") {
-        this.#recordRuntime(state, "agent.tool.partial", sdkData, {
-          occurredAt: event.timestamp,
-          sessionId: session.sessionId,
-        });
+        const operation = state.operations.get(event.data.toolCallId);
+        this.#recordRuntime(
+          state,
+          "agent.tool.partial",
+          {
+            ...sdkData,
+            operationDescriptorId: operation?.operationDescriptorId,
+            action: operation?.action,
+            mutationTarget: operation?.mutationTarget,
+            targetIdentity: operation?.targetIdentity,
+          },
+          {
+            occurredAt: event.timestamp,
+            sessionId: session.sessionId,
+          },
+        );
       } else if (event.type === "tool.execution_complete") {
         const operation = state.operations.get(event.data.toolCallId);
         this.#recordRuntime(
@@ -3647,15 +3693,7 @@ export class CopilotAgentService implements AgentService {
           event.data.reason,
         );
       } else if (event.type === "tool.execution_start") {
-        let metadata;
-        try {
-          metadata = resolveAbletonToolMetadata(
-            event.data.toolName,
-            event.data.arguments ?? {},
-          );
-        } catch {
-          metadata = undefined;
-        }
+        const metadata = toolMetadata;
         const label = metadata?.title ?? event.data.toolName;
         state.operations.set(event.data.toolCallId, {
           label,
@@ -3727,7 +3765,11 @@ export class CopilotAgentService implements AgentService {
             summary: `${label} completed`,
             ...(operation === undefined
               ? {}
-              : { toolName: operation.toolName }),
+              : {
+                  toolName: operation.toolName,
+                  operationDescriptorId: operation.operationDescriptorId,
+                  action: operation.action,
+                }),
             ...(!exposeResult || event.data.result?.content === undefined
               ? {}
               : { result: event.data.result.content }),
@@ -3760,7 +3802,11 @@ export class CopilotAgentService implements AgentService {
               : { details: structuredToolFailure.details }),
             ...(operation === undefined
               ? {}
-              : { toolName: operation.toolName }),
+              : {
+                  toolName: operation.toolName,
+                  operationDescriptorId: operation.operationDescriptorId,
+                  action: operation.action,
+                }),
             ...this.#eventAttribution(state),
           });
         }
@@ -4150,6 +4196,10 @@ export class CopilotAgentService implements AgentService {
         code,
         message,
         toolName: operation.toolName,
+        ...{
+          operationDescriptorId: operation.operationDescriptorId,
+          action: operation.action,
+        },
         ...this.#eventAttribution(state),
       });
     }

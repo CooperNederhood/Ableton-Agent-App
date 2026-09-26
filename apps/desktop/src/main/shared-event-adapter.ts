@@ -12,6 +12,32 @@ function desktopToolName(toolName: string | undefined): string | undefined {
   return bounded === "" ? undefined : bounded;
 }
 
+function desktopOperationMetadata(event: DesktopSharedEvent): {
+  readonly operationDescriptorId?: string;
+  readonly action?: string;
+} {
+  const record = event as unknown as Readonly<Record<string, unknown>>;
+  const operationDescriptorId =
+    typeof record.operationDescriptorId === "string"
+      ? record.operationDescriptorId.slice(0, 128)
+      : undefined;
+  const directAction =
+    typeof record.action === "string" ? record.action : undefined;
+  const argumentAction =
+    event.type === "operation.started" &&
+    event.arguments !== undefined &&
+    typeof event.arguments.action === "string"
+      ? event.arguments.action
+      : undefined;
+  const action = (directAction ?? argumentAction)?.slice(0, 128);
+  return {
+    ...(operationDescriptorId === undefined || operationDescriptorId === ""
+      ? {}
+      : { operationDescriptorId }),
+    ...(action === undefined || action === "" ? {} : { action }),
+  };
+}
+
 function workflowJobMessage(eventName: string, payload: unknown): string {
   const fields =
     payload !== null && typeof payload === "object"
@@ -31,6 +57,7 @@ export function normalizeSharedEvent(
 ): DesktopAppEvent {
   const toolName =
     "toolName" in event ? desktopToolName(event.toolName) : undefined;
+  const operationMetadata = desktopOperationMetadata(event);
   const normalized =
     event.type === "agent.message_delta"
       ? { ...event, messageId: messageId() }
@@ -73,6 +100,7 @@ export function normalizeSharedEvent(
                           id: event.operationId,
                           label: event.label,
                           ...(toolName === undefined ? {} : { toolName }),
+                          ...operationMetadata,
                           status: "running",
                           warnings: [],
                           changed: [],
@@ -95,6 +123,7 @@ export function normalizeSharedEvent(
                             id: event.operationId,
                             label: event.summary,
                             ...(toolName === undefined ? {} : { toolName }),
+                            ...operationMetadata,
                             status: "completed",
                             warnings: [],
                             changed: [event.summary],
@@ -117,6 +146,7 @@ export function normalizeSharedEvent(
                               id: event.operationId,
                               label: event.message,
                               ...(toolName === undefined ? {} : { toolName }),
+                              ...operationMetadata,
                               status: "failed",
                               detail: event.code,
                               warnings: [event.message],

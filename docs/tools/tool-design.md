@@ -83,11 +83,10 @@ lifecycle identity. Permission checks and mutation locks resolve the descriptor
 from the invocation arguments, so cross-track operations authorize and lock
 both exact track references rather than relying on a static tool name.
 
-The first device/rack slice exposes explicit public tool names backed by these
-descriptors. A grouped public tool remains follow-up work: grouping it now
-would require broader changes to custom-agent allowlist matching, approval
-presentation, and deferred catalog loading. Explicit names preserve current
-allowlists and approval behavior.
+Device, rack, Drum Rack, and parameter operations are exposed through the
+`ableton_devices` grouped public tool. Their descriptors preserve independent
+schemas, capability gates, approval presentation, affected-track locking, and
+lifecycle identity beneath that one agent-facing name.
 
 The tool factory must also define sanitized observability events for request,
 policy/approval, queued, started, progress, child workflow/bridge operations,
@@ -192,8 +191,13 @@ The binding catalog topology is eager domain grouping with `action` as the
 discriminator. SDK tool search remains disabled. Splitting the same operations
 into action-specific tools does not materially reduce total schema information,
 but it multiplies tool names and exceeds the bounded eager-catalog strategy.
-Superseded direct names must not be registered beside their canonical grouped
-action. A direct tool remains only when no equivalent grouped action exists.
+Obvious Live domain operations must be added as actions on their canonical
+grouped tool rather than left as direct tools merely because the grouped branch
+did not already exist. Superseded direct names must not be registered beside
+their canonical grouped action. Separate public tools are reserved for
+specialized adapters or application workflows whose capability, restoration,
+revision, or asynchronous-job semantics do not fit the ordinary domain
+contract.
 
 The schema transmitted to the SDK must be the application-owned wire contract,
 not an accidental projection that drops runtime-only refinements. Constraints

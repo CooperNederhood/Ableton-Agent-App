@@ -80,7 +80,7 @@ wildcards:
 tools:
   - recording.inspect
   - recording.set_*
-  - ableton_browser_search
+  - browser.search
 ```
 
 Operation patterns compile to their canonical grouped domain tool with a

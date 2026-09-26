@@ -88,6 +88,11 @@ function configuration(
   instanceId: string,
   overrides: Partial<Omit<AgentSessionConfiguration, "instanceId">> = {},
 ): AgentSessionConfiguration {
+  const resolvedOperations =
+    overrides.resolvedOperations ??
+    (overrides.resolvedTools === undefined
+      ? ["session.inspect", "tracks.create"]
+      : undefined);
   return {
     instanceId,
     productionSessionId: `production-${instanceId}`,
@@ -95,7 +100,8 @@ function configuration(
     label: `Agent ${instanceId}`,
     description: `Description for ${instanceId}`,
     systemPrompt: `System prompt for ${instanceId}`,
-    resolvedTools: ["ableton_session_inspect", "ableton_tracks_create"],
+    resolvedTools: ["ableton_session", "ableton_tracks"],
+    ...(resolvedOperations === undefined ? {} : { resolvedOperations }),
     editScope: ["session"],
     boundTracks: [],
     skills: [],
@@ -189,13 +195,20 @@ function assistantDelta(content: string): SessionEvent {
   };
 }
 
-function toolStart(toolCallId: string, toolName: string): SessionEvent {
+function toolStart(
+  toolCallId: string,
+  toolName: string,
+  args: Extract<
+    SessionEvent,
+    { type: "tool.execution_start" }
+  >["data"]["arguments"] = {},
+): SessionEvent {
   return {
     type: "tool.execution_start",
     id: `start-${toolCallId}`,
     parentId: null,
     timestamp: "2026-08-08T00:00:02.000Z",
-    data: { toolCallId, toolName },
+    data: { toolCallId, toolName, arguments: args },
   };
 }
 
@@ -665,9 +678,9 @@ describe("CopilotAgentService managed sessions", () => {
           config.onPermissionRequest(
             {
               kind: "custom-tool",
-              toolName: "ableton_tracks_create",
+              toolName: "ableton_tracks",
               toolDescription: "Create a track",
-              args: {},
+              args: { action: "create", kind: "midi" },
             },
             { sessionId: "managed-session" },
           ),
@@ -1285,10 +1298,11 @@ describe("CopilotAgentService managed sessions", () => {
     await service.start();
     await service.createManagedAgent(
       configuration("track-a", {
-        resolvedTools: [
-          "ableton_session_inspect",
-          "ableton_tracks_rename",
-          "ableton_tracks_create",
+        resolvedTools: ["ableton_session", "ableton_tracks"],
+        resolvedOperations: [
+          "session.inspect",
+          "tracks.rename",
+          "tracks.create",
         ],
         editScope: [{ track: { name: "Track A", occurrence: 0 } }],
         boundTracks: [
@@ -1303,15 +1317,9 @@ describe("CopilotAgentService managed sessions", () => {
       }),
     );
     const scopedTools = configs[1]?.tools ?? [];
-    const inspect = scopedTools.find(
-      ({ name }) => name === "ableton_session_inspect",
-    )!;
-    const rename = scopedTools.find(
-      ({ name }) => name === "ableton_tracks_rename",
-    )!;
-    const create = scopedTools.find(
-      ({ name }) => name === "ableton_tracks_create",
-    )!;
+    const inspect = scopedTools.find(({ name }) => name === "ableton_session")!;
+    const rename = scopedTools.find(({ name }) => name === "ableton_tracks")!;
+    const create = scopedTools.find(({ name }) => name === "ableton_tracks")!;
     const invocation = {
       sessionId: "session-2",
       toolCallId: "tool-1",
@@ -1319,14 +1327,17 @@ describe("CopilotAgentService managed sessions", () => {
       arguments: {},
     };
 
-    await expect(inspect.handler?.({}, invocation)).resolves.toEqual(snapshot);
+    await expect(
+      inspect.handler?.({ action: "inspect" }, invocation),
+    ).resolves.toEqual(snapshot);
     await expect(
       configs[1]?.onPermissionRequest?.(
         {
           kind: "custom-tool",
-          toolName: "ableton_tracks_rename",
+          toolName: "ableton_tracks",
           toolDescription: "Rename track",
           args: {
+            action: "rename",
             index: 0,
             expectedReference: trackAReference,
             expectedName: "Track A",
@@ -1343,6 +1354,7 @@ describe("CopilotAgentService managed sessions", () => {
     await expect(
       rename.handler?.(
         {
+          action: "rename",
           index: 0,
           expectedReference: trackAReference,
           expectedName: "Track A",
@@ -1354,6 +1366,7 @@ describe("CopilotAgentService managed sessions", () => {
     await expect(
       rename.handler?.(
         {
+          action: "rename",
           index: 1,
           expectedReference: trackBReference,
           expectedName: "Track B",
@@ -1364,13 +1377,17 @@ describe("CopilotAgentService managed sessions", () => {
     ).rejects.toMatchObject({ code: "track_scope_required" });
     expect(requestToolApproval).not.toHaveBeenCalled();
     await expect(
-      create.handler?.({ kind: "midi", name: "Forbidden" }, invocation),
+      create.handler?.(
+        { action: "create", kind: "midi", name: "Forbidden" },
+        invocation,
+      ),
     ).rejects.toMatchObject({ code: "session_scope_required" });
 
     projectId = "project-2";
     await expect(
       rename.handler?.(
         {
+          action: "rename",
           index: 0,
           expectedReference: trackAReference,
           expectedName: "Track A",
@@ -1389,6 +1406,7 @@ describe("CopilotAgentService managed sessions", () => {
     await expect(
       rename.handler?.(
         {
+          action: "rename",
           index: 0,
           expectedReference: trackAReference,
           expectedName: "Track A",
@@ -1467,14 +1485,16 @@ describe("CopilotAgentService managed sessions", () => {
     await service.start();
     await service.createManagedAgent(
       configuration("device-editor", {
-        resolvedTools: ["ableton_device_move"],
+        resolvedTools: ["ableton_devices"],
+        resolvedOperations: ["devices.move"],
         editScope: ["session"],
       }),
     );
     const move = configs[1]?.tools?.find(
-      ({ name }) => name === "ableton_device_move",
+      ({ name }) => name === "ableton_devices",
     )?.handler;
     const args = {
+      action: "move" as const,
       source: {
         kind: "track-device" as const,
         track: {
@@ -1503,7 +1523,7 @@ describe("CopilotAgentService managed sessions", () => {
       move?.(args, {
         sessionId: "session-2",
         toolCallId: "move-tool-call",
-        toolName: "ableton_device_move",
+        toolName: "ableton_devices",
         arguments: args,
       }),
     ).resolves.toMatchObject({ verified: true });
@@ -1530,7 +1550,7 @@ describe("CopilotAgentService managed sessions", () => {
           domain: "devices",
           action: "move",
           targetKind: "track-device-to-track",
-          targetReferences: [trackAReference, deviceReference, trackBReference],
+          targetReferences: [trackAReference, trackBReference, deviceReference],
         },
       },
     });
@@ -1540,7 +1560,10 @@ describe("CopilotAgentService managed sessions", () => {
       "number",
     );
     expect(typeof operationEvents.at(-1)?.data.durationMs).toBe("number");
-    expect(moveDevice).toHaveBeenCalledWith(args);
+    expect(moveDevice).toHaveBeenCalledWith({
+      source: args.source,
+      destination: args.destination,
+    });
     await service.stop();
   });
 
@@ -1795,7 +1818,8 @@ describe("CopilotAgentService managed sessions", () => {
       trackIndex: number,
     ) =>
       configuration(instanceId, {
-        resolvedTools: ["ableton_tracks_rename"],
+        resolvedTools: ["ableton_tracks"],
+        resolvedOperations: ["tracks.rename"],
         editScope: [{ track: { name, occurrence: 0 } }],
         boundTracks: [
           {
@@ -1816,13 +1840,13 @@ describe("CopilotAgentService managed sessions", () => {
       scopedConfiguration("agent-b", "Track B", trackBReference, 1),
     );
     const renameA = configs[1]?.tools?.find(
-      ({ name }) => name === "ableton_tracks_rename",
+      ({ name }) => name === "ableton_tracks",
     )?.handler;
     const renameB = configs[2]?.tools?.find(
-      ({ name }) => name === "ableton_tracks_rename",
+      ({ name }) => name === "ableton_tracks",
     )?.handler;
     const create = configs[0]?.tools?.find(
-      ({ name }) => name === "ableton_tracks_create",
+      ({ name }) => name === "ableton_tracks",
     )?.handler;
     const invocation = {
       sessionId: "session",
@@ -1835,6 +1859,7 @@ describe("CopilotAgentService managed sessions", () => {
       expectedReference: string,
       expectedName: string,
     ) => ({
+      action: "rename" as const,
       index,
       expectedReference,
       expectedName,
@@ -1857,7 +1882,10 @@ describe("CopilotAgentService managed sessions", () => {
       renameArgs(0, trackAReference, "Track A"),
       invocation,
     );
-    const global = create?.({ kind: "midi", name: "New" }, invocation);
+    const global = create?.(
+      { action: "create", kind: "midi", name: "New" },
+      invocation,
+    );
     await flushMicrotasks();
     expect(started).toEqual([trackAReference, trackBReference]);
 
@@ -2151,9 +2179,9 @@ describe("CopilotAgentService managed sessions", () => {
       configs[1]?.onPermissionRequest?.(
         {
           kind: "custom-tool",
-          toolName: "ableton_tracks_create",
+          toolName: "ableton_tracks",
           toolDescription: "Create track",
-          args: { kind: "midi" },
+          args: { action: "create", kind: "midi" },
         },
         { sessionId: "session-2" },
       ),
@@ -2203,7 +2231,11 @@ describe("CopilotAgentService managed sessions", () => {
         maxActiveTotal = Math.max(maxActiveTotal, activeTotal);
         try {
           emit(assistantDelta(`delta:${prompt}`));
-          emit(toolStart(`tool-${prompt}`, "ableton_session_inspect"));
+          emit(
+            toolStart(`tool-${prompt}`, "ableton_session", {
+              action: "inspect",
+            }),
+          );
           emit(toolComplete(`tool-${prompt}`));
           if (prompt === "A1") {
             await new Promise<void>((resolve) => {
@@ -2305,8 +2337,16 @@ describe("CopilotAgentService managed sessions", () => {
       type: "operation.started",
       operationId: "tool-A1",
       label: "Inspect Ableton session",
-      toolName: "ableton_session_inspect",
-      arguments: {},
+      toolName: "ableton_session",
+      arguments: { action: "inspect" },
+      operationDescriptorId: "session.inspect",
+      action: "inspect",
+      targetIdentity: {
+        domain: "session",
+        action: "inspect",
+        targetKind: "session",
+        targetReferences: [],
+      },
       agentInstanceId: "agent-a",
       sdkSessionId: "session-a",
     });
@@ -2314,7 +2354,9 @@ describe("CopilotAgentService managed sessions", () => {
       type: "operation.completed",
       operationId: "tool-A1",
       summary: "Inspect Ableton session completed",
-      toolName: "ableton_session_inspect",
+      toolName: "ableton_session",
+      operationDescriptorId: "session.inspect",
+      action: "inspect",
       agentInstanceId: "agent-a",
       sdkSessionId: "session-a",
     });
@@ -2415,7 +2457,8 @@ describe("CopilotAgentService managed sessions", () => {
       label: "Managed Agent",
       description: "Initial managed session",
       systemPrompt: "Initial managed prompt",
-      resolvedTools: ["ableton_session_inspect"],
+      resolvedTools: ["ableton_session"],
+      resolvedOperations: ["session.inspect"],
     });
     await expect(service.createManagedAgent(initial)).resolves.toBe(
       "managed-session",
@@ -2525,7 +2568,8 @@ describe("CopilotAgentService managed sessions", () => {
       label: "Updated Managed Agent",
       description: "Updated managed session",
       systemPrompt: "Updated managed prompt",
-      resolvedTools: ["ableton_session_inspect", "ableton_tracks_create"],
+      resolvedTools: ["ableton_session", "ableton_tracks"],
+      resolvedOperations: ["session.inspect", "tracks.create"],
       skills: ["mix-balance"],
       availableSkills: [skillDescriptor("mix-balance")],
     });
@@ -2540,7 +2584,7 @@ describe("CopilotAgentService managed sessions", () => {
       `"fingerprint":"${"a".repeat(64)}"`,
     );
     expect(JSON.stringify(updatedSnapshot?.tools)).toContain(
-      '"name":"ableton_tracks_create"',
+      '"name":"ableton_tracks"',
     );
 
     expect(managedSession.disconnect).toHaveBeenCalledOnce();
@@ -2548,8 +2592,8 @@ describe("CopilotAgentService managed sessions", () => {
     expect(resumeSession).toHaveBeenCalledOnce();
     expect(latestResumeConfig?.agent).toBe("managed-updated");
     expect(latestResumeConfig?.availableTools).toEqual([
-      "custom:ableton_session_inspect",
-      "custom:ableton_tracks_create",
+      "custom:ableton_session",
+      "custom:ableton_tracks",
       "custom:set_sql_search",
       "custom:read_plan",
       "custom:write_plan",
@@ -2858,14 +2902,12 @@ it("always exposes bounded planning controls across empty and deduplicated agent
 
   await service.start();
   await service.createManagedAgent(
-    configuration("empty", { resolvedTools: [] }),
+    configuration("empty", { resolvedTools: [], resolvedOperations: [] }),
   );
   await service.createManagedAgent(
     configuration("deduplicated", {
-      resolvedTools: [
-        "custom:ableton_session_inspect",
-        "ableton_session_inspect",
-      ],
+      resolvedTools: ["custom:ableton_session", "ableton_session"],
+      resolvedOperations: ["session.inspect"],
     }),
   );
 
@@ -2878,7 +2920,7 @@ it("always exposes bounded planning controls across empty and deduplicated agent
   ]);
   expect(configs[1]?.customAgents?.[0]).not.toHaveProperty("tools");
   expect(configs[2]?.availableTools).toEqual([
-    "custom:ableton_session_inspect",
+    "custom:ableton_session",
     "custom:set_sql_search",
     "custom:read_plan",
     "custom:write_plan",
@@ -3047,19 +3089,21 @@ it("blocks plan-mode mutations until interactive approval", async () => {
   );
   await vi.waitFor(() => expect(managedSession.send).toHaveBeenCalled());
   const create = managedConfig?.tools?.find(
-    ({ name }) => name === "ableton_tracks_create",
+    ({ name }) => name === "ableton_tracks",
   );
   const inspect = managedConfig?.tools?.find(
-    ({ name }) => name === "ableton_session_inspect",
+    ({ name }) => name === "ableton_session",
   );
   const invocation = {
     sessionId: "managed-session",
     toolCallId: "tool-1",
-    toolName: "ableton_tracks_create",
+    toolName: "ableton_tracks",
     arguments: {},
   };
 
-  await expect(inspect?.handler?.({}, invocation)).resolves.toBeDefined();
+  await expect(
+    inspect?.handler?.({ action: "inspect" }, invocation),
+  ).resolves.toBeDefined();
   expect(
     managedConfig?.hooks?.onPreToolUse?.(
       {
@@ -3076,7 +3120,10 @@ it("blocks plan-mode mutations until interactive approval", async () => {
     ),
   ).toBeUndefined();
   await expect(
-    create?.handler?.({ kind: "midi", name: "Must not exist yet" }, invocation),
+    create?.handler?.(
+      { action: "create", kind: "midi", name: "Must not exist yet" },
+      invocation,
+    ),
   ).rejects.toMatchObject({ code: "plan_mode_read_only" });
   expect(createTrack).not.toHaveBeenCalled();
 
@@ -3118,7 +3165,10 @@ it("blocks plan-mode mutations until interactive approval", async () => {
     selectedAction: "interactive",
   });
   await expect(
-    create?.handler?.({ kind: "midi", name: "Approved track" }, invocation),
+    create?.handler?.(
+      { action: "create", kind: "midi", name: "Approved track" },
+      invocation,
+    ),
   ).resolves.toMatchObject({ verified: true });
   expect(createTrack).toHaveBeenCalledOnce();
 
@@ -3345,7 +3395,12 @@ describe("CopilotAgentService missing-session automatic recovery", () => {
   it("does not retry after a tool may have mutated Live", async () => {
     const missing = createFakeSession("missing", {
       onSend: async (_prompt, emit) => {
-        emit(toolStart("tool-1", "ableton_tracks_create"));
+        emit(
+          toolStart("tool-1", "ableton_tracks", {
+            action: "create",
+            kind: "midi",
+          }),
+        );
         throw new Error(
           "Request session.send failed with message: Session not found for sessionId: missing",
         );

@@ -1890,6 +1890,10 @@ function EventTraceInspector({
             </dd>
             <dt>Tools</dt>
             <dd>{currentAgent.config.resolvedTools.join(", ") || "None"}</dd>
+            <dt>Operations</dt>
+            <dd>
+              {currentAgent.config.resolvedOperations?.join(", ") || "All"}
+            </dd>
             <dt>Messages</dt>
             <dd>
               <pre>
@@ -4481,21 +4485,32 @@ function modelReasoningLabel(model: DesktopAgentModel): string {
 export function ResolvedToolsDisclosure({
   patterns,
   resolvedTools,
+  resolvedOperations = [],
 }: {
   patterns: readonly string[];
   resolvedTools: readonly string[];
+  resolvedOperations?: readonly string[];
 }): React.JSX.Element {
   const resolvedLabel =
     resolvedTools.length > 0 ? resolvedTools.join(", ") : "no available tools";
+  const operationLabel =
+    resolvedOperations.length > 0
+      ? resolvedOperations.join(", ")
+      : "all actions for resolved tools";
   if (patterns.some((pattern) => pattern.includes("*"))) {
     return (
       <details className="resolved-tools-disclosure">
         <summary>Resolved tools ({resolvedTools.length})</summary>
-        <small>{resolvedLabel}</small>
+        <small>Tools: {resolvedLabel}</small>
+        <small>Operations: {operationLabel}</small>
       </details>
     );
   }
-  return <small>Resolves to: {resolvedLabel}</small>;
+  return (
+    <small>
+      Resolves to: {resolvedLabel} · {operationLabel}
+    </small>
+  );
 }
 
 function listValue(values: string[]): string {
@@ -5632,6 +5647,7 @@ function ActiveAgentCard({
               <ResolvedToolsDisclosure
                 patterns={draft.tools}
                 resolvedTools={definition.resolvedTools}
+                resolvedOperations={definition.resolvedOperations ?? []}
               />
             </label>
             <fieldset>
@@ -6176,7 +6192,10 @@ export function OperationCard({
         <ActivityIcon type={presentation.type} />
         <span className="operation-label">{operation.label}</span>
         {operation.toolName !== undefined && (
-          <code className="operation-tool-name">{operation.toolName}</code>
+          <code className="operation-tool-name">
+            {operation.toolName}
+            {operation.action === undefined ? "" : ` · ${operation.action}`}
+          </code>
         )}
         <small>{operation.status}</small>
       </summary>

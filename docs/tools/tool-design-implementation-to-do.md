@@ -36,8 +36,11 @@ Companion specification: [Tool Design](tool-design.md)
   - [x] Remove superseded direct tools from the public catalog once their
     canonical grouped operation is available; removed exact names are unmatched
     rather than compatibility aliases.
-  - [ ] Delete disabled legacy handler/service code after no internal tests or
-    callers depend on it.
+  - [~] Complete the second-pass consolidation of session, track, mixer,
+    transport, Session clip, Arrangement, device/rack, and Browser direct
+    families into canonical grouped tools.
+  - [ ] Delete obsolete direct wrappers after grouped action coverage and
+    consumer migration are complete.
   - [x] Emit JSON-Schema-visible required-field alternatives, classify
     non-expressible semantic preconditions, and return retryable bounded
     `invalid_tool_arguments` guidance before side effects.

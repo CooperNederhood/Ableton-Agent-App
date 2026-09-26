@@ -204,7 +204,9 @@ describe("AbletonBridgeService", () => {
       sessionId: "session-123",
       activeAgentId: "agent-123",
       liveEventId: "event-123",
-      toolName: "ableton_connection_status",
+      toolName: "ableton_session",
+      operationId: "session.connection_status",
+      action: "connection-status",
     });
     await expect(
       withCorrelation("tool-call-123", () => service.ping()),
@@ -241,6 +243,8 @@ describe("AbletonBridgeService", () => {
       requestId: pingRequest?.requestId,
       command: "system.ping",
       correlationId: "tool-call-123",
+      operationId: "session.connection_status",
+      action: "connection-status",
     });
     expect(tracedResponse).toMatchObject({
       outcome: "success",
@@ -251,12 +255,16 @@ describe("AbletonBridgeService", () => {
       sessionId: "session-123",
       activeAgentId: "agent-123",
       liveEventId: "event-123",
-      toolName: "ableton_connection_status",
+      toolName: "ableton_session",
       trace: {
         traceId: upstreamTraceId,
         spanId: tracedRequest?.trace?.spanId,
         parentSpanId: toolSpanId,
       },
+    });
+    expect(tracedResponse?.attributes).toMatchObject({
+      operationId: "session.connection_status",
+      action: "connection-status",
     });
     expect(tracedResponse?.trace?.spanId).toBe(tracedRequest?.trace?.spanId);
     expect(tracedResponse?.durationMs).toBeGreaterThanOrEqual(0);

@@ -48,7 +48,8 @@ export const abletonAgentSchemaRequirements = [
     ],
   },
   {
-    toolName: "ableton_transport_set_arrangement_loop",
+    toolName: "ableton_transport",
+    action: "set-arrangement-loop",
     alternatives: [
       { fields: ["enabled"] },
       { fields: ["start"] },
@@ -56,7 +57,8 @@ export const abletonAgentSchemaRequirements = [
     ],
   },
   {
-    toolName: "ableton_tracks_set_mixer",
+    toolName: "ableton_mixer_routing",
+    action: "set-track-mixer",
     alternatives: [
       { fields: ["isMuted"] },
       { fields: ["isSoloed"] },
@@ -66,7 +68,8 @@ export const abletonAgentSchemaRequirements = [
     ],
   },
   {
-    toolName: "ableton_clips_set_properties",
+    toolName: "ableton_session_clips",
+    action: "set-properties",
     alternatives: [
       { fields: ["name"] },
       { fields: ["muted"] },
@@ -74,7 +77,8 @@ export const abletonAgentSchemaRequirements = [
     ],
   },
   {
-    toolName: "ableton_arrangement_set_clip_properties",
+    toolName: "ableton_arrangement",
+    action: "set-clip-properties",
     alternatives: [
       { fields: ["name"] },
       { fields: ["muted"] },
@@ -82,11 +86,13 @@ export const abletonAgentSchemaRequirements = [
     ],
   },
   {
-    toolName: "ableton_rack_chain_set_properties",
+    toolName: "ableton_devices",
+    action: "set-chain-properties",
     alternatives: [{ fields: ["name"] }, { fields: ["colorIndex"] }],
   },
   {
-    toolName: "ableton_rack_chain_set_mixer",
+    toolName: "ableton_devices",
+    action: "set-chain-mixer",
     alternatives: [
       { fields: ["mute"] },
       { fields: ["solo"] },
@@ -130,27 +136,33 @@ export const abletonAgentSemanticPreconditions = [
     description: "Slice positions must be strictly increasing.",
   },
   {
-    toolName: "ableton_transport_set_arrangement_loop",
+    toolName: "ableton_transport",
+    action: "set-arrangement-loop",
     description: "start plus length must not exceed 1576800 beats.",
   },
   {
-    toolName: "ableton_arrangement_create_midi_clip",
+    toolName: "ableton_arrangement",
+    action: "create-midi-clip",
     description: "startTime plus length must not exceed 1576800 beats.",
   },
   {
-    toolName: "ableton_arrangement_fill_region",
+    toolName: "ableton_arrangement",
+    action: "fill-region",
     description: "regionEnd must be greater than regionStart.",
   },
   {
-    toolName: "ableton_browser_children_inspect",
+    toolName: "ableton_browser",
+    action: "children",
     description: "offset plus limit minus one must not exceed 4096.",
   },
   {
-    toolName: "ableton_browser_search",
+    toolName: "ableton_browser",
+    action: "search",
     description: "Browser roots must be unique.",
   },
   {
-    toolName: "ableton_rack_chain_set_mixer",
+    toolName: "ableton_devices",
+    action: "set-chain-mixer",
     description: "Send indexes must be unique.",
   },
 ] as const satisfies readonly SemanticPreconditionRule[];

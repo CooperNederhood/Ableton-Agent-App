@@ -5,43 +5,57 @@
   "prompt": "Create a temporary Session MIDI clip, duplicate it into Arrangement, inspect the exact result, and remove every generated artifact.",
   "artifactPrefix": "AA_SMOKE_ARR_",
   "allowedTools": [
-    "ableton_session_inspect",
-    "ableton_tracks_create",
-    "ableton_clips_create_midi",
-    "ableton_arrangement_duplicate_clip",
-    "ableton_arrangement_inspect",
-    "ableton_arrangement_delete_clip",
-    "ableton_clips_delete",
-    "ableton_tracks"
+    "ableton_session",
+    "ableton_tracks",
+    "ableton_session_clips",
+    "ableton_arrangement"
   ],
+  "allowedActions": {
+    "ableton_session": ["inspect"],
+    "ableton_tracks": ["create", "delete"],
+    "ableton_session_clips": ["create-midi", "delete"],
+    "ableton_arrangement": ["duplicate-clip", "inspect", "delete-clip"]
+  },
   "allowedRisks": ["read", "reversible", "destructive"],
   "maxToolCalls": 12,
   "maxMutations": 6,
   "timeoutMs": 240000,
   "ordering": [
     {
-      "before": "ableton_tracks_create",
-      "after": "ableton_clips_create_midi"
+      "before": "ableton_tracks",
+      "after": "ableton_session_clips",
+      "beforeAction": "create",
+      "afterAction": "create-midi"
     },
     {
-      "before": "ableton_clips_create_midi",
-      "after": "ableton_arrangement_duplicate_clip"
+      "before": "ableton_session_clips",
+      "after": "ableton_arrangement",
+      "beforeAction": "create-midi",
+      "afterAction": "duplicate-clip"
     },
     {
-      "before": "ableton_arrangement_duplicate_clip",
-      "after": "ableton_arrangement_inspect"
+      "before": "ableton_arrangement",
+      "after": "ableton_arrangement",
+      "beforeAction": "duplicate-clip",
+      "afterAction": "inspect"
     },
     {
-      "before": "ableton_arrangement_inspect",
-      "after": "ableton_arrangement_delete_clip"
+      "before": "ableton_arrangement",
+      "after": "ableton_arrangement",
+      "beforeAction": "inspect",
+      "afterAction": "delete-clip"
     },
     {
-      "before": "ableton_arrangement_delete_clip",
-      "after": "ableton_clips_delete"
+      "before": "ableton_arrangement",
+      "after": "ableton_session_clips",
+      "beforeAction": "delete-clip",
+      "afterAction": "delete"
     },
     {
-      "before": "ableton_clips_delete",
-      "after": "ableton_tracks"
+      "before": "ableton_session_clips",
+      "after": "ableton_tracks",
+      "beforeAction": "delete",
+      "afterAction": "delete"
     }
   ],
   "trackNameSuffixes": ["Track"],

@@ -30,7 +30,7 @@ describe("agent catalog loading", () => {
     const catalog = await loadAgentCatalog({
       agentsDirectory: resolve(repositoryRoot, "agents"),
       skillsDirectory: resolve(repositoryRoot, "skills"),
-      availableTools: ["ableton_session_inspect"],
+      availableTools: ["ableton_session"],
     });
     const defaultAgent = catalog.agents.find(
       ({ definition }) => definition.name === "default",
@@ -69,7 +69,7 @@ describe("agent catalog loading", () => {
         "description: Compose MIDI.",
         "systemPrompt: Compose musical material.",
         "tools:",
-        '  - "ableton_clips_*"',
+        '  - "clips.create_midi"',
         "editScope:",
         "  - session",
         "skills:",
@@ -81,14 +81,22 @@ describe("agent catalog loading", () => {
     const catalog = await loadAgentCatalog({
       agentsDirectory: agents,
       skillsDirectory: skills,
-      availableTools: ["ableton_clips_create", "ableton_tracks_create"],
+      availableTools: ["ableton_session_clips", "ableton_tracks"],
+      availableOperations: [
+        {
+          operationId: "clips.create_midi",
+          toolName: "ableton_session_clips",
+        },
+        { operationId: "tracks.create", toolName: "ableton_tracks" },
+      ],
     });
 
     expect(catalog.diagnostics).toEqual([]);
     expect(catalog.skills[0]?.metadata.name).toBe("midi");
     expect(catalog.agents[0]).toMatchObject({
       definition: { name: "compose" },
-      resolvedTools: ["ableton_clips_create"],
+      resolvedTools: ["ableton_session_clips"],
+      resolvedOperations: ["clips.create_midi"],
     });
   });
 
@@ -99,7 +107,7 @@ describe("agent catalog loading", () => {
       availableTools: [
         "ableton_recording",
         "ableton_tracks",
-        "ableton_tracks_delete",
+        "legacy_tracks_delete",
       ],
       availableOperations: [
         {
@@ -113,7 +121,7 @@ describe("agent catalog loading", () => {
         { operationId: "tracks.delete", toolName: "ableton_tracks" },
       ],
       compatibilityAliases: {
-        ableton_tracks_delete: "tracks.delete",
+        legacy_tracks_delete: "tracks.delete",
       },
     });
     const defaultAgent = catalog.agents.find(
@@ -145,7 +153,7 @@ describe("agent catalog loading", () => {
     const catalog = await loadAgentCatalog({
       agentsDirectory: agents,
       skillsDirectory: skills,
-      availableTools: ["ableton_session_inspect"],
+      availableTools: ["ableton_session"],
     });
 
     expect(catalog.agents).toEqual([]);
@@ -233,7 +241,7 @@ describe("agent catalog loading", () => {
             "name: compose",
             "description: Compose.",
             `systemPrompt: ${agentPrompt}`,
-            "tools: [ableton_clips_create]",
+            "tools: [clips.create_midi]",
             "editScope: [session]",
             "skills: [midi]",
             "inputChannels: []",
@@ -254,7 +262,13 @@ describe("agent catalog loading", () => {
       profile,
       project,
       session: { ...session, agentTombstones: ["unused"] },
-      availableTools: ["ableton_clips_create"],
+      availableTools: ["ableton_session_clips"],
+      availableOperations: [
+        {
+          operationId: "clips.create_midi",
+          toolName: "ableton_session_clips",
+        },
+      ],
     });
 
     expect(catalog.diagnostics).toEqual([]);
@@ -275,7 +289,13 @@ describe("agent catalog loading", () => {
       bundled,
       system,
       profile: { ...profile, skillTombstones: ["midi"] },
-      availableTools: ["ableton_clips_create"],
+      availableTools: ["ableton_session_clips"],
+      availableOperations: [
+        {
+          operationId: "clips.create_midi",
+          toolName: "ableton_session_clips",
+        },
+      ],
     });
     expect(tombstoned.skills).toEqual([]);
     expect(tombstoned.agents).toEqual([]);

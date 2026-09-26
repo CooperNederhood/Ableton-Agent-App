@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  abletonToolMetadata,
+  resolveAbletonToolMetadata,
   type ToolApprovalRequest,
 } from "@ableton-agent/tools";
 
@@ -10,13 +10,15 @@ import {
   type ApprovalAttribution,
   ApprovalCoordinator,
   ApprovalPolicyController,
+  toDesktopApproval,
 } from "./approvals.js";
 
 const baseRequest = {
-  metadata: abletonToolMetadata.find(
-    (metadata) => metadata.risk === "reversible",
-  )!,
-  arguments: { tempo: 128 },
+  metadata: resolveAbletonToolMetadata("ableton_transport", {
+    action: "set-tempo",
+    tempo: 128,
+  })!,
+  arguments: { action: "set-tempo", tempo: 128 },
 };
 
 function requestFor(agentInstanceId?: string): ToolApprovalRequest {
@@ -145,6 +147,15 @@ describe("ApprovalPolicyController", () => {
 });
 
 describe("ApprovalCoordinator", () => {
+  it("presents grouped tools with operation-specific titles and actions", () => {
+    expect(toDesktopApproval("approval-1", baseRequest)).toMatchObject({
+      id: "approval-1",
+      title: "Set Ableton tempo",
+      risk: "medium",
+      changes: ['action: "set-tempo"', "tempo: 128"],
+    });
+  });
+
   it("publishes and stores request attribution", async () => {
     const approvals = new ApprovalCoordinator();
     let approvalId = "";

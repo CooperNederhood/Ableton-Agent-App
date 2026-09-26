@@ -265,8 +265,9 @@ first. Preserve existing material unless replacement is requested and avoid
 overlaps unless intentional.
 
 For repeated contiguous copies of one Session clip on one track, use
-`ableton_arrangement_fill_region` once for the whole half-open region instead
-of calling `ableton_arrangement_duplicate_clip` for every tile. Obtain the
+`ableton_arrangement` with action `fill-region` once for the whole half-open
+region instead of calling `ableton_arrangement` with action `duplicate-clip`
+for every tile. Obtain the
 source length from Session inspection; never create a probe duplicate merely
 to discover length. Group work into one region-fill call per
 source/track/contiguous region, apply dependent regions sequentially, and use

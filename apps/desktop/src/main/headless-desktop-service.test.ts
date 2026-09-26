@@ -2807,6 +2807,9 @@ describe("desktop adapter over the shared application", () => {
     await service.captureObservedSave({
       observation: {
         liveSetId: status.liveSetId,
+        liveSetName: status.liveSetName,
+        saved: status.saved,
+        diagnostics: [],
         observedAt: "2026-09-20T20:00:00.000Z",
         fileModifiedTimeNs: "1234567890123456789",
         fileSizeBytes: 4096,
@@ -3374,6 +3377,80 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
 
     await expect(sessionStore.load()).resolves.toEqual([]);
+  });
+
+  it("promotes an unsaved session before accepting a prompt after the save identity event", async () => {
+    const directory = await temporaryDirectory();
+    const ableton = defaultFakeState();
+    if (
+      ableton.status.state !== "connected" ||
+      !("liveSetId" in ableton.status)
+    ) {
+      throw new Error("Expected connected fake state");
+    }
+    ableton.status = {
+      ...ableton.status,
+      liveSetId: "set-before-save",
+      liveSetName: "Untitled",
+      saved: false,
+    };
+    ableton.liveIdentity = {
+      liveSetId: "set-before-save",
+      liveSetName: "Untitled",
+      saved: false,
+      diagnostics: [],
+    };
+    const fake = createFakeApplication({ ableton });
+    const service = new HeadlessDesktopService({
+      application: fake.application,
+      approvals: new ApprovalCoordinator(),
+      preferencesStore: new JsonPreferencesStore(
+        join(directory, "preferences.json"),
+      ),
+      sessionStore: new JsonSessionStore(join(directory, "sessions.json")),
+      liveSetSessionStore: new JsonLiveSetSessionStore(
+        join(directory, "live-set-sessions.json"),
+      ),
+      agentCatalog: {
+        current: defaultCatalog(),
+        refresh: () => Promise.resolve(defaultCatalog()),
+      },
+    });
+
+    await service.start();
+    const before = (await service.getSessions())[0]!;
+    const savedStatus = {
+      state: "connected" as const,
+      liveVersion: ableton.status.liveVersion,
+      remoteScriptVersion: ableton.status.remoteScriptVersion,
+      liveSetId: "set-after-save",
+      liveSetName: "Saved Set",
+      saved: true,
+      liveProjectId: "project-after-save",
+      liveProjectName: "Album",
+    };
+    ableton.status = savedStatus;
+    ableton.liveIdentity = { ...savedStatus, diagnostics: [] };
+    fake.events.publish({
+      type: "ableton.connection_changed",
+      status: savedStatus,
+    });
+
+    await service.sendToActiveAgent(
+      before.activeAgents[0]!.id,
+      "What changed?",
+      [],
+    );
+
+    const after = (await service.getSessions())[0]!;
+    expect(after).toMatchObject({
+      id: before.id,
+      liveSetId: "set-after-save",
+      liveProjectId: "project-after-save",
+    });
+    expect(service.activeLiveSetId).toBe("set-after-save");
+    expect(service.activeLiveProjectId).toBe("project-after-save");
+    await service.stop();
   });
 
   it("persists an unsaved Live Set session when Session Scope is requested", async () => {

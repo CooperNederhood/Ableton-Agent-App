@@ -1,5 +1,5 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -31,6 +31,19 @@ afterEach(async () => {
 });
 
 describe("nested storage migration CLI", () => {
+  it("declares a bin launcher that exists before the package is built", async () => {
+    const packageRoot = resolve("packages/storage");
+    const manifest = JSON.parse(
+      await readFile(join(packageRoot, "package.json"), "utf8"),
+    ) as {
+      bin: { "ableton-agent-storage-migrate": string };
+    };
+
+    await expect(
+      access(join(packageRoot, manifest.bin["ableton-agent-storage-migrate"])),
+    ).resolves.toBeUndefined();
+  });
+
   it("defaults to a no-write dry run for LIVE_AGENT_HOME and profile", async () => {
     const root = await legacyRoot();
     const output: string[] = [];
@@ -92,5 +105,26 @@ describe("nested storage migration CLI", () => {
       ),
     ).toBe(1);
     expect(errors.at(-1)).toContain("version marker is missing");
+  });
+
+  it("accepts the pnpm argument separator used by the documented command", async () => {
+    const root = await legacyRoot();
+    const output: string[] = [];
+
+    expect(
+      await runMigrationCli(
+        ["--", "--profile", "studio", "--dry-run", "--json"],
+        { LIVE_AGENT_HOME: root },
+        {
+          write: (text) => output.push(text),
+          writeError: () => undefined,
+        },
+      ),
+    ).toBe(0);
+    expect(JSON.parse(output.join("\n"))).toMatchObject({
+      status: "dry-run",
+      applied: false,
+      profile: "studio",
+    });
   });
 });

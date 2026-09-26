@@ -6,6 +6,8 @@ Companion specification: [Project State](project-state.md)
 
 - [x] Define project identity, snapshot, entity reference, revision, production
   plan, and change-set schemas.
+- [x] Promote clean unsaved App sessions to canonical saved Set/Project
+  identity without rewriting or implicitly unioning pre-save history.
 - [x] Create SQLite schema and migration tooling.
 - [x] Implement repositories for sessions, projects, plans, change sets,
   preferences, and approvals.

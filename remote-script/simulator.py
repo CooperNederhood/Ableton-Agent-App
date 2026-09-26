@@ -3080,6 +3080,9 @@ def serve(
                                     "sequence": state.live_event_sequence,
                                     "payload": {
                                         "liveSetId": "simulated-live-set",
+                                        "liveSetName": "Simulator Set",
+                                        "saved": True,
+                                        "diagnostics": [],
                                         "observedAt": (
                                             "2000-01-01T00:00:00.000Z"
                                         ),

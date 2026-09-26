@@ -11,7 +11,11 @@ import {
   type RequestEnvelope,
   type ResponseEnvelope,
 } from "@ableton-agent/protocol";
-import { InMemoryEventPublisher, type AppEvent } from "@ableton-agent/shared";
+import {
+  InMemoryEventPublisher,
+  type AppEvent,
+  type ConnectionStatus,
+} from "@ableton-agent/shared";
 
 import { AbletonBridgeService, type AbletonLiveEvent } from "./index.js";
 
@@ -155,6 +159,118 @@ describe("Ableton bridge connection manager", () => {
         (request) => request.command === "live_set.get_identity",
       ),
     ).toHaveLength(2);
+  });
+
+  it("updates cached connection identity before publishing a save event", async () => {
+    const testServer = await startServer();
+    servers.push(testServer.server);
+    const publisher = new InMemoryEventPublisher();
+    const observedStatuses: ConnectionStatus[] = [];
+    const publicationOrder: string[] = [];
+    publisher.subscribe((event) => {
+      if (
+        event.type === "ableton.connection_changed" &&
+        event.status.state === "connected"
+      ) {
+        publicationOrder.push(`status:${event.status.liveSetId}`);
+      }
+      if (
+        event.type === "ableton.event_received" &&
+        event.event === "live_set.save_observed"
+      ) {
+        publicationOrder.push("save");
+      }
+    });
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: publisher,
+      port: testServer.port,
+      eventSubscriptions: ["live_set.save_observed"],
+    });
+    services.push(service);
+    service.subscribeLiveSetSaves(() => {
+      void service.getStatus().then((status) => observedStatuses.push(status));
+    });
+
+    await service.start();
+    const socket = testServer.sockets[0];
+    socket?.write(
+      encodeFrame({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "event",
+        event: "live_set.save_observed",
+        sequence: 1,
+        payload: {
+          liveSetId: "set-after-save",
+          liveSetName: "Saved Set",
+          saved: true,
+          liveProjectId: "project-after-save",
+          liveProjectName: "Album",
+          diagnostics: [],
+          observedAt: "2026-09-26T13:55:18.603Z",
+          fileModifiedTimeNs: "1700000000000000000",
+          fileSizeBytes: 4096,
+        },
+        projectRevision: 4,
+      }),
+    );
+    await waitFor(() => observedStatuses.length === 1);
+
+    await expect(service.getStatus()).resolves.toMatchObject({
+      state: "connected",
+      liveSetId: "set-after-save",
+      liveProjectId: "project-after-save",
+      saved: true,
+    });
+    expect(service.getCurrentLiveSetId()).toBe("set-after-save");
+    expect(observedStatuses[0]).toMatchObject({
+      state: "connected",
+      liveSetId: "set-after-save",
+      liveProjectId: "project-after-save",
+    });
+    expect(publicationOrder.slice(-2)).toEqual([
+      "status:set-after-save",
+      "save",
+    ]);
+
+    socket?.write(
+      encodeFrame({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "event",
+        event: "live_set.save_observed",
+        sequence: 2,
+        payload: {
+          liveSetId: "set-after-save-as",
+          liveSetName: "Saved Set Copy",
+          saved: true,
+          diagnostics: [
+            {
+              code: "live_project_not_found",
+              message: "No Ableton Project Info ancestor was found",
+            },
+          ],
+          observedAt: "2026-09-26T13:56:18.603Z",
+          fileModifiedTimeNs: "1700000001000000000",
+          fileSizeBytes: 8192,
+        },
+        projectRevision: 5,
+      }),
+    );
+    await waitFor(() => observedStatuses.length === 2);
+    await expect(service.getStatus()).resolves.toMatchObject({
+      state: "connected",
+      liveSetId: "set-after-save-as",
+      saved: true,
+    });
+    expect(await service.getStatus()).not.toHaveProperty("liveProjectId");
+    expect(service.getCurrentLiveIdentity()).toMatchObject({
+      liveSetId: "set-after-save-as",
+      diagnostics: [
+        {
+          code: "live_project_not_found",
+        },
+      ],
+    });
   });
 
   it("stays disconnected when stopped during an in-flight handshake", async () => {

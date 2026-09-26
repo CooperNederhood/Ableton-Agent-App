@@ -1205,14 +1205,21 @@ export class HeadlessDesktopService implements DesktopService {
     context: ContextChip[] = [],
     agentMode: DesktopAgentMode = "interactive",
   ): Promise<{ accepted: true; messageId: string }> {
-    const prompt = composeAgentPrompt(
-      message,
-      this.#withPinnedContext(context),
-    );
-    return this.#beginManagedTurn(
-      this.#captureActiveAgentTarget(instanceId),
-      () => this.#application.sendToManagedAgent(instanceId, prompt, agentMode),
-    );
+    this.#assertAccepting();
+    const send = () => {
+      const prompt = composeAgentPrompt(
+        message,
+        this.#withPinnedContext(context),
+      );
+      return this.#beginManagedTurn(
+        this.#captureActiveAgentTarget(instanceId),
+        () =>
+          this.#application.sendToManagedAgent(instanceId, prompt, agentMode),
+      );
+    };
+    return this.#liveSetIdentityRefresh === undefined
+      ? send()
+      : this.#liveSetIdentityRefresh.then(send);
   }
 
   public setActiveAgentMode(
@@ -2265,6 +2272,10 @@ export class HeadlessDesktopService implements DesktopService {
     return this.#liveSetIdentity?.liveProjectId;
   }
 
+  public get activeLiveSetId(): string | undefined {
+    return this.#liveSetIdentity?.liveSetId;
+  }
+
   async #readTrackDevices(
     snapshot: SessionSnapshot,
     enrichmentGeneration: number,
@@ -2828,6 +2839,9 @@ export class HeadlessDesktopService implements DesktopService {
   #onSharedEvent(event: AppEvent): void {
     this.#logger.debug("Application event received", { event });
     if (event.type === "ableton.project_mutated") return;
+    if (event.type === "ableton.connection_changed") {
+      this.#observeConnectedIdentity(event.status);
+    }
     if (event.type === "agent.sdk_session_rotated") {
       void this.#persistRuntimeSessionRotation(event);
       return;
@@ -2864,6 +2878,39 @@ export class HeadlessDesktopService implements DesktopService {
     ) {
       this.#clearAutomaticStreamMessageId(event);
     }
+  }
+
+  #observeConnectedIdentity(status: ConnectionStatus): void {
+    if (status.state !== "connected") return;
+    const identity: DesktopLiveSetIdentity = {
+      liveSetId: status.liveSetId,
+      liveSetName: status.liveSetName,
+      saved: status.saved,
+      ...(status.liveProjectId === undefined
+        ? {}
+        : { liveProjectId: status.liveProjectId }),
+      ...(status.liveProjectName === undefined
+        ? {}
+        : { liveProjectName: status.liveProjectName }),
+    };
+    const previousRefresh = this.#liveSetIdentityRefresh;
+    const refresh = (previousRefresh ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(() => this.#observeLiveIdentity(identity));
+    this.#liveSetIdentityRefresh = refresh;
+    void refresh.then(
+      () => {
+        if (this.#liveSetIdentityRefresh === refresh) {
+          this.#liveSetIdentityRefresh = undefined;
+        }
+      },
+      (error) => {
+        if (this.#liveSetIdentityRefresh === refresh) {
+          this.#liveSetIdentityRefresh = undefined;
+        }
+        this.#report("Live Set identity transition failed", error);
+      },
+    );
   }
 
   async #persistRuntimeAgentMode(

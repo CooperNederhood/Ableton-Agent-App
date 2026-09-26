@@ -1,21 +1,21 @@
 {
   "producer": "typescript",
-  "protocolVersion": 4,
+  "protocolVersion": 5,
   "messages": [
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "request",
       "requestId": "00000000-0000-4000-8000-000000000001",
       "command": "system.hello",
       "params": {
         "authenticationToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "supportedProtocolVersions": [4],
+        "supportedProtocolVersions": [5],
         "appVersion": "0.1.0",
         "eventSubscriptions": []
       }
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "request",
       "requestId": "00000000-0000-4000-8000-000000000002",
       "command": "system.ping",
@@ -23,16 +23,16 @@
       "projectRevision": 4
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "response",
       "requestId": "00000000-0000-4000-8000-000000000001",
       "ok": true,
-      "result": { "selectedProtocolVersion": 4 },
+      "result": { "selectedProtocolVersion": 5 },
       "projectRevision": 4,
       "warnings": []
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "response",
       "requestId": "00000000-0000-4000-8000-000000000001",
       "ok": false,
@@ -44,7 +44,7 @@
       }
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "event",
       "event": "live_set.changed",
       "sequence": 7,
@@ -52,7 +52,7 @@
       "projectRevision": 4
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "event",
       "event": "live_event.occurred",
       "sequence": 8,
@@ -84,7 +84,7 @@
       "projectRevision": 4
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "event",
       "event": "live_event.invalidated",
       "sequence": 9,
@@ -97,12 +97,17 @@
       "projectRevision": 4
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "event",
       "event": "live_set.save_observed",
       "sequence": 10,
       "payload": {
         "liveSetId": "saved-live-set",
+        "liveSetName": "Saved Set",
+        "saved": true,
+        "liveProjectId": "saved-project",
+        "liveProjectName": "Saved Project",
+        "diagnostics": [],
         "observedAt": "2000-01-01T00:00:02Z",
         "fileModifiedTimeNs": "1700000000000000000",
         "fileSizeBytes": 4096
@@ -112,7 +117,7 @@
   ],
   "errors": [
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "response",
       "requestId": "00000000-0000-4000-8000-000000000100",
       "ok": false,
@@ -124,7 +129,7 @@
       }
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "response",
       "requestId": "00000000-0000-4000-8000-000000000101",
       "ok": false,
@@ -136,7 +141,7 @@
       }
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "response",
       "requestId": "00000000-0000-4000-8000-000000000102",
       "ok": false,
@@ -148,7 +153,7 @@
       }
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "response",
       "requestId": "00000000-0000-4000-8000-000000000103",
       "ok": false,
@@ -160,7 +165,7 @@
       }
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "response",
       "requestId": "00000000-0000-4000-8000-000000000104",
       "ok": false,
@@ -172,7 +177,7 @@
       }
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "response",
       "requestId": "00000000-0000-4000-8000-000000000105",
       "ok": false,
@@ -184,7 +189,7 @@
       }
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "response",
       "requestId": "00000000-0000-4000-8000-000000000106",
       "ok": false,
@@ -196,7 +201,7 @@
       }
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "response",
       "requestId": "00000000-0000-4000-8000-000000000107",
       "ok": false,
@@ -208,7 +213,7 @@
       }
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "response",
       "requestId": "00000000-0000-4000-8000-000000000108",
       "ok": false,
@@ -220,7 +225,7 @@
       }
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "response",
       "requestId": "00000000-0000-4000-8000-000000000109",
       "ok": false,
@@ -232,7 +237,7 @@
       }
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "response",
       "requestId": "00000000-0000-4000-8000-000000000110",
       "ok": false,
@@ -244,7 +249,7 @@
       }
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "response",
       "requestId": "00000000-0000-4000-8000-000000000111",
       "ok": false,
@@ -256,7 +261,7 @@
       }
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "response",
       "requestId": "00000000-0000-4000-8000-000000000112",
       "ok": false,
@@ -268,7 +273,7 @@
       }
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "response",
       "requestId": "00000000-0000-4000-8000-000000000113",
       "ok": false,
@@ -280,7 +285,7 @@
       }
     },
     {
-      "protocolVersion": 4,
+      "protocolVersion": 5,
       "kind": "response",
       "requestId": "00000000-0000-4000-8000-000000000114",
       "ok": false,

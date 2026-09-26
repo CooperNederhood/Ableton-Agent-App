@@ -253,6 +253,15 @@ These are user-selected primary conversations, not autonomous hidden
 sub-agents. The application selects exactly one custom-agent definition inside
 each SDK session and attributes every event to its active instance.
 
+Each SDK session receives a typed identity block in its system message when it
+is created or resumed. The block distinguishes the Remote Script-owned
+`liveSetId` and optional `liveProjectId` from Desktop's application-owned
+`appSessionId`. Ordinary prepared project context does not repeat these IDs on
+every prompt. If first save, Save As, or another committed transition changes
+identity while the SDK session remains active, the next accepted user prompt
+receives one `identity_changed` block that explicitly supersedes the original
+system-message identity. Each active agent tracks delivery independently.
+
 ## Completion
 
 An agent turn is complete only when:
@@ -275,7 +284,7 @@ order. A Set switch or runtime shutdown aborts obsolete work.
 
 Actions are injected through `LiveSetSaveAction`, allowing snapshot capture or
 persistence to remain a separate package. Each action receives the bounded
-metadata observation, bridge receipt time, project revision, `AbortSignal`, and
-a progress hook. Observation and action queued, started, progress, completed,
-failed, and cancelled stages emit application-owned telemetry with stable
-trace/correlation/causation relationships.
+identity and metadata observation, bridge receipt time, project revision,
+`AbortSignal`, and a progress hook. Observation and action queued, started,
+progress, completed, failed, and cancelled stages emit application-owned
+telemetry with stable trace/correlation/causation relationships.

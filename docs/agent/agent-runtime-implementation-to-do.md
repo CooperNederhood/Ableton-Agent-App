@@ -75,6 +75,9 @@ Companion specification: [Agent Runtime](agent-runtime.md)
   YAML definitions.
 - [x] Define compact project-context injection, including bounded top-level
   device summaries and mutation-driven invalidation.
+- [x] Seed typed Set/Project/App-session identity once per SDK session and
+  deliver one superseding identity-change context after committed transitions
+  instead of repeating unchanged IDs in every prompt.
 - [x] Attach bounded UI selection context atomically to managed-agent messages
   and explicit skill turns without duplicating the general project snapshot.
 - [x] Implement session-start, prompt, pre-tool, post-tool, and failure hooks.
@@ -94,6 +97,8 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [x] Persist SDK interaction mode independently for each active-agent
   instance.
 - [x] Handle project switches without leaking stale context.
+- [x] Attribute post-transition messages and tools from committed Desktop
+  identity while leaving pre-save unsaved history under its temporary ID.
 - [x] Dispatch observed saves through ordered, per-Live-Set injectable actions
   with deduplication, Set-switch/shutdown cancellation, and full lifecycle
   observability.

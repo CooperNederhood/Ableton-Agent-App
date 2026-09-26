@@ -187,23 +187,6 @@ export const eventEnvelopeSchema = envelopeBaseSchema.extend({
   projectRevision: z.number().int().nonnegative().optional(),
 });
 
-export const liveSetSaveObservedPayloadSchema = z
-  .object({
-    liveSetId: z.string().min(1).max(128),
-    observedAt: z.string().datetime(),
-    fileModifiedTimeNs: z
-      .string()
-      .max(32)
-      .regex(/^(0|[1-9][0-9]*)$/u),
-    fileSizeBytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-  })
-  .strict();
-
-export const liveSetSaveObservedEnvelopeSchema = eventEnvelopeSchema.extend({
-  event: z.literal("live_set.save_observed"),
-  payload: liveSetSaveObservedPayloadSchema,
-});
-
 export const liveEventOccurredEnvelopeSchema = eventEnvelopeSchema.extend({
   event: z.literal("live_event.occurred"),
   payload: liveEventOccurrenceSchema,
@@ -315,6 +298,23 @@ export const liveIdentitySchema = z
       .default([]),
   })
   .strict();
+
+export const liveSetSaveObservedPayloadSchema = z
+  .object({
+    ...liveIdentitySchema.shape,
+    observedAt: z.string().datetime(),
+    fileModifiedTimeNs: z
+      .string()
+      .max(32)
+      .regex(/^(0|[1-9][0-9]*)$/u),
+    fileSizeBytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  })
+  .strict();
+
+export const liveSetSaveObservedEnvelopeSchema = eventEnvelopeSchema.extend({
+  event: z.literal("live_set.save_observed"),
+  payload: liveSetSaveObservedPayloadSchema,
+});
 
 export const pingResultSchema = z.object({
   pong: z.literal(true),

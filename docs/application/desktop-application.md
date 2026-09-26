@@ -27,6 +27,13 @@ endpoint.
   framework until UI complexity justifies it
 - Playwright for Electron end-to-end tests
 
+Desktop owns App-session identity. Ableton integration owns Live Set and Live
+Project identity. When a save event replaces an unsaved or Save As identity,
+Desktop serializes the ownership update before the next prompt is accepted. A
+clean ephemeral session is promoted without changing its App-session ID;
+conflicting saved-session associations continue through the explicit transition
+decision flow.
+
 ## Electron process model
 
 ### Main process

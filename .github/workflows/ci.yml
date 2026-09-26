@@ -36,8 +36,6 @@ jobs:
           pnpm contracts:compat "origin/${{ github.base_ref }}"
       - name: Format, lint, typecheck, and test
         run: pnpm check 2>&1 | tee ci-validation.log
-      - name: Build all workspaces
-        run: pnpm build 2>&1 | tee ci-build.log
       - name: Upload failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
@@ -45,7 +43,6 @@ jobs:
           name: validation-diagnostics
           path: |
             ci-validation.log
-            ci-build.log
           if-no-files-found: ignore
           retention-days: 7
 

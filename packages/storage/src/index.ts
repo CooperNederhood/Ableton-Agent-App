@@ -1525,7 +1525,9 @@ async function everyProfileUsesNestedStorage(
     if (!entry.isDirectory()) continue;
     if (
       entry.name.includes(".pre-v2-") ||
-      entry.name.includes(".nested-migration-")
+      entry.name.includes(".nested-migration-") ||
+      entry.name.includes(".migration-") ||
+      entry.name.includes(".rollback-")
     ) {
       continue;
     }
@@ -1618,6 +1620,119 @@ export async function migrateNestedStorage(
       profile: options.layout.profile,
       apply,
     });
+    const rootVersionPath = join(options.layout.root, "storage-version.json");
+    const rootVersion = (await exists(rootVersionPath))
+      ? objectValue(
+          JSON.parse(await boundedReadFile(rootVersionPath, 64 * 1024)),
+          "Storage version",
+        ).version
+      : undefined;
+    const profileMigrationMarker = join(
+      options.layout.profileRoot,
+      `storage-migration-v${LIVE_AGENT_STORAGE_VERSION}.json`,
+    );
+    if (
+      rootVersion === 1 &&
+      (await exists(profileMigrationMarker)) &&
+      !(await exists(join(options.layout.profileRoot, "session-state"))) &&
+      !(await exists(
+        join(options.layout.profileRoot, "state", "project-sessions.json"),
+      ))
+    ) {
+      if (!(await everyProfileUsesNestedStorage(options.layout))) {
+        emit(
+          "storage.nested-migration.cancelled",
+          {
+            profile: options.layout.profile,
+            reason: "waiting-for-other-profiles",
+          },
+          "cancelled",
+        );
+        return {
+          status: "not-needed",
+          applied: false,
+          profile: options.layout.profile,
+          sourceVersion: 1,
+          targetVersion: LIVE_AGENT_STORAGE_VERSION,
+          actions,
+          events,
+        };
+      }
+      migrationAction(
+        actions,
+        `update storage version to ${LIVE_AGENT_STORAGE_VERSION} after all legacy profiles are migrated`,
+      );
+      emit(
+        "storage.nested-migration.progress",
+        {
+          profile: options.layout.profile,
+          actionCount: actions.length,
+          phase: "validated",
+        },
+        undefined,
+        true,
+      );
+      if (!apply) {
+        emit(
+          "storage.nested-migration.completed",
+          {
+            profile: options.layout.profile,
+            actionCount: actions.length,
+            mode: "dry-run",
+          },
+          "success",
+        );
+        return {
+          status: "dry-run",
+          applied: false,
+          profile: options.layout.profile,
+          sourceVersion: 1,
+          targetVersion: LIVE_AGENT_STORAGE_VERSION,
+          actions,
+          events,
+        };
+      }
+      const timestamp = now().toISOString().replace(/[:.]/gu, "-");
+      const backupRoot = join(
+        options.layout.root,
+        "backups",
+        `storage-v1-${timestamp}`,
+      );
+      await mkdir(backupRoot, { recursive: true, mode: 0o700 });
+      await cp(rootVersionPath, join(backupRoot, "storage-version.json"), {
+        errorOnExist: true,
+        force: false,
+      });
+      await hardenPermissions(backupRoot);
+      emit(
+        "storage.nested-migration.progress",
+        { profile: options.layout.profile, phase: "backup-completed" },
+        undefined,
+        true,
+      );
+      await writeJsonAtomically(rootVersionPath, {
+        version: LIVE_AGENT_STORAGE_VERSION,
+      });
+      emit(
+        "storage.nested-migration.completed",
+        {
+          profile: options.layout.profile,
+          actionCount: actions.length,
+          mode: "apply",
+        },
+        "success",
+      );
+      return {
+        status: "completed",
+        applied: true,
+        profile: options.layout.profile,
+        sourceVersion: 1,
+        targetVersion: LIVE_AGENT_STORAGE_VERSION,
+        backupPath: backupRoot,
+        actions,
+        events,
+      };
+    }
     const source = await validateNestedMigrationSource(options.layout);
     if (source.sourceVersion === LIVE_AGENT_STORAGE_VERSION) {
       emit(

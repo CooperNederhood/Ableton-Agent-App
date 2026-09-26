@@ -9,6 +9,8 @@ import {
   compactProjectContext,
   createAgentHooks,
   createAgentPolicy,
+  formatAgentIdentityContext,
+  type AgentIdentityContext,
   retryGuidance,
   structuredErrorCode,
 } from "./agent-policy.js";
@@ -72,12 +74,11 @@ const connected = {
 } as const;
 
 describe("agent policy", () => {
-  it("builds fresh action context with exact identities but no musical detail", () => {
+  it("builds fresh action context without repeating session identity", () => {
     const context = compactProjectContext(connected, snapshot);
 
-    expect(context).toContain("Fresh Ableton Live Set context for this prompt");
-    expect(context).toContain("use these exact identities directly");
-    expect(context).toContain('"liveSetId":"set-1"');
+    expect(context).toContain("Fresh Ableton Live Set state for this prompt");
+    expect(context).not.toContain('"liveSetId":"set-1"');
     expect(context).toContain('"name":"Drums"');
     expect(context).toContain('"sessionClipCount":1');
     expect(context).toContain('"sessionClips":[{');
@@ -95,6 +96,69 @@ describe("agent policy", () => {
     expect(context).not.toContain('"length"');
     expect(context).not.toContain('"volume"');
     expect(context).not.toContain('"pan"');
+  });
+
+  it("formats bounded initial identity and delivers changes only once", async () => {
+    let identity: AgentIdentityContext = {
+      liveSetId: "set-before-save",
+      appSessionId: "app-session-1",
+    };
+    const hooks = createAgentHooks({
+      getAbletonStatus: async () => connected,
+      preparedContext: { getPreparedContext: () => "project-context" },
+      identityContext: {
+        initial: identity,
+        current: () => identity,
+      },
+    });
+
+    expect(formatAgentIdentityContext(identity, "initial")).toContain(
+      '"type":"identity_initial"',
+    );
+    const unchanged = await hooks.onUserPromptSubmitted?.(
+      {
+        sessionId: "session-1",
+        timestamp: new Date(),
+        workingDirectory: "/tmp",
+        prompt: "Before save",
+      },
+      { sessionId: "session-1" },
+    );
+    expect(unchanged?.additionalContext).not.toContain("identity_changed");
+
+    identity = {
+      liveSetId: "set-after-save",
+      liveProjectId: "project-1",
+      appSessionId: "app-session-1",
+    };
+    const changed = await hooks.onUserPromptSubmitted?.(
+      {
+        sessionId: "session-1",
+        timestamp: new Date(),
+        workingDirectory: "/tmp",
+        prompt: "After save",
+      },
+      { sessionId: "session-1" },
+    );
+    const repeated = await hooks.onUserPromptSubmitted?.(
+      {
+        sessionId: "session-1",
+        timestamp: new Date(),
+        workingDirectory: "/tmp",
+        prompt: "Still after save",
+      },
+      { sessionId: "session-1" },
+    );
+
+    expect(changed?.additionalContext).toContain("identity_changed");
+    expect(changed?.additionalContext).toContain(
+      '"liveSetId":"set-after-save"',
+    );
+    expect(changed?.additionalContext).toContain('"liveProjectId":"project-1"');
+    expect(changed?.additionalContext).toContain(
+      '"appSessionId":"app-session-1"',
+    );
+    expect(repeated?.additionalContext).not.toContain("identity_changed");
   });
 
   it("bounds project action identities and reports truncation", () => {

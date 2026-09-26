@@ -25,6 +25,7 @@
   migration, retention, security, or ownership behavior changes.
 
 ## Documentation
+
 - In `docs/`there are rich implementation details - you should consult these and understand them when adding new features as you should aim to extend existing capabilities and structures when possible, rather than roll new greenfield solutions. This avoids codebloat and ensures extensibility.
 
 # Testing workflows

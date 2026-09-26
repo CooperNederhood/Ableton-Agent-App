@@ -7,8 +7,9 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 - [x] Define canonical Zod schemas for every envelope and shared scalar.
 - [x] Define protocol constants, frame limits, timeout classes, and versions.
 - [x] Define `system.hello`, authentication, capability, ping, and event schemas.
-- [x] Define the metadata-only `live_set.save_observed` event with decimal
-  nanosecond mtime and safely bounded byte size.
+- [x] Define the metadata-only `live_set.save_observed` event with complete
+  bounded Live Set/Project identity, decimal nanosecond mtime, and safely
+  bounded byte size.
 - [x] Define the complete stable error-code union.
 - [x] Define command-specific request/result schemas.
   - [x] Define exact-reference Session clip launch, duplication, deletion, and
@@ -53,6 +54,8 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
   TypeScript.
 - [x] Test authentication, version, malformed request, and sequence failures.
 - [x] Test save-observation schema bounds and Python/TypeScript framing.
+- [x] Test first-save and Save As identity replacement before downstream save
+  listeners observe the event.
 - [x] Fuzz decoders with bounded random input.
 
 ## Exit criteria

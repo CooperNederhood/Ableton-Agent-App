@@ -61,6 +61,8 @@ Companion specification: [Local Storage Layout](local-storage.md)
 - [x] Populate missing immutable session `createdAt` values from legacy
   `updatedAt` and sort by creation time with session ID tie-breaks.
 - [x] Keep nested-layout migration out of runtime startup.
+- [x] Finalize the root v2 marker idempotently after an incompatible remaining
+  profile is archived, without rewriting an already migrated profile.
 
 ## Visibility and tests
 

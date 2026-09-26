@@ -259,7 +259,10 @@ LIVE_AGENT_HOME="$HOME/.live-agent" \
 
 Run the command once for each legacy profile. Until the last profile is
 migrated, the root remains marked as v1 and Desktop startup continues to fail
-closed rather than accepting a mixed layout.
+closed rather than accepting a mixed layout. If an incompatible profile is
+archived after other profiles have already migrated, rerun the command for any
+migrated profile to back up and finalize the root version marker without
+rewriting that profile.
 
 Using legacy `updatedAt` as `createdAt` is an explicit approximation because v3
 did not retain the original creation time. Migrated sessions are ordered by

@@ -219,6 +219,11 @@ const fixtures = {
       sequence: 10,
       payload: {
         liveSetId: "saved-live-set",
+        liveSetName: "Saved Set",
+        saved: true,
+        liveProjectId: "saved-project",
+        liveProjectName: "Saved Project",
+        diagnostics: [],
         observedAt: "2000-01-01T00:00:02Z",
         fileModifiedTimeNs: "1700000000000000000",
         fileSizeBytes: 4096,

@@ -45,6 +45,8 @@ Companion specification: [Test Strategy](test-strategy.md)
     scenario.
 - [x] Implement CLI transcript tests.
 - [x] Implement Playwright Electron harness.
+- [x] Add a production-mode smoke test for the generated macOS application and
+  packaged resources.
 - [x] Cover the debug-control contract, automation launch parsing, selected
   agent/YOLO startup, visible external user-turn attribution, and stdio MCP
   adapter arguments.
@@ -88,6 +90,8 @@ Companion specification: [Test Strategy](test-strategy.md)
 - [x] Cache dependencies without caching generated test results.
 - [x] Publish validation/build diagnostics on failure.
 - [x] Enforce package build and protocol compatibility checks.
+- [x] Build workspace entry points before tests that execute compiled package
+  and CLI subprocesses.
 - [x] Document how real-Live release validation is recorded.
 
 ## Quality controls

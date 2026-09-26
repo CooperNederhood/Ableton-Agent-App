@@ -590,6 +590,22 @@ export class AbletonBridgeService implements AbletonService {
     return this.#capabilities?.liveSetId;
   }
 
+  public getCurrentLiveIdentity(): LiveIdentity | undefined {
+    if (this.#capabilities === undefined) return undefined;
+    return liveIdentitySchema.parse({
+      liveSetId: this.#capabilities.liveSetId,
+      liveSetName: this.#capabilities.liveSetName,
+      saved: this.#capabilities.saved,
+      ...(this.#capabilities.liveProjectId === undefined
+        ? {}
+        : { liveProjectId: this.#capabilities.liveProjectId }),
+      ...(this.#capabilities.liveProjectName === undefined
+        ? {}
+        : { liveProjectName: this.#capabilities.liveProjectName }),
+      diagnostics: this.#capabilities.diagnostics,
+    });
+  }
+
   public async getCapabilities(): Promise<CapabilityDocument> {
     if (!this.#capabilities) {
       throw new AbletonBridgeError(
@@ -1787,6 +1803,19 @@ export class AbletonBridgeService implements AbletonService {
     }
     if (message.event === "live_set.save_observed") {
       const envelope = liveSetSaveObservedEnvelopeSchema.parse(message);
+      const identity = liveIdentitySchema.parse({
+        liveSetId: envelope.payload.liveSetId,
+        liveSetName: envelope.payload.liveSetName,
+        saved: envelope.payload.saved,
+        ...(envelope.payload.liveProjectId === undefined
+          ? {}
+          : { liveProjectId: envelope.payload.liveProjectId }),
+        ...(envelope.payload.liveProjectName === undefined
+          ? {}
+          : { liveProjectName: envelope.payload.liveProjectName }),
+        diagnostics: envelope.payload.diagnostics,
+      });
+      this.#applyLiveIdentity(identity, envelope.sequence, receivedAt);
       liveSetSaveEvent = {
         event: envelope.event,
         sequence: envelope.sequence,
@@ -1921,6 +1950,77 @@ export class AbletonBridgeService implements AbletonService {
       },
     });
     for (const listener of this.#reconciliationListeners) listener(signal);
+  }
+
+  #applyLiveIdentity(
+    identity: LiveIdentity,
+    sequence: number,
+    receivedAt: Date,
+  ): void {
+    if (
+      this.#capabilities === undefined ||
+      this.#status.state !== "connected"
+    ) {
+      return;
+    }
+    const previousLiveSetId = this.#status.liveSetId;
+    const transitionId = stableTelemetryId(
+      `bridge-identity-transition:${sequence}:${previousLiveSetId}:${identity.liveSetId}`,
+    );
+    this.#record({
+      name: "bridge.identity_transition.started",
+      source: "ableton-bridge",
+      trace: { traceId: transitionId, spanId: transitionId },
+      correlationId: transitionId,
+      occurredAt: receivedAt.toISOString(),
+      attributes: {
+        sequence,
+        previousLiveSetId,
+        liveSetId: identity.liveSetId,
+      },
+    });
+    const {
+      selectedProtocolVersion,
+      liveVersion,
+      remoteScriptVersion,
+      capabilities,
+      limits,
+    } = this.#capabilities;
+    this.#capabilities = capabilityDocumentSchema.parse({
+      selectedProtocolVersion,
+      liveVersion,
+      remoteScriptVersion,
+      capabilities,
+      limits,
+      ...identity,
+    });
+    this.#setStatus({
+      state: "connected",
+      liveVersion,
+      remoteScriptVersion,
+      liveSetId: identity.liveSetId,
+      liveSetName: identity.liveSetName,
+      saved: identity.saved,
+      ...(identity.liveProjectId === undefined
+        ? {}
+        : { liveProjectId: identity.liveProjectId }),
+      ...(identity.liveProjectName === undefined
+        ? {}
+        : { liveProjectName: identity.liveProjectName }),
+    });
+    this.#record({
+      name: "bridge.identity_transition.completed",
+      source: "ableton-bridge",
+      outcome: "success",
+      trace: { traceId: transitionId, spanId: transitionId },
+      correlationId: transitionId,
+      occurredAt: receivedAt.toISOString(),
+      attributes: {
+        sequence,
+        previousLiveSetId,
+        liveSetId: identity.liveSetId,
+      },
+    });
   }
 
   #failConnection(error: unknown): void {

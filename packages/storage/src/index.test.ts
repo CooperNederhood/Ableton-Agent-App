@@ -2,6 +2,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  rm,
   stat,
   symlink,
   writeFile,
@@ -540,6 +541,58 @@ describe("live agent storage", () => {
     await expect(
       readFile(join(root, "storage-version.json"), "utf8"),
     ).resolves.toContain('"version": 2');
+  });
+
+  it("finalizes storage v2 after the last incompatible profile is archived", async () => {
+    const root = await temporaryRoot();
+    const environment = { LIVE_AGENT_HOME: root };
+    const migrated = resolveLiveAgentStorage({
+      environment,
+      profile: "default",
+    });
+    const incompatible = resolveLiveAgentStorage({
+      environment,
+      profile: "development",
+    });
+    await mkdir(join(migrated.profileRoot, "session-state"), {
+      recursive: true,
+    });
+    await mkdir(join(incompatible.profileRoot, "session-state"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(root, "storage-version.json"),
+      JSON.stringify({ version: 1 }),
+    );
+
+    await expect(
+      migrateNestedStorage({ layout: migrated, apply: true }),
+    ).resolves.toMatchObject({ status: "completed" });
+    await rm(incompatible.profileRoot, { recursive: true });
+
+    const dryRun = await migrateNestedStorage({ layout: migrated });
+    expect(dryRun).toMatchObject({
+      status: "dry-run",
+      applied: false,
+      sourceVersion: 1,
+    });
+    expect(dryRun.actions).toEqual([
+      "update storage version to 2 after all legacy profiles are migrated",
+    ]);
+
+    const applied = await migrateNestedStorage({
+      layout: migrated,
+      apply: true,
+    });
+    expect(applied).toMatchObject({
+      status: "completed",
+      applied: true,
+      sourceVersion: 1,
+      targetVersion: LIVE_AGENT_STORAGE_VERSION,
+    });
+    expect(
+      JSON.parse(await readFile(join(root, "storage-version.json"), "utf8")),
+    ).toEqual({ version: LIVE_AGENT_STORAGE_VERSION });
   });
 
   it("dry-runs and applies the v1 nested migration without inferring projects", async () => {

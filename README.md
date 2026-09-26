@@ -474,7 +474,9 @@ real LOM behavior.
 | `pnpm desktop:debug`                                                  | Start desktop development with debug logs and DevTools      |
 | `pnpm --filter @ableton-agent/desktop remote-script update --confirm` | Install current Remote Script files into the User Library   |
 | `pnpm test:electron`                                                  | Run Electron end-to-end tests                               |
+| `pnpm test:electron:packaged`                                         | Smoke-test an existing packaged macOS application           |
 | `pnpm desktop:dist`                                                   | Produce unsigned local desktop artifacts                    |
+| `pnpm desktop:verify-production`                                      | Run checks, package, and smoke-test the production app      |
 | `pnpm live:validate -- --live-version 12.1`                           | Record real-Live smoke evidence                             |
 | `node apps/cli/dist/main.js help`                                     | List CLI commands and options                               |
 

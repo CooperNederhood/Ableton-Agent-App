@@ -101,6 +101,8 @@ presentation state and say so; they are not applied to Live.
   for deterministic per-Set App-session numbering; reject older schemas at
   runtime.
 - [x] Resolve Live Set transitions independently inside the same Live Project.
+- [x] Drive save-time identity transitions from authoritative bridge events and
+  settle App-session ownership before accepting the next agent prompt.
 - [x] Keep unsaved and orphan Live Set sessions explicit but ephemeral during
   ordinary operation instead of inferring ownership from names or history.
 - [x] Store secrets in OS-backed secure storage.

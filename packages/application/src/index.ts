@@ -142,7 +142,11 @@ import {
 } from "@github/copilot-sdk";
 import { z } from "zod";
 
-import { createAgentPolicy } from "./agent-policy.js";
+import {
+  createAgentPolicy,
+  formatAgentIdentityContext,
+  type AgentIdentityContext,
+} from "./agent-policy.js";
 import {
   formatAutomaticSignalPrompt,
   type SignalContextOptions,
@@ -171,8 +175,10 @@ export {
   compactProjectContext,
   createAgentHooks,
   createAgentPolicy,
+  formatAgentIdentityContext,
   retryGuidance,
   structuredErrorCode,
+  type AgentIdentityContext,
 } from "./agent-policy.js";
 export {
   constructNextPromptSignalContext,
@@ -539,6 +545,7 @@ export interface CopilotAgentServiceOptions {
   getAbletonStatus: () => Promise<ConnectionStatus>;
   inspectSession: () => Promise<SessionSnapshot>;
   preparedContextProvider?: PreparedContextProvider;
+  currentIdentityContext?: () => AgentIdentityContext | undefined;
   setTempo: (tempo: number) => Promise<SetTempoResult>;
   setPlaying: (isPlaying: boolean) => Promise<SetPlayingResult>;
   inspectArrangementTransport: (
@@ -2378,6 +2385,22 @@ export class CopilotAgentService implements AgentService {
     );
     const scopedSignalContext = this.#scopedSignalContext(state);
     const scopedLiveEventContext = this.#scopedLiveEventContext(state);
+    const currentIdentityContext = (): AgentIdentityContext | undefined => {
+      const identity = this.options.currentIdentityContext?.();
+      return identity === undefined
+        ? undefined
+        : {
+            ...identity,
+            appSessionId: state.configuration.productionSessionId,
+          };
+    };
+    const initialIdentityContext = currentIdentityContext();
+    if (initialIdentityContext !== undefined) {
+      this.#recordRuntime(state, "agent.identity_context.configured", {
+        identityContextType: "initial",
+        ...initialIdentityContext,
+      });
+    }
     const agentPolicy = createAgentPolicy({
       getAbletonStatus: this.options.getAbletonStatus,
       inspectSession: this.options.inspectSession,
@@ -2409,6 +2432,19 @@ export class CopilotAgentService implements AgentService {
           : state.turnKind === "automatic-analysis"
             ? "Automatic analysis turns may inspect Ableton but cannot use mutation tools."
             : undefined,
+      ...(this.options.currentIdentityContext === undefined
+        ? {}
+        : {
+            identityContext: {
+              initial: initialIdentityContext,
+              current: currentIdentityContext,
+              delivered: (kind, context) =>
+                this.#recordRuntime(state, "agent.identity_context.delivered", {
+                  identityContextType: kind,
+                  ...context,
+                }),
+            },
+          }),
     });
     const requestToolApproval =
       this.options.requestToolApproval === undefined
@@ -2594,10 +2630,15 @@ export class CopilotAgentService implements AgentService {
         return await response;
       },
       systemMessage: {
-        content:
-          skillInstructions === undefined
-            ? BASE_SYSTEM_MESSAGE
-            : `${BASE_SYSTEM_MESSAGE}\n\n${skillInstructions}`,
+        content: [
+          BASE_SYSTEM_MESSAGE,
+          initialIdentityContext === undefined
+            ? undefined
+            : formatAgentIdentityContext(initialIdentityContext, "initial"),
+          skillInstructions,
+        ]
+          .filter((value): value is string => value !== undefined)
+          .join("\n\n"),
       },
     };
     return config;

@@ -139,3 +139,11 @@ Live Sets inside one Live Project still resolves independently by `liveSetId`.
 Consumers that resolve Session-scoped paths must first obtain the typed
 `{ liveSetId, liveProjectId?, sessionId }` ownership context from the validated
 Desktop session registry; a session ID alone never selects a storage path.
+
+On first save, the temporary unsaved `liveSetId` is replaced by the canonical
+path-derived ID. Desktop serializes that transition through its session action
+queue before accepting the next user turn. A clean ephemeral App session is
+promoted in place, preserving its application-owned session ID while replacing
+its Live Set and optional Live Project ownership. Historical records written
+before the transition remain under the temporary ID; records are not rewritten,
+implicitly unioned, or aliased.

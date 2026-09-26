@@ -98,7 +98,7 @@ function application(
       diagnostics: [],
     })),
     getCapabilities: vi.fn(async () => ({
-      selectedProtocolVersion: 4 as const,
+      selectedProtocolVersion: 5 as const,
       liveVersion: "12.1",
       remoteScriptVersion: "0.2.0",
       liveSetId: "set",

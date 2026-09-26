@@ -19,9 +19,28 @@ lockfile:
 pnpm desktop:dist
 ```
 
+For the complete local production gate, including formatting, linting,
+typechecking, deterministic tests, the source-mode Electron suite, unsigned
+packaging, and a smoke test that launches the generated macOS application:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm desktop:verify-production
+```
+
+The reusable verification script assumes dependencies are already installed.
+It does not start Vite, use Electron development mode, enable debug automation,
+or require Ableton Live. Generated DMG, ZIP, and unpacked application artifacts
+are written under the repository-level `release/` directory. Signing and
+notarization credentials remain available only in the release environment.
+Generated release artifacts are excluded from source linting.
+
 `electron-builder.yml` produces DMG/ZIP artifacts for Intel and Apple Silicon
 macOS and an assisted, per-user NSIS installer for 64-bit Windows. Signing and
 notarization are intentionally supplied only by the release environment.
+The desktop declares both macOS Copilot SDK and Koffi runtime variants as
+optional dependencies, and pnpm installs both supported CPU architectures so
+cross-architecture packaging never substitutes the host native runtime.
 Packaged applications use the canonical interlocking triple-A artwork in
 `apps/desktop/build`: `icon.svg` is the editable master, `icon.png` is the
 runtime resource, and `icon.icns`/`icon.ico` supply native macOS and Windows

@@ -19,8 +19,10 @@ experience:
    when the behavior can be preserved as an automated UI regression.
 2. **Build** the workspace so Electron main, preload, renderer, shared packages,
    and the MCP adapter reflect the current source.
-3. **Launch Ableton** as a dedicated validation process. Never reuse or take
-   control of a user's pre-existing Live process.
+3. **Launch Ableton** through the runner-owned UX host below. It uses the same
+   exact-PID controller and known startup-dialog handling as the deterministic
+   integration harness. Never reuse or take control of a user's pre-existing
+   Live process.
 4. **Launch the app** in automation mode with an isolated profile and the agent
    definition and approval policy appropriate to the scenario.
 5. **Message** the visible app through `send_user_message`.
@@ -43,26 +45,50 @@ Build from the repository root:
 pnpm build
 ```
 
-Choose an absolute isolated profile path and launch the app:
+Start the dedicated runner-owned Live process in an attached background shell:
 
 ```bash
-PROFILE="$HOME/.ableton-agent/ux-test-profile"
+pnpm live:ux-host
+```
+
+Wait for its JSON readiness line before launching Desktop. The host refuses a
+pre-existing Live process, dismisses only recognized crash-recovery and
+audio-disabled startup dialogs, waits for the Remote Script port, and retains
+exact process ownership. Keep its shell identifier and stop that exact host
+after closing Desktop; do not launch Live directly with `open`, its executable,
+or computer-use.
+
+Use a fresh absolute profile for each run, but publish automation discovery at
+the stable descriptor path registered with the MCP adapter:
+
+```bash
+PROFILE="$(mktemp -d "${TMPDIR:-/tmp}/ableton-agent-ux-XXXXXX")"
+DESCRIPTOR="$HOME/.ableton-agent/ux-test-profile/automation-endpoint.json"
+mkdir -p "$(dirname "$DESCRIPTOR")"
 pnpm desktop:dev -- \
   --automation \
   --automation-profile "$PROFILE" \
+  --automation-descriptor "$DESCRIPTOR" \
   --automation-agent default \
   --automation-yolo
 ```
 
-The profile is created on first launch. Replace `default` with the definition
-that owns the behavior under test.
+Replace `default` with the definition that owns the behavior under test. Record
+the fresh profile path and remove it only after closing the validation app.
+Never launch an arbitrary profile without the registered stable descriptor;
+the MCP process reads that descriptor on each tool call.
 
-The registered local stdio MCP server must use the same descriptor:
+The registered local stdio MCP server must use the stable descriptor:
 
 ```bash
 pnpm --filter @ableton-agent/debug-mcp dev -- \
-  --descriptor "$PROFILE/automation-endpoint.json"
+  --descriptor "$DESCRIPTOR"
 ```
+
+Before sending a message, verify that the descriptor exists and that its
+`processId` is the exact Desktop process started for this run. If the MCP tool
+reports a different descriptor path, stop and correct the launch or MCP
+registration rather than switching to a non-isolated profile.
 
 ## Resolve and pin both application windows
 
@@ -150,6 +176,9 @@ affects presentation or interaction.
 ## Process ownership and safety
 
 - Use only an isolated automation profile, never the normal desktop profile.
+- Start Live with `pnpm live:ux-host`; direct launching bypasses the
+  integration harness's known-dialog handling and can leave Desktop waiting on
+  a crash-recovery prompt.
 - Do not expose or copy the automation secret.
 - The MCP tool targets only the currently selected agent.
 - Treat tool success as message acceptance; verify the final result in the app

@@ -107,16 +107,20 @@ function application(
     start: vi.fn(async () => undefined),
     stop: vi.fn(async () => undefined),
     getStatus: vi.fn(async () => status),
-    getProjectIdentity: vi.fn(async () => ({
-      projectId: "project",
-      projectName: "Test Set",
+    getLiveIdentity: vi.fn(async () => ({
+      liveSetId: "set",
+      liveSetName: "Test Set",
       saved: true,
+      diagnostics: [],
     })),
     getCapabilities: vi.fn(async () => ({
       selectedProtocolVersion: PROTOCOL_VERSION,
       liveVersion: "12.1",
       remoteScriptVersion: "0.2.0",
-      projectId: "project",
+      liveSetId: "set",
+      liveSetName: "Test Set",
+      saved: true,
+      diagnostics: [],
       capabilities: { "system.ping": true, "session.inspect": true },
       limits: { maxFrameBytes: 1024, maxBatchItems: 128 },
     })),
@@ -1055,7 +1059,9 @@ describe("CLI", () => {
         state: "connected",
         liveVersion: "12.1",
         remoteScriptVersion: "0.2.0",
-        projectId: "project",
+        liveSetId: "set",
+        liveSetName: "Test Set",
+        saved: true,
       }).application,
       out.io,
     );
@@ -1071,7 +1077,9 @@ describe("CLI", () => {
       state: "connected",
       liveVersion: "12.1",
       remoteScriptVersion: "0.2.0",
-      projectId: "project",
+      liveSetId: "set",
+      liveSetName: "Test Set",
+      saved: true,
     });
     await expect(
       runCommand(
@@ -1103,7 +1111,9 @@ describe("CLI", () => {
       state: "connected" as const,
       liveVersion: "12.1",
       remoteScriptVersion: "0.4.0",
-      projectId: "project",
+      liveSetId: "set",
+      liveSetName: "Test Set",
+      saved: true,
     };
     const searchOutput = output();
     await expect(
@@ -1151,7 +1161,9 @@ describe("CLI", () => {
       state: "connected",
       liveVersion: "12.1",
       remoteScriptVersion: "0.2.0",
-      projectId: "project",
+      liveSetId: "set",
+      liveSetName: "Test Set",
+      saved: true,
     });
     const commands = [
       {
@@ -1250,7 +1262,9 @@ describe("CLI", () => {
           state: "connected",
           liveVersion: "12.1",
           remoteScriptVersion: "0.1.0",
-          projectId: "project",
+          liveSetId: "set",
+          liveSetName: "Test Set",
+          saved: true,
         },
         "response",
       ).application,
@@ -1269,7 +1283,9 @@ describe("CLI", () => {
           state: "connected",
           liveVersion: "12.1",
           remoteScriptVersion: "0.2.0",
-          projectId: "project",
+          liveSetId: "set",
+          liveSetName: "Test Set",
+          saved: true,
         },
         "I did not change it.",
         false,
@@ -1304,7 +1320,9 @@ describe("CLI", () => {
       state: "connected",
       liveVersion: "12.1",
       remoteScriptVersion: "0.2.0",
-      projectId: "project",
+      liveSetId: "set",
+      liveSetName: "Test Set",
+      saved: true,
     });
 
     const exitCode = await runCommand(
@@ -1327,7 +1345,9 @@ describe("CLI", () => {
       state: "connected",
       liveVersion: "12.1",
       remoteScriptVersion: "0.4.0",
-      projectId: "project",
+      liveSetId: "set",
+      liveSetName: "Test Set",
+      saved: true,
     });
 
     const exitCode = await runCommand(
@@ -1351,7 +1371,9 @@ describe("CLI", () => {
       state: "connected",
       liveVersion: "12.1",
       remoteScriptVersion: "0.2.0",
-      projectId: "project",
+      liveSetId: "set",
+      liveSetName: "Test Set",
+      saved: true,
     });
 
     const exitCode = await runCommand(
@@ -1373,7 +1395,9 @@ describe("CLI", () => {
         state: "connected",
         liveVersion: "12.1",
         remoteScriptVersion: "0.2.0",
-        projectId: "project",
+        liveSetId: "set",
+        liveSetName: "Test Set",
+        saved: true,
       }).application,
       out.io,
       undefined,
@@ -1453,7 +1477,9 @@ describe("CLI", () => {
         state: "connected",
         liveVersion: "12.1",
         remoteScriptVersion: "0.2.0",
-        projectId: "project",
+        liveSetId: "set",
+        liveSetName: "Test Set",
+        saved: true,
       },
       "assistant reply",
     );
@@ -1492,7 +1518,9 @@ describe("CLI", () => {
         state: "connected",
         liveVersion: "12.1",
         remoteScriptVersion: "0.2.0",
-        projectId: "project",
+        liveSetId: "set",
+        liveSetName: "Test Set",
+        saved: true,
       },
       "assistant reply",
       true,
@@ -1516,7 +1544,9 @@ describe("CLI", () => {
         state: "connected",
         liveVersion: "12.1",
         remoteScriptVersion: "0.2.0",
-        projectId: "project",
+        liveSetId: "set",
+        liveSetName: "Test Set",
+        saved: true,
       },
       "partial reply",
       true,
@@ -1550,7 +1580,9 @@ describe("CLI", () => {
         state: "connected",
         liveVersion: "11.3.43",
         remoteScriptVersion: "0.4.0",
-        projectId: "project",
+        liveSetId: "set",
+        liveSetName: "Test Set",
+        saved: true,
       },
       reply,
     );
@@ -1577,7 +1609,9 @@ describe("CLI", () => {
         state: "connected",
         liveVersion: "12.1",
         remoteScriptVersion: "0.2.0",
-        projectId: "project",
+        liveSetId: "set",
+        liveSetName: "Test Set",
+        saved: true,
       },
       "assistant reply",
     );
@@ -1603,7 +1637,9 @@ describe("CLI", () => {
       state: "connected",
       liveVersion: "12.1",
       remoteScriptVersion: "0.2.0",
-      projectId: "project",
+      liveSetId: "set",
+      liveSetName: "Test Set",
+      saved: true,
     });
 
     await runInteractive(

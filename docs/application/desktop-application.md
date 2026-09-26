@@ -27,6 +27,13 @@ endpoint.
   framework until UI complexity justifies it
 - Playwright for Electron end-to-end tests
 
+Desktop owns App-session identity. Ableton integration owns Live Set and Live
+Project identity. When a save event replaces an unsaved or Save As identity,
+Desktop serializes the ownership update before the next prompt is accepted. A
+clean ephemeral session is promoted without changing its App-session ID;
+conflicting saved-session associations continue through the explicit transition
+decision flow.
+
 ## Electron process model
 
 ### Main process
@@ -111,7 +118,28 @@ The primary workspace is a collapsible three-column shell: Project,
 Conversation, and Inspector. Project and Inspector can be hidden independently,
 and the connection header plus application navigation can be hidden together.
 All regions return on each application launch. The prompt composer is part of
-the Conversation column and follows its width as sidebars collapse.
+the Workspace Conversation column and follows its width as sidebars collapse.
+It is not rendered in Agents, Skills, Outputs, Events, Browser, Profiles,
+Diagnostics, Sessions, or Settings.
+Composer-focus shortcuts return the application to Workspace. Newly received
+elicitation, plan-approval, and tool-approval requests do so only when they
+belong to the selected active agent. Agents remains mounted for its own
+selected-agent request so an unsaved definition draft is never discarded by
+forced navigation. Structured interaction controls receive focus instead of
+the absent ordinary composer.
+
+The Agents tab reads the same effective scoped catalog as Profiles. Its
+active-first navigator uses activity lights only for runtime status; active and
+inactive rows share the same editable definition surface. Every save publishes
+a same-name Session-scope version-2 definition through typed main-process IPC,
+then refreshes the effective catalog and Profile Manager snapshot. Active
+conversation snapshots are unchanged until explicit Reset.
+
+The Skills tab mirrors that scoped editing model for `SKILL.md` resources. A
+narrow skill navigator drives an inspector-style metadata and Markdown editor.
+Published name and description fields are read-only; new drafts can set them
+until their first Session-scope save. Successful publication refreshes the
+Profiles view and Workspace slash-command completion immediately.
 
 After hiding both sidebars and the application toolbar, the desktop window can
 be resized to a 320x360 chat-only view. At that size, conversation status is
@@ -167,32 +195,64 @@ Startup order:
    an explicit environment override, or the configured/detected installation.
 3. Persist a discovered installation token in OS-backed storage and compose the
    Ableton bridge and Signal ingress with the same credential.
-4. Load production sessions and saved Live Set associations.
-5. Start the Ableton bridge and read the current dynamic project identity.
-6. Resume the canonical production session for that saved Live Set, or create
+4. Load App sessions and saved Live Set associations.
+5. Start the Ableton bridge and read the current dynamic Live Set identity.
+6. Resume the canonical App session for that saved Live Set, or create
    one clean Default agent for an unmatched or unsaved set.
 7. Start or resume only the selected agents' Copilot SDK conversations.
 8. Open the main window and read the bounded core project snapshot. Device and
    parameter enrichment is reserved for an explicit refresh so startup does not
    issue a project-wide parameter scan against Live's main thread.
 
-Desktop stores production sessions in `sessions.json`, saved Live Set
-associations in `project-sessions.json`, and Copilot SDK conversation data
-under `copilot/`, all below Electron's application-data directory. On macOS,
-the packaged app uses `~/Library/Application Support/Ableton Agent/`; the
-`pnpm desktop:dev` package currently uses
-`~/Library/Application Support/@ableton-agent/desktop/`.
+Desktop stores all application-owned local data below
+`~/.live-agent/profiles/{profile}/`. Packaged builds use the `default` profile
+and development builds use `development`; `LIVE_AGENT_HOME` and
+`LIVE_AGENT_PROFILE` provide explicit overrides. The profile contains
+preferences, App-session JSON, saved Live Set associations, OS-encrypted
+credential blobs, Copilot SDK conversation data, structured logs, and
+`observability/agent-set-event-history.sqlite`. See
+[Local Storage Layout](../platform/local-storage.md) for the canonical tree,
+ownership boundaries, exceptions, and migration contract.
 
-The same application-data root contains the local event journal. Desktop opens
-it before agent sessions start, prunes records older than 30 days, enforces the
-250 MiB cap incrementally, and flushes bounded pending batches during graceful
-shutdown. A journal failure degrades History and raises a visible diagnostic;
-it must not crash or stall the agent/Live control path.
+Each persisted App session also has a bounded ownership manifest beneath its
+owning Live Set at `session-state/{app-session-id}/session.json` and a reserved
+`artifacts/` directory. Live Project grouping is optional and does not replace
+Live Set ownership. Transcripts remain in the Copilot SDK store and detailed
+events remain in the shared profile journal rather than being duplicated per
+session.
 
-Unsaved Live Sets are ephemeral because a name such as `Untitled` is not a
-durable identity. If the open Live Set changes after startup, Desktop blocks
+Desktop migrates prior Electron application-data/log locations and the former
+`~/.ableton-agent/copilot` fallback before composing application services.
+Migration copies into staging, validates known JSON/SQLite data, atomically
+publishes the profile, retains legacy sources, and records a version marker.
+Migration conflicts or corrupt sources are reported without overwriting either
+copy.
+
+Desktop opens the local event journal before agent sessions start, prunes
+records older than 30 days, enforces the 250 MiB cap incrementally, and flushes
+bounded pending batches during graceful shutdown. A journal failure degrades
+History and raises a visible diagnostic; it must not crash or stall the
+agent/Live control path. Storage migration lifecycle is replayed into this
+journal after it opens and is also mirrored to the structured log.
+
+Desktop persists schema-v4 App sessions with required `liveSetId` and
+`liveSetName`, an immutable bounded ISO `createdAt`, and optional
+`liveProjectId` and `liveProjectName`; older session schemas are rejected
+rather than migrated at runtime. Creation timestamps are assigned
+monotonically so multiple App sessions for one Live Set have a deterministic
+creation order, while ordinary updates change only `updatedAt`. Unsaved Live
+Sets keep an explicit identity but their App sessions remain ephemeral during
+ordinary operation. Orphan sessions use an application-owned identity until
+Live connects. If the open Live Set changes after startup, Desktop blocks
 agent actions and Output delivery until the user resumes the associated App
-session, forks the current setup for the new set, or starts fresh.
+session, forks the current setup for the new Set, or starts fresh. Canonical
+association is keyed by `liveSetId`, so switching Sets inside one Live Project
+still selects distinct App sessions and previous sessions remain in history.
+Profiles still shows the active in-memory session before it is persisted.
+Saving a clean Live Set promotes and associates that same session. Session
+artifact creation or transfer also promotes it, while conversation history by
+itself remains in Copilot SDK storage and does not create a `sessions.json`
+record. Sessions associated with saved Live Sets are persisted immediately.
 Forking creates new active-agent and Copilot SDK session IDs, carries the prior
 transcript forward as bounded conversation context, and leaves the source Live
 Set's stored session unchanged.
@@ -246,6 +306,8 @@ Store non-secret preferences separately from credentials. Important settings:
 - Whether anonymous operational telemetry is enabled.
 - Local detailed-history capture (default on), retention status, clear, and
   per-session deletion controls.
+- Local storage root/profile diagnostics. Root and profile overrides are
+  process-level configuration and are not renderer-writable preferences.
 - Project-specific workflow preferences.
 
 Credentials must use OS-backed secure storage where application-managed secrets

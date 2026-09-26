@@ -12,6 +12,10 @@
       "types": "./src/schemas.ts",
       "default": "./dist/schemas.js"
     },
+    "./live-event-id": {
+      "types": "./src/live-event-id.ts",
+      "default": "./dist/live-event-id.js"
+    },
     "./skill-invocation": {
       "types": "./src/skill-invocation.ts",
       "default": "./dist/skill-invocation.js"

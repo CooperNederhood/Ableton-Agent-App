@@ -143,7 +143,7 @@ class LomListenerManager(object):
             else:
                 self._context.project_revision += 1
                 self._publish_event(
-                    "project.changed",
+                    "live_set.changed",
                     {"reason": reason},
                     self._context.project_revision,
                 )

@@ -103,6 +103,16 @@ The Remote Script emits typed `live_event.occurred` and
 transport; discrete transitions preserve sequence order. See
 [Live Events](../events/live-events.md).
 
+The lifecycle subscription `live_set.save_observed` reports a settled
+filesystem-metadata change for the current saved Set. Its payload contains the
+complete bounded `live_set.get_identity` result plus `observedAt`,
+decimal-string `fileModifiedTimeNs`, and a non-negative JavaScript-safe
+`fileSizeBytes`; it never contains the path or file contents. Carrying the
+complete identity lets the bridge replace Set and optional Live Project
+identity atomically when first save or Save As changes the path-derived ID. A
+connection starts from a baseline, so reconnecting does not replay a save. Save
+As emits only after the new path's metadata is stable.
+
 Requests and unsolicited events carry application-provided trace/correlation
 context when available. The bridge preserves it across request/response and
 Live Event ingestion so the local journal can connect Remote Script work to SDK
@@ -123,7 +133,9 @@ The Remote Script returns:
 - Selected protocol version.
 - Remote Script version.
 - Ableton version.
-- Project identity.
+- Explicit Live Set identity (`liveSetId`, `liveSetName`, and `saved`) plus
+  optional Live Project identity when the Set is inside the nearest ancestor
+  containing `Ableton Project Info`.
 - Capability document.
 - Limits such as maximum frame and batch size.
 
@@ -155,8 +167,10 @@ Three timeout layers are intentionally distinct:
 
 - normal bridge request: 5 seconds by default;
 - long bridge request: 15 seconds by default;
-- Copilot agent turn: an application-owned 180 seconds passed to the SDK
-  `sendAndWait` call.
+- Copilot agent turn: an application-owned cumulative active-work budget,
+  defaulting to 600 seconds and configured from Desktop Settings. The
+  application waits on SDK events directly and pauses this budget during human
+  decisions.
 
 An SDK turn abort does not prove that a dispatched mutation was cancelled.
 Read-only operations still report `operation_timeout`; an in-flight mutation

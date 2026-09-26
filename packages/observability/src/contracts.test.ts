@@ -6,14 +6,17 @@ import {
   DEFAULT_RETENTION_DAYS,
   MAX_SANITIZED_DEPTH,
   MAX_SANITIZED_STRING_CHARACTERS,
+  agentHistoryQuerySchema,
+  agentMessageHistoryRecordSchema,
   configurationSnapshotSchema,
   retentionPolicySchema,
+  setSnapshotHistoryRecordSchema,
   telemetryEventEnvelopeSchema,
   telemetryQuerySchema,
 } from "./contracts.js";
 
 const validEvent = {
-  version: 1,
+  version: 2,
   id: "00000000-0000-4000-8000-000000000001",
   occurredAt: "2026-08-29T18:00:00-04:00",
   name: "tool.completed",
@@ -89,7 +92,9 @@ describe("observability contracts", () => {
   it("validates configuration snapshots under the same privacy constraints", () => {
     expect(
       configurationSnapshotSchema.parse({
-        version: 1,
+        version: 2,
+        liveSetId: "live-set-1",
+        liveProjectId: "live-project-1",
         id: "00000000-0000-4000-8000-000000000002",
         capturedAt: "2026-08-29T22:00:00.000Z",
         component: "agent.runtime",
@@ -98,6 +103,8 @@ describe("observability contracts", () => {
       }),
     ).toMatchObject({
       component: "agent.runtime",
+      liveSetId: "live-set-1",
+      liveProjectId: "live-project-1",
       values: { telemetry_enabled: false },
     });
   });
@@ -117,5 +124,48 @@ describe("observability contracts", () => {
         to: "2026-08-29T00:00:00.000Z",
       }).success,
     ).toBe(false);
+  });
+
+  it("rejects the former project attribution field", () => {
+    expect(
+      telemetryEventEnvelopeSchema.safeParse({
+        ...validEvent,
+        projectId: "live-set-1",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("validates bounded typed agent and Set history contracts", () => {
+    expect(
+      agentMessageHistoryRecordSchema.parse({
+        version: 1,
+        kind: "message",
+        id: "message-1",
+        appSessionId: "app-session-1",
+        agentSessionId: "agent-session-1",
+        activeAgentId: "agent-1",
+        occurredAt: "2026-08-29T18:00:00-04:00",
+        role: "assistant",
+        content: "Created the requested clip.",
+        messageIndex: 0,
+      }),
+    ).toMatchObject({
+      occurredAt: "2026-08-29T22:00:00.000Z",
+      metadata: {},
+    });
+    expect(
+      setSnapshotHistoryRecordSchema.safeParse({
+        version: 1,
+        kind: "set_snapshot",
+        id: "snapshot-1",
+        liveSetId: "live-set-1",
+        occurredAt: "2026-08-29T22:00:00.000Z",
+        snapshotKind: "core",
+        snapshot: {},
+      }).success,
+    ).toBe(true);
+    expect(
+      agentHistoryQuerySchema.parse({ kinds: ["tool_call"], limit: 10 }),
+    ).toMatchObject({ limit: 10, order: "desc" });
   });
 });

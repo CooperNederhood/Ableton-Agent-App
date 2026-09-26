@@ -23,18 +23,66 @@ import {
 
 describe("agent configuration schemas", () => {
   it("accepts a complete session-scoped definition", () => {
+    const parsed = agentDefinitionSchema.parse({
+      version: 1,
+      name: "default",
+      description: "General-purpose agent.",
+      systemPrompt: "Help with the current Live Set.",
+      tools: ["*"],
+      editScope: ["session"],
+      skills: [],
+      inputChannels: [],
+    });
+    expect(parsed).toMatchObject({
+      version: 2,
+      name: "default",
+      label: "Default",
+      editScope: ["session"],
+      model: null,
+      reasoningEffort: null,
+      autoApprove: false,
+      eventListeners: [],
+    });
+  });
+
+  it("accepts bounded version-two definition-owned defaults", () => {
+    const eventId = createLiveEventId("00000000-0000-4000-8000-000000000001");
+    const parsed = agentDefinitionSchema.parse({
+      version: 2,
+      name: "mix",
+      label: "Mix reviewer",
+      description: "Review the mix.",
+      systemPrompt: "Review the current Live Set.",
+      tools: ["ableton_*"],
+      editScope: ["session"],
+      skills: [],
+      inputChannels: [],
+      model: "model-a",
+      reasoningEffort: "high",
+      autoApprove: true,
+      eventListeners: [
+        {
+          id: createAgentEventListenerId(
+            "00000000-0000-4000-8000-000000000002",
+          ),
+          eventId,
+          enabled: true,
+          responseMode: "automatic",
+        },
+      ],
+    });
+
+    expect(parsed).toMatchObject({
+      label: "Mix reviewer",
+      model: "model-a",
+      reasoningEffort: "high",
+      autoApprove: true,
+      eventListeners: [{ eventId }],
+    });
     expect(
-      agentDefinitionSchema.parse({
-        version: 1,
-        name: "default",
-        description: "General-purpose agent.",
-        systemPrompt: "Help with the current Live Set.",
-        tools: ["*"],
-        editScope: ["session"],
-        skills: [],
-        inputChannels: [],
-      }),
-    ).toMatchObject({ name: "default", editScope: ["session"] });
+      agentDefinitionSchema.safeParse({ ...parsed, label: "x".repeat(129) })
+        .success,
+    ).toBe(false);
   });
 
   it("rejects session scope combined with tracks and duplicate selectors", () => {

@@ -17,6 +17,7 @@ interface DesktopDiagnosticsActionsOptions {
   chooseExportPath(): Promise<string | undefined>;
   revealItem(path: string): void;
   writeClipboard(text: string): void;
+  storage: DesktopDiagnosticsReport["storage"];
 }
 
 export function formatDiagnosticsSummary(
@@ -30,6 +31,7 @@ export function formatDiagnosticsSummary(
     .join("\n");
   return [
     "Ableton Agent diagnostics",
+    `Storage: ${report.storage.profile} (${report.storage.root})`,
     `Logging: ${report.logging.level} (${report.logging.fileName})`,
     `Checks: ${counts.pass} pass, ${counts.warn} warning, ${counts.fail} failed`,
     findings,
@@ -45,6 +47,7 @@ export function createDesktopDiagnosticsActions(
     checks: DiagnosticCheck[],
   ): Promise<DesktopDiagnosticsReport> => ({
     checks,
+    storage: options.storage,
     logging: {
       level: options.getLoggingLevel(),
       fileName: basename(options.logPath),
@@ -68,6 +71,7 @@ export function createDesktopDiagnosticsActions(
         diagnostics: {
           appVersion: options.appVersion,
           platform: options.platform,
+          storage: report.storage,
           logging: report.logging,
           checks: report.checks,
         },

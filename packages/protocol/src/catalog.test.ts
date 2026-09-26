@@ -6,13 +6,21 @@ import { describe, expect, it } from "vitest";
 import { commandCatalog, commandNames } from "./catalog.js";
 
 function quotedCommands(source: string): string[] {
+  const unsolicitedEvents = new Set([
+    "live_set.save_observed",
+    "live_event.occurred",
+    "live_event.invalidated",
+  ]);
   return [
     ...source.matchAll(
-      /"(?:system|project|session|scenes|transport|tracks|mixer_routing|midi_notes|audio_clips|clips|arrangement|devices|browser|events|recording|grooves|selection_view|live_history|browser_adapters|clip_automation|warp_markers|special_devices|workflow_jobs)\.[a-z_]+"/g,
+      /"(?:system|live_set|session|scenes|transport|tracks|mixer_routing|midi_notes|audio_clips|clips|arrangement|devices|browser|events|recording|grooves|selection_view|live_history|browser_adapters|clip_automation|warp_markers|special_devices|workflow_jobs)\.[a-z_]+"/g,
     ),
   ]
     .map(([match]) => match.slice(1, -1))
-    .filter((name, index, names) => names.indexOf(name) === index)
+    .filter(
+      (name, index, names) =>
+        !unsolicitedEvents.has(name) && names.indexOf(name) === index,
+    )
     .sort();
 }
 

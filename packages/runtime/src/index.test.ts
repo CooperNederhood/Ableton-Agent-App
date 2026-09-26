@@ -10,10 +10,13 @@ import {
   type CopilotAgentServiceOptions,
 } from "@ableton-agent/application";
 import {
+  agentHistoryRecordSchema,
   configurationSnapshotSchema,
   LocalObservabilityJournal,
   REDACTED_VALUE,
+  sanitizeTelemetryAttributes,
   telemetryEventEnvelopeSchema,
+  type AgentHistoryRecord,
   type ConfigurationSnapshot,
   type TelemetryEventEnvelope,
 } from "@ableton-agent/observability";
@@ -168,6 +171,7 @@ describe("agent runtime composition", () => {
   it("maps exact agent runtime events to sanitized observability records", async () => {
     const telemetry: TelemetryEventEnvelope[] = [];
     const snapshots: ConfigurationSnapshot[] = [];
+    const agentHistory: AgentHistoryRecord[] = [];
     const runtime = createAgentRuntime({
       ableton: { port: 8765 },
       agent: {
@@ -183,6 +187,15 @@ describe("agent runtime composition", () => {
         },
         enqueueConfigurationSnapshot: (snapshot) => {
           snapshots.push(snapshot);
+        },
+      },
+      currentAppSessionId: () => "app-session",
+      agentHistory: {
+        appendAgentHistory: (record) => {
+          agentHistory.push(
+            agentHistoryRecordSchema.parse(sanitizeTelemetryAttributes(record)),
+          );
+          return Promise.resolve();
         },
       },
     });
@@ -204,15 +217,32 @@ describe("agent runtime composition", () => {
       configurationSnapshotSchema.parse(snapshot),
     );
     const serializedTelemetry = JSON.stringify(telemetry);
-    expect(serializedTelemetry).toContain("Preserve this exact user request.");
-    expect(serializedTelemetry).toContain('"response":"done"');
-    expect(serializedTelemetry).toContain(REDACTED_VALUE);
+    expect(serializedTelemetry).not.toContain(
+      "Preserve this exact user request.",
+    );
+    expect(serializedTelemetry).not.toContain('"response":"done"');
     expect(serializedTelemetry).not.toContain(credential);
+    const serializedAgentHistory = JSON.stringify(agentHistory);
+    expect(serializedAgentHistory).toContain(
+      "Preserve this exact user request.",
+    );
+    expect(serializedAgentHistory).toContain('"content":"done"');
+    expect(serializedAgentHistory).toContain(REDACTED_VALUE);
+    expect(serializedAgentHistory).not.toContain(credential);
+    expect(agentHistory).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "agent_session" }),
+        expect.objectContaining({ kind: "turn", status: "completed" }),
+        expect.objectContaining({ kind: "message", role: "user" }),
+        expect.objectContaining({ kind: "message", role: "assistant" }),
+      ]),
+    );
     expect(snapshots).toHaveLength(1);
     expect(snapshots[0]?.component).toBe("agent-runtime");
     expect(snapshots[0]?.configurationVersion).toBe("runtime-observer-v1");
     expect(snapshots[0]?.sessionId).toBe("sdk-session");
-    expect(snapshots[0]?.projectId).toBeUndefined();
+    expect(snapshots[0]?.liveSetId).toBeUndefined();
+    expect(snapshots[0]?.liveProjectId).toBeUndefined();
     const configurationData = snapshots[0]?.values.data as
       Readonly<Record<string, unknown>> | undefined;
     const sdkSystemMessage = configurationData?.sdkSystemMessage as
@@ -235,12 +265,15 @@ describe("agent runtime composition", () => {
 
   it("links a Live delivery through distinct turn and tool lifecycle spans", async () => {
     const telemetry: TelemetryEventEnvelope[] = [];
-    let listener: ((event: TestSessionEvent) => void) | undefined;
+    const listeners = new Set<(event: TestSessionEvent) => void>();
+    const emit = (event: TestSessionEvent): void => {
+      for (const listener of listeners) listener(event);
+    };
     let invocationContext: CorrelationTraceContext | undefined;
     const session = {
       sessionId: "sdk-session",
-      sendAndWait: async () => {
-        listener?.({
+      send: async () => {
+        emit({
           type: "tool.execution_start",
           id: "tool-start",
           parentId: null,
@@ -253,21 +286,36 @@ describe("agent runtime composition", () => {
         invocationContext = withCorrelation("tool-call-1", () =>
           currentCorrelationContext(),
         );
-        listener?.({
+        emit({
           type: "tool.execution_complete",
           id: "tool-complete",
           parentId: null,
           timestamp: "2026-08-29T18:00:03.000Z",
           data: { toolCallId: "tool-call-1", success: true },
         });
-        return { data: { content: "done" } };
+        emit({
+          type: "assistant.message",
+          id: "assistant",
+          parentId: null,
+          timestamp: "2026-08-29T18:00:04.000Z",
+          data: { messageId: "message", content: "done" },
+        });
+        emit({
+          type: "session.idle",
+          id: "idle",
+          parentId: null,
+          timestamp: "2026-08-29T18:00:05.000Z",
+          ephemeral: true,
+          data: { mode: "interactive" },
+        });
+        return "message";
       },
       abort: () => Promise.resolve(),
       disconnect: () => Promise.resolve(),
       on: (next: (event: TestSessionEvent) => void) => {
-        listener = next;
+        listeners.add(next);
         return () => {
-          listener = undefined;
+          listeners.delete(next);
         };
       },
     } satisfies TestSession;
@@ -427,8 +475,9 @@ describe("agent runtime composition", () => {
       ableton: { port: 8765 },
       abletonService: Object.assign(
         new UnconfiguredAbletonService("no bridge in tests"),
-        { getCurrentProjectId: () => "project-a" },
+        { getCurrentLiveSetId: () => "set-a" },
       ),
+      currentLiveProjectId: () => "live-project-a",
       agent: {
         clientFactory: () => ({
           createSession: () =>
@@ -446,6 +495,7 @@ describe("agent runtime composition", () => {
     });
     const configuration: AgentSessionConfiguration = {
       instanceId: "agent-a",
+      productionSessionId: "production-a",
       definitionName: "compose",
       label: "Compose",
       description: "Compose MIDI phrases.",
@@ -466,7 +516,8 @@ describe("agent runtime composition", () => {
     );
     expect(managedSnapshot).toMatchObject({
       component: "agent-runtime",
-      projectId: "project-a",
+      liveSetId: "set-a",
+      liveProjectId: "live-project-a",
       sessionId: "managed-sdk",
       activeAgentId: "agent-a",
     });
@@ -488,13 +539,15 @@ describe("agent runtime composition", () => {
         await journal.enqueueConfigurationSnapshot(snapshot);
       }
       const page = await journal.readConfigurationSnapshots({
-        projectId: "project-a",
+        liveSetId: "set-a",
+        liveProjectId: "live-project-a",
         sessionId: "managed-sdk",
         activeAgentId: "agent-a",
       });
       expect(page.items).toHaveLength(1);
       expect(page.items[0]).toMatchObject({
-        projectId: "project-a",
+        liveSetId: "set-a",
+        liveProjectId: "live-project-a",
         sessionId: "managed-sdk",
         activeAgentId: "agent-a",
       });
@@ -506,12 +559,38 @@ describe("agent runtime composition", () => {
 });
 
 function fakeSession(sessionId: string) {
+  const listeners = new Set<(event: TestSessionEvent) => void>();
+  const emit = (event: TestSessionEvent): void => {
+    for (const listener of listeners) listener(event);
+  };
   return {
     sessionId,
-    sendAndWait: () => Promise.resolve({ data: { content: "done" } }),
+    send: async () => {
+      emit({
+        type: "assistant.message",
+        id: "assistant",
+        parentId: null,
+        timestamp: new Date().toISOString(),
+        data: { messageId: "message", content: "done" },
+      });
+      emit({
+        type: "session.idle",
+        id: "idle",
+        parentId: null,
+        timestamp: new Date().toISOString(),
+        ephemeral: true,
+        data: { mode: "interactive" },
+      });
+      return "message";
+    },
     abort: () => Promise.resolve(),
     disconnect: vi.fn(() => Promise.resolve()),
-    on: () => () => undefined,
+    on: (listener: (event: TestSessionEvent) => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
   };
 }
 
@@ -575,6 +654,7 @@ describe("composed agent session control", () => {
 
   it("cancels only while a turn is in flight", async () => {
     let release!: () => void;
+    const listeners = new Set<(event: TestSessionEvent) => void>();
     const pending = new Promise<void>((resolve) => {
       release = resolve;
     });
@@ -589,13 +669,28 @@ describe("composed agent session control", () => {
           createSession: () =>
             Promise.resolve({
               sessionId: "session-1",
-              sendAndWait: async () => {
+              send: async () => {
                 await pending;
-                return undefined;
+                for (const listener of listeners) {
+                  listener({
+                    type: "session.idle",
+                    id: "idle",
+                    parentId: null,
+                    timestamp: new Date().toISOString(),
+                    ephemeral: true,
+                    data: { mode: "interactive" },
+                  });
+                }
+                return "message";
               },
               abort,
               disconnect: () => Promise.resolve(),
-              on: () => () => undefined,
+              on: (listener: (event: TestSessionEvent) => void) => {
+                listeners.add(listener);
+                return () => {
+                  listeners.delete(listener);
+                };
+              },
             }),
           resumeSession: () => Promise.reject(new Error("resume not expected")),
           stop: () => Promise.resolve([]),
@@ -623,6 +718,7 @@ describe("composed agent session control", () => {
     const syncSignals = vi.spyOn(runtime.signals, "setActiveAgentInstances");
     const configuration: AgentSessionConfiguration = {
       instanceId: "agent-a",
+      productionSessionId: "production-a",
       definitionName: "compose",
       label: "Compose",
       description: "Compose MIDI phrases.",
@@ -670,6 +766,7 @@ describe("composed agent session control", () => {
     const syncSignals = vi.spyOn(runtime.signals, "setActiveAgentInstances");
     const initial: AgentSessionConfiguration = {
       instanceId: "agent-a",
+      productionSessionId: "production-a",
       definitionName: "compose",
       label: "Compose",
       description: "Compose MIDI phrases.",

@@ -51,7 +51,7 @@ export type PreparedContextCacheStatus =
   | {
       readonly state: "fresh" | "stale";
       readonly capturedAt: string;
-      readonly projectId: string;
+      readonly liveSetId: string;
       readonly projectRevision?: number;
       readonly unresolvedTrackLocators?: number;
     };
@@ -192,7 +192,7 @@ export class PreparedProjectContextStore implements PreparedContextProvider {
     return {
       state: this.#stale || this.#isExpired() ? "stale" : "fresh",
       capturedAt: facts.capturedAt,
-      projectId: facts.status.projectId,
+      liveSetId: facts.status.liveSetId,
       ...(facts.projectRevision === undefined
         ? {}
         : { projectRevision: facts.projectRevision }),
@@ -221,7 +221,7 @@ export class PreparedProjectContextStore implements PreparedContextProvider {
         const latestStatus = await this.#getAbletonStatus();
         if (
           latestStatus.state !== "connected" ||
-          latestStatus.projectId !== status.projectId
+          latestStatus.liveSetId !== status.liveSetId
         ) {
           this.#status = latestStatus;
           this.#clear();
@@ -245,7 +245,7 @@ export class PreparedProjectContextStore implements PreparedContextProvider {
         this.#record(
           "project-context.refresh.completed",
           {
-            projectId: status.projectId,
+            projectId: status.liveSetId,
             invalidationVersion: this.#invalidationVersion,
             stale: this.#stale,
           },
@@ -272,8 +272,8 @@ export class PreparedProjectContextStore implements PreparedContextProvider {
 
   #handleEvent(event: AppEvent): void {
     if (event.type === "ableton.connection_changed") {
-      const previousProjectId =
-        this.#status.state === "connected" ? this.#status.projectId : undefined;
+      const previousLiveSetId =
+        this.#status.state === "connected" ? this.#status.liveSetId : undefined;
       this.#status = event.status;
       if (event.status.state !== "connected") {
         this.#invalidationVersion += 1;
@@ -281,8 +281,8 @@ export class PreparedProjectContextStore implements PreparedContextProvider {
         return;
       }
       if (
-        previousProjectId !== undefined &&
-        previousProjectId !== event.status.projectId
+        previousLiveSetId !== undefined &&
+        previousLiveSetId !== event.status.liveSetId
       ) {
         this.#clear();
       }
@@ -309,7 +309,7 @@ export class PreparedProjectContextStore implements PreparedContextProvider {
     if (event.type !== "ableton.event_received") return;
     const cachedRevision = this.#facts?.projectRevision;
     if (
-      event.event === "project.changed" ||
+      event.event === "live_set.changed" ||
       (event.projectRevision !== undefined &&
         (cachedRevision === undefined ||
           event.projectRevision > cachedRevision))
@@ -342,7 +342,7 @@ export class PreparedProjectContextStore implements PreparedContextProvider {
   ): void {
     if (this.#telemetry === undefined) return;
     const traceId = stableTelemetryId(
-      `project-context:${this.#status.state === "connected" ? this.#status.projectId : "disconnected"}:${this.#invalidationVersion}`,
+      `live-set-context:${this.#status.state === "connected" ? this.#status.liveSetId : "disconnected"}:${this.#invalidationVersion}`,
     );
     recordSignalTelemetry(this.#telemetry, {
       name,
@@ -448,7 +448,7 @@ export class PreparedProjectContextStore implements PreparedContextProvider {
       if (this.#status.state !== "connected") {
         return `Ableton connection: ${this.#status.state}. Prepared project context is unavailable.`;
       }
-      return `Ableton connection: connected to project ${this.#status.projectId}. Prepared project context is warming; project-specific identities are not available in this snapshot.`;
+      return `Ableton connection: connected to Live Set ${this.#status.liveSetId}. Prepared Live Set context is warming; entity identities are not available in this snapshot.`;
     }
     const selectedTracks =
       configuration.scope === "whole-session"
@@ -519,9 +519,9 @@ export class PreparedProjectContextStore implements PreparedContextProvider {
       kind: clip.kind,
     }));
     return [
-      "Prepared Ableton project context (cached; freshness describes mutable state age, not exact identity validity. Use complete exact identities directly with identity guards when sufficient):",
+      "Prepared Ableton Live Set context (cached; freshness describes mutable state age, not exact identity validity. Use complete exact identities directly with identity guards when sufficient):",
       JSON.stringify({
-        projectId: facts.status.projectId,
+        liveSetId: facts.status.liveSetId,
         ...(facts.projectRevision === undefined
           ? {}
           : { projectRevision: facts.projectRevision }),

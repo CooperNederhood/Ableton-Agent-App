@@ -14,6 +14,7 @@ from .event_subscriptions import (
 from .executor import MainThreadExecutor
 from .listeners import LomListenerManager
 from .registry import CommandRegistry
+from .save_observer import LiveSetSaveObserver
 from .server import RemoteScriptServer
 from .system_commands import register_system_commands
 from .token_store import load_or_create_token
@@ -69,11 +70,16 @@ class AbletonAgentControlSurface(ControlSurface):
             context, self._server.publish_event, logger=self.log_message
         )
         self._listeners.start()
+        self._save_observer = LiveSetSaveObserver(
+            context, self._server.publish_event, logger=self.log_message
+        )
+        self._save_observer.start()
 
     def disconnect(self):
         manager = getattr(self._runtime_context, "_workflow_job_manager", None)
         if manager is not None:
             manager.mark_running_indeterminate()
+        self._save_observer.stop()
         self._subscription_manager.stop()
         self._listeners.stop()
         self._server.stop()

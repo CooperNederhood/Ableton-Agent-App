@@ -399,7 +399,9 @@ describe("integration scenarios", () => {
         state: "connected" as const,
         liveVersion: "11.3.43",
         remoteScriptVersion: "0.4.1",
-        projectId: "project",
+        liveSetId: "set",
+        liveSetName: "Test Set",
+        saved: true,
       }),
       getCapabilities: async () => ({
         capabilities: { "session.inspect": true },

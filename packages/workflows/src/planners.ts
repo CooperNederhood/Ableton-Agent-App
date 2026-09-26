@@ -14,7 +14,7 @@ import {
 
 export interface PlannerIdentity {
   readonly id: string;
-  readonly projectId: string;
+  readonly liveSetId: string;
   readonly sessionId: string;
   readonly correlationId: string;
   readonly resource: string;
@@ -113,7 +113,7 @@ function integerRange(
 }
 
 function trackReference(reference: EntityReference, label: string): void {
-  requiredString(reference.projectId, `${label} project id`);
+  requiredString(reference.liveSetId, `${label} project id`);
   requiredString(reference.id, `${label} id`);
   if (
     reference.kind !== "track" &&
@@ -177,7 +177,7 @@ function transaction(
 ): WorkflowTransaction<PlannedWorkflowStep> {
   for (const [label, value] of [
     ["Transaction id", identity.id],
-    ["Project id", identity.projectId],
+    ["Project id", identity.liveSetId],
     ["Session id", identity.sessionId],
     ["Correlation id", identity.correlationId],
     ["Resource", identity.resource],
@@ -188,7 +188,7 @@ function transaction(
   for (const step of steps) {
     if (
       step.target !== undefined &&
-      step.target.projectId !== identity.projectId
+      step.target.liveSetId !== identity.liveSetId
     ) {
       throw new WorkflowValidationError(
         `Step '${step.id}' target belongs to a different project`,

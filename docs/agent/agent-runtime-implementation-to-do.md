@@ -11,17 +11,42 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [x] Configure a restricted tool environment with explicit allowlists.
 - [x] Define model and reasoning configuration with validated defaults.
 - [x] Normalize SDK events into application-owned `AppEvent` values.
+- [x] Explicitly enable SDK streaming and normalize assistant deltas, liveness,
+  intent, bounded model-provided reasoning summaries, and terminal Working
+  lifecycle without exposing raw hidden chain-of-thought.
+- [x] Apply the global Off/Concise/Detailed reasoning-summary preference before
+  each active agent's next turn by resuming the same SDK session.
 - [x] Forward per-agent interactive/plan mode to SDK turns and normalize
   attributed mode, plan, and completed-plan approval lifecycle.
+- [x] Preserve the selected agent's effective mode across automation ingress
+  and its visible user-turn attribution.
 - [x] Resolve completed-plan requests through the owning SDK session while
   hiding autopilot/fleet actions and recording bounded resolution lifecycle.
 - [x] Enforce plan mode as read-only at both hook and mutation-handler
   boundaries, then permit same-turn implementation only after interactive
   approval.
-- [x] Keep `exit_plan_mode` reachable through both exclusive SDK session and
-  custom-agent allowlists without enabling unrelated built-ins.
+- [x] Restore the approved SDK session-isolated built-ins while excluding
+  `builtin:skill` and all host-capable coding, shell, filesystem, and network
+  tools.
+- [x] Disable SDK tool search so the runtime never injects an implicit
+  discovery tool into agent turns.
+- [x] Add permission-free fixed-target `read_plan` and `write_plan` tools with
+  canonical production-session ownership, redaction, limits, atomic writes,
+  revisions, and stale-write rejection.
+- [x] Configure SDK `ask_user` as structured elicitation and normalize
+  requested/completed/cancelled lifecycle through attributed application
+  events.
+- [x] Register the legacy SDK user-input capability for native custom-agent
+  compatibility while adapting any callback into the same structured
+  elicitation lifecycle and Desktop UI.
 - [x] Scope the plan-mode pre-tool denial to classified Ableton mutations so it
   cannot block the SDK `exit_plan_mode` control tool.
+- [x] Replace the SDK wall-clock turn wait with an application-owned cumulative
+  active-work timeout that pauses indefinitely across elicitation, plan
+  decisions, and human tool approvals, including attributed pause/resume
+  lifecycle and nested-gate cleanup.
+- [x] Default the active-work budget to 10 minutes and expose a validated,
+  immediately applied Desktop setting for subsequent turns.
 - [ ] Journal sanitized configuration snapshots on session create/resume and
   effective configuration changes.
 - [ ] Journal the complete unsampled SDK/session/turn/stream/hook/tool lifecycle
@@ -44,11 +69,15 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [x] Keep the active plan-turn suffix independently editable in
   `packages/application/prompts/plan-reminder.md`, copy it into the compiled
   package, and append it after expanded skill/user prompts only in plan mode.
-- [x] Require every custom agent to finish adequate plan-mode work with valid
-  multiline GFM and `exit_plan_mode`, without duplicating guidance in agent
+- [x] Require every custom agent to maintain the canonical Markdown artifact,
+  use structured questions for user-owned decisions, and finish adequate
+  plan-mode work with `exit_plan_mode`, without duplicating guidance in agent
   YAML definitions.
 - [x] Define compact project-context injection, including bounded top-level
   device summaries and mutation-driven invalidation.
+- [x] Seed typed Set/Project/App-session identity once per SDK session and
+  deliver one superseding identity-change context after committed transitions
+  instead of repeating unchanged IDs in every prompt.
 - [x] Attach bounded UI selection context atomically to managed-agent messages
   and explicit skill turns without duplicating the general project snapshot.
 - [x] Implement session-start, prompt, pre-tool, post-tool, and failure hooks.
@@ -68,6 +97,11 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [x] Persist SDK interaction mode independently for each active-agent
   instance.
 - [x] Handle project switches without leaking stale context.
+- [x] Attribute post-transition messages and tools from committed Desktop
+  identity while leaving pre-save unsaved history under its temporary ID.
+- [x] Dispatch observed saves through ordered, per-Live-Set injectable actions
+  with deduplication, Set-switch/shutdown cancellation, and full lifecycle
+  observability.
 - [x] Implement context compaction/refresh strategy for long sessions.
 
 ## Tests
@@ -77,13 +111,20 @@ Companion specification: [Agent Runtime](agent-runtime.md)
   renderer-safe plan approval contracts.
 - [x] Regression-test plan-mode read access, mutation denial, and post-approval
   interactive continuation.
-- [x] Regression-test exact exit-plan allowlists across create, resume, empty,
-  skill-enabled, and deduplicated tool configurations, including managed
-  cancellation and bounded approval payloads.
+- [x] Regression-test approved built-in/application allowlists across create,
+  resume, empty, skill-enabled, wildcard, and deduplicated configurations,
+  including managed cancellation and bounded approval payloads.
+- [x] Regression-test canonical plan reads/writes, redaction, permissions,
+  optimistic conflicts, stale approval, manual updates during review, and
+  structured elicitation resolution.
+- [x] Regression-test active-work timeout exhaustion, unlimited human wait,
+  nested pause counts, remaining-budget resume, cancellation, and cleanup.
 - [x] Regression-test managed message and skill prompt composition, selection
   disabling, deduplication, and replacement between turns.
 - [x] Regression-test final plan-reminder ordering after direct skill expansion,
   interactive exclusion, source/dist prompt copying, and reminder attribution.
+- [x] Regression-test save-action ordering, deduplication, failure, progress,
+  trace attribution, Set-switch cancellation, and shutdown cleanup.
 - [ ] Test configuration snapshot revisions, SDK event coverage, redaction,
   lifecycle ordering, cancellation/failure timing, and trace propagation.
 - [x] Unit-test hook decisions for every risk and error class.
@@ -95,6 +136,7 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 ## Exit criteria
 
 - [x] Agent can inspect, mutate, verify, and report through custom tools.
-- [x] No unrelated built-in tools are available.
+- [x] Only approved session-isolated built-ins are available; host-capable
+  built-ins and the SDK skill implementation remain unavailable.
 - [x] Session resume restores useful app context.
 - [x] CLI and React receive identical normalized events.

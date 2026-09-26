@@ -44,10 +44,19 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
       resumeSession: async (sessionId) => {
         await invoke("agent:resume-session", { sessionId });
       },
+      closeSession: async () => {
+        await invoke("agent:close-session", {});
+      },
     },
     agents: {
       getCatalog: () => invoke("agents:catalog", {}),
       refreshCatalog: () => invoke("agents:refresh", {}),
+      saveDefinition: (definition, expectedRevision, expectedFingerprint) =>
+        invoke("agents:save-definition", {
+          definition,
+          expectedRevision,
+          expectedFingerprint,
+        }),
       listActive: () => invoke("agents:active", {}),
       listModels: () => invoke("agents:models", {}),
       create: (definitionName) => invoke("agents:create", { definitionName }),
@@ -79,6 +88,26 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
             ...request,
           })
         ).resolved,
+      readPlan: (instanceId) => invoke("agents:read-plan", { instanceId }),
+      writePlan: (instanceId, input) =>
+        invoke("agents:write-plan", { instanceId, ...input }),
+      resolveElicitation: async (instanceId, request) =>
+        (
+          await invoke("agents:resolve-elicitation", {
+            instanceId,
+            ...request,
+            ...(request.content === undefined
+              ? {}
+              : {
+                  content: Object.fromEntries(
+                    Object.entries(request.content).map(([key, value]) => [
+                      key,
+                      Array.isArray(value) ? [...value] : value,
+                    ]),
+                  ),
+                }),
+          })
+        ).resolved,
       invokeSkill: (
         instanceId,
         skillName,
@@ -94,6 +123,49 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
           agentMode,
         }),
       cancel: (instanceId) => invoke("agents:cancel", { instanceId }),
+    },
+    skills: {
+      read: (name) => invoke("skills:read", { name }),
+      create: (name, description, body, expectedRevision) =>
+        invoke("skills:create", {
+          name,
+          description,
+          body,
+          expectedRevision,
+        }),
+      save: (name, body, expectedRevision, expectedFingerprint) =>
+        invoke("skills:save", {
+          name,
+          body,
+          expectedRevision,
+          expectedFingerprint,
+        }),
+    },
+    profiles: {
+      get: (selectedProfile) =>
+        invoke("profiles:get", {
+          ...(selectedProfile === undefined ? {} : { selectedProfile }),
+        }),
+      status: () => invoke("profiles:status", {}),
+      create: (name, expectedRevision) =>
+        invoke("profiles:create", { name, expectedRevision }),
+      rename: (name, newName, expectedRevision) =>
+        invoke("profiles:rename", { name, newName, expectedRevision }),
+      delete: (name, expectedRevision) =>
+        invoke("profiles:delete", { name, expectedRevision }),
+      switch: async (name, expectedRevision, closeActiveSession = false) => {
+        await invoke("profiles:switch", {
+          name,
+          expectedRevision,
+          closeActiveSession,
+        });
+      },
+      copyArtifact: (request) => invoke("profiles:copy-artifact", request),
+      moveArtifact: (request) => invoke("profiles:move-artifact", request),
+      renameArtifact: (request) => invoke("profiles:rename-artifact", request),
+      deleteArtifact: (request) => invoke("profiles:delete-artifact", request),
+      setArtifactDisabled: (request) =>
+        invoke("profiles:set-artifact-disabled", request),
     },
     ableton: {
       connect: () => invoke("ableton:connect", {}),
@@ -124,8 +196,10 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
       setContext: async (context) => {
         await invoke("project:set-context", { context });
       },
+    },
+    liveSet: {
       resolveTransition: async (token, decision) =>
-        (await invoke("project:resolve-transition", { token, decision }))
+        (await invoke("live-set:resolve-transition", { token, decision }))
           .session,
     },
     plan: {

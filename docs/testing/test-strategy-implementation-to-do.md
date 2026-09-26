@@ -55,6 +55,8 @@ Companion specification: [Test Strategy](test-strategy.md)
     propagation for the final workflow-adapter layer.
 - [x] Implement CLI transcript tests.
 - [x] Implement Playwright Electron harness.
+- [x] Add a production-mode smoke test for the generated macOS application and
+  packaged resources.
 - [x] Cover the debug-control contract, automation launch parsing, selected
   agent/YOLO startup, visible external user-turn attribution, and stdio MCP
   adapter arguments.
@@ -71,6 +73,8 @@ Companion specification: [Test Strategy](test-strategy.md)
 - [~] Create real-Live test project and manual runner.
   - [x] Add a runner that records versioned, commit-linked smoke evidence
     without storing project content.
+  - [x] Make exact-PID cleanup tolerate process-exit races at the final
+    liveness check and when a timed helper process has already exited.
   - [ ] Create and publish the canonical Ableton Live test project.
   - [ ] Record real-Live results for Session launch quantization and rollback,
     MIDI/audio duplication compatibility, deletion, and mute/loop property
@@ -94,10 +98,13 @@ Companion specification: [Test Strategy](test-strategy.md)
 ## CI
 
 - [x] Add formatting, lint, typecheck, unit, contract, and integration jobs.
-- [x] Add macOS and Windows build/smoke jobs.
+- [x] Add macOS build/smoke jobs.
+- [ ] Restore Windows build/smoke jobs before Windows release support.
 - [x] Cache dependencies without caching generated test results.
 - [x] Publish validation/build diagnostics on failure.
 - [x] Enforce package build and protocol compatibility checks.
+- [x] Build workspace entry points before tests that execute compiled package
+  and CLI subprocesses.
 - [x] Document how real-Live release validation is recorded.
 
 ## Quality controls

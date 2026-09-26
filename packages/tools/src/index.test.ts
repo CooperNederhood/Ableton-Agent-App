@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ConnectionStatus } from "@ableton-agent/shared";
+import type { Tool } from "@github/copilot-sdk";
 
 import {
   abletonToolMetadata,
@@ -30,12 +31,26 @@ function services() {
     isBuiltInDevice: true,
   };
   return {
+    setHistoryQuery: {
+      query: vi.fn(() =>
+        Promise.resolve({
+          schemaVersion: 3,
+          columns: ["snapshot_id"],
+          rows: [{ snapshot_id: "snapshot-1" }],
+          rowCount: 1,
+          truncated: false,
+          elapsedMs: 2.5,
+        }),
+      ),
+    },
     getConnectionStatus: vi.fn<() => Promise<ConnectionStatus>>(() =>
       Promise.resolve({
         state: "connected" as const,
         liveVersion: "12.1",
         remoteScriptVersion: "0.4.0",
-        projectId: "project-test",
+        liveSetId: "set-test",
+        liveSetName: "Test Set",
+        saved: true,
       }),
     ),
     inspectSession: vi.fn(() =>
@@ -1192,9 +1207,28 @@ describe("Ableton tools", () => {
       "custom:ableton_special_devices",
       "custom:ableton_workflow_jobs",
       "custom:ableton_arrangement_fill_region",
+      "custom:set_sql_search",
     ]);
     expect(toolSet.tools.length).toBeLessThanOrEqual(
       toolCatalogPolicy.maximumEagerTools,
+    );
+    const setSqlSearch = toolSet.tools.find(
+      (tool) => tool.name === "set_sql_search",
+    );
+    expect(setSqlSearch?.description).toContain("Select only needed columns");
+    expect(setSqlSearch?.description).toContain("named scalar parameters");
+    expect(setSqlSearch?.description).toContain("If truncated, narrow");
+    expect(setSqlSearch?.description).toContain(
+      "set_history_snapshots(snapshot_id",
+    );
+    expect(setSqlSearch?.description).toContain(
+      "agent_history_messages(record_id",
+    );
+    expect(setSqlSearch?.description).toContain(
+      "Join musical entities to snapshots with snapshot_id",
+    );
+    expect(setSqlSearch?.description).toContain(
+      "not required for basic queries",
     );
     expect(
       abletonToolMetadata.every((metadata) =>
@@ -1797,10 +1831,24 @@ describe("Ableton tools", () => {
       },
       invocation,
     );
-
-    expect(ports.getConnectionStatus).toHaveBeenCalledTimes(
-      toolSet.tools.length - 15,
+    const setSqlSearchTool = (toolSet.tools as readonly Tool[]).find(
+      (tool) => tool.name === "set_sql_search",
     );
+    await setSqlSearchTool?.handler?.(
+      {
+        sql: "SELECT snapshot_id FROM set_history_snapshots WHERE live_set_id = :live_set_id",
+        parameters: { live_set_id: "set-test" },
+        limit: 25,
+      },
+      invocation,
+    );
+
+    expect(ports.getConnectionStatus).toHaveBeenCalledTimes(44);
+    expect(ports.setHistoryQuery.query).toHaveBeenCalledWith({
+      sql: "SELECT snapshot_id FROM set_history_snapshots WHERE live_set_id = ?",
+      parameters: ["set-test"],
+      maxRows: 25,
+    });
     expect(ports.inspectSession).toHaveBeenCalledOnce();
     expect(ports.setTempo).toHaveBeenCalledWith(132);
     expect(ports.setPlaying).toHaveBeenCalledWith(true);
@@ -2105,6 +2153,29 @@ describe("Ableton tools", () => {
         { sessionId: "session", managedSettingsEnabled: true },
       ),
     ).resolves.toEqual({ kind: "no-result" });
+  });
+
+  it("does not start a Set History query after cancellation", async () => {
+    const ports = services();
+    const tool = (
+      createAbletonTools(ports).tools as readonly Tool[]
+    ).find((candidate) => candidate.name === "set_sql_search")!;
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await tool.handler?.(
+      { sql: "SELECT snapshot_id FROM set_history_snapshots", limit: 10 },
+      {
+        sessionId: "session",
+        toolCallId: "query-call",
+        toolName: "set_sql_search",
+        arguments: {},
+        signal: controller.signal,
+      },
+    );
+
+    expect(ports.setHistoryQuery.query).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ resultType: "failure" });
   });
 
   it("rejects targetless destructive approvals before prompting", async () => {

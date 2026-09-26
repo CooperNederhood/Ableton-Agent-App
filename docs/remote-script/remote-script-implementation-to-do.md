@@ -19,6 +19,8 @@ Companion specification: [Remote Script](remote-script.md)
 - [x] Implement the single main-thread LOM executor.
 - [x] Route reads and mutations through the executor.
 - [x] Implement per-command validation and stable error mapping.
+- [x] Publish complete bounded Live Set/Project identity with settled save
+  observations so first save and Save As can update clients atomically.
 - [~] Implement capability discovery by Live version and attribute checks.
 - [ ] Preserve bounded opaque trace/correlation context through queue,
   main-thread execution, response, and outbound Live Event lifecycle metadata.
@@ -106,6 +108,9 @@ Companion specification: [Remote Script](remote-script.md)
     revalidation and allow explicitly loadable devices that expose preset
     children while retaining container and external-content guards.
 - [x] Implement selected low-frequency LOM listeners and cleanup.
+- [x] Observe stable Live Set save metadata without reading or exposing `.als`
+  paths/content, including first save, Save As, Set-switch baselines, temporary
+  absence, reconnect baselines, and shutdown cancellation.
 
 ## Tests
 
@@ -121,6 +126,8 @@ Companion specification: [Remote Script](remote-script.md)
 - [~] Unit-test every handler's validation, success, and LOM failure paths.
 - [~] Unit-test main-thread scheduling and timeout behavior.
 - [x] Unit-test listener registration and removal.
+- [x] Unit-test save metadata stability, debounce, bounds, Save As, Set switch,
+  unavailable files, and cancellation.
 - [x] Run Python protocol contract fixtures.
 - [ ] Test trace propagation, lifecycle timing/redaction, and zero journal I/O
   or unbounded observability work on Live's main thread.
@@ -148,3 +155,10 @@ Companion specification: [Remote Script](remote-script.md)
 - [x] All commands are registered, validated, scheduled, and tested.
 - [x] Disconnect leaves no listeners, sockets, or active client threads.
 - [ ] Supported Live versions produce an accurate capability report.
+# Live identity terminology
+
+- [x] Expose explicit Live Set identity and optional nearest-ancestor Live
+  Project identity without transmitting filesystem paths.
+- [x] Keep unsaved Set IDs collision-resistant and stable for the Remote Script
+  runtime, and bound orphan-Set diagnostics.
+- [x] Scope dynamic Live Event stale guards to `liveSetId`.

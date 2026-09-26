@@ -41,11 +41,13 @@ function stateWithAgents(): DesktopState {
     activeSessionId: "session",
     sessions: [
       {
-        version: 3 as const,
+        version: 4 as const,
         id: "session",
         title: "Session",
+        createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString(),
-        projectName: "Project",
+        liveSetId: "live-set-1",
+        liveSetName: "Project",
         activeAgents: [
           agent(firstAgentId, "Default"),
           agent(secondAgentId, "Default 2"),
@@ -72,6 +74,8 @@ describe("desktop reducer", () => {
           requestId: "plan-1",
           summary: "Arrangement plan",
           planContent: "# Plan\n\nBuild an intro.",
+          planRevision: "a".repeat(64),
+          planUpdatedAt: "2026-01-01T00:00:00.000Z",
           recommendedAction: "interactive",
           actions: ["interactive", "exit_only"],
         },
@@ -96,6 +100,61 @@ describe("desktop reducer", () => {
     expect(selectedAgentWorkspace(completed).planApproval).toBeUndefined();
   });
 
+  it("stores plan artifacts and structured elicitation per agent", () => {
+    const withPlan = desktopReducer(stateWithAgents(), {
+      type: "event",
+      event: {
+        type: "agent.plan_artifact_changed",
+        agentInstanceId: firstAgentId,
+        sdkSessionId: "sdk-1",
+        artifact: {
+          exists: true,
+          productionSessionId: "session",
+          content: "# Plan\n",
+          revision: "a".repeat(64),
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          bytes: 7,
+        },
+      },
+    });
+    const requested = desktopReducer(withPlan, {
+      type: "event",
+      event: {
+        type: "agent.elicitation_requested",
+        agentInstanceId: firstAgentId,
+        sdkSessionId: "sdk-1",
+        request: {
+          requestId: "question-1",
+          message: "Choose a length.",
+          properties: {
+            bars: { type: "integer", minimum: 8, maximum: 128 },
+          },
+          required: ["bars"],
+        },
+      },
+    });
+
+    expect(selectedAgentWorkspace(requested)).toMatchObject({
+      planArtifact: { exists: true, content: "# Plan\n" },
+      elicitation: { requestId: "question-1" },
+    });
+    const completed = desktopReducer(requested, {
+      type: "event",
+      event: {
+        type: "agent.elicitation_completed",
+        agentInstanceId: firstAgentId,
+        sdkSessionId: "sdk-1",
+        requestId: "question-1",
+        action: "accept",
+      },
+    });
+    expect(selectedAgentWorkspace(completed).elicitation).toBeUndefined();
+    expect(selectedAgentWorkspace(completed).planArtifact).toMatchObject({
+      exists: true,
+      content: "# Plan\n",
+    });
+  });
+
   it("keeps plan approvals isolated from stale completions and other agents", () => {
     const state = stateWithAgents();
     const requested = desktopReducer(state, {
@@ -108,6 +167,8 @@ describe("desktop reducer", () => {
           requestId: "plan-1",
           summary: "First plan",
           planContent: "First content",
+          planRevision: "a".repeat(64),
+          planUpdatedAt: "2026-01-01T00:00:00.000Z",
           recommendedAction: "interactive",
           actions: ["interactive", "exit_only"],
         },
@@ -123,6 +184,8 @@ describe("desktop reducer", () => {
           requestId: "plan-2",
           summary: "Second plan",
           planContent: "Second content",
+          planRevision: "b".repeat(64),
+          planUpdatedAt: "2026-01-01T00:01:00.000Z",
           recommendedAction: "exit_only",
           actions: ["exit_only"],
         },
@@ -206,6 +269,44 @@ describe("desktop reducer", () => {
     expect(activeSession(restored)?.id).toBe("session");
   });
 
+  it("clears a stale scoped catalog when the active session changes", () => {
+    const initial = stateWithAgents();
+    initial.activeSessionId = "session-old";
+    initial.agentCatalog = {
+      ...initial.agentCatalog,
+      sessionId: "session-old",
+      skills: [
+        {
+          name: "interview-me",
+          description: "Interview the user.",
+          origin: "session",
+          sourceFile: "interview-me/SKILL.md",
+          fingerprint: "f".repeat(64),
+        },
+      ],
+    };
+    const nextSession = {
+      ...initial.sessions[0]!,
+      id: "session-new",
+    };
+
+    const changed = desktopReducer(initial, {
+      type: "event",
+      event: {
+        type: "sessions.changed",
+        sessions: [nextSession, ...initial.sessions],
+        activeSessionId: nextSession.id,
+      },
+    });
+
+    expect(changed.agentCatalog).toEqual({
+      sessionId: "session-new",
+      definitions: [],
+      skills: [],
+      diagnostics: [],
+    });
+  });
+
   it("applies a returned session with updated YOLO state immediately", () => {
     const state = stateWithAgents();
     const session = {
@@ -266,6 +367,13 @@ describe("desktop reducer", () => {
   it("stores the trusted diagnostics report for the diagnostics view", () => {
     const report = {
       checks: [{ label: "Bridge", status: "warn" as const, detail: "Offline" }],
+      storage: {
+        version: 1,
+        root: "/home/test/.live-agent",
+        profile: "default",
+        profileRoot: "/home/test/.live-agent/profiles/default",
+        migrationStatus: "completed" as const,
+      },
       logging: {
         level: "info" as const,
         fileName: "desktop.log",
@@ -282,7 +390,7 @@ describe("desktop reducer", () => {
   it("paginates history and replaces selected trace detail", () => {
     const traceId = "00000000-0000-4000-8000-000000000010";
     const event = {
-      version: 1 as const,
+      version: 2 as const,
       id: "00000000-0000-4000-8000-000000000001",
       sequence: 1,
       occurredAt: "2026-01-01T00:00:00.000Z",
@@ -307,7 +415,7 @@ describe("desktop reducer", () => {
       type: "event-history-loaded",
       append: false,
       page: {
-        version: 1,
+        version: 2,
         items: [root],
         nextCursor: "next",
         page: {
@@ -323,7 +431,7 @@ describe("desktop reducer", () => {
       type: "event-history-loaded",
       append: true,
       page: {
-        version: 1,
+        version: 2,
         items: [
           {
             ...root,
@@ -350,7 +458,7 @@ describe("desktop reducer", () => {
       traceId,
       append: false,
       page: {
-        version: 1,
+        version: 2,
         items: [event],
         nextCursor: "trace-next",
         page: {
@@ -373,7 +481,7 @@ describe("desktop reducer", () => {
       traceId,
       append: true,
       page: {
-        version: 1,
+        version: 2,
         items: [{ ...event, id: secondAgentId, sequence: 2 }],
         page: {
           limit: 1,
@@ -472,6 +580,90 @@ describe("desktop reducer", () => {
     expect(state.messages[0]).toMatchObject({
       content: "Hello",
       streaming: false,
+    });
+  });
+
+  it("builds a bounded Working summary on the assistant turn", () => {
+    const messageId = "assistant-message";
+    const activityId = "00000000-0000-4000-8000-000000000021";
+    let state = desktopReducer(initialState, {
+      type: "event",
+      event: {
+        type: "agent.working_update",
+        messageId,
+        update: {
+          kind: "started",
+          activityId,
+          occurredAt: "2026-08-08T00:00:00.000Z",
+        },
+      },
+    });
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.working_update",
+        messageId,
+        update: {
+          kind: "intent",
+          activityId,
+          content: "Inspecting the arrangement",
+          occurredAt: "2026-08-08T00:00:01.000Z",
+        },
+      },
+    });
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.working_update",
+        messageId,
+        update: {
+          kind: "reasoning_delta",
+          activityId,
+          reasoningId: "reasoning-1",
+          content: "Checking ",
+          occurredAt: "2026-08-08T00:00:02.000Z",
+        },
+      },
+    });
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.working_update",
+        messageId,
+        update: {
+          kind: "reasoning_complete",
+          activityId,
+          reasoningId: "reasoning-1",
+          content: "Checked the available clips.",
+          occurredAt: "2026-08-08T00:00:03.000Z",
+        },
+      },
+    });
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.working_update",
+        messageId,
+        update: {
+          kind: "finished",
+          activityId,
+          outcome: "completed",
+          occurredAt: "2026-08-08T00:00:04.000Z",
+        },
+      },
+    });
+
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]).toMatchObject({
+      id: messageId,
+      role: "assistant",
+      content: "",
+      working: {
+        status: "completed",
+        intent: "Inspecting the arrangement",
+        summary: "Checked the available clips.",
+        reasoningId: "reasoning-1",
+      },
     });
   });
 
@@ -724,8 +916,8 @@ describe("desktop reducer", () => {
 
   it("turns selected project objects into explicit context", () => {
     const snapshot = {
-      id: "p",
-      name: "Project",
+      liveSetId: "p",
+      liveSetName: "Project",
       tempo: 120,
       timeSignature: "4/4",
       tracks: [
@@ -765,8 +957,8 @@ describe("desktop reducer", () => {
 
   it("removes generated context without clearing project selection", () => {
     const snapshot = {
-      id: "p",
-      name: "Project",
+      liveSetId: "p",
+      liveSetName: "Project",
       tempo: 120,
       timeSignature: "4/4",
       tracks: [
@@ -827,8 +1019,8 @@ describe("desktop reducer", () => {
       ...initialState,
       context: [explicit],
       snapshot: {
-        id: "p",
-        name: "Project",
+        liveSetId: "p",
+        liveSetName: "Project",
         tempo: 120,
         timeSignature: "4/4",
         tracks: [
@@ -869,8 +1061,8 @@ describe("desktop reducer", () => {
       ...initialState,
       context: [explicit],
       snapshot: {
-        id: "p",
-        name: "Project",
+        liveSetId: "p",
+        liveSetName: "Project",
         tempo: 120,
         timeSignature: "4/4",
         tracks: [
@@ -988,8 +1180,8 @@ describe("desktop reducer", () => {
 
   it("bounds refresh failures and preserves the last valid snapshot", () => {
     const snapshot = {
-      id: "project",
-      name: "Existing project",
+      liveSetId: "project",
+      liveSetName: "Existing project",
       tempo: 120,
       timeSignature: "4/4",
       tracks: [],

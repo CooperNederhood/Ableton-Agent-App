@@ -1,14 +1,32 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  ensureLiveAgentStorage,
+  resolveArtifactScopePaths,
+  resolveLiveAgentStorage,
+} from "@ableton-agent/storage";
 
 import { AgentCatalogService } from "./agent-catalog.js";
 
+const roots: string[] = [];
+
+async function temporaryRoot(): Promise<string> {
+  const root = await mkdtemp(join(process.cwd(), ".test-agent-catalog-"));
+  roots.push(root);
+  return root;
+}
+
+afterEach(async () => {
+  await Promise.all(
+    roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+  );
+});
+
 describe("desktop agent catalog", () => {
   it("loads renderer-safe definitions and refreshes changed files", async () => {
-    const root = await mkdtemp(join(tmpdir(), "ableton-agent-catalog-"));
+    const root = await temporaryRoot();
     const agentsDirectory = join(root, "agents");
     const skillsDirectory = join(root, "skills");
     await mkdir(agentsDirectory);
@@ -39,13 +57,196 @@ describe("desktop agent catalog", () => {
 
     expect((await service.refresh()).definitions[0]).toMatchObject({
       name: "default",
+      label: "Default",
       description: "First description.",
       resolvedTools: ["ableton_session_inspect"],
+      origin: "bundled",
+      inherited: false,
+      overrides: [],
       sourceFile: "default.yaml",
     });
     await writeDefinition("Updated description.");
     expect((await service.refresh()).definitions[0]?.description).toBe(
       "Updated description.",
     );
+  });
+
+  it("resolves a wildcard across Ableton, application, and SDK tools", async () => {
+    const root = await temporaryRoot();
+    const agentsDirectory = join(root, "agents");
+    const skillsDirectory = join(root, "skills");
+    await mkdir(agentsDirectory);
+    await mkdir(skillsDirectory);
+    await writeFile(
+      join(agentsDirectory, "default.yaml"),
+      [
+        "version: 1",
+        "name: default",
+        "description: General agent.",
+        "systemPrompt: Help with Ableton.",
+        "tools:",
+        '  - "*"',
+        "editScope:",
+        "  - session",
+        "skills: []",
+        "inputChannels: []",
+      ].join("\n"),
+    );
+    const service = new AgentCatalogService({
+      agentsDirectory,
+      skillsDirectory,
+      availableTools: [
+        "ableton_session_inspect",
+        "read_plan",
+        "ask_user",
+        "task",
+      ],
+    });
+
+    expect((await service.refresh()).definitions[0]?.resolvedTools).toEqual([
+      "ableton_session_inspect",
+      "ask_user",
+      "read_plan",
+      "task",
+    ]);
+  });
+
+  it("preserves layered origin metadata through the desktop catalog", async () => {
+    const root = await temporaryRoot();
+    const agentsDirectory = join(root, "bundled", "agents");
+    const skillsDirectory = join(root, "bundled", "skills");
+    await mkdir(agentsDirectory, { recursive: true });
+    await mkdir(skillsDirectory, { recursive: true });
+    const definition = [
+      "version: 1",
+      "name: default",
+      "description: General agent.",
+      "systemPrompt: Help with Ableton.",
+      "tools: [ableton_session_inspect]",
+      "editScope: [session]",
+      "skills: []",
+      "inputChannels: []",
+    ];
+    await writeFile(
+      join(agentsDirectory, "default.yaml"),
+      definition.join("\n"),
+    );
+    const storage = resolveLiveAgentStorage({
+      environment: { LIVE_AGENT_HOME: join(root, "storage") },
+    });
+    await ensureLiveAgentStorage(storage);
+    const ownership = {
+      liveSetId: "live-set-1",
+      liveProjectId: "live-project-1",
+      sessionId: "session-1",
+    };
+    const project = resolveArtifactScopePaths(storage, "project", {
+      liveProjectId: ownership.liveProjectId,
+    });
+    const session = resolveArtifactScopePaths(storage, "session", ownership);
+    await mkdir(project.agentsDirectory, { recursive: true });
+    await mkdir(project.skillsDirectory, { recursive: true });
+    await writeFile(
+      join(project.agentsDirectory, "default.yaml"),
+      definition
+        .map((line) =>
+          line === "description: General agent."
+            ? "description: Project agent."
+            : line,
+        )
+        .join("\n"),
+    );
+    await mkdir(session.agentsDirectory, { recursive: true });
+    await mkdir(session.skillsDirectory, { recursive: true });
+    await writeFile(
+      join(session.agentsDirectory, "default.yaml"),
+      definition
+        .map((line) =>
+          line === "description: General agent."
+            ? "description: Session agent."
+            : line,
+        )
+        .join("\n"),
+    );
+    const service = new AgentCatalogService({
+      agentsDirectory,
+      skillsDirectory,
+      availableTools: ["ableton_session_inspect"],
+      storage,
+      resolveSessionOwnership: async () => ownership,
+    });
+
+    const catalog = await service.refreshForSession("session-1");
+    expect(catalog.sessionId).toBe("session-1");
+    expect(catalog.definitions[0]).toMatchObject({
+      description: "Session agent.",
+      origin: "session",
+      inherited: false,
+      overrides: ["bundled", "project"],
+    });
+  });
+
+  it("resolves the latest scoped skill descriptor without replacing the catalog snapshot", async () => {
+    const root = await temporaryRoot();
+    const agentsDirectory = join(root, "bundled", "agents");
+    const skillsDirectory = join(root, "bundled", "skills");
+    await mkdir(agentsDirectory, { recursive: true });
+    await mkdir(join(skillsDirectory, "mix-review"), { recursive: true });
+    await writeFile(
+      join(skillsDirectory, "mix-review", "SKILL.md"),
+      "---\nname: mix-review\ndescription: Review the mix.\n---\n\nBundled body.",
+    );
+    const storage = resolveLiveAgentStorage({
+      environment: { LIVE_AGENT_HOME: join(root, "storage") },
+    });
+    await ensureLiveAgentStorage(storage);
+    const ownership = {
+      liveSetId: "live-set-1",
+      liveProjectId: "live-project-1",
+      sessionId: "session-1",
+    };
+    const project = resolveArtifactScopePaths(storage, "project", {
+      liveProjectId: ownership.liveProjectId,
+    });
+    await mkdir(join(project.skillsDirectory, "mix-review"), {
+      recursive: true,
+    });
+    const projectPath = join(project.skillsDirectory, "mix-review", "SKILL.md");
+    await writeFile(
+      projectPath,
+      "---\nname: mix-review\ndescription: Review the mix.\n---\n\nProject body.",
+    );
+    const session = resolveArtifactScopePaths(storage, "session", ownership);
+    await mkdir(join(session.skillsDirectory, "mix-review"), {
+      recursive: true,
+    });
+    const sessionPath = join(session.skillsDirectory, "mix-review", "SKILL.md");
+    await writeFile(
+      sessionPath,
+      "---\nname: mix-review\ndescription: Review the mix.\n---\n\nSession body.",
+    );
+    const service = new AgentCatalogService({
+      agentsDirectory,
+      skillsDirectory,
+      availableTools: [],
+      storage,
+      resolveSessionOwnership: async () => ownership,
+    });
+
+    await expect(
+      service.resolveRuntimeSkill("session-1", "mix-review"),
+    ).resolves.toMatchObject({
+      name: "mix-review",
+      sourcePath: sessionPath,
+    });
+    await rm(join(session.skillsDirectory, "mix-review"), {
+      recursive: true,
+    });
+    await expect(
+      service.resolveRuntimeSkill("session-1", "mix-review"),
+    ).resolves.toMatchObject({
+      name: "mix-review",
+      sourcePath: projectPath,
+    });
   });
 });

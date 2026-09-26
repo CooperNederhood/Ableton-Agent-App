@@ -34,11 +34,14 @@ describe("agent safety evaluations", () => {
     expect(BASE_SYSTEM_MESSAGE_VERSION).toBe(7);
     expect(BASE_SYSTEM_MESSAGE).toContain("<ableton-workflow>");
     expect(BASE_SYSTEM_MESSAGE).not.toContain("Active plan-mode reminder");
-    expect(PLAN_REMINDER_VERSION).toBe(1);
+    expect(PLAN_REMINDER_VERSION).toBe(2);
     expect(PLAN_REMINDER).toContain("# Active plan-mode reminder");
     expect(PLAN_REMINDER).toContain("call `exit_plan_mode`");
     expect(PLAN_REMINDER).toContain("real line breaks");
-    expect(PLAN_REMINDER).toContain("ask one concise clarification question");
+    expect(PLAN_REMINDER).toContain("call `ask_user` with a structured schema");
+    expect(PLAN_REMINDER).toContain(
+      "The shared `plan.md` is the only plan source of truth",
+    );
   });
 
   it("appends the plan reminder only to plan-mode turns", () => {
@@ -89,9 +92,11 @@ describe("agent safety evaluations", () => {
         state: "connected",
         liveVersion: "12.1",
         remoteScriptVersion: "0.4.0",
-        projectId: "project-1",
+        liveSetId: "set-1",
+        liveSetName: "Test Set",
+        saved: true,
       }),
-    ).toContain("Inspect the session before making project-specific claims");
+    ).toContain("Inspect the session before making Live Set-specific claims");
   });
 
   it("keeps unsupported Live 11 claims and routing safety out of plans", () => {

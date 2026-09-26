@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   appEventSchema,
   desktopActiveAgentSchema,
+  desktopAgentEventListenerSchema,
   desktopAgentModelSchema,
   ipcSchemas,
   MAX_AGENT_TRIGGER_HISTORY,
@@ -11,6 +12,35 @@ import {
 } from "./contracts";
 
 describe("desktop IPC contracts", () => {
+  it("uses Live Set identity for prepared context status", () => {
+    const listener = {
+      agentLabel: "Default",
+      listener: {
+        id: "event-listener.00000000-0000-4000-8000-000000000001",
+        eventId: "live-event.00000000-0000-4000-8000-000000000002",
+        enabled: true,
+        responseMode: "next-prompt",
+      },
+      preparedContextStatus: {
+        state: "fresh",
+        capturedAt: "2026-09-20T18:00:00.000Z",
+        liveSetId: "set-1",
+      },
+    };
+
+    expect(desktopAgentEventListenerSchema.parse(listener)).toEqual(listener);
+    expect(() =>
+      desktopAgentEventListenerSchema.parse({
+        ...listener,
+        preparedContextStatus: {
+          state: "fresh",
+          capturedAt: "2026-09-20T18:00:00.000Z",
+          projectId: "set-1",
+        },
+      }),
+    ).toThrow();
+  });
+
   it("rejects empty prompts", () => {
     expect(() =>
       ipcSchemas["agent:send"].request.parse({
@@ -18,6 +48,127 @@ describe("desktop IPC contracts", () => {
         context: [],
       }),
     ).toThrow();
+  });
+
+  it("defines a strict close-session request", () => {
+    expect(ipcSchemas["agent:close-session"].request.parse({})).toEqual({});
+    expect(() =>
+      ipcSchemas["agent:close-session"].request.parse({ unexpected: true }),
+    ).toThrow();
+  });
+
+  it("bounds profile and scoped artifact IPC", () => {
+    const revision = "a".repeat(64);
+    expect(
+      ipcSchemas["profiles:create"].request.parse({
+        name: "ambient",
+        expectedRevision: revision,
+      }),
+    ).toEqual({ name: "ambient", expectedRevision: revision });
+    expect(() =>
+      ipcSchemas["profiles:create"].request.parse({
+        name: "../ambient",
+        expectedRevision: revision,
+      }),
+    ).toThrow();
+    expect(
+      ipcSchemas["profiles:switch"].request.parse({
+        name: "ambient",
+        expectedRevision: revision,
+        closeActiveSession: true,
+      }),
+    ).toEqual({
+      name: "ambient",
+      expectedRevision: revision,
+      closeActiveSession: true,
+    });
+    expect(
+      ipcSchemas["profiles:copy-artifact"].request.parse({
+        kind: "skill",
+        name: "evolving-pads",
+        source: { scope: "bundled" },
+        destination: { scope: "profile", profile: "ambient" },
+        expectedRevision: revision,
+      }),
+    ).toMatchObject({
+      kind: "skill",
+      source: { scope: "bundled" },
+      destination: { scope: "profile", profile: "ambient" },
+    });
+  });
+
+  it("strictly validates plan artifacts and structured elicitation IPC", () => {
+    const instanceId = "00000000-0000-4000-8000-000000000001";
+    const revision = "a".repeat(64);
+    expect(
+      ipcSchemas["agents:write-plan"].request.parse({
+        instanceId,
+        content: "# Plan",
+        expectedRevision: revision,
+      }),
+    ).toEqual({
+      instanceId,
+      content: "# Plan",
+      expectedRevision: revision,
+    });
+    expect(() =>
+      ipcSchemas["agents:write-plan"].request.parse({
+        instanceId,
+        content: "# Plan",
+        expectedRevision: "stale",
+      }),
+    ).toThrow();
+    expect(
+      ipcSchemas["agents:resolve-elicitation"].request.parse({
+        instanceId,
+        requestId: "question-1",
+        action: "accept",
+        content: {
+          style: "compact",
+          stems: 4,
+          normalize: true,
+          groups: ["drums", "bass"],
+        },
+      }),
+    ).toMatchObject({
+      requestId: "question-1",
+      action: "accept",
+    });
+    expect(() =>
+      ipcSchemas["agents:resolve-elicitation"].request.parse({
+        instanceId,
+        requestId: "question-1",
+        action: "accept",
+        content: { nested: { unsafe: true } },
+      }),
+    ).toThrow();
+    expect(
+      appEventSchema.safeParse({
+        type: "agent.elicitation_requested",
+        agentInstanceId: instanceId,
+        request: {
+          requestId: "question-2",
+          message: "Choose the stems to export.",
+          properties: {
+            style: {
+              type: "string",
+              enum: ["compact", "extended"],
+              allowFreeform: true,
+              minLength: 1,
+              maxLength: 8_192,
+            },
+            stems: {
+              type: "array",
+              items: {
+                type: "string",
+                enum: ["drums", "bass", "keys"],
+              },
+            },
+          },
+          required: ["style", "stems"],
+        },
+      }).success,
+    ).toBe(true);
   });
 
   it("validates event boundaries", () => {
@@ -182,6 +333,8 @@ describe("desktop IPC contracts", () => {
     expect(preferences.eventHistoryEnabled).toBe(true);
     expect(preferences.eventHistoryRetentionDays).toBe(30);
     expect(preferences.eventHistoryMaxBytes).toBe(250 * 1024 * 1024);
+    expect(preferences.agentTurnTimeoutMinutes).toBe(10);
+    expect(preferences.agentReasoningVisibility).toBe("concise");
     expect(preferences.alwaysOnTop).toBe(false);
     expect(preferences).not.toHaveProperty("model");
     expect(preferences).not.toHaveProperty("reasoning");
@@ -241,18 +394,31 @@ describe("desktop IPC contracts", () => {
     expect(
       ipcSchemas["event-history:search"].request.parse({
         sources: ["runtime"],
+        liveSetId: "live-set-1",
+        liveProjectId: "live-project-1",
         limit: 50,
       }),
-    ).toMatchObject({ sources: ["runtime"], limit: 50, order: "desc" });
+    ).toMatchObject({
+      sources: ["runtime"],
+      liveSetId: "live-set-1",
+      liveProjectId: "live-project-1",
+      limit: 50,
+      order: "desc",
+    });
     expect(() =>
       ipcSchemas["event-history:search"].request.parse({
         limit: 501,
         secret: "no",
       }),
     ).toThrow();
+    expect(() =>
+      ipcSchemas["event-history:search"].request.parse({
+        projectId: "legacy-project",
+      }),
+    ).toThrow();
     expect(
       ipcSchemas["event-history:search"].response.safeParse({
-        version: 1,
+        version: 2,
         items: [
           {
             rootTraceId: traceId,
@@ -277,7 +443,7 @@ describe("desktop IPC contracts", () => {
     ).toBe(true);
     expect(
       ipcSchemas["event-history:trace"].response.safeParse({
-        version: 1,
+        version: 2,
         items: [],
         page: {
           limit: 50,
@@ -301,27 +467,82 @@ describe("desktop IPC contracts", () => {
     ).toBe("approve-all");
   });
 
+  it("bounds the configurable agent active-work timeout", () => {
+    expect(
+      preferencesSchema.parse({ agentTurnTimeoutMinutes: 45 })
+        .agentTurnTimeoutMinutes,
+    ).toBe(45);
+    expect(() =>
+      preferencesSchema.parse({ agentTurnTimeoutMinutes: 0 }),
+    ).toThrow();
+    expect(() =>
+      preferencesSchema.parse({ agentTurnTimeoutMinutes: 121 }),
+    ).toThrow();
+  });
+
+  it("validates the global agent reasoning visibility preference", () => {
+    expect(
+      preferencesSchema.parse({ agentReasoningVisibility: "detailed" })
+        .agentReasoningVisibility,
+    ).toBe("detailed");
+    expect(() =>
+      preferencesSchema.parse({ agentReasoningVisibility: "raw" }),
+    ).toThrow();
+  });
+
   it("requires the selected active agent to belong to the session", () => {
     expect(
       sessionSchema.safeParse({
-        version: 3,
+        version: 4,
         id: "production-session",
         title: "Production session",
+        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        projectName: "Set",
+        liveSetId: "live-set-1",
+        liveSetName: "Set",
         activeAgents: [],
         selectedAgentInstanceId: "00000000-0000-4000-8000-000000000001",
       }).success,
     ).toBe(false);
   });
 
+  it("requires a bounded ISO creation timestamp for schema-v4 sessions", () => {
+    const session = {
+      version: 4,
+      id: "app-session",
+      title: "App session",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      liveSetId: "live-set-1",
+      liveSetName: "Set",
+      activeAgents: [],
+    };
+
+    expect(
+      sessionSchema.safeParse({
+        ...session,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }).success,
+    ).toBe(true);
+    expect(sessionSchema.safeParse(session).success).toBe(false);
+    expect(
+      sessionSchema.safeParse({ ...session, createdAt: "not-a-timestamp" })
+        .success,
+    ).toBe(false);
+    expect(
+      sessionSchema.safeParse({ ...session, createdAt: "2".repeat(65) })
+        .success,
+    ).toBe(false);
+  });
+
   it("defaults old production-session auto approval off", () => {
     const session = sessionSchema.parse({
-      version: 3,
+      version: 4,
       id: "production-session",
       title: "Production session",
+      createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      projectName: "Set",
+      liveSetId: "live-set-1",
+      liveSetName: "Set",
       activeAgents: [
         {
           id: "00000000-0000-4000-8000-000000000001",
@@ -354,11 +575,13 @@ describe("desktop IPC contracts", () => {
     const eventId = "live-event.00000000-0000-4000-8000-000000000002";
     const listenerId = "event-listener.00000000-0000-4000-8000-000000000003";
     const session = sessionSchema.parse({
-      version: 3,
+      version: 4,
       id: "production-session",
       title: "Production session",
+      createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
-      projectName: "Set",
+      liveSetId: "live-set-1",
+      liveSetName: "Set",
       liveEvents: [
         {
           id: eventId,

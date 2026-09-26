@@ -179,15 +179,20 @@ export class LiveProcessController {
   async #waitForExit(pid, timeoutMs) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      try {
-        this.#kill(pid, 0);
-      } catch (error) {
-        if (error?.code === "ESRCH") return true;
-        throw error;
-      }
+      if (this.#processHasExited(pid)) return true;
       await this.#sleep(250);
     }
-    return false;
+    return this.#processHasExited(pid);
+  }
+
+  #processHasExited(pid) {
+    try {
+      this.#kill(pid, 0);
+      return false;
+    } catch (error) {
+      if (error?.code === "ESRCH") return true;
+      throw error;
+    }
   }
 }
 
@@ -396,7 +401,11 @@ export function runProcess(
     });
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
+      try {
+        child.kill("SIGTERM");
+      } catch (error) {
+        if (error?.code !== "ESRCH") reject(error);
+      }
     }, timeoutMs);
     child.once("error", (error) => {
       clearTimeout(timer);

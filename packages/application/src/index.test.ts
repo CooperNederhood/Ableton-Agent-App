@@ -16,6 +16,7 @@ import {
 import {
   CopilotAgentService,
   type CopilotAgentServiceOptions,
+  DEFAULT_AGENT_TURN_TIMEOUT_MS,
   HeadlessApplication,
   type AbletonService,
   type AgentRuntimeEvent,
@@ -564,14 +565,18 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
       selectedProtocolVersion: PROTOCOL_VERSION,
       liveVersion: "12.1",
       remoteScriptVersion: "0.2.0",
-      projectId: "project",
+      liveSetId: "set",
+      liveSetName: "Test Set",
+      saved: true,
+      diagnostics: [],
       capabilities: {},
       limits: { maxFrameBytes: 1024, maxBatchItems: 128 },
     })),
-    getProjectIdentity: vi.fn(async () => ({
-      projectId: "project",
-      projectName: "Test Set",
+    getLiveIdentity: vi.fn(async () => ({
+      liveSetId: "set",
+      liveSetName: "Test Set",
       saved: true,
+      diagnostics: [],
     })),
     ping: vi.fn(async () => ({ pong: true as const })),
     inspectSession: vi.fn(async () => ({
@@ -947,13 +952,15 @@ describe("HeadlessApplication", () => {
 
 describe("CopilotAgentService", () => {
   it("creates a restricted session and forwards a prompt", async () => {
+    vi.useFakeTimers();
+    expect(DEFAULT_AGENT_TURN_TIMEOUT_MS).toBe(600_000);
+    let turnTimeoutMs = 180_000;
+    let reasoningSummary: "concise" | "detailed" = "concise";
     let config: SessionConfig | undefined;
+    let resumedConfig: SessionConfig | undefined;
     const disconnect = vi.fn(() => Promise.resolve());
     const stop = vi.fn(() => Promise.resolve([]));
     const abort = vi.fn(() => Promise.resolve());
-    const sendAndWait = vi.fn(() =>
-      Promise.resolve({ data: { content: "Ableton is connected." } }),
-    );
     const requestToolApproval = vi.fn(() => Promise.resolve(true));
     const runtimeEvents: AgentRuntimeEvent[] = [];
     const jobId = "00000000-0000-4000-8000-000000000070";
@@ -985,20 +992,145 @@ describe("CopilotAgentService", () => {
     const appEvents: AppEvent[] = [];
     const events = new InMemoryEventPublisher();
     events.subscribe((event) => appEvents.push(event));
-    let listener: ((event: SessionEvent) => void) | undefined;
+    const listeners = new Set<(event: SessionEvent) => void>();
+    const emit = (event: SessionEvent): void => {
+      for (const listener of listeners) listener(event);
+    };
+    const send = vi.fn(
+      async (message: {
+        prompt: string;
+        agentMode?: "interactive" | "plan";
+      }) => {
+        if (message.prompt === "Check the connection") {
+          emit({
+            type: "assistant.turn_start",
+            id: "turn-start-1",
+            parentId: null,
+            timestamp: new Date().toISOString(),
+            data: { turnId: "turn-1", model: "claude-sonnet-4.6" },
+          });
+          emit({
+            type: "assistant.intent",
+            id: "intent-1",
+            parentId: "turn-start-1",
+            timestamp: new Date().toISOString(),
+            ephemeral: true,
+            data: { intent: "Inspecting the current connection" },
+          });
+          emit({
+            type: "assistant.reasoning_delta",
+            id: "reasoning-delta-1",
+            parentId: "intent-1",
+            timestamp: new Date().toISOString(),
+            ephemeral: true,
+            data: {
+              reasoningId: "reasoning-1",
+              deltaContent: "Checking the bridge ",
+            },
+          });
+          emit({
+            type: "assistant.streaming_delta",
+            id: "streaming-1",
+            parentId: "reasoning-delta-1",
+            timestamp: new Date().toISOString(),
+            ephemeral: true,
+            data: { totalResponseSizeBytes: 24 },
+          });
+          emit({
+            type: "assistant.message_delta",
+            id: "message-delta-1",
+            parentId: "streaming-1",
+            timestamp: new Date().toISOString(),
+            ephemeral: true,
+            data: {
+              messageId: "message-1",
+              deltaContent: "Ableton is connected.",
+            },
+          });
+          emit({
+            type: "assistant.reasoning",
+            id: "reasoning-1",
+            parentId: "message-delta-1",
+            timestamp: new Date().toISOString(),
+            data: {
+              reasoningId: "reasoning-1",
+              content: "Checked the bridge connection.",
+            },
+          });
+          emit({
+            type: "assistant.message",
+            id: "assistant-1",
+            parentId: null,
+            timestamp: new Date().toISOString(),
+            data: {
+              messageId: "message-1",
+              content: "Ableton is connected.",
+            },
+          });
+          emit({
+            type: "assistant.turn_end",
+            id: "turn-end-1",
+            parentId: "assistant-1",
+            timestamp: new Date().toISOString(),
+            data: { turnId: "turn-1", model: "claude-sonnet-4.6" },
+          });
+          emit({
+            type: "session.idle",
+            id: "idle-1",
+            parentId: null,
+            timestamp: new Date().toISOString(),
+            ephemeral: true,
+            data: { mode: "interactive" },
+          });
+        } else {
+          emit({
+            type: "tool.execution_start",
+            id: "mutation-start",
+            parentId: null,
+            timestamp: new Date().toISOString(),
+            data: {
+              toolCallId: "mutation-call",
+              toolName: "ableton_arrangement_fill_region",
+              arguments: { regionStart: 0, regionEnd: 32 },
+            },
+          });
+          emit({
+            type: "tool.execution_start",
+            id: "read-start",
+            parentId: null,
+            timestamp: new Date().toISOString(),
+            data: {
+              toolCallId: "read-call",
+              toolName: "ableton_arrangement_inspect",
+              arguments: {},
+            },
+          });
+        }
+        return `message-${send.mock.calls.length}`;
+      },
+    );
     const service = new CopilotAgentService({
       events,
+      currentIdentityContext: () => ({
+        liveSetId: "set",
+        liveProjectId: "project",
+        appSessionId: "app-session",
+      }),
       runtimeObserver: {
         enqueue: (event) => runtimeEvents.push(event),
       },
       model: "claude-sonnet-4.6",
       reasoningEffort: "high",
+      reasoningSummary: () => reasoningSummary,
+      turnTimeoutMs: () => turnTimeoutMs,
       getAbletonStatus: () =>
         Promise.resolve({
           state: "connected",
           liveVersion: "12.1",
           remoteScriptVersion: "0.1.0",
-          projectId: "project",
+          liveSetId: "set",
+          liveSetName: "Test Set",
+          saved: true,
         }),
       inspectSession: () =>
         Promise.resolve({
@@ -1254,52 +1386,41 @@ describe("CopilotAgentService", () => {
           config = received;
           return Promise.resolve({
             sessionId: "session-1",
-            sendAndWait,
+            send,
             abort,
             disconnect,
             on: (receivedListener) => {
-              listener = receivedListener;
-              return () => undefined;
+              listeners.add(receivedListener);
+              return () => listeners.delete(receivedListener);
             },
           });
         },
-        resumeSession: () => Promise.reject(new Error("not used")),
+        resumeSession: (_sessionId, received) => {
+          resumedConfig = received;
+          return Promise.resolve({
+            sessionId: "session-1",
+            send,
+            abort,
+            disconnect,
+            on: (receivedListener) => {
+              listeners.add(receivedListener);
+              return () => listeners.delete(receivedListener);
+            },
+          });
+        },
         stop,
       }),
     });
 
     await service.start();
     const response = await service.send("Check the connection");
-    sendAndWait.mockImplementationOnce(() => {
-      listener?.({
-        type: "tool.execution_start",
-        id: "mutation-start",
-        parentId: null,
-        timestamp: new Date().toISOString(),
-        data: {
-          toolCallId: "mutation-call",
-          toolName: "ableton_arrangement_fill_region",
-          arguments: { regionStart: 0, regionEnd: 32 },
-        },
-      });
-      listener?.({
-        type: "tool.execution_start",
-        id: "read-start",
-        parentId: null,
-        timestamp: new Date().toISOString(),
-        data: {
-          toolCallId: "read-call",
-          toolName: "ableton_arrangement_inspect",
-          arguments: {},
-        },
-      });
-      return Promise.reject(
-        new Error("Timeout after 180000ms waiting for session.idle"),
-      );
-    });
-    await expect(service.send("Take too long")).rejects.toMatchObject({
+    reasoningSummary = "detailed";
+    turnTimeoutMs = 250;
+    const timedOut = service.send("Take too long");
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(timedOut).rejects.toMatchObject({
       name: "AgentTurnTimeoutError",
-      timeoutMs: 180_000,
+      timeoutMs: 250,
     });
     type TestTool = {
       name: string;
@@ -1359,7 +1480,7 @@ describe("CopilotAgentService", () => {
       },
       { toolCallId: "rename-1" },
     );
-    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    await vi.advanceTimersByTimeAsync(10);
     expect(renameTrack).not.toHaveBeenCalled();
     expect(
       runtimeEvents.some(
@@ -1369,6 +1490,7 @@ describe("CopilotAgentService", () => {
       ),
     ).toBe(false);
     jobStatus = "completed";
+    await vi.advanceTimersByTimeAsync(50);
     await renamePromise;
     expect(renameTrack).toHaveBeenCalledOnce();
     expect(
@@ -1379,8 +1501,27 @@ describe("CopilotAgentService", () => {
       ),
     ).toBe(true);
     await service.stop();
+    vi.useRealTimers();
 
     expect(response).toBe("Ableton is connected.");
+    expect(config?.streaming).toBe(true);
+    expect(config?.reasoningSummary).toBe("concise");
+    expect(resumedConfig?.streaming).toBe(true);
+    expect(resumedConfig?.reasoningSummary).toBe("detailed");
+    expect(
+      appEvents
+        .filter((event) => event.type === "agent.working_update")
+        .map((event) => event.update.kind),
+    ).toEqual([
+      "started",
+      "intent",
+      "reasoning_delta",
+      "streaming",
+      "reasoning_complete",
+      "finished",
+      "started",
+      "finished",
+    ]);
     expect(config?.availableTools).toEqual([
       "custom:ableton_connection_status",
       "custom:ableton_session_inspect",
@@ -1440,9 +1581,13 @@ describe("CopilotAgentService", () => {
       "custom:ableton_special_devices",
       "custom:ableton_workflow_jobs",
       "custom:ableton_arrangement_fill_region",
+      "custom:set_sql_search",
+      "custom:read_plan",
+      "custom:write_plan",
+      "builtin:ask_user",
       "builtin:exit_plan_mode",
     ]);
-    expect(config?.tools).toHaveLength(58);
+    expect(config?.tools).toHaveLength(61);
     expect(config?.customAgents).toEqual([
       {
         name: "default-agent",
@@ -1450,68 +1595,7 @@ describe("CopilotAgentService", () => {
         description:
           "Primary Ableton Live production assistant for the current session.",
         prompt:
-          "Act as the general-purpose Ableton production agent for the current Live Set. Inspect when needed, then directly perform the user's requested supported edits with the available tools. Mutations are restricted by tool approval, edit scope, connection, and automatic-analysis policies. Follow the session system message and clearly report observed state, applied changes, and real limitations.",
-        tools: [
-          "ableton_connection_status",
-          "ableton_session_inspect",
-          "ableton_transport_set_tempo",
-          "ableton_transport_set_playing",
-          "ableton_transport_inspect_arrangement",
-          "ableton_transport_set_arrangement_loop",
-          "ableton_transport_create_cue_point",
-          "ableton_transport_delete_cue_point",
-          "ableton_tracks_create",
-          "ableton_tracks_rename",
-          "ableton_tracks_set_mixer",
-          "ableton_clips_create_midi",
-          "ableton_clips_replace_notes",
-          "ableton_clips_launch",
-          "ableton_clips_duplicate",
-          "ableton_clips_delete",
-          "ableton_clips_set_properties",
-          "ableton_arrangement_create_midi_clip",
-          "ableton_arrangement_inspect",
-          "ableton_arrangement_delete_clip",
-          "ableton_arrangement_replace_notes",
-          "ableton_arrangement_duplicate_clip",
-          "ableton_arrangement_set_clip_properties",
-          "ableton_devices_inspect",
-          "ableton_device_parameters_inspect",
-          "ableton_rack_chains_inspect",
-          "ableton_rack_chain_devices_inspect",
-          "ableton_drum_rack_pads_inspect",
-          "ableton_drum_pad_chains_inspect",
-          "ableton_drum_pad_chain_devices_inspect",
-          "ableton_device_set_enabled",
-          "ableton_device_set_parameter",
-          "ableton_browser_roots_inspect",
-          "ableton_browser_children_inspect",
-          "ableton_browser_search",
-          "ableton_browser_search_external_plugins",
-          "ableton_browser_load_item",
-          "ableton_rack_chain_mixer_inspect",
-          "ableton_device_find_position",
-          "ableton_device_move",
-          "ableton_rack_chain_set_properties",
-          "ableton_rack_chain_set_mixer",
-          "ableton_scenes",
-          "ableton_tracks",
-          "ableton_mixer_routing",
-          "ableton_transport",
-          "ableton_midi_notes",
-          "ableton_audio_clips",
-          "ableton_recording",
-          "ableton_grooves",
-          "ableton_selection_view",
-          "ableton_live_history",
-          "ableton_browser_adapters",
-          "ableton_clip_automation",
-          "ableton_warp_markers",
-          "ableton_special_devices",
-          "ableton_workflow_jobs",
-          "ableton_arrangement_fill_region",
-          "exit_plan_mode",
-        ],
+          "Act as the general-purpose Ableton production agent for the current Live Set. Inspect when needed, then directly perform the user's requested supported edits with the available tools. Mutations are restricted by tool approval, edit scope, connection, and automatic-analysis policies. Follow the session system message and clearly report observed state, applied changes, and real limitations.\n\nFor questions about prior Live Sets, saves, devices, clips, or agent trajectories, use set_sql_search against the local read-only Set History views. Treat it as historical evidence and inspect the current Live Set before acting.",
         infer: false,
       },
     ]);
@@ -1521,10 +1605,48 @@ describe("CopilotAgentService", () => {
     expect(config?.systemMessage?.content).toContain(
       "Ableton Live production assistant",
     );
+    expect(config?.systemMessage?.content).toContain(
+      '"type":"identity_initial"',
+    );
+    expect(config?.systemMessage?.content).toContain('"appSessionId":');
     expect(config?.systemMessage?.content).not.toContain(
       "Active plan-mode reminder",
     );
     expect(config?.onExitPlanModeRequest).toBeTypeOf("function");
+    expect(config?.askUserVariant).toBe("elicitation");
+    expect(config?.toolSearch).toEqual({ enabled: false });
+    expect(config?.onUserInputRequest).toBeTypeOf("function");
+    expect(config?.onElicitationRequest).toBeTypeOf("function");
+    expect(
+      config?.tools?.find(({ name }) => name === "read_plan"),
+    ).toMatchObject({ skipPermission: true, defer: "never" });
+    expect(
+      config?.tools?.find(({ name }) => name === "write_plan"),
+    ).toMatchObject({ skipPermission: true, defer: "never" });
+    await expect(
+      config?.onPermissionRequest?.(
+        {
+          kind: "custom-tool",
+          toolName: "write_plan",
+          toolDescription: "Write plan",
+          args: { content: "# Plan" },
+        },
+        { sessionId: "session" },
+      ),
+    ).resolves.toEqual({ kind: "approve-once" });
+    expect(requestToolApproval).not.toHaveBeenCalled();
+    expect(
+      config?.hooks?.onPreToolUse?.(
+        {
+          sessionId: "session",
+          timestamp: new Date(),
+          workingDirectory: "/tmp",
+          toolName: "write_plan",
+          toolArgs: { content: "# Plan" },
+        },
+        { sessionId: "session" },
+      ),
+    ).toBeUndefined();
     await expect(
       config?.onPermissionRequest?.(
         {
@@ -1562,16 +1684,10 @@ describe("CopilotAgentService", () => {
         { sessionId: "session" },
       ),
     ).toMatchObject({ permissionDecision: "deny" });
-    expect(sendAndWait).toHaveBeenCalledWith(
-      { prompt: "Check the connection" },
-      180_000,
-    );
-    expect(sendAndWait).toHaveBeenCalledWith(
-      { prompt: "Take too long" },
-      180_000,
-    );
+    expect(send).toHaveBeenCalledWith({ prompt: "Check the connection" });
+    expect(send).toHaveBeenCalledWith({ prompt: "Take too long" });
     expect(abort).toHaveBeenCalledOnce();
-    expect(disconnect).toHaveBeenCalledOnce();
+    expect(disconnect).toHaveBeenCalledTimes(2);
     expect(stop).toHaveBeenCalledOnce();
     const snapshot = runtimeEvents.find(
       (event) => event.type === "agent.session.configuration",
@@ -1896,8 +2012,7 @@ describe("CopilotAgentService", () => {
         createSession: () =>
           Promise.resolve({
             sessionId: "session-1",
-            sendAndWait: () =>
-              Promise.resolve({ data: { content: "complete" } }),
+            send: () => Promise.resolve("message-1"),
             abort: () => Promise.resolve(),
             disconnect: () => Promise.resolve(),
             on: (receivedListener) => {
@@ -2117,10 +2232,11 @@ describe("HeadlessApplication agent and connection ports", () => {
     );
     await application.resumeAgentSession("created-session");
     expect(resumeSession).toHaveBeenCalledWith("created-session");
-    await expect(application.getProjectIdentity()).resolves.toEqual({
-      projectId: "project",
-      projectName: "Test Set",
+    await expect(application.getLiveIdentity()).resolves.toEqual({
+      liveSetId: "set",
+      liveSetName: "Test Set",
       saved: true,
+      diagnostics: [],
     });
 
     await expect(application.connectAbleton()).resolves.toEqual({
@@ -2137,6 +2253,7 @@ describe("HeadlessApplication agent and connection ports", () => {
     const deps = services({ state: "disconnected" });
     const configuration: AgentSessionConfiguration = {
       instanceId: "agent-a",
+      productionSessionId: "production-test",
       definitionName: "compose",
       label: "Compose",
       description: "Compose MIDI phrases.",

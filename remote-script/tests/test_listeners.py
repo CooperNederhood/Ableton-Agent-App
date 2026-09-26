@@ -61,10 +61,10 @@ class ListenerManagerTests(unittest.TestCase):
         song.view.emit("selected_track")
 
         self.assertEqual(
-            [event for event in published if event[0] == "project.changed"],
+            [event for event in published if event[0] == "live_set.changed"],
             [
-                ("project.changed", {"reason": "tempo"}, 1),
-                ("project.changed", {"reason": "selection"}, 2),
+                ("live_set.changed", {"reason": "tempo"}, 1),
+                ("live_set.changed", {"reason": "selection"}, 2),
             ],
         )
         curated = [event for event in published if event[0] == "live_state.changed"]

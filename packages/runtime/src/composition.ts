@@ -17,6 +17,8 @@ import {
   unregisterCorrelationContext,
 } from "@ableton-agent/correlation";
 import {
+  type AgentHistoryRecord,
+  type AgentHistoryStore,
   telemetryIdSchema,
   telemetryEntityIdSchema,
   sanitizeTelemetryAttributes,
@@ -24,6 +26,7 @@ import {
   type NonBlockingObservabilityRecorder,
   type SanitizedAttributes,
 } from "@ableton-agent/observability";
+import type { LiveIdentity } from "@ableton-agent/protocol";
 import {
   recordSignalTelemetry,
   stableTelemetryId,
@@ -31,10 +34,14 @@ import {
 import {
   InMemoryEventPublisher,
   noopLogger,
+  type AgentReasoningSummary,
   type EventPublisher,
   type Logger,
 } from "@ableton-agent/shared";
-import type { ToolApprovalRequester } from "@ableton-agent/tools";
+import type {
+  SetHistoryQueryService,
+  ToolApprovalRequester,
+} from "@ableton-agent/tools";
 
 import {
   CONFIGURATION_MISSING_MESSAGE,
@@ -51,6 +58,12 @@ import {
   type LiveEventRuntime,
   type LiveEventRuntimeOptions,
 } from "./live-event-runtime.js";
+import {
+  DefaultLiveSetSaveRuntime,
+  type LiveSetSaveBridge,
+  type LiveSetSaveRuntime,
+  type LiveSetSaveRuntimeOptions,
+} from "./live-set-save-runtime.js";
 import { PreparedProjectContextStore } from "./prepared-context.js";
 
 export const DEFAULT_ABLETON_PORT = 8765;
@@ -58,7 +71,10 @@ export const TOKEN_ENVIRONMENT_VARIABLE = "ABLETON_AGENT_TOKEN";
 export const PORT_ENVIRONMENT_VARIABLE = "ABLETON_AGENT_PORT";
 export const MODEL_ENVIRONMENT_VARIABLE = "ABLETON_AGENT_MODEL";
 
-function runtimeEventAttributes(event: AgentRuntimeEvent): SanitizedAttributes {
+function runtimeEventAttributes(
+  event: AgentRuntimeEvent,
+  includeData = true,
+): SanitizedAttributes {
   return sanitizeTelemetryAttributes({
     runtimeEventType: event.type,
     ...(event.agentInstanceId === undefined
@@ -72,7 +88,7 @@ function runtimeEventAttributes(event: AgentRuntimeEvent): SanitizedAttributes {
           deliveryCount: event.trace.deliveryIds.length,
         }),
     ...(event.sessionId === undefined ? {} : { sdkSessionId: event.sessionId }),
-    data: event.data,
+    ...(includeData ? { data: event.data } : {}),
   });
 }
 
@@ -95,11 +111,34 @@ function normalizedEntityId(value: string | undefined): string | undefined {
 
 function createRuntimeObserver(
   recorder: NonBlockingObservabilityRecorder | undefined,
-  currentProjectId?: () => string | undefined,
+  agentHistory: Pick<AgentHistoryStore, "appendAgentHistory"> | undefined,
+  currentAppSessionId: (() => string | undefined) | undefined,
+  currentLiveSetId?: () => string | undefined,
+  currentLiveProjectId?: () => string | undefined,
+  logger: Logger = noopLogger,
 ): AgentRuntimeObserver | undefined {
-  if (recorder === undefined) return undefined;
+  if (recorder === undefined && agentHistory === undefined) return undefined;
   const toolNames = new Map<string, string>();
   const turnOrigins = new Map<string, string>();
+  const persistAgentHistory = (record: AgentHistoryRecord): void => {
+    if (agentHistory === undefined) return;
+    try {
+      const write = agentHistory.appendAgentHistory(record);
+      void write.catch((error) => {
+        logger.warn("Agent history projection failed", {
+          kind: record.kind,
+          id: record.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    } catch (error) {
+      logger.warn("Agent history projection failed", {
+        kind: record.kind,
+        id: record.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
   return {
     enqueue: (event) => {
       const upstreamTraceId = event.trace?.traceId;
@@ -175,29 +214,268 @@ function createRuntimeObserver(
         : isTurnEvent
           ? deliveryId
           : undefined;
-      const activeAgentId = normalizedEntityId(event.agentInstanceId);
+      const activeAgentId = normalizedEntityId(
+        event.agentInstanceId ?? "default-agent",
+      );
       const liveEventId =
         typeof event.data.eventId === "string" ? event.data.eventId : undefined;
       const outputId =
         tracedOrigin?.startsWith("output.") === true ? occurrenceId : undefined;
-      let providedProjectId: string | undefined;
+      let providedLiveSetId: string | undefined;
+      let providedLiveProjectId: string | undefined;
       try {
-        providedProjectId = currentProjectId?.();
+        providedLiveSetId = currentLiveSetId?.();
+        providedLiveProjectId = currentLiveProjectId?.();
       } catch {
-        // Project ownership enrichment must never disrupt agent event capture.
+        // Live ownership enrichment must never disrupt agent event capture.
       }
-      const projectId = normalizedEntityId(
+      const liveSetId = normalizedEntityId(
         typeof event.data.projectId === "string"
           ? event.data.projectId
-          : providedProjectId,
+          : providedLiveSetId,
       );
+      const liveProjectId = normalizedEntityId(providedLiveProjectId);
+      const appSessionId = normalizedEntityId(currentAppSessionId?.());
+      const projectable =
+        appSessionId !== undefined &&
+        sessionId !== undefined &&
+        activeAgentId !== undefined;
+      const historyBase = projectable
+        ? {
+            version: 1 as const,
+            appSessionId,
+            traceId,
+            ...(liveSetId === undefined ? {} : { liveSetId }),
+            ...(liveProjectId === undefined ? {} : { liveProjectId }),
+            ...(normalizedEntityId(correlationId) === undefined
+              ? {}
+              : { correlationId: normalizedEntityId(correlationId) }),
+            ...(normalizedEntityId(causationId) === undefined
+              ? {}
+              : { causationId: normalizedEntityId(causationId) }),
+          }
+        : undefined;
+      if (
+        historyBase !== undefined &&
+        sessionId !== undefined &&
+        activeAgentId !== undefined &&
+        event.type === "agent.session.configuration"
+      ) {
+        persistAgentHistory({
+          ...historyBase,
+          kind: "agent_session",
+          id: stableTelemetryId(`agent-session:${sessionId}:${activeAgentId}`),
+          agentSessionId: sessionId,
+          sdkSessionId: sessionId,
+          activeAgentId,
+          occurredAt: event.occurredAt,
+          status: "active",
+          metadata: sanitizeTelemetryAttributes(event.data),
+        });
+      }
+      const isTerminalTurn =
+        event.type === "agent.turn.completed" ||
+        event.type === "agent.turn.failed" ||
+        event.type === "agent.turn.cancelled" ||
+        event.type === "agent.turn.aborted";
+      if (
+        historyBase !== undefined &&
+        sessionId !== undefined &&
+        activeAgentId !== undefined &&
+        isTerminalTurn &&
+        turnId !== undefined
+      ) {
+        const prompt =
+          typeof event.data.prompt === "string" ? event.data.prompt : undefined;
+        const status =
+          event.type === "agent.turn.completed"
+            ? "completed"
+            : event.type === "agent.turn.failed"
+              ? "failed"
+              : "cancelled";
+        persistAgentHistory({
+          ...historyBase,
+          kind: "turn",
+          id: stableTelemetryId(`agent-turn:${sessionId}:${turnId}`),
+          agentSessionId: sessionId,
+          turnId,
+          activeAgentId,
+          occurredAt:
+            typeof event.data.queuedAt === "string"
+              ? event.data.queuedAt
+              : event.occurredAt,
+          completedAt: event.occurredAt,
+          status,
+          ...(prompt === undefined ? {} : { prompt }),
+          ...(duration === undefined ? {} : { durationMs: duration }),
+          metadata: sanitizeTelemetryAttributes({
+            origin: tracedOrigin,
+            kind: event.data.kind,
+            agentMode: event.data.agentMode,
+            error: event.data.error,
+          }),
+        });
+        if (prompt !== undefined) {
+          persistAgentHistory({
+            ...historyBase,
+            kind: "message",
+            id: stableTelemetryId(`agent-message:user:${sessionId}:${turnId}`),
+            agentSessionId: sessionId,
+            turnId,
+            activeAgentId,
+            occurredAt:
+              typeof event.data.queuedAt === "string"
+                ? event.data.queuedAt
+                : event.occurredAt,
+            role: "user",
+            content: prompt,
+            messageIndex: 0,
+            metadata: sanitizeTelemetryAttributes({
+              origin: tracedOrigin,
+              agentMode: event.data.agentMode,
+            }),
+          });
+        }
+      }
+      if (
+        historyBase !== undefined &&
+        sessionId !== undefined &&
+        activeAgentId !== undefined &&
+        event.type === "agent.assistant.final" &&
+        turnId !== undefined &&
+        typeof event.data.content === "string"
+      ) {
+        const sdkEventId =
+          typeof event.data.sdkEventId === "string"
+            ? event.data.sdkEventId
+            : undefined;
+        persistAgentHistory({
+          ...historyBase,
+          kind: "message",
+          id:
+            sdkEventId === undefined
+              ? stableTelemetryId(
+                  `agent-message:assistant:${sessionId}:${turnId}`,
+                )
+              : normalizedEntityId(sdkEventId)!,
+          agentSessionId: sessionId,
+          turnId,
+          activeAgentId,
+          occurredAt: event.occurredAt,
+          role: "assistant",
+          content: event.data.content,
+          messageIndex: 1,
+          metadata: sanitizeTelemetryAttributes({
+            messageId: event.data.messageId,
+            source: event.data.source,
+          }),
+        });
+      }
+      if (
+        historyBase !== undefined &&
+        sessionId !== undefined &&
+        activeAgentId !== undefined &&
+        (event.type === "agent.tool.completed" ||
+          event.type === "agent.tool.failed") &&
+        turnId !== undefined &&
+        toolCallId !== undefined &&
+        toolName !== undefined
+      ) {
+        const success = event.type === "agent.tool.completed";
+        persistAgentHistory({
+          ...historyBase,
+          kind: "tool_call",
+          id: stableTelemetryId(`agent-tool-call:${sessionId}:${toolCallId}`),
+          agentSessionId: sessionId,
+          turnId,
+          toolCallId,
+          activeAgentId,
+          occurredAt: event.occurredAt,
+          toolName,
+          status: success ? "completed" : "failed",
+          arguments: sanitizeTelemetryAttributes(
+            typeof event.data.arguments === "object" &&
+              event.data.arguments !== null &&
+              !Array.isArray(event.data.arguments)
+              ? (event.data.arguments as Readonly<Record<string, unknown>>)
+              : {},
+          ),
+          metadata: sanitizeTelemetryAttributes({
+            sdkEventId: event.data.sdkEventId,
+            parentSdkEventId: event.data.parentSdkEventId,
+          }),
+        });
+        persistAgentHistory({
+          ...historyBase,
+          kind: "tool_result",
+          id: stableTelemetryId(`agent-tool-result:${sessionId}:${toolCallId}`),
+          agentSessionId: sessionId,
+          turnId,
+          toolCallId,
+          activeAgentId,
+          occurredAt: event.occurredAt,
+          outcome: success ? "success" : "failure",
+          ...(duration === undefined ? {} : { durationMs: duration }),
+          ...(success
+            ? {
+                result: sanitizeTelemetryAttributes({
+                  result: event.data.result,
+                }),
+              }
+            : {
+                error:
+                  typeof event.data.error === "string"
+                    ? event.data.error
+                    : JSON.stringify(event.data.error ?? "Tool failed"),
+              }),
+          metadata: sanitizeTelemetryAttributes({
+            toolName,
+            structuredFailure: event.data.structuredFailure,
+          }),
+        });
+      }
+      if (
+        historyBase !== undefined &&
+        sessionId !== undefined &&
+        activeAgentId !== undefined &&
+        event.type === "agent.permission.completed"
+      ) {
+        const permissionId =
+          typeof event.data.permissionId === "string"
+            ? event.data.permissionId
+            : stableTelemetryId(
+                `agent-approval:${sessionId}:${turnId ?? event.occurredAt}`,
+              );
+        const decision =
+          typeof event.data.result === "object" &&
+          event.data.result !== null &&
+          "kind" in event.data.result &&
+          typeof event.data.result.kind === "string"
+            ? event.data.result.kind
+            : "approved";
+        persistAgentHistory({
+          ...historyBase,
+          kind: "approval",
+          id: normalizedEntityId(permissionId)!,
+          agentSessionId: sessionId,
+          ...(turnId === undefined ? {} : { turnId }),
+          ...(toolCallId === undefined ? {} : { toolCallId }),
+          activeAgentId,
+          occurredAt: event.occurredAt,
+          resolvedAt: event.occurredAt,
+          status: decision === "reject" ? "denied" : "approved",
+          summary: `Tool permission ${decision}`,
+          details: sanitizeTelemetryAttributes(event.data),
+        });
+      }
       if (event.type === "agent.tool.started" && toolCallId !== undefined) {
         registerCorrelationContext({
           correlationId: toolCallId,
           traceId,
           parentSpanId: spanId,
           ...(turnId === undefined ? {} : { causationId: turnId }),
-          ...(projectId === undefined ? {} : { projectId }),
+          ...(liveSetId === undefined ? {} : { liveSetId }),
+          ...(liveProjectId === undefined ? {} : { liveProjectId }),
           ...(sessionId === undefined ? {} : { sessionId }),
           ...(activeAgentId === undefined ? {} : { activeAgentId }),
           ...(liveEventId === undefined ? {} : { liveEventId }),
@@ -205,35 +483,45 @@ function createRuntimeObserver(
           ...(toolName === undefined ? {} : { toolName }),
         });
       }
-      recordSignalTelemetry(recorder, {
-        name: event.type,
-        source: "agent-runtime",
-        level:
-          outcome === "failure"
-            ? "error"
-            : event.type.endsWith(".delta") ||
-                event.type.endsWith(".progress") ||
-                event.type.endsWith(".partial")
-              ? "debug"
-              : "info",
-        ...(outcome === undefined ? {} : { outcome }),
-        ...(duration === undefined ? {} : { durationMs: duration }),
-        ...(correlationId === undefined ? {} : { correlationId }),
-        ...(causationId === undefined ? {} : { causationId }),
-        ...(projectId === undefined ? {} : { projectId }),
-        ...(sessionId === undefined ? {} : { sessionId }),
-        ...(activeAgentId === undefined ? {} : { activeAgentId }),
-        ...(liveEventId === undefined ? {} : { liveEventId }),
-        ...(outputId === undefined ? {} : { outputId }),
-        ...(toolName === undefined ? {} : { toolName }),
-        occurredAt: event.occurredAt,
-        trace: {
-          traceId,
-          spanId,
-          ...(parentSpanId === spanId ? {} : { parentSpanId }),
-        },
-        attributes: runtimeEventAttributes(event),
-      });
+      if (recorder !== undefined)
+        recordSignalTelemetry(recorder, {
+          name: event.type,
+          source: "agent-runtime",
+          level:
+            outcome === "failure"
+              ? "error"
+              : event.type.endsWith(".delta") ||
+                  event.type.endsWith(".progress") ||
+                  event.type.endsWith(".partial")
+                ? "debug"
+                : "info",
+          ...(outcome === undefined ? {} : { outcome }),
+          ...(duration === undefined ? {} : { durationMs: duration }),
+          ...(correlationId === undefined ? {} : { correlationId }),
+          ...(causationId === undefined ? {} : { causationId }),
+          ...(liveSetId === undefined ? {} : { liveSetId }),
+          ...(liveProjectId === undefined ? {} : { liveProjectId }),
+          ...(sessionId === undefined ? {} : { sessionId }),
+          ...(activeAgentId === undefined ? {} : { activeAgentId }),
+          ...(liveEventId === undefined ? {} : { liveEventId }),
+          ...(outputId === undefined ? {} : { outputId }),
+          ...(toolName === undefined ? {} : { toolName }),
+          occurredAt: event.occurredAt,
+          trace: {
+            traceId,
+            spanId,
+            ...(parentSpanId === spanId ? {} : { parentSpanId }),
+          },
+          attributes: runtimeEventAttributes(
+            event,
+            !(
+              event.type.startsWith("agent.turn.") ||
+              event.type === "agent.assistant.final" ||
+              event.type.startsWith("agent.tool.") ||
+              event.type.startsWith("agent.permission.")
+            ),
+          ),
+        });
       if (
         (event.type === "agent.tool.completed" ||
           event.type === "agent.tool.failed") &&
@@ -253,15 +541,17 @@ function createRuntimeObserver(
       }
       if (
         event.type === "agent.session.configuration" &&
+        recorder !== undefined &&
         recorder.enqueueConfigurationSnapshot !== undefined
       ) {
         const snapshot: ConfigurationSnapshot = {
-          version: 1,
+          version: 2,
           id: randomUUID(),
           capturedAt: event.occurredAt,
           component: "agent-runtime",
           configurationVersion: "runtime-observer-v1",
-          ...(projectId === undefined ? {} : { projectId }),
+          ...(liveSetId === undefined ? {} : { liveSetId }),
+          ...(liveProjectId === undefined ? {} : { liveProjectId }),
           ...(sessionId === undefined ? {} : { sessionId }),
           ...(activeAgentId === undefined ? {} : { activeAgentId }),
           values: runtimeEventAttributes(event),
@@ -292,10 +582,14 @@ export interface AbletonBridgeSettings {
 export interface AgentSettings {
   model?: string | undefined;
   reasoningEffort?: AgentReasoningEffort | undefined;
+  reasoningSummary?:
+    AgentReasoningSummary | (() => AgentReasoningSummary) | undefined;
   baseDirectory?: string | undefined;
-  turnTimeoutMs?: number | undefined;
+  resolvePlanArtifactPaths?: CopilotAgentServiceOptions["resolvePlanArtifactPaths"];
+  turnTimeoutMs?: number | (() => number) | undefined;
   /** Replaces the Copilot client; used by tests and fakes. */
   clientFactory?: CopilotAgentServiceOptions["clientFactory"];
+  resolveSkill?: CopilotAgentServiceOptions["resolveSkill"];
 }
 
 export interface AgentRuntimeOptions {
@@ -305,14 +599,23 @@ export interface AgentRuntimeOptions {
   logger?: Logger;
   requestToolApproval?: ToolApprovalRequester;
   askForReadApproval?: boolean | (() => boolean);
+  /** Read-only, application-owned query boundary for local Set History. */
+  setHistoryQuery?: SetHistoryQueryService;
+  /** Searchable application-owned projection of SDK agent history. */
+  agentHistory?: Pick<AgentHistoryStore, "appendAgentHistory">;
+  /** Synchronous active App-session attribution for agent history records. */
+  currentAppSessionId?: () => string | undefined;
   /** Replaces the bridge, used by tests and fakes. */
   abletonService?: AbletonService;
   signal?: SignalRuntimeOptions;
   liveEvents?: Omit<LiveEventRuntimeOptions, "bridge" | "logger">;
+  liveSetSaves?: Omit<LiveSetSaveRuntimeOptions, "bridge" | "logger">;
   /** Non-blocking observability sink shared by bridge and event runtimes. */
   telemetry?: NonBlockingObservabilityRecorder;
-  /** Synchronous cached project identity; must not inspect Live on invocation. */
-  currentProjectId?: () => string | undefined;
+  /** Synchronous cached Live Set identity; must not inspect Live on invocation. */
+  currentLiveSetId?: () => string | undefined;
+  /** Optional synchronous Live Project grouping for the current Live Set. */
+  currentLiveProjectId?: () => string | undefined;
 }
 
 export interface AgentRuntime {
@@ -325,6 +628,7 @@ export interface AgentRuntime {
   abletonConfigured: boolean;
   signals: SignalRuntime;
   liveEvents: LiveEventRuntime;
+  liveSetSaves: LiveSetSaveRuntime;
   preparedContext: PreparedProjectContextStore;
 }
 
@@ -335,6 +639,7 @@ class RuntimeAwareHeadlessApplication extends HeadlessApplication {
     services: ConstructorParameters<typeof HeadlessApplication>[0],
     private readonly signals: SignalRuntime,
     private readonly liveEvents: LiveEventRuntime,
+    private readonly liveSetSaves: LiveSetSaveRuntime,
     private readonly preparedContext: PreparedProjectContextStore,
   ) {
     super(services);
@@ -357,6 +662,7 @@ class RuntimeAwareHeadlessApplication extends HeadlessApplication {
       await super.start(options);
       await this.preparedContext.warm();
       await this.liveEvents.start();
+      this.liveSetSaves.start();
       await this.#syncSignals();
     } catch (error) {
       this.preparedContext.stop();
@@ -366,6 +672,7 @@ class RuntimeAwareHeadlessApplication extends HeadlessApplication {
 
   public override async stop(): Promise<void> {
     try {
+      await this.liveSetSaves.stop();
       await this.liveEvents.stop();
       await super.stop();
     } finally {
@@ -434,13 +741,47 @@ function isLiveEventBridge(
   );
 }
 
-function isCurrentProjectProvider(
+function isCurrentLiveSetProvider(
   value: AbletonService,
-): value is AbletonService & { getCurrentProjectId(): string | undefined } {
+): value is AbletonService & { getCurrentLiveSetId(): string | undefined } {
   return (
-    typeof (value as Partial<{ getCurrentProjectId(): string | undefined }>)
-      .getCurrentProjectId === "function"
+    typeof (value as Partial<{ getCurrentLiveSetId(): string | undefined }>)
+      .getCurrentLiveSetId === "function"
   );
+}
+
+function isCurrentLiveIdentityProvider(
+  value: AbletonService,
+): value is AbletonService & {
+  getCurrentLiveIdentity(): LiveIdentity | undefined;
+} {
+  return (
+    typeof (
+      value as Partial<{
+        getCurrentLiveIdentity(): LiveIdentity | undefined;
+      }>
+    ).getCurrentLiveIdentity === "function"
+  );
+}
+
+function isLiveSetSaveBridge(
+  value: AbletonService,
+): value is AbletonService & LiveSetSaveBridge {
+  return (
+    typeof (
+      value as Partial<{
+        subscribeLiveSetSaves(
+          listener: Parameters<LiveSetSaveBridge["subscribeLiveSetSaves"]>[0],
+        ): () => void;
+      }>
+    ).subscribeLiveSetSaves === "function"
+  );
+}
+
+class UnavailableLiveSetSaveBridge implements LiveSetSaveBridge {
+  public subscribeLiveSetSaves(): () => void {
+    return () => undefined;
+  }
 }
 
 function isProjectRevisionProvider(
@@ -552,7 +893,8 @@ export function createAbletonService(
         events,
         port: settings.port,
         eventSubscriptions: [
-          "project.changed",
+          "live_set.changed",
+          "live_set.save_observed",
           "live_event.occurred",
           "live_event.invalidated",
           "live_state.changed",
@@ -598,12 +940,34 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     ? { ableton: options.abletonService, configured: true }
     : createAbletonService(options.ableton, events, logger, options.telemetry);
   const agentSettings = options.agent ?? {};
+  const currentIdentityContext = () => {
+    const bridgeIdentity = isCurrentLiveIdentityProvider(ableton)
+      ? ableton.getCurrentLiveIdentity()
+      : undefined;
+    const liveSetId =
+      bridgeIdentity?.liveSetId ??
+      options.currentLiveSetId?.() ??
+      (isCurrentLiveSetProvider(ableton)
+        ? ableton.getCurrentLiveSetId()
+        : undefined);
+    if (liveSetId === undefined) return undefined;
+    const liveProjectId =
+      bridgeIdentity?.liveProjectId ?? options.currentLiveProjectId?.();
+    return {
+      liveSetId,
+      ...(liveProjectId === undefined ? {} : { liveProjectId }),
+    };
+  };
   const runtimeObserver = createRuntimeObserver(
     options.telemetry,
-    options.currentProjectId ??
-      (isCurrentProjectProvider(ableton)
-        ? () => ableton.getCurrentProjectId()
+    options.agentHistory,
+    options.currentAppSessionId,
+    options.currentLiveSetId ??
+      (isCurrentLiveSetProvider(ableton)
+        ? () => ableton.getCurrentLiveSetId()
         : undefined),
+    options.currentLiveProjectId,
+    logger,
   );
   const signalSecret = options.signal?.secret ?? options.ableton.token;
   const signals = new DefaultSignalRuntime({
@@ -637,23 +1001,45 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       ? {}
       : { telemetry: options.telemetry }),
   });
+  const liveSetSaves = new DefaultLiveSetSaveRuntime({
+    ...(options.liveSetSaves ?? {}),
+    bridge: isLiveSetSaveBridge(ableton)
+      ? ableton
+      : new UnavailableLiveSetSaveBridge(),
+    logger,
+    ...(options.telemetry === undefined
+      ? {}
+      : { telemetry: options.telemetry }),
+  });
   const agent = new CopilotAgentService({
     events,
+    ...(options.setHistoryQuery === undefined
+      ? {}
+      : { setHistoryQuery: options.setHistoryQuery }),
     ...(agentSettings.model === undefined
       ? {}
       : { model: agentSettings.model }),
     ...(agentSettings.reasoningEffort === undefined
       ? {}
       : { reasoningEffort: agentSettings.reasoningEffort }),
+    ...(agentSettings.reasoningSummary === undefined
+      ? {}
+      : { reasoningSummary: agentSettings.reasoningSummary }),
     ...(agentSettings.baseDirectory === undefined
       ? {}
       : { baseDirectory: agentSettings.baseDirectory }),
+    ...(agentSettings.resolvePlanArtifactPaths === undefined
+      ? {}
+      : { resolvePlanArtifactPaths: agentSettings.resolvePlanArtifactPaths }),
     ...(agentSettings.clientFactory === undefined
       ? {}
       : { clientFactory: agentSettings.clientFactory }),
     ...(agentSettings.turnTimeoutMs === undefined
       ? {}
       : { turnTimeoutMs: agentSettings.turnTimeoutMs }),
+    ...(agentSettings.resolveSkill === undefined
+      ? {}
+      : { resolveSkill: agentSettings.resolveSkill }),
     ...(options.requestToolApproval === undefined
       ? {}
       : { requestToolApproval: options.requestToolApproval }),
@@ -689,6 +1075,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     executeWorkflowJobOperation: (params) =>
       ableton.executeWorkflowJobOperation!(params),
     preparedContextProvider: preparedContext,
+    currentIdentityContext,
     setTempo: (tempo) => ableton.setTempo(tempo),
     setPlaying: (isPlaying) => ableton.setPlaying(isPlaying),
     inspectArrangementTransport: (params) =>
@@ -753,6 +1140,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     },
     signals,
     liveEvents,
+    liveSetSaves,
     preparedContext,
   );
   signals.setDeliveryService(application);
@@ -766,6 +1154,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     abletonConfigured: configured,
     signals,
     liveEvents,
+    liveSetSaves,
     preparedContext,
   };
 }

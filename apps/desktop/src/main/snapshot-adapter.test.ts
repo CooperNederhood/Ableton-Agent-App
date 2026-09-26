@@ -4,34 +4,66 @@ import { describe, expect, it } from "vitest";
 import { composeAgentPrompt } from "./prompt.js";
 import {
   colorFromLiveValue,
-  projectLabel,
+  liveSetLabel,
   toDesktopCapabilities,
   toDesktopSnapshot,
 } from "./snapshot-adapter.js";
 
-describe("project snapshot adapter", () => {
+describe("Live Set snapshot adapter", () => {
   it("maps session tracks, clips, and devices without inventing data", () => {
     const state = defaultFakeState();
     const track = state.snapshot.tracks[0];
     if (!track) throw new Error("fixture must contain a track");
 
-    const snapshot = toDesktopSnapshot(state.snapshot, state.status, [
+    const snapshot = toDesktopSnapshot(
+      state.snapshot,
+      state.status,
+      [
+        {
+          trackReference: track.reference,
+          devices: (state.devicesByTrackReference[track.reference] ?? []).map(
+            (device) => ({
+              device: device.summary,
+              parameters: device.parameters,
+            }),
+          ),
+        },
+      ],
       {
-        trackReference: track.reference,
-        devices: (state.devicesByTrackReference[track.reference] ?? []).map(
-          (device) => ({
-            device: device.summary,
-            parameters: device.parameters,
-          }),
-        ),
+        source: "manual",
+        capturedAt: "2026-09-20T20:00:00.000Z",
+        capabilities: ["arrangement.inspect", "session.inspect"],
+        arrangementLoop: { enabled: true, start: 8, length: 16 },
+        arrangementClips: [
+          {
+            reference: "00000000-0000-4000-8000-000000000090",
+            trackReference: track.reference,
+            trackIndex: 0,
+            name: "Bass Arrangement",
+            kind: "midi",
+            startTime: 8,
+            endTime: 24,
+            length: 16,
+            noteCount: 12,
+          },
+        ],
+        cuePoints: [
+          {
+            reference: "00000000-0000-4000-8000-000000000091",
+            name: "Drop",
+            time: 32,
+          },
+        ],
       },
-    ]);
+    );
 
     expect(snapshot).toMatchObject({
-      id: "project-fake",
-      name: "Live set project-fake",
+      liveSetId: "set-fake",
+      liveSetName: "Fake Set",
       tempo: 122,
       timeSignature: "4/4",
+      source: "manual",
+      capabilities: ["arrangement.inspect", "session.inspect"],
     });
     expect(snapshot.tracks[0]).toMatchObject({
       id: track.reference,
@@ -59,6 +91,28 @@ describe("project snapshot adapter", () => {
         }),
       ],
     });
+    expect(snapshot.scenes).toEqual([
+      { id: "scene:2", index: 2, derived: true },
+    ]);
+    expect(snapshot.sessionClips?.[0]).toMatchObject({
+      trackId: track.reference,
+      sceneIndex: 2,
+      kind: "midi",
+    });
+    expect(snapshot.arrangementClips?.[0]).toMatchObject({
+      name: "Bass Arrangement",
+      startTime: 8,
+      endTime: 24,
+    });
+    expect(snapshot.cuePoints?.[0]).toMatchObject({ name: "Drop", time: 32 });
+    expect(snapshot.devices?.[0]).toMatchObject({
+      name: "Wavetable",
+      trackId: track.reference,
+    });
+    expect(snapshot.completeness?.unsupportedDomains).toEqual([
+      "track_groups",
+      "track_routing",
+    ]);
   });
 
   it("omits devices for tracks whose devices were not read", () => {
@@ -69,12 +123,37 @@ describe("project snapshot adapter", () => {
     expect(snapshot.tracks[0]?.devices).toEqual([]);
   });
 
-  it("labels the project only by the identity Live reported", () => {
-    expect(projectLabel({ state: "disconnected" })).toBe(
+  it("labels the Live Set only by the identity Live reported", () => {
+    expect(liveSetLabel({ state: "disconnected" })).toBe(
       "No connected Live set",
     );
     expect(colorFromLiveValue(null)).toBe("#8a8f98");
     expect(colorFromLiveValue(0x00_00_ff)).toBe("#0000ff");
+  });
+
+  it("rejects snapshots without a connected Live Set identity", () => {
+    const state = defaultFakeState();
+
+    expect(() =>
+      toDesktopSnapshot(state.snapshot, { state: "disconnected" }),
+    ).toThrow("without a connected Live Set");
+    expect(() =>
+      toDesktopSnapshot(state.snapshot, {
+        state: "connected",
+        liveVersion: "11.3.42",
+        remoteScriptVersion: "1.0.0",
+        saved: true,
+      } as never),
+    ).toThrow();
+    expect(() =>
+      toDesktopSnapshot(state.snapshot, {
+        state: "connected",
+        liveVersion: "11.3.42",
+        remoteScriptVersion: "1.0.0",
+        liveSetId: "set-1",
+        saved: true,
+      } as never),
+    ).toThrow();
   });
 
   it("lists only capabilities the Remote Script enables", () => {

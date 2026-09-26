@@ -27,7 +27,7 @@ import {
   parameterDraftFromSelection,
   parameterDraftFromSnapshot,
   ProjectOutline,
-  ProjectTransitionModal,
+  LiveSetTransitionModal,
   ResolvedToolsDisclosure,
   refreshOutputs,
   refreshProjectSnapshot,
@@ -130,11 +130,13 @@ describe("desktop components", () => {
     activeSessionId: "session",
     sessions: [
       {
-        version: 3 as const,
+        version: 4 as const,
         id: "session",
         title: "Session",
+        createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString(),
-        projectName: "Project",
+        liveSetId: "live-set-1",
+        liveSetName: "Project",
         productionPlan: [],
         outputAssignments: [],
         liveEvents: [],
@@ -167,12 +169,12 @@ describe("desktop components", () => {
   it("renders the required choices for an unassociated Live Set transition", () => {
     const state: DesktopState = {
       ...workspaceState(),
-      pendingProjectTransition: {
+      pendingLiveSetTransition: {
         token: "00000000-0000-4000-8000-000000000099",
         kind: "unassociated",
-        project: {
-          projectId: "project-b",
-          projectName: "Project B",
+        liveSet: {
+          liveSetId: "project-b",
+          liveSetName: "Project B",
           saved: true,
         },
         currentSessionId: "session-a",
@@ -180,7 +182,7 @@ describe("desktop components", () => {
       },
     };
     const html = renderToStaticMarkup(
-      <ProjectTransitionModal state={state} dispatch={vi.fn()} />,
+      <LiveSetTransitionModal state={state} dispatch={vi.fn()} />,
     );
 
     expect(html).toContain('role="dialog"');
@@ -271,6 +273,42 @@ describe("desktop components", () => {
     expect(html).toContain('<span class="sr-only">Assistant:</span>');
   });
 
+  it("renders a live Working disclosure with a concise reasoning summary", () => {
+    const html = renderToStaticMarkup(
+      <Timeline
+        state={{
+          ...initialState,
+          messages: [
+            {
+              id: "assistant-working",
+              role: "assistant",
+              content: "",
+              streaming: false,
+              timestamp: 1,
+              working: {
+                activityId: "00000000-0000-4000-8000-000000000021",
+                status: "running",
+                intent: "Inspecting the arrangement",
+                summary: "Checking the available clips.",
+                reasoningId: "reasoning-1",
+                responseStarted: true,
+                startedAt: 1,
+                updatedAt: 2,
+              },
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(html).toContain("working-disclosure working-running");
+    expect(html).toContain("<summary>");
+    expect(html).toContain("Inspecting the arrangement");
+    expect(html).toContain("Checking the available clips.");
+    expect(html).toContain('open=""');
+    expect(html).not.toContain("Streaming…");
+  });
+
   it("renders context chips as explicit removal controls", () => {
     const html = renderToStaticMarkup(
       <Composer
@@ -301,11 +339,13 @@ describe("desktop components", () => {
           activeSessionId: "production-session",
           sessions: [
             {
-              version: 3,
+              version: 4,
               id: "production-session",
               title: "Session",
+              createdAt: new Date(0).toISOString(),
               updatedAt: new Date(0).toISOString(),
-              projectName: "Project",
+              liveSetId: "live-set-1",
+              liveSetName: "Project",
               productionPlan: [],
               outputAssignments: [],
               liveEvents: [],
@@ -501,6 +541,38 @@ describe("desktop components", () => {
     expect(html).toContain("Unknown skill");
   });
 
+  it("renders compact mode and semantic composer actions", () => {
+    const state = workspaceState(firstAgentId);
+    const idle = renderToStaticMarkup(
+      <Composer
+        state={state}
+        value="Create a bass line"
+        busy={false}
+        composerRef={{ current: null }}
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        dispatch={vi.fn()}
+      />,
+    );
+    state.sessions[0]!.activeAgents[0]!.lifecycle = "busy";
+    const busy = renderToStaticMarkup(
+      <Composer
+        state={state}
+        value=""
+        busy
+        composerRef={{ current: null }}
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        dispatch={vi.fn()}
+      />,
+    );
+
+    expect(idle).toContain('class="composer-mode-button interactive"');
+    expect(idle).toContain('aria-label="Send message"');
+    expect(idle).not.toContain("Send <kbd>");
+    expect(busy).toContain('aria-label="Stop agent"');
+  });
+
   it("supports keyboard completion navigation and selection", () => {
     expect(slashCompletionKey("ArrowDown", 0, 2)).toBe(1);
     expect(slashCompletionKey("ArrowDown", 1, 2)).toBe(0);
@@ -510,7 +582,7 @@ describe("desktop components", () => {
     expect(slashCompletionKey("Enter", 0, 0)).toBeUndefined();
   });
 
-  it("shows labeled active-agent instances", () => {
+  it("shows labeled active-agent instances without redundant model status", () => {
     const state = workspaceState();
     state.sessions[0]!.activeAgents[0]!.model = "model-a";
     state.sessions[0]!.activeAgents[0]!.reasoningEffort = "high";
@@ -524,8 +596,8 @@ describe("desktop components", () => {
     expect(header).toContain('aria-label="Active Agent"');
     expect(header).toContain("Default");
     expect(header).toContain("Default 2");
-    expect(header).toContain("model-a · high");
-    expect(workspace).toContain("Default · ready");
+    expect(header).not.toContain("model-a · high");
+    expect(workspace).not.toContain("Default · ready");
   });
 
   it("renders independent accessible workspace sidebar controls", () => {
@@ -555,7 +627,8 @@ describe("desktop components", () => {
     expect(hidden).toContain('aria-label="Show project sidebar"');
     expect(hidden).toContain('aria-label="Show inspector sidebar"');
     expect(hidden).not.toContain('aria-label="Project outline"');
-    expect(hidden).not.toContain('aria-label="Selection inspector"');
+    expect(hidden).toContain('aria-label="Inspector workspace"');
+    expect(hidden).toContain("hidden");
   });
 
   it("renders pointer resize handles and session widths only when sidebars are visible", () => {
@@ -631,6 +704,17 @@ describe("desktop components", () => {
         otherSidebarVisible: true,
       }),
     ).toBe(330);
+    expect(
+      resizedSidebarWidth({
+        side: "right",
+        startWidth: 290,
+        startClientX: 1_150,
+        clientX: 0,
+        workspaceWidth: 1_440,
+        otherSidebarWidth: 250,
+        otherSidebarVisible: true,
+      }),
+    ).toBe(870);
   });
 
   it("renders a compact top-chrome control when requested", () => {
@@ -854,10 +938,17 @@ describe("desktop components", () => {
     );
   });
 
-  it("labels plan-mode user messages without relying on color", () => {
+  it("normalizes user-message modes and labels plan messages", () => {
     const state = workspaceState(firstAgentId);
     state.agentWorkspaces[firstAgentId] = {
       messages: [
+        {
+          id: "interactive-message",
+          role: "user",
+          content: "Inspect the set",
+          streaming: false,
+          timestamp: 0,
+        },
         {
           id: "plan-message",
           role: "user",
@@ -873,8 +964,10 @@ describe("desktop components", () => {
 
     const html = renderToStaticMarkup(<Timeline state={state} />);
 
+    expect(html).toContain('data-agent-mode="interactive"');
     expect(html).toContain('data-agent-mode="plan"');
     expect(html).toContain('class="message-mode">plan</small>');
+    expect(html).toContain("Inspect the set");
     expect(html).toContain("Draft a plan");
   });
 
@@ -884,12 +977,13 @@ describe("desktop components", () => {
       messages: [],
       operations: [],
       triggers: [],
-      planApproval: {
-        requestId: "plan-1",
-        summary: "Arrangement plan",
-        planContent: "# Plan\n\nBuild an intro.",
-        recommendedAction: "interactive",
-        actions: ["interactive", "exit_only"],
+      planArtifact: {
+        exists: true,
+        productionSessionId: "session-1",
+        content: "# Plan\n\nBuild an intro.",
+        revision: "a".repeat(64),
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        bytes: 31,
       },
     };
 
@@ -897,12 +991,10 @@ describe("desktop components", () => {
       <Inspector state={state} dispatch={vi.fn()} />,
     );
 
-    expect(html).toContain("Plan ready");
-    expect(html).toContain("Arrangement plan");
+    expect(html).toContain('aria-label="Plan"');
+    expect(html).toContain('aria-label="Plan inspector"');
     expect(html).toContain("Build an intro.");
-    expect(html).toContain("Approve and continue");
-    expect(html).toContain("Request changes");
-    expect(html).toContain("Exit plan mode");
+    expect(html).not.toContain("Approve and continue");
   });
 
   it("renders structured plans and conservatively formats compact plan lists", () => {
@@ -911,13 +1003,14 @@ describe("desktop components", () => {
       messages: [],
       operations: [],
       triggers: [],
-      planApproval: {
-        requestId: "plan-structured",
-        summary: "Structured arrangement plan",
-        planContent:
+      planArtifact: {
+        exists: true,
+        productionSessionId: "session-1",
+        content:
           "# Arrangement\n\n## Intro\n\n- Kick\n- Hats\n\n1. Build\n2. Verify\n\n| Bars | Role |\n| --- | --- |\n| 1-16 | Intro |",
-        recommendedAction: "interactive",
-        actions: ["interactive"],
+        revision: "a".repeat(64),
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        bytes: 128,
       },
     };
     const structuredHtml = renderToStaticMarkup(
@@ -928,12 +1021,13 @@ describe("desktop components", () => {
       messages: [],
       operations: [],
       triggers: [],
-      planApproval: {
-        requestId: "plan-malformed",
-        summary: "Malformed arrangement plan",
-        planContent: "Plan: - Kick - Hats",
-        recommendedAction: "exit_only",
-        actions: ["exit_only"],
+      planArtifact: {
+        exists: true,
+        productionSessionId: "session-1",
+        content: "Plan: - Kick - Hats",
+        revision: "a".repeat(64),
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        bytes: 19,
       },
     };
 
@@ -947,12 +1041,13 @@ describe("desktop components", () => {
       messages: [],
       operations: [],
       triggers: [],
-      planApproval: {
-        requestId: "plan-compact",
-        summary: "Compact arrangement plan",
-        planContent: compactPlan,
-        recommendedAction: "interactive",
-        actions: ["interactive"],
+      planArtifact: {
+        exists: true,
+        productionSessionId: "session-1",
+        content: compactPlan,
+        revision: "a".repeat(64),
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        bytes: compactPlan.length,
       },
     };
     const compactHtml = renderToStaticMarkup(
@@ -971,7 +1066,9 @@ describe("desktop components", () => {
     expect(compactHtml).toContain("<li><strong>Build:</strong> add hats</li>");
     expect(compactHtml).toContain("<h2>Implementation:</h2>");
     expect(
-      compact.agentWorkspaces[firstAgentId]?.planApproval?.planContent,
+      compact.agentWorkspaces[firstAgentId]?.planArtifact?.exists
+        ? compact.agentWorkspaces[firstAgentId]?.planArtifact.content
+        : undefined,
     ).toBe(compactPlan);
     expect(
       formatPlanMarkdownForDisplay(
@@ -1188,6 +1285,13 @@ describe("desktop components", () => {
             checks: [
               { label: "Bridge", status: "warn", detail: "Not connected" },
             ],
+            storage: {
+              version: 1,
+              root: "/home/test/.live-agent",
+              profile: "development",
+              profileRoot: "/home/test/.live-agent/profiles/development",
+              migrationStatus: "completed",
+            },
             logging: {
               level: "debug",
               fileName: "desktop-development.log",
@@ -1200,6 +1304,7 @@ describe("desktop components", () => {
     );
 
     expect(html).toContain("Active logging level: debug");
+    expect(html).toContain("Local storage profile: development");
     expect(html).toContain("desktop-development.log");
     expect(html).toContain("Reveal log");
     expect(html).toContain("Export support bundle");
@@ -1216,11 +1321,13 @@ describe("desktop components", () => {
           activeSessionId: "production-session",
           sessions: [
             {
-              version: 3,
+              version: 4,
               id: "production-session",
               title: "Session",
+              createdAt: new Date(0).toISOString(),
               updatedAt: new Date(0).toISOString(),
-              projectName: "Project",
+              liveSetId: "live-set-1",
+              liveSetName: "Project",
               productionPlan: [],
               outputAssignments: [],
               liveEvents: [],
@@ -1269,6 +1376,18 @@ describe("desktop components", () => {
                 sourceFile: "default.yaml",
                 fingerprint: "b".repeat(64),
               },
+              {
+                name: "compose",
+                description: "Composition-focused Ableton agent.",
+                systemPrompt: "Develop musical ideas.",
+                tools: ["ableton_*"],
+                resolvedTools: ["ableton_session_inspect"],
+                editScope: ["session"],
+                skills: [],
+                inputChannels: [],
+                sourceFile: "compose.yaml",
+                fingerprint: "c".repeat(64),
+              },
             ],
             skills: [],
             diagnostics: [
@@ -1285,26 +1404,27 @@ describe("desktop components", () => {
     );
 
     expect(html).toContain("General-purpose Ableton agent.");
-    expect(html).toContain("Defined");
-    expect(html).toContain("Active agents");
+    expect(html).toContain('aria-label="Active agent"');
+    expect(html).toContain('aria-label="Inactive agent"');
+    expect(html).toContain('aria-label="General"');
+    expect(html).toContain('aria-label="Capabilities"');
+    expect(html).toContain('aria-label="Connections"');
     expect(html).toContain("Selected");
     expect(html).toContain("Modified");
-    expect(html).toContain("ableton_transport_get");
-    expect(html).toContain("mix-review");
-    expect(html).toContain("midi:drums");
-    expect(html).toContain("retired-model · unavailable");
-    expect(html).toContain(">max<");
+    expect(html).toContain("retired-model (unavailable)");
+    expect(html).toContain("max (unavailable)");
     expect(html).toContain("Loading Copilot models");
-    expect(html).toContain("Full session");
     expect(html).toContain("default.yaml");
     expect(html).toContain("newer definition available");
     expect(html).toContain("Definition diagnostics");
     expect(html).toContain("broken.yaml: Missing system prompt");
-    expect(html).toContain("Edit overrides");
+    expect(html).toContain("Save Session definition");
     expect(html).toContain("Reset to current definition");
     expect(html).toContain("Deactivate");
     expect(html).toContain("Open");
+    expect(html).toContain("Create another");
     expect(html).toContain("Create agent");
+    expect(html.indexOf("Default")).toBeLessThan(html.indexOf("compose"));
   });
 
   it("renders atomic model and reasoning settings with bounded live options", () => {
@@ -1410,15 +1530,12 @@ describe("desktop components", () => {
     expect(reasoningEffortForDraftModel("fixed", "xhigh", models)).toBe("");
   });
 
-  it("renders per-agent Listening Events summaries and editor states", () => {
+  it("renders per-agent Listening Events editor states", () => {
     const state = workspaceState();
     state.events = {
       activeSessionId: "session",
       events: liveEventStates(),
     };
-    const html = renderToStaticMarkup(
-      <AgentsView state={state} dispatch={vi.fn()} />,
-    );
     const editor = renderToStaticMarkup(
       <ListeningEventsEditor
         agentInstanceId={firstAgentId}
@@ -1428,8 +1545,6 @@ describe("desktop components", () => {
       />,
     );
 
-    expect(html).toContain("Keys clip · Automatic");
-    expect(html).toContain("Keys clip · Next prompt (listener disabled)");
     expect(editor).toContain("Keys clip");
     expect(editor).toContain("Vocal recording");
     expect(editor).toContain("Event disabled");
@@ -1552,7 +1667,6 @@ describe("desktop components", () => {
     );
 
     expect(loading).toContain("Loading active agents");
-    expect(empty).toContain("No active agents");
     expect(empty).toContain("No valid agents found");
   });
 
@@ -1695,6 +1809,18 @@ describe("desktop components", () => {
     expect(html).toContain("including across macOS Spaces");
   });
 
+  it("renders the configurable active-work timeout", () => {
+    const html = renderToStaticMarkup(
+      <SettingsView state={initialState} dispatch={vi.fn()} />,
+    );
+
+    expect(html).toContain("Active-work timeout (minutes)");
+    expect(html).toContain('min="1"');
+    expect(html).toContain('max="120"');
+    expect(html).toContain('value="10"');
+    expect(html).toContain("Time waiting for questions");
+  });
+
   it("shows YOLO status without occupying composer space", () => {
     const state = workspaceState();
     state.sessions[0]!.activeAgents[0]!.autoApprove = true;
@@ -1723,7 +1849,7 @@ describe("desktop components", () => {
     );
 
     expect(header).toContain("YOLO");
-    expect(workspace).toContain("YOLO");
+    expect(workspace).not.toContain("YOLO");
     expect(agents).toContain("YOLO");
     expect(composer).not.toContain("Approvals are automatic");
     expect(settings).toContain("Current session: 1 YOLO override");
@@ -1742,7 +1868,7 @@ describe("desktop components", () => {
       renderToStaticMarkup(
         <Inspector state={initialState} dispatch={vi.fn()} />,
       ),
-    ).toContain("Nothing selected");
+    ).toContain("Nothing to inspect");
   });
 
   it("renders output state and accessible routing controls", () => {
@@ -1773,11 +1899,13 @@ describe("desktop components", () => {
       ...initialState,
       sessions: [
         {
-          version: 3 as const,
+          version: 4 as const,
           id: "session-1",
           title: "Session",
+          createdAt: new Date(0).toISOString(),
           updatedAt: new Date(0).toISOString(),
-          projectName: "Test Set",
+          liveSetId: "live-set-1",
+          liveSetName: "Test Set",
           activeAgents: [
             agent(agentInstanceId, "Groove agent"),
             agent(secondAgentInstanceId, "Mix agent"),
@@ -1789,8 +1917,8 @@ describe("desktop components", () => {
         },
       ],
       snapshot: {
-        id: "project-1",
-        name: "Test Set",
+        liveSetId: "project-1",
+        liveSetName: "Test Set",
         tempo: 120,
         timeSignature: "4/4",
         tracks: [
@@ -1901,8 +2029,8 @@ describe("desktop components", () => {
 
   it("groups outputs by regular Live track order with guarded color matching", () => {
     const snapshot = {
-      id: "project-1",
-      name: "Test Set",
+      liveSetId: "project-1",
+      liveSetName: "Test Set",
       tempo: 120,
       timeSignature: "4/4",
       tracks: [
@@ -2001,8 +2129,8 @@ describe("desktop components", () => {
       devices: [],
     });
     const snapshot = {
-      id: "project-1",
-      name: "Test Set",
+      liveSetId: "project-1",
+      liveSetName: "Test Set",
       tempo: 120,
       timeSignature: "4/4",
       tracks: [
@@ -2133,8 +2261,8 @@ describe("desktop components", () => {
   });
 
   it.each([
-    ["refreshing", "Refreshing…", "disabled", "Refreshing project snapshot."],
-    ["succeeded", "Updated", undefined, "Project snapshot updated."],
+    ["refreshing", "Refreshing…", "disabled", "Refreshing Live Set snapshot."],
+    ["succeeded", "Updated", undefined, "Live Set snapshot updated."],
     ["failed", "Retry", undefined, "Refresh failed locally"],
   ] as const)(
     "renders an accessible %s project refresh control",
@@ -2153,7 +2281,9 @@ describe("desktop components", () => {
               state: "connected",
               liveVersion: "12.1",
               remoteScriptVersion: "1",
-              projectId: "project",
+              liveSetId: "project",
+              liveSetName: "Test Set",
+              saved: true,
             },
             projectRefresh,
           }}
@@ -2161,7 +2291,7 @@ describe("desktop components", () => {
         />,
       );
 
-      expect(html).toContain(`aria-label="${label} project snapshot"`);
+      expect(html).toContain(`aria-label="${label} Live Set snapshot"`);
       expect(html).toContain(`>${label}</button>`);
       expect(html).toContain(message);
       if (disabledAttribute) expect(html).toContain(disabledAttribute);
@@ -2178,14 +2308,16 @@ describe("desktop components", () => {
             state: "connected",
             liveVersion: "12.1",
             remoteScriptVersion: "1",
-            projectId: "project",
+            liveSetId: "project",
+            liveSetName: "Test Set",
+            saved: true,
           },
         }}
         dispatch={vi.fn()}
       />,
     );
 
-    expect(html).toContain('aria-label="Refresh project snapshot"');
+    expect(html).toContain('aria-label="Refresh Live Set snapshot"');
     expect(html).toContain("No snapshot");
     expect(html).not.toContain("<button disabled");
   });
@@ -2279,8 +2411,8 @@ describe("desktop components", () => {
 
   it("builds safe parameter drafts from Live selection and snapshot pickers", () => {
     const snapshot = {
-      id: "project",
-      name: "Project",
+      liveSetId: "project",
+      liveSetName: "Project",
       tempo: 120,
       timeSignature: "4/4",
       tracks: [
@@ -2380,8 +2512,8 @@ describe("desktop components", () => {
     };
     const trackId = "00000000-0000-4000-8000-000000000010";
     const snapshot = {
-      id: "project",
-      name: "Project",
+      liveSetId: "project",
+      liveSetName: "Project",
       tempo: 120,
       timeSignature: "4/4",
       tracks: [
@@ -2616,7 +2748,7 @@ describe("desktop components", () => {
   it("renders history roots, agent lanes, latency, and exact snapshots", () => {
     const traceId = "00000000-0000-4000-8000-000000000100";
     const root = {
-      version: 1 as const,
+      version: 2 as const,
       id: "00000000-0000-4000-8000-000000000101",
       sequence: 1,
       occurredAt: "2026-01-01T00:00:00.000Z",
@@ -2674,7 +2806,7 @@ describe("desktop components", () => {
             traceTotalEvents: 3,
             configurations: [
               {
-                version: 1,
+                version: 2,
                 id: "00000000-0000-4000-8000-000000000105",
                 sequence: 1,
                 capturedAt: "2026-01-01T00:00:00.000Z",
@@ -2764,8 +2896,8 @@ describe("desktop components", () => {
 
   it("reports refresh success after applying the returned snapshot", async () => {
     const snapshot = {
-      id: "project",
-      name: "Project",
+      liveSetId: "project",
+      liveSetName: "Project",
       tempo: 120,
       timeSignature: "4/4",
       tracks: [],
@@ -2776,7 +2908,9 @@ describe("desktop components", () => {
         state: "connected",
         liveVersion: "12.1",
         remoteScriptVersion: "1",
-        projectId: "project",
+        liveSetId: "project",
+        liveSetName: "Test Set",
+        saved: true,
       },
     };
     const dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]> = (

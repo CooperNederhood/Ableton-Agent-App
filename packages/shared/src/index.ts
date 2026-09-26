@@ -12,7 +12,11 @@ export type ConnectionStatus =
       state: "connected";
       liveVersion: string;
       remoteScriptVersion: string;
-      projectId: string;
+      liveSetId: string;
+      liveSetName: string;
+      saved: boolean;
+      liveProjectId?: string;
+      liveProjectName?: string;
     }
   | { state: "error"; code: string; message: string };
 
@@ -22,6 +26,40 @@ export interface AgentEventAttribution {
 }
 
 export type AgentMode = "interactive" | "plan";
+export type AgentReasoningSummary = "none" | "concise" | "detailed";
+
+export type AgentWorkingUpdate =
+  | {
+      readonly kind: "started";
+      readonly activityId: string;
+      readonly occurredAt: string;
+    }
+  | {
+      readonly kind: "intent";
+      readonly activityId: string;
+      readonly content: string;
+      readonly occurredAt: string;
+    }
+  | {
+      readonly kind: "reasoning_delta" | "reasoning_complete";
+      readonly activityId: string;
+      readonly reasoningId: string;
+      readonly content: string;
+      readonly occurredAt: string;
+    }
+  | {
+      readonly kind: "streaming";
+      readonly activityId: string;
+      readonly totalResponseSizeBytes: number;
+      readonly occurredAt: string;
+    }
+  | {
+      readonly kind: "finished";
+      readonly activityId: string;
+      readonly outcome: "completed" | "failed" | "cancelled";
+      readonly detail?: string;
+      readonly occurredAt: string;
+    };
 
 export type AgentPlanExitAction = "exit_only" | "interactive";
 
@@ -29,8 +67,87 @@ export interface AgentPlanApprovalRequest {
   readonly requestId: string;
   readonly summary: string;
   readonly planContent: string;
+  readonly planRevision: string;
+  readonly planUpdatedAt: string;
   readonly recommendedAction: AgentPlanExitAction;
   readonly actions: readonly AgentPlanExitAction[];
+}
+
+export type PlanArtifactSnapshot =
+  | {
+      readonly exists: false;
+      readonly productionSessionId: string;
+    }
+  | {
+      readonly exists: true;
+      readonly productionSessionId: string;
+      readonly content: string;
+      readonly revision: string;
+      readonly bytes: number;
+      readonly updatedAt: string;
+    };
+
+export type AgentElicitationField =
+  | {
+      readonly type: "string";
+      readonly title?: string;
+      readonly description?: string;
+      readonly enum?: readonly string[];
+      readonly enumNames?: readonly string[];
+      readonly oneOf?: readonly {
+        readonly const: string;
+        readonly title: string;
+      }[];
+      readonly allowFreeform?: boolean;
+      readonly minLength?: number;
+      readonly maxLength?: number;
+      readonly format?: "email" | "uri" | "date" | "date-time";
+      readonly default?: string;
+    }
+  | {
+      readonly type: "array";
+      readonly title?: string;
+      readonly description?: string;
+      readonly minItems?: number;
+      readonly maxItems?: number;
+      readonly items:
+        | { readonly enum: readonly string[] }
+        | {
+            readonly anyOf: readonly {
+              readonly const: string;
+              readonly title: string;
+            }[];
+          };
+      readonly default?: readonly string[];
+    }
+  | {
+      readonly type: "boolean";
+      readonly title?: string;
+      readonly description?: string;
+      readonly default?: boolean;
+    }
+  | {
+      readonly type: "number" | "integer";
+      readonly title?: string;
+      readonly description?: string;
+      readonly minimum?: number;
+      readonly maximum?: number;
+      readonly default?: number;
+    };
+
+export interface AgentElicitationRequest {
+  readonly requestId: string;
+  readonly message: string;
+  readonly properties: Readonly<Record<string, AgentElicitationField>>;
+  readonly required: readonly string[];
+}
+
+export type AgentElicitationValue = string | number | boolean | string[];
+
+export interface AgentElicitationResolution {
+  readonly requestId: string;
+  readonly action: "accept" | "decline" | "cancel";
+  readonly content?: Readonly<Record<string, AgentElicitationValue>>;
 }
 
 export type LiveEventTypedState =
@@ -117,6 +234,10 @@ export type AppEvent =
       content: string;
     } & AgentEventAttribution)
   | ({
+      type: "agent.working_update";
+      update: AgentWorkingUpdate;
+    } & AgentEventAttribution)
+  | ({
       type: "agent.mode_changed";
       previousMode: AgentMode;
       mode: AgentMode;
@@ -135,6 +256,19 @@ export type AppEvent =
       approved: boolean;
       selectedAction?: AgentPlanExitAction;
       feedback?: string;
+    } & AgentEventAttribution)
+  | ({
+      type: "agent.plan_artifact_changed";
+      artifact: PlanArtifactSnapshot;
+    } & AgentEventAttribution)
+  | ({
+      type: "agent.elicitation_requested";
+      request: AgentElicitationRequest;
+    } & AgentEventAttribution)
+  | ({
+      type: "agent.elicitation_completed";
+      requestId: string;
+      action: "accept" | "decline" | "cancel";
     } & AgentEventAttribution)
   | ({
       type: "operation.started";

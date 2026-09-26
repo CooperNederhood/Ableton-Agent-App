@@ -51,7 +51,7 @@ describe("project-state workflow audit", () => {
       now: () => now,
     });
     const target: EntityReference = {
-      projectId: ids.project,
+      liveSetId: ids.project,
       kind: "track",
       id: "track-1",
       revision: 1,
@@ -59,7 +59,7 @@ describe("project-state workflow audit", () => {
     const item = workflowStep(target);
     const workflow: WorkflowTransaction = {
       id: "workflow-1",
-      projectId: ids.project,
+      liveSetId: ids.project,
       sessionId: ids.session,
       correlationId: ids.correlation,
       resource: ids.project,

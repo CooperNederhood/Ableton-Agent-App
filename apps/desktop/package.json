@@ -30,12 +30,19 @@
     "@ableton-agent/runtime": "workspace:*",
     "@ableton-agent/shared": "workspace:*",
     "@ableton-agent/signal-routing": "workspace:*",
+    "@ableton-agent/storage": "workspace:*",
     "@ableton-agent/tools": "workspace:*",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "zod": "^4.0.17"
+  },
+  "optionalDependencies": {
+    "@github/copilot-sdk-darwin-arm64": "1.0.14",
+    "@github/copilot-sdk-darwin-x64": "1.0.14",
+    "@koromix/koffi-darwin-arm64": "3.3.0",
+    "@koromix/koffi-darwin-x64": "3.3.0"
   },
   "devDependencies": {
     "@ableton-agent/test-support": "workspace:*",

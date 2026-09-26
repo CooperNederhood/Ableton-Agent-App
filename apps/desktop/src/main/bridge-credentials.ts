@@ -76,7 +76,7 @@ function record(
   if (telemetry === undefined) return;
   try {
     telemetry.enqueue({
-      version: 1,
+      version: 2,
       id: randomUUID(),
       occurredAt: input.occurredAt,
       name: input.name,

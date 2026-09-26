@@ -5,7 +5,8 @@ export interface CorrelationTraceContext {
   readonly traceId?: string;
   readonly parentSpanId?: string;
   readonly causationId?: string;
-  readonly projectId?: string;
+  readonly liveSetId?: string;
+  readonly liveProjectId?: string;
   readonly sessionId?: string;
   readonly activeAgentId?: string;
   readonly liveEventId?: string;

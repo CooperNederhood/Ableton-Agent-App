@@ -5,6 +5,8 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 ## Desktop distribution
 
 - [x] Configure reproducible development and production builds.
+- [x] Bundle architecture-matched Copilot SDK and Koffi native runtimes in
+  Intel and Apple Silicon macOS artifacts.
 - [x] Configure branded macOS, Windows, and runtime application icons.
 - [ ] Configure macOS and Windows signing/notarization.
 - [x] Build installers with explicit Remote Script setup.
@@ -32,6 +34,9 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
     musical labels by default.
   - [ ] Propagate correlation IDs through every runtime boundary.
 - [x] Implement diagnostics and support-bundle export.
+- [x] Adopt a versioned `~/.live-agent` root with profile isolation, safe
+  environment overrides, staged legacy migration, and typed storage
+  diagnostics.
 - [x] Define privacy settings and telemetry consent.
 - [x] Limit default telemetry to operational metadata.
 - [ ] Implement the separate default-on, local-only detailed event journal with
@@ -47,7 +52,9 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 
 ## Tests
 
-- [x] Build installers in CI for macOS and Windows.
+- [x] Build macOS installers in CI.
+- [x] Smoke-test the generated macOS application in packaged production mode.
+- [ ] Restore Windows installer CI before Windows release support.
 - [ ] Test clean install, upgrade, repair, and uninstall in fresh environments.
 - [x] Test Remote Script detection and all install-path variants.
 - [x] Test clean-install credential auto-provisioning, precedence, invalid

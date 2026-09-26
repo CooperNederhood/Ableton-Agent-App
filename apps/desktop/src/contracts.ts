@@ -1,6 +1,7 @@
 import {
   MAX_LIVE_EVENTS_PER_SESSION,
   activeAgentInstanceSchema,
+  agentDefinitionSchema,
   agentReasoningEffortSchema,
   agentEventListenerSchema,
   liveEventDefinitionSchema,
@@ -8,6 +9,7 @@ import {
   liveEventOccurrenceSchema,
   liveEventResolutionSchema,
   outputSubscriptionSchema,
+  skillNameSchema,
   type AgentEventListener,
   type LiveEventDefinition,
 } from "@ableton-agent/agent-config/schemas";
@@ -57,7 +59,7 @@ const traceContextSchema = z
   .strict();
 const journaledTelemetryEventSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     id: telemetryIdSchema,
     occurredAt: telemetryTimestampSchema,
     name: telemetryNameSchema,
@@ -69,7 +71,8 @@ const journaledTelemetryEventSchema = z
     durationMs: z.number().finite().nonnegative().optional(),
     correlationId: telemetryEntityIdSchema.optional(),
     causationId: telemetryEntityIdSchema.optional(),
-    projectId: telemetryEntityIdSchema.optional(),
+    liveSetId: telemetryEntityIdSchema.optional(),
+    liveProjectId: telemetryEntityIdSchema.optional(),
     sessionId: telemetryEntityIdSchema.optional(),
     activeAgentId: telemetryEntityIdSchema.optional(),
     liveEventId: telemetryEntityIdSchema.optional(),
@@ -105,7 +108,8 @@ const telemetryFilterShape = {
     .optional(),
   traceId: telemetryIdSchema.optional(),
   correlationId: telemetryEntityIdSchema.optional(),
-  projectId: telemetryEntityIdSchema.optional(),
+  liveSetId: telemetryEntityIdSchema.optional(),
+  liveProjectId: telemetryEntityIdSchema.optional(),
   sessionId: telemetryEntityIdSchema.optional(),
   activeAgentId: telemetryEntityIdSchema.optional(),
   liveEventId: telemetryEntityIdSchema.optional(),
@@ -133,7 +137,7 @@ const telemetryQuerySchema = z
   });
 const telemetryEventPageSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     items: z.array(journaledTelemetryEventSchema),
     nextCursor: z.string().min(1).optional(),
     page: z
@@ -181,7 +185,7 @@ const rootTraceSummarySchema = z
   .strict();
 const rootTracePageSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     items: z.array(rootTraceSummarySchema),
     nextCursor: z.string().min(1).optional(),
     page: z
@@ -197,12 +201,13 @@ const rootTracePageSchema = z
   .strict();
 const journaledConfigurationSnapshotSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     id: telemetryIdSchema,
     capturedAt: telemetryTimestampSchema,
     component: telemetryNameSchema,
     configurationVersion: z.string().min(1).max(64),
-    projectId: telemetryEntityIdSchema.optional(),
+    liveSetId: telemetryEntityIdSchema.optional(),
+    liveProjectId: telemetryEntityIdSchema.optional(),
     sessionId: telemetryEntityIdSchema.optional(),
     activeAgentId: telemetryEntityIdSchema.optional(),
     values: sanitizedAttributesSchema,
@@ -213,7 +218,8 @@ const journaledConfigurationSnapshotSchema = z
 const configurationSnapshotQuerySchema = z
   .object({
     components: telemetryStringListSchema.optional(),
-    projectId: telemetryEntityIdSchema.optional(),
+    liveSetId: telemetryEntityIdSchema.optional(),
+    liveProjectId: telemetryEntityIdSchema.optional(),
     sessionId: telemetryEntityIdSchema.optional(),
     activeAgentId: telemetryEntityIdSchema.optional(),
     from: telemetryTimestampSchema.optional(),
@@ -229,7 +235,7 @@ const configurationSnapshotQuerySchema = z
   });
 const configurationSnapshotPageSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     items: z.array(journaledConfigurationSnapshotSchema),
     nextCursor: z.string().min(1).optional(),
     page: z
@@ -255,7 +261,7 @@ const retentionPolicySchema = z
   .strict();
 const retentionResultSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     deletedEvents: z.number().int().nonnegative(),
     deletedTraces: z.number().int().nonnegative(),
     deletedConfigurationSnapshots: z.number().int().nonnegative(),
@@ -265,7 +271,7 @@ const retentionResultSchema = z
   .strict();
 const journalHealthSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     status: z.enum(["healthy", "degraded", "closed"]),
     schemaVersion: z.number().int().nonnegative(),
     pendingWrites: z.number().int().nonnegative(),
@@ -285,6 +291,7 @@ const journalHealthSchema = z
           "corrupt_database",
           "duplicate",
           "invalid_cursor",
+          "invalid_query",
           "io",
           "queue_full",
           "schema_version",
@@ -316,14 +323,18 @@ export const contextChipSchema = z.object({
 });
 export type ContextChip = z.infer<typeof contextChipSchema>;
 
-const connectionStatusSchema = z.discriminatedUnion("state", [
+export const connectionStatusSchema = z.discriminatedUnion("state", [
   z.object({ state: z.literal("disconnected") }),
   z.object({ state: z.literal("connecting") }),
   z.object({
     state: z.literal("connected"),
     liveVersion: z.string(),
     remoteScriptVersion: z.string(),
-    projectId: z.string(),
+    liveSetId: z.string().min(1),
+    liveSetName: z.string().min(1),
+    saved: z.boolean(),
+    liveProjectId: z.string().min(1).optional(),
+    liveProjectName: z.string().min(1).optional(),
   }),
   z.object({
     state: z.literal("error"),
@@ -337,10 +348,17 @@ export const trackSchema = z.object({
   id: z.string(),
   name: z.string(),
   kind: z.enum(["midi", "audio", "return", "master"]),
+  index: z.number().int().nonnegative().optional(),
   color: z.string(),
   volume: z.number().min(0).max(1),
   pan: z.number().min(-1).max(1),
   muted: z.boolean(),
+  soloed: z.boolean().optional(),
+  armed: z.boolean().optional(),
+  groupTrackId: z.string().optional(),
+  inputRouting: z.string().max(512).optional(),
+  outputRouting: z.string().max(512).optional(),
+  devicesTruncated: z.boolean().optional(),
   clips: z.array(
     z.object({
       id: z.string(),
@@ -369,37 +387,122 @@ export const trackSchema = z.object({
 });
 export type DesktopTrack = z.infer<typeof trackSchema>;
 
-export const projectSnapshotSchema = z.object({
-  id: z.string(),
-  name: z.string(),
+export const desktopSceneSchema = z.object({
+  id: z.string().min(1),
+  index: z.number().int().nonnegative(),
+  name: z.string().max(512).optional(),
+  derived: z.boolean().default(false),
+});
+
+export const desktopSessionClipSchema = z.object({
+  id: z.string().min(1),
+  trackId: z.string().min(1),
+  trackIndex: z.number().int().nonnegative(),
+  sceneIndex: z.number().int().nonnegative(),
+  name: z.string().max(512),
+  kind: z.enum(["midi", "audio"]),
+  lengthBeats: z.number().positive(),
+  noteCount: z.number().int().nonnegative().nullable(),
+  muted: z.boolean().nullable().optional(),
+  looping: z.boolean().nullable().optional(),
+  status: z.enum(["playing", "queued", "stopped"]),
+});
+
+export const desktopArrangementClipSchema = z.object({
+  id: z.string().min(1),
+  trackId: z.string().min(1),
+  trackIndex: z.number().int().nonnegative(),
+  name: z.string().max(512),
+  kind: z.enum(["midi", "audio"]),
+  startTime: z.number().nonnegative(),
+  endTime: z.number().positive(),
+  lengthBeats: z.number().positive(),
+  noteCount: z.number().int().nonnegative().nullable(),
+  muted: z.boolean().optional(),
+  looping: z.boolean().nullable().optional(),
+});
+
+export const desktopCuePointSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().max(512),
+  time: z.number().nonnegative(),
+});
+
+export const desktopSnapshotDeviceSchema = z.object({
+  id: z.string().min(1),
+  trackId: z.string().min(1),
+  trackIndex: z.number().int().nonnegative(),
+  index: z.number().int().nonnegative(),
+  name: z.string().max(512),
+  className: z.string().max(512),
+  classDisplayName: z.string().max(512),
+  enabled: z.boolean().nullable(),
+  parameterCount: z.number().int().nonnegative(),
+  canHaveChains: z.boolean(),
+  canHaveDrumPads: z.boolean(),
+});
+
+export const liveSetSnapshotSchema = z.object({
+  liveSetId: z.string().min(1),
+  liveSetName: z.string().min(1),
+  liveProjectId: z.string().min(1).optional(),
+  liveProjectName: z.string().min(1).optional(),
   tempo: z.number().positive(),
   timeSignature: z.string(),
-  tracks: z.array(trackSchema),
+  capabilities: z.array(z.string().min(1).max(256)).max(256).optional(),
+  transport: z
+    .object({
+      isPlaying: z.boolean(),
+      arrangementLoop: z
+        .object({
+          enabled: z.boolean(),
+          start: z.number().nonnegative(),
+          length: z.number().positive(),
+        })
+        .optional(),
+    })
+    .optional(),
+  capturedAt: z.string().datetime({ offset: true }).optional(),
+  source: z.enum(["startup", "manual", "internal", "save"]).optional(),
+  tracks: z.array(trackSchema).max(1024),
+  scenes: z.array(desktopSceneSchema).max(512).optional(),
+  sessionClips: z.array(desktopSessionClipSchema).max(4096).optional(),
+  arrangementClips: z.array(desktopArrangementClipSchema).max(512).optional(),
+  cuePoints: z.array(desktopCuePointSchema).max(512).optional(),
+  devices: z.array(desktopSnapshotDeviceSchema).max(2048).optional(),
+  completeness: z
+    .object({
+      truncatedDomains: z.array(z.string().min(1).max(128)).max(16),
+      unsupportedDomains: z.array(z.string().min(1).max(128)).max(16),
+    })
+    .optional(),
 });
-export type DesktopProjectSnapshot = z.infer<typeof projectSnapshotSchema>;
+export type DesktopLiveSetSnapshot = z.infer<typeof liveSetSnapshotSchema>;
 
-export const desktopProjectIdentitySchema = z.object({
-  projectId: z.string().min(1),
-  projectName: z.string().min(1),
+export const desktopLiveSetIdentitySchema = z.object({
+  liveSetId: z.string().min(1),
+  liveSetName: z.string().min(1),
   saved: z.boolean(),
+  liveProjectId: z.string().min(1).optional(),
+  liveProjectName: z.string().min(1).optional(),
 });
-export type DesktopProjectIdentity = z.infer<
-  typeof desktopProjectIdentitySchema
+export type DesktopLiveSetIdentity = z.infer<
+  typeof desktopLiveSetIdentitySchema
 >;
 
-export const projectTransitionDecisionSchema = z.enum([
+export const liveSetTransitionDecisionSchema = z.enum([
   "resume-associated",
   "fork-current",
   "start-fresh",
 ]);
-export type ProjectTransitionDecision = z.infer<
-  typeof projectTransitionDecisionSchema
+export type LiveSetTransitionDecision = z.infer<
+  typeof liveSetTransitionDecisionSchema
 >;
 
-export const pendingProjectTransitionSchema = z.object({
+export const pendingLiveSetTransitionSchema = z.object({
   token: z.string().uuid(),
   kind: z.enum(["associated", "unassociated"]),
-  project: desktopProjectIdentitySchema,
+  liveSet: desktopLiveSetIdentitySchema,
   currentSessionId: z.string().min(1).optional(),
   associatedSession: z
     .object({
@@ -408,10 +511,10 @@ export const pendingProjectTransitionSchema = z.object({
       updatedAt: z.string().min(1),
     })
     .optional(),
-  decisions: z.array(projectTransitionDecisionSchema).min(1),
+  decisions: z.array(liveSetTransitionDecisionSchema).min(1),
 });
-export type PendingProjectTransition = z.infer<
-  typeof pendingProjectTransitionSchema
+export type PendingLiveSetTransition = z.infer<
+  typeof pendingLiveSetTransitionSchema
 >;
 
 export const outputDeliveryModeSchema = z.enum([
@@ -551,7 +654,7 @@ export const desktopAgentEventListenerSchema = z.object({
       z.object({
         state: z.enum(["fresh", "stale"]),
         capturedAt: z.string().datetime(),
-        projectId: z.string().min(1),
+        liveSetId: z.string().min(1),
         projectRevision: z.number().int().nonnegative().optional(),
         unresolvedTrackLocators: z.number().int().positive().optional(),
       }),
@@ -644,11 +747,138 @@ export const agentPlanApprovalSchema = z
     requestId: z.string().min(1).max(256),
     summary: z.string().max(8_192),
     planContent: z.string().max(100_000),
+    planRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+    planUpdatedAt: z.string().datetime(),
     recommendedAction: agentPlanExitActionSchema,
     actions: z.array(agentPlanExitActionSchema).min(1).max(2),
   })
   .strict();
 export type DesktopAgentPlanApproval = z.infer<typeof agentPlanApprovalSchema>;
+
+export const planArtifactSnapshotSchema = z.discriminatedUnion("exists", [
+  z
+    .object({
+      exists: z.literal(false),
+      productionSessionId: z.string().min(1).max(4_096),
+    })
+    .strict(),
+  z
+    .object({
+      exists: z.literal(true),
+      productionSessionId: z.string().min(1).max(4_096),
+      content: z.string().max(100_000),
+      revision: z.string().regex(/^[a-f0-9]{64}$/u),
+      updatedAt: z.string().datetime(),
+      bytes: z
+        .number()
+        .int()
+        .nonnegative()
+        .max(256 * 1024),
+    })
+    .strict(),
+]);
+export type DesktopPlanArtifactSnapshot = z.infer<
+  typeof planArtifactSnapshotSchema
+>;
+
+const elicitationStringFieldSchema = z
+  .object({
+    type: z.literal("string"),
+    title: z.string().max(512).optional(),
+    description: z.string().max(2_048).optional(),
+    enum: z.array(z.string().max(4_096)).max(100).optional(),
+    enumNames: z.array(z.string().max(512)).max(100).optional(),
+    oneOf: z
+      .array(
+        z.object({
+          const: z.string().max(4_096),
+          title: z.string().max(512),
+        }),
+      )
+      .max(100)
+      .optional(),
+    allowFreeform: z.boolean().optional(),
+    minLength: z.number().int().nonnegative().optional(),
+    maxLength: z.number().int().nonnegative().max(100_000).optional(),
+    format: z.enum(["email", "uri", "date", "date-time"]).optional(),
+    default: z.string().max(100_000).optional(),
+  })
+  .strict();
+const elicitationArrayFieldSchema = z
+  .object({
+    type: z.literal("array"),
+    title: z.string().max(512).optional(),
+    description: z.string().max(2_048).optional(),
+    minItems: z.number().int().nonnegative().optional(),
+    maxItems: z.number().int().nonnegative().max(100).optional(),
+    items: z.union([
+      z
+        .object({
+          type: z.literal("string"),
+          enum: z.array(z.string().max(4_096)).max(100),
+        })
+        .strict(),
+      z
+        .object({
+          anyOf: z
+            .array(
+              z.object({
+                const: z.string().max(4_096),
+                title: z.string().max(512),
+              }),
+            )
+            .max(100),
+        })
+        .strict(),
+    ]),
+    default: z.array(z.string().max(4_096)).max(100).optional(),
+  })
+  .strict();
+const elicitationBooleanFieldSchema = z
+  .object({
+    type: z.literal("boolean"),
+    title: z.string().max(512).optional(),
+    description: z.string().max(2_048).optional(),
+    default: z.boolean().optional(),
+  })
+  .strict();
+const elicitationNumberFieldSchema = z
+  .object({
+    type: z.enum(["number", "integer"]),
+    title: z.string().max(512).optional(),
+    description: z.string().max(2_048).optional(),
+    minimum: z.number().finite().optional(),
+    maximum: z.number().finite().optional(),
+    default: z.number().finite().optional(),
+  })
+  .strict();
+export const agentElicitationRequestSchema = z
+  .object({
+    requestId: z.string().min(1).max(256),
+    message: z.string().min(1).max(8_192),
+    properties: z
+      .record(
+        z.string().min(1).max(256),
+        z.union([
+          elicitationStringFieldSchema,
+          elicitationArrayFieldSchema,
+          elicitationBooleanFieldSchema,
+          elicitationNumberFieldSchema,
+        ]),
+      )
+      .refine((properties) => Object.keys(properties).length <= 32),
+    required: z.array(z.string().min(1).max(256)).max(32),
+  })
+  .strict();
+export type DesktopAgentElicitationRequest = z.infer<
+  typeof agentElicitationRequestSchema
+>;
+export const agentElicitationValueSchema = z.union([
+  z.string().max(100_000),
+  z.number().finite(),
+  z.boolean(),
+  z.array(z.string().max(4_096)).max(100),
+]);
 
 const forkedAgentHistoryMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
@@ -731,12 +961,15 @@ export type DesktopAgentHistoryMessage = z.infer<
 
 export const sessionSchema = z
   .object({
-    version: z.literal(3),
+    version: z.literal(4),
     id: z.string().min(1),
     title: z.string().min(1),
+    createdAt: z.string().max(64).datetime({ offset: true }),
     updatedAt: z.string().min(1),
-    projectName: z.string().min(1),
-    projectId: z.string().optional(),
+    liveSetId: z.string().min(1),
+    liveSetName: z.string().min(1),
+    liveProjectId: z.string().min(1).optional(),
+    liveProjectName: z.string().min(1).optional(),
     activeAgents: z.array(desktopActiveAgentSchema).default([]),
     selectedAgentInstanceId: z.string().uuid().optional(),
     productionPlan: z.array(planSectionSchema).default([]),
@@ -819,19 +1052,6 @@ export const sessionSchema = z
   });
 export type DesktopSession = z.infer<typeof sessionSchema>;
 
-export const versionTwoSessionSchema = z.object({
-  version: z.literal(2),
-  id: z.string().min(1),
-  title: z.string().min(1),
-  updatedAt: z.string().min(1),
-  projectName: z.string().min(1),
-  projectId: z.string().optional(),
-  activeAgents: z.array(desktopActiveAgentSchema).default([]),
-  selectedAgentInstanceId: z.string().uuid().optional(),
-  productionPlan: z.array(planSectionSchema).default([]),
-  outputAssignments: z.array(desktopOutputAssignmentSchema).default([]),
-});
-
 export const desktopAutoApprovalUpdateSchema = z.object({
   instances: z.array(desktopActiveAgentSchema),
   session: sessionSchema,
@@ -849,6 +1069,10 @@ export const preferencesSchema = z.object({
   signalPort: z.number().int().min(1).max(65535).default(45832),
   remoteScriptLocation: z.string().default("Auto-detect"),
   loggingLevel: z.enum(["error", "warn", "info", "debug"]).default("info"),
+  agentTurnTimeoutMinutes: z.number().int().min(1).max(120).default(10),
+  agentReasoningVisibility: z
+    .enum(["none", "concise", "detailed"])
+    .default("concise"),
   eventHistoryEnabled: z.boolean().default(true),
   eventHistoryRetentionDays: z.number().finite().positive().default(30),
   eventHistoryMaxBytes: z
@@ -871,6 +1095,13 @@ export type DiagnosticCheck = z.infer<typeof diagnosticCheckSchema>;
 
 export const desktopDiagnosticsReportSchema = z.object({
   checks: z.array(diagnosticCheckSchema),
+  storage: z.object({
+    version: z.number().int().positive(),
+    root: z.string().min(1),
+    profile: z.string().min(1),
+    profileRoot: z.string().min(1),
+    migrationStatus: z.enum(["completed", "not-needed", "failed"]),
+  }),
   logging: z.object({
     level: z.enum(["error", "warn", "info", "debug"]),
     fileName: z.string().min(1),
@@ -890,7 +1121,9 @@ const desktopTrackScopeSelectorSchema = z.object({
 });
 
 export const desktopAgentDefinitionSchema = z.object({
+  version: z.literal(2).optional(),
   name: z.string().min(1),
+  label: z.string().trim().min(1).max(128).optional(),
   description: z.string().min(1),
   systemPrompt: z.string().min(1),
   tools: z.array(z.string().min(1)),
@@ -902,6 +1135,17 @@ export const desktopAgentDefinitionSchema = z.object({
   ),
   skills: z.array(z.string().min(1)),
   inputChannels: z.array(z.string().min(1)),
+  model: z.string().trim().min(1).max(256).nullable().optional(),
+  reasoningEffort: agentReasoningEffortSchema.nullable().optional(),
+  autoApprove: z.boolean().optional(),
+  eventListeners: z.array(agentEventListenerSchema).optional(),
+  origin: z
+    .enum(["bundled", "system", "profile", "project", "session"])
+    .optional(),
+  inherited: z.boolean().optional(),
+  overrides: z
+    .array(z.enum(["bundled", "system", "profile", "project", "session"]))
+    .optional(),
   sourceFile: z.string().min(1),
   fingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
 });
@@ -910,12 +1154,24 @@ export type DesktopAgentDefinition = z.infer<
 >;
 
 export const desktopAgentCatalogSchema = z.object({
+  sessionId: z.string().min(1).max(128).optional(),
+  revision: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/u)
+    .optional(),
   definitions: z.array(desktopAgentDefinitionSchema).default([]),
   skills: z
     .array(
       z.object({
         name: z.string().min(1),
         description: z.string().min(1),
+        origin: z
+          .enum(["bundled", "system", "profile", "project", "session"])
+          .optional(),
+        inherited: z.boolean().optional(),
+        overrides: z
+          .array(z.enum(["bundled", "system", "profile", "project", "session"]))
+          .optional(),
         sourceFile: z.string().min(1),
         fingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
       }),
@@ -932,6 +1188,231 @@ export const desktopAgentCatalogSchema = z.object({
     .default([]),
 });
 export type DesktopAgentCatalog = z.infer<typeof desktopAgentCatalogSchema>;
+
+export const desktopSkillDocumentSchema = z
+  .object({
+    name: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/u),
+    description: z.string().trim().min(1).max(512),
+    body: z
+      .string()
+      .trim()
+      .min(1)
+      .max(512 * 1024),
+    origin: z.enum(["bundled", "system", "profile", "project", "session"]),
+    fingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+  })
+  .strict();
+export type DesktopSkillDocument = z.infer<typeof desktopSkillDocumentSchema>;
+
+export const desktopArtifactKindSchema = z.enum(["agent", "skill"]);
+export type DesktopArtifactKind = z.infer<typeof desktopArtifactKindSchema>;
+
+export const desktopArtifactScopeSchema = z.enum([
+  "system",
+  "profile",
+  "project",
+  "session",
+]);
+export type DesktopArtifactScope = z.infer<typeof desktopArtifactScopeSchema>;
+
+export const desktopArtifactOriginSchema = z.enum([
+  "bundled",
+  "system",
+  "profile",
+  "project",
+  "session",
+]);
+export type DesktopArtifactOrigin = z.infer<typeof desktopArtifactOriginSchema>;
+
+export const desktopScopedArtifactSchema = z
+  .object({
+    kind: desktopArtifactKindSchema,
+    name: z.string().min(1).max(128),
+    description: z.string().max(2_048).default(""),
+    scope: desktopArtifactScopeSchema,
+    origin: desktopArtifactOriginSchema,
+    state: z.enum(["local", "inherited", "overridden", "disabled"]),
+    sourceFile: z.string().min(1).max(512),
+    fingerprint: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/u)
+      .optional(),
+    profile: z.string().min(1).max(64).optional(),
+    liveProjectId: z.string().min(1).max(512).optional(),
+    liveSetId: z.string().min(1).max(512).optional(),
+    sessionId: z.string().min(1).max(4_096).optional(),
+    overriddenOrigins: z.array(desktopArtifactOriginSchema).max(5).default([]),
+    diagnostics: z.array(z.string().max(2_048)).max(20).default([]),
+  })
+  .strict();
+export type DesktopScopedArtifact = z.infer<typeof desktopScopedArtifactSchema>;
+
+export const desktopProfileSessionSummarySchema = z
+  .object({
+    id: z.string().min(1).max(4_096),
+    title: z.string().min(1).max(512),
+    liveSetId: z.string().min(1).max(512),
+    liveSetName: z.string().min(1).max(512),
+    liveProjectId: z.string().min(1).max(512).optional(),
+    liveProjectName: z.string().min(1).max(512).optional(),
+    createdAt: z.string().datetime({ offset: true }),
+    active: z.boolean(),
+    canonical: z.boolean().default(false),
+    persisted: z.boolean().optional(),
+  })
+  .strict();
+export type DesktopProfileSessionSummary = z.infer<
+  typeof desktopProfileSessionSummarySchema
+>;
+
+export const desktopProfileLiveSetSummarySchema = z
+  .object({
+    id: z.string().min(1).max(512),
+    name: z.string().min(1).max(512),
+    saved: z.boolean(),
+    sessions: z.array(desktopProfileSessionSummarySchema).max(10_000),
+  })
+  .strict();
+export type DesktopProfileLiveSetSummary = z.infer<
+  typeof desktopProfileLiveSetSummarySchema
+>;
+
+export const desktopProfileLiveProjectSummarySchema = z
+  .object({
+    id: z.string().min(1).max(512),
+    name: z.string().min(1).max(512),
+    active: z.boolean(),
+    liveSets: z.array(desktopProfileLiveSetSummarySchema).max(10_000),
+  })
+  .strict();
+export type DesktopProfileLiveProjectSummary = z.infer<
+  typeof desktopProfileLiveProjectSummarySchema
+>;
+
+export const desktopProfileSummarySchema = z
+  .object({
+    name: z.string().min(1).max(64),
+    active: z.boolean(),
+    reserved: z.boolean(),
+    sessionCount: z.number().int().nonnegative(),
+    sessions: z.array(desktopProfileSessionSummarySchema).max(10_000),
+    liveProjects: z.array(desktopProfileLiveProjectSummarySchema).max(256),
+    unassignedLiveSets: z.array(desktopProfileLiveSetSummarySchema).max(10_000),
+  })
+  .strict();
+export type DesktopProfileSummary = z.infer<typeof desktopProfileSummarySchema>;
+
+export const desktopProfileStatusSchema = z
+  .object({
+    revision: z.string().regex(/^[a-f0-9]{64}$/u),
+    activeProfile: z.string().min(1).max(64),
+    activeSessionId: z.string().min(1).optional(),
+    switchingDisabledReason: z.string().max(2_048).optional(),
+    profiles: z
+      .array(
+        z
+          .object({
+            name: z.string().min(1).max(64),
+            active: z.boolean(),
+            reserved: z.boolean(),
+          })
+          .strict(),
+      )
+      .max(128),
+  })
+  .strict();
+export type DesktopProfileStatus = z.infer<typeof desktopProfileStatusSchema>;
+
+export const desktopProfileManagerSnapshotSchema = z
+  .object({
+    revision: z.string().regex(/^[a-f0-9]{64}$/u),
+    activeProfile: z.string().min(1).max(64),
+    selectedProfile: z.string().min(1).max(64),
+    activeSessionId: z.string().min(1).optional(),
+    switchingDisabledReason: z.string().max(2_048).optional(),
+    profiles: z.array(desktopProfileSummarySchema).max(128),
+    artifacts: z.array(desktopScopedArtifactSchema).max(2_000),
+  })
+  .strict();
+export type DesktopProfileManagerSnapshot = z.infer<
+  typeof desktopProfileManagerSnapshotSchema
+>;
+
+const desktopSkillMutationResultSchema = z
+  .object({
+    document: desktopSkillDocumentSchema,
+    catalog: desktopAgentCatalogSchema,
+    profileSnapshot: desktopProfileManagerSnapshotSchema,
+  })
+  .strict();
+
+export const desktopArtifactLocationSchema = z
+  .object({
+    scope: desktopArtifactOriginSchema,
+    profile: z.string().min(1).max(64).optional(),
+    liveProjectId: z.string().min(1).max(512).optional(),
+    liveSetId: z.string().min(1).max(512).optional(),
+    sessionId: z.string().min(1).max(4_096).optional(),
+  })
+  .strict();
+export type DesktopArtifactLocation = z.infer<
+  typeof desktopArtifactLocationSchema
+>;
+
+export const desktopArtifactConflictSchema = z
+  .object({
+    kind: desktopArtifactKindSchema,
+    name: z.string().min(1).max(128),
+    sourceFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+    destinationFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+    sourceDescription: z.string().max(2_048),
+    destinationDescription: z.string().max(2_048),
+    suggestedName: z.string().min(1).max(128),
+  })
+  .strict();
+export type DesktopArtifactConflict = z.infer<
+  typeof desktopArtifactConflictSchema
+>;
+
+export const desktopArtifactMutationResultSchema = z.discriminatedUnion(
+  "status",
+  [
+    z
+      .object({
+        status: z.literal("completed"),
+        snapshot: desktopProfileManagerSnapshotSchema,
+      })
+      .strict(),
+    z
+      .object({
+        status: z.literal("conflict"),
+        conflict: desktopArtifactConflictSchema,
+      })
+      .strict(),
+  ],
+);
+export type DesktopArtifactMutationResult = z.infer<
+  typeof desktopArtifactMutationResultSchema
+>;
+
+const profileNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/u);
+
+const artifactMutationBaseSchema = z
+  .object({
+    kind: desktopArtifactKindSchema,
+    name: z.string().min(1).max(128),
+    source: desktopArtifactLocationSchema,
+    destination: desktopArtifactLocationSchema,
+    expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+    conflictResolution: z.enum(["replace", "rename"]).optional(),
+    renamedName: z.string().min(1).max(128).optional(),
+  })
+  .strict();
 
 export const appEventSchema = z.discriminatedUnion("type", [
   z.object({
@@ -953,6 +1434,52 @@ export const appEventSchema = z.discriminatedUnion("type", [
     type: z.literal("agent.message_complete"),
     messageId: z.string(),
     content: z.string(),
+    agentInstanceId: z.string().uuid().optional(),
+    sdkSessionId: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("agent.working_update"),
+    messageId: z.string(),
+    update: z.discriminatedUnion("kind", [
+      z.object({
+        kind: z.literal("started"),
+        activityId: z.string().uuid(),
+        occurredAt: z.string().datetime(),
+      }),
+      z.object({
+        kind: z.literal("intent"),
+        activityId: z.string().uuid(),
+        content: z.string().max(16_000),
+        occurredAt: z.string().datetime(),
+      }),
+      z.object({
+        kind: z.literal("reasoning_delta"),
+        activityId: z.string().uuid(),
+        reasoningId: z.string().min(1).max(256),
+        content: z.string().max(16_000),
+        occurredAt: z.string().datetime(),
+      }),
+      z.object({
+        kind: z.literal("reasoning_complete"),
+        activityId: z.string().uuid(),
+        reasoningId: z.string().min(1).max(256),
+        content: z.string().max(16_000),
+        occurredAt: z.string().datetime(),
+      }),
+      z.object({
+        kind: z.literal("streaming"),
+        activityId: z.string().uuid(),
+        totalResponseSizeBytes: z.number().int().nonnegative(),
+        occurredAt: z.string().datetime(),
+      }),
+      z.object({
+        kind: z.literal("finished"),
+        activityId: z.string().uuid(),
+        outcome: z.enum(["completed", "failed", "cancelled"]),
+        detail: z.string().max(16_000).optional(),
+        occurredAt: z.string().datetime(),
+      }),
+    ]),
     agentInstanceId: z.string().uuid().optional(),
     sdkSessionId: z.string().min(1).optional(),
   }),
@@ -988,11 +1515,30 @@ export const appEventSchema = z.discriminatedUnion("type", [
     sdkSessionId: z.string().min(1).optional(),
   }),
   z.object({
+    type: z.literal("agent.plan_artifact_changed"),
+    artifact: planArtifactSnapshotSchema,
+    agentInstanceId: z.string().uuid().optional(),
+    sdkSessionId: z.string().min(1).optional(),
+  }),
+  z.object({
     type: z.literal("agent.plan_approval_completed"),
     requestId: z.string().min(1).max(256),
     approved: z.boolean(),
     selectedAction: agentPlanExitActionSchema.optional(),
     feedback: z.string().max(8_192).optional(),
+    agentInstanceId: z.string().uuid().optional(),
+    sdkSessionId: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("agent.elicitation_requested"),
+    request: agentElicitationRequestSchema,
+    agentInstanceId: z.string().uuid().optional(),
+    sdkSessionId: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("agent.elicitation_completed"),
+    requestId: z.string().min(1).max(256),
+    action: z.enum(["accept", "decline", "cancel"]),
     agentInstanceId: z.string().uuid().optional(),
     sdkSessionId: z.string().min(1).optional(),
   }),
@@ -1035,8 +1581,8 @@ export const appEventSchema = z.discriminatedUnion("type", [
     sdkSessionId: z.string().min(1).optional(),
   }),
   z.object({
-    type: z.literal("project.snapshot_changed"),
-    snapshot: projectSnapshotSchema,
+    type: z.literal("live_set.snapshot_changed"),
+    snapshot: liveSetSnapshotSchema,
   }),
   z.object({
     type: z.literal("sessions.changed"),
@@ -1048,11 +1594,11 @@ export const appEventSchema = z.discriminatedUnion("type", [
     session: sessionSchema,
   }),
   z.object({
-    type: z.literal("project.transition_requested"),
-    transition: pendingProjectTransitionSchema,
+    type: z.literal("live_set.transition_requested"),
+    transition: pendingLiveSetTransitionSchema,
   }),
   z.object({
-    type: z.literal("project.transition_cleared"),
+    type: z.literal("live_set.transition_cleared"),
     token: z.string().uuid(),
   }),
   z.object({
@@ -1109,6 +1655,10 @@ export const ipcSchemas = {
     request: z.object({ sessionId: z.string().min(1) }),
     response: z.object({ resumed: z.literal(true) }),
   },
+  "agent:close-session": {
+    request: z.object({}).strict(),
+    response: z.object({ closed: z.literal(true) }).strict(),
+  },
   "agents:catalog": {
     request: z.object({}),
     response: desktopAgentCatalogSchema,
@@ -1116,6 +1666,55 @@ export const ipcSchemas = {
   "agents:refresh": {
     request: z.object({}),
     response: desktopAgentCatalogSchema,
+  },
+  "agents:save-definition": {
+    request: z
+      .object({
+        definition: agentDefinitionSchema,
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+        expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: z
+      .object({
+        catalog: desktopAgentCatalogSchema,
+        profileSnapshot: desktopProfileManagerSnapshotSchema,
+      })
+      .strict(),
+  },
+  "skills:read": {
+    request: z.object({ name: skillNameSchema }).strict(),
+    response: desktopSkillDocumentSchema,
+  },
+  "skills:create": {
+    request: z
+      .object({
+        name: skillNameSchema,
+        description: z.string().trim().min(1).max(512),
+        body: z
+          .string()
+          .trim()
+          .min(1)
+          .max(512 * 1024),
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: desktopSkillMutationResultSchema,
+  },
+  "skills:save": {
+    request: z
+      .object({
+        name: skillNameSchema,
+        body: z
+          .string()
+          .trim()
+          .min(1)
+          .max(512 * 1024),
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+        expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: desktopSkillMutationResultSchema,
   },
   "agents:active": {
     request: z.object({}),
@@ -1207,8 +1806,42 @@ export const ipcSchemas = {
         instanceId: z.string().uuid(),
         requestId: z.string().min(1).max(256),
         approved: z.boolean(),
+        planRevision: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/u)
+          .optional(),
         selectedAction: agentPlanExitActionSchema.optional(),
         feedback: z.string().trim().max(8_192).optional(),
+      })
+      .strict(),
+    response: z.object({ resolved: z.boolean() }),
+  },
+  "agents:read-plan": {
+    request: z.object({ instanceId: z.string().uuid() }).strict(),
+    response: planArtifactSnapshotSchema,
+  },
+  "agents:write-plan": {
+    request: z
+      .object({
+        instanceId: z.string().uuid(),
+        content: z.string().min(1).max(100_000),
+        expectedRevision: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/u)
+          .optional(),
+      })
+      .strict(),
+    response: planArtifactSnapshotSchema,
+  },
+  "agents:resolve-elicitation": {
+    request: z
+      .object({
+        instanceId: z.string().uuid(),
+        requestId: z.string().min(1).max(256),
+        action: z.enum(["accept", "decline", "cancel"]),
+        content: z
+          .record(z.string().min(1).max(256), agentElicitationValueSchema)
+          .optional(),
       })
       .strict(),
     response: z.object({ resolved: z.boolean() }),
@@ -1229,6 +1862,97 @@ export const ipcSchemas = {
     request: z.object({ instanceId: z.string().uuid() }).strict(),
     response: z.object({ cancelled: z.boolean() }),
   },
+  "profiles:get": {
+    request: z
+      .object({ selectedProfile: profileNameSchema.optional() })
+      .strict(),
+    response: desktopProfileManagerSnapshotSchema,
+  },
+  "profiles:status": {
+    request: z.object({}).strict(),
+    response: desktopProfileStatusSchema,
+  },
+  "profiles:create": {
+    request: z
+      .object({
+        name: profileNameSchema,
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: desktopProfileManagerSnapshotSchema,
+  },
+  "profiles:rename": {
+    request: z
+      .object({
+        name: profileNameSchema,
+        newName: profileNameSchema,
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: desktopProfileManagerSnapshotSchema,
+  },
+  "profiles:delete": {
+    request: z
+      .object({
+        name: profileNameSchema,
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: desktopProfileManagerSnapshotSchema,
+  },
+  "profiles:switch": {
+    request: z
+      .object({
+        name: profileNameSchema,
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+        closeActiveSession: z.boolean().default(false),
+      })
+      .strict(),
+    response: z.object({ switching: z.literal(true) }).strict(),
+  },
+  "profiles:copy-artifact": {
+    request: artifactMutationBaseSchema,
+    response: desktopArtifactMutationResultSchema,
+  },
+  "profiles:move-artifact": {
+    request: artifactMutationBaseSchema,
+    response: desktopArtifactMutationResultSchema,
+  },
+  "profiles:rename-artifact": {
+    request: z
+      .object({
+        kind: desktopArtifactKindSchema,
+        name: z.string().min(1).max(128),
+        newName: z.string().min(1).max(128),
+        location: desktopArtifactLocationSchema,
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: desktopProfileManagerSnapshotSchema,
+  },
+  "profiles:delete-artifact": {
+    request: z
+      .object({
+        kind: desktopArtifactKindSchema,
+        name: z.string().min(1).max(128),
+        location: desktopArtifactLocationSchema,
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: desktopProfileManagerSnapshotSchema,
+  },
+  "profiles:set-artifact-disabled": {
+    request: z
+      .object({
+        kind: desktopArtifactKindSchema,
+        name: z.string().min(1).max(128),
+        location: desktopArtifactLocationSchema,
+        disabled: z.boolean(),
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    response: desktopProfileManagerSnapshotSchema,
+  },
   "ableton:connect": {
     request: z.object({}),
     response: connectionStatusSchema,
@@ -1240,7 +1964,7 @@ export const ipcSchemas = {
   },
   "ableton:snapshot": {
     request: z.object({}),
-    response: projectSnapshotSchema,
+    response: liveSetSnapshotSchema,
   },
   "diagnostics:get": {
     request: z.object({}),
@@ -1277,11 +2001,11 @@ export const ipcSchemas = {
     request: z.object({ context: z.array(contextChipSchema).max(20) }),
     response: z.object({ updated: z.literal(true) }),
   },
-  "project:resolve-transition": {
+  "live-set:resolve-transition": {
     request: z
       .object({
         token: z.string().uuid(),
-        decision: projectTransitionDecisionSchema,
+        decision: liveSetTransitionDecisionSchema,
       })
       .strict(),
     response: z.object({ session: sessionSchema }),
@@ -1506,10 +2230,19 @@ export interface DesktopApi {
     createSession(): Promise<string>;
     getSessions(): Promise<DesktopSession[]>;
     resumeSession(sessionId: string): Promise<void>;
+    closeSession(): Promise<void>;
   };
   agents: {
     getCatalog(): Promise<DesktopAgentCatalog>;
     refreshCatalog(): Promise<DesktopAgentCatalog>;
+    saveDefinition(
+      definition: z.infer<typeof agentDefinitionSchema>,
+      expectedRevision: string,
+      expectedFingerprint: string,
+    ): Promise<{
+      catalog: DesktopAgentCatalog;
+      profileSnapshot: DesktopProfileManagerSnapshot;
+    }>;
     listActive(): Promise<DesktopActiveAgent[]>;
     listModels(): Promise<DesktopAgentModel[]>;
     create(definitionName: string): Promise<DesktopActiveAgent>;
@@ -1545,8 +2278,24 @@ export interface DesktopApi {
       request: {
         requestId: string;
         approved: boolean;
+        planRevision?: string;
         selectedAction?: "exit_only" | "interactive";
         feedback?: string;
+      },
+    ): Promise<boolean>;
+    readPlan(instanceId: string): Promise<DesktopPlanArtifactSnapshot>;
+    writePlan(
+      instanceId: string,
+      input: { content: string; expectedRevision?: string },
+    ): Promise<DesktopPlanArtifactSnapshot>;
+    resolveElicitation(
+      instanceId: string,
+      request: {
+        requestId: string;
+        action: "accept" | "decline" | "cancel";
+        content?: Readonly<
+          Record<string, string | number | boolean | string[]>
+        >;
       },
     ): Promise<boolean>;
     invokeSkill(
@@ -1558,11 +2307,82 @@ export interface DesktopApi {
     ): Promise<{ accepted: true; messageId: string }>;
     cancel(instanceId: string): Promise<{ cancelled: boolean }>;
   };
+  skills: {
+    read(name: string): Promise<DesktopSkillDocument>;
+    create(
+      name: string,
+      description: string,
+      body: string,
+      expectedRevision: string,
+    ): Promise<{
+      document: DesktopSkillDocument;
+      catalog: DesktopAgentCatalog;
+      profileSnapshot: DesktopProfileManagerSnapshot;
+    }>;
+    save(
+      name: string,
+      body: string,
+      expectedRevision: string,
+      expectedFingerprint: string,
+    ): Promise<{
+      document: DesktopSkillDocument;
+      catalog: DesktopAgentCatalog;
+      profileSnapshot: DesktopProfileManagerSnapshot;
+    }>;
+  };
+  profiles: {
+    get(selectedProfile?: string): Promise<DesktopProfileManagerSnapshot>;
+    status(): Promise<DesktopProfileStatus>;
+    create(
+      name: string,
+      expectedRevision: string,
+    ): Promise<DesktopProfileManagerSnapshot>;
+    rename(
+      name: string,
+      newName: string,
+      expectedRevision: string,
+    ): Promise<DesktopProfileManagerSnapshot>;
+    delete(
+      name: string,
+      expectedRevision: string,
+    ): Promise<DesktopProfileManagerSnapshot>;
+    switch(
+      name: string,
+      expectedRevision: string,
+      closeActiveSession?: boolean,
+    ): Promise<void>;
+    copyArtifact(
+      request: z.input<typeof artifactMutationBaseSchema>,
+    ): Promise<DesktopArtifactMutationResult>;
+    moveArtifact(
+      request: z.input<typeof artifactMutationBaseSchema>,
+    ): Promise<DesktopArtifactMutationResult>;
+    renameArtifact(request: {
+      kind: DesktopArtifactKind;
+      name: string;
+      newName: string;
+      location: DesktopArtifactLocation;
+      expectedRevision: string;
+    }): Promise<DesktopProfileManagerSnapshot>;
+    deleteArtifact(request: {
+      kind: DesktopArtifactKind;
+      name: string;
+      location: DesktopArtifactLocation;
+      expectedRevision: string;
+    }): Promise<DesktopProfileManagerSnapshot>;
+    setArtifactDisabled(request: {
+      kind: DesktopArtifactKind;
+      name: string;
+      location: DesktopArtifactLocation;
+      disabled: boolean;
+      expectedRevision: string;
+    }): Promise<DesktopProfileManagerSnapshot>;
+  };
   ableton: {
     connect(): Promise<DesktopConnectionStatus>;
     getStatus(): Promise<DesktopConnectionStatus>;
     getCapabilities(): Promise<string[]>;
-    requestSnapshot(): Promise<DesktopProjectSnapshot>;
+    requestSnapshot(): Promise<DesktopLiveSetSnapshot>;
   };
   approvals: {
     resolve(id: string, decision: ApprovalDecision): Promise<boolean>;
@@ -1581,9 +2401,11 @@ export interface DesktopApi {
   };
   project: {
     setContext(context: ContextChip[]): Promise<void>;
+  };
+  liveSet: {
     resolveTransition(
       token: string,
-      decision: ProjectTransitionDecision,
+      decision: LiveSetTransitionDecision,
     ): Promise<DesktopSession>;
   };
   plan: { update(sections: PlanSection[]): Promise<void> };

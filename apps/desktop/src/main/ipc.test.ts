@@ -1,10 +1,165 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { DesktopService } from "./desktop-service.js";
-import type { DiagnosticsActions } from "./ipc.js";
+import type { DiagnosticsActions, ProfileManagerActions } from "./ipc.js";
 import { createIpcHandlers, registerIpc } from "./ipc.js";
 
 describe("desktop IPC", () => {
+  it("routes scoped agent definition saves through the profile manager", async () => {
+    const saveAgentDefinition = vi.fn().mockResolvedValue({
+      catalog: { definitions: [], skills: [], diagnostics: [] },
+      profileSnapshot: {
+        revision: "a".repeat(64),
+        activeProfile: "default",
+        selectedProfile: "default",
+        profiles: [],
+        artifacts: [],
+      },
+    });
+    const handlers = createIpcHandlers(
+      {} as DesktopService,
+      {} as DiagnosticsActions,
+      { saveAgentDefinition } as unknown as ProfileManagerActions,
+    );
+    const request = {
+      definition: {
+        version: 2 as const,
+        name: "default",
+        label: "Default",
+        description: "General agent.",
+        systemPrompt: "Help with Ableton.",
+        tools: ["*"],
+        editScope: ["session"] as "session"[],
+        skills: [],
+        inputChannels: [],
+        model: null,
+        reasoningEffort: null,
+        autoApprove: false,
+        eventListeners: [],
+      },
+      expectedRevision: "a".repeat(64),
+      expectedFingerprint: "b".repeat(64),
+    };
+
+    await handlers["agents:save-definition"](request);
+
+    expect(saveAgentDefinition).toHaveBeenCalledWith(request);
+  });
+
+  it("routes skill document operations through the profile manager", async () => {
+    const readSkill = vi.fn();
+    const createSkill = vi.fn();
+    const saveSkill = vi.fn();
+    const handlers = createIpcHandlers(
+      {} as DesktopService,
+      {} as DiagnosticsActions,
+      {
+        readSkill,
+        createSkill,
+        saveSkill,
+      } as unknown as ProfileManagerActions,
+    );
+    const revision = "a".repeat(64);
+    const fingerprint = "b".repeat(64);
+
+    await handlers["skills:read"]({ name: "mix-review" });
+    await handlers["skills:create"]({
+      name: "session-groove",
+      description: "Shape a groove.",
+      body: "# Groove",
+      expectedRevision: revision,
+    });
+    await handlers["skills:save"]({
+      name: "mix-review",
+      body: "# Updated",
+      expectedRevision: revision,
+      expectedFingerprint: fingerprint,
+    });
+
+    expect(readSkill).toHaveBeenCalledWith({ name: "mix-review" });
+    expect(createSkill).toHaveBeenCalledWith({
+      name: "session-groove",
+      description: "Shape a groove.",
+      body: "# Groove",
+      expectedRevision: revision,
+    });
+    expect(saveSkill).toHaveBeenCalledWith({
+      name: "mix-review",
+      body: "# Updated",
+      expectedRevision: revision,
+      expectedFingerprint: fingerprint,
+    });
+  });
+
+  it("routes profile and artifact operations through the profile manager", async () => {
+    const revision = "a".repeat(64);
+    const snapshot = {
+      revision,
+      activeProfile: "default",
+      selectedProfile: "default",
+      profiles: [],
+      artifacts: [],
+    };
+    const getProfile = vi.fn().mockResolvedValue(snapshot);
+    const getStatus = vi.fn().mockResolvedValue({
+      revision,
+      activeProfile: "default",
+      profiles: [],
+    });
+    const createProfile = vi.fn().mockResolvedValue(snapshot);
+    const switchProfile = vi.fn().mockResolvedValue(undefined);
+    const copyArtifact = vi.fn().mockResolvedValue({
+      status: "completed",
+      snapshot,
+    });
+    const profiles = {
+      get: getProfile,
+      status: getStatus,
+      create: createProfile,
+      switch: switchProfile,
+      copyArtifact,
+    } as unknown as ProfileManagerActions;
+    const handlers = createIpcHandlers(
+      {} as DesktopService,
+      {} as DiagnosticsActions,
+      profiles,
+    );
+
+    await handlers["profiles:get"]({ selectedProfile: "default" });
+    await handlers["profiles:status"]({});
+    await handlers["profiles:create"]({
+      name: "ambient",
+      expectedRevision: revision,
+    });
+    await handlers["profiles:switch"]({
+      name: "ambient",
+      expectedRevision: revision,
+      closeActiveSession: true,
+    });
+    await handlers["profiles:copy-artifact"]({
+      kind: "agent",
+      name: "mix",
+      source: { scope: "system" },
+      destination: { scope: "profile", profile: "default" },
+      expectedRevision: revision,
+    });
+
+    expect(getProfile).toHaveBeenCalledWith("default");
+    expect(getStatus).toHaveBeenCalledTimes(1);
+    expect(createProfile).toHaveBeenCalledWith({
+      name: "ambient",
+      expectedRevision: revision,
+    });
+    expect(switchProfile).toHaveBeenCalledWith({
+      name: "ambient",
+      expectedRevision: revision,
+      closeActiveSession: true,
+    });
+    expect(copyArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "mix" }),
+    );
+  });
+
   it("routes managed-agent operations to the requested instance", async () => {
     const sendToActiveAgent = vi
       .fn()
@@ -14,6 +169,19 @@ describe("desktop IPC", () => {
       .mockResolvedValue({ accepted: true, messageId: "message-2" });
     const setActiveAgentMode = vi.fn().mockResolvedValue({ id: "updated" });
     const resolveActiveAgentPlan = vi.fn().mockResolvedValue(true);
+    const readActiveAgentPlan = vi.fn().mockResolvedValue({
+      exists: false,
+      productionSessionId: "production-session",
+    });
+    const writeActiveAgentPlan = vi.fn().mockResolvedValue({
+      exists: true,
+      productionSessionId: "production-session",
+      content: "# Plan",
+      revision: "b".repeat(64),
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      bytes: 6,
+    });
+    const resolveActiveAgentElicitation = vi.fn().mockResolvedValue(true);
     const cancelActiveAgent = vi.fn().mockResolvedValue({ cancelled: true });
     const handlers = createIpcHandlers(
       {
@@ -21,6 +189,9 @@ describe("desktop IPC", () => {
         invokeActiveAgentSkill,
         setActiveAgentMode,
         resolveActiveAgentPlan,
+        readActiveAgentPlan,
+        writeActiveAgentPlan,
+        resolveActiveAgentElicitation,
         cancelActiveAgent,
       } as unknown as DesktopService,
       {} as DiagnosticsActions,
@@ -46,7 +217,22 @@ describe("desktop IPC", () => {
         instanceId,
         requestId: "plan-request",
         approved: false,
+        planRevision: "a".repeat(64),
         feedback: "Use fewer tracks",
+      }),
+    ).resolves.toEqual({ resolved: true });
+    await handlers["agents:read-plan"]({ instanceId });
+    await handlers["agents:write-plan"]({
+      instanceId,
+      content: "# Revised plan",
+      expectedRevision: "a".repeat(64),
+    });
+    await expect(
+      handlers["agents:resolve-elicitation"]({
+        instanceId,
+        requestId: "question-1",
+        action: "accept",
+        content: { style: "compact", stems: 4 },
       }),
     ).resolves.toEqual({ resolved: true });
 
@@ -69,7 +255,18 @@ describe("desktop IPC", () => {
     expect(resolveActiveAgentPlan).toHaveBeenCalledWith(instanceId, {
       requestId: "plan-request",
       approved: false,
+      planRevision: "a".repeat(64),
       feedback: "Use fewer tracks",
+    });
+    expect(readActiveAgentPlan).toHaveBeenCalledWith(instanceId);
+    expect(writeActiveAgentPlan).toHaveBeenCalledWith(instanceId, {
+      content: "# Revised plan",
+      expectedRevision: "a".repeat(64),
+    });
+    expect(resolveActiveAgentElicitation).toHaveBeenCalledWith(instanceId, {
+      requestId: "question-1",
+      action: "accept",
+      content: { style: "compact", stems: 4 },
     });
     expect(cancelActiveAgent).toHaveBeenCalledWith(instanceId);
   });
@@ -288,9 +485,9 @@ describe("desktop IPC", () => {
   it("routes bounded history queries and destructive controls", async () => {
     const searchEventHistory = vi
       .fn()
-      .mockResolvedValue({ version: 1, items: [] });
+      .mockResolvedValue({ version: 2, items: [] });
     const getEventTrace = vi.fn().mockResolvedValue({
-      version: 1,
+      version: 2,
       items: [],
       nextCursor: "trace-next",
     });

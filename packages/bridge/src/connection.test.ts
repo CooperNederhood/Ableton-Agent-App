@@ -7,15 +7,20 @@ import {
   PROTOCOL_VERSION,
   encodeFrame,
   type EventEnvelope,
+  type LiveIdentity,
   type RequestEnvelope,
   type ResponseEnvelope,
 } from "@ableton-agent/protocol";
-import { InMemoryEventPublisher, type AppEvent } from "@ableton-agent/shared";
+import {
+  InMemoryEventPublisher,
+  type AppEvent,
+  type ConnectionStatus,
+} from "@ableton-agent/shared";
 
 import { AbletonBridgeService, type AbletonLiveEvent } from "./index.js";
 
 const token = "test-token-that-is-at-least-thirty-two-characters";
-const projectId = "bridge-test-project";
+const liveSetId = "bridge-test-live-set";
 
 interface TestServer {
   readonly server: Server;
@@ -48,7 +53,10 @@ async function startServer(
               selectedProtocolVersion: PROTOCOL_VERSION,
               liveVersion: "12.1-test",
               remoteScriptVersion: "0.4.0",
-              projectId,
+              liveSetId,
+              liveSetName: "Bridge Test Set",
+              saved: false,
+              diagnostics: [],
               capabilities: {
                 "system.ping": true,
                 "events.inspect_selection": true,
@@ -106,14 +114,15 @@ afterEach(async () => {
 });
 
 describe("Ableton bridge connection manager", () => {
-  it("reads and parses changing project identity without reconnecting", async () => {
-    let identity = {
-      projectId: "project-before-save",
-      projectName: "Untitled",
+  it("reads and parses changing Live identity without reconnecting", async () => {
+    let identity: LiveIdentity = {
+      liveSetId: "set-before-save",
+      liveSetName: "Untitled",
       saved: false,
+      diagnostics: [],
     };
     const testServer = await startServer((request, socket) => {
-      if (request.command !== "project.get_identity") return;
+      if (request.command !== "live_set.get_identity") return;
       const response: ResponseEnvelope = {
         protocolVersion: PROTOCOL_VERSION,
         kind: "response",
@@ -133,20 +142,135 @@ describe("Ableton bridge connection manager", () => {
     services.push(service);
 
     await service.start();
-    await expect(service.getProjectIdentity()).resolves.toEqual(identity);
+    await expect(service.getLiveIdentity()).resolves.toEqual(identity);
 
     identity = {
-      projectId: "project-after-save-as",
-      projectName: "Saved Set",
+      liveSetId: "set-after-save-as",
+      liveSetName: "Saved Set",
       saved: true,
+      liveProjectId: "project-after-save-as",
+      liveProjectName: "Album",
+      diagnostics: [],
     };
-    await expect(service.getProjectIdentity()).resolves.toEqual(identity);
+    await expect(service.getLiveIdentity()).resolves.toEqual(identity);
     expect(testServer.sockets).toHaveLength(1);
     expect(
       testServer.requests.filter(
-        (request) => request.command === "project.get_identity",
+        (request) => request.command === "live_set.get_identity",
       ),
     ).toHaveLength(2);
+  });
+
+  it("updates cached connection identity before publishing a save event", async () => {
+    const testServer = await startServer();
+    servers.push(testServer.server);
+    const publisher = new InMemoryEventPublisher();
+    const observedStatuses: ConnectionStatus[] = [];
+    const publicationOrder: string[] = [];
+    publisher.subscribe((event) => {
+      if (
+        event.type === "ableton.connection_changed" &&
+        event.status.state === "connected"
+      ) {
+        publicationOrder.push(`status:${event.status.liveSetId}`);
+      }
+      if (
+        event.type === "ableton.event_received" &&
+        event.event === "live_set.save_observed"
+      ) {
+        publicationOrder.push("save");
+      }
+    });
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: publisher,
+      port: testServer.port,
+      eventSubscriptions: ["live_set.save_observed"],
+    });
+    services.push(service);
+    service.subscribeLiveSetSaves(() => {
+      void service.getStatus().then((status) => observedStatuses.push(status));
+    });
+
+    await service.start();
+    const socket = testServer.sockets[0];
+    socket?.write(
+      encodeFrame({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "event",
+        event: "live_set.save_observed",
+        sequence: 1,
+        payload: {
+          liveSetId: "set-after-save",
+          liveSetName: "Saved Set",
+          saved: true,
+          liveProjectId: "project-after-save",
+          liveProjectName: "Album",
+          diagnostics: [],
+          observedAt: "2026-09-26T13:55:18.603Z",
+          fileModifiedTimeNs: "1700000000000000000",
+          fileSizeBytes: 4096,
+        },
+        projectRevision: 4,
+      }),
+    );
+    await waitFor(() => observedStatuses.length === 1);
+
+    await expect(service.getStatus()).resolves.toMatchObject({
+      state: "connected",
+      liveSetId: "set-after-save",
+      liveProjectId: "project-after-save",
+      saved: true,
+    });
+    expect(service.getCurrentLiveSetId()).toBe("set-after-save");
+    expect(observedStatuses[0]).toMatchObject({
+      state: "connected",
+      liveSetId: "set-after-save",
+      liveProjectId: "project-after-save",
+    });
+    expect(publicationOrder.slice(-2)).toEqual([
+      "status:set-after-save",
+      "save",
+    ]);
+
+    socket?.write(
+      encodeFrame({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "event",
+        event: "live_set.save_observed",
+        sequence: 2,
+        payload: {
+          liveSetId: "set-after-save-as",
+          liveSetName: "Saved Set Copy",
+          saved: true,
+          diagnostics: [
+            {
+              code: "live_project_not_found",
+              message: "No Ableton Project Info ancestor was found",
+            },
+          ],
+          observedAt: "2026-09-26T13:56:18.603Z",
+          fileModifiedTimeNs: "1700000001000000000",
+          fileSizeBytes: 8192,
+        },
+        projectRevision: 5,
+      }),
+    );
+    await waitFor(() => observedStatuses.length === 2);
+    await expect(service.getStatus()).resolves.toMatchObject({
+      state: "connected",
+      liveSetId: "set-after-save-as",
+      saved: true,
+    });
+    expect(await service.getStatus()).not.toHaveProperty("liveProjectId");
+    expect(service.getCurrentLiveIdentity()).toMatchObject({
+      liveSetId: "set-after-save-as",
+      diagnostics: [
+        {
+          code: "live_project_not_found",
+        },
+      ],
+    });
   });
 
   it("stays disconnected when stopped during an in-flight handshake", async () => {
@@ -197,7 +321,7 @@ describe("Ableton bridge connection manager", () => {
       authenticationToken: token,
       events: publisher,
       port: testServer.port,
-      eventSubscriptions: ["project.changed"],
+      eventSubscriptions: ["live_set.changed"],
     });
     services.push(service);
     service.subscribe((event) => bridgeEvents.push(event.event));
@@ -210,7 +334,7 @@ describe("Ableton bridge connection manager", () => {
     const first: EventEnvelope = {
       protocolVersion: PROTOCOL_VERSION,
       kind: "event",
-      event: "project.changed",
+      event: "live_set.changed",
       sequence: 4,
       payload: { reason: "tempo" },
       projectRevision: 7,
@@ -223,7 +347,7 @@ describe("Ableton bridge connection manager", () => {
     socket?.write(Buffer.concat([encodeFrame(first), encodeFrame(gap)]));
     await waitFor(() => bridgeEvents.length === 2);
 
-    expect(bridgeEvents).toEqual(["project.changed", "project.changed"]);
+    expect(bridgeEvents).toEqual(["live_set.changed", "live_set.changed"]);
     expect(appEvents).toContainEqual({
       type: "ableton.event_gap",
       expectedSequence: 5,
@@ -242,7 +366,7 @@ describe("Ableton bridge connection manager", () => {
     expect(testServer.requests.at(-1)?.projectRevision).toBe(8);
     expect(service.getProjectRevision()).toBe(9);
     expect(testServer.requests[0]?.params).toMatchObject({
-      eventSubscriptions: ["project.changed"],
+      eventSubscriptions: ["live_set.changed"],
     });
   });
 
@@ -279,7 +403,7 @@ describe("Ableton bridge connection manager", () => {
     expect(testServer.sockets).toHaveLength(2);
     await expect(service.getStatus()).resolves.toMatchObject({
       state: "connected",
-      projectId,
+      liveSetId,
     });
   });
 
@@ -303,7 +427,7 @@ describe("Ableton bridge connection manager", () => {
           state: { state: "stopped" },
           resolution: {
             status: "resolved",
-            projectId,
+            liveSetId,
             trackReference,
             track: { name: "Drums" },
           },
@@ -356,7 +480,7 @@ describe("Ableton bridge connection manager", () => {
     await service.subscribeLiveEvent({
       eventId,
       kind: "track.playing_clip_changed",
-      projectId,
+      liveSetId,
       index: 0,
       expectedReference: trackReference,
       expectedName: "Drums",
@@ -406,7 +530,7 @@ describe("Ableton bridge connection manager", () => {
       service.subscribeLiveEvent({
         eventId,
         kind: "track.playing_clip_changed",
-        projectId,
+        liveSetId,
         index: 0,
         expectedReference: "00000000-0000-4000-8000-000000000124",
         expectedName: "Drums",

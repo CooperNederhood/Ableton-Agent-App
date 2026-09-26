@@ -15,14 +15,22 @@ import {
 } from "@ableton-agent/observability";
 import { PROTOCOL_VERSION } from "@ableton-agent/protocol";
 
-import { AbletonBridgeService, type AbletonLiveEvent } from "./index.js";
+import {
+  AbletonBridgeService,
+  type AbletonLiveEvent,
+  type AbletonLiveSetSaveEvent,
+} from "./index.js";
 
 const token = "test-token-that-is-at-least-thirty-two-characters";
 let simulator: ChildProcessWithoutNullStreams | undefined;
 
 async function startSimulator(
   expectedToken = token,
-  options: { delayCommand?: string; delayMs?: number } = {},
+  options: {
+    delayCommand?: string;
+    delayMs?: number;
+    emitSaveEvent?: boolean;
+  } = {},
 ): Promise<number> {
   const args = [
     "remote-script/simulator.py",
@@ -34,6 +42,7 @@ async function startSimulator(
     ...(options.delayMs === undefined
       ? []
       : ["--delay-ms", String(options.delayMs)]),
+    ...(options.emitSaveEvent === true ? ["--emit-save-event"] : []),
   ];
   simulator = spawn("python3", args, {
     cwd: new URL("../../..", import.meta.url),
@@ -65,6 +74,35 @@ afterEach(() => {
 });
 
 describe("AbletonBridgeService", () => {
+  it("validates and publishes identity-complete Live Set save events", async () => {
+    const port = await startSimulator(token, { emitSaveEvent: true });
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      eventSubscriptions: ["live_set.save_observed"],
+    });
+    const saves: AbletonLiveSetSaveEvent[] = [];
+    service.subscribeLiveSetSaves((event) => saves.push(event));
+    await service.start();
+    await waitFor(() => saves.length === 1);
+
+    expect(saves[0]).toMatchObject({
+      event: "live_set.save_observed",
+      sequence: 0,
+      projectRevision: 0,
+      payload: {
+        liveSetId: "simulated-live-set",
+        liveSetName: "Simulator Set",
+        saved: true,
+        fileModifiedTimeNs: "1700000000000000000",
+        fileSizeBytes: 4096,
+      },
+    });
+    expect(saves[0]?.payload).not.toHaveProperty("filePath");
+    await service.stop();
+  });
+
   it("negotiates capabilities and sends ping across the Python protocol", async () => {
     const port = await startSimulator();
     const requests: {
@@ -98,15 +136,17 @@ describe("AbletonBridgeService", () => {
       },
     });
 
-    expect(service.getCurrentProjectId()).toBeUndefined();
+    expect(service.getCurrentLiveSetId()).toBeUndefined();
     await service.start();
-    expect(service.getCurrentProjectId()).toBe("simulated-project");
+    expect(service.getCurrentLiveSetId()).toBe("simulated-live-set");
 
     expect(await service.getStatus()).toEqual({
       state: "connected",
       liveVersion: "11.3-simulator",
       remoteScriptVersion: "0.6.0",
-      projectId: "simulated-project",
+      liveSetId: "simulated-live-set",
+      liveSetName: "Simulated Set",
+      saved: false,
     });
     await expect(service.getCapabilities()).resolves.toMatchObject({
       selectedProtocolVersion: PROTOCOL_VERSION,
@@ -159,6 +199,8 @@ describe("AbletonBridgeService", () => {
       traceId: upstreamTraceId,
       parentSpanId: toolSpanId,
       causationId: "turn-123",
+      liveSetId: "live-set-123",
+      liveProjectId: "live-project-123",
       sessionId: "session-123",
       activeAgentId: "agent-123",
       liveEventId: "event-123",
@@ -204,6 +246,8 @@ describe("AbletonBridgeService", () => {
       outcome: "success",
       correlationId: "tool-call-123",
       causationId: "turn-123",
+      liveSetId: "live-set-123",
+      liveProjectId: "live-project-123",
       sessionId: "session-123",
       activeAgentId: "agent-123",
       liveEventId: "event-123",
@@ -1655,7 +1699,7 @@ describe("AbletonBridgeService", () => {
       ...selection.parameter!,
       eventId,
       kind: "parameter.value_changed",
-      projectId: "simulated-project",
+      liveSetId: "simulated-live-set",
       observationPolicy: {
         minimumNormalizedDelta: 0.01,
         throttleMs: 100,
@@ -1700,7 +1744,7 @@ describe("AbletonBridgeService", () => {
     });
     expect(occurrenceTrace).toMatchObject({
       correlationId: emittedOccurrence.payload.occurrenceId,
-      projectId: "simulated-project",
+      liveSetId: "simulated-live-set",
       liveEventId: eventId,
     });
     await expect(service.listLiveEventSubscriptions()).resolves.toMatchObject({
@@ -1715,7 +1759,7 @@ describe("AbletonBridgeService", () => {
       ...selection.parameter!,
       eventId,
       kind: "parameter.value_changed",
-      projectId: "simulated-project",
+      liveSetId: "simulated-live-set",
     });
     await expect(service.clearLiveEventSubscriptions()).resolves.toEqual({
       clearedEventIds: [eventId],

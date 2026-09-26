@@ -1,10 +1,10 @@
 {
   "producer": "typescript",
-  "protocolVersion": 4,
+  "protocolVersion": 5,
   "commands": {
     "system.hello": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001000",
         "command": "system.hello",
@@ -16,23 +16,26 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001000",
         "ok": true,
         "result": {
-          "selectedProtocolVersion": 4,
+          "selectedProtocolVersion": 5,
           "liveVersion": "x",
           "remoteScriptVersion": "x",
-          "projectId": "x",
-          "projectName": "x",
+          "liveSetId": "x",
+          "liveSetName": "x",
+          "saved": false,
+          "liveProjectId": "x",
+          "diagnostics": [],
           "capabilities": {},
           "limits": { "maxFrameBytes": 1, "maxBatchItems": 1 }
         },
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001000",
         "ok": false,
@@ -46,14 +49,14 @@
     },
     "system.ping": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001001",
         "command": "system.ping",
         "params": {}
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001001",
         "ok": true,
@@ -61,7 +64,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001001",
         "ok": false,
@@ -73,30 +76,36 @@
         }
       }
     },
-    "project.get_identity": {
+    "live_set.get_identity": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001002",
-        "command": "project.get_identity",
+        "command": "live_set.get_identity",
         "params": {}
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001002",
         "ok": true,
-        "result": { "projectId": "x", "projectName": "x", "saved": false },
+        "result": {
+          "liveSetId": "x",
+          "liveSetName": "x",
+          "saved": false,
+          "liveProjectId": "x",
+          "diagnostics": []
+        },
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001002",
         "ok": false,
         "error": {
           "code": "lom_error",
-          "message": "Golden project.get_identity failure",
+          "message": "Golden live_set.get_identity failure",
           "retryable": true,
           "details": {}
         }
@@ -104,14 +113,14 @@
     },
     "session.inspect": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001003",
         "command": "session.inspect",
         "params": {}
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001003",
         "ok": true,
@@ -126,7 +135,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001003",
         "ok": false,
@@ -140,14 +149,14 @@
     },
     "scenes.inspect": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001004",
         "command": "scenes.inspect",
         "params": { "action": "list", "offset": 0, "limit": 64 }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001004",
         "ok": true,
@@ -161,7 +170,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001004",
         "ok": false,
@@ -175,14 +184,14 @@
     },
     "scenes.mutate": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001005",
         "command": "scenes.mutate",
         "params": { "action": "create", "index": -1, "name": "x" }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001005",
         "ok": true,
@@ -196,7 +205,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001005",
         "ok": false,
@@ -210,7 +219,7 @@
     },
     "tracks.inspect": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001006",
         "command": "tracks.inspect",
@@ -222,7 +231,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001006",
         "ok": true,
@@ -236,7 +245,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001006",
         "ok": false,
@@ -250,14 +259,14 @@
     },
     "tracks.mutate": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001007",
         "command": "tracks.mutate",
         "params": { "action": "create-return", "name": "x" }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001007",
         "ok": true,
@@ -271,7 +280,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001007",
         "ok": false,
@@ -285,7 +294,7 @@
     },
     "mixer_routing.inspect": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001008",
         "command": "mixer_routing.inspect",
@@ -300,7 +309,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001008",
         "ok": true,
@@ -359,7 +368,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001008",
         "ok": false,
@@ -373,7 +382,7 @@
     },
     "mixer_routing.mutate": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001009",
         "command": "mixer_routing.mutate",
@@ -393,7 +402,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001009",
         "ok": true,
@@ -452,7 +461,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001009",
         "ok": false,
@@ -466,14 +475,14 @@
     },
     "transport.inspect": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001010",
         "command": "transport.inspect",
         "params": { "action": "get", "offset": 0, "limit": 64 }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001010",
         "ok": true,
@@ -498,7 +507,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001010",
         "ok": false,
@@ -512,14 +521,14 @@
     },
     "transport.mutate": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001011",
         "command": "transport.mutate",
         "params": { "action": "seek", "time": 0 }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001011",
         "ok": true,
@@ -544,7 +553,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001011",
         "ok": false,
@@ -558,7 +567,7 @@
     },
     "midi_notes.inspect": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001012",
         "command": "midi_notes.inspect",
@@ -585,7 +594,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001012",
         "ok": true,
@@ -600,7 +609,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001012",
         "ok": false,
@@ -614,7 +623,7 @@
     },
     "midi_notes.mutate": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001013",
         "command": "midi_notes.mutate",
@@ -647,7 +656,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001013",
         "ok": true,
@@ -662,7 +671,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001013",
         "ok": false,
@@ -676,7 +685,7 @@
     },
     "audio_clips.inspect": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001014",
         "command": "audio_clips.inspect",
@@ -697,7 +706,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001014",
         "ok": true,
@@ -727,7 +736,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001014",
         "ok": false,
@@ -741,7 +750,7 @@
     },
     "audio_clips.mutate": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001015",
         "command": "audio_clips.mutate",
@@ -763,7 +772,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001015",
         "ok": true,
@@ -793,7 +802,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001015",
         "ok": false,
@@ -807,14 +816,14 @@
     },
     "recording.inspect": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001016",
         "command": "recording.inspect",
         "params": { "action": "inspect" }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001016",
         "ok": true,
@@ -832,7 +841,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001016",
         "ok": false,
@@ -846,14 +855,14 @@
     },
     "recording.set_arrangement_record": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001017",
         "command": "recording.set_arrangement_record",
         "params": { "action": "set-arrangement-record", "enabled": false }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001017",
         "ok": true,
@@ -883,7 +892,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001017",
         "ok": false,
@@ -897,14 +906,14 @@
     },
     "recording.set_session_record": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001018",
         "command": "recording.set_session_record",
         "params": { "action": "set-session-record", "enabled": false }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001018",
         "ok": true,
@@ -934,7 +943,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001018",
         "ok": false,
@@ -948,14 +957,14 @@
     },
     "recording.set_overdub": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001019",
         "command": "recording.set_overdub",
         "params": { "action": "set-overdub", "enabled": false }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001019",
         "ok": true,
@@ -985,7 +994,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001019",
         "ok": false,
@@ -999,7 +1008,7 @@
     },
     "recording.set_session_automation_record": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001020",
         "command": "recording.set_session_automation_record",
@@ -1009,7 +1018,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001020",
         "ok": true,
@@ -1039,7 +1048,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001020",
         "ok": false,
@@ -1053,14 +1062,14 @@
     },
     "recording.set_punch": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001021",
         "command": "recording.set_punch",
         "params": { "action": "set-punch", "punchIn": false }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001021",
         "ok": true,
@@ -1090,7 +1099,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001021",
         "ok": false,
@@ -1104,7 +1113,7 @@
     },
     "recording.capture_midi": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001022",
         "command": "recording.capture_midi",
@@ -1114,7 +1123,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001022",
         "ok": true,
@@ -1128,7 +1137,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001022",
         "ok": false,
@@ -1142,7 +1151,7 @@
     },
     "recording.record_session_slot": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001023",
         "command": "recording.record_session_slot",
@@ -1173,7 +1182,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001023",
         "ok": true,
@@ -1195,7 +1204,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001023",
         "ok": false,
@@ -1209,14 +1218,14 @@
     },
     "grooves.list": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001024",
         "command": "grooves.list",
         "params": { "action": "list", "offset": 0, "limit": 64 }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001024",
         "ok": true,
@@ -1232,7 +1241,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001024",
         "ok": false,
@@ -1246,7 +1255,7 @@
     },
     "grooves.get": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001025",
         "command": "grooves.get",
@@ -1261,7 +1270,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001025",
         "ok": true,
@@ -1282,7 +1291,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001025",
         "ok": false,
@@ -1296,7 +1305,7 @@
     },
     "grooves.inspect_clip": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001026",
         "command": "grooves.inspect_clip",
@@ -1317,7 +1326,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001026",
         "ok": true,
@@ -1340,7 +1349,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001026",
         "ok": false,
@@ -1354,7 +1363,7 @@
     },
     "grooves.set_clip_groove": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001027",
         "command": "grooves.set_clip_groove",
@@ -1381,7 +1390,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001027",
         "ok": true,
@@ -1418,7 +1427,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001027",
         "ok": false,
@@ -1432,7 +1441,7 @@
     },
     "grooves.clear_clip_groove": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001028",
         "command": "grooves.clear_clip_groove",
@@ -1453,7 +1462,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001028",
         "ok": true,
@@ -1490,7 +1499,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001028",
         "ok": false,
@@ -1504,7 +1513,7 @@
     },
     "grooves.set_properties": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001029",
         "command": "grooves.set_properties",
@@ -1520,7 +1529,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001029",
         "ok": true,
@@ -1552,7 +1561,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001029",
         "ok": false,
@@ -1566,14 +1575,14 @@
     },
     "grooves.set_global_amount": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001030",
         "command": "grooves.set_global_amount",
         "params": { "action": "set-global-amount", "amount": 0 }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001030",
         "ok": true,
@@ -1586,7 +1595,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001030",
         "ok": false,
@@ -1600,14 +1609,14 @@
     },
     "selection_view.inspect_selection": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001031",
         "command": "selection_view.inspect_selection",
         "params": { "action": "inspect-selection" }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001031",
         "ok": true,
@@ -1628,7 +1637,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001031",
         "ok": false,
@@ -1642,14 +1651,14 @@
     },
     "selection_view.inspect_view": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001032",
         "command": "selection_view.inspect_view",
         "params": { "action": "inspect-view" }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001032",
         "ok": true,
@@ -1665,7 +1674,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001032",
         "ok": false,
@@ -1679,7 +1688,7 @@
     },
     "selection_view.select_track": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001033",
         "command": "selection_view.select_track",
@@ -1694,7 +1703,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001033",
         "ok": true,
@@ -1727,7 +1736,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001033",
         "ok": false,
@@ -1741,7 +1750,7 @@
     },
     "selection_view.select_scene": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001034",
         "command": "selection_view.select_scene",
@@ -1753,7 +1762,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001034",
         "ok": true,
@@ -1786,7 +1795,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001034",
         "ok": false,
@@ -1800,7 +1809,7 @@
     },
     "selection_view.select_slot": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001035",
         "command": "selection_view.select_slot",
@@ -1822,7 +1831,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001035",
         "ok": true,
@@ -1855,7 +1864,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001035",
         "ok": false,
@@ -1869,7 +1878,7 @@
     },
     "selection_view.select_clip": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001036",
         "command": "selection_view.select_clip",
@@ -1890,7 +1899,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001036",
         "ok": true,
@@ -1923,7 +1932,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001036",
         "ok": false,
@@ -1937,7 +1946,7 @@
     },
     "selection_view.select_device": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001037",
         "command": "selection_view.select_device",
@@ -1958,7 +1967,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001037",
         "ok": true,
@@ -1991,7 +2000,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001037",
         "ok": false,
@@ -2005,7 +2014,7 @@
     },
     "selection_view.select_chain": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001038",
         "command": "selection_view.select_chain",
@@ -2028,7 +2037,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001038",
         "ok": true,
@@ -2061,7 +2070,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001038",
         "ok": false,
@@ -2075,14 +2084,14 @@
     },
     "selection_view.set_view": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001039",
         "command": "selection_view.set_view",
         "params": { "action": "set-view", "view": "Session", "state": "show" }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001039",
         "ok": true,
@@ -2105,7 +2114,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001039",
         "ok": false,
@@ -2119,14 +2128,14 @@
     },
     "selection_view.set_follow": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001040",
         "command": "selection_view.set_follow",
         "params": { "action": "set-follow", "enabled": false }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001040",
         "ok": true,
@@ -2149,7 +2158,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001040",
         "ok": false,
@@ -2163,14 +2172,14 @@
     },
     "selection_view.set_draw_mode": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001041",
         "command": "selection_view.set_draw_mode",
         "params": { "action": "set-draw-mode", "enabled": false }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001041",
         "ok": true,
@@ -2193,7 +2202,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001041",
         "ok": false,
@@ -2207,7 +2216,7 @@
     },
     "selection_view.set_track_fold": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001042",
         "command": "selection_view.set_track_fold",
@@ -2223,7 +2232,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001042",
         "ok": true,
@@ -2236,7 +2245,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001042",
         "ok": false,
@@ -2250,7 +2259,7 @@
     },
     "selection_view.set_device_collapsed": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001043",
         "command": "selection_view.set_device_collapsed",
@@ -2272,7 +2281,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001043",
         "ok": true,
@@ -2285,7 +2294,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001043",
         "ok": false,
@@ -2299,14 +2308,14 @@
     },
     "live_history.inspect": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001044",
         "command": "live_history.inspect",
         "params": { "action": "inspect" }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001044",
         "ok": true,
@@ -2318,7 +2327,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001044",
         "ok": false,
@@ -2332,14 +2341,14 @@
     },
     "live_history.undo": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001045",
         "command": "live_history.undo",
         "params": { "action": "undo", "confirmation": "global-live-history" }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001045",
         "ok": true,
@@ -2353,7 +2362,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001045",
         "ok": false,
@@ -2367,14 +2376,14 @@
     },
     "live_history.redo": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001046",
         "command": "live_history.redo",
         "params": { "action": "redo", "confirmation": "global-live-history" }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001046",
         "ok": true,
@@ -2388,7 +2397,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001046",
         "ok": false,
@@ -2402,7 +2411,7 @@
     },
     "browser_adapters.preview": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001047",
         "command": "browser_adapters.preview",
@@ -2416,7 +2425,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001047",
         "ok": true,
@@ -2442,7 +2451,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001047",
         "ok": false,
@@ -2456,14 +2465,14 @@
     },
     "browser_adapters.stop_preview": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001048",
         "command": "browser_adapters.stop_preview",
         "params": { "action": "stop-preview" }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001048",
         "ok": true,
@@ -2489,7 +2498,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001048",
         "ok": false,
@@ -2503,7 +2512,7 @@
     },
     "browser_adapters.hot_swap": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001049",
         "command": "browser_adapters.hot_swap",
@@ -2529,7 +2538,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001049",
         "ok": true,
@@ -2555,7 +2564,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001049",
         "ok": false,
@@ -2569,7 +2578,7 @@
     },
     "browser_adapters.insert_adjacent": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001050",
         "command": "browser_adapters.insert_adjacent",
@@ -2596,7 +2605,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001050",
         "ok": true,
@@ -2622,7 +2631,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001050",
         "ok": false,
@@ -2636,7 +2645,7 @@
     },
     "browser_adapters.load_empty_drum_pad": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001051",
         "command": "browser_adapters.load_empty_drum_pad",
@@ -2664,7 +2673,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001051",
         "ok": true,
@@ -2690,7 +2699,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001051",
         "ok": false,
@@ -2704,7 +2713,7 @@
     },
     "clip_automation.list_envelopes": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001052",
         "command": "clip_automation.list_envelopes",
@@ -2727,7 +2736,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001052",
         "ok": true,
@@ -2741,7 +2750,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001052",
         "ok": false,
@@ -2755,7 +2764,7 @@
     },
     "clip_automation.sample": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001053",
         "command": "clip_automation.sample",
@@ -2786,7 +2795,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001053",
         "ok": true,
@@ -2794,7 +2803,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001053",
         "ok": false,
@@ -2808,7 +2817,7 @@
     },
     "clip_automation.insert_step": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001054",
         "command": "clip_automation.insert_step",
@@ -2839,7 +2848,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001054",
         "ok": true,
@@ -2852,7 +2861,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001054",
         "ok": false,
@@ -2866,7 +2875,7 @@
     },
     "clip_automation.clear_envelope": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001055",
         "command": "clip_automation.clear_envelope",
@@ -2895,7 +2904,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001055",
         "ok": true,
@@ -2907,7 +2916,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001055",
         "ok": false,
@@ -2921,7 +2930,7 @@
     },
     "clip_automation.clear_all": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001056",
         "command": "clip_automation.clear_all",
@@ -2943,7 +2952,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001056",
         "ok": true,
@@ -2951,7 +2960,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001056",
         "ok": false,
@@ -2965,7 +2974,7 @@
     },
     "warp_markers.inspect": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001057",
         "command": "warp_markers.inspect",
@@ -2988,7 +2997,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001057",
         "ok": true,
@@ -3006,7 +3015,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001057",
         "ok": false,
@@ -3020,7 +3029,7 @@
     },
     "warp_markers.add": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001058",
         "command": "warp_markers.add",
@@ -3043,7 +3052,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001058",
         "ok": true,
@@ -3065,7 +3074,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001058",
         "ok": false,
@@ -3079,7 +3088,7 @@
     },
     "warp_markers.move": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001059",
         "command": "warp_markers.move",
@@ -3103,7 +3112,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001059",
         "ok": true,
@@ -3125,7 +3134,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001059",
         "ok": false,
@@ -3139,7 +3148,7 @@
     },
     "warp_markers.remove": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001060",
         "command": "warp_markers.remove",
@@ -3162,7 +3171,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001060",
         "ok": true,
@@ -3184,7 +3193,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001060",
         "ok": false,
@@ -3198,7 +3207,7 @@
     },
     "special_devices.inspect_simpler": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001061",
         "command": "special_devices.inspect_simpler",
@@ -3219,7 +3228,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001061",
         "ok": true,
@@ -3227,7 +3236,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001061",
         "ok": false,
@@ -3241,7 +3250,7 @@
     },
     "special_devices.set_simpler_markers": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001062",
         "command": "special_devices.set_simpler_markers",
@@ -3265,7 +3274,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001062",
         "ok": true,
@@ -3278,7 +3287,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001062",
         "ok": false,
@@ -3292,7 +3301,7 @@
     },
     "special_devices.set_simpler_slices": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001063",
         "command": "special_devices.set_simpler_slices",
@@ -3314,7 +3323,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001063",
         "ok": true,
@@ -3327,7 +3336,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001063",
         "ok": false,
@@ -3341,7 +3350,7 @@
     },
     "special_devices.inspect_looper": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001064",
         "command": "special_devices.inspect_looper",
@@ -3362,7 +3371,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001064",
         "ok": true,
@@ -3370,7 +3379,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001064",
         "ok": false,
@@ -3384,7 +3393,7 @@
     },
     "special_devices.control_looper": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001065",
         "command": "special_devices.control_looper",
@@ -3406,7 +3415,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001065",
         "ok": true,
@@ -3419,7 +3428,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001065",
         "ok": false,
@@ -3433,7 +3442,7 @@
     },
     "special_devices.export_looper": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001066",
         "command": "special_devices.export_looper",
@@ -3474,7 +3483,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001066",
         "ok": true,
@@ -3495,7 +3504,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001066",
         "ok": false,
@@ -3509,7 +3518,7 @@
     },
     "special_devices.inspect_wavetable": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001067",
         "command": "special_devices.inspect_wavetable",
@@ -3530,7 +3539,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001067",
         "ok": true,
@@ -3538,7 +3547,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001067",
         "ok": false,
@@ -3552,7 +3561,7 @@
     },
     "special_devices.set_wavetable_modulation": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001068",
         "command": "special_devices.set_wavetable_modulation",
@@ -3576,7 +3585,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001068",
         "ok": true,
@@ -3589,7 +3598,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001068",
         "ok": false,
@@ -3603,7 +3612,7 @@
     },
     "workflow_jobs.get": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001069",
         "command": "workflow_jobs.get",
@@ -3613,7 +3622,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001069",
         "ok": true,
@@ -3634,7 +3643,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001069",
         "ok": false,
@@ -3648,14 +3657,14 @@
     },
     "workflow_jobs.list": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001070",
         "command": "workflow_jobs.list",
         "params": { "action": "list", "offset": 0, "limit": 64 }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001070",
         "ok": true,
@@ -3669,7 +3678,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001070",
         "ok": false,
@@ -3683,7 +3692,7 @@
     },
     "workflow_jobs.cancel": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001071",
         "command": "workflow_jobs.cancel",
@@ -3694,7 +3703,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001071",
         "ok": true,
@@ -3716,7 +3725,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001071",
         "ok": false,
@@ -3730,14 +3739,14 @@
     },
     "events.inspect_selection": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001072",
         "command": "events.inspect_selection",
         "params": {}
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001072",
         "ok": true,
@@ -3762,7 +3771,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001072",
         "ok": false,
@@ -3776,14 +3785,14 @@
     },
     "events.inspect_curated_state": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001073",
         "command": "events.inspect_curated_state",
         "params": {}
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001073",
         "ok": true,
@@ -3791,7 +3800,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001073",
         "ok": false,
@@ -3805,7 +3814,7 @@
     },
     "events.subscribe": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001074",
         "command": "events.subscribe",
@@ -3820,13 +3829,13 @@
           "expectedParameterReference": "00000000-0000-4000-8000-000000000099",
           "expectedParameterName": "x",
           "eventId": "live-event.00000000-0000-4000-8000-000000000099",
-          "projectId": "x",
+          "liveSetId": "x",
           "kind": "parameter.value_changed",
           "observationPolicy": { "minimumNormalizedDelta": 0 }
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001074",
         "ok": true,
@@ -3845,7 +3854,7 @@
             "deviceReference": "00000000-0000-4000-8000-000000000099",
             "parameterReference": "00000000-0000-4000-8000-000000000099",
             "status": "resolved",
-            "projectId": "x"
+            "liveSetId": "x"
           },
           "state": { "normalizedValue": 0, "value": 0, "displayValue": "x" },
           "initialState": {
@@ -3856,7 +3865,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001074",
         "ok": false,
@@ -3870,7 +3879,7 @@
     },
     "events.unsubscribe": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001075",
         "command": "events.unsubscribe",
@@ -3879,7 +3888,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001075",
         "ok": true,
@@ -3890,7 +3899,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001075",
         "ok": false,
@@ -3904,14 +3913,14 @@
     },
     "events.list_subscriptions": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001076",
         "command": "events.list_subscriptions",
         "params": {}
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001076",
         "ok": true,
@@ -3919,7 +3928,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001076",
         "ok": false,
@@ -3933,14 +3942,14 @@
     },
     "events.clear_subscriptions": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001077",
         "command": "events.clear_subscriptions",
         "params": {}
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001077",
         "ok": true,
@@ -3948,7 +3957,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001077",
         "ok": false,
@@ -3962,14 +3971,14 @@
     },
     "transport.set_tempo": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001078",
         "command": "transport.set_tempo",
         "params": { "tempo": 20 }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001078",
         "ok": true,
@@ -3977,7 +3986,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001078",
         "ok": false,
@@ -3991,14 +4000,14 @@
     },
     "transport.set_playing": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001079",
         "command": "transport.set_playing",
         "params": { "isPlaying": false }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001079",
         "ok": true,
@@ -4010,7 +4019,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001079",
         "ok": false,
@@ -4024,14 +4033,14 @@
     },
     "transport.inspect_arrangement": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001080",
         "command": "transport.inspect_arrangement",
         "params": { "offset": 0, "limit": 100 }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001080",
         "ok": true,
@@ -4045,7 +4054,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001080",
         "ok": false,
@@ -4059,14 +4068,14 @@
     },
     "transport.set_arrangement_loop": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001081",
         "command": "transport.set_arrangement_loop",
         "params": { "enabled": false }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001081",
         "ok": true,
@@ -4078,7 +4087,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001081",
         "ok": false,
@@ -4092,14 +4101,14 @@
     },
     "transport.create_cue_point": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001082",
         "command": "transport.create_cue_point",
         "params": { "time": 0, "name": "x" }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001082",
         "ok": true,
@@ -4116,7 +4125,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001082",
         "ok": false,
@@ -4130,7 +4139,7 @@
     },
     "transport.delete_cue_point": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001083",
         "command": "transport.delete_cue_point",
@@ -4141,7 +4150,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001083",
         "ok": true,
@@ -4158,7 +4167,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001083",
         "ok": false,
@@ -4172,14 +4181,14 @@
     },
     "tracks.create": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001084",
         "command": "tracks.create",
         "params": { "kind": "midi", "name": "x" }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001084",
         "ok": true,
@@ -4197,7 +4206,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001084",
         "ok": false,
@@ -4211,7 +4220,7 @@
     },
     "tracks.delete": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001085",
         "command": "tracks.delete",
@@ -4223,7 +4232,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001085",
         "ok": true,
@@ -4241,7 +4250,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001085",
         "ok": false,
@@ -4255,7 +4264,7 @@
     },
     "tracks.rename": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001086",
         "command": "tracks.rename",
@@ -4267,7 +4276,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001086",
         "ok": true,
@@ -4281,7 +4290,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001086",
         "ok": false,
@@ -4295,7 +4304,7 @@
     },
     "tracks.set_mixer": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001087",
         "command": "tracks.set_mixer",
@@ -4307,7 +4316,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001087",
         "ok": true,
@@ -4333,7 +4342,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001087",
         "ok": false,
@@ -4347,7 +4356,7 @@
     },
     "devices.inspect": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001088",
         "command": "devices.inspect",
@@ -4360,7 +4369,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001088",
         "ok": true,
@@ -4368,7 +4377,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001088",
         "ok": false,
@@ -4382,7 +4391,7 @@
     },
     "devices.inspect_parameters": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001089",
         "command": "devices.inspect_parameters",
@@ -4398,7 +4407,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001089",
         "ok": true,
@@ -4424,7 +4433,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001089",
         "ok": false,
@@ -4438,7 +4447,7 @@
     },
     "devices.inspect_rack_chains": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001090",
         "command": "devices.inspect_rack_chains",
@@ -4454,7 +4463,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001090",
         "ok": true,
@@ -4480,7 +4489,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001090",
         "ok": false,
@@ -4494,7 +4503,7 @@
     },
     "devices.inspect_rack_chain_devices": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001091",
         "command": "devices.inspect_rack_chain_devices",
@@ -4513,7 +4522,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001091",
         "ok": true,
@@ -4547,7 +4556,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001091",
         "ok": false,
@@ -4561,7 +4570,7 @@
     },
     "devices.inspect_drum_rack_pads": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001092",
         "command": "devices.inspect_drum_rack_pads",
@@ -4577,7 +4586,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001092",
         "ok": true,
@@ -4603,7 +4612,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001092",
         "ok": false,
@@ -4617,7 +4626,7 @@
     },
     "devices.inspect_drum_pad_chains": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001093",
         "command": "devices.inspect_drum_pad_chains",
@@ -4637,7 +4646,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001093",
         "ok": true,
@@ -4673,7 +4682,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001093",
         "ok": false,
@@ -4687,7 +4696,7 @@
     },
     "devices.inspect_drum_pad_chain_devices": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001094",
         "command": "devices.inspect_drum_pad_chain_devices",
@@ -4710,7 +4719,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001094",
         "ok": true,
@@ -4756,7 +4765,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001094",
         "ok": false,
@@ -4770,7 +4779,7 @@
     },
     "devices.find_position": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001095",
         "command": "devices.find_position",
@@ -4800,7 +4809,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001095",
         "ok": true,
@@ -4836,7 +4845,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001095",
         "ok": false,
@@ -4850,7 +4859,7 @@
     },
     "devices.move": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001096",
         "command": "devices.move",
@@ -4880,7 +4889,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001096",
         "ok": true,
@@ -4921,7 +4930,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001096",
         "ok": false,
@@ -4935,7 +4944,7 @@
     },
     "devices.set_chain_properties": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001097",
         "command": "devices.set_chain_properties",
@@ -4962,7 +4971,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001097",
         "ok": true,
@@ -4975,7 +4984,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001097",
         "ok": false,
@@ -4989,7 +4998,7 @@
     },
     "devices.set_chain_mixer": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001098",
         "command": "devices.set_chain_mixer",
@@ -5016,7 +5025,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001098",
         "ok": true,
@@ -5073,7 +5082,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001098",
         "ok": false,
@@ -5087,7 +5096,7 @@
     },
     "devices.inspect_chain_mixer": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001099",
         "command": "devices.inspect_chain_mixer",
@@ -5113,7 +5122,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001099",
         "ok": true,
@@ -5146,7 +5155,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001099",
         "ok": false,
@@ -5160,7 +5169,7 @@
     },
     "devices.set_enabled": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001100",
         "command": "devices.set_enabled",
@@ -5175,7 +5184,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001100",
         "ok": true,
@@ -5200,7 +5209,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001100",
         "ok": false,
@@ -5214,7 +5223,7 @@
     },
     "devices.set_parameter": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001101",
         "command": "devices.set_parameter",
@@ -5232,7 +5241,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001101",
         "ok": true,
@@ -5282,7 +5291,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001101",
         "ok": false,
@@ -5296,14 +5305,14 @@
     },
     "browser.inspect_roots": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001102",
         "command": "browser.inspect_roots",
         "params": {}
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001102",
         "ok": true,
@@ -5311,7 +5320,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001102",
         "ok": false,
@@ -5325,7 +5334,7 @@
     },
     "browser.inspect_children": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001103",
         "command": "browser.inspect_children",
@@ -5340,7 +5349,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001103",
         "ok": true,
@@ -5367,7 +5376,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001103",
         "ok": false,
@@ -5381,7 +5390,7 @@
     },
     "browser.search": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001104",
         "command": "browser.search",
@@ -5395,7 +5404,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001104",
         "ok": true,
@@ -5415,7 +5424,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001104",
         "ok": false,
@@ -5429,7 +5438,7 @@
     },
     "browser.load_item": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001105",
         "command": "browser.load_item",
@@ -5445,7 +5454,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001105",
         "ok": true,
@@ -5497,7 +5506,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001105",
         "ok": false,
@@ -5511,7 +5520,7 @@
     },
     "clips.create_midi": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001106",
         "command": "clips.create_midi",
@@ -5525,7 +5534,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001106",
         "ok": true,
@@ -5544,7 +5553,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001106",
         "ok": false,
@@ -5558,7 +5567,7 @@
     },
     "clips.inspect_notes": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001107",
         "command": "clips.inspect_notes",
@@ -5573,7 +5582,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001107",
         "ok": true,
@@ -5596,7 +5605,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001107",
         "ok": false,
@@ -5610,7 +5619,7 @@
     },
     "clips.replace_notes": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001108",
         "command": "clips.replace_notes",
@@ -5625,7 +5634,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001108",
         "ok": true,
@@ -5646,7 +5655,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001108",
         "ok": false,
@@ -5660,7 +5669,7 @@
     },
     "clips.launch": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001109",
         "command": "clips.launch",
@@ -5673,7 +5682,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001109",
         "ok": true,
@@ -5706,7 +5715,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001109",
         "ok": false,
@@ -5720,7 +5729,7 @@
     },
     "clips.duplicate": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001110",
         "command": "clips.duplicate",
@@ -5737,7 +5746,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001110",
         "ok": true,
@@ -5769,7 +5778,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001110",
         "ok": false,
@@ -5783,7 +5792,7 @@
     },
     "clips.delete": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001111",
         "command": "clips.delete",
@@ -5796,7 +5805,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001111",
         "ok": true,
@@ -5819,7 +5828,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001111",
         "ok": false,
@@ -5833,7 +5842,7 @@
     },
     "clips.set_properties": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001112",
         "command": "clips.set_properties",
@@ -5847,7 +5856,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001112",
         "ok": true,
@@ -5870,7 +5879,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001112",
         "ok": false,
@@ -5884,7 +5893,7 @@
     },
     "arrangement.create_midi_clip": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001113",
         "command": "arrangement.create_midi_clip",
@@ -5898,7 +5907,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001113",
         "ok": true,
@@ -5920,7 +5929,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001113",
         "ok": false,
@@ -5934,14 +5943,14 @@
     },
     "arrangement.inspect": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001114",
         "command": "arrangement.inspect",
         "params": { "offset": 0, "limit": 100 }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001114",
         "ok": true,
@@ -5949,7 +5958,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001114",
         "ok": false,
@@ -5963,7 +5972,7 @@
     },
     "arrangement.inspect_notes": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001115",
         "command": "arrangement.inspect_notes",
@@ -5978,7 +5987,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001115",
         "ok": true,
@@ -6004,7 +6013,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001115",
         "ok": false,
@@ -6018,7 +6027,7 @@
     },
     "arrangement.delete_clip": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001116",
         "command": "arrangement.delete_clip",
@@ -6031,7 +6040,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001116",
         "ok": true,
@@ -6055,7 +6064,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001116",
         "ok": false,
@@ -6069,7 +6078,7 @@
     },
     "arrangement.replace_notes": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001117",
         "command": "arrangement.replace_notes",
@@ -6084,7 +6093,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001117",
         "ok": true,
@@ -6108,7 +6117,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001117",
         "ok": false,
@@ -6122,7 +6131,7 @@
     },
     "arrangement.duplicate_clip": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001118",
         "command": "arrangement.duplicate_clip",
@@ -6136,7 +6145,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001118",
         "ok": true,
@@ -6171,7 +6180,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001118",
         "ok": false,
@@ -6185,7 +6194,7 @@
     },
     "arrangement.fill_region": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001119",
         "command": "arrangement.fill_region",
@@ -6200,7 +6209,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001119",
         "ok": true,
@@ -6243,7 +6252,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001119",
         "ok": false,
@@ -6257,7 +6266,7 @@
     },
     "arrangement.set_clip_properties": {
       "request": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001120",
         "command": "arrangement.set_clip_properties",
@@ -6271,7 +6280,7 @@
         }
       },
       "success": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001120",
         "ok": true,
@@ -6295,7 +6304,7 @@
         "warnings": []
       },
       "failure": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001120",
         "ok": false,

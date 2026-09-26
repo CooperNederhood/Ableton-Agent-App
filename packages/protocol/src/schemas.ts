@@ -339,6 +339,12 @@ export type ResponseEnvelope =
   | z.infer<typeof successResponseEnvelopeSchema>
   | z.infer<typeof failureResponseEnvelopeSchema>;
 export type EventEnvelope = z.infer<typeof eventEnvelopeSchema>;
+export type LiveSetSaveObservedPayload = z.infer<
+  typeof liveSetSaveObservedPayloadSchema
+>;
+export type LiveSetSaveObservedEnvelope = z.infer<
+  typeof liveSetSaveObservedEnvelopeSchema
+>;
 export type LiveEventOccurredEnvelope = z.infer<
   typeof liveEventOccurredEnvelopeSchema
 >;
@@ -393,25 +399,72 @@ export const capabilityDetailSchema = z
   })
   .strict();
 
-export const capabilityDocumentSchema = z.object({
-  selectedProtocolVersion: z.literal(PROTOCOL_VERSION),
-  liveVersion: z.string().min(1),
-  remoteScriptVersion: z.string().min(1),
-  projectId: z.string().min(1),
-  projectName: z.string().min(1).optional(),
-  saved: z.boolean().optional(),
-  capabilities: z.record(z.string(), z.boolean()),
-  capabilityDetails: z.record(z.string(), capabilityDetailSchema).optional(),
-  limits: z.object({
-    maxFrameBytes: z.number().int().positive(),
-    maxBatchItems: z.number().int().positive(),
-  }),
-});
+export const capabilityDocumentSchema = z
+  .object({
+    selectedProtocolVersion: z.literal(PROTOCOL_VERSION),
+    liveVersion: z.string().min(1),
+    remoteScriptVersion: z.string().min(1),
+    liveSetId: z.string().min(1),
+    liveSetName: z.string().min(1),
+    saved: z.boolean(),
+    liveProjectId: z.string().min(1).optional(),
+    liveProjectName: z.string().min(1).max(128).optional(),
+    diagnostics: z
+      .array(
+        z
+          .object({
+            code: z.enum(["live_project_not_found"]),
+            message: z.string().min(1).max(256),
+          })
+          .strict(),
+      )
+      .max(4)
+      .default([]),
+    capabilities: z.record(z.string(), z.boolean()),
+    capabilityDetails: z.record(z.string(), capabilityDetailSchema).optional(),
+    limits: z.object({
+      maxFrameBytes: z.number().int().positive(),
+      maxBatchItems: z.number().int().positive(),
+    }),
+  })
+  .strict();
 
-export const projectIdentitySchema = z.object({
-  projectId: z.string().min(1),
-  projectName: z.string().min(1),
-  saved: z.boolean(),
+export const liveIdentitySchema = z
+  .object({
+    liveSetId: z.string().min(1),
+    liveSetName: z.string().min(1),
+    saved: z.boolean(),
+    liveProjectId: z.string().min(1).optional(),
+    liveProjectName: z.string().min(1).max(128).optional(),
+    diagnostics: z
+      .array(
+        z
+          .object({
+            code: z.enum(["live_project_not_found"]),
+            message: z.string().min(1).max(256),
+          })
+          .strict(),
+      )
+      .max(4)
+      .default([]),
+  })
+  .strict();
+
+export const liveSetSaveObservedPayloadSchema = z
+  .object({
+    ...liveIdentitySchema.shape,
+    observedAt: z.string().datetime(),
+    fileModifiedTimeNs: z
+      .string()
+      .max(32)
+      .regex(/^(0|[1-9][0-9]*)$/u),
+    fileSizeBytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  })
+  .strict();
+
+export const liveSetSaveObservedEnvelopeSchema = eventEnvelopeSchema.extend({
+  event: z.literal("live_set.save_observed"),
+  payload: liveSetSaveObservedPayloadSchema,
 });
 
 export const pingResultSchema = z.object({
@@ -454,7 +507,7 @@ const eventObservationPolicySchema = z
 
 const subscribeEventBase = {
   eventId: liveEventIdSchema,
-  projectId: z.string().min(1),
+  liveSetId: z.string().min(1),
 };
 
 export const subscribeEventParamsSchema = z.discriminatedUnion("kind", [
@@ -498,13 +551,13 @@ const resolvedParameterEventTargetSchema =
 const resolvedTrackEventResolutionSchema =
   resolvedTrackEventTargetSchema.extend({
     status: z.literal("resolved"),
-    projectId: z.string().min(1),
+    liveSetId: z.string().min(1),
   });
 
 const resolvedParameterEventResolutionSchema =
   resolvedParameterEventTargetSchema.extend({
     status: z.literal("resolved"),
-    projectId: z.string().min(1),
+    liveSetId: z.string().min(1),
   });
 
 const eventSubscriptionDescriptorBase = {
@@ -1836,7 +1889,7 @@ export const setArrangementClipPropertiesResultSchema = z.object({
 
 export type HelloParams = z.infer<typeof helloParamsSchema>;
 export type CapabilityDocument = z.infer<typeof capabilityDocumentSchema>;
-export type ProjectIdentity = z.infer<typeof projectIdentitySchema>;
+export type LiveIdentity = z.infer<typeof liveIdentitySchema>;
 export type PingResult = z.infer<typeof pingResultSchema>;
 export type EventTrackIdentity = z.infer<typeof eventTrackIdentitySchema>;
 export type EventParameterIdentity = z.infer<

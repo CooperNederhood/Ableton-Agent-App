@@ -7,17 +7,19 @@ import type {
   DesktopEventsState,
   DesktopAgentCatalog,
   DesktopAgentMode,
+  DesktopAgentElicitationRequest,
   DesktopAgentPlanApproval,
+  DesktopPlanArtifactSnapshot,
   DesktopActiveAgent,
   DesktopAgentHistoryMessage,
   DesktopPreferences,
   DesktopOutputsState,
-  DesktopProjectSnapshot,
+  DesktopLiveSetSnapshot,
   DesktopSession,
   ConfigurationSnapshotPage,
   JournalHealth,
   LiveEventTrigger,
-  PendingProjectTransition,
+  PendingLiveSetTransition,
   OperationView,
   PlanSection,
   RootTracePage,
@@ -28,9 +30,11 @@ import { preferencesSchema } from "../contracts";
 export type WorkspaceView =
   | "workspace"
   | "agents"
+  | "skills"
   | "outputs"
   | "events"
   | "browser"
+  | "profiles"
   | "diagnostics"
   | "sessions"
   | "settings";
@@ -41,6 +45,19 @@ export interface MessageView {
   streaming: boolean;
   timestamp: number;
   agentMode?: DesktopAgentMode;
+  working?: WorkingView;
+}
+
+export interface WorkingView {
+  activityId: string;
+  status: "running" | "completed" | "failed" | "cancelled";
+  intent?: string;
+  summary: string;
+  reasoningId?: string;
+  responseStarted: boolean;
+  detail?: string;
+  startedAt: number;
+  updatedAt: number;
 }
 
 export interface AgentWorkspaceState {
@@ -49,6 +66,8 @@ export interface AgentWorkspaceState {
   triggers: LiveEventTrigger[];
   approval?: ApprovalRequest | undefined;
   planApproval?: DesktopAgentPlanApproval | undefined;
+  planArtifact?: DesktopPlanArtifactSnapshot | undefined;
+  elicitation?: DesktopAgentElicitationRequest | undefined;
 }
 
 export type ProjectRefreshState =
@@ -74,13 +93,13 @@ export interface DesktopState {
   dismissedContextIds: string[];
   projectSelectionContextEnabled: boolean;
   approval?: ApprovalRequest | undefined;
-  snapshot?: DesktopProjectSnapshot | undefined;
+  snapshot?: DesktopLiveSetSnapshot | undefined;
   selectedTrackId?: string | undefined;
   selectedClipId?: string | undefined;
   selectedDeviceId?: string | undefined;
   sessions: DesktopSession[];
   activeSessionId?: string | undefined;
-  pendingProjectTransition?: PendingProjectTransition | undefined;
+  pendingLiveSetTransition?: PendingLiveSetTransition | undefined;
   agentCatalog: DesktopAgentCatalog;
   preferences: DesktopPreferences;
   diagnostics: Array<{ level: "info" | "warning" | "error"; message: string }>;
@@ -484,7 +503,7 @@ function reduceEvent(
       return { ...state, lifecycle: event.state };
     case "ableton.connection_changed":
       return { ...state, connection: event.status };
-    case "project.snapshot_changed":
+    case "live_set.snapshot_changed":
       return {
         ...state,
         snapshot: event.snapshot,
@@ -495,6 +514,18 @@ function reduceEvent(
         ...state,
         sessions: event.sessions,
         activeSessionId: event.activeSessionId,
+        agentCatalog:
+          state.activeSessionId !== event.activeSessionId &&
+          state.agentCatalog.sessionId !== event.activeSessionId
+            ? {
+                ...(event.activeSessionId === undefined
+                  ? {}
+                  : { sessionId: event.activeSessionId }),
+                definitions: [],
+                skills: [],
+                diagnostics: [],
+              }
+            : state.agentCatalog,
       };
     case "agents.catalog_changed":
       return { ...state, agentCatalog: event.catalog };
@@ -525,11 +556,39 @@ function reduceEvent(
           planApproval: event.request,
         }),
       );
+    case "agent.plan_artifact_changed":
+      return {
+        ...state,
+        agentWorkspaces: Object.fromEntries(
+          (activeSession(state)?.activeAgents ?? []).map((agent) => {
+            const workspace =
+              state.agentWorkspaces[agent.id] ?? emptyAgentWorkspace();
+            return [agent.id, { ...workspace, planArtifact: event.artifact }];
+          }),
+        ),
+      };
     case "agent.plan_approval_completed":
       if (event.agentInstanceId === undefined) return state;
       return updateAgentWorkspace(state, event.agentInstanceId, (workspace) =>
         workspace.planApproval?.requestId === event.requestId
           ? { ...workspace, planApproval: undefined }
+          : workspace,
+      );
+    case "agent.elicitation_requested":
+      if (event.agentInstanceId === undefined) return state;
+      return updateAgentWorkspace(
+        state,
+        event.agentInstanceId,
+        (workspace) => ({
+          ...workspace,
+          elicitation: event.request,
+        }),
+      );
+    case "agent.elicitation_completed":
+      if (event.agentInstanceId === undefined) return state;
+      return updateAgentWorkspace(state, event.agentInstanceId, (workspace) =>
+        workspace.elicitation?.requestId === event.requestId
+          ? { ...workspace, elicitation: undefined }
           : workspace,
       );
     case "agent.history_hydrated":
@@ -590,11 +649,11 @@ function reduceEvent(
         ),
         plan: event.session.productionPlan,
       };
-    case "project.transition_requested":
-      return { ...state, pendingProjectTransition: event.transition };
-    case "project.transition_cleared":
-      return state.pendingProjectTransition?.token === event.token
-        ? { ...state, pendingProjectTransition: undefined }
+    case "live_set.transition_requested":
+      return { ...state, pendingLiveSetTransition: event.transition };
+    case "live_set.transition_cleared":
+      return state.pendingLiveSetTransition?.token === event.token
+        ? { ...state, pendingLiveSetTransition: undefined }
         : state;
     case "preferences.changed":
       return { ...state, preferences: event.preferences };
@@ -719,6 +778,30 @@ function reduceEvent(
         ),
       };
     }
+    case "agent.working_update": {
+      if (event.agentInstanceId !== undefined) {
+        return updateAgentWorkspace(
+          state,
+          event.agentInstanceId,
+          (workspace) => ({
+            ...workspace,
+            messages: applyWorkingUpdate(
+              workspace.messages,
+              event.messageId,
+              event.update,
+            ),
+          }),
+        );
+      }
+      return {
+        ...state,
+        messages: applyWorkingUpdate(
+          state.messages,
+          event.messageId,
+          event.update,
+        ),
+      };
+    }
   }
 }
 
@@ -727,6 +810,8 @@ const emptyAgentWorkspace = (): AgentWorkspaceState => ({
   operations: [],
   triggers: [],
   planApproval: undefined,
+  planArtifact: undefined,
+  elicitation: undefined,
 });
 
 function updateAgentWorkspace(
@@ -840,6 +925,93 @@ function applyMessageComplete(
           },
         ],
         maxMessages,
+      );
+}
+
+function applyWorkingUpdate(
+  messages: MessageView[],
+  messageId: string,
+  update: Extract<DesktopAppEvent, { type: "agent.working_update" }>["update"],
+): MessageView[] {
+  const occurredAt = Date.parse(update.occurredAt) || Date.now();
+  const index = messages.findIndex(({ id }) => id === messageId);
+  const existing =
+    index < 0
+      ? {
+          id: messageId,
+          role: "assistant" as const,
+          content: "",
+          streaming: false,
+          timestamp: occurredAt,
+        }
+      : messages[index]!;
+  const previous = existing.working;
+  if (
+    previous !== undefined &&
+    previous.activityId !== update.activityId &&
+    previous.status === "running"
+  ) {
+    return messages;
+  }
+  let working: WorkingView;
+  if (update.kind === "started") {
+    working = {
+      activityId: update.activityId,
+      status: "running",
+      summary: "",
+      responseStarted: false,
+      startedAt: occurredAt,
+      updatedAt: occurredAt,
+    };
+  } else {
+    const base =
+      previous?.activityId === update.activityId
+        ? previous
+        : {
+            activityId: update.activityId,
+            status: "running" as const,
+            summary: "",
+            responseStarted: false,
+            startedAt: occurredAt,
+            updatedAt: occurredAt,
+          };
+    if (update.kind === "intent") {
+      working = { ...base, intent: update.content, updatedAt: occurredAt };
+    } else if (update.kind === "reasoning_delta") {
+      working = {
+        ...base,
+        reasoningId: update.reasoningId,
+        summary: (base.summary + update.content).slice(0, 16_000),
+        updatedAt: occurredAt,
+      };
+    } else if (update.kind === "reasoning_complete") {
+      working = {
+        ...base,
+        reasoningId: update.reasoningId,
+        summary: update.content.slice(0, 16_000),
+        updatedAt: occurredAt,
+      };
+    } else if (update.kind === "streaming") {
+      working = {
+        ...base,
+        responseStarted: update.totalResponseSizeBytes > 0,
+        updatedAt: occurredAt,
+      };
+    } else {
+      if (base.status !== "running") return messages;
+      working = {
+        ...base,
+        status: update.outcome,
+        ...(update.detail === undefined ? {} : { detail: update.detail }),
+        updatedAt: occurredAt,
+      };
+    }
+  }
+  const next = { ...existing, working };
+  return index < 0
+    ? bounded([...messages, next], maxMessages)
+    : messages.map((message, messageIndex) =>
+        messageIndex === index ? next : message,
       );
 }
 

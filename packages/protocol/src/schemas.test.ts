@@ -25,7 +25,7 @@ import {
   inspectRackChainDevicesParamsSchema,
   inspectRackChainsParamsSchema,
   launchSessionClipParamsSchema,
-  projectIdentitySchema,
+  liveIdentitySchema,
   setChainMixerParamsSchema,
   setChainPropertiesParamsSchema,
   setDeviceEnabledParamsSchema,
@@ -36,6 +36,8 @@ import {
   subscribeEventParamsSchema,
   subscribeEventResultSchema,
   liveEventEnvelopeSchema,
+  liveSetSaveObservedEnvelopeSchema,
+  liveSetSaveObservedPayloadSchema,
 } from "./schemas.js";
 
 const identity = {
@@ -103,18 +105,23 @@ describe("protocol negotiation", () => {
   });
 });
 
-describe("project identity schema", () => {
-  it("requires a display name and explicit saved state without a path", () => {
+describe("Live identity schema", () => {
+  it("requires explicit Live Set identity and supports Live Project identity", () => {
     expect(
-      projectIdentitySchema.parse({
-        projectId: "project-1",
-        projectName: "My Set",
+      liveIdentitySchema.parse({
+        liveSetId: "set-1",
+        liveSetName: "My Set",
         saved: true,
+        liveProjectId: "project-1",
+        liveProjectName: "My Project",
       }),
     ).toEqual({
-      projectId: "project-1",
-      projectName: "My Set",
+      liveSetId: "set-1",
+      liveSetName: "My Set",
       saved: true,
+      liveProjectId: "project-1",
+      liveProjectName: "My Project",
+      diagnostics: [],
     });
 
     describe("Live event protocol schemas", () => {
@@ -179,11 +186,164 @@ describe("project identity schema", () => {
       });
     });
     expect(
-      projectIdentitySchema.safeParse({
-        projectId: "project-1",
-        projectName: "My Set",
+      liveIdentitySchema.safeParse({
+        liveSetId: "set-1",
+        liveSetName: "My Set",
       }).success,
     ).toBe(false);
+    expect(
+      liveIdentitySchema.safeParse({
+        liveSetId: "set-1",
+        liveSetName: "My Set",
+        saved: true,
+        projectId: "legacy-project",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts bounded orphan diagnostics without inventing project identity", () => {
+    const parsed = liveIdentitySchema.parse({
+      liveSetId: "set-1",
+      liveSetName: "Orphan Set",
+      saved: true,
+      diagnostics: [
+        {
+          code: "live_project_not_found",
+          message: "No Ableton Project Info ancestor was found",
+        },
+      ],
+    });
+
+    expect(parsed.liveProjectId).toBeUndefined();
+    expect(parsed.liveProjectName).toBeUndefined();
+    expect(
+      liveIdentitySchema.safeParse({
+        ...parsed,
+        diagnostics: Array.from({ length: 5 }, () => parsed.diagnostics[0]),
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("Live event protocol schemas", () => {
+  const eventId = "live-event.00000000-0000-4000-8000-000000000099";
+  const trackReference = "00000000-0000-4000-8000-000000000010";
+  const trackIdentity = {
+    index: 0,
+    expectedReference: trackReference,
+    expectedName: "Drums",
+  };
+
+  it("strictly matches Live Set-scoped parameters and results", () => {
+    expect(
+      subscribeEventParamsSchema.safeParse({
+        ...trackIdentity,
+        eventId,
+        liveSetId: "set",
+        kind: "track.playing_clip_changed",
+        deviceIndex: 0,
+      }).success,
+    ).toBe(false);
+    expect(
+      subscribeEventParamsSchema.safeParse({
+        ...trackIdentity,
+        eventId,
+        projectId: "legacy-project",
+        kind: "track.playing_clip_changed",
+      }).success,
+    ).toBe(false);
+    expect(
+      inspectEventSelectionResultSchema.parse({
+        track: trackIdentity,
+        parameter: null,
+      }),
+    ).toEqual({ track: trackIdentity, parameter: null });
+    expect(
+      subscribeEventResultSchema.safeParse({
+        eventId,
+        kind: "track.playing_clip_changed",
+        target: { trackReference, track: { name: "Drums" } },
+        state: { state: "stopped" },
+        resolution: {
+          status: "resolved",
+          liveSetId: "set",
+          trackReference,
+          track: { name: "Drums" },
+        },
+        initialState: {
+          kind: "track.triggered_clip_changed",
+          state: { state: "none" },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("parses typed occurred and invalidated event envelopes", () => {
+    expect(
+      liveEventEnvelopeSchema.parse({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "event",
+        event: "live_event.invalidated",
+        sequence: 2,
+        payload: {
+          eventId,
+          observedAt: "2000-01-01T00:00:00Z",
+          reason: "target-deleted",
+        },
+      }).event,
+    ).toBe("live_event.invalidated");
+  });
+
+  it("validates identity-complete metadata-only Live Set save observations", () => {
+    expect(
+      liveSetSaveObservedEnvelopeSchema.parse({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "event",
+        event: "live_set.save_observed",
+        sequence: 10,
+        payload: {
+          liveSetId: "set-1",
+          liveSetName: "Saved Set",
+          saved: true,
+          liveProjectId: "project-1",
+          liveProjectName: "Project",
+          diagnostics: [],
+          observedAt: "2026-09-20T20:00:00.000Z",
+          fileModifiedTimeNs: "1700000000000000000",
+          fileSizeBytes: 4096,
+        },
+        projectRevision: 4,
+      }).payload,
+    ).toEqual({
+      liveSetId: "set-1",
+      liveSetName: "Saved Set",
+      saved: true,
+      liveProjectId: "project-1",
+      liveProjectName: "Project",
+      diagnostics: [],
+      observedAt: "2026-09-20T20:00:00.000Z",
+      fileModifiedTimeNs: "1700000000000000000",
+      fileSizeBytes: 4096,
+    });
+    expect(() =>
+      liveSetSaveObservedPayloadSchema.parse({
+        liveSetId: "set-1",
+        liveSetName: "Saved Set",
+        saved: true,
+        observedAt: "2026-09-20T20:00:00.000Z",
+        fileModifiedTimeNs: 1_700_000_000_000_000_000,
+        fileSizeBytes: 4096,
+        filePath: "/private/set.als",
+      }),
+    ).toThrow();
+    expect(() =>
+      liveSetSaveObservedPayloadSchema.parse({
+        liveSetId: "set-1",
+        observedAt: "2026-09-20T20:00:00.000Z",
+        fileModifiedTimeNs: "1",
+        fileSizeBytes: Number.MAX_SAFE_INTEGER + 1,
+      }),
+    ).toThrow();
   });
 });
 

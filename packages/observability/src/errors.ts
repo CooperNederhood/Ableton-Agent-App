@@ -29,7 +29,10 @@ export class JournalConflictError extends ObservabilityJournalError {
 }
 
 export class JournalDuplicateError extends ObservabilityJournalError {
-  public constructor(kind: "event" | "configuration snapshot", id: string) {
+  public constructor(
+    kind: "event" | "configuration snapshot" | "agent history" | "set history",
+    id: string,
+  ) {
     super("duplicate", `A ${kind} with id '${id}' is already journaled`);
     this.name = "JournalDuplicateError";
   }
@@ -49,6 +52,13 @@ export class JournalCursorError extends ObservabilityJournalError {
   public constructor(message = "The observability query cursor is invalid") {
     super("invalid_cursor", message);
     this.name = "JournalCursorError";
+  }
+}
+
+export class JournalQueryError extends ObservabilityJournalError {
+  public constructor(message: string) {
+    super("invalid_query", message);
+    this.name = "JournalQueryError";
   }
 }
 

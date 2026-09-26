@@ -237,11 +237,11 @@ Run these commands from the repository root.
 
    ```bash
    REPO="$PWD"
-   PROFILE="$HOME/.ableton-agent/ux-test-profile"
+   DESCRIPTOR="$HOME/.ableton-agent/ux-test-profile/automation-endpoint.json"
 
    copilot mcp add ableton-agent-desktop -- \
      node "$REPO/apps/debug-mcp/dist/main.js" \
-     --descriptor "$PROFILE/automation-endpoint.json"
+     --descriptor "$DESCRIPTOR"
    ```
 
    Confirm that it is registered:
@@ -250,23 +250,35 @@ Run these commands from the repository root.
    copilot mcp list
    ```
 
-3. Start Ableton Live with the `AbletonAgent` Control Surface enabled.
+3. Start a runner-owned Ableton Live process with the `AbletonAgent` Control
+   Surface enabled:
+
+   ```bash
+   pnpm live:ux-host
+   ```
+
+   Wait for the JSON readiness line. This uses the same exact-PID ownership and
+   known startup-dialog handling as deterministic integration tests.
 
 4. Launch the visible desktop app in automation mode:
 
    ```bash
-   PROFILE="$HOME/.ableton-agent/ux-test-profile"
+   PROFILE="$(mktemp -d "${TMPDIR:-/tmp}/ableton-agent-ux-XXXXXX")"
+   DESCRIPTOR="$HOME/.ableton-agent/ux-test-profile/automation-endpoint.json"
+   mkdir -p "$(dirname "$DESCRIPTOR")"
 
    pnpm desktop:dev -- \
      --automation \
      --automation-profile "$PROFILE" \
+     --automation-descriptor "$DESCRIPTOR" \
      --automation-agent default \
      --automation-yolo
    ```
 
    Replace `default` with another definition such as `mix`, `sound`, `compose`,
-   or `arrange`. The launch creates the profile and
-   `$PROFILE/automation-endpoint.json`.
+   or `arrange`. The launch keeps application data in the fresh isolated
+   profile while publishing the transient automation descriptor at the stable
+   path registered in step 2.
 
 5. In another terminal, start Copilot from the repository:
 
@@ -462,7 +474,9 @@ real LOM behavior.
 | `pnpm desktop:debug`                                                  | Start desktop development with debug logs and DevTools      |
 | `pnpm --filter @ableton-agent/desktop remote-script update --confirm` | Install current Remote Script files into the User Library   |
 | `pnpm test:electron`                                                  | Run Electron end-to-end tests                               |
+| `pnpm test:electron:packaged`                                         | Smoke-test an existing packaged macOS application           |
 | `pnpm desktop:dist`                                                   | Produce unsigned local desktop artifacts                    |
+| `pnpm desktop:verify-production`                                      | Run checks, package, and smoke-test the production app      |
 | `pnpm live:validate -- --live-version 12.1`                           | Record real-Live smoke evidence                             |
 | `node apps/cli/dist/main.js help`                                     | List CLI commands and options                               |
 

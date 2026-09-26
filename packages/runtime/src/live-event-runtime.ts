@@ -164,7 +164,10 @@ function statusState(
 function statusResolution(
   status: LiveEventSubscriptionStatus,
 ): LiveEventResolution {
-  if (status.status === "resolved") return status.subscription.resolution;
+  if (status.status === "resolved") {
+    const { liveSetId, ...resolution } = status.subscription.resolution;
+    return { ...resolution, projectId: liveSetId };
+  }
   if (status.status === "invalidated") {
     return {
       status: "invalidated",
@@ -488,7 +491,7 @@ export class DefaultLiveEventRuntime
             name: "live-event.subscription-replay.skipped",
             source: "live-event-runtime",
             correlationId: state.definition.id,
-            projectId: state.definition.projectId,
+            liveSetId: state.definition.projectId,
             liveEventId: state.definition.id,
             trace: { traceId, spanId: traceId },
             attributes: {
@@ -512,14 +515,15 @@ export class DefaultLiveEventRuntime
         const recovered =
           (this.#subscriptionRetryAttempts.get(state.definition.id) ?? 0) > 0;
         this.#clearSubscriptionRetry(state.definition.id);
-        state.resolution = result.resolution;
+        const { liveSetId, ...resolution } = result.resolution;
+        state.resolution = { ...resolution, projectId: liveSetId };
         state.latestState = result.initialState;
         this.#emitState(state);
         recordSignalTelemetry(this.#telemetry, {
           name: "live-event.subscription.resolved",
           source: "live-event-runtime",
           correlationId: state.definition.id,
-          projectId: state.definition.projectId,
+          liveSetId: state.definition.projectId,
           liveEventId: state.definition.id,
           outcome: "success",
           durationMs: this.#now().getTime() - startedAt,
@@ -558,7 +562,7 @@ export class DefaultLiveEventRuntime
           name: "live-event.subscription.unresolved",
           source: "live-event-runtime",
           correlationId: state.definition.id,
-          projectId: state.definition.projectId,
+          liveSetId: state.definition.projectId,
           liveEventId: state.definition.id,
           level: "warn",
           outcome: "failure",
@@ -594,7 +598,7 @@ export class DefaultLiveEventRuntime
         name: "live-event.subscription.retry-exhausted",
         source: "live-event-runtime",
         correlationId: eventId,
-        projectId: state.definition.projectId,
+        liveSetId: state.definition.projectId,
         liveEventId: eventId,
         level: "warn",
         outcome: "failure",
@@ -622,7 +626,7 @@ export class DefaultLiveEventRuntime
       name: "live-event.subscription.retry-scheduled",
       source: "live-event-runtime",
       correlationId: eventId,
-      projectId: state.definition.projectId,
+      liveSetId: state.definition.projectId,
       liveEventId: eventId,
       level: "warn",
       attributes: { eventId, attempt: attempt + 1, delayMs: delay },
@@ -649,7 +653,7 @@ export class DefaultLiveEventRuntime
     }
     const base = {
       eventId: definition.id,
-      projectId: definition.projectId,
+      liveSetId: definition.projectId,
       index: track.index,
       expectedReference: track.reference,
       expectedName: track.name,
@@ -781,7 +785,7 @@ export class DefaultLiveEventRuntime
       name: "live-event.history.recorded",
       source: "live-event-runtime",
       correlationId: occurrence.occurrenceId,
-      projectId: state.definition.projectId,
+      liveSetId: state.definition.projectId,
       liveEventId: occurrence.eventId,
       outcome: "success",
       durationMs: this.#durationSince(event.receivedAt),
@@ -849,7 +853,7 @@ export class DefaultLiveEventRuntime
       name: "live-event.listener-fanout.completed",
       source: "live-event-runtime",
       correlationId: occurrence.occurrenceId,
-      projectId: state.definition.projectId,
+      liveSetId: state.definition.projectId,
       liveEventId: occurrence.eventId,
       outcome: "success",
       durationMs: this.#durationSince(event.receivedAt),
@@ -1194,7 +1198,7 @@ export class DefaultLiveEventRuntime
         name: `live-event.reconciliation.${status.status}`,
         source: "live-event-runtime",
         correlationId: status.eventId,
-        projectId: state.definition.projectId,
+        liveSetId: state.definition.projectId,
         liveEventId: status.eventId,
         level: status.status === "resolved" ? "info" : "warn",
         outcome: status.status === "resolved" ? "success" : "failure",
@@ -1308,14 +1312,14 @@ export class DefaultLiveEventRuntime
     } = {},
   ): void {
     const traceId = context.occurrence.occurrenceId;
-    const projectId = this.#states.get(context.occurrence.eventId)?.definition
+    const liveSetId = this.#states.get(context.occurrence.eventId)?.definition
       .projectId;
     recordSignalTelemetry(this.#telemetry, {
       name,
       source: "live-event-runtime",
       correlationId: context.occurrence.occurrenceId,
       causationId: context.occurrence.occurrenceId,
-      ...(projectId === undefined ? {} : { projectId }),
+      ...(liveSetId === undefined ? {} : { liveSetId }),
       activeAgentId: context.agentInstanceId,
       liveEventId: context.occurrence.eventId,
       ...(options.level === undefined ? {} : { level: options.level }),
@@ -1354,7 +1358,7 @@ export class DefaultLiveEventRuntime
         : undefined;
     const liveEventId =
       typeof attributes.eventId === "string" ? attributes.eventId : undefined;
-    const projectId =
+    const liveSetId =
       liveEventId === undefined
         ? undefined
         : this.#states.get(liveEventId)?.definition.projectId;
@@ -1363,7 +1367,7 @@ export class DefaultLiveEventRuntime
       source: "live-event-runtime",
       ...(activeAgentId === undefined ? {} : { activeAgentId }),
       correlationId: traceId,
-      ...(projectId === undefined ? {} : { projectId }),
+      ...(liveSetId === undefined ? {} : { liveSetId }),
       ...(liveEventId === undefined ? {} : { liveEventId }),
       level: "debug",
       outcome: "cancelled",

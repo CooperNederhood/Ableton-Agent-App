@@ -35,13 +35,13 @@ Suggested layout:
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ Connection · Project · Active Agent · Model                 │
+│ Connection · Project · Active Agent                         │
 ├──────────────────┬───────────────────────────┬───────────────┤
-│ Project outline  │ Conversation / operation  │ Inspector     │
-│ Tracks/sections  │ timeline                  │ Selection     │
-│                  │                           │ Plan/changes  │
+│ Project outline  │ Conversation / operation  │ ◉ ☑ +         │
+│ Tracks/sections  │ timeline                  │ Inspector     │
+│ Context · Refresh│                           │ view panes    │
 ├──────────────────┴───────────────────────────┴───────────────┤
-│ Prompt composer · context chips · approval controls          │
+│ Prompt composer                 interactive            ↑     │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -49,36 +49,108 @@ The conversation/operation timeline is the graphical form of the reference
 CLI chat experience. The surrounding project outline, inspector, context
 controls, and plan/change views progressively enhance it.
 
-The workspace opens as three columns. The Project and Inspector columns each
-have an independent accessible toggle in the conversation heading, and the
-connection header plus application tabs can be hidden as one top-chrome region.
+The workspace opens as three columns without repeated Project, Conversation,
+or Inspector heading rows. The Project and Inspector columns each have an
+independent, subtle icon control at the workspace edge, and the connection
+header plus application tabs can be hidden as one top-chrome region.
 These visibility choices are intentionally transient and reset on launch. The
-composer belongs to the center conversation column, expanding with it when
-either sidebar is hidden so users can isolate chat without losing input.
-The Project and Inspector edges are pointer-draggable within bounded widths.
-Dragging always preserves a usable conversation column, each sidebar retains
-its selected width while hidden and reopened, and widths reset when the desktop
-app restarts. Hide/show buttons remain the keyboard-accessible sidebar
-controls; the resize edges do not add separate keyboard controls.
+composer belongs exclusively to the Workspace center conversation column,
+expanding with it when either sidebar is hidden so users can isolate chat
+without losing input. Agents, Skills, Outputs, Events, Browser, Profiles,
+Diagnostics, Sessions, and Settings use their full content area without a
+chat composer.
+The global focus-composer shortcut returns to Workspace before focusing the
+saved draft, and incoming questions or plan approvals return to Workspace so a
+blocking interaction is never hidden on a management tab.
+The Project and Inspector edges are pointer-draggable. The Project sidebar
+retains a bounded maximum, while the Inspector may expand through all workspace
+width available after the visible Project sidebar and minimum usable
+conversation column are reserved. Each sidebar retains its selected width while
+hidden and reopened, and widths reset when the desktop app restarts. Hide/show
+buttons remain the keyboard-accessible sidebar controls; the resize edges do
+not add separate keyboard controls.
+Project refresh sits beside the project-selection context switch so the only
+remaining project toolbar action is adjacent to the state it refreshes.
 
 Assistant turns are borderless, left-aligned reading content. User turns are
-compact right-aligned cards. Neither role needs a repeated textual label in
-every turn; streaming state remains announced. This distinction must remain
-semantic and must not rely on color alone.
+compact right-aligned cards. Interactive user cards use a gray outline and
+surface; plan user cards use a blue outline and surface plus the textual
+`plan` label. Older history without mode metadata is rendered as interactive.
+Neither role needs a repeated textual label in every turn; streaming state
+remains announced. This distinction must remain semantic and must not rely on
+color alone.
+
+An active assistant turn begins with a compact **Working** disclosure before
+final answer text is available. It remains expanded while work is running,
+shows concise model-provided reasoning summaries when enabled, and may also
+show intent and safe progress text. It collapses automatically after
+completion, failure, cancellation, or timeout and remains manually reopenable.
+The disclosure does not expose hidden chain-of-thought, raw provider fragments,
+tool arguments, or byte counters; detailed tool activity remains in the typed
+operation rows. Incremental updates are frame-batched without waiting for the
+final assistant message.
 
 Each active agent also owns an interaction mode. `/plan` enters plan mode
 without creating a chat turn, and Shift+Tab toggles between plan and
-interactive modes for the selected agent. The composer shows the current mode.
+interactive modes for the selected agent. The ordinary composer uses a compact
+bottom action row: the current mode is a low-emphasis text button and the
+send/stop action is a small circular semantic icon button.
 User turns submitted in plan mode use a distinct card treatment and a compact
-textual `plan` label so the distinction does not depend on color.
+textual `plan` label so the distinction does not depend on color. Messages
+submitted through the isolated automation endpoint inherit and display the
+selected agent's effective mode rather than defaulting to interactive.
 
-When the agent finishes a plan, the selected agent's Inspector displays the
-bounded plan content and actions to approve and continue interactively, request
-changes, or exit without implementation. Until interactive approval is
-recorded, plan mode remains read-only even if ordinary mutation auto-approval is
-enabled. The panel disables duplicate submissions while a response is pending,
-keeps stale or failed requests visible with an actionable error, and renders
-only the actions offered by the normalized SDK request.
+Planning interaction replaces the ordinary composer in place while preserving
+the visible conversation timeline and the user's unsent message draft.
+Takeover priority is structured elicitation, pending plan approval/change
+feedback, manual Markdown editing, then the ordinary prompt composer. The
+controls use schema-driven text, choice, multi-choice, boolean, and numeric
+fields and remain a back-and-forth human-in-the-loop conversation. Single
+choice fields show all named options as radios. Agent `ask_user` choices append
+an always-visible custom text entry, while unrelated strict schema enums remain
+restricted to their declared values. The question panel grows with its content
+up to a bounded viewport height and has an accessible top-edge resize handle
+for temporary session-local adjustment.
+
+The Inspector is a modular workspace. Selection, Plan, and Approval views
+appear as compact icon tabs only while their content exists. Tabs can be
+reordered, moved between panes, or dropped at a pane edge to create a vertical
+split. Split panes begin at uniform heights, resize with horizontal dividers,
+and scroll independently. Closing a tab makes it available from the `+` menu;
+newly available views open automatically. This layout is transient and resets
+when the app launches.
+
+The Plan view is a read-only rendering of the production session's canonical
+`plan.md`. Its Edit Markdown action opens a large editor in the composer area
+and saves through the same revision-checked artifact API used by the agent.
+Approval, request-changes feedback, and exit-only controls also live in the
+composer, but the SDK's plain-text plan summary is not duplicated there; the
+Inspector is the plan review surface. Until interactive approval is recorded,
+Ableton mutations remain blocked even when ordinary mutation auto-approval is
+enabled. Duplicate submissions are disabled, stale revisions remain visible
+with an actionable error, and only normalized actions offered by the SDK
+request are rendered.
+
+The Skills tab follows the Agents tab's narrow navigator and Inspector-style
+detail layout. Published skills expose read-only discovery metadata and an
+editable Markdown instruction body. New drafts allow name and description
+entry until first publication. Saving creates a Session-scope skill, refreshes
+Profiles, and immediately adds the resolved skill to Workspace slash-command
+completion.
+
+Profiles lists the active production session immediately, including a new
+in-memory session for an unsaved Live Set. Drag-and-drop can copy or move agents
+and skills between any listed persisted sessions. Dropping onto the active
+in-memory session persists it first; writing into an inactive session does not
+change the active runtime.
+
+Settings exposes the agent's cumulative active-work timeout in minutes. It
+defaults to 10 minutes, accepts values from 1 through 120, applies to subsequent
+turns without restarting Desktop, and excludes time spent waiting for
+elicitation, plan review, or tool approval.
+Settings also exposes a global Agent reasoning visibility control with Off,
+Concise, and Detailed choices. Concise is the default. Changes apply before
+each active agent's next turn without replacing its conversation.
 
 ## Events
 
@@ -95,9 +167,11 @@ alone. Cards show current state, resolution, continuous/discrete classification,
 and listening agents. A bounded **Recent activity** disclosure is hidden by
 default.
 
-Active-agent editing provides a Skills-style **Listening Events** selector.
-Each selected event has an `Automatic` or `Next prompt` response mode and
-an optional message prefix.
+The Agents editor provides a Skills-style **Listening Events** selector for
+active and inactive definitions. Each selected event has an `Automatic` or
+`Next prompt` response mode, an optional message prefix, and prepared-context
+settings. Saving creates a Session-scope definition; an active conversation
+adopts it only after Reset.
 
 ## History
 
@@ -186,18 +260,17 @@ a visual plan before execution:
 
 Users can approve, edit, or narrow the plan.
 
-SDK completed plans appear in the right Inspector for the selected active
-agent. The panel presents the bounded plan content and only three product
-actions: approve and continue interactively, request changes with feedback, or
-exit plan mode without implementation. Autopilot and fleet actions advertised
-by the SDK remain hidden. Opening a completed plan reveals the Inspector
-automatically, while plan state and responses remain isolated by active-agent
-instance. Main-process event delivery, preload validation, automatic Inspector
-opening, and typed response IPC are covered together in the Electron harness;
-application-owned success, failure, stale, duplicate, and isolation branches
-remain deterministically unit-tested.
+The production session owns one shared plan document, while pending approval
+and elicitation requests remain attributed to the active agent and SDK session
+that initiated them. Completing a plan reveals the Inspector automatically and
+replaces the composer with approve-and-continue, request-changes, or exit-only
+controls. Autopilot and fleet actions remain hidden. Main-process event
+delivery, preload validation, typed artifact/edit/elicitation IPC, and composer
+takeover are covered together in the Electron harness; application-owned
+success, failure, stale, duplicate, cancellation, and isolation branches remain
+deterministically unit-tested.
 
-Plan content remains stored, journaled, and transported as the model-authored
+Plan content remains stored and transported as sanitized model- or user-authored
 GitHub-Flavored Markdown. The Inspector applies one narrow presentation-only
 cleanup when a single-line plan contains multiple unmistakable bold labeled
 section markers such as ` - **Intro:**`: those markers become Markdown bullets,

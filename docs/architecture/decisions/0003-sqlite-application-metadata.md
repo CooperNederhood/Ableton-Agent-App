@@ -19,6 +19,14 @@ structured musical/MIDI data, and event payloads are required local history
 content. Credentials embedded in strings are redacted, and binary/audio bodies
 are replaced with visible omission markers.
 
+The profile-wide database is named
+`observability/agent-set-event-history.sqlite`. App events and configuration
+snapshots, agent sessions/turns/messages/tool calls/results/approvals, and Live
+Set saves/snapshots/trajectory records occupy separate physical tables. Typed
+repositories read agent and Set timelines through stable `agent_history` and
+`set_history` views. The former `event-history.sqlite` is not migrated into
+this database.
+
 The storage package exposes repository interfaces so runtime code does not
 depend on a particular SQLite driver. `sql.js`, SQLite compiled to
 WebAssembly, is the selected driver: it is a plain JavaScript dependency that
@@ -44,5 +52,10 @@ packaging matrix without weakening reproducibility.
   implementations must demonstrate these semantics and must not make the
   in-memory image or atomic publication strategy block SDK, bridge, Live Event,
   or renderer critical paths at the cap.
+- Agent and Set history indexes cover Live Set/Project filtering and the
+  `agent_session_id`, `turn_id`, and `tool_call_id` trajectory join paths used
+  by public queries. Full-text indexing is deferred until dogfooding shows that
+  bounded transcript or musical-name search is common enough to justify a
+  synchronized search projection.
 - The journal remains local-only and default-on. Anonymous product telemetry
   consent and transport are separate concerns.

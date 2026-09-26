@@ -277,9 +277,16 @@ the Ableton application lifecycle.
 
 ## Phase 9: local detailed event journal
 
-- [ ] Add a versioned, append-only journal record envelope with event/source
+- [x] Add a versioned, append-only journal record envelope with event/source
   type, lifecycle stage, timestamps, trace/correlation/causation IDs, scoped
   entity IDs, outcome, timings, and bounded sanitized payloads.
+- [x] Establish the unified application-owned history database with physically
+  separate App event/configuration, agent history, and Live Set history tables;
+  typed write/read contracts; and granular stable `agent_history_*` and
+  `set_history_*` views.
+- [x] Add worker-owned public-history SQL with a strict view allowlist,
+  parameter binding, scalar/row/column bounds, execution timing, schema
+  attribution, and read-only enforcement.
 - [ ] Capture sanitized agent-configuration snapshots on create, resume, and
   change.
 - [ ] Capture the complete unsampled SDK, tool, workflow, approval, bridge, Live
@@ -292,8 +299,11 @@ the Ableton application lifecycle.
 - [ ] Reuse the journal writer, trace envelope, retention, and query
   infrastructure for Outputs while preserving separate Output and Live Event
   domains, source inventories, delivery rules, and UI filters.
-- [ ] Store the journal only under the current user's local application data,
-  with capture defaulting on and no upload path.
+- [x] Store the journal only under the current user's
+  `~/.live-agent/profiles/{profile}/observability` directory, with capture
+  defaulting on and no upload path. New profiles use
+  `agent-set-event-history.sqlite`; the former event-only database is not
+  migrated.
 - [ ] Add pause, clear, and per-session deletion controls, 30-day age pruning,
   and a 250 MiB hard cap with oldest-first eviction.
 - [ ] Add typed History query/detail APIs and a paginated, virtualized Desktop

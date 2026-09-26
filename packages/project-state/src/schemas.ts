@@ -123,27 +123,49 @@ export const revisionSchema = schema<number>((value) =>
   numberValue(value, "revision", { integer: true, min: 0 }),
 );
 
-export interface ProjectIdentity {
-  readonly id: string;
-  readonly abletonProjectId: string;
-  readonly displayName: string;
+export interface LiveSetIdentity {
+  readonly liveSetId: string;
+  readonly liveSetName: string;
+  readonly saved: boolean;
+  readonly liveProjectId?: string;
+  readonly liveProjectName?: string;
   readonly firstSeenAt: string;
   readonly lastSeenAt: string;
 }
 
-export const projectIdentitySchema = schema<ProjectIdentity>((value) => {
+export const liveSetIdentitySchema = schema<LiveSetIdentity>((value) => {
   const input = record(
     value,
-    ["id", "abletonProjectId", "displayName", "firstSeenAt", "lastSeenAt"],
-    "project identity",
+    [
+      "liveSetId",
+      "liveSetName",
+      "saved",
+      "liveProjectId",
+      "liveProjectName",
+      "firstSeenAt",
+      "lastSeenAt",
+    ],
+    "Live Set identity",
   );
-  return {
-    id: idSchema.parse(input.id),
-    abletonProjectId: stringValue(input.abletonProjectId, "abletonProjectId"),
-    displayName: stringValue(input.displayName, "displayName"),
+  let result: LiveSetIdentity = {
+    liveSetId: stringValue(input.liveSetId, "liveSetId"),
+    liveSetName: stringValue(input.liveSetName, "liveSetName"),
+    saved: booleanValue(input.saved, "saved"),
     firstSeenAt: timestampSchema.parse(input.firstSeenAt),
     lastSeenAt: timestampSchema.parse(input.lastSeenAt),
   };
+  result = present(
+    result,
+    "liveProjectId",
+    optional(input.liveProjectId, (item) => stringValue(item, "liveProjectId")),
+  );
+  return present(
+    result,
+    "liveProjectName",
+    optional(input.liveProjectName, (item) =>
+      stringValue(item, "liveProjectName"),
+    ),
+  );
 });
 
 const entityKinds = [
@@ -162,7 +184,7 @@ export const entityKindSchema = schema<EntityKind>((value) =>
 );
 
 export interface EntityReference {
-  readonly projectId: string;
+  readonly liveSetId: string;
   readonly kind: EntityKind;
   readonly id: string;
   readonly revision: number;
@@ -171,11 +193,11 @@ export interface EntityReference {
 export const entityReferenceSchema = schema<EntityReference>((value) => {
   const input = record(
     value,
-    ["projectId", "kind", "id", "revision"],
+    ["liveSetId", "kind", "id", "revision"],
     "entity reference",
   );
   return {
-    projectId: idSchema.parse(input.projectId),
+    liveSetId: idSchema.parse(input.liveSetId),
     kind: entityKindSchema.parse(input.kind),
     id: stringValue(input.id, "entity id"),
     revision: revisionSchema.parse(input.revision),
@@ -389,8 +411,8 @@ export const transportSummarySchema = schema<TransportSummary>((value) => {
   };
 });
 
-export interface ProjectSnapshot {
-  readonly project: ProjectIdentity;
+export interface LiveSetSnapshot {
+  readonly liveSet: LiveSetIdentity;
   readonly revision: number;
   readonly liveVersion: string;
   readonly capabilities: Readonly<Record<string, boolean>>;
@@ -403,11 +425,11 @@ export interface ProjectSnapshot {
   readonly cuePoints: readonly CuePointSummary[];
   readonly selected: readonly EntityReference[];
 }
-export const projectSnapshotSchema = schema<ProjectSnapshot>((value) => {
+export const liveSetSnapshotSchema = schema<LiveSetSnapshot>((value) => {
   const input = record(
     value,
     [
-      "project",
+      "liveSet",
       "revision",
       "liveVersion",
       "capabilities",
@@ -420,7 +442,7 @@ export const projectSnapshotSchema = schema<ProjectSnapshot>((value) => {
       "cuePoints",
       "selected",
     ],
-    "project snapshot",
+    "Live Set snapshot",
   );
   if (
     typeof input.capabilities !== "object" ||
@@ -436,7 +458,7 @@ export const projectSnapshotSchema = schema<ProjectSnapshot>((value) => {
     parsedCapabilities[key] = booleanValue(capability, `capability ${key}`);
   }
   return {
-    project: projectIdentitySchema.parse(input.project),
+    liveSet: liveSetIdentitySchema.parse(input.liveSet),
     revision: revisionSchema.parse(input.revision),
     liveVersion: stringValue(input.liveVersion, "liveVersion"),
     capabilities: parsedCapabilities,
@@ -503,7 +525,7 @@ export const productionPlanStatusSchema = schema<ProductionPlanStatus>(
 );
 export interface ProductionPlan {
   readonly id: string;
-  readonly projectId: string;
+  readonly liveSetId: string;
   readonly goal: string;
   readonly tempo?: number;
   readonly key?: string;
@@ -520,7 +542,7 @@ export const productionPlanSchema = schema<ProductionPlan>((value) => {
     value,
     [
       "id",
-      "projectId",
+      "liveSetId",
       "goal",
       "tempo",
       "key",
@@ -536,7 +558,7 @@ export const productionPlanSchema = schema<ProductionPlan>((value) => {
   );
   let result: ProductionPlan = {
     id: idSchema.parse(input.id),
-    projectId: idSchema.parse(input.projectId),
+    liveSetId: idSchema.parse(input.liveSetId),
     goal: stringValue(input.goal, "goal"),
     sections: arrayValue(input.sections, sectionPlanSchema.parse, "sections"),
     trackRoles: arrayValue(
@@ -700,7 +722,7 @@ export const changeSetStatusSchema = schema<ChangeSetStatus>((value) =>
 );
 export interface ChangeSet {
   readonly id: string;
-  readonly projectId: string;
+  readonly liveSetId: string;
   readonly sessionId: string;
   readonly correlationId: string;
   readonly userIntent: string;
@@ -722,7 +744,7 @@ export const changeSetSchema = schema<ChangeSet>((value) => {
     value,
     [
       "id",
-      "projectId",
+      "liveSetId",
       "sessionId",
       "correlationId",
       "userIntent",
@@ -743,7 +765,7 @@ export const changeSetSchema = schema<ChangeSet>((value) => {
   );
   const parsed: ChangeSet = {
     id: idSchema.parse(input.id),
-    projectId: idSchema.parse(input.projectId),
+    liveSetId: idSchema.parse(input.liveSetId),
     sessionId: idSchema.parse(input.sessionId),
     correlationId: idSchema.parse(input.correlationId),
     userIntent: stringValue(input.userIntent, "user intent"),
@@ -790,9 +812,9 @@ export const changeSetSchema = schema<ChangeSet>((value) => {
     ),
   ];
   if (
-    references.some((reference) => reference.projectId !== parsed.projectId)
+    references.some((reference) => reference.liveSetId !== parsed.liveSetId)
   ) {
-    throw new TypeError("Change-set references must belong to its project");
+    throw new TypeError("Change-set references must belong to its Live Set");
   }
   if (parsed.status === "verified" && parsed.verification.status !== "passed") {
     throw new TypeError("Verified change sets require passed verification");
@@ -811,14 +833,14 @@ export const changeSetSchema = schema<ChangeSet>((value) => {
 
 export interface AppSession {
   readonly id: string;
-  readonly activeProjectId?: string;
+  readonly activeLiveSetId?: string;
   readonly startedAt: string;
   readonly updatedAt: string;
 }
 export const appSessionSchema = schema<AppSession>((value) => {
   const input = record(
     value,
-    ["id", "activeProjectId", "startedAt", "updatedAt"],
+    ["id", "activeLiveSetId", "startedAt", "updatedAt"],
     "app session",
   );
   return present(
@@ -827,8 +849,8 @@ export const appSessionSchema = schema<AppSession>((value) => {
       startedAt: timestampSchema.parse(input.startedAt),
       updatedAt: timestampSchema.parse(input.updatedAt),
     },
-    "activeProjectId",
-    optional(input.activeProjectId, idSchema.parse),
+    "activeLiveSetId",
+    optional(input.activeLiveSetId, idSchema.parse),
   );
 });
 
@@ -854,7 +876,7 @@ export const preferenceSchema = schema<Preference>((value) => {
 
 export interface ApprovalDecision {
   readonly id: string;
-  readonly projectId: string;
+  readonly liveSetId: string;
   readonly sessionId: string;
   readonly subjectType: "plan" | "change-set";
   readonly subjectId: string;
@@ -867,7 +889,7 @@ export const approvalDecisionSchema = schema<ApprovalDecision>((value) => {
     value,
     [
       "id",
-      "projectId",
+      "liveSetId",
       "sessionId",
       "subjectType",
       "subjectId",
@@ -879,7 +901,7 @@ export const approvalDecisionSchema = schema<ApprovalDecision>((value) => {
   );
   return {
     id: idSchema.parse(input.id),
-    projectId: idSchema.parse(input.projectId),
+    liveSetId: idSchema.parse(input.liveSetId),
     sessionId: idSchema.parse(input.sessionId),
     subjectType: enumValue(
       input.subjectType,

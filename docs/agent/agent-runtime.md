@@ -12,8 +12,9 @@ The default session should:
 
 - Use the Node.js Copilot SDK.
 - Enable streaming.
-- Register only approved custom tools.
-- Exclude unrelated built-in coding and shell tools.
+- Register approved application tools plus the SDK's session-isolated built-ins.
+- Exclude host-capable coding, shell, unrestricted filesystem, and network
+  tools.
 - Provide a custom permission handler.
 - Register lifecycle and tool hooks.
 - Use a stable application-owned session ID.
@@ -38,46 +39,109 @@ results, paths, structured musical/MIDI data, and event payloads are preserved.
 Sanitization redacts credentials embedded in every string and replaces
 binary/audio bodies with visible omission markers before persistence.
 
+Every SDK session explicitly enables streaming. Incremental assistant text is
+normalized from `assistant.message_delta`, while `assistant.streaming_delta`
+is treated only as a liveness heartbeat because it reports cumulative byte
+counts rather than display text. Intent, model-provided reasoning summaries,
+fusion activity, server-tool progress, and terminal outcomes are normalized
+into bounded application-owned `agent.working_update` events with the outer
+turn's trace, correlation, causation, agent, SDK-session, and assistant-message
+attribution. The runtime never publishes raw hidden chain-of-thought or
+provider tool-call fragments.
+
+Desktop owns a global `none | concise | detailed` reasoning-summary preference,
+defaulting to `concise`. A change does not interrupt the current turn. Before
+the next turn for an active agent, the application resumes the same SDK session
+with the updated `reasoningSummary` configuration so conversation history and
+session identity are preserved. Models that do not provide summaries still
+produce intent, liveness, operation, and terminal Working updates.
+
 Managed desktop turns select an explicit SDK agent mode. Interactive is the
 compatibility default; plan mode is persisted per active-agent instance and is
-forwarded on normal messages and explicit skill invocations. Plan mode is also
-an application-enforced read-only boundary: inspection tools remain available,
-but every Ableton mutation is rejected before approval, locking, or bridge
-dispatch. Because the SDK client runs with an empty built-in tool environment,
-the session allowlist must include exactly `builtin:exit_plan_mode` in addition
-to the qualified application tools, and the selected custom agent allowlist
-must include the bare `exit_plan_mode` name. Enabling the full isolated
-built-in set would exceed the application's least-authority contract. The
+forwarded on normal messages, automation-originated messages, and explicit
+skill invocations. Automation ingress records the same effective mode on its
+visible user-turn event. Plan mode is also an application-enforced read-only
+boundary: inspection tools remain available, but every Ableton mutation is
+rejected before approval, locking, or bridge dispatch. The SDK client still
+runs in `empty` mode. The application then
+source-qualifies the approved `BuiltInTools.Isolated` set, excluding the SDK
+`skill` implementation, disables SDK tool search so every allowed definition
+is loaded directly, and adds application-owned Ableton, `read_plan`,
+`write_plan`, and progressive-disclosure `skill` tools. Planning controls
+(`ask_user`, `read_plan`, `write_plan`, and `exit_plan_mode`) remain available
+even when an agent definition has an otherwise empty tool list. The
 plan-mode pre-tool hook applies mutation denial only to tools positively
 classified as Ableton mutations; SDK control tools such as `exit_plan_mode`
 must pass through. SDK mode changes, plan changes, completed-plan approval
-requests, and approval completions are normalized into application-owned,
-attributed events. Plan summaries, content, and feedback are bounded and
-sanitized before journaling or renderer delivery.
+requests, artifact changes, structured elicitation requests, and approval
+completions are normalized into application-owned, attributed events.
+Sessions register both the SDK elicitation and legacy user-input capabilities
+because some SDK/runtime combinations otherwise omit `ask_user` from native
+custom agents. The model-facing variant remains structured elicitation. If the
+runtime dispatches the compatibility callback, the application adapts it into
+the same attributed elicitation events and Desktop composer takeover rather
+than exposing terminal-style input. Choice-based `ask_user` requests are marked
+as accepting one bounded custom string in addition to their declared choices,
+so the Desktop can always render a final freeform answer field. Validation
+retains strict enum behavior for unrelated SDK or MCP elicitation schemas that
+do not carry this application-owned marker.
+
+The outer Copilot turn timeout is a cumulative active-work budget rather than a
+wall-clock deadline. Its budget runs while the SDK, model, hooks, and tools are
+working, but pauses without a deadline while the application is waiting for a
+structured elicitation answer, completed-plan decision, or human tool approval.
+Desktop defaults this budget to 10 minutes and exposes a bounded 1-120 minute
+setting that applies to subsequent turns immediately.
+Nested human gates use reference-counted pauses, so resolving one request cannot
+restart the timer while another remains pending. Resuming continues from the
+remaining budget rather than resetting it. Explicit cancellation, disconnect,
+session replacement, and shutdown still settle pending requests immediately.
+Attributed `agent.turn.timeout.paused` and `agent.turn.timeout.resumed` records
+capture the gate reason, request ID, remaining budget, pending-gate count, and
+human-wait duration. `agent.turn.timeout.cancelled` records interrupted waits
+without briefly restarting the timer during cancellation or disconnect.
+Tool- and bridge-level operation timeouts remain independent and unchanged.
 
 Immediately before a plan-mode turn is sent to the SDK, the application appends
 `packages/application/prompts/plan-reminder.md` after all prepared context,
 direct-skill content, and the user's request. This final prompt suffix reminds
 the model that skill editing instructions are post-approval work and that the
-current turn must finish through `exit_plan_mode`. Interactive turns do not
-receive the suffix. This is a compliance aid, not the safety boundary; the
+current turn must use `ask_user` for user-owned decisions, maintain the
+canonical file through `read_plan` and `write_plan`, and finish through
+`exit_plan_mode`. Interactive turns do not receive the suffix. This is a
+compliance aid, not the safety boundary; the
 pre-tool mutation denial and mutation-handler guard remain authoritative. Turn
 lifecycle records include whether the reminder was applied and its version.
 
-When the SDK requests a completed-plan decision, the application retains
-request ownership on the originating active-agent instance. The desktop may
-approve and continue interactively, request changes with bounded feedback, or
-exit plan mode without implementation. SDK autopilot and fleet actions are not
-exposed by this product surface. Plan response lifecycle records queued,
-started, completed, failed, and stale/cancelled outcomes with timing and the
-original session attribution. Interactive approval updates the effective mode
-before the paused turn resumes, so same-turn implementation is permitted only
-after that transition.
+Each App session owns one canonical plan at
+`project-state/{live-project-id}/live-set-state/{live-set-id}/session-state/{app-session-id}/artifacts/plan.md`,
+or beneath `unassigned-live-set-state/{live-set-id}` when no verified Project
+exists. The fixed-target
+`read_plan` and `write_plan` tools accept no path, bypass ordinary tool
+permission prompts, reject symbolic links, sanitize embedded credentials,
+enforce size limits, publish atomically, and use SHA-256 revisions for
+optimistic writes. They cannot access arbitrary host files.
+
+When the SDK requests a completed-plan decision, the application ignores the
+SDK-provided plan body and reads the canonical artifact. A missing or empty
+file declines immediately with actionable feedback. The application retains
+request ownership on the originating active-agent instance, revalidates the
+artifact revision before approval, and republishes an updated pending request
+when the file changes during review. The desktop may approve and continue
+interactively, request changes with bounded feedback, or exit plan mode without
+implementation. SDK autopilot and fleet actions are not exposed. Artifact,
+elicitation, and plan-response lifecycle records include queued, started,
+completed, failed, stale, and cancelled outcomes where applicable, with timing
+and original trace/session attribution. The bounded SDK summary remains in the
+runtime contract and local history for compatibility and diagnostics, but the
+Desktop review composer does not repeat it beside the canonical Inspector
+rendering.
 
 The deterministic unit and Electron suites enforce the application contract.
 SDK compatibility can additionally be checked with
 `RUN_COPILOT_PLAN_EXIT_SMOKE=1 pnpm live:copilot-plan-exit`; this authenticated,
-opt-in smoke exposes only `exit_plan_mode` and always resolves `exit_only`.
+opt-in smoke exposes only fixed-target `write_plan` and `exit_plan_mode`,
+requires the artifact before approval, and always resolves `exit_only`.
 
 ## System behavior
 
@@ -105,9 +169,10 @@ Detailed genre recipes and composition guidance belong in skills or reference
 content, not in an ever-growing base system message.
 
 The separate plan reminder should teach active plan turns to remain read-only,
-treat skill mutation instructions as future implementation, ask a concise chat
-question only when ambiguity blocks an actionable plan, produce multiline GFM,
-and call `exit_plan_mode`.
+treat skill mutation instructions as future implementation, use structured
+`ask_user` elicitation for user-owned decisions, read and revision-safely update
+the shared Markdown artifact, and call `exit_plan_mode` with only a concise
+review summary.
 
 ## Session context
 
@@ -188,6 +253,15 @@ These are user-selected primary conversations, not autonomous hidden
 sub-agents. The application selects exactly one custom-agent definition inside
 each SDK session and attributes every event to its active instance.
 
+Each SDK session receives a typed identity block in its system message when it
+is created or resumed. The block distinguishes the Remote Script-owned
+`liveSetId` and optional `liveProjectId` from Desktop's application-owned
+`appSessionId`. Ordinary prepared project context does not repeat these IDs on
+every prompt. If first save, Save As, or another committed transition changes
+identity while the SDK session remains active, the next accepted user prompt
+receives one `identity_changed` block that explicitly supersedes the original
+system-message identity. Each active agent tracks delivery independently.
+
 ## Completion
 
 An agent turn is complete only when:
@@ -200,3 +274,17 @@ An agent turn is complete only when:
 Use the SDK's idle event as the mechanical completion signal. Application
 workflow completion should be represented separately by operation and
 change-set status.
+
+## Live Set save actions
+
+The runtime consumes typed `live_set.save_observed` bridge events through a
+per-Live-Set dispatcher. Duplicate metadata tuples are ignored, observations
+for one Set are serialized, and registered actions execute in deterministic
+order. A Set switch or runtime shutdown aborts obsolete work.
+
+Actions are injected through `LiveSetSaveAction`, allowing snapshot capture or
+persistence to remain a separate package. Each action receives the bounded
+identity and metadata observation, bridge receipt time, project revision,
+`AbortSignal`, and a progress hook. Observation and action queued, started,
+progress, completed, failed, and cancelled stages emit application-owned
+telemetry with stable trace/correlation/causation relationships.

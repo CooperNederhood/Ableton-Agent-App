@@ -9,11 +9,14 @@ describe("preload API", () => {
       "lifecycle",
       "agent",
       "agents",
+      "skills",
+      "profiles",
       "ableton",
       "approvals",
       "diagnostics",
       "preferences",
       "project",
+      "liveSet",
       "plan",
       "operations",
       "outputs",
@@ -32,7 +35,9 @@ describe("preload API", () => {
           state: "connected",
           liveVersion: "12",
           remoteScriptVersion: "1",
-          projectId: "p",
+          liveSetId: "p",
+          liveSetName: "Test Set",
+          saved: true,
         },
       },
       listeners,
@@ -57,6 +62,214 @@ describe("preload API", () => {
       transportFor({ "ableton:status": { state: "connected" } }),
     );
     await expect(api.ableton.getStatus()).rejects.toThrow();
+  });
+
+  it("closes the active production session through typed IPC", async () => {
+    const transport = transportFor({
+      "agent:close-session": { closed: true },
+    });
+    const api = createDesktopApi(transport);
+
+    await api.agent.closeSession();
+
+    expect(vi.mocked(transport).invoke).toHaveBeenCalledWith(
+      "agent:close-session",
+      {},
+    );
+  });
+
+  it("saves a complete agent definition with optimistic concurrency", async () => {
+    const revision = "a".repeat(64);
+    const fingerprint = "b".repeat(64);
+    const definition = {
+      version: 2 as const,
+      name: "default",
+      label: "Default",
+      description: "General agent.",
+      systemPrompt: "Help with Ableton.",
+      tools: ["*"],
+      editScope: ["session"] as "session"[],
+      skills: [],
+      inputChannels: [],
+      model: null,
+      reasoningEffort: null,
+      autoApprove: false,
+      eventListeners: [],
+    };
+    const profileSnapshot = {
+      revision,
+      activeProfile: "default",
+      selectedProfile: "default",
+      profiles: [],
+      artifacts: [],
+    };
+    const transport = transportFor({
+      "agents:save-definition": {
+        catalog: { revision, definitions: [], skills: [], diagnostics: [] },
+        profileSnapshot,
+      },
+    });
+    const api = createDesktopApi(transport);
+
+    await api.agents.saveDefinition(definition, revision, fingerprint);
+
+    expect(vi.mocked(transport).invoke).toHaveBeenCalledWith(
+      "agents:save-definition",
+      {
+        definition,
+        expectedRevision: revision,
+        expectedFingerprint: fingerprint,
+      },
+    );
+  });
+
+  it("exposes typed skill document operations", async () => {
+    const revision = "a".repeat(64);
+    const fingerprint = "b".repeat(64);
+    const document = {
+      name: "mix-review",
+      description: "Review the mix.",
+      body: "# Mix review",
+      origin: "session" as const,
+      fingerprint,
+    };
+    const profileSnapshot = {
+      revision,
+      activeProfile: "default",
+      selectedProfile: "default",
+      profiles: [],
+      artifacts: [],
+    };
+    const result = {
+      document,
+      catalog: { revision, definitions: [], skills: [], diagnostics: [] },
+      profileSnapshot,
+    };
+    const transport = transportFor({
+      "skills:read": document,
+      "skills:create": result,
+      "skills:save": result,
+    });
+    const api = createDesktopApi(transport);
+
+    await api.skills.read("mix-review");
+    await api.skills.create(
+      "session-groove",
+      "Shape a groove.",
+      "# Groove",
+      revision,
+    );
+    await api.skills.save("mix-review", "# Updated", revision, fingerprint);
+
+    expect(vi.mocked(transport).invoke).toHaveBeenCalledWith("skills:read", {
+      name: "mix-review",
+    });
+    expect(vi.mocked(transport).invoke).toHaveBeenCalledWith("skills:create", {
+      name: "session-groove",
+      description: "Shape a groove.",
+      body: "# Groove",
+      expectedRevision: revision,
+    });
+    expect(vi.mocked(transport).invoke).toHaveBeenCalledWith("skills:save", {
+      name: "mix-review",
+      body: "# Updated",
+      expectedRevision: revision,
+      expectedFingerprint: fingerprint,
+    });
+  });
+
+  it("exposes typed profile and artifact operations", async () => {
+    const revision = "a".repeat(64);
+    const snapshot = {
+      revision,
+      activeProfile: "default",
+      selectedProfile: "ambient",
+      profiles: [
+        {
+          name: "default",
+          active: true,
+          reserved: false,
+          sessionCount: 1,
+          liveProjects: [],
+          unassignedLiveSets: [],
+          sessions: [
+            {
+              id: "session-1",
+              title: "Untitled",
+              active: true,
+              liveSetId: "set-1",
+              liveSetName: "Untitled",
+              createdAt: "2026-09-20T12:00:00.000Z",
+            },
+          ],
+        },
+        {
+          name: "ambient",
+          active: false,
+          reserved: false,
+          sessionCount: 0,
+          liveProjects: [],
+          unassignedLiveSets: [],
+          sessions: [],
+        },
+      ],
+      artifacts: [],
+    };
+    const transport = transportFor({
+      "profiles:get": snapshot,
+      "profiles:status": {
+        revision,
+        activeProfile: "default",
+        activeSessionId: "session-1",
+        profiles: [
+          { name: "default", active: true, reserved: false },
+          { name: "ambient", active: false, reserved: false },
+        ],
+      },
+      "profiles:create": snapshot,
+      "profiles:switch": { switching: true },
+      "profiles:copy-artifact": {
+        status: "completed",
+        snapshot,
+      },
+    });
+    const api = createDesktopApi(transport);
+
+    await api.profiles.get("ambient");
+    await api.profiles.status();
+    await api.profiles.create("ambient", revision);
+    await api.profiles.switch("ambient", revision, true);
+    await api.profiles.copyArtifact({
+      kind: "skill",
+      name: "mix-review",
+      source: { scope: "bundled" },
+      destination: { scope: "profile", profile: "ambient" },
+      expectedRevision: revision,
+    });
+
+    expect(vi.mocked(transport).invoke.mock.calls).toEqual([
+      ["profiles:get", { selectedProfile: "ambient" }],
+      ["profiles:status", {}],
+      ["profiles:create", { name: "ambient", expectedRevision: revision }],
+      [
+        "profiles:switch",
+        {
+          name: "ambient",
+          expectedRevision: revision,
+          closeActiveSession: true,
+        },
+      ],
+      [
+        "profiles:copy-artifact",
+        {
+          kind: "skill",
+          name: "mix-review",
+          source: { scope: "bundled" },
+          destination: { scope: "profile", profile: "ambient" },
+          expectedRevision: revision,
+        },
+      ],
+    ]);
   });
 
   it("validates output routing requests and responses", async () => {
@@ -354,11 +567,13 @@ describe("preload API", () => {
     const response = {
       instances: [],
       session: {
-        version: 3,
+        version: 4,
         id: "production-session",
         title: "Production session",
+        createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString(),
-        projectName: "Set",
+        liveSetId: "live-set-1",
+        liveSetName: "Set",
         activeAgents: [],
         productionPlan: [],
         outputAssignments: [],
@@ -387,7 +602,7 @@ describe("preload API", () => {
     const traceId = "00000000-0000-4000-8000-000000000010";
     const transport = transportFor({
       "event-history:search": {
-        version: 1,
+        version: 2,
         items: [],
         page: {
           limit: 20,
@@ -398,7 +613,7 @@ describe("preload API", () => {
         },
       },
       "event-history:trace": {
-        version: 1,
+        version: 2,
         items: [],
         page: {
           limit: 20,
@@ -424,7 +639,7 @@ describe("preload API", () => {
 
     await expect(
       api.eventHistory.search({ sources: ["desktop"], limit: 20 }),
-    ).resolves.toMatchObject({ version: 1, items: [] });
+    ).resolves.toMatchObject({ version: 2, items: [] });
     await expect(
       api.eventHistory.trace(traceId, { limit: 20 }),
     ).resolves.toMatchObject({

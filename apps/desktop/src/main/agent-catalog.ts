@@ -1,11 +1,18 @@
+import { createHash } from "node:crypto";
 import { basename } from "node:path";
 
 import {
   loadAgentCatalog,
+  loadLayeredAgentCatalog,
   type AgentCatalog,
   type ToolOperationPatternEntry,
 } from "@ableton-agent/agent-config";
 import type { AgentSkillDescriptor } from "@ableton-agent/application";
+import {
+  resolveArtifactScopePaths,
+  type LiveAgentStorageLayout,
+  type SessionStorageOwnershipContext,
+} from "@ableton-agent/storage";
 
 import {
   desktopAgentCatalogSchema,
@@ -18,12 +25,22 @@ export interface AgentCatalogOptions {
   readonly availableTools: readonly string[];
   readonly availableOperations?: readonly ToolOperationPatternEntry[];
   readonly compatibilityAliases?: Readonly<Record<string, string>>;
+  readonly storage?: LiveAgentStorageLayout;
+  readonly resolveSessionOwnership?: (
+    sessionId: string,
+  ) => Promise<SessionStorageOwnershipContext | undefined>;
 }
 
-function toDesktopCatalog(catalog: AgentCatalog): DesktopAgentCatalog {
-  return desktopAgentCatalogSchema.parse({
+export function toDesktopCatalog(
+  catalog: AgentCatalog,
+  sessionId?: string,
+): DesktopAgentCatalog {
+  const value = {
+    ...(sessionId === undefined ? {} : { sessionId }),
     definitions: catalog.agents.map((agent) => ({
+      version: agent.definition.version,
       name: agent.definition.name,
+      label: agent.definition.label,
       description: agent.definition.description,
       systemPrompt: agent.definition.systemPrompt,
       tools: agent.definition.tools,
@@ -33,12 +50,22 @@ function toDesktopCatalog(catalog: AgentCatalog): DesktopAgentCatalog {
       editScope: agent.definition.editScope,
       skills: agent.definition.skills,
       inputChannels: agent.definition.inputChannels,
+      model: agent.definition.model,
+      reasoningEffort: agent.definition.reasoningEffort,
+      autoApprove: agent.definition.autoApprove,
+      eventListeners: agent.definition.eventListeners,
+      origin: "origin" in agent ? agent.origin : "bundled",
+      inherited: "inherited" in agent ? agent.inherited : false,
+      overrides: "overrides" in agent ? agent.overrides : [],
       sourceFile: basename(agent.sourcePath),
       fingerprint: agent.fingerprint,
     })),
     skills: catalog.skills.map((skill) => ({
       name: skill.metadata.name,
       description: skill.metadata.description,
+      origin: "origin" in skill ? skill.origin : "bundled",
+      inherited: "inherited" in skill ? skill.inherited : false,
+      overrides: "overrides" in skill ? skill.overrides : [],
       sourceFile: `${basename(skill.directory)}/SKILL.md`,
       fingerprint: skill.fingerprint,
     })),
@@ -47,6 +74,10 @@ function toDesktopCatalog(catalog: AgentCatalog): DesktopAgentCatalog {
       code: diagnostic.code,
       message: diagnostic.message,
     })),
+  };
+  return desktopAgentCatalogSchema.parse({
+    ...value,
+    revision: createHash("sha256").update(JSON.stringify(value)).digest("hex"),
   });
 }
 
@@ -64,10 +95,119 @@ export class AgentCatalogService {
     return this.#runtimeSkills;
   }
 
-  public async refresh(): Promise<DesktopAgentCatalog> {
-    const loaded = await loadAgentCatalog({
-      agentsDirectory: this.options.agentsDirectory,
-      skillsDirectory: this.options.skillsDirectory,
+  public async refresh(sessionId?: string): Promise<DesktopAgentCatalog> {
+    const loaded =
+      this.options.storage === undefined
+        ? await loadAgentCatalog({
+            agentsDirectory: this.options.agentsDirectory,
+            skillsDirectory: this.options.skillsDirectory,
+            availableTools: this.options.availableTools,
+            ...(this.options.availableOperations === undefined
+              ? {}
+              : { availableOperations: this.options.availableOperations }),
+            ...(this.options.compatibilityAliases === undefined
+              ? {}
+              : { compatibilityAliases: this.options.compatibilityAliases }),
+          })
+        : await this.#loadScopedCatalog(sessionId);
+    this.#runtimeSkills = loaded.skills.map((skill) => ({
+      name: skill.metadata.name,
+      description: skill.metadata.description,
+      sourcePath: skill.sourcePath,
+      fingerprint: skill.fingerprint,
+    }));
+    this.#catalog = toDesktopCatalog(loaded, sessionId);
+    return this.#catalog;
+  }
+
+  public refreshForSession(sessionId?: string): Promise<DesktopAgentCatalog> {
+    return this.refresh(sessionId);
+  }
+
+  public async resolveRuntimeSkill(
+    sessionId: string | undefined,
+    name: string,
+  ): Promise<AgentSkillDescriptor | undefined> {
+    const loaded =
+      this.options.storage === undefined
+        ? await loadAgentCatalog({
+            agentsDirectory: this.options.agentsDirectory,
+            skillsDirectory: this.options.skillsDirectory,
+            availableTools: this.options.availableTools,
+            ...(this.options.availableOperations === undefined
+              ? {}
+              : { availableOperations: this.options.availableOperations }),
+            ...(this.options.compatibilityAliases === undefined
+              ? {}
+              : { compatibilityAliases: this.options.compatibilityAliases }),
+          })
+        : await this.#loadScopedCatalog(sessionId);
+    const skill = loaded.skills.find(({ metadata }) => metadata.name === name);
+    return skill === undefined
+      ? undefined
+      : {
+          name: skill.metadata.name,
+          description: skill.metadata.description,
+          sourcePath: skill.sourcePath,
+          fingerprint: skill.fingerprint,
+        };
+  }
+
+  async #loadScopedCatalog(sessionId?: string): Promise<AgentCatalog> {
+    const storage = this.options.storage!;
+    const system = resolveArtifactScopePaths(storage, "system");
+    const profile = resolveArtifactScopePaths(storage, "profile");
+    const ownership =
+      sessionId === undefined
+        ? undefined
+        : await this.options.resolveSessionOwnership?.(sessionId);
+    const project =
+      ownership?.liveProjectId === undefined
+        ? undefined
+        : resolveArtifactScopePaths(storage, "project", {
+            liveProjectId: ownership.liveProjectId,
+          });
+    const session =
+      ownership === undefined
+        ? undefined
+        : resolveArtifactScopePaths(storage, "session", ownership);
+    return loadLayeredAgentCatalog({
+      bundled: {
+        agentsDirectory: this.options.agentsDirectory,
+        skillsDirectory: this.options.skillsDirectory,
+      },
+      system: {
+        agentsDirectory: system.agentsDirectory,
+        skillsDirectory: system.skillsDirectory,
+        agentTombstones: system.agentTombstonesPath,
+        skillTombstones: system.skillTombstonesPath,
+      },
+      profile: {
+        agentsDirectory: profile.agentsDirectory,
+        skillsDirectory: profile.skillsDirectory,
+        agentTombstones: profile.agentTombstonesPath,
+        skillTombstones: profile.skillTombstonesPath,
+      },
+      ...(project === undefined
+        ? {}
+        : {
+            project: {
+              agentsDirectory: project.agentsDirectory,
+              skillsDirectory: project.skillsDirectory,
+              agentTombstones: project.agentTombstonesPath,
+              skillTombstones: project.skillTombstonesPath,
+            },
+          }),
+      ...(session === undefined
+        ? {}
+        : {
+            session: {
+              agentsDirectory: session.agentsDirectory,
+              skillsDirectory: session.skillsDirectory,
+              agentTombstones: session.agentTombstonesPath,
+              skillTombstones: session.skillTombstonesPath,
+            },
+          }),
       availableTools: this.options.availableTools,
       ...(this.options.availableOperations === undefined
         ? {}
@@ -76,13 +216,5 @@ export class AgentCatalogService {
         ? {}
         : { compatibilityAliases: this.options.compatibilityAliases }),
     });
-    this.#runtimeSkills = loaded.skills.map((skill) => ({
-      name: skill.metadata.name,
-      description: skill.metadata.description,
-      sourcePath: skill.sourcePath,
-      fingerprint: skill.fingerprint,
-    }));
-    this.#catalog = toDesktopCatalog(loaded);
-    return this.#catalog;
   }
 }

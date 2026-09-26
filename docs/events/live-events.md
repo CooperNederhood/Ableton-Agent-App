@@ -377,8 +377,11 @@ subscriptions continue to load unchanged.
 Desktop captures a complete, unsampled operational journal by default. Records
 use a versioned envelope containing record/event type, source and lifecycle
 stage, event and recorded timestamps, trace/correlation/causation IDs, relevant
-project/session/active-agent IDs, outcome, duration fields, and a bounded
-sanitized payload.
+Live Set/session/active-agent IDs, optional Live Project ID, outcome, duration
+fields, and a bounded sanitized payload. `liveSetId` identifies the open
+`.als`; `liveProjectId` is only present when Desktop has associated that Live
+Set with a Live Project. Observability APIs do not use the ambiguous
+`projectId` attribution name.
 
 The journal includes:
 
@@ -403,7 +406,15 @@ preserved. Credentials and tokens embedded in any string are redacted, while
 binary/audio bodies are replaced with visible omission markers. Sanitization
 occurs at the producer boundary and again in the journal writer.
 
-The journal is stored only in the current user's application-data directory. It
+The unified history database is stored only at
+`~/.live-agent/profiles/{profile}/observability/agent-set-event-history.sqlite`
+(or the explicit `LIVE_AGENT_HOME` override). App events and configuration
+snapshots, agent sessions/turns/messages/tool calls/results/approvals, and Live
+Set saves/snapshots/trajectory records use physically separate tables. Stable,
+granular `agent_history_*` and `set_history_*` views back typed repository
+reads and a worker-owned, parameterized, read-only SQL boundary. That boundary
+allowlists only public views and returns bounded scalar rows; physical tables,
+SQLite metadata, mutations, and multi-statement SQL are rejected. The database
 has no uploader or network transport and is excluded from anonymous telemetry.
 Capture defaults on, remains on across upgrades, and has explicit pause, clear,
 and per-session deletion controls. The default rolling retention is 30 days

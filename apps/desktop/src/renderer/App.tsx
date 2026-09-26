@@ -3,10 +3,12 @@ import {
   parseSkillInvocation,
   type SkillInvocation,
 } from "@ableton-agent/agent-config/skill-invocation";
+import { createAgentEventListenerId } from "@ableton-agent/agent-config/live-event-id";
 import {
   MAX_LIVE_EVENT_MESSAGE_PREFIX_LENGTH,
   resolvePreparedContextConfiguration,
   type AgentEventListener,
+  type CurrentAgentDefinition,
   type PreparedContextConfiguration,
 } from "@ableton-agent/agent-config/schemas";
 import {
@@ -18,6 +20,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type DragEvent as ReactDragEvent,
   type FormEvent,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
@@ -26,13 +29,15 @@ import {
 import type {
   DesktopApi,
   DesktopActiveAgent,
-  DesktopAgentConversationSettings,
+  DesktopAgentDefinition,
   DesktopAgentModel,
   DesktopAppEvent,
   DesktopConnectionStatus,
   DesktopOutputAssignment,
   DesktopOutputConnection,
-  DesktopProjectSnapshot,
+  DesktopLiveSetSnapshot,
+  DesktopProfileStatus,
+  DesktopSkillDocument,
   DesktopLiveEventState,
   LatestAcceptedOutput,
   DesktopTrack,
@@ -56,10 +61,19 @@ import {
   initialState,
   selectedAgentInstance,
   selectedAgentWorkspace,
+  type AgentWorkspaceState,
   type DesktopState,
+  type WorkingView,
   type WorkspaceView,
 } from "./state";
+import {
+  createInspectorLayout,
+  inspectorLayoutReducer,
+  openInspectorModules,
+  type InspectorModuleId,
+} from "./inspector-layout";
 import { parseYoloCommand, yoloCommandUsage } from "./yolo-command";
+import { ProfileManagerView } from "./ProfileManagerView";
 
 type CatalogSkill = DesktopState["agentCatalog"]["skills"][number];
 
@@ -92,7 +106,6 @@ const reservedSlashCompletionNames = new Set(
 export const PROJECT_SIDEBAR_MIN_WIDTH = 180;
 export const PROJECT_SIDEBAR_MAX_WIDTH = 480;
 export const INSPECTOR_SIDEBAR_MIN_WIDTH = 220;
-export const INSPECTOR_SIDEBAR_MAX_WIDTH = 560;
 export const WORKSPACE_MIN_CONVERSATION_WIDTH = 320;
 
 export interface WorkspaceSidebarWidths {
@@ -127,15 +140,15 @@ export function resizedSidebarWidth({
 }): number {
   const minimum =
     side === "left" ? PROJECT_SIDEBAR_MIN_WIDTH : INSPECTOR_SIDEBAR_MIN_WIDTH;
-  const configuredMaximum =
-    side === "left" ? PROJECT_SIDEBAR_MAX_WIDTH : INSPECTOR_SIDEBAR_MAX_WIDTH;
   const availableMaximum =
     workspaceWidth -
     WORKSPACE_MIN_CONVERSATION_WIDTH -
     (otherSidebarVisible ? otherSidebarWidth : 0);
   const maximum = Math.max(
     minimum,
-    Math.min(configuredMaximum, availableMaximum),
+    side === "left"
+      ? Math.min(PROJECT_SIDEBAR_MAX_WIDTH, availableMaximum)
+      : availableMaximum,
   );
   const delta = clientX - startClientX;
   const requested = startWidth + (side === "left" ? delta : -delta);
@@ -176,9 +189,13 @@ export function slashCompletionsForState(
   input: string,
   state: DesktopState,
 ): SlashCompletionEntry[] {
+  const session = activeSession(state);
+  const catalogMatchesSession =
+    state.agentCatalog.sessionId === undefined ||
+    state.agentCatalog.sessionId === session?.id;
   return matchingSlashCompletions(
     input,
-    selectedAgentInstance(state) === undefined
+    selectedAgentInstance(state) === undefined || !catalogMatchesSession
       ? undefined
       : state.agentCatalog.skills,
   );
@@ -243,7 +260,7 @@ function namedOccurrence<T extends { name: string }>(
 
 function trackDraft(
   track: DesktopTrack,
-  snapshot: DesktopProjectSnapshot,
+  snapshot: DesktopLiveSetSnapshot,
   kind: TrackEventKind,
 ): LiveEventDefinitionDraft {
   const index = snapshot.tracks.findIndex(({ id }) => id === track.id);
@@ -262,7 +279,7 @@ function trackDraft(
 }
 
 export function parameterDraftFromSnapshot(
-  snapshot: DesktopProjectSnapshot,
+  snapshot: DesktopLiveSetSnapshot,
   trackId: string,
   deviceId: string,
   parameterId: string,
@@ -301,7 +318,7 @@ export function parameterDraftFromSnapshot(
 
 export function parameterDraftFromSelection(
   selection: LiveEventSelection,
-  snapshot?: DesktopProjectSnapshot,
+  snapshot?: DesktopLiveSetSnapshot,
 ): LiveEventDefinitionDraft | undefined {
   const identity = selection.parameter;
   if (identity === null || snapshot === undefined) return undefined;
@@ -322,7 +339,7 @@ export interface EventTrackGroup {
 
 export function groupEventsByTrack(
   events: DesktopLiveEventState[],
-  snapshot: DesktopProjectSnapshot | undefined,
+  snapshot: DesktopLiveSetSnapshot | undefined,
 ): EventTrackGroup[] {
   const tracks = new Map(
     (snapshot?.tracks ?? []).map((track, index) => [
@@ -390,7 +407,7 @@ export interface OutputTrackGroup {
 
 function resolvedOutputTrack(
   connection: DesktopOutputConnection,
-  snapshot: DesktopProjectSnapshot | undefined,
+  snapshot: DesktopLiveSetSnapshot | undefined,
 ): { track: DesktopTrack; index: number } | undefined {
   const name = connection.track?.name;
   if (snapshot === undefined || name === undefined) return undefined;
@@ -412,7 +429,7 @@ function resolvedOutputTrack(
 
 export function groupOutputsByTrack(
   connections: DesktopOutputConnection[],
-  snapshot: DesktopProjectSnapshot | undefined,
+  snapshot: DesktopLiveSetSnapshot | undefined,
 ): OutputTrackGroup[] {
   const groups = new Map<
     string,
@@ -690,6 +707,15 @@ export async function cancelWorkspaceAgent(
   return (await desktop.agents.cancel(agent.id)).cancelled;
 }
 
+function focusWorkspaceInteraction(
+  composerRef: React.RefObject<HTMLTextAreaElement | null>,
+): void {
+  const interaction = document.querySelector<HTMLElement>(
+    "[data-workspace-interaction-focus]",
+  );
+  (interaction ?? composerRef.current)?.focus();
+}
+
 export function App(): React.JSX.Element {
   const [state, dispatch] = useReducer(desktopReducer, initialState);
   const [leftSidebarVisible, setLeftSidebarVisible] = useState(true);
@@ -698,17 +724,31 @@ export function App(): React.JSX.Element {
     initialWorkspaceSidebarWidths(window.innerWidth),
   );
   const [topChromeVisible, setTopChromeVisible] = useState(true);
+  const [profileRefreshToken, setProfileRefreshToken] = useState(0);
   const [composerValue, setComposerValue] = useState("");
   const [composerError, setComposerError] = useState("");
+  const [planEditorOpen, setPlanEditorOpen] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const stateRef = useRef(state);
   const hydratedAgents = useRef(new Set<string>());
   const timelineScrollPositions = useRef(new Map<string, number>());
+  stateRef.current = state;
 
   useEffect(() => {
     const pendingDeltas = new Map<
       string,
       Extract<DesktopAppEvent, { type: "agent.message_delta" }>
     >();
+    type WorkingDeltaEvent = Extract<
+      DesktopAppEvent,
+      { type: "agent.working_update" }
+    > & {
+      update: Extract<
+        Extract<DesktopAppEvent, { type: "agent.working_update" }>["update"],
+        { kind: "reasoning_delta" }
+      >;
+    };
+    const pendingWorkingDeltas = new Map<string, WorkingDeltaEvent>();
     let frame: number | undefined;
     let eventsFrame: number | undefined;
     let pendingEvents:
@@ -718,6 +758,9 @@ export function App(): React.JSX.Element {
       for (const event of pendingDeltas.values())
         dispatch({ type: "event", event });
       pendingDeltas.clear();
+      for (const event of pendingWorkingDeltas.values())
+        dispatch({ type: "event", event });
+      pendingWorkingDeltas.clear();
     };
     const unsubscribe = window.desktop.events.subscribe((event) => {
       if (event.type === "events.changed") {
@@ -730,22 +773,59 @@ export function App(): React.JSX.Element {
         });
         return;
       }
-      if (event.type !== "agent.message_delta") {
-        if (frame !== undefined) cancelAnimationFrame(frame);
-        if (pendingDeltas.size > 0) flush();
-        if (event.type === "agent.plan_approval_requested") {
-          setRightSidebarVisible(true);
-        }
-        dispatch({ type: "event", event });
+      if (event.type === "agent.message_delta") {
+        const key = `${event.agentInstanceId ?? "legacy"}:${event.messageId}`;
+        const pending = pendingDeltas.get(key);
+        pendingDeltas.set(key, {
+          ...event,
+          content: (pending?.content ?? "") + event.content,
+        });
+        frame ??= requestAnimationFrame(flush);
         return;
       }
-      const key = `${event.agentInstanceId ?? "legacy"}:${event.messageId}`;
-      const pending = pendingDeltas.get(key);
-      pendingDeltas.set(key, {
-        ...event,
-        content: (pending?.content ?? "") + event.content,
-      });
-      frame ??= requestAnimationFrame(flush);
+      if (
+        event.type === "agent.working_update" &&
+        event.update.kind === "reasoning_delta"
+      ) {
+        const key = `${event.agentInstanceId ?? "legacy"}:${event.messageId}`;
+        const pending = pendingWorkingDeltas.get(key);
+        const combined: WorkingDeltaEvent = {
+          ...event,
+          update: {
+            ...event.update,
+            content: (pending?.update.content ?? "") + event.update.content,
+          },
+        };
+        pendingWorkingDeltas.set(key, combined);
+        frame ??= requestAnimationFrame(flush);
+        return;
+      }
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      if (pendingDeltas.size > 0 || pendingWorkingDeltas.size > 0) flush();
+      const blockingInteraction =
+        event.type === "agent.plan_approval_requested" ||
+        event.type === "agent.elicitation_requested" ||
+        event.type === "approval.requested";
+      const currentState = stateRef.current;
+      const selectedId = activeSession(currentState)?.selectedAgentInstanceId;
+      const eventAgentInstanceId = blockingInteraction
+        ? event.agentInstanceId
+        : undefined;
+      const belongsToSelectedAgent =
+        eventAgentInstanceId === undefined ||
+        eventAgentInstanceId === selectedId;
+      if (
+        blockingInteraction &&
+        belongsToSelectedAgent &&
+        currentState.activeView !== "agents"
+      ) {
+        setRightSidebarVisible(true);
+        dispatch({ type: "view", view: "workspace" });
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => focusWorkspaceInteraction(composerRef)),
+        );
+      }
+      dispatch({ type: "event", event });
     });
     return () => {
       unsubscribe();
@@ -764,7 +844,10 @@ export function App(): React.JSX.Element {
   const selectedInstanceId = selectedInstance?.id;
   const selectedSdkSessionId = selectedInstance?.sdkSessionId;
   const activeSessionId = activeSession(state)?.id;
-  const selectedPlanApproval = selectedAgentWorkspace(state).planApproval;
+  const selectedWorkspace = selectedAgentWorkspace(state);
+  const selectedPlanApproval = selectedWorkspace.planApproval;
+  const selectedPlanArtifact = selectedWorkspace.planArtifact;
+  const selectedElicitation = selectedWorkspace.elicitation;
   useEffect(() => {
     if (activeSessionId === undefined) return;
     void loadLiveEvents(dispatch, () => window.desktop.events.list());
@@ -812,8 +895,52 @@ export function App(): React.JSX.Element {
     state.lifecycle,
   ]);
   useEffect(() => {
-    if (selectedPlanApproval !== undefined) setRightSidebarVisible(true);
-  }, [selectedPlanApproval]);
+    if (state.lifecycle !== "ready" && state.lifecycle !== "degraded") return;
+    if (selectedInstanceId === undefined || activeSessionId === undefined)
+      return;
+    if (selectedPlanArtifact !== undefined) return;
+    void window.desktop.agents
+      .readPlan(selectedInstanceId)
+      .then((artifact) =>
+        dispatch({
+          type: "event",
+          event: {
+            type: "agent.plan_artifact_changed",
+            agentInstanceId: selectedInstanceId,
+            artifact,
+          },
+        }),
+      )
+      .catch((error: unknown) => {
+        dispatch({
+          type: "event",
+          event: {
+            type: "diagnostic",
+            level: "error",
+            message:
+              error instanceof Error
+                ? error.message
+                : "The session plan could not be loaded",
+          },
+        });
+      });
+  }, [
+    activeSessionId,
+    selectedInstanceId,
+    selectedPlanArtifact,
+    state.lifecycle,
+  ]);
+  useEffect(() => {
+    setPlanEditorOpen(false);
+  }, [activeSessionId, selectedInstanceId]);
+  useEffect(() => {
+    if (
+      selectedPlanApproval !== undefined ||
+      selectedElicitation !== undefined
+    ) {
+      setRightSidebarVisible(true);
+    }
+  }, [selectedElicitation, selectedPlanApproval]);
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent): void => {
       if (
@@ -847,14 +974,20 @@ export function App(): React.JSX.Element {
       }
       if ((event.metaKey || event.ctrlKey) && event.key === "k") {
         event.preventDefault();
-        composerRef.current?.focus();
+        if (state.activeView !== "workspace") {
+          dispatch({ type: "view", view: "workspace" });
+        }
+        requestAnimationFrame(() => focusWorkspaceInteraction(composerRef));
       }
       if ((event.metaKey || event.ctrlKey) && event.key === ",") {
         event.preventDefault();
         dispatch({ type: "view", view: "settings" });
       }
       if (event.key === "Escape" && selectedAgentWorkspace(state).approval) {
-        composerRef.current?.focus();
+        if (state.activeView !== "workspace") {
+          dispatch({ type: "view", view: "workspace" });
+        }
+        requestAnimationFrame(() => focusWorkspaceInteraction(composerRef));
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -862,17 +995,16 @@ export function App(): React.JSX.Element {
   }, [state]);
 
   return (
-    <div
-      className={`app-shell ${state.activeView === "workspace" ? "workspace-active" : ""} ${topChromeVisible ? "" : "top-chrome-hidden"}`}
-    >
+    <div className={`app-shell ${topChromeVisible ? "" : "top-chrome-hidden"}`}>
       {topChromeVisible && (
         <ConnectionHeader
           state={state}
           dispatch={dispatch}
+          profileRefreshToken={profileRefreshToken}
           onHideChrome={() => setTopChromeVisible(false)}
         />
       )}
-      <ProjectTransitionModal state={state} dispatch={dispatch} />
+      <LiveSetTransitionModal state={state} dispatch={dispatch} />
       {topChromeVisible && (
         <nav
           id="application-views"
@@ -883,9 +1015,11 @@ export function App(): React.JSX.Element {
             [
               "workspace",
               "agents",
+              "skills",
               "outputs",
               "events",
               "browser",
+              "profiles",
               "diagnostics",
               "sessions",
               "settings",
@@ -939,6 +1073,8 @@ export function App(): React.JSX.Element {
                 error={composerError}
                 onValueChange={setComposerValue}
                 onErrorChange={setComposerError}
+                planEditorOpen={planEditorOpen}
+                onPlanEditorClose={() => setPlanEditorOpen(false)}
               />
             }
             leftSidebarVisible={leftSidebarVisible}
@@ -956,15 +1092,38 @@ export function App(): React.JSX.Element {
             onToggleRightSidebar={() =>
               setRightSidebarVisible((visible) => !visible)
             }
+            onEditPlan={() => setPlanEditorOpen(true)}
           />
         ) : state.activeView === "agents" ? (
-          <AgentsView state={state} dispatch={dispatch} />
+          <AgentsView
+            state={state}
+            dispatch={dispatch}
+            onProfilesChanged={() =>
+              setProfileRefreshToken((current) => current + 1)
+            }
+          />
+        ) : state.activeView === "skills" ? (
+          <SkillsView
+            state={state}
+            dispatch={dispatch}
+            onProfilesChanged={() =>
+              setProfileRefreshToken((current) => current + 1)
+            }
+          />
         ) : state.activeView === "outputs" ? (
           <OutputsView state={state} dispatch={dispatch} />
         ) : state.activeView === "events" ? (
           <EventsView state={state} dispatch={dispatch} />
         ) : state.activeView === "browser" ? (
           <BrowserView state={state} dispatch={dispatch} />
+        ) : state.activeView === "profiles" ? (
+          <ProfileManagerView
+            {...(activeSessionId === undefined ? {} : { activeSessionId })}
+            refreshToken={profileRefreshToken}
+            onProfilesChanged={() =>
+              setProfileRefreshToken((current) => current + 1)
+            }
+          />
         ) : state.activeView === "diagnostics" ? (
           <DiagnosticsView state={state} dispatch={dispatch} />
         ) : state.activeView === "sessions" ? (
@@ -973,17 +1132,6 @@ export function App(): React.JSX.Element {
           <SettingsView state={state} dispatch={dispatch} />
         )}
       </main>
-      {state.activeView !== "workspace" && (
-        <DesktopComposer
-          state={state}
-          composerRef={composerRef}
-          dispatch={dispatch}
-          value={composerValue}
-          error={composerError}
-          onValueChange={setComposerValue}
-          onErrorChange={setComposerError}
-        />
-      )}
     </div>
   );
 }
@@ -1005,7 +1153,7 @@ function eventError(
 
 function selectionTrack(
   selection: LiveEventSelection | undefined,
-  snapshot: DesktopProjectSnapshot | undefined,
+  snapshot: DesktopLiveSetSnapshot | undefined,
 ): DesktopTrack | undefined {
   if (!selection?.track || !snapshot) return undefined;
   return (
@@ -1902,7 +2050,8 @@ export function AddEventPanel({
           <span>No parameter is selected in Live.</span>
         ) : selectedParameterDraft === undefined ? (
           <span>
-            Refresh the project snapshot to safely match the selected parameter.
+            Refresh the Live Set snapshot to safely match the selected
+            parameter.
           </span>
         ) : null}
       </div>
@@ -1930,7 +2079,7 @@ export function AddEventPanel({
       <details className="event-picker">
         <summary>Browse all</summary>
         {!snapshot ? (
-          <p>Refresh the project snapshot to browse tracks and parameters.</p>
+          <p>Refresh the Live Set snapshot to browse tracks and parameters.</p>
         ) : (
           <div className="event-picker-fields">
             <label>
@@ -2758,25 +2907,25 @@ function OutputAssignmentControls({
   );
 }
 
-export function ProjectTransitionModal({
+export function LiveSetTransitionModal({
   state,
   dispatch,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
 }): React.JSX.Element | null {
-  const transition = state.pendingProjectTransition;
+  const transition = state.pendingLiveSetTransition;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
   if (transition === undefined) return null;
 
   const resolve = async (
-    decision: Parameters<DesktopApi["project"]["resolveTransition"]>[1],
+    decision: Parameters<DesktopApi["liveSet"]["resolveTransition"]>[1],
   ): Promise<void> => {
     setSubmitting(true);
     setError(undefined);
     try {
-      const session = await window.desktop.project.resolveTransition(
+      const session = await window.desktop.liveSet.resolveTransition(
         transition.token,
         decision,
       );
@@ -2805,7 +2954,7 @@ export function ProjectTransitionModal({
       >
         <h1 id="project-transition-title">Live Set changed</h1>
         <p>
-          Ableton is now using <strong>{transition.project.projectName}</strong>
+          Ableton is now using <strong>{transition.liveSet.liveSetName}</strong>
           .
         </p>
         {transition.kind === "associated" ? (
@@ -2861,13 +3010,74 @@ export function ConnectionHeader({
   state,
   dispatch,
   onHideChrome,
+  profileRefreshToken = 0,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
   onHideChrome?: (() => void) | undefined;
+  profileRefreshToken?: number;
 }): React.JSX.Element {
   const session = activeSession(state);
   const activeAgent = selectedAgentInstance(state);
+  const [profileStatus, setProfileStatus] = useState<DesktopProfileStatus>();
+  const [pendingProfile, setPendingProfile] = useState<string>();
+  const [profileError, setProfileError] = useState("");
+  const [profileBusy, setProfileBusy] = useState(false);
+  useEffect(() => {
+    if (state.lifecycle !== "ready" && state.lifecycle !== "degraded") return;
+    if (window.desktop.profiles?.status === undefined) return;
+    void window.desktop.profiles
+      .status()
+      .then(setProfileStatus)
+      .catch((error: unknown) =>
+        setProfileError(
+          error instanceof Error
+            ? error.message
+            : "Profiles could not be loaded",
+        ),
+      );
+  }, [profileRefreshToken, state.activeSessionId, state.lifecycle]);
+  const requestProfileSwitch = (profile: string): void => {
+    if (
+      profileStatus === undefined ||
+      profile === profileStatus.activeProfile ||
+      profileBusy
+    ) {
+      return;
+    }
+    if (profileStatus.activeSessionId !== undefined) {
+      setPendingProfile(profile);
+      return;
+    }
+    setProfileBusy(true);
+    setProfileError("");
+    void window.desktop.profiles
+      .switch(profile, profileStatus.revision, false)
+      .catch((error: unknown) => {
+        setProfileError(
+          error instanceof Error ? error.message : "Profile switch failed",
+        );
+        setProfileBusy(false);
+      });
+  };
+  const confirmProfileSwitch = async (): Promise<void> => {
+    if (profileStatus === undefined || pendingProfile === undefined) return;
+    setProfileBusy(true);
+    setProfileError("");
+    try {
+      await window.desktop.profiles.switch(
+        pendingProfile,
+        profileStatus.revision,
+        profileStatus.activeSessionId !== undefined,
+      );
+    } catch (error) {
+      setProfileError(
+        error instanceof Error ? error.message : "Profile switch failed",
+      );
+      setPendingProfile(undefined);
+      setProfileBusy(false);
+    }
+  };
   const selectAgent = async (instanceId: string): Promise<void> => {
     try {
       await selectWorkspaceAgent(window.desktop, instanceId, dispatch);
@@ -2907,8 +3117,8 @@ export function ConnectionHeader({
           ● {connectionText}
         </span>
       </div>
-      <div className="project-title">
-        {state.snapshot?.name ?? "No project"}{" "}
+      <div className="live-set-title">
+        {state.snapshot?.liveSetName ?? "No Live Set"}{" "}
         <small>
           {state.snapshot
             ? `${state.snapshot.tempo} BPM · ${state.snapshot.timeSignature}`
@@ -2916,8 +3126,40 @@ export function ConnectionHeader({
         </small>
       </div>
       <div className="header-controls">
-        <label>
-          Active Agent
+        <span className="header-divider" aria-hidden="true">
+          |
+        </span>
+        <label className="header-selector">
+          <span>Profile:</span>
+          <select
+            className="profile-selector"
+            aria-label="Active Profile"
+            value={profileStatus?.activeProfile ?? ""}
+            disabled={
+              profileBusy ||
+              profileStatus === undefined ||
+              profileStatus.switchingDisabledReason !== undefined
+            }
+            title={
+              profileStatus?.switchingDisabledReason ??
+              (profileError || undefined)
+            }
+            onChange={(event) => requestProfileSwitch(event.target.value)}
+          >
+            {profileStatus?.profiles
+              .filter(({ reserved, active }) => !reserved || active)
+              .map((profile) => (
+                <option key={profile.name} value={profile.name}>
+                  {profile.name}
+                </option>
+              ))}
+          </select>
+        </label>
+        <span className="header-divider" aria-hidden="true">
+          |
+        </span>
+        <label className="header-selector">
+          <span>Agent:</span>
           <select
             className="agent-instance-selector"
             aria-label="Active Agent"
@@ -2935,13 +3177,12 @@ export function ConnectionHeader({
             ))}
           </select>
         </label>
+        <span className="header-divider" aria-hidden="true">
+          |
+        </span>
         {activeAgent?.autoApprove && (
           <span className="agent-badge yolo-badge">YOLO</span>
         )}
-        <span className="model">
-          {activeAgent?.model ?? "SDK default"} ·{" "}
-          {activeAgent?.reasoningEffort ?? "Model default"}
-        </span>
         {state.connection.state !== "connected" && (
           <button
             onClick={() =>
@@ -2976,6 +3217,40 @@ export function ConnectionHeader({
           </button>
         )}
       </div>
+      {pendingProfile !== undefined && (
+        <div className="profile-conflict-backdrop" role="presentation">
+          <section
+            className="profile-conflict-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="header-profile-switch-title"
+          >
+            <h2 id="header-profile-switch-title">Switch profile?</h2>
+            <p>
+              {profileStatus?.activeSessionId === undefined
+                ? `Switch to ${pendingProfile}?`
+                : "The active session will be saved and closed. You can resume it later from its current profile."}
+            </p>
+            <div className="profile-conflict-actions">
+              <button
+                type="button"
+                disabled={profileBusy}
+                onClick={() => setPendingProfile(undefined)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="primary"
+                disabled={profileBusy}
+                onClick={() => void confirmProfileSwitch()}
+              >
+                Switch
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </header>
   );
 }
@@ -2991,6 +3266,7 @@ export function Workspace({
   onSidebarWidthChange,
   onToggleLeftSidebar,
   onToggleRightSidebar,
+  onEditPlan,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
@@ -3003,8 +3279,8 @@ export function Workspace({
     ((side: keyof WorkspaceSidebarWidths, width: number) => void) | undefined;
   onToggleLeftSidebar?: (() => void) | undefined;
   onToggleRightSidebar?: (() => void) | undefined;
+  onEditPlan?: (() => void) | undefined;
 }): React.JSX.Element {
-  const activeAgent = selectedAgentInstance(state);
   const drag = useRef<
     | {
         side: keyof WorkspaceSidebarWidths;
@@ -3073,6 +3349,36 @@ export function Workspace({
       className={`workspace ${leftSidebarVisible ? "" : "left-sidebar-hidden"} ${rightSidebarVisible ? "" : "right-sidebar-hidden"}`}
       style={workspaceStyle}
     >
+      {onToggleLeftSidebar !== undefined && (
+        <button
+          type="button"
+          className={`workspace-edge-control workspace-edge-control-left ${leftSidebarVisible ? "expanded" : ""}`}
+          aria-label={
+            leftSidebarVisible ? "Hide project sidebar" : "Show project sidebar"
+          }
+          aria-expanded={leftSidebarVisible}
+          aria-controls="project-sidebar"
+          onClick={onToggleLeftSidebar}
+        >
+          <SidebarIcon side="left" expanded={leftSidebarVisible} />
+        </button>
+      )}
+      {onToggleRightSidebar !== undefined && (
+        <button
+          type="button"
+          className={`workspace-edge-control workspace-edge-control-right ${rightSidebarVisible ? "expanded" : ""}`}
+          aria-label={
+            rightSidebarVisible
+              ? "Hide inspector sidebar"
+              : "Show inspector sidebar"
+          }
+          aria-expanded={rightSidebarVisible}
+          aria-controls="inspector-sidebar"
+          onClick={onToggleRightSidebar}
+        >
+          <SidebarIcon side="right" expanded={rightSidebarVisible} />
+        </button>
+      )}
       {leftSidebarVisible && (
         <ProjectOutline state={state} dispatch={dispatch} />
       )}
@@ -3090,51 +3396,6 @@ export function Workspace({
         className="conversation"
         aria-label="Conversation and operation timeline"
       >
-        <div className="panel-heading">
-          <div className="conversation-heading-start">
-            {onToggleLeftSidebar !== undefined && (
-              <button
-                type="button"
-                className="icon-button"
-                aria-label={
-                  leftSidebarVisible
-                    ? "Hide project sidebar"
-                    : "Show project sidebar"
-                }
-                aria-expanded={leftSidebarVisible}
-                aria-controls="project-sidebar"
-                onClick={onToggleLeftSidebar}
-              >
-                <SidebarIcon side="left" expanded={leftSidebarVisible} />
-              </button>
-            )}
-            <h2>Conversation</h2>
-          </div>
-          <span>
-            {activeAgent === undefined
-              ? "No active agent"
-              : `${activeAgent.label} · ${activeAgent.lifecycle}`}
-            {activeAgent?.autoApprove && (
-              <span className="agent-badge yolo-badge">YOLO</span>
-            )}
-          </span>
-          {onToggleRightSidebar !== undefined && (
-            <button
-              type="button"
-              className="icon-button"
-              aria-label={
-                rightSidebarVisible
-                  ? "Hide inspector sidebar"
-                  : "Show inspector sidebar"
-              }
-              aria-expanded={rightSidebarVisible}
-              aria-controls="inspector-sidebar"
-              onClick={onToggleRightSidebar}
-            >
-              <SidebarIcon side="right" expanded={rightSidebarVisible} />
-            </button>
-          )}
-        </div>
         <Timeline state={state} scrollPositions={timelineScrollPositions} />
         {composer}
       </section>
@@ -3148,7 +3409,12 @@ export function Workspace({
           onPointerCancel={endResize}
         />
       )}
-      {rightSidebarVisible && <Inspector state={state} dispatch={dispatch} />}
+      <Inspector
+        state={state}
+        dispatch={dispatch}
+        onEditPlan={onEditPlan}
+        hidden={!rightSidebarVisible}
+      />
     </div>
   );
 }
@@ -3187,18 +3453,563 @@ function ChromeIcon({ expanded }: { expanded: boolean }): React.JSX.Element {
   );
 }
 
-export function AgentsView({
+type AgentDetailSection = "general" | "capabilities" | "connections";
+
+function agentDetailSectionLabel(section: AgentDetailSection): string {
+  if (section === "general") return "General";
+  if (section === "capabilities") return "Capabilities";
+  return "Connections";
+}
+
+function AgentDetailSectionIcon({
+  section,
+}: {
+  section: AgentDetailSection;
+}): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 18 18" aria-hidden="true">
+      {section === "general" ? (
+        <>
+          <circle cx="9" cy="6" r="3" />
+          <path d="M3.5 15c.7-3 2.5-4.5 5.5-4.5s4.8 1.5 5.5 4.5" />
+        </>
+      ) : section === "capabilities" ? (
+        <>
+          <path d="M9 2.5v3M9 12.5v3M2.5 9h3M12.5 9h3" />
+          <circle cx="9" cy="9" r="3.5" />
+        </>
+      ) : (
+        <>
+          <circle cx="9" cy="9" r="2" />
+          <path d="M5.5 5.5a5 5 0 0 0 0 7M12.5 5.5a5 5 0 0 1 0 7" />
+          <path d="M3 3a8.5 8.5 0 0 0 0 12M15 3a8.5 8.5 0 0 1 0 12" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function AgentDetailTabs({
+  section,
+  panelIdPrefix,
+  onChange,
+}: {
+  section: AgentDetailSection;
+  panelIdPrefix: string;
+  onChange: (section: AgentDetailSection) => void;
+}): React.JSX.Element {
+  const sections = [
+    "general",
+    "capabilities",
+    "connections",
+  ] as const satisfies readonly AgentDetailSection[];
+  return (
+    <div
+      className="agent-detail-tabs"
+      role="tablist"
+      aria-label="Agent definition views"
+    >
+      {sections.map((candidate) => (
+        <button
+          type="button"
+          className={`agent-detail-tab ${section === candidate ? "active" : ""}`}
+          role="tab"
+          aria-selected={section === candidate}
+          aria-controls={`${panelIdPrefix}-${candidate}`}
+          aria-label={agentDetailSectionLabel(candidate)}
+          title={agentDetailSectionLabel(candidate)}
+          onClick={() => onChange(candidate)}
+          key={candidate}
+        >
+          <AgentDetailSectionIcon section={candidate} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+interface SkillEditorDraft {
+  readonly key: string;
+  readonly published: boolean;
+  readonly fingerprint?: string;
+  readonly origin?: DesktopSkillDocument["origin"];
+  name: string;
+  description: string;
+  body: string;
+  dirty: boolean;
+  loading: boolean;
+  error?: string;
+}
+
+export function SkillsView({
   state,
   dispatch,
+  onProfilesChanged,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+  onProfilesChanged?: (() => void) | undefined;
+}): React.JSX.Element {
+  const session = activeSession(state);
+  const [selectedKey, setSelectedKey] = useState<string | undefined>(
+    state.agentCatalog.skills[0]?.name,
+  );
+  const [drafts, setDrafts] = useState<Record<string, SkillEditorDraft>>({});
+  const [activePanel, setActivePanel] = useState<"overview" | "instructions">(
+    "instructions",
+  );
+  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const catalogSkills = useMemo(
+    () =>
+      state.agentCatalog.sessionId === undefined ||
+      state.agentCatalog.sessionId === session?.id
+        ? state.agentCatalog.skills
+        : [],
+    [session?.id, state.agentCatalog],
+  );
+  const selectedCatalogSkill = catalogSkills.find(
+    ({ name }) => name === selectedKey,
+  );
+  const selectedDraft =
+    selectedKey === undefined ? undefined : drafts[selectedKey];
+
+  const reportError = useCallback(
+    (error: unknown, fallback: string): void => {
+      dispatch({
+        type: "event",
+        event: {
+          type: "diagnostic",
+          level: "error",
+          message: error instanceof Error ? error.message : fallback,
+        },
+      });
+    },
+    [dispatch],
+  );
+
+  useEffect(() => {
+    if (
+      selectedKey === undefined ||
+      selectedKey.startsWith("new:") ||
+      drafts[selectedKey] !== undefined ||
+      selectedCatalogSkill === undefined
+    ) {
+      return;
+    }
+    const placeholder: SkillEditorDraft = {
+      key: selectedKey,
+      published: true,
+      fingerprint: selectedCatalogSkill.fingerprint,
+      origin: selectedCatalogSkill.origin ?? "bundled",
+      name: selectedCatalogSkill.name,
+      description: selectedCatalogSkill.description,
+      body: "",
+      dirty: false,
+      loading: true,
+    };
+    setDrafts((current) => ({ ...current, [selectedKey]: placeholder }));
+    let cancelled = false;
+    void window.desktop.skills
+      .read(selectedCatalogSkill.name)
+      .then((document) => {
+        if (cancelled) return;
+        setDrafts((current) => ({
+          ...current,
+          [selectedKey]: {
+            key: selectedKey,
+            published: true,
+            fingerprint: document.fingerprint,
+            origin: document.origin,
+            name: document.name,
+            description: document.description,
+            body: document.body,
+            dirty: false,
+            loading: false,
+          },
+        }));
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        const message =
+          error instanceof Error ? error.message : "Skill could not be loaded";
+        setDrafts((current) => ({
+          ...current,
+          [selectedKey]: { ...placeholder, loading: false, error: message },
+        }));
+        reportError(error, "Skill could not be loaded");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reportError, selectedCatalogSkill, selectedKey]);
+
+  useEffect(() => {
+    if (selectedKey?.startsWith("new:")) return;
+    if (
+      selectedKey !== undefined &&
+      catalogSkills.some(({ name }) => name === selectedKey)
+    ) {
+      return;
+    }
+    setSelectedKey(catalogSkills[0]?.name);
+  }, [catalogSkills, selectedKey]);
+
+  const updateDraft = (
+    key: string,
+    update: Partial<Pick<SkillEditorDraft, "name" | "description" | "body">>,
+  ): void => {
+    setDrafts((current) => {
+      const draft = current[key];
+      return draft === undefined
+        ? current
+        : { ...current, [key]: { ...draft, ...update, dirty: true } };
+    });
+  };
+
+  const refresh = async (): Promise<void> => {
+    setRefreshing(true);
+    try {
+      const catalog = await window.desktop.agents.refreshCatalog();
+      dispatch({
+        type: "event",
+        event: { type: "agents.catalog_changed", catalog },
+      });
+      if (selectedKey !== undefined && !selectedKey.startsWith("new:")) {
+        setDrafts((current) => {
+          const next = { ...current };
+          delete next[selectedKey];
+          return next;
+        });
+      }
+    } catch (error) {
+      reportError(error, "Skills could not be refreshed");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const createDraft = (): void => {
+    const key = `new:${Date.now()}`;
+    setDrafts((current) => ({
+      ...current,
+      [key]: {
+        key,
+        published: false,
+        name: "",
+        description: "",
+        body: "# New skill\n\nDescribe the workflow and constraints here.",
+        dirty: true,
+        loading: false,
+      },
+    }));
+    setSelectedKey(key);
+    setActivePanel("overview");
+  };
+
+  const save = async (): Promise<void> => {
+    if (selectedDraft === undefined || session === undefined) return;
+    setSaving(true);
+    try {
+      const profileStatus = await window.desktop.profiles.status();
+      const profileSnapshot = await window.desktop.profiles.get(
+        profileStatus.activeProfile,
+      );
+      const result = selectedDraft.published
+        ? await window.desktop.skills.save(
+            selectedDraft.name,
+            selectedDraft.body,
+            profileSnapshot.revision,
+            selectedDraft.fingerprint!,
+          )
+        : await window.desktop.skills.create(
+            selectedDraft.name,
+            selectedDraft.description,
+            selectedDraft.body,
+            profileSnapshot.revision,
+          );
+      dispatch({
+        type: "event",
+        event: { type: "agents.catalog_changed", catalog: result.catalog },
+      });
+      const savedKey = result.document.name;
+      setDrafts((current) => {
+        const next = { ...current };
+        delete next[selectedDraft.key];
+        next[savedKey] = {
+          key: savedKey,
+          published: true,
+          fingerprint: result.document.fingerprint,
+          origin: result.document.origin,
+          name: result.document.name,
+          description: result.document.description,
+          body: result.document.body,
+          dirty: false,
+          loading: false,
+        };
+        return next;
+      });
+      setSelectedKey(savedKey);
+      onProfilesChanged?.();
+    } catch (error) {
+      reportError(error, "Skill could not be saved");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section
+      className="agents-view skills-view"
+      aria-labelledby="skills-heading"
+    >
+      <div className="panel-heading">
+        <div>
+          <h2 id="skills-heading">Skills</h2>
+          <p>
+            Scoped Markdown instructions available to agents and Workspace slash
+            commands.
+          </p>
+        </div>
+        <div className="agent-header-actions">
+          <button type="button" onClick={createDraft}>
+            New skill
+          </button>
+          <button disabled={refreshing} onClick={() => void refresh()}>
+            {refreshing ? "Refreshing…" : "Refresh skills"}
+          </button>
+        </div>
+      </div>
+      {session === undefined && (
+        <div className="notice" role="status">
+          Skill saves will be available after the production session is
+          restored.
+        </div>
+      )}
+      {catalogSkills.length === 0 && !selectedKey?.startsWith("new:") ? (
+        <EmptyState
+          title="No valid skills found"
+          detail="Create a Session-defined Skill to add reusable instructions."
+        />
+      ) : (
+        <div className="agents-workspace">
+          <nav className="agent-navigation" aria-label="Skills">
+            <div className="agent-navigation-list">
+              {catalogSkills.map((skill) => (
+                <button
+                  type="button"
+                  className={`agent-navigation-item ${selectedKey === skill.name ? "active" : ""}`}
+                  aria-current={selectedKey === skill.name ? "page" : undefined}
+                  onClick={() => setSelectedKey(skill.name)}
+                  key={skill.name}
+                >
+                  <span
+                    className={`skill-scope-light is-${skill.origin ?? "bundled"}`}
+                    aria-hidden="true"
+                  />
+                  <span className="agent-navigation-label">
+                    <strong>{skill.name}</strong>
+                    <small>{skill.description}</small>
+                  </span>
+                </button>
+              ))}
+              {Object.values(drafts)
+                .filter(({ published }) => !published)
+                .map((draft) => (
+                  <button
+                    type="button"
+                    className={`agent-navigation-item ${selectedKey === draft.key ? "active" : ""}`}
+                    aria-current={
+                      selectedKey === draft.key ? "page" : undefined
+                    }
+                    onClick={() => setSelectedKey(draft.key)}
+                    key={draft.key}
+                  >
+                    <span
+                      className="skill-scope-light is-new"
+                      aria-hidden="true"
+                    />
+                    <span className="agent-navigation-label">
+                      <strong>{draft.name || "Untitled skill"}</strong>
+                      <small>New Session skill</small>
+                    </span>
+                  </button>
+                ))}
+            </div>
+          </nav>
+          <div className="agent-detail-workspace">
+            {selectedDraft === undefined ? (
+              <EmptyState
+                title="Select a skill"
+                detail="Choose a skill from the navigator or create a new one."
+              />
+            ) : (
+              <article className="agent-detail">
+                <header className="agent-detail-header">
+                  <div>
+                    <div className="agent-title-line">
+                      <h3>{selectedDraft.name || "New skill"}</h3>
+                      <span className="scope-badge">
+                        {selectedDraft.published
+                          ? selectedDraft.origin
+                          : "new session"}
+                      </span>
+                      {selectedDraft.dirty && (
+                        <span className="scope-badge">Unsaved</span>
+                      )}
+                    </div>
+                    <p>{selectedDraft.description || "Add skill metadata."}</p>
+                  </div>
+                  <div className="agent-header-actions">
+                    <button
+                      type="button"
+                      disabled={!selectedDraft.dirty || saving}
+                      onClick={() => {
+                        if (selectedDraft.published) {
+                          setDrafts((current) => {
+                            const next = { ...current };
+                            delete next[selectedDraft.key];
+                            return next;
+                          });
+                        } else {
+                          setDrafts((current) => {
+                            const next = { ...current };
+                            delete next[selectedDraft.key];
+                            return next;
+                          });
+                          setSelectedKey(state.agentCatalog.skills[0]?.name);
+                        }
+                      }}
+                    >
+                      Discard
+                    </button>
+                    <button
+                      type="button"
+                      disabled={
+                        saving ||
+                        session === undefined ||
+                        selectedDraft.loading ||
+                        !selectedDraft.dirty ||
+                        selectedDraft.name.trim().length === 0 ||
+                        selectedDraft.description.trim().length === 0 ||
+                        selectedDraft.body.trim().length === 0
+                      }
+                      onClick={() => void save()}
+                    >
+                      {saving ? "Saving…" : "Save to Session"}
+                    </button>
+                  </div>
+                </header>
+                <div className="agent-detail-tabs" role="tablist">
+                  <button
+                    type="button"
+                    className={`agent-detail-tab ${activePanel === "overview" ? "active" : ""}`}
+                    role="tab"
+                    aria-selected={activePanel === "overview"}
+                    aria-label="Skill overview"
+                    title="Overview"
+                    onClick={() => setActivePanel("overview")}
+                  >
+                    i
+                  </button>
+                  <button
+                    type="button"
+                    className={`agent-detail-tab ${activePanel === "instructions" ? "active" : ""}`}
+                    role="tab"
+                    aria-selected={activePanel === "instructions"}
+                    aria-label="Skill instructions"
+                    title="Instructions"
+                    onClick={() => setActivePanel("instructions")}
+                  >
+                    &lt;/&gt;
+                  </button>
+                </div>
+                <div className="agent-detail-body">
+                  {selectedDraft.loading ? (
+                    <p role="status">Loading skill…</p>
+                  ) : selectedDraft.error !== undefined ? (
+                    <div className="notice" role="alert">
+                      <span>{selectedDraft.error}</span>
+                      <button type="button" onClick={() => void refresh()}>
+                        Reload
+                      </button>
+                    </div>
+                  ) : activePanel === "overview" ? (
+                    <div className="skill-overview-grid">
+                      <label>
+                        Name
+                        <input
+                          value={selectedDraft.name}
+                          readOnly={selectedDraft.published}
+                          disabled={selectedDraft.published}
+                          onChange={(event) =>
+                            updateDraft(selectedDraft.key, {
+                              name: event.currentTarget.value,
+                            })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Description
+                        <textarea
+                          value={selectedDraft.description}
+                          readOnly={selectedDraft.published}
+                          disabled={selectedDraft.published}
+                          rows={4}
+                          onChange={(event) =>
+                            updateDraft(selectedDraft.key, {
+                              description: event.currentTarget.value,
+                            })
+                          }
+                        />
+                      </label>
+                      {selectedDraft.published && (
+                        <p className="field-help">
+                          Published skill metadata is immutable. Create a new
+                          skill to use a different name or description.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <label className="skill-markdown-editor">
+                      Markdown instructions
+                      <textarea
+                        value={selectedDraft.body}
+                        rows={24}
+                        spellCheck
+                        onChange={(event) =>
+                          updateDraft(selectedDraft.key, {
+                            body: event.currentTarget.value,
+                          })
+                        }
+                      />
+                    </label>
+                  )}
+                </div>
+              </article>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function AgentsView({
+  state,
+  dispatch,
+  onProfilesChanged,
+}: {
+  state: DesktopState;
+  dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+  onProfilesChanged?: (() => void) | undefined;
 }): React.JSX.Element {
   const [refreshing, setRefreshing] = useState(false);
   const session = activeSession(state);
   const activeAgents = session?.activeAgents ?? [];
   const selectedAgentId = session?.selectedAgentInstanceId;
   const [busyAgentId, setBusyAgentId] = useState<string>();
+  const [savingDefinitionName, setSavingDefinitionName] = useState<string>();
   const [creatingDefinition, setCreatingDefinition] = useState<string>();
   const [confirmResetId, setConfirmResetId] = useState<string>();
   const [modelsState, setModelsState] = useState<
@@ -3206,6 +4017,34 @@ export function AgentsView({
     | { status: "loaded"; models: DesktopAgentModel[] }
     | { status: "failed"; models: DesktopAgentModel[]; message: string }
   >({ status: "loading", models: [] });
+  const inactiveDefinitions = useMemo(() => {
+    const activeDefinitionNames = new Set(
+      activeAgents.map(({ definitionName }) => definitionName),
+    );
+    return state.agentCatalog.definitions.filter(
+      ({ name }) => !activeDefinitionNames.has(name),
+    );
+  }, [activeAgents, state.agentCatalog.definitions]);
+  const defaultInspectedKey =
+    (selectedAgentId === undefined ? undefined : `active:${selectedAgentId}`) ??
+    (activeAgents[0] === undefined
+      ? undefined
+      : `active:${activeAgents[0].id}`) ??
+    (inactiveDefinitions[0] === undefined
+      ? undefined
+      : `definition:${inactiveDefinitions[0].name}`);
+  const [inspectedKey, setInspectedKey] = useState<string | undefined>(
+    defaultInspectedKey,
+  );
+
+  useEffect(() => {
+    const keys = new Set([
+      ...activeAgents.map(({ id }) => `active:${id}`),
+      ...inactiveDefinitions.map(({ name }) => `definition:${name}`),
+    ]);
+    if (inspectedKey !== undefined && keys.has(inspectedKey)) return;
+    setInspectedKey(defaultInspectedKey);
+  }, [activeAgents, defaultInspectedKey, inactiveDefinitions, inspectedKey]);
 
   const reportError = useCallback(
     (error: unknown, fallback: string): void => {
@@ -3299,10 +4138,46 @@ export function AgentsView({
     try {
       const created = await window.desktop.agents.create(definitionName);
       reconcileAgent(created, "created");
+      setInspectedKey(`active:${created.id}`);
     } catch (error) {
       reportError(error, `Could not create ${definitionName}`);
     } finally {
       setCreatingDefinition(undefined);
+    }
+  };
+  const saveDefinition = async (
+    definition: DesktopAgentDefinition,
+    draft: CurrentAgentDefinition,
+  ): Promise<boolean> => {
+    if (session === undefined) {
+      reportError(
+        new Error("Restore a production session before saving an agent."),
+        "Could not save agent definition",
+      );
+      return false;
+    }
+    setSavingDefinitionName(definition.name);
+    try {
+      const profileStatus = await window.desktop.profiles.status();
+      const profileSnapshot = await window.desktop.profiles.get(
+        profileStatus.activeProfile,
+      );
+      const saved = await window.desktop.agents.saveDefinition(
+        draft,
+        profileSnapshot.revision,
+        definition.fingerprint,
+      );
+      dispatch({
+        type: "event",
+        event: { type: "agents.catalog_changed", catalog: saved.catalog },
+      });
+      onProfilesChanged?.();
+      return true;
+    } catch (error) {
+      reportError(error, `Could not save ${definition.name}`);
+      return false;
+    } finally {
+      setSavingDefinitionName(undefined);
     }
   };
   const selectAgent = async (
@@ -3374,192 +4249,190 @@ export function AgentsView({
           restored.
         </div>
       )}
-      <section
-        className="active-agents"
-        aria-labelledby="active-agents-heading"
-      >
-        <div className="panel-heading">
-          <div>
-            <h3 id="active-agents-heading">Active agents</h3>
-            <p>Independent conversations in the current production session.</p>
-          </div>
-        </div>
-        {activeAgents.length === 0 ? (
-          state.lifecycle === "starting" && session === undefined ? (
-            <p role="status">Loading active agents…</p>
-          ) : (
-            <EmptyState
-              title="No active agents"
-              detail="Create an instance from a definition below."
-            />
-          )
-        ) : (
-          <div className="active-agent-list">
-            {activeAgents.map((agent) => (
-              <ActiveAgentCard
-                agent={agent}
-                availableSkills={state.agentCatalog.skills}
-                liveEvents={state.events.events}
-                models={modelsState.models}
-                modelsStatus={modelsState.status}
-                definitionSource={
-                  state.agentCatalog.definitions.find(
-                    (definition) => definition.name === agent.definitionName,
-                  )?.sourceFile
-                }
-                definitionUpdated={state.agentCatalog.definitions.some(
-                  (definition) =>
-                    definition.name === agent.definitionName &&
-                    definition.fingerprint !== agent.definitionFingerprint,
-                )}
-                selected={selectedAgentId === agent.id}
-                busy={busyAgentId === agent.id || agent.lifecycle === "busy"}
-                confirmingReset={confirmResetId === agent.id}
-                onRename={(label) =>
-                  runAgentAction(
-                    agent.id,
-                    () => window.desktop.agents.rename(agent.id, label),
-                    "Could not rename agent",
-                    "renamed",
-                  )
-                }
-                onConfigure={(overrides) =>
-                  runAgentAction(
-                    agent.id,
-                    () => window.desktop.agents.configure(agent.id, overrides),
-                    "Could not update agent configuration",
-                    "configured",
-                  )
-                }
-                onSetConversationSettings={(settings) =>
-                  runAgentAction(
-                    agent.id,
-                    () =>
-                      window.desktop.agents.setConversationSettings(
-                        agent.id,
-                        settings,
-                      ),
-                    "Could not change agent conversation settings",
-                    "conversation-settings-changed",
-                  )
-                }
-                onReset={() => {
-                  if (confirmResetId !== agent.id) {
-                    setConfirmResetId(agent.id);
-                    return Promise.resolve();
-                  }
-                  setConfirmResetId(undefined);
-                  return runAgentAction(
-                    agent.id,
-                    () => window.desktop.agents.reset(agent.id),
-                    "Could not reset agent",
-                    "reset",
-                  ).then(() => undefined);
-                }}
-                onCancelReset={() => setConfirmResetId(undefined)}
-                onEventError={(error) =>
-                  reportError(error, "Could not update listening events")
-                }
-                onSelect={() => selectAgent(agent.id, false)}
-                onOpen={() => selectAgent(agent.id, true)}
-                onDeactivate={() => deactivateAgent(agent.id)}
-                key={agent.id}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-      <div className="panel-heading agent-definitions-heading">
-        <div>
-          <h3>Defined agents</h3>
-          <p>Templates for creating independent active instances.</p>
-        </div>
-      </div>
-      {state.agentCatalog.definitions.length === 0 ? (
+      {state.lifecycle === "starting" && session === undefined ? (
+        <p role="status">Loading active agents…</p>
+      ) : state.agentCatalog.definitions.length === 0 &&
+        activeAgents.length === 0 ? (
         <EmptyState
           title="No valid agents found"
           detail="Add YAML definitions to the configured agents directory."
         />
       ) : (
-        <div className="agent-definition-grid">
-          {state.agentCatalog.definitions.map((definition) => (
-            <article className="agent-definition-card" key={definition.name}>
-              <header>
-                <div>
-                  <h3>{definition.name}</h3>
-                  <p>{definition.description}</p>
-                </div>
-                <span>Defined</span>
-              </header>
-              <dl>
-                <dt>Source</dt>
-                <dd>{definition.sourceFile}</dd>
-                <dt>Fingerprint</dt>
-                <dd>
-                  <code title={definition.fingerprint}>
-                    {definition.fingerprint.slice(0, 12)}
-                  </code>
-                </dd>
-                <dt>Tools</dt>
-                <dd>
-                  {definition.tools.join(", ")}
-                  <ResolvedToolsDisclosure
-                    patterns={definition.tools}
-                    resolvedTools={definition.resolvedTools}
-                  />
-                </dd>
-                <dt>Edit scope</dt>
-                <dd>
-                  {definition.editScope
-                    .map((entry) =>
-                      entry === "session"
-                        ? "Full session"
-                        : `${entry.track.name} #${entry.track.occurrence + 1}`,
-                    )
-                    .join(", ")}
-                </dd>
-                <dt>Skills</dt>
-                <dd>
-                  {definition.skills.length > 0
-                    ? definition.skills.join(", ")
-                    : "None"}
-                </dd>
-                <dt>Inputs</dt>
-                <dd>
-                  {definition.inputChannels.length > 0
-                    ? definition.inputChannels.join(", ")
-                    : "Prompt only"}
-                </dd>
-              </dl>
-              <button
-                disabled={
-                  session === undefined ||
-                  creatingDefinition === definition.name
+        <div className="agents-workspace">
+          <nav className="agent-navigation" aria-label="Agents">
+            <div className="agent-navigation-list">
+              {activeAgents.map((agent) => {
+                const key = `active:${agent.id}`;
+                return (
+                  <button
+                    type="button"
+                    className={`agent-navigation-item ${inspectedKey === key ? "active" : ""}`}
+                    aria-current={inspectedKey === key ? "page" : undefined}
+                    onClick={() => setInspectedKey(key)}
+                    key={key}
+                  >
+                    <span
+                      className="agent-activity-light is-active"
+                      aria-label="Active agent"
+                    />
+                    <span className="agent-navigation-label">
+                      <strong>{agent.label}</strong>
+                      <small>{agent.definitionName}</small>
+                    </span>
+                  </button>
+                );
+              })}
+              {activeAgents.length > 0 && inactiveDefinitions.length > 0 && (
+                <div className="agent-navigation-divider" aria-hidden="true" />
+              )}
+              {inactiveDefinitions.map((definition) => {
+                const key = `definition:${definition.name}`;
+                return (
+                  <button
+                    type="button"
+                    className={`agent-navigation-item ${inspectedKey === key ? "active" : ""}`}
+                    aria-current={inspectedKey === key ? "page" : undefined}
+                    onClick={() => setInspectedKey(key)}
+                    key={key}
+                  >
+                    <span
+                      className="agent-activity-light"
+                      aria-label="Inactive agent"
+                    />
+                    <span className="agent-navigation-label">
+                      <strong>{definition.label}</strong>
+                      <small>{definition.description}</small>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
+          <div className="agent-detail-workspace">
+            {activeAgents.map((agent) => {
+              const resolvedDefinition =
+                state.agentCatalog.definitions.find(
+                  (candidate) => candidate.name === agent.definitionName,
+                ) ?? desktopDefinitionFromActiveAgent(agent);
+              const definition: DesktopAgentDefinition = {
+                ...resolvedDefinition,
+                label: resolvedDefinition.label ?? agent.label,
+                model:
+                  resolvedDefinition.model === undefined
+                    ? (agent.model ?? null)
+                    : resolvedDefinition.model,
+                reasoningEffort:
+                  resolvedDefinition.reasoningEffort === undefined
+                    ? (agent.reasoningEffort ?? null)
+                    : resolvedDefinition.reasoningEffort,
+                autoApprove:
+                  resolvedDefinition.autoApprove ?? agent.autoApprove,
+                eventListeners:
+                  resolvedDefinition.eventListeners ?? agent.eventListeners,
+              };
+              return (
+                <ActiveAgentCard
+                  definition={definition}
+                  agent={agent}
+                  availableSkills={state.agentCatalog.skills}
+                  liveEvents={state.events.events}
+                  models={modelsState.models}
+                  modelsStatus={modelsState.status}
+                  definitionUpdated={state.agentCatalog.definitions.some(
+                    (candidate) =>
+                      candidate.name === agent.definitionName &&
+                      candidate.fingerprint !== agent.definitionFingerprint,
+                  )}
+                  selected={selectedAgentId === agent.id}
+                  hidden={inspectedKey !== `active:${agent.id}`}
+                  creating={creatingDefinition === agent.definitionName}
+                  busy={
+                    busyAgentId === agent.id ||
+                    savingDefinitionName === definition.name ||
+                    agent.lifecycle === "busy"
+                  }
+                  canPersist={session !== undefined}
+                  canCreate={session !== undefined}
+                  confirmingReset={confirmResetId === agent.id}
+                  onSaveDefinition={(draft) =>
+                    saveDefinition(definition, draft)
+                  }
+                  onReset={() => {
+                    if (confirmResetId !== agent.id) {
+                      setConfirmResetId(agent.id);
+                      return Promise.resolve(undefined);
+                    }
+                    setConfirmResetId(undefined);
+                    return runAgentAction(
+                      agent.id,
+                      () => window.desktop.agents.reset(agent.id),
+                      "Could not reset agent",
+                      "reset",
+                    );
+                  }}
+                  onCancelReset={() => setConfirmResetId(undefined)}
+                  onSelect={() => selectAgent(agent.id, false)}
+                  onOpen={() => selectAgent(agent.id, true)}
+                  onCreateAnother={() => createAgent(agent.definitionName)}
+                  onDeactivate={() => deactivateAgent(agent.id)}
+                  key={agent.id}
+                />
+              );
+            })}
+            {inactiveDefinitions.map((definition) => (
+              <ActiveAgentCard
+                definition={definition}
+                hidden={inspectedKey !== `definition:${definition.name}`}
+                busy={
+                  creatingDefinition === definition.name ||
+                  savingDefinitionName === definition.name
                 }
-                onClick={() => void createAgent(definition.name)}
-              >
-                {creatingDefinition === definition.name
-                  ? "Creating…"
-                  : "Create agent"}
-              </button>
-            </article>
-          ))}
+                canPersist={session !== undefined}
+                canCreate={session !== undefined}
+                creating={creatingDefinition === definition.name}
+                confirmingReset={false}
+                selected={false}
+                availableSkills={state.agentCatalog.skills}
+                liveEvents={state.events.events}
+                models={modelsState.models}
+                modelsStatus={modelsState.status}
+                definitionUpdated={false}
+                onSaveDefinition={(draft) => saveDefinition(definition, draft)}
+                onCreateAnother={() => createAgent(definition.name)}
+                key={definition.name}
+              />
+            ))}
+          </div>
         </div>
       )}
     </section>
   );
 }
 
-type AgentOverrides = Parameters<DesktopApi["agents"]["configure"]>[1];
-
-function scopeLabel(scope: DesktopActiveAgent["config"]["editScope"]): string {
-  return scope
-    .map((entry) =>
-      entry === "session"
-        ? "Full session"
-        : `${entry.track.name} #${entry.track.occurrence + 1}`,
-    )
-    .join(", ");
+function desktopDefinitionFromActiveAgent(
+  agent: DesktopActiveAgent,
+): DesktopAgentDefinition {
+  return {
+    version: 2,
+    name: agent.definitionName,
+    label: agent.label,
+    description: agent.config.description,
+    systemPrompt: agent.config.systemPrompt,
+    tools: agent.config.tools,
+    resolvedTools: agent.config.resolvedTools,
+    editScope: agent.config.editScope,
+    skills: agent.config.skills,
+    inputChannels: agent.config.inputChannels,
+    model: agent.model ?? null,
+    reasoningEffort: agent.reasoningEffort ?? null,
+    autoApprove: agent.autoApprove,
+    eventListeners: agent.eventListeners,
+    origin: "session",
+    inherited: false,
+    overrides: [],
+    sourceFile: `${agent.definitionName}.yaml`,
+    fingerprint: agent.definitionFingerprint,
+  };
 }
 
 export function reasoningOptionsForModel(
@@ -3593,18 +4466,6 @@ export function reasoningEffortForDraftModel(
     : "";
 }
 
-function agentModelLabel(
-  modelId: string | undefined,
-  models: readonly DesktopAgentModel[],
-): string {
-  if (modelId === undefined) return "SDK default";
-  const model = models.find(({ id }) => id === modelId);
-  if (model === undefined) return `${modelId} · unavailable`;
-  return `${model.displayName} · ${model.id}${
-    model.policyState === "enabled" ? "" : ` · ${model.policyState}`
-  }`;
-}
-
 function modelReasoningLabel(model: DesktopAgentModel): string {
   if (!model.capabilities.reasoningEffort) {
     return "Reasoning effort is fixed by this model.";
@@ -3615,12 +4476,6 @@ function modelReasoningLabel(model: DesktopAgentModel): string {
       ? ""
       : ` · default ${model.defaultReasoningEffort}`
   }`;
-}
-
-function agentReasoningLabel(
-  reasoningEffort: DesktopActiveAgent["reasoningEffort"],
-): string {
-  return reasoningEffort ?? "Model default";
 }
 
 export function ResolvedToolsDisclosure({
@@ -4167,399 +5022,774 @@ export function AgentModelEditor({
   );
 }
 
+function normalizedDefinition(
+  definition: DesktopAgentDefinition,
+): CurrentAgentDefinition {
+  return {
+    version: 2,
+    name: definition.name,
+    label: definition.label ?? definition.name,
+    description: definition.description,
+    systemPrompt: definition.systemPrompt,
+    tools: [...definition.tools],
+    editScope: [...definition.editScope],
+    skills: [...definition.skills],
+    inputChannels: [...definition.inputChannels],
+    model: definition.model ?? null,
+    reasoningEffort: definition.reasoningEffort ?? null,
+    autoApprove: definition.autoApprove ?? false,
+    eventListeners: [...(definition.eventListeners ?? [])],
+  };
+}
+
+function DefinitionListeningEventsEditor({
+  events,
+  listeners,
+  disabled,
+  onChange,
+}: {
+  events: readonly DesktopLiveEventState[];
+  listeners: readonly AgentEventListener[];
+  disabled: boolean;
+  onChange: (listeners: AgentEventListener[]) => void;
+}): React.JSX.Element {
+  const update = (
+    eventId: string,
+    change: (listener: AgentEventListener) => AgentEventListener,
+  ): void => {
+    onChange(
+      listeners.map((listener) =>
+        listener.eventId === eventId ? change(listener) : listener,
+      ),
+    );
+  };
+  return (
+    <fieldset className="listening-events-editor">
+      <legend>Listening Events</legend>
+      {events.length === 0 ? (
+        <small>No Live events are available in this production session.</small>
+      ) : (
+        events.map((event) => {
+          const listener = listeners.find(
+            (candidate) => candidate.eventId === event.definition.id,
+          );
+          const preparedContext = resolvePreparedContextConfiguration(
+            listener?.preparedContext,
+          );
+          return (
+            <div className="listening-event-row" key={event.definition.id}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={listener !== undefined}
+                  disabled={disabled}
+                  onChange={(change) => {
+                    if (!change.target.checked) {
+                      onChange(
+                        listeners.filter(
+                          (candidate) =>
+                            candidate.eventId !== event.definition.id,
+                        ),
+                      );
+                      return;
+                    }
+                    onChange([
+                      ...listeners,
+                      {
+                        id: createAgentEventListenerId(crypto.randomUUID()),
+                        eventId: event.definition.id,
+                        enabled: true,
+                        responseMode: "next-prompt",
+                        preparedContext: {
+                          scope: "whole-session",
+                          includeSessionClips: true,
+                        },
+                      },
+                    ]);
+                  }}
+                />
+                <span>
+                  {event.definition.name}
+                  <small>
+                    {event.definition.enabled
+                      ? "Event enabled"
+                      : "Event disabled"}
+                    {" · "}
+                    {event.resolution.status === "resolved"
+                      ? "Resolved target"
+                      : "Unresolved target"}
+                  </small>
+                </span>
+              </label>
+              {listener !== undefined && (
+                <div className="listening-event-settings">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={listener.enabled}
+                      disabled={disabled}
+                      onChange={(change) =>
+                        update(event.definition.id, (current) => ({
+                          ...current,
+                          enabled: change.target.checked,
+                        }))
+                      }
+                    />
+                    Listener enabled
+                  </label>
+                  <label>
+                    Delivery
+                    <select
+                      value={listener.responseMode}
+                      disabled={disabled}
+                      onChange={(change) =>
+                        update(event.definition.id, (current) => ({
+                          ...current,
+                          responseMode: change.target.value as
+                            "automatic" | "next-prompt",
+                        }))
+                      }
+                    >
+                      <option value="automatic">Automatic</option>
+                      <option value="next-prompt">Next prompt</option>
+                    </select>
+                  </label>
+                  <label>
+                    Message prefix <small>Optional.</small>
+                    <textarea
+                      maxLength={MAX_LIVE_EVENT_MESSAGE_PREFIX_LENGTH}
+                      rows={3}
+                      disabled={disabled}
+                      value={listener.messagePrefix ?? ""}
+                      onChange={(change) =>
+                        update(event.definition.id, (current) => {
+                          const updated = { ...current };
+                          if (change.target.value.trim() === "") {
+                            delete updated.messagePrefix;
+                          } else {
+                            updated.messagePrefix = change.target.value;
+                          }
+                          return updated;
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Prepared context
+                    <select
+                      value={preparedContext.scope}
+                      disabled={disabled}
+                      onChange={(change) =>
+                        update(event.definition.id, (current) => ({
+                          ...current,
+                          preparedContext:
+                            change.target.value === "selected-tracks"
+                              ? {
+                                  scope: "selected-tracks",
+                                  tracks: [
+                                    {
+                                      track: {
+                                        name: "Selected track",
+                                        occurrence: 0,
+                                      },
+                                    },
+                                  ],
+                                  includeSessionClips:
+                                    preparedContext.includeSessionClips,
+                                }
+                              : {
+                                  scope: "whole-session",
+                                  includeSessionClips:
+                                    preparedContext.includeSessionClips,
+                                },
+                        }))
+                      }
+                    >
+                      <option value="whole-session">
+                        Whole session (bounded)
+                      </option>
+                      <option value="selected-tracks">Selected tracks</option>
+                    </select>
+                  </label>
+                  {preparedContext.scope === "selected-tracks" && (
+                    <label>
+                      Tracks{" "}
+                      <small>
+                        One locator per line: track name, optionally #2 for a
+                        duplicate name.
+                      </small>
+                      <textarea
+                        rows={3}
+                        required
+                        disabled={disabled}
+                        value={preparedContextTrackValue(preparedContext)}
+                        onChange={(change) => {
+                          const parsed = parseTrackScope(change.target.value);
+                          const tracks = parsed.filter(
+                            (entry) => entry !== "session",
+                          );
+                          update(event.definition.id, (current) => ({
+                            ...current,
+                            preparedContext: {
+                              scope: "selected-tracks",
+                              tracks,
+                              includeSessionClips:
+                                preparedContext.includeSessionClips,
+                            },
+                          }));
+                        }}
+                      />
+                    </label>
+                  )}
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={preparedContext.includeSessionClips}
+                      disabled={disabled}
+                      onChange={(change) =>
+                        update(event.definition.id, (current) => ({
+                          ...current,
+                          preparedContext:
+                            preparedContext.scope === "selected-tracks"
+                              ? {
+                                  ...preparedContext,
+                                  includeSessionClips: change.target.checked,
+                                }
+                              : {
+                                  scope: "whole-session",
+                                  includeSessionClips: change.target.checked,
+                                },
+                        }))
+                      }
+                    />
+                    Include Session clips
+                  </label>
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+    </fieldset>
+  );
+}
+
 function ActiveAgentCard({
+  definition,
   agent,
   availableSkills,
   liveEvents,
   models,
   modelsStatus,
-  definitionSource,
   definitionUpdated,
   selected,
+  hidden,
+  creating,
   busy,
+  canPersist,
+  canCreate,
   confirmingReset,
-  onRename,
-  onConfigure,
-  onSetConversationSettings,
+  onSaveDefinition,
   onReset,
   onCancelReset,
-  onEventError,
   onSelect,
   onOpen,
+  onCreateAnother,
   onDeactivate,
 }: {
-  agent: DesktopActiveAgent;
+  definition: DesktopAgentDefinition;
+  agent?: DesktopActiveAgent | undefined;
   availableSkills: DesktopState["agentCatalog"]["skills"];
   liveEvents: readonly DesktopLiveEventState[];
   models: readonly DesktopAgentModel[];
   modelsStatus: "loading" | "loaded" | "failed";
-  definitionSource?: string | undefined;
   definitionUpdated: boolean;
   selected: boolean;
+  hidden: boolean;
+  creating: boolean;
   busy: boolean;
+  canPersist: boolean;
+  canCreate: boolean;
   confirmingReset: boolean;
-  onRename: (label: string) => Promise<DesktopActiveAgent | undefined>;
-  onConfigure: (
-    overrides: AgentOverrides,
-  ) => Promise<DesktopActiveAgent | undefined>;
-  onSetConversationSettings: (
-    settings: DesktopAgentConversationSettings,
-  ) => Promise<DesktopActiveAgent | undefined>;
-  onReset: () => Promise<void>;
-  onCancelReset: () => void;
-  onEventError: (error: unknown) => void;
-  onSelect: () => Promise<void>;
-  onOpen: () => Promise<void>;
-  onDeactivate: () => Promise<void>;
+  onSaveDefinition: (draft: CurrentAgentDefinition) => Promise<boolean>;
+  onReset?: (() => Promise<DesktopActiveAgent | undefined>) | undefined;
+  onCancelReset?: (() => void) | undefined;
+  onSelect?: (() => Promise<void>) | undefined;
+  onOpen?: (() => Promise<void>) | undefined;
+  onCreateAnother: () => Promise<void>;
+  onDeactivate?: (() => Promise<void>) | undefined;
 }): React.JSX.Element {
-  const [editing, setEditing] = useState(false);
-  const [model, setModel] = useState(agent.model ?? "");
-  const [reasoningEffort, setReasoningEffort] = useState(
-    agent.reasoningEffort ?? "",
+  const [section, setSection] = useState<AgentDetailSection>("general");
+  const initialDefinition = normalizedDefinition(definition);
+  const [draft, setDraft] = useState(initialDefinition);
+  const baselineRef = useRef(initialDefinition);
+  const loadedRevisionRef = useRef(
+    `${definition.fingerprint}:${definition.origin ?? "bundled"}`,
   );
-  const [confirmingConversationSettings, setConfirmingConversationSettings] =
-    useState(false);
-  const [label, setLabel] = useState(agent.label);
-  const [systemPrompt, setSystemPrompt] = useState(agent.config.systemPrompt);
-  const [tools, setTools] = useState(listValue(agent.config.tools));
-  const [scopeMode, setScopeMode] = useState<"session" | "tracks">(
-    agent.config.editScope.includes("session") ? "session" : "tracks",
-  );
-  const [trackScope, setTrackScope] = useState(
-    agent.config.editScope
-      .filter((entry) => entry !== "session")
-      .map((entry) => `${entry.track.name} #${entry.track.occurrence + 1}`)
-      .join("\n"),
-  );
-  const [skills, setSkills] = useState<string[]>(() => {
-    const validNames = new Set(availableSkills.map(({ name }) => name));
-    return agent.config.skills.filter((name) => validNames.has(name));
-  });
-  const [inputChannels, setInputChannels] = useState(
-    listValue(agent.config.inputChannels),
-  );
-  const availableSkillNames = availableSkills
-    .map(({ name }) => name)
+  const [definitionChanged, setDefinitionChanged] = useState(false);
+  const definitionRevision = `${definition.fingerprint}:${definition.origin ?? "bundled"}`;
+  useEffect(() => {
+    if (loadedRevisionRef.current === definitionRevision) return;
+    const nextDefinition = normalizedDefinition(definition);
+    setDraft((current) => {
+      const hasLocalChanges =
+        JSON.stringify(current) !== JSON.stringify(baselineRef.current);
+      if (hasLocalChanges) {
+        setDefinitionChanged(true);
+        return current;
+      }
+      baselineRef.current = nextDefinition;
+      loadedRevisionRef.current = definitionRevision;
+      setDefinitionChanged(false);
+      return nextDefinition;
+    });
+  }, [definitionRevision]);
+
+  const dirty = JSON.stringify(draft) !== JSON.stringify(baselineRef.current);
+  const scopeMode = draft.editScope.includes("session") ? "session" : "tracks";
+  const trackScope = draft.editScope
+    .filter((entry) => entry !== "session")
+    .map((entry) => `${entry.track.name} #${entry.track.occurrence + 1}`)
     .join("\n");
-  const listeningEvents = liveEvents.filter(
-    (event) => listenerForAgent(event, agent.id) !== undefined,
-  );
-
-  useEffect(() => {
-    const validNames = new Set(availableSkills.map(({ name }) => name));
-    setSkills(agent.config.skills.filter((name) => validNames.has(name)));
-  }, [agent.config.skills, availableSkillNames]);
-
-  useEffect(() => {
-    setModel(agent.model ?? "");
-    setReasoningEffort(agent.reasoningEffort ?? "");
-    setConfirmingConversationSettings(false);
-  }, [agent.model, agent.reasoningEffort]);
-
-  const applyConversationSettings = async (): Promise<void> => {
-    const updated = await onSetConversationSettings({
-      ...(model === "" ? {} : { model }),
-      ...(reasoningEffort === ""
-        ? {}
-        : { reasoningEffort: reasoningEffort as AgentReasoningEffort }),
-    });
-    if (updated !== undefined) {
-      setConfirmingConversationSettings(false);
-      setEditing(false);
-    }
-  };
-  const closeEditor = (): void => {
-    setModel(agent.model ?? "");
-    setReasoningEffort(agent.reasoningEffort ?? "");
-    setConfirmingConversationSettings(false);
-    setEditing(false);
-  };
-
+  const model = draft.model ?? "";
+  const reasoningEffort = draft.reasoningEffort ?? "";
+  const reasoningOptions = reasoningOptionsForModel(model, models);
+  const selectedModel = models.find(({ id }) => id === model);
+  const modelUnavailable =
+    model !== "" &&
+    (selectedModel === undefined || selectedModel.policyState !== "enabled");
+  const reasoningUnavailable =
+    reasoningEffort !== "" && !reasoningOptions.includes(reasoningEffort);
   const save = async (): Promise<void> => {
-    const normalizedLabel = label.trim();
-    if (
-      normalizedLabel !== agent.label &&
-      (await onRename(normalizedLabel)) === undefined
-    ) {
-      return;
+    if (await onSaveDefinition(draft)) {
+      baselineRef.current = draft;
+      setDefinitionChanged(false);
+      setDraft(draft);
     }
-    const configured = await onConfigure({
-      systemPrompt,
-      tools: parseList(tools),
-      editScope:
-        scopeMode === "session" ? ["session"] : parseTrackScope(trackScope),
-      skills,
-      inputChannels: parseList(inputChannels),
-    });
-    if (configured !== undefined) setEditing(false);
   };
+  const reloadLatestDefinition = (): void => {
+    const latest = normalizedDefinition(definition);
+    baselineRef.current = latest;
+    loadedRevisionRef.current = definitionRevision;
+    setDefinitionChanged(false);
+    setDraft(latest);
+  };
+  const resetActiveInstance = async (): Promise<void> => {
+    await onReset?.();
+  };
+  const panelPrefix =
+    agent === undefined
+      ? `agent-definition-${definition.name}`
+      : `active-agent-${agent.id}`;
+  const title = draft.label;
+  const active = agent !== undefined;
+  const modified =
+    dirty || definition.origin === "session" || agent?.modified === true;
 
   return (
-    <article className={`active-agent-card${selected ? " is-selected" : ""}`}>
-      <header>
+    <article
+      className={`agent-detail${active ? " active-agent-detail" : ""}${selected ? " is-selected" : ""}`}
+      hidden={hidden}
+    >
+      <header className="agent-detail-header">
         <div>
           <div className="agent-title-line">
-            <h4>{agent.label}</h4>
+            <h3>{title}</h3>
             {selected && <span className="agent-badge">Selected</span>}
-            {agent.autoApprove && (
+            {draft.autoApprove && (
               <span className="agent-badge yolo-badge">YOLO</span>
             )}
-            {agent.modified && <span className="agent-badge">Modified</span>}
+            {modified && <span className="agent-badge">Modified</span>}
           </div>
-          <p>{agent.config.description}</p>
+          <p>{draft.description}</p>
         </div>
-        <span className={`agent-lifecycle lifecycle-${agent.lifecycle}`}>
-          {agent.lifecycle}
-        </span>
-      </header>
-      <dl className="agent-metadata">
-        <dt>Definition</dt>
-        <dd>
-          {agent.definitionName} ·{" "}
-          <code title={agent.definitionFingerprint}>
-            {agent.definitionFingerprint.slice(0, 12)}
-          </code>
-          {definitionSource !== undefined && (
-            <small>
-              {definitionSource}
-              {definitionUpdated
-                ? " · newer definition available; reset to adopt it"
-                : ""}
-            </small>
+        <div className="agent-header-actions">
+          {agent !== undefined && (
+            <span className={`agent-lifecycle lifecycle-${agent.lifecycle}`}>
+              {agent.lifecycle}
+            </span>
           )}
-        </dd>
-        <dt>Model</dt>
-        <dd>{agentModelLabel(agent.model, models)}</dd>
-        <dt>Reasoning</dt>
-        <dd>{agentReasoningLabel(agent.reasoningEffort)}</dd>
-        <dt>Tools</dt>
-        <dd>
-          {agent.config.tools.join(", ")}
-          <ResolvedToolsDisclosure
-            patterns={agent.config.tools}
-            resolvedTools={agent.config.resolvedTools}
-          />
-        </dd>
-        <dt>Scope</dt>
-        <dd>{scopeLabel(agent.config.editScope)}</dd>
-        <dt>Skills</dt>
-        <dd>
-          {agent.config.skills.length > 0
-            ? agent.config.skills.join(", ")
-            : "None"}
-        </dd>
-        <dt>Inputs</dt>
-        <dd>
-          {agent.config.inputChannels.length > 0
-            ? agent.config.inputChannels.join(", ")
-            : "Prompt only"}
-        </dd>
-        <dt>Listening Events</dt>
-        <dd>
-          {listeningEvents.length === 0
-            ? "None"
-            : listeningEvents
-                .map((event) => {
-                  const listener = listenerForAgent(event, agent.id)!;
-                  const status = [
-                    listener.enabled ? undefined : "listener disabled",
-                    event.definition.enabled ? undefined : "event disabled",
-                    event.resolution.status === "resolved"
-                      ? undefined
-                      : "unresolved",
-                  ].filter(Boolean);
-                  return `${event.definition.name} · ${
-                    listener.responseMode === "automatic"
-                      ? "Automatic"
-                      : "Next prompt"
-                  }${status.length === 0 ? "" : ` (${status.join(", ")})`}`;
-                })
-                .join("; ")}
-        </dd>
-      </dl>
-      {editing && (
-        <div className="agent-editor">
-          <AgentModelEditor
-            agentLabel={agent.label}
-            currentModelId={agent.model}
-            currentReasoningEffort={agent.reasoningEffort}
-            model={model}
-            reasoningEffort={reasoningEffort}
-            models={models}
-            modelsStatus={modelsStatus}
-            busy={busy}
-            confirming={confirmingConversationSettings}
-            onModelChange={(value) => {
-              setModel(value);
-              setReasoningEffort(
-                reasoningEffortForDraftModel(value, reasoningEffort, models),
-              );
-              setConfirmingConversationSettings(false);
-            }}
-            onReasoningEffortChange={(value) => {
-              setReasoningEffort(value);
-              setConfirmingConversationSettings(false);
-            }}
-            onRequestConfirmation={() =>
-              setConfirmingConversationSettings(true)
-            }
-            onConfirm={() => void applyConversationSettings()}
-            onCancel={() => setConfirmingConversationSettings(false)}
-          />
-          <label>
-            Instance name
-            <input
-              maxLength={128}
-              required
-              value={label}
-              onChange={(event) => setLabel(event.target.value)}
-            />
-          </label>
-          <label>
-            Session prompt
-            <textarea
-              rows={6}
-              value={systemPrompt}
-              onChange={(event) => setSystemPrompt(event.target.value)}
-            />
-          </label>
-          <label>
-            Tool patterns <small>One per line; wildcards are supported.</small>
-            <textarea
-              rows={4}
-              value={tools}
-              onChange={(event) => setTools(event.target.value)}
-            />
-          </label>
-          <fieldset>
-            <legend>Edit scope</legend>
-            <label>
-              <input
-                checked={scopeMode === "session"}
-                name={`scope-${agent.id}`}
-                type="radio"
-                onChange={() => setScopeMode("session")}
-              />
-              Full session
-            </label>
-            <label>
-              <input
-                checked={scopeMode === "tracks"}
-                name={`scope-${agent.id}`}
-                type="radio"
-                onChange={() => setScopeMode("tracks")}
-              />
-              Specific tracks
-            </label>
-            {scopeMode === "tracks" && (
-              <textarea
-                aria-label="Track scope"
-                placeholder={"Drums #1\nBass #1"}
-                rows={3}
-                value={trackScope}
-                onChange={(event) => setTrackScope(event.target.value)}
-              />
-            )}
-          </fieldset>
-          <fieldset>
-            <legend>Skills</legend>
-            {availableSkills.length === 0 ? (
-              <small>No valid skills are available in the catalog.</small>
-            ) : (
-              availableSkills.map((skill) => (
-                <label key={skill.name}>
-                  <input
-                    type="checkbox"
-                    checked={skills.includes(skill.name)}
-                    onChange={(event) =>
-                      setSkills((selected) =>
-                        event.target.checked
-                          ? [...selected, skill.name]
-                          : selected.filter((name) => name !== skill.name),
-                      )
-                    }
-                  />
-                  <span>
-                    /{skill.name}
-                    <small>{skill.description}</small>
-                  </span>
-                </label>
-              ))
-            )}
-          </fieldset>
-          <ListeningEventsEditor
-            agentInstanceId={agent.id}
-            events={liveEvents}
-            busy={busy}
-            onError={onEventError}
-          />
-          <label>
-            Input channels <small>One per line.</small>
-            <textarea
-              rows={3}
-              value={inputChannels}
-              onChange={(event) => setInputChannels(event.target.value)}
-            />
-          </label>
-          <div className="agent-actions">
-            <button
-              disabled={
-                busy ||
-                label.trim() === "" ||
-                systemPrompt.trim() === "" ||
-                parseList(tools).length === 0
-              }
-              onClick={() => void save()}
-            >
-              {busy ? "Saving…" : "Save overrides"}
+          {agent !== undefined && !selected && (
+            <button disabled={busy} onClick={() => void onSelect?.()}>
+              Select
             </button>
-            <button disabled={busy} onClick={closeEditor}>
-              Cancel
+          )}
+          {agent !== undefined && (
+            <button disabled={busy} onClick={() => void onOpen?.()}>
+              Open
+            </button>
+          )}
+          <button
+            disabled={busy || creating || !canCreate}
+            onClick={() => void onCreateAnother()}
+          >
+            {creating
+              ? "Creating…"
+              : agent === undefined
+                ? "Create agent"
+                : "Create another"}
+          </button>
+        </div>
+      </header>
+      <AgentDetailTabs
+        section={section}
+        panelIdPrefix={panelPrefix}
+        onChange={setSection}
+      />
+      <div
+        id={`${panelPrefix}-${section}`}
+        className="agent-detail-content"
+        role="tabpanel"
+        aria-label={agentDetailSectionLabel(section)}
+      >
+        {definitionChanged && (
+          <div className="notice" role="alert">
+            <span>
+              This definition changed outside the editor. Reload it before
+              saving.
+            </span>
+            <button disabled={busy} onClick={reloadLatestDefinition}>
+              Reload latest definition
             </button>
           </div>
-        </div>
-      )}
-      <div className="agent-actions">
-        {!selected && (
-          <button disabled={busy} onClick={() => void onSelect()}>
-            Select
-          </button>
         )}
-        <button disabled={busy} onClick={() => void onOpen()}>
-          Open
-        </button>
-        <button
-          disabled={busy}
-          onClick={() => (editing ? closeEditor() : setEditing(true))}
-        >
-          {editing ? "Close editor" : "Edit overrides"}
-        </button>
-        {confirmingReset ? (
-          <>
-            <button
-              className="danger-button"
+        {section === "general" && (
+          <div className="agent-editor-section">
+            <dl className="agent-metadata">
+              <dt>Definition</dt>
+              <dd>
+                {definition.name} ·{" "}
+                <code title={definition.fingerprint}>
+                  {definition.fingerprint.slice(0, 12)}
+                </code>
+                <small>
+                  {definition.origin ?? "bundled"} · {definition.sourceFile}
+                  {definitionUpdated
+                    ? " · newer definition available; reset to adopt it"
+                    : ""}
+                </small>
+              </dd>
+              <dt>Runtime</dt>
+              <dd>
+                {active
+                  ? "Active conversation using a definition snapshot"
+                  : "Available to create in this production session"}
+              </dd>
+            </dl>
+            <label>
+              Display name
+              <input
+                aria-label={`Display name for ${title}`}
+                maxLength={128}
+                required
+                value={draft.label}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    label: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              Description
+              <textarea
+                aria-label={`Description for ${title}`}
+                maxLength={512}
+                rows={3}
+                required
+                value={draft.description}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    description: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <fieldset>
+              <legend>Conversation defaults</legend>
+              <label>
+                Model
+                <select
+                  aria-label={`Model for ${title}`}
+                  disabled={busy || modelsStatus === "loading"}
+                  value={model}
+                  onChange={(event) => {
+                    const nextModel = event.target.value;
+                    setDraft((current) => ({
+                      ...current,
+                      model: nextModel === "" ? null : nextModel,
+                      reasoningEffort:
+                        reasoningEffortForDraftModel(
+                          nextModel,
+                          current.reasoningEffort ?? "",
+                          models,
+                        ) === ""
+                          ? null
+                          : current.reasoningEffort,
+                    }));
+                  }}
+                >
+                  <option value="">SDK default</option>
+                  {modelUnavailable && (
+                    <option disabled value={model}>
+                      {model} (unavailable)
+                    </option>
+                  )}
+                  {models
+                    .filter(({ policyState }) => policyState === "enabled")
+                    .map((availableModel) => (
+                      <option key={availableModel.id} value={availableModel.id}>
+                        {availableModel.displayName} ({availableModel.id})
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label>
+                Reasoning
+                <select
+                  aria-label={`Reasoning for ${title}`}
+                  disabled={
+                    busy ||
+                    modelsStatus === "loading" ||
+                    (reasoningOptions.length === 0 && !reasoningUnavailable)
+                  }
+                  value={reasoningEffort}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      reasoningEffort:
+                        event.target.value === ""
+                          ? null
+                          : (event.target.value as AgentReasoningEffort),
+                    }))
+                  }
+                >
+                  <option value="">Model default</option>
+                  {reasoningUnavailable && (
+                    <option disabled value={reasoningEffort}>
+                      {reasoningEffort} (unavailable)
+                    </option>
+                  )}
+                  {reasoningOptions.map((effort) => (
+                    <option key={effort} value={effort}>
+                      {effort}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={draft.autoApprove}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      autoApprove: event.target.checked,
+                    }))
+                  }
+                />
+                Automatically approve eligible tool requests
+              </label>
+              <small>
+                Changes become the Session definition default. Active
+                conversations adopt them only after Reset.
+              </small>
+            </fieldset>
+          </div>
+        )}
+        {section === "capabilities" && (
+          <div className="agent-editor-section agent-capabilities-editor">
+            <label className="agent-prompt-editor">
+              System prompt
+              <textarea
+                aria-label={`Session prompt for ${title}`}
+                rows={12}
+                value={draft.systemPrompt}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    systemPrompt: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              Tool patterns{" "}
+              <small>One per line; wildcards are supported.</small>
+              <textarea
+                aria-label={`Tool patterns for ${title}`}
+                rows={6}
+                value={listValue(draft.tools)}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    tools: parseList(event.target.value),
+                  }))
+                }
+              />
+              <ResolvedToolsDisclosure
+                patterns={draft.tools}
+                resolvedTools={definition.resolvedTools}
+              />
+            </label>
+            <fieldset>
+              <legend>Edit scope</legend>
+              <label>
+                <input
+                  checked={scopeMode === "session"}
+                  name={`scope-${panelPrefix}`}
+                  type="radio"
+                  onChange={() =>
+                    setDraft((current) => ({
+                      ...current,
+                      editScope: ["session"],
+                    }))
+                  }
+                />
+                Full session
+              </label>
+              <label>
+                <input
+                  checked={scopeMode === "tracks"}
+                  name={`scope-${panelPrefix}`}
+                  type="radio"
+                  onChange={() =>
+                    setDraft((current) => ({
+                      ...current,
+                      editScope: [
+                        { track: { name: "Selected track", occurrence: 0 } },
+                      ],
+                    }))
+                  }
+                />
+                Specific tracks
+              </label>
+              {scopeMode === "tracks" && (
+                <textarea
+                  aria-label={`Track scope for ${title}`}
+                  placeholder={"Drums #1\nBass #1"}
+                  rows={4}
+                  value={trackScope}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      editScope: parseTrackScope(event.target.value),
+                    }))
+                  }
+                />
+              )}
+            </fieldset>
+            <fieldset>
+              <legend>Skills</legend>
+              {availableSkills.length === 0 ? (
+                <small>No valid skills are available in the catalog.</small>
+              ) : (
+                availableSkills.map((skill) => (
+                  <label key={skill.name}>
+                    <input
+                      type="checkbox"
+                      checked={draft.skills.includes(skill.name)}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          skills: event.target.checked
+                            ? [...current.skills, skill.name]
+                            : current.skills.filter(
+                                (name) => name !== skill.name,
+                              ),
+                        }))
+                      }
+                    />
+                    <span>
+                      /{skill.name}
+                      <small>{skill.description}</small>
+                    </span>
+                  </label>
+                ))
+              )}
+            </fieldset>
+          </div>
+        )}
+        {section === "connections" && (
+          <div className="agent-editor-section agent-connections-editor">
+            <label>
+              Input channels <small>One per line.</small>
+              <textarea
+                aria-label={`Input channels for ${title}`}
+                rows={4}
+                value={listValue(draft.inputChannels)}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    inputChannels: parseList(event.target.value),
+                  }))
+                }
+              />
+            </label>
+            <DefinitionListeningEventsEditor
+              events={liveEvents}
+              listeners={draft.eventListeners}
               disabled={busy}
-              onClick={() => void onReset()}
-            >
-              Confirm reset
+              onChange={(eventListeners) =>
+                setDraft((current) => ({ ...current, eventListeners }))
+              }
+            />
+          </div>
+        )}
+      </div>
+      <footer className="agent-detail-actions">
+        <button
+          disabled={
+            busy ||
+            !canPersist ||
+            definitionChanged ||
+            !dirty ||
+            draft.label.trim() === "" ||
+            draft.description.trim() === "" ||
+            draft.systemPrompt.trim() === "" ||
+            draft.tools.length === 0 ||
+            (scopeMode === "tracks" &&
+              draft.editScope.filter((entry) => entry !== "session").length ===
+                0)
+          }
+          onClick={() => void save()}
+        >
+          {busy ? "Saving…" : "Save Session definition"}
+        </button>
+        <button disabled={busy || !dirty} onClick={reloadLatestDefinition}>
+          Discard changes
+        </button>
+        {agent !== undefined &&
+          (confirmingReset ? (
+            <>
+              <button
+                className="danger-button"
+                disabled={busy}
+                onClick={() => void resetActiveInstance()}
+              >
+                Confirm reset
+              </button>
+              <button disabled={busy} onClick={onCancelReset}>
+                Keep current conversation
+              </button>
+            </>
+          ) : (
+            <button disabled={busy} onClick={() => void resetActiveInstance()}>
+              Reset to current definition
             </button>
-            <button disabled={busy} onClick={onCancelReset}>
-              Keep overrides
-            </button>
-          </>
-        ) : (
-          <button disabled={busy} onClick={() => void onReset()}>
-            Reset to current definition
+          ))}
+        {agent !== undefined && (
+          <button
+            className="danger-button"
+            disabled={busy}
+            onClick={() => void onDeactivate?.()}
+          >
+            Deactivate
           </button>
         )}
-        <button
-          className="danger-button"
-          disabled={busy}
-          onClick={() => void onDeactivate()}
-        >
-          Deactivate
-        </button>
-      </div>
+      </footer>
     </article>
   );
 }
@@ -4584,7 +5814,7 @@ export async function refreshProjectSnapshot(
     const snapshot = await requestSnapshot();
     dispatch({
       type: "event",
-      event: { type: "project.snapshot_changed", snapshot },
+      event: { type: "live_set.snapshot_changed", snapshot },
     });
     dispatch({ type: "project-refresh-succeeded" });
   } catch (error) {
@@ -4625,9 +5855,9 @@ export function ProjectOutline({
           : "Refresh";
   const refreshStatus =
     state.projectRefresh.status === "refreshing"
-      ? "Refreshing project snapshot."
+      ? "Refreshing Live Set snapshot."
       : state.projectRefresh.status === "succeeded"
-        ? "Project snapshot updated."
+        ? "Live Set snapshot updated."
         : state.projectRefresh.status === "failed"
           ? state.projectRefresh.message
           : undefined;
@@ -4638,11 +5868,25 @@ export function ProjectOutline({
       className="project-outline"
       aria-label="Project outline"
     >
-      <div className="panel-heading">
-        <h2>Project</h2>
-        <div className="project-refresh">
+      <div className="project-context-toggle">
+        <div className="project-context-controls">
+          <label>
+            <input
+              type="checkbox"
+              role="switch"
+              checked={state.projectSelectionContextEnabled}
+              onChange={(event) =>
+                dispatch({
+                  type: "project-selection-context",
+                  enabled: event.target.checked,
+                })
+              }
+            />
+            Use project selection as context
+          </label>
           <button
-            aria-label={`${refreshLabel} project snapshot`}
+            className="project-refresh-button"
+            aria-label={`${refreshLabel} Live Set snapshot`}
             aria-describedby={
               refreshStatus === undefined ? undefined : "project-refresh-status"
             }
@@ -4655,43 +5899,25 @@ export function ProjectOutline({
           >
             {refreshLabel}
           </button>
-          {refreshStatus !== undefined && (
-            <span
-              id="project-refresh-status"
-              className={
-                state.projectRefresh.status === "failed"
-                  ? "status status-error"
-                  : "status"
-              }
-              role={
-                state.projectRefresh.status === "failed" ? "alert" : "status"
-              }
-            >
-              {refreshStatus}
-            </span>
-          )}
         </div>
-      </div>
-      <div className="project-context-toggle">
-        <label>
-          <input
-            type="checkbox"
-            role="switch"
-            checked={state.projectSelectionContextEnabled}
-            onChange={(event) =>
-              dispatch({
-                type: "project-selection-context",
-                enabled: event.target.checked,
-              })
-            }
-          />
-          Use project selection as context
-        </label>
         <small>
           {state.projectSelectionContextEnabled
             ? "Selected tracks, clips, and devices are included in prompts."
             : "Selections only control the Project and Inspector views."}
         </small>
+        {refreshStatus !== undefined && (
+          <span
+            id="project-refresh-status"
+            className={
+              state.projectRefresh.status === "failed"
+                ? "status status-error"
+                : "status"
+            }
+            role={state.projectRefresh.status === "failed" ? "alert" : "status"}
+          >
+            {refreshStatus}
+          </span>
+        )}
       </div>
       {!state.snapshot ? (
         <EmptyState
@@ -4820,12 +6046,15 @@ export function Timeline({
           <article
             key={`message-${item.id}`}
             className={`message ${item.role}`}
-            data-agent-mode={item.agentMode}
+            data-agent-mode={item.agentMode ?? "interactive"}
           >
             <span className="sr-only">
               {item.role === "user" ? "You" : "Assistant"}:
             </span>
-            {item.streaming && (
+            {item.working !== undefined && (
+              <WorkingDisclosure working={item.working} />
+            )}
+            {item.streaming && item.working === undefined && (
               <span className="streaming-status" role="status">
                 Streaming…
               </span>
@@ -4848,6 +6077,56 @@ export function Timeline({
         ),
       )}
     </div>
+  );
+}
+
+export function WorkingDisclosure({
+  working,
+}: {
+  working: WorkingView;
+}): React.JSX.Element {
+  const running = working.status === "running";
+  const [expanded, setExpanded] = useState(running);
+  const previousStatus = useRef(working.status);
+  useEffect(() => {
+    if (running) {
+      setExpanded(true);
+    } else if (previousStatus.current === "running") {
+      setExpanded(false);
+    }
+    previousStatus.current = working.status;
+  }, [running, working.status]);
+  const statusLabel = {
+    running: "Working",
+    completed: "Completed",
+    failed: "Failed",
+    cancelled: "Cancelled",
+  }[working.status];
+  const fallback = working.responseStarted
+    ? "Receiving response..."
+    : "Preparing the next step...";
+  return (
+    <details
+      className={`working-disclosure working-${working.status}`}
+      open={running || expanded}
+      onToggle={(event) => {
+        if (!running) setExpanded(event.currentTarget.open);
+      }}
+    >
+      <summary>
+        <span className="working-indicator" aria-hidden="true" />
+        <span>{working.intent ?? "Working"}</span>
+        <small role="status">{statusLabel}</small>
+      </summary>
+      <div className="working-details">
+        {working.summary ? (
+          <AssistantMarkdown content={working.summary} />
+        ) : (
+          <p>{fallback}</p>
+        )}
+        {working.detail && <p className="warning">{working.detail}</p>}
+      </div>
+    </details>
   );
 }
 
@@ -5016,9 +6295,13 @@ function ActivityIcon({
 export function Inspector({
   state,
   dispatch,
+  onEditPlan,
+  hidden = false,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+  onEditPlan?: (() => void) | undefined;
+  hidden?: boolean;
 }): React.JSX.Element {
   const track = state.snapshot?.tracks.find(
     (candidate) => candidate.id === state.selectedTrackId,
@@ -5029,152 +6312,434 @@ export function Inspector({
   const device = track?.devices.find(
     (candidate) => candidate.id === state.selectedDeviceId,
   );
-  return (
-    <aside
-      id="inspector-sidebar"
-      className="inspector"
-      aria-label="Selection inspector"
-    >
-      <div className="panel-heading">
-        <h2>Inspector</h2>
-        <span>
-          {device ? "Device" : clip ? "Clip" : track ? "Track" : "Selection"}
-        </span>
-      </div>
-      {!track ? (
-        <EmptyState
-          title="Nothing selected"
-          detail="Choose a track, clip, device, or plan section."
-        />
-      ) : device ? (
+  const workspace = selectedAgentWorkspace(state);
+  const available = useMemo<InspectorModuleId[]>(() => {
+    const modules: InspectorModuleId[] = [];
+    if (track !== undefined) modules.push("selection");
+    if (workspace.planArtifact?.exists === true) modules.push("plan");
+    if (workspace.approval !== undefined) modules.push("approval");
+    return modules;
+  }, [track, workspace.approval, workspace.planArtifact]);
+  const [layout, updateLayout] = useReducer(
+    inspectorLayoutReducer,
+    available,
+    createInspectorLayout,
+  );
+  const [addMenuPaneId, setAddMenuPaneId] = useState<string>();
+  const [draggingModule, setDraggingModule] = useState<InspectorModuleId>();
+  const dividerDrag = useRef<
+    | {
+        pointerId: number;
+        dividerIndex: number;
+        previousClientY: number;
+        height: number;
+      }
+    | undefined
+  >(undefined);
+
+  useEffect(() => {
+    updateLayout({ type: "reconcile", available });
+  }, [available]);
+
+  const openModules = openInspectorModules(layout);
+  const addableModules = available.filter(
+    (moduleId) => !openModules.includes(moduleId),
+  );
+  const moduleContent = (
+    moduleId: InspectorModuleId,
+  ): React.JSX.Element | null => {
+    if (moduleId === "selection" && track !== undefined) {
+      return device ? (
         <DeviceInspector device={device} track={track} dispatch={dispatch} />
       ) : clip ? (
         <ClipInspector clip={clip} track={track} dispatch={dispatch} />
       ) : (
         <TrackInspector track={track} dispatch={dispatch} />
+      );
+    }
+    if (moduleId === "plan") {
+      return (
+        <PlanArtifactPreview state={state} onEditPlan={onEditPlan} embedded />
+      );
+    }
+    if (moduleId === "approval") {
+      return <ApprovalPanel state={state} dispatch={dispatch} embedded />;
+    }
+    return null;
+  };
+  const handleTabDragStart = (
+    event: ReactDragEvent<HTMLElement>,
+    moduleId: InspectorModuleId,
+  ): void => {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/inspector-module", moduleId);
+    event.currentTarget.closest(".inspector-panes")?.classList.add("dragging");
+    setDraggingModule(moduleId);
+  };
+  const draggedModule = (
+    event: ReactDragEvent<HTMLElement>,
+  ): InspectorModuleId | undefined => {
+    const moduleId = event.dataTransfer.getData("text/inspector-module");
+    return moduleId === "selection" ||
+      moduleId === "plan" ||
+      moduleId === "approval"
+      ? moduleId
+      : undefined;
+  };
+  const startDividerResize = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    dividerIndex: number,
+  ): void => {
+    const container = event.currentTarget.parentElement?.parentElement;
+    if (container === null || container === undefined) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    dividerDrag.current = {
+      pointerId: event.pointerId,
+      dividerIndex,
+      previousClientY: event.clientY,
+      height: Math.max(container.getBoundingClientRect().height, 1),
+    };
+  };
+  const moveDivider = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const active = dividerDrag.current;
+    if (active === undefined || active.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const delta = (event.clientY - active.previousClientY) / active.height;
+    active.previousClientY = event.clientY;
+    updateLayout({
+      type: "resize",
+      dividerIndex: active.dividerIndex,
+      delta,
+      minimumWeight: Math.min(0.45, 120 / active.height),
+    });
+  };
+  const endDividerResize = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (dividerDrag.current?.pointerId !== event.pointerId) return;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    dividerDrag.current = undefined;
+  };
+  return (
+    <aside
+      id="inspector-sidebar"
+      className="inspector inspector-workspace"
+      aria-label="Inspector workspace"
+      hidden={hidden}
+    >
+      {layout.panes.length === 0 ? (
+        <div className="inspector-empty">
+          <EmptyState
+            title="Nothing to inspect"
+            detail="Select a project item or wait for a plan or approval."
+          />
+          {addableModules.length > 0 && (
+            <InspectorAddMenu
+              modules={addableModules}
+              open={addMenuPaneId === "empty"}
+              onToggle={() =>
+                setAddMenuPaneId((current) =>
+                  current === "empty" ? undefined : "empty",
+                )
+              }
+              onAdd={(moduleId) => {
+                updateLayout({ type: "add", moduleId });
+                setAddMenuPaneId(undefined);
+              }}
+            />
+          )}
+        </div>
+      ) : (
+        <div
+          className={`inspector-panes ${draggingModule === undefined ? "" : "dragging"}`}
+        >
+          {layout.panes.map((pane, paneIndex) => (
+            <div
+              className="inspector-pane-group"
+              key={pane.id}
+              style={{ flexGrow: pane.weight }}
+            >
+              <section
+                className="inspector-pane"
+                aria-label={`${inspectorModuleLabel(pane.activeTab)} inspector`}
+                onPointerDown={() =>
+                  updateLayout({ type: "focus", paneId: pane.id })
+                }
+              >
+                <div
+                  className="inspector-tablist"
+                  role="tablist"
+                  aria-label="Inspector views"
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const moduleId = draggedModule(event);
+                    if (moduleId !== undefined) {
+                      updateLayout({
+                        type: "move",
+                        moduleId,
+                        paneId: pane.id,
+                      });
+                    }
+                  }}
+                >
+                  {pane.tabs.map((moduleId, tabIndex) => (
+                    <div className="inspector-tab-item" key={moduleId}>
+                      <button
+                        type="button"
+                        className={`inspector-tab ${pane.activeTab === moduleId ? "active" : ""}`}
+                        role="tab"
+                        aria-selected={pane.activeTab === moduleId}
+                        aria-controls={`${pane.id}-${moduleId}-panel`}
+                        aria-label={inspectorModuleLabel(moduleId)}
+                        title={inspectorModuleLabel(moduleId)}
+                        draggable
+                        onDragStart={(event) =>
+                          handleTabDragStart(event, moduleId)
+                        }
+                        onDragEnd={(event) => {
+                          event.currentTarget
+                            .closest(".inspector-panes")
+                            ?.classList.remove("dragging");
+                          setDraggingModule(undefined);
+                        }}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          const dragged = draggedModule(event);
+                          if (dragged !== undefined) {
+                            updateLayout({
+                              type: "move",
+                              moduleId: dragged,
+                              paneId: pane.id,
+                              index: tabIndex,
+                            });
+                          }
+                        }}
+                        onClick={() =>
+                          updateLayout({
+                            type: "activate",
+                            paneId: pane.id,
+                            moduleId,
+                          })
+                        }
+                      >
+                        <InspectorModuleIcon moduleId={moduleId} />
+                      </button>
+                      <button
+                        type="button"
+                        className="inspector-tab-close"
+                        aria-label={`Close ${inspectorModuleLabel(moduleId)}`}
+                        title={`Close ${inspectorModuleLabel(moduleId)}`}
+                        onClick={() =>
+                          updateLayout({ type: "close", moduleId })
+                        }
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  {addableModules.length > 0 && (
+                    <InspectorAddMenu
+                      modules={addableModules}
+                      open={addMenuPaneId === pane.id}
+                      onToggle={() =>
+                        setAddMenuPaneId((current) =>
+                          current === pane.id ? undefined : pane.id,
+                        )
+                      }
+                      onAdd={(moduleId) => {
+                        updateLayout({
+                          type: "add",
+                          moduleId,
+                          paneId: pane.id,
+                        });
+                        setAddMenuPaneId(undefined);
+                      }}
+                    />
+                  )}
+                </div>
+                <div
+                  className="inspector-split-drop inspector-split-drop-before"
+                  aria-hidden="true"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const moduleId = draggedModule(event);
+                    if (moduleId !== undefined) {
+                      updateLayout({
+                        type: "split",
+                        moduleId,
+                        paneId: pane.id,
+                        edge: "before",
+                      });
+                    }
+                  }}
+                />
+                <div
+                  id={`${pane.id}-${pane.activeTab}-panel`}
+                  className="inspector-pane-content"
+                  role="tabpanel"
+                >
+                  {moduleContent(pane.activeTab)}
+                </div>
+                <div
+                  className="inspector-split-drop inspector-split-drop-after"
+                  aria-hidden="true"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const moduleId = draggedModule(event);
+                    if (moduleId !== undefined) {
+                      updateLayout({
+                        type: "split",
+                        moduleId,
+                        paneId: pane.id,
+                        edge: "after",
+                      });
+                    }
+                  }}
+                />
+              </section>
+              {paneIndex < layout.panes.length - 1 && (
+                <div
+                  className="inspector-pane-divider"
+                  role="separator"
+                  aria-orientation="horizontal"
+                  aria-label={`Resize ${inspectorModuleLabel(pane.activeTab)} inspector`}
+                  onPointerDown={(event) =>
+                    startDividerResize(event, paneIndex)
+                  }
+                  onPointerMove={moveDivider}
+                  onPointerUp={endDividerResize}
+                  onPointerCancel={endDividerResize}
+                />
+              )}
+            </div>
+          ))}
+        </div>
       )}
-      <PlanApprovalPanel state={state} />
-      <ApprovalPanel state={state} dispatch={dispatch} />
     </aside>
   );
 }
 
-export function PlanApprovalPanel({
+function inspectorModuleLabel(moduleId: InspectorModuleId): string {
+  if (moduleId === "selection") return "Selection";
+  if (moduleId === "plan") return "Plan";
+  return "Approval";
+}
+
+function InspectorModuleIcon({
+  moduleId,
+}: {
+  moduleId: InspectorModuleId;
+}): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 18 18" aria-hidden="true">
+      {moduleId === "selection" ? (
+        <>
+          <circle cx="9" cy="9" r="5" />
+          <circle cx="9" cy="9" r="1.5" />
+        </>
+      ) : moduleId === "plan" ? (
+        <>
+          <path d="M5 4h9M5 9h9M5 14h9" />
+          <path d="m2.5 4 .7.7 1.3-1.4M2.5 9l.7.7 1.3-1.4M2.5 14l.7.7 1.3-1.4" />
+        </>
+      ) : (
+        <>
+          <path d="M9 2.5 14 4v4.2c0 3-2 5.7-5 7.3-3-1.6-5-4.3-5-7.3V4l5-1.5Z" />
+          <path d="m6.5 8.8 1.6 1.6 3.4-3.4" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function InspectorAddMenu({
+  modules,
+  open,
+  onToggle,
+  onAdd,
+}: {
+  modules: readonly InspectorModuleId[];
+  open: boolean;
+  onToggle: () => void;
+  onAdd: (moduleId: InspectorModuleId) => void;
+}): React.JSX.Element {
+  return (
+    <div className="inspector-add">
+      <button
+        type="button"
+        className="inspector-add-button"
+        aria-label="Add inspector view"
+        aria-expanded={open}
+        title="Add inspector view"
+        onClick={onToggle}
+      >
+        +
+      </button>
+      {open && (
+        <div className="inspector-add-menu" role="menu">
+          {modules.map((moduleId) => (
+            <button
+              type="button"
+              role="menuitem"
+              key={moduleId}
+              onClick={() => onAdd(moduleId)}
+            >
+              <InspectorModuleIcon moduleId={moduleId} />
+              {inspectorModuleLabel(moduleId)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function PlanArtifactPreview({
   state,
+  onEditPlan,
+  embedded = false,
 }: {
   state: DesktopState;
-}): React.JSX.Element | null {
+  onEditPlan?: (() => void) | undefined;
+  embedded?: boolean;
+}): React.JSX.Element {
   const agent = selectedAgentInstance(state);
-  const request = selectedAgentWorkspace(state).planApproval;
-  const [feedback, setFeedback] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const submittingRef = useRef(false);
-
-  useEffect(() => {
-    setFeedback("");
-    setError("");
-    setSubmitting(false);
-    submittingRef.current = false;
-  }, [request?.requestId]);
-
-  if (agent === undefined || request === undefined) return null;
-
-  const resolve = async (response: {
-    approved: boolean;
-    selectedAction?: "exit_only" | "interactive";
-    feedback?: string;
-  }): Promise<void> => {
-    if (submittingRef.current) return;
-    submittingRef.current = true;
-    setSubmitting(true);
-    setError("");
-    try {
-      const resolved = await window.desktop.agents.resolvePlan(agent.id, {
-        requestId: request.requestId,
-        ...response,
-      });
-      if (!resolved) {
-        throw new Error("This plan request is no longer pending.");
-      }
-    } catch (resolveError) {
-      setError(
-        resolveError instanceof Error
-          ? resolveError.message
-          : "The plan response could not be submitted.",
-      );
-    } finally {
-      submittingRef.current = false;
-      setSubmitting(false);
-    }
-  };
+  const artifact = selectedAgentWorkspace(state).planArtifact;
 
   return (
-    <section className="plan-approval-panel" aria-label="Plan approval">
+    <section
+      className={`plan-artifact-preview ${embedded ? "embedded" : ""}`}
+      aria-label="Session plan"
+    >
       <div className="plan-approval-heading">
-        <h3>Plan ready</h3>
-        <span className="agent-mode-badge plan">plan</span>
+        {!embedded && <h3>Plan</h3>}
+        {agent !== undefined && onEditPlan !== undefined && (
+          <button type="button" onClick={onEditPlan}>
+            Edit Markdown
+          </button>
+        )}
       </div>
-      {request.summary && (
-        <p className="plan-approval-summary">{request.summary}</p>
+      {artifact?.exists ? (
+        <>
+          <div className="plan-approval-content">
+            <AssistantMarkdown
+              content={formatPlanMarkdownForDisplay(artifact.content)}
+            />
+          </div>
+          <small>Updated {new Date(artifact.updatedAt).toLocaleString()}</small>
+        </>
+      ) : (
+        <p className="muted">
+          No plan.md has been created for this production session.
+        </p>
       )}
-      <div className="plan-approval-content">
-        <AssistantMarkdown
-          content={formatPlanMarkdownForDisplay(request.planContent)}
-        />
-      </div>
-      <label>
-        Request changes
-        <textarea
-          rows={3}
-          maxLength={8_192}
-          value={feedback}
-          disabled={submitting}
-          onChange={(event) => setFeedback(event.target.value)}
-          placeholder="Describe what the plan should change…"
-        />
-      </label>
-      {error && <p className="composer-error">{error}</p>}
-      <div className="approval-actions">
-        {request.actions.includes("interactive") && (
-          <button
-            className="primary"
-            disabled={submitting}
-            onClick={() =>
-              void resolve({
-                approved: true,
-                selectedAction: "interactive",
-              })
-            }
-          >
-            Approve and continue
-          </button>
-        )}
-        <button
-          disabled={submitting || feedback.trim().length === 0}
-          onClick={() =>
-            void resolve({
-              approved: false,
-              feedback: feedback.trim(),
-            })
-          }
-        >
-          Request changes
-        </button>
-        {request.actions.includes("exit_only") && (
-          <button
-            disabled={submitting}
-            onClick={() =>
-              void resolve({
-                approved: true,
-                selectedAction: "exit_only",
-              })
-            }
-          >
-            Exit plan mode
-          </button>
-        )}
-      </div>
     </section>
   );
 }
@@ -5304,9 +6869,11 @@ function Meter({
 export function ApprovalPanel({
   state,
   dispatch,
+  embedded = false,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+  embedded?: boolean;
 }): React.JSX.Element {
   const approval = selectedAgentWorkspace(state).approval;
   const approvalAgentInstanceId = selectedAgentInstance(state)?.id;
@@ -5322,10 +6889,10 @@ export function ApprovalPanel({
   };
   return (
     <section
-      className="approval-panel"
+      className={`approval-panel ${embedded ? "embedded" : ""}`}
       aria-label="Approval and change preview"
     >
-      <h3>Approval</h3>
+      {!embedded && <h3>Approval</h3>}
       {!approval ? (
         <p className="muted">No change is waiting for approval.</p>
       ) : (
@@ -5344,7 +6911,11 @@ export function ApprovalPanel({
             <p className="warning">This contains destructive changes.</p>
           )}
           <div className="approval-actions">
-            <button className="primary" onClick={() => void decide("approve")}>
+            <button
+              className="primary"
+              data-workspace-interaction-focus
+              onClick={() => void decide("approve")}
+            >
               Approve
             </button>
             <button onClick={() => void decide("deny")}>Deny</button>
@@ -5570,14 +7141,28 @@ export function DiagnosticsView({
         </div>
       </div>
       {report && (
-        <div className="diagnostics-log">
-          <strong>Active logging level: {report.logging.level}</strong>
-          {report.logging.environmentOverride && (
-            <span>Controlled by ABLETON_AGENT_LOG_LEVEL</span>
-          )}
-          <span>{report.logging.fileName}</span>
-          <code title={report.logging.filePath}>{report.logging.filePath}</code>
-        </div>
+        <>
+          <div className="diagnostics-log">
+            <strong>Local storage profile: {report.storage.profile}</strong>
+            <span>
+              Storage version {report.storage.version}; migration{" "}
+              {report.storage.migrationStatus}
+            </span>
+            <code title={report.storage.profileRoot}>
+              {report.storage.profileRoot}
+            </code>
+          </div>
+          <div className="diagnostics-log">
+            <strong>Active logging level: {report.logging.level}</strong>
+            {report.logging.environmentOverride && (
+              <span>Controlled by ABLETON_AGENT_LOG_LEVEL</span>
+            )}
+            <span>{report.logging.fileName}</span>
+            <code title={report.logging.filePath}>
+              {report.logging.filePath}
+            </code>
+          </div>
+        </>
       )}
       <p className="diagnostics-action-status" aria-live="polite">
         {actionStatus}
@@ -5628,13 +7213,10 @@ function SessionsView({ state }: { state: DesktopState }): React.JSX.Element {
               <div>
                 <h2>{session.title}</h2>
                 <p>
-                  {session.projectName} ·{" "}
+                  {session.liveSetName} ·{" "}
                   {new Date(session.updatedAt).toLocaleString()}
                 </p>
                 {session.id === currentSession?.id && <strong>Current</strong>}
-                {session.projectId === undefined && (
-                  <span className="muted"> Ephemeral</span>
-                )}
               </div>
               <button
                 disabled={session.id === currentSession?.id}
@@ -5726,6 +7308,51 @@ export function SettingsView({
             remain enforced.
           </span>
         </div>
+        <fieldset className="agent-settings">
+          <legend>Agent runtime</legend>
+          <label>
+            Active-work timeout (minutes)
+            <input
+              type="number"
+              min="1"
+              max="120"
+              step="1"
+              value={draft.agentTurnTimeoutMinutes}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  agentTurnTimeoutMinutes: Number(event.target.value),
+                })
+              }
+            />
+          </label>
+          <small>
+            Limits cumulative model and tool work for one request. Time waiting
+            for questions, approvals, or plan review does not count.
+          </small>
+          <label>
+            Agent reasoning visibility
+            <select
+              value={draft.agentReasoningVisibility}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  agentReasoningVisibility: event.target
+                    .value as typeof draft.agentReasoningVisibility,
+                })
+              }
+            >
+              <option value="none">Off</option>
+              <option value="concise">Concise</option>
+              <option value="detailed">Detailed</option>
+            </select>
+          </label>
+          <small>
+            Shows model-provided reasoning summaries when supported. Changes
+            apply before each agent&apos;s next turn without clearing its
+            conversation.
+          </small>
+        </fieldset>
         {draft.approvalPolicy === "approve-all" && (
           <div className="approval-policy-warning" role="alert">
             <strong>
@@ -5899,6 +7526,8 @@ export function DesktopComposer({
   error,
   onValueChange,
   onErrorChange,
+  planEditorOpen,
+  onPlanEditorClose,
 }: {
   state: DesktopState;
   composerRef: React.RefObject<HTMLTextAreaElement | null>;
@@ -5907,12 +7536,43 @@ export function DesktopComposer({
   error: string;
   onValueChange: (value: string) => void;
   onErrorChange: (error: string) => void;
+  planEditorOpen?: boolean;
+  onPlanEditorClose?: (() => void) | undefined;
 }): React.JSX.Element {
   const selectedInstanceId = selectedAgentInstance(state)?.id;
+  const workspace = selectedAgentWorkspace(state);
 
   useEffect(() => {
     onErrorChange("");
   }, [onErrorChange, selectedInstanceId]);
+
+  if (workspace.elicitation !== undefined) {
+    return (
+      <ElicitationComposer
+        key={workspace.elicitation.requestId}
+        state={state}
+        request={workspace.elicitation}
+      />
+    );
+  }
+  if (workspace.planApproval !== undefined) {
+    return (
+      <PlanApprovalComposer
+        key={workspace.planApproval.requestId}
+        state={state}
+        request={workspace.planApproval}
+      />
+    );
+  }
+  if (planEditorOpen && onPlanEditorClose !== undefined) {
+    return (
+      <PlanEditorComposer
+        key={selectedInstanceId ?? "none"}
+        state={state}
+        onClose={onPlanEditorClose}
+      />
+    );
+  }
 
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
@@ -5959,6 +7619,542 @@ export function DesktopComposer({
   );
 }
 
+function PlanApprovalComposer({
+  state,
+  request,
+}: {
+  state: DesktopState;
+  request: NonNullable<AgentWorkspaceState["planApproval"]>;
+}): React.JSX.Element {
+  const agent = selectedAgentInstance(state);
+  const [feedback, setFeedback] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const submittingRef = useRef(false);
+
+  const resolve = async (response: {
+    approved: boolean;
+    selectedAction?: "exit_only" | "interactive";
+    feedback?: string;
+  }): Promise<void> => {
+    if (agent === undefined || submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    setError("");
+    try {
+      const resolved = await window.desktop.agents.resolvePlan(agent.id, {
+        requestId: request.requestId,
+        planRevision: request.planRevision,
+        ...response,
+      });
+      if (!resolved) throw new Error("This plan request is no longer pending.");
+    } catch (resolveError) {
+      setError(
+        resolveError instanceof Error
+          ? resolveError.message
+          : "The plan response could not be submitted.",
+      );
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <footer className="composer interaction-deck">
+      <section aria-label="Plan approval">
+        <div className="interaction-deck-heading">
+          <div>
+            <span className="agent-mode-badge plan">plan</span>
+            <h3>Review plan.md</h3>
+          </div>
+          <small>The full plan is visible in the Inspector.</small>
+        </div>
+        <label>
+          Request changes
+          <textarea
+            autoFocus
+            data-workspace-interaction-focus
+            rows={3}
+            maxLength={8_192}
+            value={feedback}
+            disabled={submitting}
+            onChange={(event) => setFeedback(event.target.value)}
+            placeholder="Describe what should change in plan.md…"
+          />
+        </label>
+        {error && <p className="composer-error">{error}</p>}
+        <div className="interaction-actions">
+          {request.actions.includes("interactive") && (
+            <button
+              className="primary"
+              disabled={submitting}
+              onClick={() =>
+                void resolve({
+                  approved: true,
+                  selectedAction: "interactive",
+                })
+              }
+            >
+              Approve and continue
+            </button>
+          )}
+          <button
+            disabled={submitting || feedback.trim().length === 0}
+            onClick={() =>
+              void resolve({
+                approved: false,
+                feedback: feedback.trim(),
+              })
+            }
+          >
+            Request changes
+          </button>
+          {request.actions.includes("exit_only") && (
+            <button
+              disabled={submitting}
+              onClick={() =>
+                void resolve({
+                  approved: true,
+                  selectedAction: "exit_only",
+                })
+              }
+            >
+              Exit plan mode
+            </button>
+          )}
+        </div>
+      </section>
+    </footer>
+  );
+}
+
+function PlanEditorComposer({
+  state,
+  onClose,
+}: {
+  state: DesktopState;
+  onClose: () => void;
+}): React.JSX.Element {
+  const agent = selectedAgentInstance(state);
+  const artifact = selectedAgentWorkspace(state).planArtifact;
+  const [content, setContent] = useState(
+    artifact?.exists ? artifact.content : "# Plan\n",
+  );
+  const [expectedRevision] = useState(
+    artifact?.exists ? artifact.revision : undefined,
+  );
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const save = async (event: FormEvent): Promise<void> => {
+    event.preventDefault();
+    if (agent === undefined || content.trim().length === 0 || submitting)
+      return;
+    setSubmitting(true);
+    setError("");
+    try {
+      await window.desktop.agents.writePlan(agent.id, {
+        content,
+        ...(expectedRevision === undefined ? {} : { expectedRevision }),
+      });
+      onClose();
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "The plan could not be saved.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <footer className="composer interaction-deck plan-editor-deck">
+      <form onSubmit={(event) => void save(event)}>
+        <div className="interaction-deck-heading">
+          <div>
+            <span className="agent-mode-badge plan">plan.md</span>
+            <h3>Edit session plan</h3>
+          </div>
+          <small>Markdown · saved to this production session</small>
+        </div>
+        <label className="sr-only" htmlFor="plan-markdown-editor">
+          Plan Markdown
+        </label>
+        <textarea
+          id="plan-markdown-editor"
+          autoFocus
+          value={content}
+          disabled={submitting}
+          onChange={(event) => setContent(event.target.value)}
+          rows={14}
+          spellCheck
+        />
+        {error && <p className="composer-error">{error}</p>}
+        <div className="interaction-actions">
+          <button
+            className="primary"
+            type="submit"
+            disabled={submitting || content.trim().length === 0}
+          >
+            Save plan.md
+          </button>
+          <button type="button" disabled={submitting} onClick={onClose}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </footer>
+  );
+}
+
+function ElicitationComposer({
+  state,
+  request,
+}: {
+  state: DesktopState;
+  request: NonNullable<AgentWorkspaceState["elicitation"]>;
+}): React.JSX.Element {
+  const agent = selectedAgentInstance(state);
+  const initialValues = (): Record<
+    string,
+    string | number | boolean | string[]
+  > =>
+    Object.fromEntries(
+      Object.entries(request.properties).flatMap(([name, field]) => {
+        if (field.default !== undefined) return [[name, field.default]];
+        if (field.type === "boolean" && request.required.includes(name)) {
+          return [[name, false]];
+        }
+        return [];
+      }),
+    );
+  const [values, setValues] = useState(initialValues);
+  const [customValues, setCustomValues] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [manualHeight, setManualHeight] = useState<number>();
+  const resizeDrag = useRef<
+    | {
+        pointerId: number;
+        startClientY: number;
+        startHeight: number;
+      }
+    | undefined
+  >(undefined);
+  const deckRef = useRef<HTMLElement>(null);
+  const requiredComplete = request.required.every((name) => {
+    const value = values[name];
+    if (typeof value === "string") return value.trim().length > 0;
+    if (typeof value === "number") return Number.isFinite(value);
+    if (typeof value === "boolean") return true;
+    return Array.isArray(value) && value.length > 0;
+  });
+  const beginResize = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (deckRef.current === null) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    resizeDrag.current = {
+      pointerId: event.pointerId,
+      startClientY: event.clientY,
+      startHeight: deckRef.current.getBoundingClientRect().height,
+    };
+  };
+  const resize = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const active = resizeDrag.current;
+    if (active === undefined || active.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    setManualHeight(
+      Math.max(
+        180,
+        Math.min(
+          Math.round(globalThis.innerHeight * 0.72),
+          active.startHeight + active.startClientY - event.clientY,
+        ),
+      ),
+    );
+  };
+  const finishResize = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (resizeDrag.current?.pointerId !== event.pointerId) return;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    resizeDrag.current = undefined;
+  };
+  const resolve = async (
+    action: "accept" | "decline" | "cancel",
+  ): Promise<void> => {
+    if (agent === undefined || submitting) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      const resolved = await window.desktop.agents.resolveElicitation(
+        agent.id,
+        {
+          requestId: request.requestId,
+          action,
+          ...(action === "accept" ? { content: values } : {}),
+        },
+      );
+      if (!resolved) {
+        throw new Error("This question is no longer waiting for a response.");
+      }
+    } catch (resolveError) {
+      setError(
+        resolveError instanceof Error
+          ? resolveError.message
+          : "The response could not be submitted.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <footer
+      ref={deckRef}
+      className="composer interaction-deck elicitation-deck"
+      data-workspace-interaction-focus
+      tabIndex={-1}
+      style={manualHeight === undefined ? undefined : { height: manualHeight }}
+    >
+      <div
+        className="interaction-resize-handle"
+        role="separator"
+        aria-label="Resize question panel"
+        aria-orientation="horizontal"
+        onPointerDown={beginResize}
+        onPointerMove={resize}
+        onPointerUp={finishResize}
+        onPointerCancel={finishResize}
+      />
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void resolve("accept");
+        }}
+      >
+        <div className="interaction-deck-heading">
+          <div>
+            <span className="agent-mode-badge plan">question</span>
+            <h3>{request.message}</h3>
+          </div>
+        </div>
+        <div className="elicitation-fields">
+          {Object.entries(request.properties).map(([name, field]) => {
+            const label = field.title ?? name;
+            const required = request.required.includes(name);
+            if (field.type === "boolean") {
+              return (
+                <label className="elicitation-checkbox" key={name}>
+                  <input
+                    type="checkbox"
+                    checked={values[name] === true}
+                    onChange={(event) =>
+                      setValues((current) => ({
+                        ...current,
+                        [name]: event.target.checked,
+                      }))
+                    }
+                  />
+                  <span>
+                    {label}
+                    {field.description && <small>{field.description}</small>}
+                  </span>
+                </label>
+              );
+            }
+            if (field.type === "array") {
+              const choices =
+                "enum" in field.items
+                  ? field.items.enum.map((value) => ({
+                      value,
+                      title: value,
+                    }))
+                  : field.items.anyOf.map((choice) => ({
+                      value: choice.const,
+                      title: choice.title,
+                    }));
+              const selectedValue = values[name];
+              const selected = Array.isArray(selectedValue)
+                ? selectedValue
+                : [];
+              return (
+                <fieldset key={name}>
+                  <legend>
+                    {label}
+                    {required ? " *" : ""}
+                  </legend>
+                  {field.description && <small>{field.description}</small>}
+                  {choices.map((choice) => (
+                    <label className="elicitation-checkbox" key={choice.value}>
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(choice.value)}
+                        onChange={(event) =>
+                          setValues((current) => ({
+                            ...current,
+                            [name]: event.target.checked
+                              ? [...selected, choice.value]
+                              : selected.filter(
+                                  (value) => value !== choice.value,
+                                ),
+                          }))
+                        }
+                      />
+                      {choice.title}
+                    </label>
+                  ))}
+                </fieldset>
+              );
+            }
+            if (field.type === "string") {
+              const choices =
+                field.oneOf ??
+                field.enum?.map((value, index) => ({
+                  const: value,
+                  title: field.enumNames?.[index] ?? value,
+                }));
+              if (choices === undefined) {
+                return (
+                  <label key={name}>
+                    {label}
+                    {required ? " *" : ""}
+                    {field.description && <small>{field.description}</small>}
+                    <textarea
+                      required={required}
+                      minLength={field.minLength}
+                      maxLength={field.maxLength}
+                      value={
+                        typeof values[name] === "string" ? values[name] : ""
+                      }
+                      onChange={(event) =>
+                        setValues((current) => ({
+                          ...current,
+                          [name]: event.target.value,
+                        }))
+                      }
+                      rows={3}
+                    />
+                  </label>
+                );
+              }
+              const selectedValue =
+                typeof values[name] === "string" ? values[name] : "";
+              const namedValues = choices.map((choice) => choice.const);
+              const customValue =
+                customValues[name] ??
+                (selectedValue !== "" && !namedValues.includes(selectedValue)
+                  ? selectedValue
+                  : "");
+              return (
+                <fieldset className="elicitation-choice-group" key={name}>
+                  <legend>
+                    {label}
+                    {required ? " *" : ""}
+                  </legend>
+                  {field.description && <small>{field.description}</small>}
+                  {choices.map((choice) => (
+                    <label className="elicitation-radio" key={choice.const}>
+                      <input
+                        type="radio"
+                        name={`elicitation-${request.requestId}-${name}`}
+                        value={choice.const}
+                        checked={selectedValue === choice.const}
+                        onChange={() =>
+                          setValues((current) => ({
+                            ...current,
+                            [name]: choice.const,
+                          }))
+                        }
+                      />
+                      <span>{choice.title}</span>
+                    </label>
+                  ))}
+                  {field.allowFreeform === true && (
+                    <input
+                      className="elicitation-freeform"
+                      aria-label={`Custom answer for ${label}`}
+                      placeholder="Type another answer"
+                      minLength={field.minLength}
+                      maxLength={field.maxLength}
+                      value={customValue}
+                      onFocus={() => {
+                        if (customValue.length > 0) {
+                          setValues((current) => ({
+                            ...current,
+                            [name]: customValue,
+                          }));
+                        }
+                      }}
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+                        setCustomValues((current) => ({
+                          ...current,
+                          [name]: nextValue,
+                        }));
+                        setValues((current) => ({
+                          ...current,
+                          [name]: nextValue,
+                        }));
+                      }}
+                    />
+                  )}
+                </fieldset>
+              );
+            }
+            return (
+              <label key={name}>
+                {label}
+                {required ? " *" : ""}
+                {field.description && <small>{field.description}</small>}
+                <input
+                  type="number"
+                  required={required}
+                  step={field.type === "integer" ? 1 : "any"}
+                  min={field.minimum}
+                  max={field.maximum}
+                  value={typeof values[name] === "number" ? values[name] : ""}
+                  onChange={(event) =>
+                    setValues((current) => ({
+                      ...current,
+                      [name]: Number(event.target.value),
+                    }))
+                  }
+                />
+              </label>
+            );
+          })}
+        </div>
+        {error && <p className="composer-error">{error}</p>}
+        <div className="interaction-actions">
+          <button
+            className="primary"
+            type="submit"
+            disabled={submitting || !requiredComplete}
+          >
+            Submit response
+          </button>
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={() => void resolve("decline")}
+          >
+            Decline
+          </button>
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={() => void resolve("cancel")}
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </footer>
+  );
+}
+
 export function Composer({
   state,
   value,
@@ -5981,6 +8177,7 @@ export function Composer({
   const [selectedSuggestion, setSelectedSuggestion] = useState(0);
   const context = contextForSelection(state);
   const activeAgent = selectedAgentInstance(state);
+  const agentMode = activeAgent?.mode ?? "interactive";
   const workspace = selectedAgentWorkspace(state);
   const activeBusy =
     busy ||
@@ -6050,14 +8247,6 @@ export function Composer({
         )}
       </div>
       <form onSubmit={(event) => void onSubmit(event)}>
-        {activeAgent !== undefined && (
-          <div className="composer-mode" aria-live="polite">
-            <span className={`agent-mode-badge ${activeAgent.mode}`}>
-              {activeAgent.mode}
-            </span>
-            <small>Shift+Tab toggles mode</small>
-          </div>
-        )}
         <SlashCompletionSuggestions
           entries={slashSuggestions}
           selected={selectedSuggestion}
@@ -6087,24 +8276,83 @@ export function Composer({
           }
           rows={2}
         />
-        {activeBusy ? (
-          <button
-            type="button"
-            onClick={() => void cancelWorkspaceAgent(window.desktop, state)}
-          >
-            Cancel
-          </button>
-        ) : (
-          <button
-            className="primary"
-            type="submit"
-            disabled={unavailable || !value.trim()}
-          >
-            Send <kbd>↵</kbd>
-          </button>
-        )}
+        <div className="composer-actions">
+          {activeAgent !== undefined ? (
+            <button
+              type="button"
+              className={`composer-mode-button ${agentMode}`}
+              aria-label={`Switch to ${agentMode === "plan" ? "interactive" : "plan"} mode`}
+              title="Click or press Shift+Tab to switch mode"
+              disabled={unavailable || activeBusy}
+              onClick={() =>
+                void setSelectedAgentMode(
+                  window.desktop,
+                  state,
+                  agentMode === "plan" ? "interactive" : "plan",
+                  dispatch,
+                ).catch((modeError: unknown) =>
+                  dispatch({
+                    type: "event",
+                    event: {
+                      type: "diagnostic",
+                      level: "error",
+                      message:
+                        modeError instanceof Error
+                          ? modeError.message
+                          : "Agent mode could not be changed",
+                    },
+                  }),
+                )
+              }
+            >
+              {agentMode}
+            </button>
+          ) : (
+            <span />
+          )}
+          {activeBusy ? (
+            <button
+              type="button"
+              className="composer-action-button stop"
+              aria-label="Stop agent"
+              title="Stop agent"
+              onClick={() => void cancelWorkspaceAgent(window.desktop, state)}
+            >
+              <ComposerActionIcon type="stop" />
+            </button>
+          ) : (
+            <button
+              className="composer-action-button primary"
+              type="submit"
+              aria-label="Send message"
+              title="Send message"
+              disabled={unavailable || !value.trim()}
+            >
+              <ComposerActionIcon type="send" />
+            </button>
+          )}
+        </div>
       </form>
     </footer>
+  );
+}
+
+function ComposerActionIcon({
+  type,
+}: {
+  type: "send" | "stop";
+}): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 18 18" aria-hidden="true">
+      {type === "send" ? (
+        <>
+          <path d="M9 14V4" />
+          <path d="m5 8 4-4 4 4" />
+        </>
+      ) : (
+        <rect x="5" y="5" width="8" height="8" rx="1" />
+      )}
+    </svg>
   );
 }
 

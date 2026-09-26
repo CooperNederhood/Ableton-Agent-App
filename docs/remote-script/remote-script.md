@@ -179,17 +179,43 @@ rejected before mutation.
 
 ## Live Set identity
 
-The Remote Script derives project identity directly from the LOM:
+The Remote Script derives Live Set identity directly from the LOM:
 
 - saved sets use a SHA-256 hash of `Song.file_path`, truncated to 24
   hexadecimal characters;
-- unsaved sets use the same hash shape over `Song.name`, but explicitly report
-  `saved: false`.
+- unsaved sets receive a collision-resistant runtime identity that remains
+  stable when the Set is renamed and differs between distinct unsaved Sets.
 
-`project.get_identity` computes this value on demand and returns only
-`projectId`, `projectName`, and `saved`. It never sends the raw filesystem path.
-Capability negotiation and the dynamic command share the same helper so Save
-As and reconnect behavior cannot use different identity rules.
+For a saved Set, the script walks upward from the `.als` file and uses the
+nearest ancestor containing `Ableton Project Info` as its Live Project. An
+orphan saved Set has no `liveProjectId` or `liveProjectName` and reports a
+bounded `live_project_not_found` diagnostic instead.
+
+`live_set.get_identity` computes this value on demand. It returns explicit
+`liveSetId`, `liveSetName`, and `saved` fields, optional `liveProjectId` and
+`liveProjectName`, plus at most four diagnostics with messages limited to 256
+characters. It never sends raw filesystem paths. Capability negotiation and
+the dynamic command share the same helper so Save As and reconnect behavior
+cannot use different identity rules. Entity stale guards use `liveSetId`; Live
+Project identity never participates in object-reference validation.
+
+## Save observation
+
+The script polls only `Song.file_path` filesystem metadata and never opens,
+reads, hashes, or transmits the `.als` path or contents. Existing saved Sets
+establish a baseline on startup/reconnect. A changed `(mtime_ns, size)` tuple
+must remain stable across two scheduled samples before the script publishes
+`live_set.save_observed`; temporary file absence and intermediate replacement
+metadata are ignored.
+
+The nanosecond modification time crosses the protocol as a decimal string to
+avoid JavaScript precision loss. File size is limited to JavaScript's maximum
+safe integer. Each observation also carries the complete bounded identity
+returned by `build_live_identity`, allowing clients to replace Live Set and
+Live Project identity as one transition without exposing the path. The first
+save of an unsaved Set and Save As are observed after stabilization. Replacing
+the Song object establishes a fresh baseline so switching Sets cannot be
+mistaken for a save. Script shutdown cancels future sampling.
 
 ## Events
 

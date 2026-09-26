@@ -1,0 +1,24 @@
+{
+  "name": "@ableton-agent/storage",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "ableton-agent-storage-migrate": "./bin/ableton-agent-storage-migrate.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "migrate:v2": "tsx src/migrate-storage.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.11"
+  }
+}

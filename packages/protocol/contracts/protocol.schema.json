@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "protocolVersion": 4,
+  "protocolVersion": 5,
   "envelopes": {
     "message": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -8,7 +8,7 @@
         {
           "type": "object",
           "properties": {
-            "protocolVersion": { "type": "number", "const": 4 },
+            "protocolVersion": { "type": "number", "const": 5 },
             "kind": { "type": "string", "const": "request" },
             "requestId": {
               "type": "string",
@@ -39,7 +39,7 @@
         {
           "type": "object",
           "properties": {
-            "protocolVersion": { "type": "number", "const": 4 },
+            "protocolVersion": { "type": "number", "const": 5 },
             "kind": { "type": "string", "const": "response" },
             "requestId": {
               "type": "string",
@@ -72,7 +72,7 @@
         {
           "type": "object",
           "properties": {
-            "protocolVersion": { "type": "number", "const": 4 },
+            "protocolVersion": { "type": "number", "const": 5 },
             "kind": { "type": "string", "const": "response" },
             "requestId": {
               "type": "string",
@@ -122,7 +122,7 @@
         {
           "type": "object",
           "properties": {
-            "protocolVersion": { "type": "number", "const": 4 },
+            "protocolVersion": { "type": "number", "const": 5 },
             "kind": { "type": "string", "const": "event" },
             "event": { "type": "string", "minLength": 1 },
             "sequence": {
@@ -152,7 +152,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 4 },
+        "protocolVersion": { "type": "number", "const": 5 },
         "kind": { "type": "string", "const": "request" },
         "requestId": {
           "type": "string",
@@ -178,7 +178,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 4 },
+        "protocolVersion": { "type": "number", "const": 5 },
         "kind": { "type": "string", "const": "response" },
         "requestId": {
           "type": "string",
@@ -212,7 +212,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 4 },
+        "protocolVersion": { "type": "number", "const": 5 },
         "kind": { "type": "string", "const": "response" },
         "requestId": {
           "type": "string",
@@ -263,7 +263,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 4 },
+        "protocolVersion": { "type": "number", "const": 5 },
         "kind": { "type": "string", "const": "event" },
         "event": { "type": "string", "minLength": 1 },
         "sequence": {
@@ -272,6 +272,87 @@
           "maximum": 9007199254740991
         },
         "payload": {},
+        "projectRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": ["protocolVersion", "kind", "event", "sequence", "payload"],
+      "additionalProperties": false
+    },
+    "liveSetSaveObserved": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "protocolVersion": { "type": "number", "const": 5 },
+        "kind": { "type": "string", "const": "event" },
+        "event": { "type": "string", "const": "live_set.save_observed" },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "liveSetId": { "type": "string", "minLength": 1 },
+            "liveSetName": { "type": "string", "minLength": 1 },
+            "saved": { "type": "boolean" },
+            "liveProjectId": { "type": "string", "minLength": 1 },
+            "liveProjectName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "diagnostics": {
+              "default": [],
+              "maxItems": 4,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": ["live_project_not_found"]
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                },
+                "required": ["code", "message"],
+                "additionalProperties": false
+              }
+            },
+            "observedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+            },
+            "fileModifiedTimeNs": {
+              "type": "string",
+              "maxLength": 32,
+              "pattern": "^(0|[1-9][0-9]*)$"
+            },
+            "fileSizeBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "liveSetId",
+            "liveSetName",
+            "saved",
+            "diagnostics",
+            "observedAt",
+            "fileModifiedTimeNs",
+            "fileSizeBytes"
+          ],
+          "additionalProperties": false
+        },
         "projectRevision": {
           "type": "integer",
           "minimum": 0,
@@ -319,12 +400,39 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
-          "selectedProtocolVersion": { "type": "number", "const": 4 },
+          "selectedProtocolVersion": { "type": "number", "const": 5 },
           "liveVersion": { "type": "string", "minLength": 1 },
           "remoteScriptVersion": { "type": "string", "minLength": 1 },
-          "projectId": { "type": "string", "minLength": 1 },
-          "projectName": { "type": "string", "minLength": 1 },
+          "liveSetId": { "type": "string", "minLength": 1 },
+          "liveSetName": { "type": "string", "minLength": 1 },
           "saved": { "type": "boolean" },
+          "liveProjectId": { "type": "string", "minLength": 1 },
+          "liveProjectName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "diagnostics": {
+            "default": [],
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": ["live_project_not_found"]
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              },
+              "required": ["code", "message"],
+              "additionalProperties": false
+            }
+          },
           "capabilities": {
             "type": "object",
             "propertyNames": { "type": "string" },
@@ -398,7 +506,10 @@
           "selectedProtocolVersion",
           "liveVersion",
           "remoteScriptVersion",
-          "projectId",
+          "liveSetId",
+          "liveSetName",
+          "saved",
+          "diagnostics",
           "capabilities",
           "limits"
         ],
@@ -422,7 +533,7 @@
         "additionalProperties": false
       }
     },
-    "project.get_identity": {
+    "live_set.get_identity": {
       "mutates": false,
       "timeoutClass": "normal",
       "params": {
@@ -435,11 +546,38 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
-          "projectId": { "type": "string", "minLength": 1 },
-          "projectName": { "type": "string", "minLength": 1 },
-          "saved": { "type": "boolean" }
+          "liveSetId": { "type": "string", "minLength": 1 },
+          "liveSetName": { "type": "string", "minLength": 1 },
+          "saved": { "type": "boolean" },
+          "liveProjectId": { "type": "string", "minLength": 1 },
+          "liveProjectName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "diagnostics": {
+            "default": [],
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": ["live_project_not_found"]
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              },
+              "required": ["code", "message"],
+              "additionalProperties": false
+            }
+          }
         },
-        "required": ["projectId", "projectName", "saved"],
+        "required": ["liveSetId", "liveSetName", "saved", "diagnostics"],
         "additionalProperties": false
       }
     },
@@ -24250,7 +24388,7 @@
                 "type": "string",
                 "pattern": "^live-event\\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
               },
-              "projectId": { "type": "string", "minLength": 1 },
+              "liveSetId": { "type": "string", "minLength": 1 },
               "kind": { "type": "string", "const": "parameter.value_changed" },
               "observationPolicy": {
                 "type": "object",
@@ -24280,7 +24418,7 @@
               "expectedParameterReference",
               "expectedParameterName",
               "eventId",
-              "projectId",
+              "liveSetId",
               "kind"
             ],
             "additionalProperties": false
@@ -24303,7 +24441,7 @@
                 "type": "string",
                 "pattern": "^live-event\\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
               },
-              "projectId": { "type": "string", "minLength": 1 },
+              "liveSetId": { "type": "string", "minLength": 1 },
               "kind": {
                 "type": "string",
                 "const": "track.playing_clip_changed"
@@ -24314,7 +24452,7 @@
               "expectedReference",
               "expectedName",
               "eventId",
-              "projectId",
+              "liveSetId",
               "kind"
             ],
             "additionalProperties": false
@@ -24337,7 +24475,7 @@
                 "type": "string",
                 "pattern": "^live-event\\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
               },
-              "projectId": { "type": "string", "minLength": 1 },
+              "liveSetId": { "type": "string", "minLength": 1 },
               "kind": {
                 "type": "string",
                 "const": "track.triggered_clip_changed"
@@ -24348,7 +24486,7 @@
               "expectedReference",
               "expectedName",
               "eventId",
-              "projectId",
+              "liveSetId",
               "kind"
             ],
             "additionalProperties": false
@@ -24371,7 +24509,7 @@
                 "type": "string",
                 "pattern": "^live-event\\.[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
               },
-              "projectId": { "type": "string", "minLength": 1 },
+              "liveSetId": { "type": "string", "minLength": 1 },
               "kind": {
                 "type": "string",
                 "const": "track.recording_state_changed"
@@ -24382,7 +24520,7 @@
               "expectedReference",
               "expectedName",
               "eventId",
-              "projectId",
+              "liveSetId",
               "kind"
             ],
             "additionalProperties": false
@@ -24472,7 +24610,7 @@
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                   },
                   "status": { "type": "string", "const": "resolved" },
-                  "projectId": { "type": "string", "minLength": 1 }
+                  "liveSetId": { "type": "string", "minLength": 1 }
                 },
                 "required": [
                   "trackReference",
@@ -24480,7 +24618,7 @@
                   "deviceReference",
                   "parameterReference",
                   "status",
-                  "projectId"
+                  "liveSetId"
                 ],
                 "additionalProperties": false
               },
@@ -24592,9 +24730,9 @@
                     "additionalProperties": false
                   },
                   "status": { "type": "string", "const": "resolved" },
-                  "projectId": { "type": "string", "minLength": 1 }
+                  "liveSetId": { "type": "string", "minLength": 1 }
                 },
-                "required": ["trackReference", "track", "status", "projectId"],
+                "required": ["trackReference", "track", "status", "liveSetId"],
                 "additionalProperties": false
               },
               "state": {
@@ -24748,9 +24886,9 @@
                     "additionalProperties": false
                   },
                   "status": { "type": "string", "const": "resolved" },
-                  "projectId": { "type": "string", "minLength": 1 }
+                  "liveSetId": { "type": "string", "minLength": 1 }
                 },
-                "required": ["trackReference", "track", "status", "projectId"],
+                "required": ["trackReference", "track", "status", "liveSetId"],
                 "additionalProperties": false
               },
               "state": {
@@ -24904,9 +25042,9 @@
                     "additionalProperties": false
                   },
                   "status": { "type": "string", "const": "resolved" },
-                  "projectId": { "type": "string", "minLength": 1 }
+                  "liveSetId": { "type": "string", "minLength": 1 }
                 },
-                "required": ["trackReference", "track", "status", "projectId"],
+                "required": ["trackReference", "track", "status", "liveSetId"],
                 "additionalProperties": false
               },
               "state": {
@@ -25087,7 +25225,7 @@
                           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                         },
                         "status": { "type": "string", "const": "resolved" },
-                        "projectId": { "type": "string", "minLength": 1 }
+                        "liveSetId": { "type": "string", "minLength": 1 }
                       },
                       "required": [
                         "trackReference",
@@ -25095,7 +25233,7 @@
                         "deviceReference",
                         "parameterReference",
                         "status",
-                        "projectId"
+                        "liveSetId"
                       ],
                       "additionalProperties": false
                     },
@@ -25181,13 +25319,13 @@
                           "additionalProperties": false
                         },
                         "status": { "type": "string", "const": "resolved" },
-                        "projectId": { "type": "string", "minLength": 1 }
+                        "liveSetId": { "type": "string", "minLength": 1 }
                       },
                       "required": [
                         "trackReference",
                         "track",
                         "status",
-                        "projectId"
+                        "liveSetId"
                       ],
                       "additionalProperties": false
                     },
@@ -25299,13 +25437,13 @@
                           "additionalProperties": false
                         },
                         "status": { "type": "string", "const": "resolved" },
-                        "projectId": { "type": "string", "minLength": 1 }
+                        "liveSetId": { "type": "string", "minLength": 1 }
                       },
                       "required": [
                         "trackReference",
                         "track",
                         "status",
-                        "projectId"
+                        "liveSetId"
                       ],
                       "additionalProperties": false
                     },
@@ -25414,13 +25552,13 @@
                           "additionalProperties": false
                         },
                         "status": { "type": "string", "const": "resolved" },
-                        "projectId": { "type": "string", "minLength": 1 }
+                        "liveSetId": { "type": "string", "minLength": 1 }
                       },
                       "required": [
                         "trackReference",
                         "track",
                         "status",
-                        "projectId"
+                        "liveSetId"
                       ],
                       "additionalProperties": false
                     },

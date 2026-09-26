@@ -26,7 +26,8 @@ export interface SignalTelemetryInput {
   readonly durationMs?: number;
   readonly correlationId?: string;
   readonly causationId?: string;
-  readonly projectId?: string;
+  readonly liveSetId?: string;
+  readonly liveProjectId?: string;
   readonly sessionId?: string;
   readonly activeAgentId?: string;
   readonly liveEventId?: string;
@@ -49,7 +50,8 @@ export function recordSignalTelemetry(
   if (recorder === undefined) return;
   const correlationId = entityId(input.correlationId);
   const causationId = entityId(input.causationId);
-  const projectId = entityId(input.projectId);
+  const liveSetId = entityId(input.liveSetId);
+  const liveProjectId = entityId(input.liveProjectId);
   const sessionId = entityId(input.sessionId);
   const activeAgentId = entityId(input.activeAgentId);
   const liveEventId = entityId(input.liveEventId);
@@ -60,7 +62,7 @@ export function recordSignalTelemetry(
       ? input.toolName
       : undefined;
   const event: TelemetryEventEnvelope = {
-    version: 1,
+    version: 2,
     id: randomUUID(),
     occurredAt: input.occurredAt ?? new Date().toISOString(),
     name: input.name,
@@ -72,7 +74,8 @@ export function recordSignalTelemetry(
       : { durationMs: Math.max(0, input.durationMs) }),
     ...(correlationId === undefined ? {} : { correlationId }),
     ...(causationId === undefined ? {} : { causationId }),
-    ...(projectId === undefined ? {} : { projectId }),
+    ...(liveSetId === undefined ? {} : { liveSetId }),
+    ...(liveProjectId === undefined ? {} : { liveProjectId }),
     ...(sessionId === undefined ? {} : { sessionId }),
     ...(activeAgentId === undefined ? {} : { activeAgentId }),
     ...(liveEventId === undefined ? {} : { liveEventId }),

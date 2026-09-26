@@ -5,7 +5,10 @@ import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   LocalObservabilityJournal,
+  type AgentHistoryRecord,
   type ConfigurationSnapshot,
+  type PublicHistoryQueryResult,
+  type SetHistoryRecord,
   type TelemetryEventEnvelope,
 } from "@ableton-agent/observability";
 
@@ -39,9 +42,50 @@ afterEach(async () => {
 });
 
 describe("desktop composition", () => {
+  it("replays bootstrap storage migration lifecycle into local history", async () => {
+    const location = await paths();
+    const traceId = "00000000-0000-4000-8000-000000000001";
+    const { service } = await createDesktopComposition({
+      ...location,
+      environment: {},
+      storageMigrationEvents: [
+        {
+          id: "00000000-0000-4000-8000-000000000002",
+          name: "storage.migration.completed",
+          occurredAt: new Date().toISOString(),
+          durationMs: 12,
+          outcome: "success",
+          traceId,
+          spanId: "00000000-0000-4000-8000-000000000003",
+          correlationId: "00000000-0000-4000-8000-000000000004",
+          attributes: { profile: "development", migratedCount: 4 },
+        },
+      ],
+    });
+
+    await vi.waitFor(async () => {
+      expect((await service.getEventTrace(traceId)).items).toHaveLength(1);
+    });
+    const history = await service.getEventTrace(traceId);
+
+    expect(history.items).toEqual([
+      expect.objectContaining({
+        name: "storage.migration.completed",
+        category: "storage",
+        source: "desktop-storage",
+        outcome: "success",
+        durationMs: 12,
+      }),
+    ]);
+    await service.stop();
+  });
+
   it("degrades safely and preserves a corrupt journal file", async () => {
     const location = await paths();
-    const journalPath = join(location.directory, "event-history.sqlite");
+    const journalPath = join(
+      location.directory,
+      "agent-set-event-history.sqlite",
+    );
     const corruptBytes = "not a sqlite database";
     await writeFile(journalPath, corruptBytes, "utf8");
 
@@ -63,7 +107,10 @@ describe("desktop composition", () => {
 
   it("degrades safely when another process holds the journal lock", async () => {
     const location = await paths();
-    const journalPath = join(location.directory, "event-history.sqlite");
+    const journalPath = join(
+      location.directory,
+      "agent-set-event-history.sqlite",
+    );
     const blocker = await LocalObservabilityJournal.open({ path: journalPath });
     try {
       const { preferences, service } = await createDesktopComposition({
@@ -90,6 +137,7 @@ describe("desktop composition", () => {
       await releaseShutdown.promise;
       first.closed = true;
     });
+
     const open = vi
       .fn()
       .mockResolvedValueOnce(first)
@@ -114,6 +162,70 @@ describe("desktop composition", () => {
     await host.shutdown();
     expect(first.shutdown).toHaveBeenCalledOnce();
     expect(second.shutdown).toHaveBeenCalledOnce();
+  });
+
+  it("keeps agent and Set history active when detailed App events are disabled", async () => {
+    const journal = fakeJournal();
+    const host = await DesktopJournalHost.create({
+      path: "journal.sqlite",
+      retention: { maxAgeDays: 30, maxBytes: 1_000 },
+      enabled: false,
+      open: vi.fn().mockResolvedValue(journal) as never,
+    });
+    const occurredAt = "2026-01-01T00:00:00.000Z";
+    const agentRecord: AgentHistoryRecord = {
+      version: 1,
+      id: "agent-history-record",
+      kind: "agent_session",
+      appSessionId: "app-session",
+      agentSessionId: "sdk-session",
+      activeAgentId: "agent-instance",
+      occurredAt,
+      status: "active",
+      metadata: {},
+    };
+    const setRecord: SetHistoryRecord = {
+      version: 1,
+      id: "set-history-record",
+      kind: "set_save",
+      appSessionId: "app-session",
+      liveSetId: "live-set",
+      occurredAt,
+      trigger: "live",
+      outcome: "success",
+      details: {},
+    };
+    const queryResult: PublicHistoryQueryResult = {
+      version: 1,
+      schemaVersion: 4,
+      columns: ["record_id"],
+      rows: [{ record_id: "set-history-record" }],
+      rowCount: 1,
+      truncated: false,
+      elapsedMs: 1,
+    };
+    journal.queryPublicHistory.mockResolvedValue(queryResult);
+
+    await host.enqueue(telemetryEvent("00000000-0000-4000-8000-000000000010"));
+    await host.appendAgentHistory(agentRecord);
+    await host.appendSetHistory(setRecord);
+    await expect(
+      host.queryPublicHistory(
+        "SELECT record_id FROM set_history_saves LIMIT 1",
+        [],
+        1,
+      ),
+    ).resolves.toEqual(queryResult);
+
+    expect(journal.enqueue).not.toHaveBeenCalled();
+    expect(journal.appendAgentHistory).toHaveBeenCalledWith(agentRecord);
+    expect(journal.appendSetHistory).toHaveBeenCalledWith(setRecord);
+    expect(journal.queryPublicHistory).toHaveBeenCalledWith(
+      "SELECT record_id FROM set_history_saves LIMIT 1",
+      [],
+      1,
+    );
+    await host.shutdown();
   });
 
   it("rolls retention swaps back and drains buffered writes without loss", async () => {
@@ -147,7 +259,7 @@ describe("desktop composition", () => {
     );
     expect(first.enqueueConfigurationSnapshot).not.toHaveBeenCalled();
     const roots = {
-      version: 1 as const,
+      version: 2 as const,
       items: [],
       page: {
         limit: 10,
@@ -335,6 +447,13 @@ describe("desktop composition", () => {
       }) {
         if (this.closed) throw new Error("closed journal");
       }),
+      appendAgentHistory: vi.fn(async function (this: { closed: boolean }) {
+        if (this.closed) throw new Error("closed journal");
+      }),
+      appendSetHistory: vi.fn(async function (this: { closed: boolean }) {
+        if (this.closed) throw new Error("closed journal");
+      }),
+      queryPublicHistory: vi.fn(),
       shutdown: vi.fn(async function (this: { closed: boolean }) {
         this.closed = true;
       }),
@@ -350,7 +469,7 @@ describe("desktop composition", () => {
 
   function telemetryEvent(id: string): TelemetryEventEnvelope {
     return {
-      version: 1,
+      version: 2,
       id,
       occurredAt: "2026-01-01T00:00:00.000Z",
       name: "agent.turn",
@@ -362,7 +481,7 @@ describe("desktop composition", () => {
 
   function configurationSnapshot(id: string): ConfigurationSnapshot {
     return {
-      version: 1,
+      version: 2,
       id,
       capturedAt: "2026-01-01T00:00:00.000Z",
       component: "desktop",
@@ -440,6 +559,52 @@ describe("desktop composition", () => {
         expect.objectContaining({ label: "Preferences", status: "warn" }),
       ]),
     );
+  });
+
+  it("applies the saved active-work timeout to subsequent agent turns", async () => {
+    const location = await paths();
+    const { runtime, service } = await createDesktopComposition({
+      ...location,
+      agentsDirectory: resolve("agents"),
+      skillsDirectory: resolve("skills"),
+      environment: {},
+    });
+    const timeoutProvider = (
+      runtime.agent as unknown as {
+        options: { turnTimeoutMs: () => number };
+      }
+    ).options.turnTimeoutMs;
+
+    expect(timeoutProvider()).toBe(600_000);
+    await service.start();
+    await service.setPreferences(
+      preferencesSchema.parse({ agentTurnTimeoutMinutes: 25 }),
+    );
+    expect(timeoutProvider()).toBe(1_500_000);
+    await service.stop();
+  });
+
+  it("provides the saved reasoning visibility to subsequent SDK turns", async () => {
+    const location = await paths();
+    const { runtime, service } = await createDesktopComposition({
+      ...location,
+      agentsDirectory: resolve("agents"),
+      skillsDirectory: resolve("skills"),
+      environment: {},
+    });
+    const reasoningSummaryProvider = (
+      runtime.agent as unknown as {
+        options: { reasoningSummary: () => string };
+      }
+    ).options.reasoningSummary;
+
+    expect(reasoningSummaryProvider()).toBe("concise");
+    await service.start();
+    await service.setPreferences(
+      preferencesSchema.parse({ agentReasoningVisibility: "detailed" }),
+    );
+    expect(reasoningSummaryProvider()).toBe("detailed");
+    await service.stop();
   });
 
   it("wires effective active-agent YOLO IDs into the approval policy", async () => {

@@ -9,7 +9,7 @@ import {
   type MutationRecord,
   type ProductionPlan,
   type ProductionPlanStatus,
-  type ProjectIdentity,
+  type LiveSetIdentity,
 } from "./schemas.js";
 import type {
   ProjectStateRepositories,
@@ -23,7 +23,7 @@ export interface ServiceRuntime {
 }
 
 export interface CreatePlanInput {
-  readonly projectId: string;
+  readonly liveSetId: string;
   readonly goal: string;
   readonly tempo?: number;
   readonly key?: string;
@@ -67,7 +67,7 @@ export class ProductionPlanService {
     const now = this.runtime.now();
     const candidate = {
       id: this.runtime.createId(),
-      projectId: input.projectId,
+      liveSetId: input.liveSetId,
       goal: input.goal,
       sections: input.sections ?? [],
       trackRoles: input.trackRoles ?? [],
@@ -131,7 +131,7 @@ export class ProductionPlanService {
       const plan = await this.transitionWith(repositories, planId, "approved");
       const decision = approvalDecisionSchema.parse({
         id: this.runtime.createId(),
-        projectId: plan.projectId,
+        liveSetId: plan.liveSetId,
         sessionId,
         subjectType: "plan",
         subjectId: plan.id,
@@ -180,7 +180,7 @@ export class ProductionPlanService {
 }
 
 export interface CreateChangeSetInput {
-  readonly projectId: string;
+  readonly liveSetId: string;
   readonly sessionId: string;
   readonly correlationId: string;
   readonly userIntent: string;
@@ -206,7 +206,7 @@ export class ChangeSetService {
     const now = this.runtime.now();
     const changeSet = changeSetSchema.parse({
       id: this.runtime.createId(),
-      projectId: input.projectId,
+      liveSetId: input.liveSetId,
       sessionId: input.sessionId,
       correlationId: input.correlationId,
       userIntent: input.userIntent,
@@ -346,7 +346,7 @@ export class ChangeSetService {
 export class ProjectStateService {
   readonly cache = new SnapshotCache();
   #session: AppSession | undefined;
-  #project: ProjectIdentity | undefined;
+  #liveSet: LiveSetIdentity | undefined;
 
   public constructor(
     private readonly store: ProjectStateStore,
@@ -357,8 +357,8 @@ export class ProjectStateService {
     return this.#session;
   }
 
-  public activeProject(): ProjectIdentity | undefined {
-    return this.#project;
+  public activeLiveSet(): LiveSetIdentity | undefined {
+    return this.#liveSet;
   }
 
   public async resumeSession(sessionId: string): Promise<AppSession> {
@@ -368,10 +368,10 @@ export class ProjectStateService {
     );
     this.cache.clear();
     this.#session = session;
-    this.#project =
-      session.activeProjectId === undefined
+    this.#liveSet =
+      session.activeLiveSetId === undefined
         ? undefined
-        : await this.store.projects.get(session.activeProjectId);
+        : await this.store.liveSets.get(session.activeLiveSetId);
     return session;
   }
 
@@ -385,35 +385,35 @@ export class ProjectStateService {
     await this.store.sessions.save(session);
     this.cache.clear();
     this.#session = session;
-    this.#project = undefined;
+    this.#liveSet = undefined;
     return session;
   }
 
-  public async switchProject(project: ProjectIdentity): Promise<void> {
+  public async switchLiveSet(liveSet: LiveSetIdentity): Promise<void> {
     const session = requireRecord(this.#session, "Active session");
     const updatedSession: AppSession = {
       ...session,
-      activeProjectId: project.id,
+      activeLiveSetId: liveSet.liveSetId,
       updatedAt: this.runtime.now(),
     };
     await this.store.transaction(async (repositories) => {
-      await repositories.projects.save(project);
+      await repositories.liveSets.save(liveSet);
       await repositories.sessions.save(updatedSession);
     });
     this.cache.clear();
-    this.#project = project;
+    this.#liveSet = liveSet;
     this.#session = updatedSession;
   }
 
   public async activePlans(): Promise<readonly ProductionPlan[]> {
-    const project = requireRecord(this.#project, "Active project");
-    return this.store.plans.listByProject(project.id);
+    const liveSet = requireRecord(this.#liveSet, "Active Live Set");
+    return this.store.plans.listByLiveSet(liveSet.liveSetId);
   }
 
   public assertMutable(reference: EntityReference): EntitySummary {
-    const project = requireRecord(this.#project, "Active project");
-    if (reference.projectId !== project.id) {
-      throw new Error("Reference is isolated to a different project");
+    const liveSet = requireRecord(this.#liveSet, "Active Live Set");
+    if (reference.liveSetId !== liveSet.liveSetId) {
+      throw new Error("Reference is isolated to a different Live Set");
     }
     return this.cache.assertMutable(reference);
   }

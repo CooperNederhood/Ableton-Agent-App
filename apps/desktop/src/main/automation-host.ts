@@ -71,7 +71,7 @@ function recordAutomationLifecycle(
   event: AutomationLifecycleEvent,
 ): void {
   telemetry.enqueue({
-    version: 1,
+    version: 2,
     id: randomUUID(),
     occurredAt: new Date().toISOString(),
     name: "desktop.automation_message",

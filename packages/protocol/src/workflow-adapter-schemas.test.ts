@@ -199,7 +199,10 @@ describe("workflow adapter schemas", () => {
         selectedProtocolVersion: PROTOCOL_VERSION,
         liveVersion: "11.3",
         remoteScriptVersion: "0.1.0",
-        projectId: "project",
+        liveSetId: "set",
+        liveSetName: "Test Set",
+        saved: true,
+        diagnostics: [],
         capabilities: { "browser_adapters.hot_swap": false },
         capabilityDetails: {
           "browser_adapters.hot_swap": {

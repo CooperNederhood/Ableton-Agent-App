@@ -4,7 +4,7 @@
 
 There are three distinct kinds of state:
 
-1. **Ableton state:** authoritative musical/project state in the LOM.
+1. **Ableton state:** authoritative musical Live Set state in the LOM.
 2. **Application state:** connection, snapshots, selections, plans, approvals,
    and change sets.
 3. **Agent session state:** one conversation and tool history per active agent,
@@ -12,11 +12,11 @@ There are three distinct kinds of state:
 
 Agent conversation is never treated as authoritative project state.
 
-## Project snapshot
+## Live Set snapshot
 
 A normalized snapshot should include:
 
-- Project identity and revision.
+- Required Live Set identity and revision, plus optional Live Project grouping.
 - Live version and capabilities.
 - Tempo, signature, loop, and transport.
 - Track summaries.
@@ -31,9 +31,24 @@ refresh may enrich it with top-level device and parameter summaries, bounded to
 32 devices per track and 64 parameters per device, with truncation reported
 explicitly.
 
+The Desktop snapshot contract also carries bounded, query-ready scene,
+Session-clip, Arrangement-clip, cue-point, and top-level device collections.
+Scene identities are derived from the scene indices exposed by the current
+protocol; group membership and routing are marked unsupported until those
+fields are available through a reviewed Live 11 protocol surface. Manual user
+Refresh persists the completed snapshot through an injected history repository.
+Startup and internal refreshes update current UI state only and never create
+history records.
+
+Set History storage exposes a read-only application service rather than a raw
+database handle. Agent SQL is restricted to one `SELECT` or CTE, allowlisted
+public views, and a caller-supplied result limit capped at 200 rows. The
+repository remains responsible for read-only database access, cancellation, and
+returning bounded scalar rows.
+
 ## Revisions and invalidation
 
-The Remote Script increments a project revision when observed structural or
+The Remote Script increments a Live Set revision when observed structural or
 meaningful state changes occur. Responses and events include the revision.
 
 The application:
@@ -87,7 +102,7 @@ entire Ableton project. Suggested records:
 
 - App sessions.
 - Active agent instances, definition snapshots, bindings, and subscriptions.
-- Ableton project identities.
+- Live Set identities and optional Live Project grouping.
 - Production plans.
 - Change sets.
 - User preferences.
@@ -102,13 +117,33 @@ payload is validated by the state schemas on write and on read. Writes run in
 real SQLite transactions, and the database file is replaced atomically.
 
 The current Desktop adapter incrementally implements this model with validated,
-atomically replaced JSON records under Electron user data:
+atomically replaced JSON records under
+`~/.live-agent/profiles/{profile}/state/`:
 
 - `sessions.json` stores production-session and active-agent snapshots;
-- `project-sessions.json` maps a saved Live `projectId` to its canonical
-  production session;
-- `copilot/` remains the Copilot SDK's conversation store.
+- `live-set-sessions.json` maps each saved `liveSetId` to its canonical App
+  session without deleting historical sessions;
+- `../copilot/` remains the Copilot SDK's conversation store; and
+- the owning Live Set's `session-state/{app-session-id}/session.json` records
+  bounded ownership links to the Live Set, optional Live Project, active-agent,
+  and SDK-session IDs without duplicating conversation or event content.
 
-Unsaved Live Sets are deliberately excluded from the project association
-index. A mid-run identity change is a transaction boundary: agent work and
-Output delivery pause until the target project session is selected.
+Desktop session schema v4 requires `liveSetId` and `liveSetName`, with optional
+`liveProjectId` and `liveProjectName`. Connection and snapshot entity ownership
+use `liveSetId`; Live Project identity is grouping metadata only. Unsaved and
+orphan App sessions retain explicit Live Set ownership in memory but are
+excluded from ordinary persistence and canonical association until persisted
+or saved. A Live Set change is a transaction boundary: agent work and Output
+delivery pause until the target App session is selected. Switching between
+Live Sets inside one Live Project still resolves independently by `liveSetId`.
+Consumers that resolve Session-scoped paths must first obtain the typed
+`{ liveSetId, liveProjectId?, sessionId }` ownership context from the validated
+Desktop session registry; a session ID alone never selects a storage path.
+
+On first save, the temporary unsaved `liveSetId` is replaced by the canonical
+path-derived ID. Desktop serializes that transition through its session action
+queue before accepting the next user turn. A clean ephemeral App session is
+promoted in place, preserving its application-owned session ID while replacing
+its Live Set and optional Live Project ownership. Historical records written
+before the transition remain under the temporary ID; records are not rewritten,
+implicitly unioned, or aliased.

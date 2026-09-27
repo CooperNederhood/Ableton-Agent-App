@@ -155,7 +155,13 @@ full-screen windows. It defaults off.
 Conversation presentation keeps assistant Markdown unboxed and left aligned,
 places literal user text in a right-aligned card, and reduces typed operations
 to muted icon-classified rows. Operation disclosures retain status, warnings,
-affected objects, and supported retry or undo actions.
+affected objects, and supported retry or undo actions. The compact row names
+the operation target when safe identity arguments are available and shows its
+terminal duration. Expanding a tool operation shows bounded, credential-redacted
+Requested and Result or Observed sections, plus exact Failure and How to correct
+it sections when applicable. Structured results are summarized by top-level
+fields and collection counts instead of exposing raw unbounded payloads.
+Profile-owned Copilot spill paths appear as `<spill-file>`.
 
 ## Application event model
 

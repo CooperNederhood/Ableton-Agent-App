@@ -2181,10 +2181,19 @@ describe("CopilotAgentService", () => {
       {
         type: "operation.completed",
         operationId: "tool-1",
+        label: "Inspect Ableton session",
         summary: "Inspect Ableton session completed",
         toolName: "ableton_session",
+        arguments: { action: "inspect" },
         operationDescriptorId: "session.inspect",
         action: "inspect",
+        targetIdentity: {
+          domain: "session",
+          action: "inspect",
+          targetKind: "session",
+          targetReferences: [],
+        },
+        durationMs: 1_000,
         sdkSessionId: "session-1",
       },
       {
@@ -2206,13 +2215,23 @@ describe("CopilotAgentService", () => {
       {
         type: "operation.failed",
         operationId: "tool-2",
+        label: "Check Ableton connection",
         code: "offline",
         message: "Ableton is offline",
         retryable: true,
         details: { state: "disconnected" },
+        failureSource: "tool",
         toolName: "ableton_session",
+        arguments: { action: "connection-status" },
         operationDescriptorId: "session.connection_status",
         action: "connection-status",
+        targetIdentity: {
+          domain: "session",
+          action: "connection-status",
+          targetKind: "connection",
+          targetReferences: [],
+        },
+        durationMs: 1_000,
         sdkSessionId: "session-1",
       },
     ]);

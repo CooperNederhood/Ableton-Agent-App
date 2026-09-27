@@ -1007,9 +1007,21 @@ describe("desktop adapter over the shared application", () => {
       operationDescriptorId: "transport.set_tempo",
       action: "set-tempo",
     } as never);
+    sharedEvents.publish({
+      type: "operation.completed",
+      operationId: "tool-1",
+      label: "Set Ableton tempo",
+      summary: "Set Ableton tempo completed",
+      toolName: "ableton_transport",
+      arguments: { action: "set-tempo", tempo: 128 },
+      result: JSON.stringify({ tempo: 128, verified: true }),
+      durationMs: 250,
+      operationDescriptorId: "transport.set_tempo",
+      action: "set-tempo",
+    });
     await settle();
 
-    expect(enqueue).toHaveBeenCalledOnce();
+    expect(enqueue).toHaveBeenCalledTimes(2);
     expect(entries[0]).toMatchObject({
       name: "operation.started",
       toolName: "ableton_transport",
@@ -1018,7 +1030,29 @@ describe("desktop adapter over the shared application", () => {
       operation_id: "tool-1",
       operation_descriptor_id: "transport.set_tempo",
       action: "set-tempo",
+      request: {
+        details: [{ label: "Tempo", value: "128" }],
+      },
     });
+    expect(entries[1]?.attributes).toMatchObject({
+      operation_id: "tool-1",
+      duration_ms: 250,
+      request: {
+        details: [{ label: "Tempo", value: "128" }],
+      },
+      outcome: {
+        kind: "result",
+      },
+    });
+    const outcome = entries[1]?.attributes.outcome;
+    expect(
+      outcome !== null && typeof outcome === "object"
+        ? (outcome as { details?: unknown }).details
+        : undefined,
+    ).toEqual([
+      { label: "Tempo", value: "128" },
+      { label: "Verified", value: "true" },
+    ]);
     await service.stop();
   });
 

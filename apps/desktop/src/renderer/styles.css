@@ -2125,6 +2125,51 @@ small,
   margin: 6px 0 0;
   font-size: 13px;
 }
+.operation-disclosure {
+  margin-top: 10px;
+}
+.operation-disclosure + .operation-disclosure {
+  border-top: 1px solid rgb(255 255 255 / 6%);
+  padding-top: 8px;
+}
+.operation-disclosure h4 {
+  margin: 0 0 6px;
+  color: #aab4ba;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.operation-detail-list {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+.operation-detail-list > div {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.35fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+.operation-detail-list dt {
+  color: #87939a;
+  overflow-wrap: anywhere;
+}
+.operation-detail-list dd {
+  min-width: 0;
+  margin: 0;
+  color: #c7cfd3;
+  overflow-wrap: anywhere;
+}
+.operation-detail-list pre {
+  max-height: 220px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.operation-failure-details {
+  color: #e4aaa5;
+}
 .warning {
   color: #ffc07c;
 }

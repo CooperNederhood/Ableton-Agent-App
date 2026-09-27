@@ -1,6 +1,12 @@
 import type { AppEvent } from "@ableton-agent/shared";
 
 import { appEventSchema, type DesktopAppEvent } from "../contracts.js";
+import {
+  operationFailure,
+  operationLabel,
+  operationOutcome,
+  operationRequest,
+} from "./operation-presentation.js";
 
 type DesktopSharedEvent = Exclude<
   AppEvent,
@@ -58,6 +64,14 @@ export function normalizeSharedEvent(
   const toolName =
     "toolName" in event ? desktopToolName(event.toolName) : undefined;
   const operationMetadata = desktopOperationMetadata(event);
+  const request =
+    event.type === "operation.started" ||
+    event.type === "operation.completed" ||
+    event.type === "operation.failed"
+      ? operationRequest(event)
+      : undefined;
+  const outcome =
+    event.type === "operation.completed" ? operationOutcome(event) : undefined;
   const normalized =
     event.type === "agent.message_delta"
       ? { ...event, messageId: messageId() }
@@ -98,10 +112,11 @@ export function normalizeSharedEvent(
                         type: "operation.changed",
                         operation: {
                           id: event.operationId,
-                          label: event.label,
+                          label: operationLabel(event),
                           ...(toolName === undefined ? {} : { toolName }),
                           ...operationMetadata,
                           status: "running",
+                          ...(request === undefined ? {} : { request }),
                           warnings: [],
                           changed: [],
                           unchanged: [],
@@ -121,12 +136,17 @@ export function normalizeSharedEvent(
                           type: "operation.changed",
                           operation: {
                             id: event.operationId,
-                            label: event.summary,
+                            label: operationLabel(event),
                             ...(toolName === undefined ? {} : { toolName }),
                             ...operationMetadata,
                             status: "completed",
+                            ...(request === undefined ? {} : { request }),
+                            ...(outcome === undefined ? {} : { outcome }),
+                            ...(event.durationMs === undefined
+                              ? {}
+                              : { durationMs: event.durationMs }),
                             warnings: [],
-                            changed: [event.summary],
+                            changed: [],
                             unchanged: [],
                             retryable: false,
                             undoable: false,
@@ -144,12 +164,16 @@ export function normalizeSharedEvent(
                             type: "operation.changed",
                             operation: {
                               id: event.operationId,
-                              label: event.message,
+                              label: operationLabel(event),
                               ...(toolName === undefined ? {} : { toolName }),
                               ...operationMetadata,
                               status: "failed",
-                              detail: event.code,
-                              warnings: [event.message],
+                              ...(request === undefined ? {} : { request }),
+                              failure: operationFailure(event),
+                              ...(event.durationMs === undefined
+                                ? {}
+                                : { durationMs: event.durationMs }),
+                              warnings: [],
                               changed: [],
                               unchanged: [],
                               retryable: event.retryable ?? false,

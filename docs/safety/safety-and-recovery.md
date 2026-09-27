@@ -54,6 +54,10 @@ active until Live reports that the exact created clip has stopped recording.
   symlinks, mixed spill/non-spill operands, and sandbox escalation. Treat SDK
   command and path summaries as advisory; validate the parsed command segments,
   command-specific operands, and every canonical file path independently.
+- Attribute automatic policy blocks to the application rather than the user,
+  retain the bounded policy stage, and provide a corrective request shape.
+  Starting-line `tail` forms are unbounded and must recommend bounded
+  last-N-lines or structured `jq` slicing instead.
 - Detect unsupported Live capabilities before mutation.
 - Limit workflow mutation counts and payload sizes.
 

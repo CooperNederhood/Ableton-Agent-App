@@ -39,6 +39,7 @@ export type SpillShellPolicyStage =
   | "network_access"
   | "sandbox_escalation"
   | "spill_directory_unavailable"
+  | "unbounded_output"
   | "unsupported_command"
   | "write_redirection";
 
@@ -456,6 +457,18 @@ function parseHeadOrTailCommand(
   return { fileOperands: tokens.slice(index) };
 }
 
+function isTailFromStartingLine(command: string): boolean {
+  const tokens = tokenizeShellSegment(command);
+  if (tokens === undefined || tokens[0] !== "tail") return false;
+  return tokens.some(
+    (token, index) =>
+      /^\+\d+$/u.test(token) ||
+      /^--lines=\+\d+$/u.test(token) ||
+      ((token === "-n" || token === "--lines") &&
+        /^\+\d+$/u.test(tokens[index + 1] ?? "")),
+  );
+}
+
 function parseWcCommand(tokens: readonly string[]): ParsedCommand | undefined {
   const safeLongFlags = new Set([
     "--bytes",
@@ -638,6 +651,18 @@ export function evaluateSpillFileShellPolicy(
     }
     const parsed = parseCommand(segment.identifier, segment.fullCommandText);
     if (parsed === undefined) {
+      if (
+        segment.identifier === "tail" &&
+        isTailFromStartingLine(segment.fullCommandText)
+      ) {
+        return finish(
+          reject(
+            "tail from a starting line reads through end-of-file. Use bounded 'tail -n N' or select a bounded slice with jq.",
+          ),
+          "unbounded_output",
+          fileOperands,
+        );
+      }
       return finish(
         reject("The requested shell syntax or arguments are not allowed."),
         "invalid_arguments",

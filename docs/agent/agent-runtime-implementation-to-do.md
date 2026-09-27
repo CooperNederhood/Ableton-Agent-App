@@ -38,6 +38,10 @@ Companion specification: [Agent Runtime](agent-runtime.md)
   - [x] Record bounded, redacted shell-policy stage, normalized identifier,
     operand-count, SDK-summary disagreement, timing, and trace attribution in
     permission history.
+  - [x] Correlate automatic policy rejection with terminal tool failure,
+    distinguish it from user denial, and publish bounded corrective guidance.
+- [x] Publish bounded, redacted operation arguments, result/failure summaries,
+  duration, and failure source for Desktop disclosure and typed history.
 - [ ] Enable the runtime's native filesystem/network sandbox as defense in
   depth when the public SDK exposes supported `sandboxConfig` session wiring.
 - [x] Disable SDK tool search so the runtime never injects an implicit

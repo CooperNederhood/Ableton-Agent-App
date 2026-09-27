@@ -43,7 +43,17 @@ therefore authorizes from non-empty parsed command segments, applies a narrow
 command-specific operand grammar, and independently canonicalizes every file
 operand before approval. Permission history records only bounded policy stages,
 normalized allowlisted identifiers, counts, disagreement flags, and timing in
-its shell-policy decision metadata.
+its shell-policy decision metadata. Terminal tool events also carry bounded,
+redacted arguments, results or structured failure details, duration, and
+failure source so Desktop can explain the exact request and outcome without
+replaying raw SDK payloads.
+
+Automatic shell-policy rejection remains distinct from a human denial. The
+application associates the policy decision with the tool call and replaces the
+SDK's generic user-rejection wording with an application-owned policy failure
+and corrective guidance. A `tail -n +N` request is classified as unbounded
+because it reads from a starting line through end-of-file; callers should use
+bounded `tail -n N` or a bounded `jq` slice.
 
 The runtime protocol contains native filesystem/network sandbox policy, but
 the pinned public SDK session API does not currently expose that configuration.

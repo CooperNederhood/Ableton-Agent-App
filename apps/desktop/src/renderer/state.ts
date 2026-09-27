@@ -838,7 +838,19 @@ function upsertOperation(
   return bounded(
     exists
       ? operations.map((candidate) =>
-          candidate.id === operation.id ? operation : candidate,
+          candidate.id === operation.id
+            ? {
+                ...candidate,
+                ...operation,
+                toolName: operation.toolName ?? candidate.toolName,
+                operationDescriptorId:
+                  operation.operationDescriptorId ??
+                  candidate.operationDescriptorId,
+                action: operation.action ?? candidate.action,
+                detail: operation.detail ?? candidate.detail,
+                request: operation.request ?? candidate.request,
+              }
+            : candidate,
         )
       : [...operations, operation],
     maxOperations,

@@ -42,6 +42,8 @@ Companion specification: [Safety and Recovery](safety-and-recovery.md)
   - [x] Parse command-specific operands from SDK command segments and validate
     every file independently when aggregate SDK identifiers or path summaries
     are incomplete.
+  - [x] Distinguish automatic shell-policy blocks from user denials and return
+    bounded, actionable correction guidance for rejected output shapes.
 - [x] Report all clamping and coercion.
 - [x] Add workflow mutation-count and duration budgets.
 - [x] Investigate and capability-gate native Live undo grouping.

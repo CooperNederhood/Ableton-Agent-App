@@ -216,6 +216,169 @@ test("exposes essential landmarks and labels", async () => {
   }
 });
 
+test("renders useful successful and blocked tool disclosures", async () => {
+  const { application, profile } = await launchIsolatedDesktop();
+  try {
+    const window = await application.firstWindow();
+    await window.waitForLoadState("domcontentloaded");
+    const startup = window.getByText("Starting desktop services…");
+    await expect(startup).toBeVisible();
+    await expect(startup).toBeHidden({ timeout: 15_000 });
+    await expect(window.getByText("Ready to create")).toBeVisible();
+    const rendererUrl = window.url();
+    const agentInstanceId = "00000000-0000-4000-8000-000000000001";
+
+    const publish = async (event: unknown) => {
+      const delivered = await application.evaluate(
+        ({ BrowserWindow }, input) => {
+          const desktopWindow = BrowserWindow.getAllWindows().find(
+            (candidate) => candidate.webContents.getURL() === input.url,
+          );
+          desktopWindow?.webContents.send("app:event", input.event);
+          return desktopWindow !== undefined;
+        },
+        { event, url: rendererUrl },
+      );
+      expect(delivered).toBe(true);
+    };
+
+    await publish({
+      type: "agent.instance_changed",
+      instance: {
+        id: agentInstanceId,
+        definitionName: "default",
+        definitionFingerprint: "a".repeat(64),
+        label: "Disclosure test agent",
+        autoApprove: true,
+        lifecycle: "ready",
+        config: {
+          description: "Disclosure test agent",
+          systemPrompt: "Test operation disclosure rendering.",
+          tools: ["*"],
+          resolvedTools: [],
+          editScope: ["session"],
+          skills: [],
+          inputChannels: [],
+        },
+        boundTracks: [],
+        outputSubscriptions: [],
+        eventListeners: [],
+        modified: false,
+      },
+      change: "created",
+    });
+    await publish({
+      type: "operation.changed",
+      agentInstanceId,
+      operation: {
+        id: "inspect-parameters",
+        label: "Inspect device parameters · sine-kick › Operator",
+        toolName: "ableton_devices",
+        action: "inspect-parameters",
+        status: "running",
+        request: {
+          details: [
+            { label: "Expected Name", value: "sine-kick" },
+            { label: "Expected Device Name", value: "Operator" },
+            { label: "Limit", value: "128" },
+          ],
+        },
+        warnings: [],
+        changed: [],
+        unchanged: [],
+        retryable: false,
+        undoable: false,
+        timestamp: 1,
+      },
+    });
+    await publish({
+      type: "operation.changed",
+      agentInstanceId,
+      operation: {
+        id: "inspect-parameters",
+        label: "Inspect device parameters · sine-kick › Operator",
+        status: "completed",
+        outcome: {
+          kind: "observed",
+          details: [
+            { label: "Total Parameters", value: "195" },
+            { label: "Parameters", value: "128 items" },
+          ],
+        },
+        durationMs: 420,
+        warnings: [],
+        changed: [],
+        unchanged: [],
+        retryable: false,
+        undoable: false,
+        timestamp: 2,
+      },
+    });
+    await publish({
+      type: "operation.changed",
+      agentInstanceId,
+      operation: {
+        id: "blocked-shell",
+        label: "Run shell command",
+        toolName: "bash",
+        status: "failed",
+        request: {
+          details: [
+            {
+              label: "Command",
+              value: "tail -n +32 <spill-file>",
+              format: "code",
+            },
+          ],
+        },
+        failure: {
+          source: "application_policy",
+          code: "shell_policy_blocked",
+          message: "Blocked by shell safety policy",
+          recovery: "Use bounded tail -n N or a jq slice.",
+          details: [
+            {
+              label: "Shell Policy",
+              value: '{ "stage": "unbounded_output" }',
+              format: "code",
+            },
+          ],
+        },
+        warnings: [],
+        changed: [],
+        unchanged: [],
+        retryable: false,
+        undoable: false,
+        timestamp: 3,
+      },
+    });
+
+    const successful = window
+      .locator("details.operation")
+      .filter({ hasText: "Inspect device parameters" });
+    await expect(successful.locator("summary")).toContainText("420 ms");
+    await successful.locator("summary").click();
+    await expect(successful).toContainText("Requested");
+    await expect(successful).toContainText("Expected Device Name");
+    await expect(successful).toContainText("Observed");
+    await expect(successful).toContainText("195");
+    await expect(successful).not.toContainText("Changed:");
+
+    const blocked = window
+      .locator("details.operation")
+      .filter({ hasText: "Run shell command" });
+    await blocked.locator("summary").click();
+    await expect(blocked).toContainText("Blocked by application policy");
+    await expect(blocked).toContainText("shell_policy_blocked");
+    await expect(blocked).toContainText("How to correct it");
+    await expect(blocked).toContainText("tail -n +32 <spill-file>");
+    await expect(blocked).not.toContainText("The user rejected this tool call");
+  } finally {
+    await application.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
 test("supports a terminal-sized chat-only window", async () => {
   const { application, profile } = await launchIsolatedDesktop();
 

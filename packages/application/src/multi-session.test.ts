@@ -2353,10 +2353,19 @@ describe("CopilotAgentService managed sessions", () => {
     expect(received).toContainEqual({
       type: "operation.completed",
       operationId: "tool-A1",
+      label: "Inspect Ableton session",
       summary: "Inspect Ableton session completed",
       toolName: "ableton_session",
+      arguments: { action: "inspect" },
       operationDescriptorId: "session.inspect",
       action: "inspect",
+      targetIdentity: {
+        domain: "session",
+        action: "inspect",
+        targetKind: "session",
+        targetReferences: [],
+      },
+      durationMs: 1_000,
       agentInstanceId: "agent-a",
       sdkSessionId: "session-a",
     });
@@ -2947,8 +2956,13 @@ it("configures profile-owned spill output and gates bash to read-only spill insp
   const largeOutputDirectory = join(root, "copilot", "tool-output");
   const configs: SessionConfig[] = [];
   const runtimeEvents: AgentRuntimeEvent[] = [];
+  const events = new InMemoryEventPublisher();
+  const received: AppEvent[] = [];
+  events.subscribe((event) => received.push(event));
+  const shellSession = createFakeSession("shell-session");
   const service = new CopilotAgentService(
     baseOptions({
+      events,
       largeOutputDirectory,
       runtimeObserver: {
         enqueue: (event) => runtimeEvents.push(event),
@@ -2956,7 +2970,7 @@ it("configures profile-owned spill output and gates bash to read-only spill insp
       clientFactory: () => ({
         createSession: vi.fn(async (config: SessionConfig) => {
           configs.push(config);
-          return createFakeSession("shell-session");
+          return shellSession;
         }),
         resumeSession: vi.fn(async () => {
           throw new Error("resume not expected");
@@ -3038,6 +3052,68 @@ it("configures profile-owned spill output and gates bash to read-only spill insp
         { sessionId: "shell-session" },
       ),
     ).resolves.toMatchObject({ kind: "reject" });
+
+    const deniedCommand = `tail -n +32 '${spillFile}'`;
+    const denial = await configs[0]?.onPermissionRequest?.(
+      {
+        ...request,
+        toolCallId: "shell-denied",
+        commands: [{ identifier: deniedCommand, readOnly: false }],
+        commandSegments: [
+          { identifier: "tail", fullCommandText: deniedCommand },
+        ],
+        fullCommandText: deniedCommand,
+      },
+      { sessionId: "shell-session" },
+    );
+    expect(denial?.kind).toBe("reject");
+    if (denial?.kind !== "reject") {
+      throw new Error("Expected a rejected shell request");
+    }
+    expect(denial.feedback).toContain("reads through end-of-file");
+    shellSession.emit(
+      toolStart("shell-denied", "bash", {
+        command: deniedCommand,
+        authorization: "Bearer never-persist-this",
+      }),
+    );
+    shellSession.emit({
+      type: "tool.execution_complete",
+      id: "complete-shell-denied",
+      parentId: null,
+      timestamp: "2026-08-08T00:00:03.000Z",
+      data: {
+        toolCallId: "shell-denied",
+        success: false,
+        error: {
+          code: "denied",
+          message:
+            "The user rejected this tool call. User feedback: The requested shell syntax or arguments are not allowed.",
+        },
+      },
+    });
+
+    const failed = received.find(
+      (event) =>
+        event.type === "operation.failed" &&
+        event.operationId === "shell-denied",
+    );
+    expect(failed).toMatchObject({
+      type: "operation.failed",
+      code: "shell_policy_blocked",
+      message: "Blocked by shell safety policy",
+      failureSource: "application_policy",
+      details: {
+        shellPolicy: { stage: "unbounded_output" },
+      },
+    });
+    expect(
+      failed?.type === "operation.failed" ? failed.recovery : undefined,
+    ).toContain("reads through end-of-file");
+    expect(JSON.stringify(received)).not.toContain(
+      "The user rejected this tool call",
+    );
+    expect(JSON.stringify(received)).not.toContain("never-persist-this");
   } finally {
     await service.stop();
     await rm(root, { recursive: true, force: true });

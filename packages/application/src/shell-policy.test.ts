@@ -297,6 +297,25 @@ describe("spill file shell permission", () => {
     ).toMatchObject({ kind: "reject" });
   });
 
+  it("explains why tail from a starting line is unbounded", async () => {
+    const { directory, file } = await fixture();
+    const fullCommandText = `tail -n +32 '${file}'`;
+    const evaluation = evaluateSpillFileShellPolicy(
+      liveShellRequest(file, fullCommandText, [
+        { identifier: "tail", fullCommandText },
+      ]),
+      directory,
+    );
+
+    expect(evaluation.diagnostics?.stage).toBe("unbounded_output");
+    expect(evaluation.result?.kind).toBe("reject");
+    if (evaluation.result?.kind !== "reject") {
+      throw new Error("Expected a rejected shell request");
+    }
+    expect(evaluation.result.feedback).toContain("reads through end-of-file");
+    expect(evaluation.result.feedback).toContain("jq");
+  });
+
   it("rejects missing parsed command segments", async () => {
     const { directory, file } = await fixture();
     const request = shellRequest(file);

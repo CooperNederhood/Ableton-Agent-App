@@ -3154,6 +3154,10 @@ export class HeadlessDesktopService implements DesktopService {
                 operation_id: event.operationId,
                 label: event.label.slice(0, 2_048),
                 status: "running",
+                ...(normalized.type !== "operation.changed" ||
+                normalized.operation.request === undefined
+                  ? {}
+                  : { request: normalized.operation.request }),
                 ...operationMetadata,
               }
             : event.type === "operation.completed"
@@ -3161,6 +3165,17 @@ export class HeadlessDesktopService implements DesktopService {
                   operation_id: event.operationId,
                   summary: event.summary.slice(0, 2_048),
                   status: "completed",
+                  ...(normalized.type !== "operation.changed" ||
+                  normalized.operation.request === undefined
+                    ? {}
+                    : { request: normalized.operation.request }),
+                  ...(normalized.type !== "operation.changed" ||
+                  normalized.operation.outcome === undefined
+                    ? {}
+                    : { outcome: normalized.operation.outcome }),
+                  ...(event.durationMs === undefined
+                    ? {}
+                    : { duration_ms: event.durationMs }),
                   ...operationMetadata,
                 }
               : {
@@ -3168,6 +3183,17 @@ export class HeadlessDesktopService implements DesktopService {
                   error_code: event.code.slice(0, 2_048),
                   error_message: event.message.slice(0, 2_048),
                   error_retryable: event.retryable ?? false,
+                  ...(normalized.type !== "operation.changed" ||
+                  normalized.operation.request === undefined
+                    ? {}
+                    : { request: normalized.operation.request }),
+                  ...(normalized.type !== "operation.changed" ||
+                  normalized.operation.failure === undefined
+                    ? {}
+                    : { failure: normalized.operation.failure }),
+                  ...(event.durationMs === undefined
+                    ? {}
+                    : { duration_ms: event.durationMs }),
                   ...(event.details === undefined
                     ? {}
                     : { error_details: event.details }),

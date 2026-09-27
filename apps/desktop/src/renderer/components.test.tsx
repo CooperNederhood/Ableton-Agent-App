@@ -1685,6 +1685,15 @@ describe("desktop components", () => {
           action: "launch",
           status: "partial",
           detail: "2 of 3",
+          request: {
+            details: [{ label: "Scene index", value: "2" }],
+          },
+          outcome: {
+            kind: "result",
+            summary: "Two clips launched",
+            details: [{ label: "Launched clips", value: "2" }],
+          },
+          durationMs: 1_250,
           warnings: ["Track locked"],
           changed: ["Intro"],
           unchanged: ["Verse"],
@@ -1699,6 +1708,56 @@ describe("desktop components", () => {
     expect(html).toContain("ableton_session_clips · launch");
     expect(html).toContain("Retry safely");
     expect(html).toContain("Not changed:");
+    expect(html).toContain("Requested");
+    expect(html).toContain("Result");
+    expect(html).toContain("1.3 s");
+  });
+
+  it("renders an attributed policy failure with corrective guidance", () => {
+    const html = renderToStaticMarkup(
+      <OperationCard
+        operation={{
+          id: "shell-1",
+          label: "Run shell command",
+          toolName: "bash",
+          status: "failed",
+          request: {
+            details: [
+              {
+                label: "Command",
+                value: "tail -n +32 <spill-file>",
+                format: "code",
+              },
+            ],
+          },
+          failure: {
+            source: "application_policy",
+            code: "shell_policy_blocked",
+            message: "Blocked by shell safety policy",
+            recovery: "Use bounded tail -n N or a jq slice.",
+            details: [
+              {
+                label: "Shell policy",
+                value: '{\n  "stage": "unbounded_output"\n}',
+                format: "code",
+              },
+            ],
+          },
+          warnings: [],
+          changed: [],
+          unchanged: [],
+          retryable: false,
+          undoable: false,
+          timestamp: 1,
+        }}
+      />,
+    );
+
+    expect(html).toContain("Blocked by application policy");
+    expect(html).toContain("shell_policy_blocked");
+    expect(html).toContain("How to correct it");
+    expect(html).toContain("tail -n +32 &lt;spill-file&gt;");
+    expect(html).not.toContain("The user rejected this tool call");
   });
 
   it("classifies compact operation icons from tool names and labels", () => {

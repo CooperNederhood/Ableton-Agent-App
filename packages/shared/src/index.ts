@@ -25,6 +25,20 @@ export interface AgentEventAttribution {
   sdkSessionId?: string;
 }
 
+export type OperationFailureSource =
+  "application_policy" | "runtime" | "tool" | "user";
+
+export interface OperationEventMetadata {
+  operationDescriptorId?: string;
+  action?: string;
+  targetIdentity?: {
+    readonly domain: string;
+    readonly action: string;
+    readonly targetKind: string;
+    readonly targetReferences: readonly string[];
+  };
+}
+
 export type AgentMode = "interactive" | "plan";
 export type AgentReasoningSummary = "none" | "concise" | "detailed";
 
@@ -276,23 +290,34 @@ export type AppEvent =
       label: string;
       toolName?: string;
       arguments?: Readonly<Record<string, unknown>>;
-    } & AgentEventAttribution)
+    } & AgentEventAttribution &
+      OperationEventMetadata)
   | ({
       type: "operation.completed";
       operationId: string;
+      label?: string;
       summary: string;
       toolName?: string;
-      result?: string;
-    } & AgentEventAttribution)
+      arguments?: Readonly<Record<string, unknown>>;
+      result?: unknown;
+      durationMs?: number;
+    } & AgentEventAttribution &
+      OperationEventMetadata)
   | ({
       type: "operation.failed";
       operationId: string;
+      label?: string;
       code: string;
       message: string;
       retryable?: boolean;
       details?: Readonly<Record<string, unknown>>;
       toolName?: string;
-    } & AgentEventAttribution)
+      arguments?: Readonly<Record<string, unknown>>;
+      durationMs?: number;
+      failureSource?: OperationFailureSource;
+      recovery?: string;
+    } & AgentEventAttribution &
+      OperationEventMetadata)
   | ({
       type: "agent.sdk_session_rotated";
       agentInstanceId: string;

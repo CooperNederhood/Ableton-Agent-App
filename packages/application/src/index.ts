@@ -144,6 +144,7 @@ import {
   workflowJobCommandParamsSchema,
   workflowJobOperationParamsSchema,
 } from "@ableton-agent/protocol";
+import { sanitizeTelemetryAttributes } from "@ableton-agent/observability";
 import type {
   AppEvent,
   AgentMode,
@@ -437,6 +438,13 @@ const MAX_PLAN_SUMMARY_LENGTH = 8_192;
 const MAX_PLAN_CONTENT_LENGTH = 100_000;
 const MAX_PLAN_FEEDBACK_LENGTH = 8_192;
 const MAX_WORKING_CONTENT_LENGTH = 16_000;
+const operationDisclosureSanitizerOptions = {
+  maxDepth: 5,
+  maxStringCharacters: 4_096,
+  maxArrayItems: 48,
+  maxObjectFields: 64,
+  maxBytes: 24_576,
+} as const;
 
 function boundedPlanText(value: string, maximum: number): string {
   return value.slice(0, maximum);
@@ -446,6 +454,23 @@ function recordValue(value: unknown): Readonly<Record<string, unknown>> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Readonly<Record<string, unknown>>)
     : {};
+}
+
+function sanitizeOperationRecord(
+  value: unknown,
+): Readonly<Record<string, unknown>> {
+  return sanitizeTelemetryAttributes(
+    recordValue(value),
+    operationDisclosureSanitizerOptions,
+  );
+}
+
+function sanitizeOperationResult(value: unknown): unknown {
+  const sanitized = sanitizeTelemetryAttributes(
+    { value },
+    operationDisclosureSanitizerOptions,
+  );
+  return "value" in sanitized ? sanitized.value : sanitized;
 }
 
 function elicitationRequest(
@@ -1219,6 +1244,14 @@ interface ObservedOperation {
   targetIdentity?: AbletonOperationLifecycleIdentity;
 }
 
+interface PendingPermissionRejection {
+  readonly code: string;
+  readonly message: string;
+  readonly source: "application_policy" | "user";
+  readonly recovery?: string;
+  readonly details: Readonly<Record<string, unknown>>;
+}
+
 interface MutableRuntimeTrace {
   traceId: string;
   turnId: string;
@@ -1260,6 +1293,7 @@ interface ManagedSessionState {
   automaticDrainScheduled: boolean;
   readonly pendingAutomatic: Map<string, PendingAutomaticTurn>;
   readonly operations: Map<string, ObservedOperation>;
+  readonly permissionRejections: Map<string, PendingPermissionRejection>;
   readonly directPlanRequests: Map<
     string,
     {
@@ -2318,6 +2352,7 @@ export class CopilotAgentService implements AgentService {
       automaticDrainScheduled: false,
       pendingAutomatic: new Map(),
       operations: new Map(),
+      permissionRejections: new Map(),
       directPlanRequests: new Map(),
       elicitationRequests: new Map(),
     };
@@ -3232,6 +3267,38 @@ export class CopilotAgentService implements AgentService {
             "Do not retry or rephrase this denied operation. Wait for a new user request.",
           );
         }
+        if ("toolCallId" in request && typeof request.toolCallId === "string") {
+          if (result.kind === "reject") {
+            const shellPolicyBlocked =
+              shellEvaluation.result?.kind === "reject";
+            const userDenied =
+              !shellPolicyBlocked &&
+              result.feedback === "User denied the Ableton mutation";
+            state.permissionRejections.set(request.toolCallId, {
+              code: shellPolicyBlocked
+                ? "shell_policy_blocked"
+                : userDenied
+                  ? "user_denied"
+                  : "permission_denied",
+              message: shellPolicyBlocked
+                ? "Blocked by shell safety policy"
+                : userDenied
+                  ? "User denied the tool call"
+                  : "Tool call blocked by application policy",
+              source: userDenied ? "user" : "application_policy",
+              ...(result.feedback === undefined
+                ? {}
+                : { recovery: result.feedback }),
+              details: sanitizeOperationRecord(
+                shellEvaluation.diagnostics === undefined
+                  ? {}
+                  : { shellPolicy: shellEvaluation.diagnostics },
+              ),
+            });
+          } else {
+            state.permissionRejections.delete(request.toolCallId);
+          }
+        }
         this.#recordRuntime(state, "agent.permission.completed", {
           permissionId,
           request,
@@ -3690,17 +3757,23 @@ export class CopilotAgentService implements AgentService {
           event.timestamp,
           event.data.errorMessage,
         );
-      } else if (event.type === "abort" && activeTurn !== undefined) {
-        this.#finishWorkingTurn(
-          state,
-          activeTurn,
-          "cancelled",
-          event.timestamp,
-          event.data.reason,
-        );
+      } else if (event.type === "abort") {
+        state.permissionRejections.clear();
+        if (activeTurn !== undefined) {
+          this.#finishWorkingTurn(
+            state,
+            activeTurn,
+            "cancelled",
+            event.timestamp,
+            event.data.reason,
+          );
+        }
       } else if (event.type === "tool.execution_start") {
         const metadata = toolMetadata;
         const label = metadata?.title ?? event.data.toolName;
+        const operationArguments = sanitizeOperationRecord(
+          event.data.arguments,
+        );
         state.operations.set(event.data.toolCallId, {
           label,
           toolName: event.data.toolName,
@@ -3708,7 +3781,7 @@ export class CopilotAgentService implements AgentService {
           ...(metadata?.mutationTarget === undefined
             ? {}
             : { mutationTarget: metadata.mutationTarget }),
-          arguments: recordValue(event.data.arguments),
+          arguments: operationArguments,
           startedAt: Date.parse(event.timestamp),
           ...(metadata?.operationId === undefined
             ? {}
@@ -3727,7 +3800,7 @@ export class CopilotAgentService implements AgentService {
             : {}),
           operationId: event.data.toolCallId,
           toolName: event.data.toolName,
-          arguments: recordValue(event.data.arguments),
+          arguments: operationArguments,
           operationDescriptorId: metadata?.operationId,
           action: metadata?.action,
           mutationTarget: metadata?.mutationTarget,
@@ -3738,7 +3811,7 @@ export class CopilotAgentService implements AgentService {
           operationId: event.data.toolCallId,
           label,
           toolName: event.data.toolName,
-          arguments: recordValue(event.data.arguments),
+          arguments: operationArguments,
           ...(metadata?.operationId === undefined
             ? {}
             : { operationDescriptorId: metadata.operationId }),
@@ -3754,7 +3827,15 @@ export class CopilotAgentService implements AgentService {
         const operation = state.operations.get(event.data.toolCallId);
         const label = operation?.label ?? "Tool operation";
         const exposeResult = operation?.toolName !== SKILL_TOOL_NAME;
+        const durationMs =
+          operation === undefined
+            ? undefined
+            : Math.max(0, Date.parse(event.timestamp) - operation.startedAt);
+        const permissionRejection = state.permissionRejections.get(
+          event.data.toolCallId,
+        );
         state.operations.delete(event.data.toolCallId);
+        state.permissionRejections.delete(event.data.toolCallId);
         if (event.data.success) {
           this.#logger.debug("Agent tool completed", {
             sessionId: session.sessionId,
@@ -3768,17 +3849,25 @@ export class CopilotAgentService implements AgentService {
           this.options.events.publish({
             type: "operation.completed",
             operationId: event.data.toolCallId,
+            label,
             summary: `${label} completed`,
             ...(operation === undefined
               ? {}
               : {
                   toolName: operation.toolName,
+                  arguments: operation.arguments,
                   operationDescriptorId: operation.operationDescriptorId,
                   action: operation.action,
+                  ...(operation.targetIdentity === undefined
+                    ? {}
+                    : { targetIdentity: operation.targetIdentity }),
                 }),
             ...(!exposeResult || event.data.result?.content === undefined
               ? {}
-              : { result: event.data.result.content }),
+              : {
+                  result: sanitizeOperationResult(event.data.result.content),
+                }),
+            ...(durationMs === undefined ? {} : { durationMs }),
             ...this.#eventAttribution(state),
           });
         } else {
@@ -3794,25 +3883,51 @@ export class CopilotAgentService implements AgentService {
           this.options.events.publish({
             type: "operation.failed",
             operationId: event.data.toolCallId,
+            label,
             code:
+              permissionRejection?.code ??
               structuredToolFailure?.code ??
               event.data.error?.code ??
               "tool_failed",
             message:
+              permissionRejection?.message ??
               structuredToolFailure?.message ??
               event.data.error?.message ??
               `${label} failed`,
-            retryable: structuredToolFailure?.retryable ?? false,
-            ...(structuredToolFailure === undefined
-              ? {}
-              : { details: structuredToolFailure.details }),
+            retryable:
+              permissionRejection === undefined
+                ? (structuredToolFailure?.retryable ?? false)
+                : false,
+            ...(permissionRejection !== undefined
+              ? { details: permissionRejection.details }
+              : structuredToolFailure === undefined
+                ? {}
+                : { details: structuredToolFailure.details }),
+            ...(permissionRejection === undefined
+              ? {
+                  failureSource:
+                    structuredToolFailure === undefined
+                      ? ("runtime" as const)
+                      : ("tool" as const),
+                }
+              : {
+                  failureSource: permissionRejection.source,
+                  ...(permissionRejection.recovery === undefined
+                    ? {}
+                    : { recovery: permissionRejection.recovery }),
+                }),
             ...(operation === undefined
               ? {}
               : {
                   toolName: operation.toolName,
+                  arguments: operation.arguments,
                   operationDescriptorId: operation.operationDescriptorId,
                   action: operation.action,
+                  ...(operation.targetIdentity === undefined
+                    ? {}
+                    : { targetIdentity: operation.targetIdentity }),
                 }),
+            ...(durationMs === undefined ? {} : { durationMs }),
             ...this.#eventAttribution(state),
           });
         }
@@ -3904,6 +4019,7 @@ export class CopilotAgentService implements AgentService {
     state.inFlightTurns = 0;
     state.queuedTurns = 0;
     state.operations.clear();
+    state.permissionRejections.clear();
     this.#cancelPendingPlans(state, "session_disconnected");
     this.#cancelPendingElicitations(state, "session_disconnected");
     this.#rejectPendingAutomatic(
@@ -4131,6 +4247,7 @@ export class CopilotAgentService implements AgentService {
     previous.inFlightTurns = 0;
     previous.queuedTurns = 0;
     previous.operations.clear();
+    previous.permissionRejections.clear();
     this.#cancelActiveTurnTimeout(previous, "session_replaced");
     this.#cancelPendingPlans(previous, "session_replaced");
     this.#rejectPendingAutomatic(previous, reason);
@@ -4199,17 +4316,28 @@ export class CopilotAgentService implements AgentService {
       this.options.events.publish({
         type: "operation.failed",
         operationId,
+        label: operation.label,
         code,
         message,
         toolName: operation.toolName,
-        ...{
-          operationDescriptorId: operation.operationDescriptorId,
-          action: operation.action,
-        },
+        arguments: operation.arguments,
+        durationMs: Date.now() - operation.startedAt,
+        failureSource: "runtime",
+        recovery: operation.mutates
+          ? "Inspect the affected Ableton state before retrying."
+          : "Retry after the connection is responsive.",
+        ...(operation.operationDescriptorId === undefined
+          ? {}
+          : { operationDescriptorId: operation.operationDescriptorId }),
+        ...(operation.action === undefined ? {} : { action: operation.action }),
+        ...(operation.targetIdentity === undefined
+          ? {}
+          : { targetIdentity: operation.targetIdentity }),
         ...this.#eventAttribution(state),
       });
     }
     state.operations.clear();
+    state.permissionRejections.clear();
 
     let abortError: unknown;
     this.#recordRuntime(

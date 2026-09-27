@@ -275,11 +275,11 @@ limitations. Private API shape detection alone is reported as
 `private_detected_untested` and remains disabled until that exact Live 11 build
 has real-Live validation evidence.
 
-Protocol 4 adds the workflow-adapter commands and capability-detail handshake
-shape. The version bump preserves compatibility by preventing protocol 3 peers
+Protocol 6 adds the workflow-adapter commands and capability-detail handshake
+shape. The version bump preserves compatibility by preventing protocol 5 peers
 from accepting the extended `system.hello` contract without negotiation.
-Remote Script `0.6.0` is the minimum compatible installation for protocol 4,
-so a protocol-3 `0.5.0` installation is detected as outdated and reinstalled.
+Remote Script `0.6.0` is the minimum compatible installation for protocol 6,
+so an older installation is detected as outdated and reinstalled.
 
 `events.inspect_curated_state` returns bounded initial transport,
 tempo/signature, selection, topology, routing, and meter state.

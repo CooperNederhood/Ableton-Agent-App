@@ -35,6 +35,24 @@ are written under the repository-level `release/` directory. Signing and
 notarization credentials remain available only in the release environment.
 Generated release artifacts are excluded from source linting.
 
+For the normal local development upgrade on macOS, fully quit Ableton Live and
+every running copy of Ableton Agent, then run:
+
+```bash
+pnpm desktop:install:mac
+```
+
+This command removes stale release artifacts, restores the pinned dependencies,
+runs the production quality and source-mode Electron gates, packages only the
+host architecture, smoke-tests the packaged app, updates the managed Remote
+Script, applies a complete local ad-hoc signature, atomically replaces
+`/Applications/Ableton Agent.app`, and launches that exact installed path.
+Application profiles, history, credentials, bridge tokens, and Ableton projects
+are preserved. The command fails before mutation if Live or any Ableton Agent
+copy is still running. Use `--skip-checks` only after a fully verified build,
+`--skip-remote-script` when Python sources are unchanged, or `--no-launch` when
+the installed app should remain closed.
+
 `electron-builder.yml` produces DMG/ZIP artifacts for Intel and Apple Silicon
 macOS and an assisted, per-user NSIS installer for 64-bit Windows. Signing and
 notarization are intentionally supplied only by the release environment.

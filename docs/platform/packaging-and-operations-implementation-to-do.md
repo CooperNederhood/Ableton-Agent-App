@@ -5,6 +5,9 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 ## Desktop distribution
 
 - [x] Configure reproducible development and production builds.
+- [x] Provide a fail-fast, host-architecture macOS development install command
+      that cleans stale artifacts, verifies the package, updates the Remote
+      Script, locally signs, atomically replaces, and launches the installed app.
 - [x] Bundle architecture-matched Copilot SDK and Koffi native runtimes in
   Intel and Apple Silicon macOS artifacts.
 - [x] Configure branded macOS, Windows, and runtime application icons.

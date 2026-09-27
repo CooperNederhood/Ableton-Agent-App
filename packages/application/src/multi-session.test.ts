@@ -2972,23 +2972,22 @@ it("configures profile-owned spill output and gates bash to read-only spill insp
       "123-copilot-tool-output-abcdef0123456789.txt",
     );
     await writeFile(spillFile, '{"pads":[]}\n');
+    const fullCommandText = `jq '.pads | length' '${spillFile}'`;
     const request = {
       kind: "shell",
       canOfferSessionApproval: false,
-      commands: [{ identifier: "jq", readOnly: false }],
+      commands: [{ identifier: fullCommandText, readOnly: false }],
       commandSegments: [
         {
           identifier: "jq",
-          fullCommandText: `jq '.pads | length' '${spillFile}'`,
+          fullCommandText,
         },
       ],
-      fullCommandText: `jq '.pads | length' '${spillFile}'`,
+      fullCommandText,
       hasWriteFileRedirection: false,
       intention: "Inspect spilled JSON",
-      possiblePaths: [spillFile],
+      possiblePaths: [],
       possibleUrls: [],
-      resolvedPaths: { [spillFile]: spillFile },
-      resolvedWorkingDirectory: largeOutputDirectory,
     } satisfies Extract<PermissionRequest, { kind: "shell" }>;
     expect(configs[0]?.largeOutput).toEqual({
       enabled: true,
@@ -3010,6 +3009,22 @@ it("configures profile-owned spill output and gates bash to read-only spill insp
         sessionId: "shell-session",
       }),
     ).resolves.toEqual({ kind: "approve-once" });
+    expect(
+      runtimeEvents.find(
+        (event) =>
+          event.type === "agent.permission.completed" &&
+          (event.data.shellPolicy as { stage?: string } | undefined)?.stage ===
+            "approved",
+      )?.data.shellPolicy,
+    ).toMatchObject({
+      stage: "approved",
+      commandIdentifiers: ["jq"],
+      commandCount: 1,
+      segmentCount: 1,
+      fileOperandCount: 1,
+      sdkCommandSummaryDisagrees: true,
+      sdkPathSummaryDisagrees: true,
+    });
     await expect(
       configs[0]?.onPermissionRequest?.(
         {

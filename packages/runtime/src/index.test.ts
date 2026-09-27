@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { InMemoryEventPublisher } from "@ableton-agent/shared";
@@ -43,6 +44,10 @@ const validToken = "a".repeat(32);
 type TestClient = ReturnType<
   NonNullable<CopilotAgentServiceOptions["clientFactory"]>
 >;
+type TestSessionConfig = Parameters<TestClient["createSession"]>[0];
+type TestPermissionRequest = Parameters<
+  NonNullable<TestSessionConfig["onPermissionRequest"]>
+>[0];
 type TestSession = Awaited<ReturnType<TestClient["createSession"]>>;
 type TestSessionEvent = Parameters<Parameters<TestSession["on"]>[0]>[0];
 
@@ -263,6 +268,97 @@ describe("agent runtime composition", () => {
     expect(typeof configuredTools?.[0]?.available).toBe("boolean");
     expect(JSON.stringify(snapshots)).not.toContain(credential);
     await runtime.application.stop();
+  });
+
+  it("persists bounded spill shell policy decisions in agent history", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ableton-shell-history-"));
+    const largeOutputDirectory = join(root, "tool-output");
+    await mkdir(largeOutputDirectory, { recursive: true });
+    const spillFile = join(
+      largeOutputDirectory,
+      "123-copilot-tool-output-abcdef0123456789.txt",
+    );
+    await writeFile(spillFile, '{"parameters":[]}\n');
+    let sessionConfig: TestSessionConfig | undefined;
+    const agentHistory: AgentHistoryRecord[] = [];
+    const runtime = createAgentRuntime({
+      ableton: { port: 8765 },
+      agent: {
+        largeOutputDirectory,
+        clientFactory: () => ({
+          createSession: (config) => {
+            sessionConfig = config;
+            return Promise.resolve(fakeSession("shell-history-session"));
+          },
+          resumeSession: () => Promise.reject(new Error("not expected")),
+          stop: () => Promise.resolve([]),
+        }),
+      },
+      currentAppSessionId: () => "app-session",
+      agentHistory: {
+        appendAgentHistory: (record) => {
+          agentHistory.push(agentHistoryRecordSchema.parse(record));
+          return Promise.resolve();
+        },
+      },
+    });
+
+    try {
+      await runtime.application.start();
+      const fullCommandText = `jq -c '.parameters[]' ${spillFile}`;
+      const request = {
+        kind: "shell",
+        toolCallId: "shell-call",
+        canOfferSessionApproval: false,
+        commands: [{ identifier: fullCommandText, readOnly: false }],
+        commandSegments: [{ identifier: "jq", fullCommandText }],
+        fullCommandText,
+        hasWriteFileRedirection: false,
+        intention: "Inspect spilled JSON",
+        possiblePaths: [],
+        possibleUrls: [],
+      } satisfies Extract<TestPermissionRequest, { kind: "shell" }>;
+
+      await expect(
+        sessionConfig?.onPermissionRequest?.(request, {
+          sessionId: "shell-history-session",
+        }),
+      ).resolves.toEqual({ kind: "approve-once" });
+      await vi.waitFor(() => {
+        expect(agentHistory.some((record) => record.kind === "approval")).toBe(
+          true,
+        );
+      });
+
+      const approval = agentHistory.find(
+        (record): record is Extract<AgentHistoryRecord, { kind: "approval" }> =>
+          record.kind === "approval",
+      );
+      expect(approval).toMatchObject({
+        kind: "approval",
+        status: "approved",
+        details: {
+          shellPolicy: {
+            stage: "approved",
+            commandIdentifiers: ["jq"],
+            commandCount: 1,
+            segmentCount: 1,
+            fileOperandCount: 1,
+            sdkCommandSummaryDisagrees: true,
+            sdkPathSummaryDisagrees: true,
+          },
+        },
+      });
+      const shellPolicy = (
+        approval?.details as
+          { shellPolicy?: Readonly<Record<string, unknown>> } | undefined
+      )?.shellPolicy;
+      expect(JSON.stringify(shellPolicy)).not.toContain(spillFile);
+      expect(JSON.stringify(shellPolicy)).not.toContain(".parameters");
+    } finally {
+      await runtime.application.stop();
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("links a Live delivery through distinct turn and tool lifecycle spans", async () => {

@@ -229,7 +229,7 @@ import {
   type PlanArtifactWrite,
 } from "./plan-artifact.js";
 import {
-  evaluateSpillFileShellPermission,
+  evaluateSpillFileShellPolicy,
   prepareSpillDirectory,
 } from "./shell-policy.js";
 
@@ -3181,21 +3181,24 @@ export class CopilotAgentService implements AgentService {
                 }
               })()
             : undefined;
+        const shellEvaluation = evaluateSpillFileShellPolicy(
+          request,
+          this.#largeOutputDirectory,
+        );
         this.#recordRuntime(state, "agent.permission.requested", {
           permissionId,
           request,
           invocation,
+          ...(shellEvaluation.diagnostics === undefined
+            ? {}
+            : { shellPolicy: shellEvaluation.diagnostics }),
           ...(resolvedMetadata === undefined
             ? {}
             : { operationMetadata: resolvedMetadata }),
         });
         let result;
-        const shellDecision = evaluateSpillFileShellPermission(
-          request,
-          this.#largeOutputDirectory,
-        );
-        if (shellDecision !== undefined) {
-          result = shellDecision;
+        if (shellEvaluation.result !== undefined) {
+          result = shellEvaluation.result;
         } else if (
           request.kind === "custom-tool" &&
           [SKILL_TOOL_NAME, READ_PLAN_TOOL_NAME, WRITE_PLAN_TOOL_NAME].includes(
@@ -3233,6 +3236,9 @@ export class CopilotAgentService implements AgentService {
           permissionId,
           request,
           result,
+          ...(shellEvaluation.diagnostics === undefined
+            ? {}
+            : { shellPolicy: shellEvaluation.diagnostics }),
           ...(resolvedMetadata === undefined
             ? {}
             : { operationMetadata: resolvedMetadata }),

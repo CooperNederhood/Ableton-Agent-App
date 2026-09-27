@@ -28,6 +28,36 @@ export interface SpillDirectoryPreparation {
   readonly retainedBytes: number;
 }
 
+export type SpillShellPolicyStage =
+  | "approved"
+  | "invalid_arguments"
+  | "invalid_spill_path"
+  | "invalid_syntax"
+  | "managed_approval_required"
+  | "missing_segments"
+  | "missing_spill_operand"
+  | "network_access"
+  | "sandbox_escalation"
+  | "spill_directory_unavailable"
+  | "unsupported_command"
+  | "write_redirection";
+
+export interface SpillShellPolicyDiagnostics {
+  readonly stage: SpillShellPolicyStage;
+  readonly commandIdentifiers: readonly string[];
+  readonly commandCount: number;
+  readonly segmentCount: number;
+  readonly fileOperandCount: number;
+  readonly sdkCommandSummaryDisagrees: boolean;
+  readonly sdkPathSummaryDisagrees: boolean;
+  readonly durationMs: number;
+}
+
+export interface SpillShellPolicyEvaluation {
+  readonly result: PermissionRequestResult | undefined;
+  readonly diagnostics?: SpillShellPolicyDiagnostics;
+}
+
 export function prepareSpillDirectory(
   spillDirectory: string,
   now = Date.now(),
@@ -133,48 +163,345 @@ function hasUnsafeShellSyntax(command: string): boolean {
   return quote !== undefined || escaped;
 }
 
-function requestedLineCount(command: string): number | undefined {
-  const match = /(?:^|\s)(?:-n\s+|--lines(?:=|\s+)|-)(\d+)(?=\s|$)/u.exec(
-    command,
-  );
-  return match === null ? undefined : Number(match[1]);
+function splitShellPipeline(command: string): string[] | undefined {
+  const segments: string[] = [];
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+  let start = 0;
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index]!;
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\" && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if (quote === "'") {
+      if (character === "'") quote = undefined;
+      continue;
+    }
+    if (quote === '"') {
+      if (character === '"') quote = undefined;
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = character;
+      continue;
+    }
+    if (character === "|") {
+      const segment = command.slice(start, index).trim();
+      if (segment.length === 0) return undefined;
+      segments.push(segment);
+      start = index + 1;
+    }
+  }
+  if (quote !== undefined || escaped) return undefined;
+  const segment = command.slice(start).trim();
+  if (segment.length === 0) return undefined;
+  segments.push(segment);
+  return segments;
 }
 
-function commandArgumentsAreAllowed(
-  identifier: string,
-  command: string,
-): boolean {
-  const commandStart = command.trimStart();
-  if (
-    !commandStart.startsWith(identifier) ||
-    !/^\s/u.test(commandStart.slice(identifier.length))
-  ) {
-    return false;
+function tokenizeShellSegment(command: string): string[] | undefined {
+  const tokens: string[] = [];
+  let token = "";
+  let tokenStarted = false;
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+  const finishToken = (): void => {
+    if (!tokenStarted) return;
+    tokens.push(token);
+    token = "";
+    tokenStarted = false;
+  };
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index]!;
+    if (escaped) {
+      token += character;
+      tokenStarted = true;
+      escaped = false;
+      continue;
+    }
+    if (character === "\\" && quote !== "'") {
+      escaped = true;
+      tokenStarted = true;
+      continue;
+    }
+    if (quote === "'") {
+      if (character === "'") {
+        quote = undefined;
+      } else {
+        token += character;
+      }
+      tokenStarted = true;
+      continue;
+    }
+    if (quote === '"') {
+      if (character === '"') {
+        quote = undefined;
+      } else {
+        token += character;
+      }
+      tokenStarted = true;
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = character;
+      tokenStarted = true;
+      continue;
+    }
+    if (/\s/u.test(character)) {
+      finishToken();
+      continue;
+    }
+    if ("|;&<>()".includes(character)) return undefined;
+    token += character;
+    tokenStarted = true;
   }
-  if (identifier === "grep") {
-    return !/(?:^|\s)(?:-[^\s]*[rRPf]|--(?:recursive|dereference-recursive|file|include|exclude|exclude-dir))(?=\s|=|$)/u.test(
-      command,
-    );
+  if (quote !== undefined || escaped) return undefined;
+  finishToken();
+  return tokens;
+}
+
+interface ParsedCommand {
+  readonly fileOperands: readonly string[];
+}
+
+function parseJqCommand(tokens: readonly string[]): ParsedCommand | undefined {
+  const safeLongFlags = new Set([
+    "--ascii-output",
+    "--binary",
+    "--color-output",
+    "--compact-output",
+    "--exit-status",
+    "--join-output",
+    "--jsonargs",
+    "--monochrome-output",
+    "--raw-input",
+    "--raw-output",
+    "--raw-output0",
+    "--seq",
+    "--slurp",
+    "--sort-keys",
+    "--stream",
+    "--stream-errors",
+    "--unbuffered",
+  ]);
+  const safeShortFlags = new Set([
+    "0",
+    "C",
+    "M",
+    "R",
+    "S",
+    "a",
+    "c",
+    "e",
+    "j",
+    "r",
+    "s",
+  ]);
+  let index = 1;
+  while (index < tokens.length) {
+    const token = tokens[index]!;
+    if (token === "--") {
+      index += 1;
+      break;
+    }
+    if (token === "--arg" || token === "--argjson") {
+      if (index + 2 >= tokens.length) return undefined;
+      index += 3;
+      continue;
+    }
+    if (token.startsWith("--")) {
+      if (!safeLongFlags.has(token)) return undefined;
+      index += 1;
+      continue;
+    }
+    if (token.startsWith("-") && token.length > 1) {
+      if (![...token.slice(1)].every((flag) => safeShortFlags.has(flag))) {
+        return undefined;
+      }
+      index += 1;
+      continue;
+    }
+    break;
   }
-  if (identifier === "head" || identifier === "tail") {
+  if (index >= tokens.length) return undefined;
+  index += 1;
+  return { fileOperands: tokens.slice(index) };
+}
+
+function parseGrepCommand(
+  tokens: readonly string[],
+): ParsedCommand | undefined {
+  const safeLongFlags = new Set([
+    "--basic-regexp",
+    "--byte-offset",
+    "--count",
+    "--extended-regexp",
+    "--fixed-strings",
+    "--files-with-matches",
+    "--files-without-match",
+    "--ignore-case",
+    "--invert-match",
+    "--line-number",
+    "--line-regexp",
+    "--no-filename",
+    "--no-messages",
+    "--only-matching",
+    "--perl-regexp",
+    "--quiet",
+    "--regexp",
+    "--text",
+    "--with-filename",
+    "--word-regexp",
+  ]);
+  const safeShortFlags = new Set([
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "L",
+    "P",
+    "a",
+    "b",
+    "c",
+    "h",
+    "i",
+    "l",
+    "n",
+    "o",
+    "q",
+    "s",
+    "v",
+    "w",
+    "x",
+  ]);
+  let index = 1;
+  let hasPattern = false;
+  while (index < tokens.length) {
+    const token = tokens[index]!;
+    if (token === "--") {
+      index += 1;
+      break;
+    }
+    if (token === "-e" || token === "--regexp") {
+      if (index + 1 >= tokens.length) return undefined;
+      hasPattern = true;
+      index += 2;
+      continue;
+    }
+    if (token.startsWith("--")) {
+      if (!safeLongFlags.has(token)) return undefined;
+      index += 1;
+      continue;
+    }
+    if (token.startsWith("-") && token.length > 1) {
+      if (![...token.slice(1)].every((flag) => safeShortFlags.has(flag))) {
+        return undefined;
+      }
+      index += 1;
+      continue;
+    }
+    break;
+  }
+  if (!hasPattern) {
+    if (index >= tokens.length) return undefined;
+    index += 1;
+  }
+  return { fileOperands: tokens.slice(index) };
+}
+
+function parseHeadOrTailCommand(
+  identifier: "head" | "tail",
+  tokens: readonly string[],
+): ParsedCommand | undefined {
+  let index = 1;
+  while (index < tokens.length) {
+    const token = tokens[index]!;
+    if (token === "--") {
+      index += 1;
+      break;
+    }
+    if (token === "-n" || token === "--lines") {
+      if (index + 1 >= tokens.length) return undefined;
+      const countText = tokens[index + 1]!;
+      if (!/^\d+$/u.test(countText)) return undefined;
+      const count = Number(countText);
+      if (count > maximumLineCount) {
+        return undefined;
+      }
+      index += 2;
+      continue;
+    }
+    const countMatch = /^(?:--lines=|-)(\d+)$/u.exec(token);
+    if (countMatch !== null) {
+      const count = Number(countMatch[1]);
+      if (count > maximumLineCount) return undefined;
+      index += 1;
+      continue;
+    }
     if (
       identifier === "tail" &&
-      /(?:^|\s)(?:-[^\s]*[fF]|--follow)(?=\s|=|$)/u.test(command)
+      (token === "-f" || token === "-F" || token === "--follow")
     ) {
-      return false;
+      return undefined;
     }
-    const count = requestedLineCount(command);
-    return count === undefined || count <= maximumLineCount;
+    if (token.startsWith("-")) return undefined;
+    break;
   }
-  if (identifier === "wc") {
-    return !/(?:^|\s)--files0-from(?=\s|=|$)/u.test(command);
+  return { fileOperands: tokens.slice(index) };
+}
+
+function parseWcCommand(tokens: readonly string[]): ParsedCommand | undefined {
+  const safeLongFlags = new Set([
+    "--bytes",
+    "--chars",
+    "--lines",
+    "--max-line-length",
+    "--words",
+  ]);
+  const safeShortFlags = new Set(["L", "c", "l", "m", "w"]);
+  let index = 1;
+  while (index < tokens.length) {
+    const token = tokens[index]!;
+    if (token === "--") {
+      index += 1;
+      break;
+    }
+    if (token.startsWith("--")) {
+      if (!safeLongFlags.has(token)) return undefined;
+      index += 1;
+      continue;
+    }
+    if (token.startsWith("-") && token.length > 1) {
+      if (![...token.slice(1)].every((flag) => safeShortFlags.has(flag))) {
+        return undefined;
+      }
+      index += 1;
+      continue;
+    }
+    break;
   }
-  if (identifier === "jq") {
-    return !/(?:^|\s)(?:-n|--null-input|-L|--library-path|--from-file|--rawfile|--slurpfile|--argfile|--run-tests)(?=\s|=|$)|(?:^|[^A-Za-z0-9_])(?:env|\$ENV|input|inputs|include|import|module)(?:[^A-Za-z0-9_]|$)/u.test(
-      command,
-    );
+  return { fileOperands: tokens.slice(index) };
+}
+
+function parseCommand(
+  identifier: string,
+  command: string,
+): ParsedCommand | undefined {
+  const tokens = tokenizeShellSegment(command);
+  if (tokens === undefined || tokens[0] !== identifier) return undefined;
+  if (identifier === "jq") return parseJqCommand(tokens);
+  if (identifier === "grep") return parseGrepCommand(tokens);
+  if (identifier === "head" || identifier === "tail") {
+    return parseHeadOrTailCommand(identifier, tokens);
   }
-  return false;
+  if (identifier === "wc") return parseWcCommand(tokens);
+  return undefined;
 }
 
 function validateSpillPath(
@@ -213,56 +540,146 @@ function validateSpillPath(
   return true;
 }
 
-export function evaluateSpillFileShellPermission(
+export function evaluateSpillFileShellPolicy(
   request: PermissionRequest,
   spillDirectory: string,
-): PermissionRequestResult | undefined {
-  if (request.kind !== "shell") return undefined;
-  if (request.managedApprovalRequired === true) return { kind: "no-result" };
+): SpillShellPolicyEvaluation {
+  if (request.kind !== "shell") return { result: undefined };
+  const startedAt = performance.now();
+  const commandIdentifiers = (request.commandSegments ?? [])
+    .slice(0, 8)
+    .map(({ identifier }) => identifier.slice(0, 32));
+  const finish = (
+    result: PermissionRequestResult,
+    stage: SpillShellPolicyStage,
+    fileOperands: readonly string[] = [],
+  ): SpillShellPolicyEvaluation => {
+    const sdkCommandIdentifiers = request.commands
+      .slice(0, 8)
+      .map(({ identifier }) => identifier.slice(0, 32));
+    const sdkPathSet = new Set(request.possiblePaths);
+    const fileOperandSet = new Set(fileOperands);
+    return {
+      result,
+      diagnostics: {
+        stage,
+        commandIdentifiers,
+        commandCount: request.commands.length,
+        segmentCount: request.commandSegments?.length ?? 0,
+        fileOperandCount: fileOperands.length,
+        sdkCommandSummaryDisagrees:
+          sdkCommandIdentifiers.length !== commandIdentifiers.length ||
+          sdkCommandIdentifiers.some(
+            (identifier, index) => identifier !== commandIdentifiers[index],
+          ),
+        sdkPathSummaryDisagrees:
+          sdkPathSet.size !== fileOperandSet.size ||
+          [...sdkPathSet].some((path) => !fileOperandSet.has(path)),
+        durationMs: Math.max(0, performance.now() - startedAt),
+      },
+    };
+  };
+  if (request.managedApprovalRequired === true) {
+    return finish({ kind: "no-result" }, "managed_approval_required");
+  }
   if (
     request.requestSandboxBypass === true ||
     request.requestSandboxPermissive === true
   ) {
-    return reject("Sandbox escalation is not allowed.");
+    return finish(
+      reject("Sandbox escalation is not allowed."),
+      "sandbox_escalation",
+    );
   }
   if (request.hasWriteFileRedirection) {
-    return reject("Shell access is read-only.");
+    return finish(reject("Shell access is read-only."), "write_redirection");
   }
   if (request.possibleUrls.length > 0) {
-    return reject("Shell network access is not allowed.");
-  }
-  if (
-    request.commands.length === 0 ||
-    request.commands.some(({ identifier }) => !allowedCommands.has(identifier))
-  ) {
-    return reject(
-      "Shell access is limited to read-only grep, head, tail, wc, and jq commands.",
+    return finish(
+      reject("Shell network access is not allowed."),
+      "network_access",
     );
   }
   if (
-    hasUnsafeShellSyntax(request.fullCommandText) ||
     request.commandSegments === undefined ||
-    request.commandSegments.length !== request.commands.length ||
-    request.commandSegments.some(
-      ({ identifier, fullCommandText }) =>
-        !allowedCommands.has(identifier) ||
-        !commandArgumentsAreAllowed(identifier, fullCommandText),
-    )
+    request.commandSegments.length === 0
   ) {
-    return reject("The requested shell syntax or arguments are not allowed.");
+    return finish(
+      reject(
+        "Shell access is limited to read-only grep, head, tail, wc, and jq commands.",
+      ),
+      "missing_segments",
+    );
   }
-  if (request.possiblePaths.length === 0) {
-    return reject("A Copilot spill file path is required.");
+  const pipelineSegments = splitShellPipeline(request.fullCommandText);
+  if (
+    hasUnsafeShellSyntax(request.fullCommandText) ||
+    pipelineSegments === undefined ||
+    pipelineSegments.length !== request.commandSegments.length
+  ) {
+    return finish(
+      reject("The requested shell syntax or arguments are not allowed."),
+      "invalid_syntax",
+    );
+  }
+  const fileOperands: string[] = [];
+  for (const [index, segment] of request.commandSegments.entries()) {
+    if (
+      !allowedCommands.has(segment.identifier) ||
+      pipelineSegments[index] !== segment.fullCommandText.trim()
+    ) {
+      return finish(
+        reject(
+          "Shell access is limited to read-only grep, head, tail, wc, and jq commands.",
+        ),
+        "unsupported_command",
+        fileOperands,
+      );
+    }
+    const parsed = parseCommand(segment.identifier, segment.fullCommandText);
+    if (parsed === undefined) {
+      return finish(
+        reject("The requested shell syntax or arguments are not allowed."),
+        "invalid_arguments",
+        fileOperands,
+      );
+    }
+    if (index === 0 && parsed.fileOperands.length === 0) {
+      return finish(
+        reject("A Copilot spill file path is required."),
+        "missing_spill_operand",
+        fileOperands,
+      );
+    }
+    fileOperands.push(...parsed.fileOperands);
+  }
+  if (fileOperands.length === 0) {
+    return finish(
+      reject("A Copilot spill file path is required."),
+      "missing_spill_operand",
+    );
   }
   let canonicalSpillDirectory;
   try {
     canonicalSpillDirectory = realpathSync(spillDirectory);
   } catch {
-    return reject("The Copilot spill directory is unavailable.");
+    return finish(
+      reject("The Copilot spill directory is unavailable."),
+      "spill_directory_unavailable",
+      fileOperands,
+    );
   }
   const workingDirectory =
     request.resolvedWorkingDirectory ?? canonicalSpillDirectory;
   if (
+    !fileOperands.every((path) =>
+      validateSpillPath(
+        path,
+        request.resolvedPaths?.[path],
+        workingDirectory,
+        canonicalSpillDirectory,
+      ),
+    ) ||
     !request.possiblePaths.every((path) =>
       validateSpillPath(
         path,
@@ -272,9 +689,18 @@ export function evaluateSpillFileShellPermission(
       ),
     )
   ) {
-    return reject(
-      "Shell access is limited to current profile Copilot spill files.",
+    return finish(
+      reject("Shell access is limited to current profile Copilot spill files."),
+      "invalid_spill_path",
+      fileOperands,
     );
   }
-  return { kind: "approve-once" };
+  return finish({ kind: "approve-once" }, "approved", fileOperands);
+}
+
+export function evaluateSpillFileShellPermission(
+  request: PermissionRequest,
+  spillDirectory: string,
+): PermissionRequestResult | undefined {
+  return evaluateSpillFileShellPolicy(request, spillDirectory).result;
 }

@@ -51,7 +51,9 @@ active until Live reports that the exact created clip has stopped recording.
 - Permit shell execution only for application-approved read-only commands over
   canonical Copilot spill files. Reject unapproved executables, writes,
   redirects, network access, environment/command substitution, path escapes,
-  symlinks, and sandbox escalation.
+  symlinks, mixed spill/non-spill operands, and sandbox escalation. Treat SDK
+  command and path summaries as advisory; validate the parsed command segments,
+  command-specific operands, and every canonical file path independently.
 - Detect unsupported Live capabilities before mutation.
 - Limit workflow mutation counts and payload sizes.
 

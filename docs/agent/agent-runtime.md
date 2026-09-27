@@ -35,7 +35,15 @@ bounded pieces or projected with `jq`; they are not copied wholesale back into
 model context. The application-owned executable, argument, syntax, and path
 checks are authoritative; the SDK's advisory command `readOnly` classification
 does not override an otherwise valid request because supported SDK versions may
-classify these approved readers conservatively.
+classify these approved readers conservatively. The SDK's aggregate
+`commands[].identifier` and `possiblePaths` summaries are also advisory: some
+supported runtime versions place the full shell command in the aggregate
+identifier and omit read operands from `possiblePaths`. The application
+therefore authorizes from non-empty parsed command segments, applies a narrow
+command-specific operand grammar, and independently canonicalizes every file
+operand before approval. Permission history records only bounded policy stages,
+normalized allowlisted identifiers, counts, disagreement flags, and timing in
+its shell-policy decision metadata.
 
 The runtime protocol contains native filesystem/network sandbox policy, but
 the pinned public SDK session API does not currently expose that configuration.

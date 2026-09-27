@@ -32,6 +32,12 @@ Companion specification: [Agent Runtime](agent-runtime.md)
   bounded read-only inspection of profile-owned large-output spill files.
   - [x] Treat the application-owned command grammar and spill-path validation
     as authoritative when the SDK advisory `readOnly` classification is false.
+  - [x] Validate parsed command segments and command-specific file operands
+    independently when SDK aggregate command identifiers contain full command
+    text or SDK path summaries omit read operands.
+  - [x] Record bounded, redacted shell-policy stage, normalized identifier,
+    operand-count, SDK-summary disagreement, timing, and trace attribution in
+    permission history.
 - [ ] Enable the runtime's native filesystem/network sandbox as defense in
   depth when the public SDK exposes supported `sandboxConfig` session wiring.
 - [x] Disable SDK tool search so the runtime never injects an implicit

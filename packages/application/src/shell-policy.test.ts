@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   evaluateSpillFileShellPermission,
+  evaluateSpillFileShellPolicy,
   prepareSpillDirectory,
 } from "./shell-policy.js";
 
@@ -58,6 +59,29 @@ function shellRequest(
   };
 }
 
+function liveShellRequest(
+  file: string,
+  fullCommandText: string,
+  commandSegments: NonNullable<
+    Extract<PermissionRequest, { kind: "shell" }>["commandSegments"]
+  >,
+  resolvedWorkingDirectory?: string,
+): Extract<PermissionRequest, { kind: "shell" }> {
+  const request = shellRequest(file, {
+    commands: [{ identifier: fullCommandText, readOnly: false }],
+    commandSegments,
+    fullCommandText,
+    possiblePaths: [],
+  });
+  delete request.resolvedPaths;
+  if (resolvedWorkingDirectory === undefined) {
+    delete request.resolvedWorkingDirectory;
+  } else {
+    request.resolvedWorkingDirectory = resolvedWorkingDirectory;
+  }
+  return request;
+}
+
 afterEach(async () => {
   const { rm } = await import("node:fs/promises");
   await Promise.all(
@@ -86,32 +110,73 @@ describe("spill file shell permission", () => {
 
   it("approves bounded jq inspection of a profile-owned spill file", async () => {
     const { directory, file } = await fixture();
+    const fullCommandText = `jq -c '.parameters[] | select(.name|test("A Wave|A Coarse|A Fine|Pitch Env|A Attack|A Decay|A Sustain|A Release|Volume|A Level|Filter"))' ${file}`;
 
     expect(
-      evaluateSpillFileShellPermission(shellRequest(file), directory),
+      evaluateSpillFileShellPermission(
+        liveShellRequest(file, fullCommandText, [
+          { identifier: "jq", fullCommandText },
+        ]),
+        directory,
+      ),
+    ).toEqual({ kind: "approve-once" });
+  });
+
+  it("reports bounded diagnostics without command text or paths", async () => {
+    const { directory, file } = await fixture();
+    const fullCommandText = `jq -c '.pads[] | {note, name}' '${file}'`;
+    const evaluation = evaluateSpillFileShellPolicy(
+      liveShellRequest(file, fullCommandText, [
+        { identifier: "jq", fullCommandText },
+      ]),
+      directory,
+    );
+
+    expect(evaluation).toMatchObject({
+      result: { kind: "approve-once" },
+      diagnostics: {
+        stage: "approved",
+        commandIdentifiers: ["jq"],
+        commandCount: 1,
+        segmentCount: 1,
+        fileOperandCount: 1,
+        sdkCommandSummaryDisagrees: true,
+        sdkPathSummaryDisagrees: true,
+      },
+    });
+    expect(evaluation.diagnostics?.durationMs).toBeGreaterThanOrEqual(0);
+    expect(JSON.stringify(evaluation.diagnostics)).not.toContain(file);
+    expect(JSON.stringify(evaluation.diagnostics)).not.toContain(".pads");
+  });
+
+  it("approves wc when the SDK advisory read-only classification is false", async () => {
+    const { directory, file } = await fixture();
+    const fullCommandText = `wc -l '${file}'`;
+
+    expect(
+      evaluateSpillFileShellPermission(
+        liveShellRequest(file, fullCommandText, [
+          { identifier: "wc", fullCommandText },
+        ]),
+        directory,
+      ),
     ).toEqual({ kind: "approve-once" });
   });
 
   it("approves a read-only grep and head pipeline", async () => {
     const { directory, file } = await fixture();
-    const fullCommandText = `grep -n 'chainCount' '${file}' | head -n 25`;
+    const grepCommand = `grep -o '"name":"[^"]*Osc A[^"]*"[^}]*' ${file}`;
+    const fullCommandText = `${grepCommand} | head -50`;
 
     expect(
       evaluateSpillFileShellPermission(
-        shellRequest(file, {
-          commands: [
-            { identifier: "grep", readOnly: true },
-            { identifier: "head", readOnly: true },
-          ],
-          commandSegments: [
-            {
-              identifier: "grep",
-              fullCommandText: `grep -n 'chainCount' '${file}'`,
-            },
-            { identifier: "head", fullCommandText: "head -n 25" },
-          ],
-          fullCommandText,
-        }),
+        liveShellRequest(file, fullCommandText, [
+          {
+            identifier: "grep",
+            fullCommandText: grepCommand,
+          },
+          { identifier: "head", fullCommandText: "head -50" },
+        ]),
         directory,
       ),
     ).toEqual({ kind: "approve-once" });
@@ -131,12 +196,14 @@ describe("spill file shell permission", () => {
       overrides: { requestSandboxBypass: true },
     },
     {
-      name: "non-read-only command",
-      overrides: { commands: [{ identifier: "grep", readOnly: false }] },
-    },
-    {
       name: "unapproved executable",
-      overrides: { commands: [{ identifier: "python3", readOnly: true }] },
+      overrides: {
+        commands: [{ identifier: "python3 result.txt", readOnly: false }],
+        commandSegments: [
+          { identifier: "python3", fullCommandText: "python3 result.txt" },
+        ],
+        fullCommandText: "python3 result.txt",
+      },
     },
     {
       name: "command substitution",
@@ -190,6 +257,35 @@ describe("spill file shell permission", () => {
         ],
       },
     },
+    {
+      name: "tail from a starting line",
+      overrides: {
+        commands: [{ identifier: "tail -n +20 result.txt", readOnly: false }],
+        fullCommandText: "tail -n +20 result.txt",
+        commandSegments: [
+          {
+            identifier: "tail",
+            fullCommandText: "tail -n +20 result.txt",
+          },
+        ],
+      },
+    },
+    {
+      name: "pipeline whose first command has no spill operand",
+      overrides: {
+        commands: [
+          {
+            identifier: "head -50 | jq -c '.' result.txt",
+            readOnly: false,
+          },
+        ],
+        fullCommandText: "head -50 | jq -c '.' result.txt",
+        commandSegments: [
+          { identifier: "head", fullCommandText: "head -50" },
+          { identifier: "jq", fullCommandText: "jq -c '.' result.txt" },
+        ],
+      },
+    },
   ])("rejects $name", async ({ overrides }) => {
     const { directory, file } = await fixture();
 
@@ -201,6 +297,25 @@ describe("spill file shell permission", () => {
     ).toMatchObject({ kind: "reject" });
   });
 
+  it("explains why tail from a starting line is unbounded", async () => {
+    const { directory, file } = await fixture();
+    const fullCommandText = `tail -n +32 '${file}'`;
+    const evaluation = evaluateSpillFileShellPolicy(
+      liveShellRequest(file, fullCommandText, [
+        { identifier: "tail", fullCommandText },
+      ]),
+      directory,
+    );
+
+    expect(evaluation.diagnostics?.stage).toBe("unbounded_output");
+    expect(evaluation.result?.kind).toBe("reject");
+    if (evaluation.result?.kind !== "reject") {
+      throw new Error("Expected a rejected shell request");
+    }
+    expect(evaluation.result.feedback).toContain("reads through end-of-file");
+    expect(evaluation.result.feedback).toContain("jq");
+  });
+
   it("rejects missing parsed command segments", async () => {
     const { directory, file } = await fixture();
     const request = shellRequest(file);
@@ -209,6 +324,37 @@ describe("spill file shell permission", () => {
     expect(evaluateSpillFileShellPermission(request, directory)).toMatchObject({
       kind: "reject",
     });
+  });
+
+  it("rejects a valid spill file mixed with an outside file", async () => {
+    const { directory, file } = await fixture();
+    const fullCommandText = `jq -c '.' '${file}' /etc/hosts`;
+
+    expect(
+      evaluateSpillFileShellPermission(
+        liveShellRequest(file, fullCommandText, [
+          { identifier: "jq", fullCommandText },
+        ]),
+        directory,
+      ),
+    ).toMatchObject({ kind: "reject" });
+  });
+
+  it("rejects a repository-relative file operand", async () => {
+    const { directory, file } = await fixture();
+    const fullCommandText = `wc -l '${file}' package.json`;
+
+    expect(
+      evaluateSpillFileShellPermission(
+        liveShellRequest(
+          file,
+          fullCommandText,
+          [{ identifier: "wc", fullCommandText }],
+          process.cwd(),
+        ),
+        directory,
+      ),
+    ).toMatchObject({ kind: "reject" });
   });
 
   it("rejects files outside the spill directory", async () => {

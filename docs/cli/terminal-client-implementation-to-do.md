@@ -43,6 +43,8 @@ Companion specification: [Terminal Client](terminal-client.md)
   pad-chain, and pad-chain-device read commands.
 - [x] Implement Browser root/category inspection, bounded deterministic search,
   and explicitly approved selection-by-result built-in loading.
+- [x] Render sanitized workflow-job lifecycle progress from the shared event
+  stream without exposing raw job result payloads.
 - [x] Implement explicit non-interactive approval policies.
 - [x] Return structured JSON operation and final-result data.
 - [x] Ensure diagnostics avoid model invocation where possible.

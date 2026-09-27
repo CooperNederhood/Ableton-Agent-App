@@ -2,6 +2,10 @@ import type {
   ActiveAgentConfig,
   BoundTrackScope,
 } from "@ableton-agent/agent-config";
+import {
+  getAbletonOperationDescriptor,
+  resolveAbletonOperation,
+} from "./operation-descriptor.js";
 
 export type MutationTarget = "read" | "session" | "track" | "tracks";
 
@@ -12,6 +16,7 @@ export interface AbletonToolMutationDescriptor {
 
 export interface AbletonMutationAgentConfig {
   readonly resolvedTools: readonly string[];
+  readonly resolvedOperations?: readonly string[];
   readonly editScope: readonly ActiveAgentConfig["editScope"][number][];
 }
 
@@ -91,7 +96,10 @@ export type AbletonMutationAuthorizationResult =
   AbletonMutationAllowResult | AbletonMutationDenyResult;
 
 export interface AbletonMutationAuthorizer {
-  resolveMutationTarget(toolName: string): MutationTarget | undefined;
+  resolveMutationTarget(
+    toolName: string,
+    args?: unknown,
+  ): MutationTarget | undefined;
   authorize(
     context: AbletonMutationAuthorizationContext,
     invocation: AbletonToolInvocation,
@@ -104,37 +112,21 @@ export interface RunAuthorizedMutationOptions<T> {
   readonly getContext: () => Promise<AbletonMutationAuthorizationContext>;
   readonly invocation: AbletonToolInvocation;
   readonly handler: () => Promise<T>;
-}
-
-const abletonTrackReferenceArgumentsByToolName: Record<
-  string,
-  readonly string[]
-> = {
-  ableton_tracks_delete: ["expectedReference"],
-  ableton_tracks_rename: ["expectedReference"],
-  ableton_tracks_set_mixer: ["expectedReference"],
-  ableton_clips_create_midi: ["expectedReference"],
-  ableton_clips_replace_notes: ["expectedReference"],
-  ableton_clips_launch: ["expectedReference"],
-  ableton_clips_duplicate: [
-    "expectedReference",
-    "expectedDestinationTrackReference",
-  ],
-  ableton_clips_delete: ["expectedReference"],
-  ableton_clips_set_properties: ["expectedReference"],
-  ableton_arrangement_create_midi_clip: ["expectedReference"],
-  ableton_arrangement_delete_clip: ["expectedReference"],
-  ableton_arrangement_replace_notes: ["expectedReference"],
-  ableton_arrangement_duplicate_clip: ["expectedReference"],
-  ableton_arrangement_fill_region: ["expectedReference"],
-  ableton_arrangement_set_clip_properties: ["expectedReference"],
-  ableton_device_set_enabled: ["expectedReference"],
-  ableton_device_set_parameter: ["expectedReference"],
-  ableton_browser_load_item: ["expectedReference"],
-} as const satisfies Record<string, readonly string[]>;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+  readonly deferCompletion?: (result: T) => Promise<T> | undefined;
+  readonly onLifecycle?: (event: {
+    readonly stage:
+      | "requested"
+      | "policy"
+      | "queued"
+      | "started"
+      | "verification"
+      | "completed"
+      | "failed"
+      | "cancelled";
+    readonly authorization?: AbletonMutationAuthorizationResult;
+    readonly result?: T;
+    readonly error?: unknown;
+  }) => void;
 }
 
 function hasSessionScope(
@@ -151,23 +143,17 @@ function normalizeTrackReferences(
   );
 }
 
-function resolveTrackReferences(
+function resolveInvocationTrackReferences(
   toolName: string,
   args: unknown,
 ): readonly string[] | undefined {
-  const fields = abletonTrackReferenceArgumentsByToolName[toolName];
-  if (fields === undefined) return undefined;
-  if (!isRecord(args)) return undefined;
-  const trackReferences: string[] = [];
-  for (const field of fields) {
-    const value = args[field];
-    if (typeof value !== "string" || value.trim().length === 0) {
-      return undefined;
-    }
-    trackReferences.push(value);
+  try {
+    const operation = resolveAbletonOperation(toolName, args);
+    if (operation !== undefined) return operation.affectedTrackReferences;
+  } catch {
+    return undefined;
   }
-  if (trackReferences.length === 0) return undefined;
-  return normalizeTrackReferences(trackReferences);
+  return undefined;
 }
 
 function deny(
@@ -224,16 +210,30 @@ export function createAbletonMutationAuthorizer(
   );
 
   return {
-    resolveMutationTarget(toolName: string): MutationTarget | undefined {
-      return descriptorsByName.get(toolName)?.mutationTarget;
+    resolveMutationTarget(
+      toolName: string,
+      args?: unknown,
+    ): MutationTarget | undefined {
+      if (args !== undefined) {
+        try {
+          const operation = resolveAbletonOperation(toolName, args);
+          if (operation !== undefined) return operation.metadata.mutationTarget;
+        } catch {
+          return undefined;
+        }
+      }
+      return (
+        getAbletonOperationDescriptor(toolName)?.mutationTarget ??
+        descriptorsByName.get(toolName)?.mutationTarget
+      );
     },
 
     authorize(
       context: AbletonMutationAuthorizationContext,
       invocation: AbletonToolInvocation,
     ): AbletonMutationAuthorizationResult {
-      const descriptor = descriptorsByName.get(invocation.toolName);
-      if (descriptor === undefined) {
+      const catalogDescriptor = descriptorsByName.get(invocation.toolName);
+      if (catalogDescriptor === undefined) {
         return deny(
           "unknown_tool",
           `Unknown Ableton tool: ${invocation.toolName}`,
@@ -249,7 +249,39 @@ export function createAbletonMutationAuthorizer(
         );
       }
 
-      switch (descriptor.mutationTarget) {
+      let mutationTarget = catalogDescriptor.mutationTarget;
+      try {
+        const operation = resolveAbletonOperation(
+          invocation.toolName,
+          invocation.args,
+        );
+        if (
+          operation !== undefined &&
+          context.activeAgentConfig.resolvedOperations !== undefined &&
+          !context.activeAgentConfig.resolvedOperations.includes(
+            operation.descriptor.operationId,
+          )
+        ) {
+          return deny(
+            "tool_not_allowed",
+            `Ableton operation ${operation.descriptor.operationId} is not present in the agent's resolvedOperations allowlist`,
+          );
+        }
+        if (operation?.descriptor.operationId === "workflow_jobs.cancel") {
+          // Cancellation must not wait on the lock held by the job it stops.
+          // The runtime injects the caller identity and the Remote Script
+          // rejects cancellation by any other owner.
+          return allow(invocation.toolName, "tracks", [], undefined);
+        }
+        mutationTarget = operation?.metadata.mutationTarget ?? mutationTarget;
+      } catch {
+        return deny(
+          "track_reference_missing",
+          `Ableton operation ${invocation.toolName} has invalid or incomplete arguments`,
+        );
+      }
+
+      switch (mutationTarget) {
         case "read":
           return allow(invocation.toolName, "read", [], undefined);
         case "session":
@@ -262,7 +294,7 @@ export function createAbletonMutationAuthorizer(
           return allow(invocation.toolName, "session", [], { kind: "session" });
         case "track":
         case "tracks": {
-          const trackReferences = resolveTrackReferences(
+          const trackReferences = resolveInvocationTrackReferences(
             invocation.toolName,
             invocation.args,
           );
@@ -290,12 +322,10 @@ export function createAbletonMutationAuthorizer(
             }
           }
 
-          return allow(
-            invocation.toolName,
-            descriptor.mutationTarget,
+          return allow(invocation.toolName, mutationTarget, trackReferences, {
+            kind: "tracks",
             trackReferences,
-            { kind: "tracks", trackReferences },
-          );
+          });
         }
       }
     },
@@ -438,26 +468,66 @@ export function createAbletonMutationLockManager(): AbletonMutationLockManager {
 export async function runAuthorizedAbletonMutation<T>(
   options: RunAuthorizedMutationOptions<T>,
 ): Promise<T> {
-  const initialContext = await options.getContext();
-  const initialAuthorization = options.authorizer.authorize(
-    initialContext,
-    options.invocation,
-  );
+  options.onLifecycle?.({ stage: "requested" });
+  let initialAuthorization: AbletonMutationAuthorizationResult;
+  try {
+    const initialContext = await options.getContext();
+    initialAuthorization = options.authorizer.authorize(
+      initialContext,
+      options.invocation,
+    );
+    options.onLifecycle?.({
+      stage: "policy",
+      authorization: initialAuthorization,
+    });
+  } catch (error) {
+    options.onLifecycle?.({ stage: "failed", error });
+    throw error;
+  }
 
   if (initialAuthorization.kind === "deny") {
-    throw new AbletonMutationAuthorizationError(
+    const error = new AbletonMutationAuthorizationError(
       initialAuthorization.code,
       initialAuthorization.message,
     );
+    options.onLifecycle?.({ stage: "failed", error });
+    throw error;
   }
 
   if (initialAuthorization.lockScope === undefined) {
-    return options.handler();
+    options.onLifecycle?.({ stage: "started" });
+    try {
+      const result = await options.handler();
+      options.onLifecycle?.({ stage: "verification", result });
+      options.onLifecycle?.({ stage: "completed", result });
+      return result;
+    } catch (error) {
+      options.onLifecycle?.({
+        stage:
+          error instanceof Error && error.name === "AbortError"
+            ? "cancelled"
+            : "failed",
+        error,
+      });
+      throw error;
+    }
   }
 
-  const handle = await options.lockManager.acquire(
-    initialAuthorization.lockScope,
-  );
+  options.onLifecycle?.({ stage: "queued" });
+  let handle: AbletonMutationLockHandle;
+  let releaseDeferred = false;
+  try {
+    handle = await options.lockManager.acquire(initialAuthorization.lockScope);
+  } catch (error) {
+    options.onLifecycle?.({
+      stage:
+        error instanceof Error && error.name === "AbortError"
+          ? "cancelled"
+          : "failed",
+      error,
+    });
+    throw error;
+  }
   try {
     const refreshedContext = await options.getContext();
     const refreshedAuthorization = options.authorizer.authorize(
@@ -466,10 +536,11 @@ export async function runAuthorizedAbletonMutation<T>(
     );
 
     if (refreshedAuthorization.kind === "deny") {
-      throw new AbletonMutationAuthorizationError(
+      const error = new AbletonMutationAuthorizationError(
         "scope_changed",
         refreshedAuthorization.message,
       );
+      throw error;
     }
 
     if (
@@ -480,14 +551,53 @@ export async function runAuthorizedAbletonMutation<T>(
         initialAuthorization.trackReferences,
       )
     ) {
-      throw new AbletonMutationAuthorizationError(
+      const error = new AbletonMutationAuthorizationError(
         "scope_changed",
         "Ableton edit scope changed before mutation execution",
       );
+      throw error;
     }
 
-    return await options.handler();
+    options.onLifecycle?.({ stage: "started" });
+    const result = await options.handler();
+    const deferredCompletion = options.deferCompletion?.(result);
+    if (deferredCompletion !== undefined) {
+      releaseDeferred = true;
+      void deferredCompletion
+        .then((terminalResult) => {
+          options.onLifecycle?.({
+            stage: "verification",
+            result: terminalResult,
+          });
+          options.onLifecycle?.({ stage: "completed", result: terminalResult });
+        })
+        .catch((error: unknown) => {
+          options.onLifecycle?.({
+            stage:
+              error instanceof Error && error.name === "AbortError"
+                ? "cancelled"
+                : "failed",
+            error,
+          });
+        })
+        .finally(() => {
+          handle.release();
+        });
+      return result;
+    }
+    options.onLifecycle?.({ stage: "verification", result });
+    options.onLifecycle?.({ stage: "completed", result });
+    return result;
+  } catch (error) {
+    options.onLifecycle?.({
+      stage:
+        error instanceof Error && error.name === "AbortError"
+          ? "cancelled"
+          : "failed",
+      error,
+    });
+    throw error;
   } finally {
-    handle.release();
+    if (!releaseDeferred) handle.release();
   }
 }

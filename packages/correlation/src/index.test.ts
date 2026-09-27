@@ -23,7 +23,9 @@ describe("correlation context", () => {
       correlationId: "tool-2",
       traceId: "00000000-0000-4000-8000-000000000001",
       parentSpanId: "00000000-0000-4000-8000-000000000002",
-      toolName: "ableton_connection_status",
+      toolName: "ableton_session",
+      operationId: "session.connection_status",
+      action: "connection-status",
     });
     expect(
       withCorrelation("tool-2", () => currentCorrelationContext()),
@@ -31,7 +33,9 @@ describe("correlation context", () => {
       correlationId: "tool-2",
       traceId: "00000000-0000-4000-8000-000000000001",
       parentSpanId: "00000000-0000-4000-8000-000000000002",
-      toolName: "ableton_connection_status",
+      toolName: "ableton_session",
+      operationId: "session.connection_status",
+      action: "connection-status",
     });
     unregisterCorrelationContext("tool-2");
     expect(

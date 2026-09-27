@@ -16,6 +16,8 @@ Companion specification: [Desktop Application](desktop-application.md)
   full-screen visibility.
 - [x] Support a 320x360 terminal-sized chat view when workspace sidebars and
   application chrome are hidden.
+- [x] Present workflow-job lifecycle events through the existing sanitized
+  diagnostics and typed Desktop History surfaces.
 
 Electron main now composes `createAgentRuntime` from `packages/runtime`, the
 same composition root the CLI uses, and adapts it through
@@ -73,6 +75,9 @@ never left pending, when no renderer is listening or the app is shutting down.
   and Profiles from the same scoped source.
 - [x] Preserve optional tool identity in desktop operation view models and
   render compact typed activity rows without removing recovery details.
+- [x] Preserve bounded, redacted tool request/result context across terminal
+  updates and render meaningful Requested, Result/Observed, Failure, recovery,
+  policy attribution, and duration disclosures.
 - [x] Add opt-in isolated desktop automation launch flags, selected-agent
   startup, scoped YOLO startup, and visible external user-turn attribution.
 - [x] Host a debug-only authenticated loopback endpoint that sends through the

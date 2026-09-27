@@ -65,7 +65,7 @@ Find nearby tool activity through explicit Set/agent links:
 
 ```json
 {
-  "sql": "SELECT links.occurred_at, calls.tool_name, calls.outcome FROM set_history_agent_links AS links JOIN agent_history_tool_results AS calls ON calls.tool_call_id = links.tool_call_id WHERE links.live_set_id = :live_set_id AND links.occurred_at >= :after ORDER BY links.occurred_at DESC LIMIT 25",
+  "sql": "SELECT trajectory.occurred_at, trajectory.operation_id, trajectory.action, trajectory.outcome, calls.result_json FROM set_history_trajectories AS trajectory JOIN agent_history_tool_results AS calls ON calls.tool_call_id = trajectory.tool_call_id WHERE trajectory.live_set_id = :live_set_id AND trajectory.occurred_at >= :after ORDER BY trajectory.occurred_at DESC LIMIT 25",
   "parameters": {
     "live_set_id": "current-live-set-id",
     "after": "2026-09-01T00:00:00.000Z"
@@ -73,6 +73,12 @@ Find nearby tool activity through explicit Set/agent links:
   "limit": 25
 }
 ```
+
+Grouped Ableton tools share broad names such as `ableton_tracks`; prefer
+`operation_id`, `action`, `mutation_target`, and `target_identity_json` when
+reconstructing the exact change. `snapshot_id` is populated for checkpoint
+trajectory records, while tool mutation trajectories link to their arguments
+and results through `tool_call_id`.
 
 Historical snapshots are evidence, not current Live state. Before making a
 change, inspect the current Set with the appropriate Ableton tools. Explain

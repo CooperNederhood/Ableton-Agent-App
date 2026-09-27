@@ -71,7 +71,8 @@ function defaultCatalog(): DesktopAgentCatalog {
         description: "General-purpose Ableton agent.",
         systemPrompt: "Help with Ableton.",
         tools: ["*"],
-        resolvedTools: ["ableton_session_inspect"],
+        resolvedTools: ["ableton_session"],
+        resolvedOperations: ["session.inspect"],
         editScope: ["session"],
         skills: [],
         inputChannels: [],
@@ -488,7 +489,8 @@ describe("desktop persistence stores", () => {
         description: "General-purpose Ableton agent.",
         systemPrompt: "Help with Ableton.",
         tools: ["*"],
-        resolvedTools: ["ableton_session_inspect"],
+        resolvedTools: ["ableton_session"],
+        resolvedOperations: ["session.inspect"],
         editScope: ["session" as const],
         skills: [],
         inputChannels: [],
@@ -929,6 +931,7 @@ describe("desktop adapter over the shared application", () => {
       clear: vi.fn(),
       shutdown: vi.fn().mockResolvedValue(undefined),
     });
+
     const first = journal();
     const recovered = journal();
     const open = vi
@@ -972,6 +975,85 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
     expect(first.shutdown).toHaveBeenCalledOnce();
     expect(recovered.shutdown).toHaveBeenCalledOnce();
+  });
+
+  it("journals grouped operation identity and action", async () => {
+    const entries: Parameters<DesktopEventJournal["enqueue"]>[0][] = [];
+    const enqueue = vi.fn(
+      async (entry: Parameters<DesktopEventJournal["enqueue"]>[0]) => {
+        entries.push(entry);
+      },
+    );
+    const eventJournal = {
+      enqueue,
+      enqueueConfigurationSnapshot: vi.fn().mockResolvedValue(undefined),
+      readRootTraces: vi.fn(),
+      readTrace: vi.fn(),
+      readConfigurationSnapshots: vi.fn(),
+      getHealth: vi.fn(),
+      runRetention: vi.fn(),
+      deleteTrace: vi.fn(),
+      shutdown: vi.fn(),
+    } as unknown as DesktopEventJournal;
+    const { service, sharedEvents } = await harness({}, { eventJournal });
+    await service.start();
+
+    sharedEvents.publish({
+      type: "operation.started",
+      operationId: "tool-1",
+      label: "Set Ableton tempo",
+      toolName: "ableton_transport",
+      arguments: { action: "set-tempo", tempo: 128 },
+      operationDescriptorId: "transport.set_tempo",
+      action: "set-tempo",
+    } as never);
+    sharedEvents.publish({
+      type: "operation.completed",
+      operationId: "tool-1",
+      label: "Set Ableton tempo",
+      summary: "Set Ableton tempo completed",
+      toolName: "ableton_transport",
+      arguments: { action: "set-tempo", tempo: 128 },
+      result: JSON.stringify({ tempo: 128, verified: true }),
+      durationMs: 250,
+      operationDescriptorId: "transport.set_tempo",
+      action: "set-tempo",
+    });
+    await settle();
+
+    expect(enqueue).toHaveBeenCalledTimes(2);
+    expect(entries[0]).toMatchObject({
+      name: "operation.started",
+      toolName: "ableton_transport",
+    });
+    expect(entries[0]?.attributes).toMatchObject({
+      operation_id: "tool-1",
+      operation_descriptor_id: "transport.set_tempo",
+      action: "set-tempo",
+      request: {
+        details: [{ label: "Tempo", value: "128" }],
+      },
+    });
+    expect(entries[1]?.attributes).toMatchObject({
+      operation_id: "tool-1",
+      duration_ms: 250,
+      request: {
+        details: [{ label: "Tempo", value: "128" }],
+      },
+      outcome: {
+        kind: "result",
+      },
+    });
+    const outcome = entries[1]?.attributes.outcome;
+    expect(
+      outcome !== null && typeof outcome === "object"
+        ? (outcome as { details?: unknown }).details
+        : undefined,
+    ).toEqual([
+      { label: "Tempo", value: "128" },
+      { label: "Verified", value: "true" },
+    ]);
+    await service.stop();
   });
 
   it("does not reconfigure or prune history when preference persistence fails", async () => {
@@ -1030,8 +1112,9 @@ describe("desktop adapter over the shared application", () => {
       name: "bass-editor",
       description: "Edits only the bass track.",
       systemPrompt: "Edit the bound bass track.",
-      tools: ["ableton_tracks_rename", "ableton_session_inspect"],
-      resolvedTools: ["ableton_tracks_rename", "ableton_session_inspect"],
+      tools: ["tracks.rename", "session.inspect"],
+      resolvedTools: ["ableton_session", "ableton_tracks"],
+      resolvedOperations: ["session.inspect", "tracks.rename"],
       editScope: [{ track: { name: "Bass", occurrence: 0 } }],
       skills: [],
       inputChannels: [],
@@ -1280,13 +1363,15 @@ describe("desktop adapter over the shared application", () => {
     await settle();
     const pendingApproval = approvals.request({
       metadata: {
-        name: "ableton_tracks_create",
+        name: "ableton_tracks",
         title: "Create track",
         risk: "reversible",
         duration: "short",
         mutationTarget: "session",
+        operationId: "tracks.create",
+        action: "create",
       },
-      arguments: {},
+      arguments: { action: "create", kind: "midi" },
       agentInstanceId: original.id,
       sdkSessionId: original.sdkSessionId!,
     });
@@ -2785,8 +2870,13 @@ describe("desktop adapter over the shared application", () => {
     expect(persisted?.capturedAt).toBe(snapshot.capturedAt);
     expect(persisted?.trigger).toBe("manual");
     expect(persisted?.productionSessionId).toEqual(expect.any(String));
-    expect(persisted?.activeAgentInstanceIds).toEqual([expect.any(String)]);
-    expect(persisted?.sdkSessionIds).toEqual([expect.any(String)]);
+    expect(persisted?.activeAgents).toHaveLength(1);
+    expect(persisted?.activeAgents[0]?.activeAgentId).toEqual(
+      expect.any(String),
+    );
+    expect(persisted?.activeAgents[0]?.sdkSessionId).toEqual(
+      expect.any(String),
+    );
     await service.stop();
   });
 
@@ -4835,13 +4925,15 @@ describe("desktop adapter over the shared application", () => {
 
     const decision = approvals.request({
       metadata: {
-        name: "ableton_tracks_delete",
+        name: "ableton_tracks",
         title: "Delete track",
         risk: "destructive",
         duration: "short",
         mutationTarget: "track",
+        operationId: "tracks.delete",
+        action: "delete",
       },
-      arguments: { index: 2 },
+      arguments: { action: "delete", index: 2 },
     });
     const requested = events.find(
       (event) => event.type === "approval.requested",
@@ -4864,13 +4956,15 @@ describe("desktop adapter over the shared application", () => {
     const second = await service.createActiveAgent("default");
     const request = {
       metadata: {
-        name: "ableton_tracks_create" as const,
+        name: "ableton_tracks" as const,
         title: "Create track",
         risk: "reversible" as const,
         duration: "short" as const,
         mutationTarget: "session" as const,
+        operationId: "tracks.create",
+        action: "create",
       },
-      arguments: {},
+      arguments: { action: "create", kind: "midi" },
     };
 
     const firstDecision = approvals.request({
@@ -4963,13 +5057,15 @@ describe("desktop adapter over the shared application", () => {
     await service.start();
     const decision = approvals.request({
       metadata: {
-        name: "ableton_tracks_create",
+        name: "ableton_tracks",
         title: "Create track",
         risk: "reversible",
         duration: "short",
         mutationTarget: "session",
+        operationId: "tracks.create",
+        action: "create",
       },
-      arguments: {},
+      arguments: { action: "create", kind: "midi" },
     });
 
     await service.stop();
@@ -4993,13 +5089,15 @@ describe("desktop adapter over the shared application", () => {
     await service.start();
     const decision = approvals.request({
       metadata: {
-        name: "ableton_tracks_create",
+        name: "ableton_tracks",
         title: "Create track",
         risk: "reversible",
         duration: "short",
         mutationTarget: "session",
+        operationId: "tracks.create",
+        action: "create",
       },
-      arguments: {},
+      arguments: { action: "create", kind: "midi" },
     });
 
     unsubscribe();

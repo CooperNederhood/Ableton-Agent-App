@@ -703,12 +703,42 @@ export const approvalSchema = z.object({
 });
 export type ApprovalRequest = z.infer<typeof approvalSchema>;
 
+export const operationDetailSchema = z.object({
+  label: z.string().min(1).max(128),
+  value: z.string().max(4_096),
+  format: z.enum(["text", "code"]).optional(),
+});
+export type OperationDetail = z.infer<typeof operationDetailSchema>;
+
+export const operationDisclosureSchema = z.object({
+  summary: z.string().max(2_048).optional(),
+  details: z.array(operationDetailSchema).max(24).default([]),
+});
+export type OperationDisclosure = z.infer<typeof operationDisclosureSchema>;
+
+export const operationFailureSchema = z.object({
+  source: z.enum(["application_policy", "runtime", "tool", "user"]),
+  code: z.string().min(1).max(128),
+  message: z.string().min(1).max(2_048),
+  recovery: z.string().max(2_048).optional(),
+  details: z.array(operationDetailSchema).max(24).default([]),
+});
+export type OperationFailure = z.infer<typeof operationFailureSchema>;
+
 export const operationSchema = z.object({
   id: z.string(),
   label: z.string(),
   toolName: z.string().min(1).max(128).optional(),
+  operationDescriptorId: z.string().min(1).max(128).optional(),
+  action: z.string().min(1).max(128).optional(),
   status: z.enum(["running", "completed", "partial", "failed", "cancelled"]),
   detail: z.string().optional(),
+  request: operationDisclosureSchema.optional(),
+  outcome: operationDisclosureSchema
+    .extend({ kind: z.enum(["observed", "result"]) })
+    .optional(),
+  failure: operationFailureSchema.optional(),
+  durationMs: z.number().finite().nonnegative().optional(),
   warnings: z.array(z.string()).default([]),
   changed: z.array(z.string()).default([]),
   unchanged: z.array(z.string()).default([]),
@@ -1128,6 +1158,8 @@ export const desktopAgentDefinitionSchema = z.object({
   systemPrompt: z.string().min(1),
   tools: z.array(z.string().min(1)),
   resolvedTools: z.array(z.string().min(1)),
+  resolvedOperations: z.array(z.string().min(1)).optional(),
+  explicitCompatibilityAliases: z.array(z.string().min(1)).optional(),
   editScope: z.array(
     z.union([z.literal("session"), desktopTrackScopeSelectorSchema]),
   ),

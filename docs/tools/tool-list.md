@@ -29,10 +29,12 @@ if the target changed.
 
 ## Connection and Live Set inspection
 
-| Tool | Purpose | Risk | Scope | Duration | Key inputs |
-| --- | --- | --- | --- | --- | --- |
-| `ableton_connection_status` | Return the current Remote Script bridge connection status. | `read` | `read` | `instant` | None |
-| `ableton_session_inspect` | Inspect transport, tempo, time signature, project identity, tracks, scenes, clips, and capabilities. | `read` | `read` | `short` | None |
+`ableton_session` owns the session-level read surface:
+
+| Action | Purpose | Risk | Duration |
+| --- | --- | --- | --- |
+| `connection-status` | Return the current Remote Script bridge connection status. | `read` | `instant` |
+| `inspect` | Inspect tempo, time signature, playback, regular tracks, and Session clips. | `read` | `short` |
 
 ## Set History
 
@@ -47,6 +49,13 @@ The allowlisted views are `agent_history_sessions`, `agent_history_turns`,
 `set_history_session_clips`, `set_history_arrangement_clips`,
 `set_history_scenes`, `set_history_cue_points`, `set_history_trajectories`,
 and `set_history_agent_links`. Results include `schemaVersion` and `elapsedMs`.
+Every key in `parameters` must appear in the SQL as a named placeholder, every
+placeholder must have a matching key, and parameter-free queries omit the
+`parameters` object. Binding mistakes fail before database access with
+retryable corrective guidance.
+Grouped Ableton calls expose their stable `operation_id`, discriminated
+`action`, `mutation_target`, and bounded `target_identity_json`; terminal
+mutations are linked across agent and Set history by `tool_call_id`.
 The backing service, not the agent, owns read-only database access and
 cancellation.
 
@@ -57,53 +66,88 @@ discovery/detail examples. The bundled Set History skill adds deeper comparison
 and interpretation patterns, but basic SQL queries do not depend on loading the
 skill.
 
-## Transport, Arrangement loop, and cue points
+## Live 11 core-domain operations
 
-| Tool | Purpose | Risk | Scope | Duration | Key inputs |
-| --- | --- | --- | --- | --- | --- |
-| `ableton_transport_set_tempo` | Set and verify the Live Set tempo. | `reversible` | `session` | `instant` | `tempo` (20–999 BPM) |
-| `ableton_transport_set_playing` | Start or stop transport and verify playback state. | `reversible` | `session` | `instant` | `isPlaying` |
-| `ableton_transport_inspect_arrangement` | Inspect Arrangement loop state and a bounded page of cue points. | `read` | `read` | `short` | `offset`, `limit` |
-| `ableton_transport_set_arrangement_loop` | Update loop enablement, start, and/or length with verification and rollback. | `reversible` | `session` | `instant` | At least one of `enabled`, `start`, `length` |
-| `ableton_transport_create_cue_point` | Create and verify a cue point at an unoccupied Arrangement time; an optional name is applied when the connected Live Remote Script surface permits it. | `reversible` | `session` | `short` | `time`, optional `name` |
-| `ableton_transport_delete_cue_point` | Delete an exact cue point after identity, name, and time revalidation. | `destructive` | `session` | `short` | `expectedReference`, `expectedName`, `expectedTime` |
+The public surface is organized into action-discriminated domain tools rather
+than separate tools for each operation. Every action has its own operation
+descriptor, capability key, risk, edit scope, affected-track resolution, and
+lifecycle identity.
 
-## Tracks and mixer
+| Tool | Supported actions |
+| --- | --- |
+| `ableton_session` | `connection-status` and full Set `inspect` |
+| `ableton_scenes` | Bounded `list`/`get`; `create`, `duplicate`, `rename`, `set-color`, `set-tempo-time-signature`, `fire`, and exact destructive `delete` |
+| `ableton_tracks` | Bounded `list`/`get`; regular MIDI/audio `create`; return-track creation; regular-track `duplicate`; exact `rename`; color, monitoring, fold, stop-clips, Back to Arrangement, and guarded regular/return `delete` |
+| `ableton_mixer_routing` | Mixer `inspect`; bounded `meters`; combined `set-track-mixer`; volume, pan, sends, activator, crossfade assignment, master crossfader, and cue volume updates; routing option discovery and exact snapshot-token assignment |
+| `ableton_transport` | Full state `get`; tempo and playback; Arrangement loop/cue inspection and mutation; seek/jump, time signature, metronome, launch/record quantization, Link when exposed, cue rename/jump, and Back to Arrangement |
+| `ableton_session_clips` | MIDI clip creation; destructive note replacement; launch, duplicate, delete, and conservative property updates |
+| `ableton_arrangement` | Bounded inspection; MIDI clip creation; destructive clip deletion/note replacement; isolated duplication; transactional `fill-region`; conservative clip property updates |
+| `ableton_midi_notes` | Modern note-ID `query`, `add`, `update`, exact destructive `remove`, `duplicate`, and `quantize`, preserving probability, velocity deviation, and release velocity |
+| `ableton_audio_clips` | Metadata `inspect`, including currently available warp modes; gain, pitch, warp state/mode, start/end/loop markers, and RAM mode updates; bounded warp-marker reads |
+| `ableton_devices` | Bounded device/parameter/rack/chain/Drum Rack inspection; parameter and enabled state mutation; chain mixer/properties; exact device position validation and movement |
+| `ableton_browser` | Browser roots/direct children, bounded search, external plug-in search, and exact supported item loading |
+| `ableton_recording` | Recording-state inspection and verified Arrangement/Session record, overdub, automation record, punch, Capture MIDI, and timed empty-slot recording jobs |
+| `ableton_grooves` | Revision-bound Groove Pool inspection, clip assignment/clear, percentage-unit property edits, and global amount up to Live's 130% limit |
+| `ableton_selection_view` | Exact selection reads/setters and supported major view, follow, draw, fold, and collapse controls |
+| `ableton_live_history` | Global `canUndo`/`canRedo`, undo, and redo with explicit warning/confirmation |
+| `ableton_browser_adapters` | Preview/stop preview and capability-detected Hot-Swap, adjacent insertion, and empty Drum Rack pad loading with state restoration |
+| `ableton_clip_automation` | Session envelope discovery/sampling, bounded step insertion, and explicit clear-one/clear-all |
+| `ableton_warp_markers` | Revision-bound add/move/remove with ordering, BPM validation, verification, and compensation |
+| `ableton_special_devices` | Capability-detected Live 11 Simpler, Looper, and Wavetable operations |
+| `ableton_workflow_jobs` | Get/list bounded asynchronous workflow jobs and cancel only jobs owned by the active agent |
 
-| Tool | Purpose | Risk | Scope | Duration | Key inputs |
-| --- | --- | --- | --- | --- | --- |
-| `ableton_tracks_create` | Create one MIDI or audio track at the end of the Live Set. | `reversible` | `session` | `short` | `kind`, optional `name` |
-| `ableton_tracks_delete` | Delete an exact track; refuses to delete the final remaining track. | `destructive` | `track` | `short` | Track `index`, identity, expected kind |
-| `ableton_tracks_rename` | Rename an exact inspected track. | `reversible` | `track` | `short` | Track identity, `name` |
-| `ableton_tracks_set_mixer` | Update mute, solo, arm, normalized volume, and/or pan. | `reversible` | `track` | `short` | Track identity plus one or more mixer properties |
+Routing assignments require a recent option snapshot, exact option token, exact
+display name, target identity, and routing direction. Results surface warnings
+for feedback-prone routes and external MIDI destinations.
+
+MIDI note removal is destructive and requires destructive-operation approval.
+Warp-mode assignment must select a mode from the exact availability list
+returned by inspection; changed availability is rejected as stale.
+Live 11 launch quantization is bounded to `0..13`, record quantization to
+`0..8`, pitch fine to `-50..49`, and warp-mode identifiers to `0..6`.
+
+Bulk note-replacement actions remain destructive. The core-domain layer does
+not expose scene-scoped stop, arbitrary track reordering, per-note expression
+editing, or unrestricted file import.
 
 ## Session View clips and MIDI notes
 
-| Tool | Purpose | Risk | Scope | Duration | Key inputs |
-| --- | --- | --- | --- | --- | --- |
-| `ableton_clips_create_midi` | Create a MIDI clip in an empty Session View slot on a MIDI track. | `reversible` | `track` | `short` | Track identity, `sceneIndex`, `length`, optional `name` |
-| `ableton_clips_replace_notes` | Replace every note in an exact Session MIDI clip. | `destructive` | `track` | `short` | Track/clip identity, `notes`, `allowPerNoteExpressionLoss` |
-| `ableton_clips_launch` | Launch an exact MIDI or audio Session clip and verify its playback state. | `reversible` | `track` | `instant` | Track/clip identity and `sceneIndex` |
-| `ableton_clips_duplicate` | Duplicate an exact Session clip into an empty slot on an exact destination track. | `reversible` | `tracks` | `short` | Source track/clip identity and destination track/scene identity |
-| `ableton_clips_delete` | Delete an exact MIDI or audio Session clip. | `destructive` | `track` | `short` | Track/clip identity and `sceneIndex` |
-| `ableton_clips_set_properties` | Update an exact Session clip's name, mute state, and/or loop state. | `reversible` | `track` | `short` | Track/clip identity plus one or more properties |
+These operations are branches of `ableton_session_clips`:
+
+| Action | Purpose | Risk | Scope | Duration |
+| --- | --- | --- | --- | --- |
+| `create-midi` | Create a MIDI clip in an empty Session View slot. | `reversible` | `track` | `short` |
+| `replace-notes` | Replace every note in an exact Session MIDI clip. | `destructive` | `track` | `short` |
+| `launch` | Launch and verify an exact MIDI or audio Session clip. | `reversible` | `track` | `instant` |
+| `duplicate` | Duplicate an exact clip into an empty slot on an exact destination track. | `reversible` | `tracks` | `short` |
+| `delete` | Delete an exact MIDI or audio Session clip. | `destructive` | `track` | `short` |
+| `set-properties` | Update an exact clip's name, mute state, and/or loop state. | `reversible` | `track` | `short` |
 
 MIDI note entries contain `pitch`, `startTime`, `duration`, `velocity`, and
 optional `mute`. Replacement tools accept at most 2,048 notes. Existing
 per-note MPE/expression data cannot be preserved and requires explicit opt-in
 when replacing notes in a non-empty clip.
+For `create-midi`, supply the inspected track's `index`,
+`expectedReference`, and `expectedName`, plus `sceneIndex` and `length`.
+`duplicate` instead identifies the destination with
+`destinationTrackIndex`, `expectedDestinationTrackReference`,
+`expectedDestinationTrackName`, and `destinationSceneIndex`. For
+`replace-notes`, explicitly set `allowPerNoteExpressionLoss` to `false`
+when expression must be preserved or `true` when its loss is acceptable.
 
 ## Arrangement clips and MIDI notes
 
-| Tool | Purpose | Risk | Scope | Duration | Key inputs |
-| --- | --- | --- | --- | --- | --- |
-| `ableton_arrangement_create_midi_clip` | Create an empty MIDI clip in a non-overlapping Arrangement range. | `reversible` | `track` | `short` | Track identity, `startTime`, `length`, optional `name` |
-| `ableton_arrangement_inspect` | Return a bounded page of Arrangement clips ordered by time and track. | `read` | `read` | `short` | `offset`, `limit` |
-| `ableton_arrangement_delete_clip` | Delete an exact Arrangement clip after track and start-time revalidation. | `destructive` | `track` | `short` | Track/clip identity, `expectedStartTime` |
-| `ableton_arrangement_replace_notes` | Replace every note in an exact Arrangement MIDI clip. | `destructive` | `track` | `short` | Track/clip identity, start time, notes, expression-loss opt-in |
-| `ableton_arrangement_duplicate_clip` | Duplicate a Session MIDI or audio clip into a verified, non-overlapping Arrangement destination. This is for isolated placements, not overhanging region-fill fallbacks. | `reversible` | `track` | `short` | Track/Session clip identity, `destinationTime` |
-| `ableton_arrangement_fill_region` | Fill a half-open Arrangement region with up to 128 complete copies of one Session MIDI or audio clip in one transactional call. Any uncovered tail is reported and never overhung. | `reversible` | `track` | `long` | Track/Session clip identity, `regionStart`, `regionEnd` |
-| `ableton_arrangement_set_clip_properties` | Update an Arrangement clip's name, mute state, and/or loop state. | `reversible` | `track` | `short` | Track/clip identity, start time, one or more properties |
+These operations are branches of `ableton_arrangement`:
+
+| Action | Purpose | Risk | Scope | Duration |
+| --- | --- | --- | --- | --- |
+| `create-midi-clip` | Create an empty MIDI clip in a non-overlapping range. | `reversible` | `track` | `short` |
+| `inspect` | Return a bounded page of clips ordered by time and track. | `read` | `read` | `short` |
+| `delete-clip` | Delete an exact clip after track and start-time revalidation. | `destructive` | `track` | `short` |
+| `replace-notes` | Replace every note in an exact Arrangement MIDI clip. | `destructive` | `track` | `short` |
+| `duplicate-clip` | Duplicate a Session clip into a verified non-overlapping destination. | `reversible` | `track` | `short` |
+| `fill-region` | Fill a half-open region with up to 128 complete copies in one transactional invocation. | `reversible` | `track` | `long` |
+| `set-clip-properties` | Update an exact clip's name, mute state, and/or loop state. | `reversible` | `track` | `short` |
 
 Region filling preflights every destination before mutation and applies at most
 four tiles per scheduled Live tick. Any placement failure removes all clips
@@ -115,34 +159,46 @@ required and must never place a full tile past `regionEnd`.
 
 ## Devices, racks, Drum Racks, and parameters
 
-| Tool | Purpose | Risk | Scope | Duration | Key inputs |
-| --- | --- | --- | --- | --- | --- |
-| `ableton_devices_inspect` | Inspect a bounded page of top-level devices on an exact regular track. | `read` | `read` | `short` | Track identity, `offset`, `limit` |
-| `ableton_device_parameters_inspect` | Inspect a bounded page of parameters on an exact top-level device. | `read` | `read` | `long` | Track/device identity, `offset`, `limit` |
-| `ableton_rack_chains_inspect` | Inspect direct chains of an exact top-level rack without recursive expansion. | `read` | `read` | `short` | Track/rack identity, `offset`, `limit` |
-| `ableton_rack_chain_devices_inspect` | Inspect direct devices in an exact rack chain. | `read` | `read` | `short` | Track/rack/chain identity, `offset`, `limit` |
-| `ableton_drum_rack_pads_inspect` | Inspect occupied pads on an exact top-level Drum Rack by default, or an explicitly requested bounded page including empty pads. | `read` | `read` | `short` | Track/Drum Rack identity, `includeEmpty`, `offset`, `limit` |
-| `ableton_drum_pad_chains_inspect` | Inspect direct chains for an exact Drum Rack pad. | `read` | `read` | `short` | Track/rack/pad identity, `offset`, `limit` |
-| `ableton_drum_pad_chain_devices_inspect` | Inspect direct devices in an exact Drum Rack pad chain. | `read` | `read` | `short` | Track/rack/pad/chain identity, `offset`, `limit` |
-| `ableton_device_set_enabled` | Enable or disable an exact top-level device through its Device On parameter. | `reversible` | `track` | `short` | Track/device identity, `enabled` |
-| `ableton_device_set_parameter` | Set an exact writable parameter using normalized `0..1` input, with quantization support and rollback. | `reversible` | `track` | `short` | Track/device/parameter identity, `normalizedValue` |
+`ableton_devices` exposes `inspect`, `inspect-parameters`,
+`inspect-rack-chains`, `inspect-rack-chain-devices`,
+`inspect-drum-rack-pads`, `inspect-drum-pad-chains`,
+`inspect-drum-pad-chain-devices`, `inspect-chain-mixer`, `find-position`,
+`move`, `set-chain-properties`, `set-chain-mixer`, `set-enabled`, and
+`set-parameter`. Each branch retains its own risk, duration, capability,
+identity shape, and affected-track authorization.
 
 Device inspection is intentionally bounded and non-recursive. Nested rack
 contents are reached through the rack-, chain-, pad-, and device-specific
-inspection tools. Drum Rack pad inspection scans the bounded 128-pad map and
-returns only occupied pads by default, with total/occupied/empty counts.
-`includeEmpty: true` preserves paginated diagnostic access to the complete pad
-map.
+inspection tools. Device movement and chain editing are Live 11 operations:
+they preflight with `Song.find_device_position`, account for same-parent index
+shifts in both forward moves and rollback, mutate chain colors through the
+exact `Chain.color_index` palette index, verify the canonical state, and fail
+closed on stale or ambiguous topology. Chain-property results retain Live's
+observed RGB `color` alongside `colorIndex`. Drum Rack pad inspection scans
+the bounded 128-pad map and returns only occupied pads by default, with
+total/occupied/empty counts. `includeEmpty: true` preserves paginated
+diagnostic access to the complete pad map.
+Use `inspect-drum-rack-pads` to read pad names and MIDI notes from an
+inspected Drum Rack device.
+
+There is no device `get` action. Parameter workflows call `inspect`, then
+`inspect-parameters` with flat top-level track/device identity fields copied
+from inspection, and only then `set-parameter` with the exact returned
+parameter identity and normalized value. A nested `target` object is not part
+of these two action contracts.
+Copy `expectedParameterName` exactly from `inspect-parameters`, including
+literal punctuation, when setting a parameter.
+
+This slice does **not** support creating empty rack chains, direct native
+device insertion, deleting one chain, or reordering chains. Those operations
+are not registered as tools or advertised as capabilities.
 
 ## Ableton Browser and content loading
 
-| Tool | Purpose | Risk | Scope | Duration | Key inputs |
-| --- | --- | --- | --- | --- | --- |
-| `ableton_browser_roots_inspect` | Inspect documented Ableton Browser root categories and their runtime references. | `read` | `read` | `instant` | None |
-| `ableton_browser_children_inspect` | Inspect one bounded page of direct children for an exact Browser container. | `read` | `read` | `short` | Browser item identity/path, `offset`, `limit` |
-| `ableton_browser_search` | Perform deterministic bounded search across selected Browser roots. | `read` | `read` | `short` | `query`, `roots`, traversal/result/depth/time limits |
-| `ableton_browser_search_external_plugins` | Search only the Plug-ins root; does not load a plug-in. | `read` | `read` | `short` | `query`, traversal/result/depth/time limits |
-| `ableton_browser_load_item` | Load an exact supported built-in device or preset onto a compatible regular track. | `reversible` | `track` | `long` | Track identity plus exact Browser item identity/path |
+`ableton_browser` exposes `roots`, `children`, `search`,
+`search-external-plugins`, and `load-item`. Inspection and search branches are
+read-only; exact supported item loading remains a long reversible,
+identity-bound track mutation.
 
 Browser roots include sounds, drums, instruments, audio effects, MIDI
 effects, Max for Live, plug-ins, clips, samples, Packs, User Library, and the
@@ -151,15 +207,31 @@ unknown load types, arbitrary paths, incompatible tracks, and active hotswap.
 
 ## Tool selection in custom agents
 
-Agent definitions select tools with exact names or wildcard patterns:
+Agent definitions select tools with exact names, operation IDs, or wildcard
+patterns:
 
 ```yaml
 tools:
-  - ableton_session_inspect
-  - ableton_tracks_*
-  - ableton_clips_*
+  - session.inspect
+  - recording.inspect
+  - grooves.set_*
 ```
 
-`"*"` enables the complete catalog. Patterns are expanded against the
-registered tool names when definitions load; unmatched patterns are reported
-as definition diagnostics.
+`"*"` enables the canonical catalog. Operation patterns select only matching
+actions and prune the grouped tool's strict schema. Connected capability flags
+prune unsupported actions as the session is configured. Superseded direct
+names are removed rather than registered beside canonical grouped tools.
+Definitions that still name a removed tool are invalid and receive an
+unmatched-pattern diagnostic; use the documented canonical operation ID or
+grouped tool instead.
+
+## Specialized tools intentionally kept separate
+
+| Tool | Why it remains separate |
+| --- | --- |
+| `ableton_browser_adapters` | Evidence-gated private Browser preview, Hot-Swap, adjacent insertion, and empty-pad adapters have distinct restoration and capability semantics from documented Browser traversal/loading. |
+| `ableton_clip_automation` | Envelope discovery, sampling, step insertion, and destructive clearing form a specialized Session automation workflow. |
+| `ableton_warp_markers` | Revision-bound marker mutation has ordering, BPM, compensation, and stale-snapshot requirements beyond ordinary audio-clip properties. |
+| `ableton_special_devices` | Simpler, Looper, and Wavetable branches are capability-detected device-specific adapters rather than general device CRUD. |
+| `ableton_workflow_jobs` | Job inspection and cancellation manage application-owned asynchronous execution rather than direct LOM objects. |
+| `set_sql_search` | This queries application-owned Agent and Set History rather than the current Live object model. |

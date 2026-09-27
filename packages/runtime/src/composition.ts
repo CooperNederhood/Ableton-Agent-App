@@ -19,6 +19,8 @@ import {
 import {
   type AgentHistoryRecord,
   type AgentHistoryStore,
+  type SetHistoryRecord,
+  type SetHistoryStore,
   telemetryIdSchema,
   telemetryEntityIdSchema,
   sanitizeTelemetryAttributes,
@@ -88,6 +90,18 @@ function runtimeEventAttributes(
           deliveryCount: event.trace.deliveryIds.length,
         }),
     ...(event.sessionId === undefined ? {} : { sdkSessionId: event.sessionId }),
+    ...(typeof event.data.operationDescriptorId === "string"
+      ? { operationDescriptorId: event.data.operationDescriptorId }
+      : {}),
+    ...(typeof event.data.action === "string"
+      ? { action: event.data.action }
+      : {}),
+    ...(typeof event.data.mutationTarget === "string"
+      ? { mutationTarget: event.data.mutationTarget }
+      : {}),
+    ...(event.data.targetIdentity === undefined
+      ? {}
+      : { targetIdentity: event.data.targetIdentity }),
     ...(includeData ? { data: event.data } : {}),
   });
 }
@@ -112,12 +126,19 @@ function normalizedEntityId(value: string | undefined): string | undefined {
 function createRuntimeObserver(
   recorder: NonBlockingObservabilityRecorder | undefined,
   agentHistory: Pick<AgentHistoryStore, "appendAgentHistory"> | undefined,
+  setHistory: Pick<SetHistoryStore, "appendSetHistory"> | undefined,
   currentAppSessionId: (() => string | undefined) | undefined,
   currentLiveSetId?: () => string | undefined,
   currentLiveProjectId?: () => string | undefined,
   logger: Logger = noopLogger,
 ): AgentRuntimeObserver | undefined {
-  if (recorder === undefined && agentHistory === undefined) return undefined;
+  if (
+    recorder === undefined &&
+    agentHistory === undefined &&
+    setHistory === undefined
+  ) {
+    return undefined;
+  }
   const toolNames = new Map<string, string>();
   const turnOrigins = new Map<string, string>();
   const persistAgentHistory = (record: AgentHistoryRecord): void => {
@@ -133,6 +154,25 @@ function createRuntimeObserver(
       });
     } catch (error) {
       logger.warn("Agent history projection failed", {
+        kind: record.kind,
+        id: record.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+  const persistSetHistory = (record: SetHistoryRecord): void => {
+    if (setHistory === undefined) return;
+    try {
+      const write = setHistory.appendSetHistory(record);
+      void write.catch((error) => {
+        logger.warn("Set trajectory projection failed", {
+          kind: record.kind,
+          id: record.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    } catch (error) {
+      logger.warn("Set trajectory projection failed", {
         kind: record.kind,
         id: record.id,
         error: error instanceof Error ? error.message : String(error),
@@ -170,7 +210,9 @@ function createRuntimeObserver(
       const toolName =
         observedToolName ??
         (toolCallId === undefined ? undefined : toolNames.get(toolCallId));
-      const isToolEvent = event.type.startsWith("agent.tool.");
+      const isToolEvent =
+        event.type.startsWith("agent.tool.") ||
+        event.type.startsWith("agent.operation.");
       const isTurnEvent = event.type.startsWith("agent.turn.");
       const isAssistantEvent = event.type.startsWith("agent.assistant.");
       const spanId = isToolEvent
@@ -401,6 +443,10 @@ function createRuntimeObserver(
           metadata: sanitizeTelemetryAttributes({
             sdkEventId: event.data.sdkEventId,
             parentSdkEventId: event.data.parentSdkEventId,
+            operationDescriptorId: event.data.operationDescriptorId,
+            action: event.data.action,
+            mutationTarget: event.data.mutationTarget,
+            targetIdentity: event.data.targetIdentity,
           }),
         });
         persistAgentHistory({
@@ -429,8 +475,54 @@ function createRuntimeObserver(
           metadata: sanitizeTelemetryAttributes({
             toolName,
             structuredFailure: event.data.structuredFailure,
+            operationDescriptorId: event.data.operationDescriptorId,
+            action: event.data.action,
+            mutationTarget: event.data.mutationTarget,
+            targetIdentity: event.data.targetIdentity,
           }),
         });
+        const mutationTarget = event.data.mutationTarget;
+        if (
+          liveSetId !== undefined &&
+          (mutationTarget === "session" ||
+            mutationTarget === "track" ||
+            mutationTarget === "tracks")
+        ) {
+          const recordedOutcome =
+            typeof event.data.outcome === "string"
+              ? event.data.outcome
+              : success
+                ? "success"
+                : "failure";
+          persistSetHistory({
+            ...historyBase,
+            kind: "set_trajectory",
+            id: stableTelemetryId(`set-trajectory:${sessionId}:${toolCallId}`),
+            occurredAt: event.occurredAt,
+            liveSetId,
+            agentSessionId: sessionId,
+            turnId,
+            toolCallId,
+            activeAgentId,
+            trajectoryType: success
+              ? "tool.mutation.completed"
+              : recordedOutcome === "applied_indeterminate"
+                ? "tool.mutation.indeterminate"
+                : recordedOutcome === "cancelled"
+                  ? "tool.mutation.cancelled"
+                  : "tool.mutation.failed",
+            summary: `${typeof event.data.operationDescriptorId === "string" ? event.data.operationDescriptorId : toolName} ${success ? "completed" : recordedOutcome}`,
+            data: sanitizeTelemetryAttributes({
+              toolName,
+              operationDescriptorId: event.data.operationDescriptorId,
+              action: event.data.action,
+              mutationTarget,
+              targetIdentity: event.data.targetIdentity,
+              outcome: recordedOutcome,
+              requiresReinspection: event.data.requiresReinspection,
+            }),
+          });
+        }
       }
       if (
         historyBase !== undefined &&
@@ -479,6 +571,12 @@ function createRuntimeObserver(
           ...(liveEventId === undefined ? {} : { liveEventId }),
           ...(outputId === undefined ? {} : { outputId }),
           ...(toolName === undefined ? {} : { toolName }),
+          ...(typeof event.data.operationDescriptorId === "string"
+            ? { operationId: event.data.operationDescriptorId }
+            : {}),
+          ...(typeof event.data.action === "string"
+            ? { action: event.data.action }
+            : {}),
         });
       }
       if (recorder !== undefined)
@@ -602,6 +700,8 @@ export interface AgentRuntimeOptions {
   setHistoryQuery?: SetHistoryQueryService;
   /** Searchable application-owned projection of SDK agent history. */
   agentHistory?: Pick<AgentHistoryStore, "appendAgentHistory">;
+  /** Semantic Set trajectory projection for mutating agent tool calls. */
+  setHistory?: Pick<SetHistoryStore, "appendSetHistory">;
   /** Synchronous active App-session attribution for agent history records. */
   currentAppSessionId?: () => string | undefined;
   /** Replaces the bridge, used by tests and fakes. */
@@ -896,6 +996,14 @@ export function createAbletonService(
           "live_set.save_observed",
           "live_event.occurred",
           "live_event.invalidated",
+          "live_state.changed",
+          "workflow_job.queued",
+          "workflow_job.started",
+          "workflow_job.progress",
+          "workflow_job.completed",
+          "workflow_job.failed",
+          "workflow_job.cancelled",
+          "workflow_job.indeterminate",
         ],
         onRequest: ({ requestId, correlationId, command, params }) =>
           logger.debug("Ableton bridge request", {
@@ -952,6 +1060,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
   const runtimeObserver = createRuntimeObserver(
     options.telemetry,
     options.agentHistory,
+    options.setHistory,
     options.currentAppSessionId,
     options.currentLiveSetId ??
       (isCurrentLiveSetProvider(ableton)
@@ -1039,7 +1148,35 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       : { requestToolApproval: options.requestToolApproval }),
     askForReadApproval: options.askForReadApproval ?? false,
     getAbletonStatus: () => ableton.getStatus(),
+    getAbletonCapabilities: () => ableton.getCapabilities(),
     inspectSession: () => ableton.inspectSession(),
+    executeScenesOperation: (params) => ableton.executeScenesOperation!(params),
+    executeTracksOperation: (params) => ableton.executeTracksOperation!(params),
+    executeMixerRoutingOperation: (params) =>
+      ableton.executeMixerRoutingOperation!(params),
+    executeTransportOperation: (params) =>
+      ableton.executeTransportOperation!(params),
+    executeMidiNotesOperation: (params) =>
+      ableton.executeMidiNotesOperation!(params),
+    executeAudioClipsOperation: (params) =>
+      ableton.executeAudioClipsOperation!(params),
+    executeRecordingOperation: (params) =>
+      ableton.executeRecordingOperation!(params),
+    executeGrooveOperation: (params) => ableton.executeGrooveOperation!(params),
+    executeSelectionViewOperation: (params) =>
+      ableton.executeSelectionViewOperation!(params),
+    executeLiveHistoryOperation: (params) =>
+      ableton.executeLiveHistoryOperation!(params),
+    executeBrowserAdapterOperation: (params) =>
+      ableton.executeBrowserAdapterOperation!(params),
+    executeClipAutomationOperation: (params) =>
+      ableton.executeClipAutomationOperation!(params),
+    executeWarpMarkerOperation: (params) =>
+      ableton.executeWarpMarkerOperation!(params),
+    executeSpecializedDeviceOperation: (params) =>
+      ableton.executeSpecializedDeviceOperation!(params),
+    executeWorkflowJobOperation: (params) =>
+      ableton.executeWorkflowJobOperation!(params),
     preparedContextProvider: preparedContext,
     currentIdentityContext,
     setTempo: (tempo) => ableton.setTempo(tempo),
@@ -1067,6 +1204,11 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     inspectDrumPadChains: (params) => ableton.inspectDrumPadChains(params),
     inspectDrumPadChainDevices: (params) =>
       ableton.inspectDrumPadChainDevices(params),
+    inspectChainMixer: (params) => ableton.inspectChainMixer(params),
+    findDevicePosition: (params) => ableton.findDevicePosition(params),
+    moveDevice: (params) => ableton.moveDevice(params),
+    setChainProperties: (params) => ableton.setChainProperties(params),
+    setChainMixer: (params) => ableton.setChainMixer(params),
     setDeviceEnabled: (params) => ableton.setDeviceEnabled(params),
     setDeviceParameter: (params) => ableton.setDeviceParameter(params),
     createMidiClip: (params) => ableton.createMidiClip(params),

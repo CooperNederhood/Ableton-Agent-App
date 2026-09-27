@@ -30,6 +30,18 @@ Companion specification: [Agent Runtime](agent-runtime.md)
   network tools.
 - [x] Enable SDK `bash` only through a fail-closed command/path policy for
   bounded read-only inspection of profile-owned large-output spill files.
+  - [x] Treat the application-owned command grammar and spill-path validation
+    as authoritative when the SDK advisory `readOnly` classification is false.
+  - [x] Validate parsed command segments and command-specific file operands
+    independently when SDK aggregate command identifiers contain full command
+    text or SDK path summaries omit read operands.
+  - [x] Record bounded, redacted shell-policy stage, normalized identifier,
+    operand-count, SDK-summary disagreement, timing, and trace attribution in
+    permission history.
+  - [x] Correlate automatic policy rejection with terminal tool failure,
+    distinguish it from user denial, and publish bounded corrective guidance.
+- [x] Publish bounded, redacted operation arguments, result/failure summaries,
+  duration, and failure source for Desktop disclosure and typed history.
 - [ ] Enable the runtime's native filesystem/network sandbox as defense in
   depth when the public SDK exposes supported `sandboxConfig` session wiring.
 - [x] Disable SDK tool search so the runtime never injects an implicit
@@ -106,6 +118,8 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [x] Dispatch observed saves through ordered, per-Live-Set injectable actions
   with deduplication, Set-switch/shutdown cancellation, and full lifecycle
   observability.
+- [x] Project terminal mutating tool calls into Set trajectories with grouped
+  operation/action/target metadata and exact agent/turn/tool-call attribution.
 - [x] Implement context compaction/refresh strategy for long sessions.
 
 ## Tests

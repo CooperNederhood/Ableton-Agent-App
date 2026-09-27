@@ -8,7 +8,8 @@ Companion specification: [Custom Agents](custom-agents.md)
   instances, diagnostics, and tool patterns.
 - [x] Add root `agents/` resources and packaged-resource copying.
 - [x] Implement safe YAML discovery, validation, fingerprints, duplicate
-  detection, wildcard expansion, and refresh.
+  detection, canonical wildcard/operation expansion, schema pruning, and
+  refresh.
 - [x] Resolve `*` against Ableton, application-owned, approved
   session-isolated SDK tools, and policy-gated `bash` while always excluding
   `builtin:skill` and disabling SDK tool search.
@@ -44,8 +45,9 @@ Companion specification: [Custom Agents](custom-agents.md)
 
 ## Safety
 
+- [x] Register only tools resolved by an agent's tool and operation allowlists,
+  with connected-capability pruning and no superseded direct aliases.
 - [x] Classify every mutation as global, one-track, or multi-track.
-- [x] Register only tools resolved by an agent's allowlist.
 - [x] Bind track selectors to current project identities.
 - [x] Deny stale, ambiguous, cross-project, or unclassified mutations.
 - [x] Implement global and ordered track-reference mutation locks.

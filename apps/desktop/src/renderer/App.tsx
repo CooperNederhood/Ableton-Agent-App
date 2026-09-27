@@ -1890,6 +1890,10 @@ function EventTraceInspector({
             </dd>
             <dt>Tools</dt>
             <dd>{currentAgent.config.resolvedTools.join(", ") || "None"}</dd>
+            <dt>Operations</dt>
+            <dd>
+              {currentAgent.config.resolvedOperations?.join(", ") || "All"}
+            </dd>
             <dt>Messages</dt>
             <dd>
               <pre>
@@ -4481,21 +4485,32 @@ function modelReasoningLabel(model: DesktopAgentModel): string {
 export function ResolvedToolsDisclosure({
   patterns,
   resolvedTools,
+  resolvedOperations = [],
 }: {
   patterns: readonly string[];
   resolvedTools: readonly string[];
+  resolvedOperations?: readonly string[];
 }): React.JSX.Element {
   const resolvedLabel =
     resolvedTools.length > 0 ? resolvedTools.join(", ") : "no available tools";
+  const operationLabel =
+    resolvedOperations.length > 0
+      ? resolvedOperations.join(", ")
+      : "all actions for resolved tools";
   if (patterns.some((pattern) => pattern.includes("*"))) {
     return (
       <details className="resolved-tools-disclosure">
         <summary>Resolved tools ({resolvedTools.length})</summary>
-        <small>{resolvedLabel}</small>
+        <small>Tools: {resolvedLabel}</small>
+        <small>Operations: {operationLabel}</small>
       </details>
     );
   }
-  return <small>Resolves to: {resolvedLabel}</small>;
+  return (
+    <small>
+      Resolves to: {resolvedLabel} · {operationLabel}
+    </small>
+  );
 }
 
 function listValue(values: string[]): string {
@@ -5632,6 +5647,7 @@ function ActiveAgentCard({
               <ResolvedToolsDisclosure
                 patterns={draft.tools}
                 resolvedTools={definition.resolvedTools}
+                resolvedOperations={definition.resolvedOperations ?? []}
               />
             </label>
             <fieldset>
@@ -6176,12 +6192,34 @@ export function OperationCard({
         <ActivityIcon type={presentation.type} />
         <span className="operation-label">{operation.label}</span>
         {operation.toolName !== undefined && (
-          <code className="operation-tool-name">{operation.toolName}</code>
+          <code className="operation-tool-name">
+            {operation.toolName}
+            {operation.action === undefined ? "" : ` · ${operation.action}`}
+          </code>
         )}
-        <small>{operation.status}</small>
+        <small>
+          {operation.status}
+          {operation.durationMs === undefined
+            ? ""
+            : ` · ${formatOperationDuration(operation.durationMs)}`}
+        </small>
       </summary>
       <div className="operation-details">
         {operation.detail && <p>{operation.detail}</p>}
+        {operation.request && (
+          <OperationDisclosureSection
+            title="Requested"
+            disclosure={operation.request}
+          />
+        )}
+        {operation.outcome && (
+          <OperationDisclosureSection
+            title={
+              operation.outcome.kind === "observed" ? "Observed" : "Result"
+            }
+            disclosure={operation.outcome}
+          />
+        )}
         {operation.changed.length > 0 && (
           <p>
             <strong>Changed:</strong> {operation.changed.join(", ")}
@@ -6191,6 +6229,28 @@ export function OperationCard({
           <p>
             <strong>Not changed:</strong> {operation.unchanged.join(", ")}
           </p>
+        )}
+        {operation.failure && (
+          <section className="operation-disclosure operation-failure-details">
+            <h4>Failure</h4>
+            <p>
+              <strong>
+                {operationFailureSourceLabel(operation.failure.source)}
+              </strong>
+              {" · "}
+              <code>{operation.failure.code}</code>
+            </p>
+            <p>{operation.failure.message}</p>
+            {operation.failure.details.length > 0 && (
+              <OperationDetailList details={operation.failure.details} />
+            )}
+            {operation.failure.recovery && (
+              <>
+                <h4>How to correct it</h4>
+                <p>{operation.failure.recovery}</p>
+              </>
+            )}
+          </section>
         )}
         {operation.warnings.map((warning) => (
           <p className="warning" key={warning}>
@@ -6215,6 +6275,66 @@ export function OperationCard({
         </div>
       </div>
     </details>
+  );
+}
+
+function formatOperationDuration(durationMs: number): string {
+  return durationMs < 1_000
+    ? `${Math.round(durationMs)} ms`
+    : `${(durationMs / 1_000).toFixed(durationMs < 10_000 ? 1 : 0)} s`;
+}
+
+function operationFailureSourceLabel(
+  source: NonNullable<DesktopState["operations"][number]["failure"]>["source"],
+): string {
+  return {
+    application_policy: "Blocked by application policy",
+    runtime: "Runtime failure",
+    tool: "Tool failure",
+    user: "Denied by user",
+  }[source];
+}
+
+function OperationDetailList({
+  details,
+}: {
+  details: NonNullable<
+    DesktopState["operations"][number]["request"]
+  >["details"];
+}): React.JSX.Element {
+  return (
+    <dl className="operation-detail-list">
+      {details.map((detail, index) => (
+        <div key={`${detail.label}-${index}`}>
+          <dt>{detail.label}</dt>
+          <dd>
+            {detail.format === "code" ? (
+              <pre>{detail.value}</pre>
+            ) : (
+              detail.value
+            )}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function OperationDisclosureSection({
+  title,
+  disclosure,
+}: {
+  title: string;
+  disclosure: NonNullable<DesktopState["operations"][number]["request"]>;
+}): React.JSX.Element {
+  return (
+    <section className="operation-disclosure">
+      <h4>{title}</h4>
+      {disclosure.summary && <p>{disclosure.summary}</p>}
+      {disclosure.details.length > 0 && (
+        <OperationDetailList details={disclosure.details} />
+      )}
+    </section>
   );
 }
 

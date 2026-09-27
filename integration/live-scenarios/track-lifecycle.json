@@ -5,28 +5,37 @@
   "prompt": "Create one temporary MIDI track, rename it, set its mixer state, verify it, and delete it so the Set returns to its original track state.",
   "artifactPrefix": "AA_SMOKE_TRACK_",
   "allowedTools": [
-    "ableton_session_inspect",
-    "ableton_tracks_create",
-    "ableton_tracks_rename",
-    "ableton_tracks_set_mixer",
-    "ableton_tracks_delete"
+    "ableton_session",
+    "ableton_tracks",
+    "ableton_mixer_routing"
   ],
+  "allowedActions": {
+    "ableton_session": ["inspect"],
+    "ableton_tracks": ["create", "rename", "delete"],
+    "ableton_mixer_routing": ["set-track-mixer"]
+  },
   "allowedRisks": ["read", "reversible", "destructive"],
   "maxToolCalls": 12,
   "maxMutations": 4,
   "timeoutMs": 180000,
   "ordering": [
     {
-      "before": "ableton_tracks_create",
-      "after": "ableton_tracks_rename"
+      "before": "ableton_tracks",
+      "after": "ableton_tracks",
+      "beforeAction": "create",
+      "afterAction": "rename"
     },
     {
-      "before": "ableton_tracks_rename",
-      "after": "ableton_tracks_set_mixer"
+      "before": "ableton_tracks",
+      "after": "ableton_mixer_routing",
+      "beforeAction": "rename",
+      "afterAction": "set-track-mixer"
     },
     {
-      "before": "ableton_tracks_set_mixer",
-      "after": "ableton_tracks_delete"
+      "before": "ableton_mixer_routing",
+      "after": "ableton_tracks",
+      "beforeAction": "set-track-mixer",
+      "afterAction": "delete"
     }
   ],
   "trackNameSuffixes": ["Initial", "Final"],

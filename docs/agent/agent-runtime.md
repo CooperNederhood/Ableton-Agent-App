@@ -32,7 +32,28 @@ application-owned spill file. Shell permission checks reject writes, arbitrary
 filesystem paths, network targets, command substitution, environment access,
 unsafe command flags, and sandbox escalation. Large files are inspected in
 bounded pieces or projected with `jq`; they are not copied wholesale back into
-model context.
+model context. The application-owned executable, argument, syntax, and path
+checks are authoritative; the SDK's advisory command `readOnly` classification
+does not override an otherwise valid request because supported SDK versions may
+classify these approved readers conservatively. The SDK's aggregate
+`commands[].identifier` and `possiblePaths` summaries are also advisory: some
+supported runtime versions place the full shell command in the aggregate
+identifier and omit read operands from `possiblePaths`. The application
+therefore authorizes from non-empty parsed command segments, applies a narrow
+command-specific operand grammar, and independently canonicalizes every file
+operand before approval. Permission history records only bounded policy stages,
+normalized allowlisted identifiers, counts, disagreement flags, and timing in
+its shell-policy decision metadata. Terminal tool events also carry bounded,
+redacted arguments, results or structured failure details, duration, and
+failure source so Desktop can explain the exact request and outcome without
+replaying raw SDK payloads.
+
+Automatic shell-policy rejection remains distinct from a human denial. The
+application associates the policy decision with the tool call and replaces the
+SDK's generic user-rejection wording with an application-owned policy failure
+and corrective guidance. A `tail -n +N` request is classified as unbounded
+because it reads from a starting line through end-of-file; callers should use
+bounded `tail -n N` or a bounded `jq` slice.
 
 The runtime protocol contains native filesystem/network sandbox policy, but
 the pinned public SDK session API does not currently expose that configuration.
@@ -307,3 +328,11 @@ identity and metadata observation, bridge receipt time, project revision,
 `AbortSignal`, and a progress hook. Observation and action queued, started,
 progress, completed, failed, and cancelled stages emit application-owned
 telemetry with stable trace/correlation/causation relationships.
+
+The runtime also projects each terminal mutating tool call into Set History.
+The trajectory record retains the grouped tool name plus its stable operation
+ID, discriminated action, mutation scope, bounded target identity, outcome,
+and exact agent-session/turn/tool-call links. The corresponding agent-history
+rows retain sanitized arguments and results, so a save/manual snapshot can be
+interpreted as a checkpoint reached through the ordered trajectories since the
+previous checkpoint.

@@ -75,6 +75,19 @@ interface AbletonToolMetadata {
 
 Hooks use this metadata for permissions and UI presentation.
 
+New domain operations may define this metadata through an internal operation
+descriptor. A descriptor binds a stable operation ID and action to strict
+input/result schemas, risk, duration, mutation target/edit scope, required
+capability, affected-track extraction, service handler, and target-specific
+lifecycle identity. Permission checks and mutation locks resolve the descriptor
+from the invocation arguments, so cross-track operations authorize and lock
+both exact track references rather than relying on a static tool name.
+
+Device, rack, Drum Rack, and parameter operations are exposed through the
+`ableton_devices` grouped public tool. Their descriptors preserve independent
+schemas, capability gates, approval presentation, affected-track locking, and
+lifecycle identity beneath that one agent-facing name.
+
 The tool factory must also define sanitized observability events for request,
 policy/approval, queued, started, progress, child workflow/bridge operations,
 verification, completed, failed, and cancelled stages. Each stage propagates
@@ -82,6 +95,12 @@ the originating trace/correlation context and records relevant queue/execution
 timing. Bounded tool definitions, arguments, and results are required in the
 local journal for useful history; the shared sanitizer redacts embedded
 credentials and replaces binary/audio bodies with visible omission markers.
+Grouped public tools must preserve their stable operation ID, discriminated
+action, mutation target, and bounded target identity in agent tool-call/result
+history. Terminal mutations also project a Set trajectory record linked by
+agent session, turn, and tool-call ID. This keeps domain-tool consolidation
+queryable as semantic operations instead of collapsing history into generic
+tool names such as `ableton_tracks`.
 
 ## Tool results
 
@@ -111,12 +130,15 @@ accepts one `SELECT` or CTE, rejects comments and mutation/administrative
 keywords and recursive CTEs, restricts sources to documented `agent_history_*`
 and `set_history_*` public views, accepts bounded named scalar parameters, and
 caps returned rows. Results report the database `schemaVersion` and query
-`elapsedMs`. Tool guidance requires needed columns, narrow Live Set/time/ID
-filters, modest limits, summary/ID discovery before detail queries, and narrower
-follow-ups after truncation; it warns against `SELECT *`, broad joins, and broad
-scans. The injected query service must open storage read-only, honor
-cancellation, and must not expose a database handle or filesystem path to the
-model or renderer.
+`elapsedMs`. Every provided parameter must have an exact named placeholder and
+every placeholder must have a provided value; parameter-free SQL omits the
+parameters object. Binding mistakes return bounded, retryable
+`invalid_tool_arguments` guidance before the query service runs. Tool guidance
+requires needed columns, narrow Live Set/time/ID filters, modest limits,
+summary/ID discovery before detail queries, and narrower follow-ups after
+truncation; it warns against `SELECT *`, broad joins, and broad scans. The
+injected query service must open storage read-only, honor cancellation, and
+must not expose a database handle or filesystem path to the model or renderer.
 
 Custom tool failures use the Copilot SDK's native failure result rather than a
 thrown handler exception. The bounded failure payload retains a stable code,
@@ -160,3 +182,42 @@ A workflow operation should:
 
 The operation record and its stages remain queryable in Desktop History after
 the live activity UI has moved on.
+
+For dense Live 11 domains, one agent-facing tool may expose a strict
+discriminated union of actions. Each action still resolves to its own operation
+descriptor before authorization, so read and mutation variants preserve their
+individual risk, capability, edit-scope, lock, target-identity, and lifecycle
+semantics. The protocol keeps inspection and mutation commands separate to
+avoid mutation invalidation for reads.
+
+The binding catalog topology is eager domain grouping with `action` as the
+discriminator. SDK tool search remains disabled. Splitting the same operations
+into action-specific tools does not materially reduce total schema information,
+but it multiplies tool names and exceeds the bounded eager-catalog strategy.
+Obvious Live domain operations must be added as actions on their canonical
+grouped tool rather than left as direct tools merely because the grouped branch
+did not already exist. Superseded direct names must not be registered beside
+their canonical grouped action. Separate public tools are reserved for
+specialized adapters or application workflows whose capability, restoration,
+revision, or asynchronous-job semantics do not fit the ordinary domain
+contract.
+
+The schema transmitted to the SDK must be the application-owned wire contract,
+not an accidental projection that drops runtime-only refinements. Constraints
+that JSON Schema can express, including required-field alternatives and strict
+identity variants, are emitted structurally. Relational constraints that JSON
+Schema cannot express, such as cross-field ordering or uniqueness by one object
+field, remain explicit semantic preconditions in the tool description and
+runtime validator. A grouped tool remains a root `type: object` schema and
+advertises the complete action enum at the root while `oneOf` carries each
+complete action branch; function-tool runtimes may omit a top-level union that
+does not declare an object root. Invalid model-authored arguments fail before
+connection, authorization, queueing, or mutation with
+`invalid_tool_arguments`, `retryable: true`, bounded issue paths, valid
+actions, and the selected branch's expected shape.
+Grouped tool descriptions and branch schemas teach the agent the accepted
+action for a concrete task and the identity fields to copy from inspection.
+For example, Drum Rack pad lookup uses `inspect-drum-rack-pads`, while new
+Session MIDI clips use `create-midi` with the inspected track's direct
+identity. Corrective failures preserve the strict action enum and branch
+shape; descriptions emphasize valid next calls rather than guessed aliases.

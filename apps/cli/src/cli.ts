@@ -631,6 +631,26 @@ export function renderEvent(
     case "ableton.connection_changed":
       return `ableton: ${event.status.state}`;
     case "ableton.event_received":
+      if (event.event.startsWith("workflow_job.")) {
+        const payload =
+          event.payload !== null && typeof event.payload === "object"
+            ? (event.payload as Record<string, unknown>)
+            : {};
+        const jobId =
+          typeof payload.jobId === "string" ? payload.jobId : "unknown";
+        const status =
+          typeof payload.status === "string"
+            ? payload.status
+            : event.event.slice("workflow_job.".length);
+        const progress =
+          typeof payload.progress === "number" &&
+          Number.isFinite(payload.progress)
+            ? payload.progress
+            : 0;
+        return colors.dim(
+          `• Live job ${sanitizeTerminalText(jobId)}: ${sanitizeTerminalText(status)} (${Math.round(progress * 100)}%)`,
+        );
+      }
       return undefined;
     case "ableton.event_gap":
       return colors.red(

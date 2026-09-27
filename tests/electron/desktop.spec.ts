@@ -6,6 +6,12 @@ import { sendAutomationMessage } from "../../packages/debug-control/src/client.j
 
 const desktopPath = resolve("apps/desktop");
 
+interface ElectronTestDesktopApi {
+  agents: {
+    listActive(): Promise<Array<{ id: string }>>;
+  };
+}
+
 test.setTimeout(60_000);
 
 async function launchIsolatedDesktop() {
@@ -18,6 +24,29 @@ async function launchIsolatedDesktop() {
       ELECTRON_DISABLE_SECURITY_WARNINGS: "true",
       LIVE_AGENT_HOME: join(profile, "live-agent"),
       LIVE_AGENT_PROFILE: "default",
+      NODE_ENV: "test",
+    },
+  });
+  return { application, profile };
+}
+
+async function launchAutomationDesktop() {
+  const profile = await mkdtemp(join(process.cwd(), "ableton-agent-electron-"));
+  const application = await electron.launch({
+    args: [
+      desktopPath,
+      `--user-data-dir=${join(profile, "electron")}`,
+      "--automation",
+      "--automation-profile",
+      profile,
+      "--automation-agent",
+      "default",
+      "--automation-yolo",
+    ],
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      ELECTRON_DISABLE_SECURITY_WARNINGS: "true",
       NODE_ENV: "test",
     },
   });
@@ -210,6 +239,171 @@ test("exposes essential landmarks and labels", async () => {
           ).length,
       );
     expect(unnamedButtons).toBe(0);
+  } finally {
+    await application.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
+test("renders useful successful and blocked tool disclosures", async () => {
+  const { application, profile } = await launchAutomationDesktop();
+  try {
+    const window = await application.firstWindow();
+    await window.waitForLoadState("domcontentloaded");
+    const rendererUrl = window.url();
+    await expect
+      .poll(
+        () =>
+          window.evaluate(async () => {
+            const desktop = (
+              window as unknown as {
+                desktop: ElectronTestDesktopApi;
+              }
+            ).desktop;
+            try {
+              const agents = await desktop.agents.listActive();
+              return agents[0]?.id ?? "";
+            } catch {
+              return "";
+            }
+          }),
+        { timeout: 15_000 },
+      )
+      .not.toBe("");
+    const agentInstanceId = await window.evaluate(async () => {
+      const desktop = (
+        window as unknown as {
+          desktop: ElectronTestDesktopApi;
+        }
+      ).desktop;
+      const agents = await desktop.agents.listActive();
+      return agents[0].id;
+    });
+
+    const publish = async (events: readonly unknown[]) => {
+      const delivered = await application.evaluate(
+        ({ BrowserWindow }, input) => {
+          const desktopWindow = BrowserWindow.getAllWindows().find(
+            (candidate) => candidate.webContents.getURL() === input.url,
+          );
+          for (const event of input.events)
+            desktopWindow?.webContents.send("app:event", event);
+          return desktopWindow !== undefined;
+        },
+        { events, url: rendererUrl },
+      );
+      expect(delivered).toBe(true);
+    };
+
+    const disclosureEvents = [
+      {
+        type: "operation.changed",
+        agentInstanceId,
+        operation: {
+          id: "inspect-parameters",
+          label: "Inspect device parameters · sine-kick › Operator",
+          toolName: "ableton_devices",
+          action: "inspect-parameters",
+          status: "running",
+          request: {
+            details: [
+              { label: "Expected Name", value: "sine-kick" },
+              { label: "Expected Device Name", value: "Operator" },
+              { label: "Limit", value: "128" },
+            ],
+          },
+          warnings: [],
+          changed: [],
+          unchanged: [],
+          retryable: false,
+          undoable: false,
+          timestamp: 1,
+        },
+      },
+      {
+        type: "operation.changed",
+        agentInstanceId,
+        operation: {
+          id: "inspect-parameters",
+          label: "Inspect device parameters · sine-kick › Operator",
+          status: "completed",
+          outcome: {
+            kind: "observed",
+            details: [
+              { label: "Total Parameters", value: "195" },
+              { label: "Parameters", value: "128 items" },
+            ],
+          },
+          durationMs: 420,
+          warnings: [],
+          changed: [],
+          unchanged: [],
+          retryable: false,
+          undoable: false,
+          timestamp: 2,
+        },
+      },
+      {
+        type: "operation.changed",
+        agentInstanceId,
+        operation: {
+          id: "blocked-shell",
+          label: "Run shell command",
+          toolName: "bash",
+          status: "failed",
+          request: {
+            details: [
+              {
+                label: "Command",
+                value: "tail -n +32 <spill-file>",
+                format: "code",
+              },
+            ],
+          },
+          failure: {
+            source: "application_policy",
+            code: "shell_policy_blocked",
+            message: "Blocked by shell safety policy",
+            recovery: "Use bounded tail -n N or a jq slice.",
+            details: [
+              {
+                label: "Shell Policy",
+                value: '{ "stage": "unbounded_output" }',
+                format: "code",
+              },
+            ],
+          },
+          warnings: [],
+          changed: [],
+          unchanged: [],
+          retryable: false,
+          undoable: false,
+          timestamp: 3,
+        },
+      },
+    ];
+
+    await publish(disclosureEvents);
+    const successful = window
+      .locator("details.operation")
+      .filter({ hasText: "Inspect device parameters" });
+    await expect(successful.locator("summary")).toContainText("420 ms");
+    await successful.locator("summary").click();
+    await expect(successful).toContainText("Requested");
+    await expect(successful).toContainText("Expected Device Name");
+    await expect(successful).toContainText("Observed");
+    await expect(successful).toContainText("195");
+    await expect(successful).not.toContainText("Changed:");
+
+    const blocked = window
+      .locator("details.operation")
+      .filter({ hasText: "Run shell command" });
+    await blocked.locator("summary").click();
+    await expect(blocked).toContainText("Blocked by application policy");
+    await expect(blocked).toContainText("shell_policy_blocked");
+    await expect(blocked).toContainText("How to correct it");
+    await expect(blocked).toContainText("tail -n +32 <spill-file>");
+    await expect(blocked).not.toContainText("The user rejected this tool call");
   } finally {
     await application.close();
     await rm(profile, { recursive: true, force: true });

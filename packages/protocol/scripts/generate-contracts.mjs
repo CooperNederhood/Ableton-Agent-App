@@ -90,6 +90,14 @@ function sampleFromSchema(schema) {
   }
 }
 
+function sampleCommandParams(name, schema) {
+  const sample = sampleFromSchema(z.toJSONSchema(schema));
+  if (name === "special_devices.set_simpler_markers") {
+    sample.end = 1;
+  }
+  return sample;
+}
+
 const schemaDocument = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   protocolVersion: PROTOCOL_VERSION,
@@ -258,7 +266,7 @@ const commandFixtures = {
   commands: Object.fromEntries(
     Object.entries(commandCatalog).map(([name, definition], index) => {
       const params = definition.params.parse(
-        sampleFromSchema(z.toJSONSchema(definition.params)),
+        sampleCommandParams(name, definition.params),
       );
       const result = definition.result.parse(
         sampleFromSchema(z.toJSONSchema(definition.result)),

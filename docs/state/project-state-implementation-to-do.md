@@ -23,6 +23,14 @@ Companion specification: [Project State](project-state.md)
   with explicit truncation and unsupported group/routing domains.
 - [x] Persist explicit user Refresh captures through an injectable history
   repository while keeping startup/internal refresh non-persistent.
+- [x] Link terminal mutating agent operations to Set trajectory history by
+  app session, agent session, turn, tool call, and semantic operation identity.
+- [ ] Define bounded snapshot projections for nested rack chains/pads,
+  automation envelopes, warp markers, grooves, and detailed MIDI content when
+  checkpoint-level reconstruction must cover those domains independently of
+  tool results.
+- [ ] Decide whether to add debounced post-turn or post-mutation checkpoints;
+  do not capture a full enriched snapshot after every tool call by default.
 - [x] Implement entity indexes and targeted stale markers.
 - [x] Apply Remote Script events with revision checks.
 - [x] Invalidate prepared context after successful bridge mutations even when

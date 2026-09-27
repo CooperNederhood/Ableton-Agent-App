@@ -10,7 +10,9 @@ import { z } from "zod";
 const riskSchema = z.enum(["read", "reversible", "destructive", "broad"]);
 const orderingSchema = z.object({
   before: z.string().min(1),
+  beforeAction: z.string().min(1).optional(),
   after: z.string().min(1),
+  afterAction: z.string().min(1).optional(),
 });
 const trackDeviceAssertionSchema = z.object({
   type: z.literal("track-device"),
@@ -50,6 +52,7 @@ const toolCallsAssertionSchema = z.object({
     .array(
       z.object({
         toolName: z.string().min(1),
+        action: z.string().min(1).optional(),
         min: z.number().int().nonnegative().default(1),
         max: z.number().int().positive().default(1),
       }),
@@ -128,6 +131,9 @@ export const scenarioManifestSchema = z
     timeoutMs: z.number().int().min(10_000).max(600_000),
     expectedOutcome: z.enum(["pass", "expected-denial"]).default("pass"),
     unsupportedCapabilities: z.array(z.string().min(1)).max(32).default([]),
+    allowedActions: z
+      .record(z.string().min(1), z.array(z.string().min(1)).min(1))
+      .default({}),
     ordering: z.array(orderingSchema).default([]),
     trackNameSuffixes: z.array(z.string().min(1)).max(8).default([]),
     clipNameSuffixes: z.array(z.string().min(1)).max(8).default([]),
@@ -222,6 +228,42 @@ function validateManifestSafety(manifest: ScenarioManifest): void {
         `Scenario '${manifest.id}' ordering references a non-allowlisted tool`,
       );
     }
+    if (
+      (constraint.beforeAction !== undefined &&
+        !manifest.allowedActions[constraint.before]?.includes(
+          constraint.beforeAction,
+        )) ||
+      (constraint.afterAction !== undefined &&
+        !manifest.allowedActions[constraint.after]?.includes(
+          constraint.afterAction,
+        ))
+    ) {
+      throw new Error(
+        `Scenario '${manifest.id}' ordering references a non-allowlisted action`,
+      );
+    }
+  }
+  for (const toolName of Object.keys(manifest.allowedActions)) {
+    if (!allowedTools.has(toolName)) {
+      throw new Error(
+        `Scenario '${manifest.id}' action allowlist references a non-allowlisted tool`,
+      );
+    }
+  }
+  for (const assertion of manifest.assertions) {
+    if (assertion.type !== "tool-calls") continue;
+    for (const requirement of assertion.required) {
+      if (
+        requirement.action !== undefined &&
+        !manifest.allowedActions[requirement.toolName]?.includes(
+          requirement.action,
+        )
+      ) {
+        throw new Error(
+          `Scenario '${manifest.id}' expected invocation references a non-allowlisted action`,
+        );
+      }
+    }
   }
   if (
     manifest.allowedRisks.includes("broad") ||
@@ -291,7 +333,7 @@ export function scenarioPrompt(
         const finalClipName = `${context.artifactPrefix}${assertion.finalClipNameSuffix}`;
         return [
           `Create exactly one MIDI track "${trackName}" and one ${assertion.length}-beat Session MIDI clip "${initialClipName}" at zero-based sceneIndex ${assertion.sourceSceneIndex} (Session scene ${assertion.sourceSceneIndex + 1}).`,
-          `Launch the active source clip once, verify it triggered or started, stop transport with ableton_transport_set_playing, then rename it to "${finalClipName}", set muted ${assertion.properties.muted} and looping ${assertion.properties.looping}, duplicate it on the same track to zero-based destinationSceneIndex ${assertion.destinationSceneIndex} (Session scene ${assertion.destinationSceneIndex + 1}), then delete both generated clips and the generated track.`,
+          `Launch the active source clip once, verify it triggered or started, stop transport with ableton_transport action "set-playing", then rename it to "${finalClipName}", set muted ${assertion.properties.muted} and looping ${assertion.properties.looping}, duplicate it on the same track to zero-based destinationSceneIndex ${assertion.destinationSceneIndex} (Session scene ${assertion.destinationSceneIndex + 1}), then delete both generated clips and the generated track.`,
           `For every clip operation, including duplicate and delete, expectedName remains the track name "${trackName}"; expectedClipReference identifies the source or destination clip even after the clip is renamed.`,
           "Use the returned identity references for every dependent operation and inspect when needed; do not touch pre-existing clips or tracks.",
         ];
@@ -311,9 +353,9 @@ export function scenarioPrompt(
         const clipName = `${context.artifactPrefix}${assertion.clipNameSuffix}`;
         return [
           `Create exactly one MIDI track "${trackName}" and one ${assertion.sourceLength}-beat Session MIDI clip "${clipName}" at zero-based sceneIndex ${assertion.sourceSceneIndex} (Session scene ${assertion.sourceSceneIndex + 1}).`,
-          `Use ableton_arrangement_fill_region exactly once to fill the half-open Arrangement region [${assertion.regionStart}, ${assertion.regionEnd}). Verify that it created exactly ${assertion.expectedTileCount} full tiles and reported ${assertion.expectedUnusedRemainder} uncovered beats.`,
+          `Use ableton_arrangement with action "fill-region" exactly once to fill the half-open Arrangement region [${assertion.regionStart}, ${assertion.regionEnd}). Verify that it created exactly ${assertion.expectedTileCount} full tiles and reported ${assertion.expectedUnusedRemainder} uncovered beats.`,
           `Inspect the Arrangement, delete every Arrangement clip created by the fill using its returned identity and start time, then delete the Session source clip and generated track.`,
-          "Do not substitute repeated ableton_arrangement_duplicate_clip calls and do not touch pre-existing clips or tracks.",
+          'Do not substitute repeated ableton_arrangement action "duplicate-clip" calls and do not touch pre-existing clips or tracks.',
         ];
       }
       if (assertion.type === "cue-point-lifecycle") {
@@ -324,13 +366,13 @@ export function scenarioPrompt(
       }
       const trackName = `${context.artifactPrefix}${assertion.trackNameSuffix}`;
       const clipName = `${context.artifactPrefix}${assertion.clipNameSuffix}`;
-      const toolName =
+      const toolInstruction =
         assertion.type === "session-midi-pattern"
-          ? "ableton_clips_replace_notes"
-          : "ableton_arrangement_replace_notes";
+          ? 'ableton_session_clips with action "replace-notes"'
+          : 'ableton_arrangement with action "replace-notes"';
       return [
         `The MIDI clip must contain exactly ${assertion.starts.length} notes and no others: pitch ${assertion.pitch}, starts ${assertion.starts.join(", ")}, duration ${assertion.duration}, velocity ${assertion.velocity}, mute false.`,
-        `For ${toolName}, expectedName is the track name "${trackName}", while expectedClipReference identifies clip "${clipName}".`,
+        `For ${toolInstruction}, expectedName is the track name "${trackName}", while expectedClipReference identifies clip "${clipName}".`,
       ];
     },
   );
@@ -355,7 +397,10 @@ export function scenarioPrompt(
 
 export class ScenarioApprovalController {
   readonly decisions: ApprovalDecision[] = [];
-  readonly #approvedTools: string[] = [];
+  readonly #approvedCalls: Array<{
+    toolName: string;
+    action: string | undefined;
+  }> = [];
   readonly #trackNames: ReadonlySet<string>;
   readonly #clipNames: ReadonlySet<string>;
 
@@ -377,7 +422,15 @@ export class ScenarioApprovalController {
       reason,
       arguments: sanitizeTraceValue(request.arguments),
     });
-    if (approved) this.#approvedTools.push(request.metadata.name);
+    if (approved) {
+      this.#approvedCalls.push({
+        toolName: request.metadata.name,
+        action:
+          typeof request.arguments.action === "string"
+            ? request.arguments.action
+            : undefined,
+      });
+    }
     return approved;
   };
 
@@ -402,11 +455,26 @@ export class ScenarioApprovalController {
       return "mutation_budget_exhausted";
     }
     for (const constraint of manifest.ordering) {
+      const action =
+        typeof request.arguments.action === "string"
+          ? request.arguments.action
+          : undefined;
       if (
         constraint.after === toolName &&
-        !this.#approvedTools.includes(constraint.before)
+        (constraint.afterAction === undefined ||
+          constraint.afterAction === action) &&
+        !this.#approvedCalls.some(
+          (approved) =>
+            approved.toolName === constraint.before &&
+            (constraint.beforeAction === undefined ||
+              approved.action === constraint.beforeAction),
+        )
       ) {
-        return `ordering_requires_${constraint.before}`;
+        return `ordering_requires_${constraint.before}${
+          constraint.beforeAction === undefined
+            ? ""
+            : `_${constraint.beforeAction}`
+        }`;
       }
     }
     return this.#argumentsAllowed(toolName, request.arguments)
@@ -418,6 +486,36 @@ export class ScenarioApprovalController {
     toolName: string,
     args: Readonly<Record<string, unknown>>,
   ): boolean {
+    const allowedActions = this.context.manifest.allowedActions[toolName];
+    if (
+      allowedActions !== undefined &&
+      (typeof args.action !== "string" || !allowedActions.includes(args.action))
+    ) {
+      return false;
+    }
+    const trackDeleteTarget =
+      toolName === "ableton_tracks" &&
+      args.action === "delete" &&
+      args.target !== null &&
+      typeof args.target === "object" &&
+      !Array.isArray(args.target)
+        ? (args.target as Readonly<Record<string, unknown>>)
+        : undefined;
+    const requiresCanonicalTrackDelete = this.context.manifest.assertions.some(
+      (assertion) =>
+        assertion.type === "track-lifecycle" ||
+        assertion.type === "session-clip-lifecycle" ||
+        assertion.type === "arrangement-clip-lifecycle" ||
+        assertion.type === "arrangement-region-fill-lifecycle",
+    );
+    if (
+      requiresCanonicalTrackDelete &&
+      toolName === "ableton_tracks" &&
+      args.action === "delete" &&
+      trackDeleteTarget === undefined
+    ) {
+      return false;
+    }
     const lifecycle = this.context.manifest.assertions.find(
       (assertion) => assertion.type === "track-lifecycle",
     );
@@ -425,19 +523,22 @@ export class ScenarioApprovalController {
       const initialName = `${this.context.artifactPrefix}${lifecycle.initialNameSuffix}`;
       const finalName = `${this.context.artifactPrefix}${lifecycle.finalNameSuffix}`;
       if (
-        toolName === "ableton_tracks_create" &&
+        toolName === "ableton_tracks" &&
+        args.action === "create" &&
         (args.name !== initialName || args.kind !== lifecycle.trackKind)
       ) {
         return false;
       }
       if (
-        toolName === "ableton_tracks_rename" &&
+        toolName === "ableton_tracks" &&
+        args.action === "rename" &&
         (args.expectedName !== initialName || args.name !== finalName)
       ) {
         return false;
       }
       if (
-        toolName === "ableton_tracks_set_mixer" &&
+        toolName === "ableton_mixer_routing" &&
+        args.action === "set-track-mixer" &&
         (args.expectedName !== finalName ||
           Object.entries(lifecycle.mixer).some(
             ([key, value]) => args[key] !== value,
@@ -446,9 +547,9 @@ export class ScenarioApprovalController {
         return false;
       }
       if (
-        toolName === "ableton_tracks_delete" &&
-        (args.expectedName !== finalName ||
-          args.expectedKind !== lifecycle.trackKind)
+        trackDeleteTarget !== undefined &&
+        (trackDeleteTarget.kind !== "regular" ||
+          trackDeleteTarget.expectedName !== finalName)
       ) {
         return false;
       }
@@ -461,13 +562,15 @@ export class ScenarioApprovalController {
       const initialClipName = `${this.context.artifactPrefix}${sessionLifecycle.initialClipNameSuffix}`;
       const finalClipName = `${this.context.artifactPrefix}${sessionLifecycle.finalClipNameSuffix}`;
       if (
-        toolName === "ableton_tracks_create" &&
+        toolName === "ableton_tracks" &&
+        args.action === "create" &&
         (args.name !== trackName || args.kind !== "midi")
       ) {
         return false;
       }
       if (
-        toolName === "ableton_clips_create_midi" &&
+        toolName === "ableton_session_clips" &&
+        args.action === "create-midi" &&
         (args.expectedName !== trackName ||
           args.name !== initialClipName ||
           args.sceneIndex !== sessionLifecycle.sourceSceneIndex ||
@@ -476,13 +579,15 @@ export class ScenarioApprovalController {
         return false;
       }
       if (
-        toolName === "ableton_transport_set_playing" &&
+        toolName === "ableton_transport" &&
+        args.action === "set-playing" &&
         args.isPlaying !== false
       ) {
         return false;
       }
       if (
-        toolName === "ableton_clips_set_properties" &&
+        toolName === "ableton_session_clips" &&
+        args.action === "set-properties" &&
         (args.expectedName !== trackName ||
           args.sceneIndex !== sessionLifecycle.sourceSceneIndex ||
           args.name !== finalClipName ||
@@ -492,7 +597,8 @@ export class ScenarioApprovalController {
         return false;
       }
       if (
-        toolName === "ableton_clips_duplicate" &&
+        toolName === "ableton_session_clips" &&
+        args.action === "duplicate" &&
         (args.expectedName !== trackName ||
           args.sceneIndex !== sessionLifecycle.sourceSceneIndex ||
           args.expectedDestinationTrackName !== trackName ||
@@ -501,14 +607,16 @@ export class ScenarioApprovalController {
         return false;
       }
       if (
-        toolName === "ableton_clips_launch" &&
+        toolName === "ableton_session_clips" &&
+        args.action === "launch" &&
         (args.expectedName !== trackName ||
           args.sceneIndex !== sessionLifecycle.sourceSceneIndex)
       ) {
         return false;
       }
       if (
-        toolName === "ableton_clips_delete" &&
+        toolName === "ableton_session_clips" &&
+        args.action === "delete" &&
         (args.expectedName !== trackName ||
           (args.sceneIndex !== sessionLifecycle.sourceSceneIndex &&
             args.sceneIndex !== sessionLifecycle.destinationSceneIndex))
@@ -516,8 +624,9 @@ export class ScenarioApprovalController {
         return false;
       }
       if (
-        toolName === "ableton_tracks_delete" &&
-        (args.expectedName !== trackName || args.expectedKind !== "midi")
+        trackDeleteTarget !== undefined &&
+        (trackDeleteTarget.kind !== "regular" ||
+          trackDeleteTarget.expectedName !== trackName)
       ) {
         return false;
       }
@@ -529,58 +638,15 @@ export class ScenarioApprovalController {
       const trackName = `${this.context.artifactPrefix}${arrangementLifecycle.trackNameSuffix}`;
       const clipName = `${this.context.artifactPrefix}${arrangementLifecycle.clipNameSuffix}`;
       if (
-        toolName === "ableton_tracks_create" &&
+        toolName === "ableton_tracks" &&
+        args.action === "create" &&
         (args.name !== trackName || args.kind !== "midi")
       ) {
         return false;
       }
-      const arrangementRegionFillLifecycle =
-        this.context.manifest.assertions.find(
-          (assertion) => assertion.type === "arrangement-region-fill-lifecycle",
-        );
-      if (arrangementRegionFillLifecycle) {
-        const trackName = `${this.context.artifactPrefix}${arrangementRegionFillLifecycle.trackNameSuffix}`;
-        const clipName = `${this.context.artifactPrefix}${arrangementRegionFillLifecycle.clipNameSuffix}`;
-        if (
-          toolName === "ableton_tracks_create" &&
-          (args.name !== trackName || args.kind !== "midi")
-        ) {
-          return false;
-        }
-        if (
-          toolName === "ableton_clips_create_midi" &&
-          (args.expectedName !== trackName ||
-            args.name !== clipName ||
-            args.sceneIndex !==
-              arrangementRegionFillLifecycle.sourceSceneIndex ||
-            args.length !== arrangementRegionFillLifecycle.sourceLength)
-        ) {
-          return false;
-        }
-        if (
-          toolName === "ableton_arrangement_fill_region" &&
-          (args.expectedName !== trackName ||
-            args.sceneIndex !==
-              arrangementRegionFillLifecycle.sourceSceneIndex ||
-            args.regionStart !== arrangementRegionFillLifecycle.regionStart ||
-            args.regionEnd !== arrangementRegionFillLifecycle.regionEnd)
-        ) {
-          return false;
-        }
-        if (
-          toolName === "ableton_arrangement_duplicate_clip" ||
-          (toolName === "ableton_clips_delete" &&
-            (args.expectedName !== trackName ||
-              args.sceneIndex !==
-                arrangementRegionFillLifecycle.sourceSceneIndex)) ||
-          (toolName === "ableton_tracks_delete" &&
-            (args.expectedName !== trackName || args.expectedKind !== "midi"))
-        ) {
-          return false;
-        }
-      }
       if (
-        toolName === "ableton_clips_create_midi" &&
+        toolName === "ableton_session_clips" &&
+        args.action === "create-midi" &&
         (args.expectedName !== trackName ||
           args.name !== clipName ||
           args.sceneIndex !== arrangementLifecycle.sourceSceneIndex ||
@@ -589,7 +655,8 @@ export class ScenarioApprovalController {
         return false;
       }
       if (
-        toolName === "ableton_arrangement_duplicate_clip" &&
+        toolName === "ableton_arrangement" &&
+        args.action === "duplicate-clip" &&
         (args.expectedName !== trackName ||
           args.sceneIndex !== arrangementLifecycle.sourceSceneIndex ||
           args.destinationTime !== arrangementLifecycle.destinationTime)
@@ -597,15 +664,66 @@ export class ScenarioApprovalController {
         return false;
       }
       if (
-        toolName === "ableton_clips_delete" &&
+        toolName === "ableton_session_clips" &&
+        args.action === "delete" &&
         (args.expectedName !== trackName ||
           args.sceneIndex !== arrangementLifecycle.sourceSceneIndex)
       ) {
         return false;
       }
       if (
-        toolName === "ableton_tracks_delete" &&
-        (args.expectedName !== trackName || args.expectedKind !== "midi")
+        trackDeleteTarget !== undefined &&
+        (trackDeleteTarget.kind !== "regular" ||
+          trackDeleteTarget.expectedName !== trackName)
+      ) {
+        return false;
+      }
+    }
+    const arrangementRegionFillLifecycle =
+      this.context.manifest.assertions.find(
+        (assertion) => assertion.type === "arrangement-region-fill-lifecycle",
+      );
+    if (arrangementRegionFillLifecycle) {
+      const trackName = `${this.context.artifactPrefix}${arrangementRegionFillLifecycle.trackNameSuffix}`;
+      const clipName = `${this.context.artifactPrefix}${arrangementRegionFillLifecycle.clipNameSuffix}`;
+      if (
+        toolName === "ableton_tracks" &&
+        args.action === "create" &&
+        (args.name !== trackName || args.kind !== "midi")
+      ) {
+        return false;
+      }
+      if (
+        toolName === "ableton_session_clips" &&
+        args.action === "create-midi" &&
+        (args.expectedName !== trackName ||
+          args.name !== clipName ||
+          args.sceneIndex !== arrangementRegionFillLifecycle.sourceSceneIndex ||
+          args.length !== arrangementRegionFillLifecycle.sourceLength)
+      ) {
+        return false;
+      }
+      if (
+        toolName === "ableton_arrangement" &&
+        args.action === "fill-region" &&
+        (args.expectedName !== trackName ||
+          args.sceneIndex !== arrangementRegionFillLifecycle.sourceSceneIndex ||
+          args.regionStart !== arrangementRegionFillLifecycle.regionStart ||
+          args.regionEnd !== arrangementRegionFillLifecycle.regionEnd)
+      ) {
+        return false;
+      }
+      if (
+        (toolName === "ableton_arrangement" &&
+          args.action === "duplicate-clip") ||
+        (toolName === "ableton_session_clips" &&
+          args.action === "delete" &&
+          (args.expectedName !== trackName ||
+            args.sceneIndex !==
+              arrangementRegionFillLifecycle.sourceSceneIndex)) ||
+        (trackDeleteTarget !== undefined &&
+          (trackDeleteTarget.kind !== "regular" ||
+            trackDeleteTarget.expectedName !== trackName))
       ) {
         return false;
       }
@@ -615,19 +733,22 @@ export class ScenarioApprovalController {
     );
     if (cueLifecycle) {
       if (
-        toolName === "ableton_transport_set_playing" &&
+        toolName === "ableton_transport" &&
+        args.action === "set-playing" &&
         args.isPlaying !== false
       ) {
         return false;
       }
       if (
-        toolName === "ableton_transport_create_cue_point" &&
+        toolName === "ableton_transport" &&
+        args.action === "create-cue-point" &&
         (args.time !== cueLifecycle.time || args.name !== undefined)
       ) {
         return false;
       }
       if (
-        toolName === "ableton_transport_delete_cue_point" &&
+        toolName === "ableton_transport" &&
+        args.action === "delete-cue-point" &&
         args.expectedTime !== cueLifecycle.time
       ) {
         return false;
@@ -635,13 +756,15 @@ export class ScenarioApprovalController {
     }
     const exactName = args.name;
     if (
-      toolName === "ableton_tracks_create" &&
+      toolName === "ableton_tracks" &&
+      args.action === "create" &&
       (typeof exactName !== "string" || !this.#trackNames.has(exactName))
     ) {
       return false;
     }
     if (
-      toolName === "ableton_clips_create_midi" &&
+      toolName === "ableton_session_clips" &&
+      args.action === "create-midi" &&
       (typeof exactName !== "string" || !this.#clipNames.has(exactName))
     ) {
       return false;
@@ -652,7 +775,8 @@ export class ScenarioApprovalController {
     ] as const) {
       if (
         key === "expectedName" &&
-        toolName === "ableton_transport_delete_cue_point"
+        toolName === "ableton_transport" &&
+        args.action === "delete-cue-point"
       ) {
         continue;
       }
@@ -664,7 +788,7 @@ export class ScenarioApprovalController {
         return false;
       }
     }
-    if (toolName === "ableton_browser_load_item") {
+    if (toolName === "ableton_browser" && args.action === "load-item") {
       const expectedItemName = args.expectedItemName;
       if (
         typeof expectedItemName !== "string" ||
@@ -684,11 +808,12 @@ export class ScenarioApprovalController {
       }
     }
     if (
-      toolName === "ableton_clips_replace_notes" ||
-      toolName === "ableton_arrangement_replace_notes"
+      (toolName === "ableton_session_clips" &&
+        args.action === "replace-notes") ||
+      (toolName === "ableton_arrangement" && args.action === "replace-notes")
     ) {
       const assertion =
-        toolName === "ableton_clips_replace_notes"
+        toolName === "ableton_session_clips"
           ? this.context.manifest.assertions.find(
               (candidate) => candidate.type === "session-midi-pattern",
             )
@@ -753,21 +878,22 @@ export async function verifyScenario(
       const finalName = `${context.artifactPrefix}${assertion.finalNameSuffix}`;
       const expectedCalls = [
         [
-          "ableton_tracks_create",
-          { name: initialName, kind: assertion.trackKind },
+          "ableton_tracks",
+          { action: "create", name: initialName, kind: assertion.trackKind },
         ],
         [
-          "ableton_tracks_rename",
-          { expectedName: initialName, name: finalName },
+          "ableton_tracks",
+          { action: "rename", expectedName: initialName, name: finalName },
         ],
         [
-          "ableton_tracks_set_mixer",
-          { expectedName: finalName, ...assertion.mixer },
+          "ableton_mixer_routing",
+          {
+            action: "set-track-mixer",
+            expectedName: finalName,
+            ...assertion.mixer,
+          },
         ],
-        [
-          "ableton_tracks_delete",
-          { expectedName: finalName, expectedKind: assertion.trackKind },
-        ],
+        ["ableton_tracks", { action: "delete" }],
       ] as const;
       const callEvidence = expectedCalls.map(([toolName, expected]) => {
         const matches = context.approvals.decisions.filter(
@@ -777,7 +903,16 @@ export async function verifyScenario(
             Object.entries(expected).every(
               ([key, value]) =>
                 (decision.arguments as Record<string, unknown>)[key] === value,
-            ),
+            ) &&
+            (expected.action !== "delete" ||
+              ((decision.arguments as Record<string, unknown>).target !==
+                null &&
+                typeof (decision.arguments as Record<string, unknown>)
+                  .target === "object" &&
+                (
+                  (decision.arguments as Record<string, unknown>)
+                    .target as Record<string, unknown>
+                ).expectedName === finalName)),
         );
         return { toolName, matches: matches.length };
       });
@@ -807,20 +942,24 @@ export async function verifyScenario(
       const initialClipName = `${context.artifactPrefix}${assertion.initialClipNameSuffix}`;
       const finalClipName = `${context.artifactPrefix}${assertion.finalClipNameSuffix}`;
       const expectedCalls = [
-        ["ableton_tracks_create", 1],
-        ["ableton_clips_create_midi", 1],
-        ["ableton_clips_set_properties", 1],
-        ["ableton_clips_duplicate", 1],
-        ["ableton_clips_launch", 1],
-        ["ableton_transport_set_playing", 1],
-        ["ableton_clips_delete", 2],
-        ["ableton_tracks_delete", 1],
+        ["ableton_tracks", "create", 1],
+        ["ableton_session_clips", "create-midi", 1],
+        ["ableton_session_clips", "set-properties", 1],
+        ["ableton_session_clips", "duplicate", 1],
+        ["ableton_session_clips", "launch", 1],
+        ["ableton_transport", "set-playing", 1],
+        ["ableton_session_clips", "delete", 2],
+        ["ableton_tracks", "delete", 1],
       ] as const;
-      const callEvidence = expectedCalls.map(([toolName, count]) => ({
+      const callEvidence = expectedCalls.map(([toolName, action, count]) => ({
         toolName,
+        action,
         expected: count,
         actual: context.approvals.decisions.filter(
-          (decision) => decision.approved && decision.toolName === toolName,
+          (decision) =>
+            decision.approved &&
+            decision.toolName === toolName &&
+            (decision.arguments as Record<string, unknown>).action === action,
         ).length,
       }));
       const restored =
@@ -851,19 +990,23 @@ export async function verifyScenario(
         limit: 512,
       });
       const expectedCalls = [
-        ["ableton_tracks_create", 1],
-        ["ableton_clips_create_midi", 1],
-        ["ableton_arrangement_duplicate_clip", 1],
-        ["ableton_arrangement_inspect", 1],
-        ["ableton_arrangement_delete_clip", 1],
-        ["ableton_clips_delete", 1],
-        ["ableton_tracks_delete", 1],
+        ["ableton_tracks", "create", 1],
+        ["ableton_session_clips", "create-midi", 1],
+        ["ableton_arrangement", "duplicate-clip", 1],
+        ["ableton_arrangement", "inspect", 1],
+        ["ableton_arrangement", "delete-clip", 1],
+        ["ableton_session_clips", "delete", 1],
+        ["ableton_tracks", "delete", 1],
       ] as const;
-      const callEvidence = expectedCalls.map(([toolName, count]) => ({
+      const callEvidence = expectedCalls.map(([toolName, action, count]) => ({
         toolName,
+        action,
         expected: count,
         actual: context.approvals.decisions.filter(
-          (decision) => decision.approved && decision.toolName === toolName,
+          (decision) =>
+            decision.approved &&
+            decision.toolName === toolName &&
+            (decision.arguments as Record<string, unknown>).action === action,
         ).length,
       }));
       const restored =
@@ -896,19 +1039,23 @@ export async function verifyScenario(
         limit: 512,
       });
       const expectedCalls = [
-        ["ableton_tracks_create", 1],
-        ["ableton_clips_create_midi", 1],
-        ["ableton_arrangement_fill_region", 1],
-        ["ableton_arrangement_inspect", 1],
-        ["ableton_arrangement_delete_clip", assertion.expectedTileCount],
-        ["ableton_clips_delete", 1],
-        ["ableton_tracks_delete", 1],
+        ["ableton_tracks", "create", 1],
+        ["ableton_session_clips", "create-midi", 1],
+        ["ableton_arrangement", "fill-region", 1],
+        ["ableton_arrangement", "inspect", 1],
+        ["ableton_arrangement", "delete-clip", assertion.expectedTileCount],
+        ["ableton_session_clips", "delete", 1],
+        ["ableton_tracks", "delete", 1],
       ] as const;
-      const callEvidence = expectedCalls.map(([toolName, count]) => ({
+      const callEvidence = expectedCalls.map(([toolName, action, count]) => ({
         toolName,
+        action,
         expected: count,
         actual: context.approvals.decisions.filter(
-          (decision) => decision.approved && decision.toolName === toolName,
+          (decision) =>
+            decision.approved &&
+            decision.toolName === toolName &&
+            (decision.arguments as Record<string, unknown>).action === action,
         ).length,
       }));
       const restored =
@@ -940,18 +1087,22 @@ export async function verifyScenario(
         limit: 512,
       });
       const expectedCalls = [
-        ["ableton_transport_set_playing", 0, 1],
-        ["ableton_transport_create_cue_point", 1, 2],
-        ["ableton_transport_inspect_arrangement", 2, 3],
-        ["ableton_transport_delete_cue_point", 1, 1],
+        ["ableton_transport", "set-playing", 0, 1],
+        ["ableton_transport", "create-cue-point", 1, 2],
+        ["ableton_transport", "inspect-arrangement", 2, 3],
+        ["ableton_transport", "delete-cue-point", 1, 1],
       ] as const;
       const callEvidence = expectedCalls.map(
-        ([toolName, minimum, maximum]) => ({
+        ([toolName, action, minimum, maximum]) => ({
           toolName,
+          action,
           minimum,
           maximum,
           actual: context.approvals.decisions.filter(
-            (decision) => decision.approved && decision.toolName === toolName,
+            (decision) =>
+              decision.approved &&
+              decision.toolName === toolName &&
+              (decision.arguments as Record<string, unknown>).action === action,
           ).length,
         }),
       );
@@ -1012,13 +1163,15 @@ export async function verifyScenario(
       continue;
     }
     if (assertion.type === "tool-calls") {
-      const counts = new Map<string, number>();
-      for (const decision of context.approvals.decisions) {
-        if (!decision.approved) continue;
-        counts.set(decision.toolName, (counts.get(decision.toolName) ?? 0) + 1);
-      }
       const mismatches = assertion.required.flatMap((requirement) => {
-        const count = counts.get(requirement.toolName) ?? 0;
+        const count = context.approvals.decisions.filter(
+          (decision) =>
+            decision.approved &&
+            decision.toolName === requirement.toolName &&
+            (requirement.action === undefined ||
+              (decision.arguments as Record<string, unknown>).action ===
+                requirement.action),
+        ).length;
         return count >= requirement.min && count <= requirement.max
           ? []
           : [{ ...requirement, count }];
@@ -1031,7 +1184,18 @@ export async function verifyScenario(
             ? "Required tool call counts matched"
             : `${mismatches.length} required tool call count(s) did not match`,
         evidence: sanitizeTraceValue({
-          counts: Object.fromEntries(counts),
+          counts: assertion.required.map((requirement) => ({
+            toolName: requirement.toolName,
+            action: requirement.action,
+            count: context.approvals.decisions.filter(
+              (decision) =>
+                decision.approved &&
+                decision.toolName === requirement.toolName &&
+                (requirement.action === undefined ||
+                  (decision.arguments as Record<string, unknown>).action ===
+                    requirement.action),
+            ).length,
+          })),
           mismatches,
         }),
       });

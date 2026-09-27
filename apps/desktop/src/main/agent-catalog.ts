@@ -5,6 +5,7 @@ import {
   loadAgentCatalog,
   loadLayeredAgentCatalog,
   type AgentCatalog,
+  type ToolOperationPatternEntry,
 } from "@ableton-agent/agent-config";
 import type { AgentSkillDescriptor } from "@ableton-agent/application";
 import {
@@ -22,6 +23,8 @@ export interface AgentCatalogOptions {
   readonly agentsDirectory: string;
   readonly skillsDirectory: string;
   readonly availableTools: readonly string[];
+  readonly availableOperations?: readonly ToolOperationPatternEntry[];
+  readonly compatibilityAliases?: Readonly<Record<string, string>>;
   readonly wildcardExcludedTools?: readonly string[];
   readonly storage?: LiveAgentStorageLayout;
   readonly resolveSessionOwnership?: (
@@ -43,6 +46,8 @@ export function toDesktopCatalog(
       systemPrompt: agent.definition.systemPrompt,
       tools: agent.definition.tools,
       resolvedTools: agent.resolvedTools,
+      resolvedOperations: agent.resolvedOperations,
+      explicitCompatibilityAliases: agent.explicitCompatibilityAliases,
       editScope: agent.definition.editScope,
       skills: agent.definition.skills,
       inputChannels: agent.definition.inputChannels,
@@ -98,6 +103,12 @@ export class AgentCatalogService {
             agentsDirectory: this.options.agentsDirectory,
             skillsDirectory: this.options.skillsDirectory,
             availableTools: this.options.availableTools,
+            ...(this.options.availableOperations === undefined
+              ? {}
+              : { availableOperations: this.options.availableOperations }),
+            ...(this.options.compatibilityAliases === undefined
+              ? {}
+              : { compatibilityAliases: this.options.compatibilityAliases }),
             ...(this.options.wildcardExcludedTools === undefined
               ? {}
               : {
@@ -129,6 +140,12 @@ export class AgentCatalogService {
             agentsDirectory: this.options.agentsDirectory,
             skillsDirectory: this.options.skillsDirectory,
             availableTools: this.options.availableTools,
+            ...(this.options.availableOperations === undefined
+              ? {}
+              : { availableOperations: this.options.availableOperations }),
+            ...(this.options.compatibilityAliases === undefined
+              ? {}
+              : { compatibilityAliases: this.options.compatibilityAliases }),
             ...(this.options.wildcardExcludedTools === undefined
               ? {}
               : {
@@ -203,6 +220,12 @@ export class AgentCatalogService {
             },
           }),
       availableTools: this.options.availableTools,
+      ...(this.options.availableOperations === undefined
+        ? {}
+        : { availableOperations: this.options.availableOperations }),
+      ...(this.options.compatibilityAliases === undefined
+        ? {}
+        : { compatibilityAliases: this.options.compatibilityAliases }),
       ...(this.options.wildcardExcludedTools === undefined
         ? {}
         : { wildcardExcludedTools: this.options.wildcardExcludedTools }),

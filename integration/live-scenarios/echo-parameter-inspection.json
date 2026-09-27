@@ -5,31 +5,39 @@
   "prompt": "first search the Ableton browser for the Echo audio effect and wait for the result; then create one new audio track named Echo Probe, load that verified Echo item onto it, and inspect the first 30 Echo parameters",
   "artifactPrefix": "AA_SMOKE_ECHO_",
   "allowedTools": [
-    "ableton_connection_status",
-    "ableton_session_inspect",
-    "ableton_browser_search",
-    "ableton_browser_children_inspect",
-    "ableton_tracks_create",
-    "ableton_browser_load_item",
-    "ableton_devices_inspect",
-    "ableton_device_parameters_inspect"
+    "ableton_session",
+    "ableton_browser",
+    "ableton_tracks",
+    "ableton_devices"
   ],
+  "allowedActions": {
+    "ableton_session": ["connection-status", "inspect"],
+    "ableton_browser": ["search", "children", "load-item"],
+    "ableton_tracks": ["create"],
+    "ableton_devices": ["inspect", "inspect-parameters"]
+  },
   "allowedRisks": ["read", "reversible"],
   "maxToolCalls": 12,
   "maxMutations": 2,
   "timeoutMs": 240000,
   "ordering": [
     {
-      "before": "ableton_browser_search",
-      "after": "ableton_tracks_create"
+      "before": "ableton_browser",
+      "after": "ableton_tracks",
+      "beforeAction": "search",
+      "afterAction": "create"
     },
     {
-      "before": "ableton_tracks_create",
-      "after": "ableton_browser_load_item"
+      "before": "ableton_tracks",
+      "after": "ableton_browser",
+      "beforeAction": "create",
+      "afterAction": "load-item"
     },
     {
-      "before": "ableton_browser_load_item",
-      "after": "ableton_device_parameters_inspect"
+      "before": "ableton_browser",
+      "after": "ableton_devices",
+      "beforeAction": "load-item",
+      "afterAction": "inspect-parameters"
     }
   ],
   "trackNameSuffixes": ["Echo Probe"],
@@ -52,24 +60,28 @@
       "type": "tool-calls",
       "required": [
         {
-          "toolName": "ableton_browser_search",
+          "toolName": "ableton_browser",
           "min": 1,
-          "max": 2
+          "max": 2,
+          "action": "search"
         },
         {
-          "toolName": "ableton_tracks_create",
+          "toolName": "ableton_tracks",
           "min": 1,
-          "max": 1
+          "max": 1,
+          "action": "create"
         },
         {
-          "toolName": "ableton_browser_load_item",
+          "toolName": "ableton_browser",
           "min": 1,
-          "max": 1
+          "max": 1,
+          "action": "load-item"
         },
         {
-          "toolName": "ableton_device_parameters_inspect",
+          "toolName": "ableton_devices",
           "min": 1,
-          "max": 1
+          "max": 1,
+          "action": "inspect-parameters"
         }
       ]
     }

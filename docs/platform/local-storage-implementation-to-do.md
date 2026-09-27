@@ -30,6 +30,8 @@ Companion specification: [Local Storage Layout](local-storage.md)
   statements.
 - [x] Index Live Set/Project ownership filters and agent-session, turn, and
   tool-call trajectory joins used by public history queries.
+- [x] Expose grouped-tool operation/action/mutation-target/target-identity
+  fields and persist exact mutating tool-call trajectory links.
 - [x] Keep v1 automatic age/size retention scoped to App events and
   configuration snapshots; retain agent and Live Set history until explicit
   clear.

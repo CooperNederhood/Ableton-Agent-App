@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { HeadlessApplication } from "@ableton-agent/application";
 import type { SessionSnapshot } from "@ableton-agent/protocol";
-import { abletonToolMetadata } from "@ableton-agent/tools";
+import { resolveAbletonToolMetadata } from "@ableton-agent/tools";
 import type { ToolApprovalRequest } from "@ableton-agent/tools";
 
 import {
@@ -19,7 +19,7 @@ function request(
   risk: ToolApprovalRequest["metadata"]["risk"],
   arguments_: Record<string, unknown>,
 ): ToolApprovalRequest {
-  const metadata = abletonToolMetadata.find((entry) => entry.name === name);
+  const metadata = resolveAbletonToolMetadata(name, arguments_);
   if (!metadata) {
     throw new Error(`Unknown tool metadata: ${name}`);
   }
@@ -53,6 +53,31 @@ describe("integration scenarios", () => {
       const manifest = await loadScenarioManifest(id);
       expect(manifest.group).toBe("inspection");
       expect(manifest.maxMutations).toBe(0);
+    }
+  });
+
+  it("loads every agent scenario manifest with grouped action constraints", async () => {
+    for (const id of [
+      "connection-and-session",
+      "transport-inspection",
+      "browser-bounds",
+      "capability-surface",
+      "workflow-state-inspection",
+      "track-lifecycle",
+      "808-track",
+      "four-on-floor",
+      "session-clip-lifecycle",
+      "arrangement-clip-lifecycle",
+      "arrangement-region-fill-lifecycle",
+      "cue-point-lifecycle",
+      "piano-and-string-bass",
+      "auto-filter-audio",
+      "echo-parameter-inspection",
+      "tracks-core-inspection",
+      "scenes-core-inspection",
+      "transport-core-inspection",
+    ]) {
+      await expect(loadScenarioManifest(id)).resolves.toMatchObject({ id });
     }
   });
 
@@ -115,7 +140,8 @@ describe("integration scenarios", () => {
 
     expect(
       await context.approvals.request(
-        request("ableton_tracks_create", "reversible", {
+        request("ableton_tracks", "reversible", {
+          action: "create",
           kind: "midi",
           name: trackName,
         }),
@@ -123,12 +149,16 @@ describe("integration scenarios", () => {
     ).toBe(false);
     expect(
       await context.approvals.request(
-        request("ableton_browser_search", "read", { query: "808" }),
+        request("ableton_browser", "read", {
+          action: "search",
+          query: "808",
+        }),
       ),
     ).toBe(true);
     expect(
       await context.approvals.request(
-        request("ableton_tracks_create", "reversible", {
+        request("ableton_tracks", "reversible", {
+          action: "create",
           kind: "midi",
           name: trackName,
         }),
@@ -136,13 +166,70 @@ describe("integration scenarios", () => {
     ).toBe(true);
     expect(
       await context.approvals.request(
-        request("ableton_browser_load_item", "reversible", {
+        request("ableton_browser", "reversible", {
+          action: "load-item",
           index: 0,
           expectedName: trackName,
           expectedItemName: "Not the reviewed preset.adg",
         }),
       ),
     ).toBe(false);
+  });
+
+  it("enforces exact actions in grouped-tool ordering and allowlists", async () => {
+    const manifest = await loadScenarioManifest("session-clip-lifecycle");
+    const context = createScenarioRunContext(manifest);
+    const trackName = context.trackNames[0]!;
+    const clipName = context.clipNames[0]!;
+
+    expect(
+      await context.approvals.request(
+        request("ableton_tracks", "reversible", {
+          action: "create",
+          kind: "midi",
+          name: trackName,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      await context.approvals.request(
+        request("ableton_session_clips", "reversible", {
+          action: "launch",
+          expectedName: trackName,
+          sceneIndex: 4,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      await context.approvals.request(
+        request("ableton_session_clips", "destructive", {
+          action: "replace-notes",
+          expectedName: trackName,
+          sceneIndex: 4,
+          notes: [],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      await context.approvals.request(
+        request("ableton_session_clips", "reversible", {
+          action: "create-midi",
+          expectedName: trackName,
+          name: clipName,
+          sceneIndex: 4,
+          length: 4,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      await context.approvals.request(
+        request("ableton_session_clips", "reversible", {
+          action: "launch",
+          expectedName: trackName,
+          sceneIndex: 4,
+        }),
+      ),
+    ).toBe(true);
   });
 
   it("binds reviewed Browser fixtures to their intended tracks", async () => {
@@ -154,12 +241,16 @@ describe("integration scenarios", () => {
     expect(prompt).toContain('Browser item "Upright Bass.adv"');
     expect(
       await context.approvals.request(
-        request("ableton_browser_search", "read", { query: "piano" }),
+        request("ableton_browser", "read", {
+          action: "search",
+          query: "piano",
+        }),
       ),
     ).toBe(true);
     expect(
       await context.approvals.request(
-        request("ableton_tracks_create", "reversible", {
+        request("ableton_tracks", "reversible", {
+          action: "create",
           kind: "midi",
           name: context.trackNames[0],
         }),
@@ -167,7 +258,8 @@ describe("integration scenarios", () => {
     ).toBe(true);
     expect(
       await context.approvals.request(
-        request("ableton_browser_load_item", "reversible", {
+        request("ableton_browser", "reversible", {
+          action: "load-item",
           expectedName: context.trackNames[1],
           expectedItemName: "Childhood Home Piano.adg",
         }),
@@ -175,7 +267,8 @@ describe("integration scenarios", () => {
     ).toBe(false);
     expect(
       await context.approvals.request(
-        request("ableton_browser_load_item", "reversible", {
+        request("ableton_browser", "reversible", {
+          action: "load-item",
           expectedName: context.trackNames[0],
           expectedItemName: "Childhood Home Piano.adg",
         }),
@@ -191,14 +284,16 @@ describe("integration scenarios", () => {
     expect(prompt).toContain('Browser item "Auto Filter"');
     expect(
       await context.approvals.request(
-        request("ableton_browser_search", "read", {
+        request("ableton_browser", "read", {
+          action: "search",
           query: "Auto Filter",
         }),
       ),
     ).toBe(true);
     expect(
       await context.approvals.request(
-        request("ableton_tracks_create", "reversible", {
+        request("ableton_tracks", "reversible", {
+          action: "create",
           kind: "audio",
           name: context.trackNames[0],
         }),
@@ -206,7 +301,8 @@ describe("integration scenarios", () => {
     ).toBe(true);
     expect(
       await context.approvals.request(
-        request("ableton_browser_load_item", "reversible", {
+        request("ableton_browser", "reversible", {
+          action: "load-item",
           expectedName: context.trackNames[0],
           expectedItemName: "Auto Filter",
         }),
@@ -221,10 +317,10 @@ describe("integration scenarios", () => {
       group: "arrangement",
       prompt: "Create an Arrangement pattern",
       artifactPrefix: "AA_SMOKE_ARR_",
-      allowedTools: [
-        "ableton_arrangement_create_midi_clip",
-        "ableton_arrangement_replace_notes",
-      ],
+      allowedTools: ["ableton_arrangement"],
+      allowedActions: {
+        ableton_arrangement: ["create-midi-clip", "replace-notes"],
+      },
       allowedRisks: ["reversible", "destructive"],
       maxToolCalls: 4,
       maxMutations: 2,
@@ -258,7 +354,8 @@ describe("integration scenarios", () => {
 
     expect(
       await context.approvals.request(
-        request("ableton_arrangement_replace_notes", "destructive", {
+        request("ableton_arrangement", "destructive", {
+          action: "replace-notes",
           expectedName: trackName,
           notes,
         }),
@@ -266,7 +363,8 @@ describe("integration scenarios", () => {
     ).toBe(true);
     expect(
       await context.approvals.request(
-        request("ableton_arrangement_replace_notes", "destructive", {
+        request("ableton_arrangement", "destructive", {
+          action: "replace-notes",
           expectedName: trackName,
           notes: [...notes, { ...notes[0]!, startTime: 3.5 }],
         }),
@@ -351,6 +449,76 @@ describe("integration scenarios", () => {
     ]);
   });
 
+  it("verifies grouped track lifecycle calls by exact action", async () => {
+    const manifest = await loadScenarioManifest("track-lifecycle");
+    const context = createScenarioRunContext(manifest);
+    const initialName = context.trackNames[0]!;
+    const finalName = context.trackNames[1]!;
+    const target = {
+      kind: "regular",
+      index: 0,
+      expectedReference: "00000000-0000-4000-8000-000000000001",
+      expectedName: finalName,
+    };
+
+    await context.approvals.request(
+      request("ableton_tracks", "reversible", {
+        action: "create",
+        kind: "midi",
+        name: initialName,
+      }),
+    );
+    await context.approvals.request(
+      request("ableton_tracks", "reversible", {
+        action: "rename",
+        index: 0,
+        expectedReference: target.expectedReference,
+        expectedName: initialName,
+        name: finalName,
+      }),
+    );
+    await context.approvals.request(
+      request("ableton_mixer_routing", "reversible", {
+        action: "set-track-mixer",
+        index: 0,
+        expectedReference: target.expectedReference,
+        expectedName: finalName,
+        isMuted: true,
+        isSoloed: true,
+        isArmed: true,
+        volume: 0.42,
+        pan: -0.25,
+      }),
+    );
+    await context.approvals.request(
+      request("ableton_tracks", "destructive", {
+        action: "delete",
+        target,
+      }),
+    );
+
+    const baseline: SessionSnapshot = {
+      tempo: 120,
+      timeSignature: { numerator: 4, denominator: 4 },
+      isPlaying: false,
+      trackCount: 0,
+      tracks: [],
+      clips: [],
+    };
+    const application = {
+      inspectSession: async () => structuredClone(baseline),
+    } as unknown as HeadlessApplication;
+
+    await expect(
+      verifyScenario(application, context, baseline),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        assertion: "track-lifecycle",
+        passed: true,
+      }),
+    ]);
+  });
+
   it("verifies read-only capability and tool-call scenarios", async () => {
     const manifest = scenarioManifestSchema.parse({
       formatVersion: 1,
@@ -358,7 +526,10 @@ describe("integration scenarios", () => {
       group: "inspection",
       prompt: "Inspect Live",
       artifactPrefix: "AA_SMOKE_INSPECT_",
-      allowedTools: ["ableton_connection_status", "ableton_session_inspect"],
+      allowedTools: ["ableton_session"],
+      allowedActions: {
+        ableton_session: ["connection-status", "inspect"],
+      },
       allowedRisks: ["read"],
       maxToolCalls: 2,
       maxMutations: 0,
@@ -372,18 +543,28 @@ describe("integration scenarios", () => {
         {
           type: "tool-calls",
           required: [
-            { toolName: "ableton_connection_status", min: 1, max: 1 },
-            { toolName: "ableton_session_inspect", min: 1, max: 1 },
+            {
+              toolName: "ableton_session",
+              action: "connection-status",
+              min: 1,
+              max: 1,
+            },
+            {
+              toolName: "ableton_session",
+              action: "inspect",
+              min: 1,
+              max: 1,
+            },
           ],
         },
       ],
     });
     const context = createScenarioRunContext(manifest);
     await context.approvals.request(
-      request("ableton_connection_status", "read", {}),
+      request("ableton_session", "read", { action: "connection-status" }),
     );
     await context.approvals.request(
-      request("ableton_session_inspect", "read", {}),
+      request("ableton_session", "read", { action: "inspect" }),
     );
     const snapshot: SessionSnapshot = {
       tempo: 120,

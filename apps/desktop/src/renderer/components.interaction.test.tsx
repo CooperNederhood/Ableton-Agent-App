@@ -1015,7 +1015,7 @@ describe("desktop component interactions", () => {
           {
             ...state.agentCatalog.definitions[0]!,
             systemPrompt: "Arrange carefully.",
-            tools: ["ableton_session_inspect"],
+            tools: ["session.inspect"],
             inputChannels: ["midi:keys"],
             origin: "session" as const,
             fingerprint: "b".repeat(64),
@@ -1044,7 +1044,7 @@ describe("desktop component interactions", () => {
       throw new Error("Expected capability editors");
     }
     await replaceText(prompt, "Arrange carefully.");
-    await replaceText(tools, "ableton_session_inspect");
+    await replaceText(tools, "session.inspect");
     await clickAria(container, "Connections");
     const inputs = container.querySelector<HTMLTextAreaElement>(
       'textarea[aria-label="Input channels for Default"]',
@@ -1056,7 +1056,7 @@ describe("desktop component interactions", () => {
     expect(saveDefinition).toHaveBeenCalledWith(
       expect.objectContaining({
         systemPrompt: "Arrange carefully.",
-        tools: ["ableton_session_inspect"],
+        tools: ["session.inspect"],
         editScope: ["session"],
         skills: [],
         inputChannels: ["midi:keys"],

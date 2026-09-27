@@ -206,7 +206,9 @@ describe("desktop IPC contracts", () => {
         operation: {
           id: "operation-1",
           label: "Inspect session",
-          toolName: "ableton_session_inspect",
+          toolName: "ableton_session",
+          operationDescriptorId: "session.inspect",
+          action: "inspect",
           status: "running",
           timestamp: 1,
         },

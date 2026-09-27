@@ -820,6 +820,69 @@ describe("desktop reducer", () => {
     );
   });
 
+  it("preserves request details when a terminal operation update omits them", () => {
+    let state = desktopReducer(stateWithAgents(), {
+      type: "event",
+      event: {
+        type: "operation.changed",
+        agentInstanceId: firstAgentId,
+        operation: {
+          id: "operation",
+          label: "Inspect device parameters · Operator",
+          toolName: "ableton_devices",
+          action: "inspect-parameters",
+          status: "running",
+          request: {
+            details: [{ label: "Expected device name", value: "Operator" }],
+          },
+          warnings: [],
+          changed: [],
+          unchanged: [],
+          retryable: false,
+          undoable: false,
+          timestamp: 1,
+        },
+      },
+    });
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "operation.changed",
+        agentInstanceId: firstAgentId,
+        operation: {
+          id: "operation",
+          label: "Inspect device parameters",
+          status: "completed",
+          outcome: {
+            kind: "observed",
+            details: [{ label: "Total parameters", value: "195" }],
+          },
+          durationMs: 420,
+          warnings: [],
+          changed: [],
+          unchanged: [],
+          retryable: false,
+          undoable: false,
+          timestamp: 2,
+        },
+      },
+    });
+
+    expect(selectedAgentWorkspace(state).operations[0]).toMatchObject({
+      status: "completed",
+      toolName: "ableton_devices",
+      action: "inspect-parameters",
+      request: {
+        details: [{ label: "Expected device name", value: "Operator" }],
+      },
+      outcome: {
+        kind: "observed",
+        details: [{ label: "Total parameters", value: "195" }],
+      },
+      durationMs: 420,
+    });
+  });
+
   it("keeps two concurrent approvals in their originating workspaces", () => {
     const approval = (id: string, title: string) => ({
       id,

@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionConfig, SessionEvent } from "@github/copilot-sdk";
 import type { SkillInvocation } from "@ableton-agent/agent-config";
-import { serializeAbletonToolFailure } from "@ableton-agent/tools";
+import {
+  PROTOCOL_VERSION,
+  recordingCommandParamsSchema,
+} from "@ableton-agent/protocol";
+import {
+  parseAbletonToolFailure,
+  serializeAbletonToolFailure,
+} from "@ableton-agent/tools";
 
 import {
   InMemoryEventPublisher,
@@ -11,6 +18,7 @@ import {
 
 import {
   CopilotAgentService,
+  type CopilotAgentServiceOptions,
   DEFAULT_AGENT_TURN_TIMEOUT_MS,
   HeadlessApplication,
   type AbletonService,
@@ -406,6 +414,118 @@ function deviceServices() {
       offset: params.offset,
       limit: params.limit,
     }),
+    inspectChainMixer: async (
+      params: Parameters<AbletonService["inspectChainMixer"]>[0],
+    ) => ({
+      chainReference: params.target.chain.expectedReference,
+      mixer: {
+        mute: false,
+        solo: false,
+        volume: null,
+        pan: null,
+        sends: [],
+      },
+    }),
+    findDevicePosition: async (
+      params: Parameters<AbletonService["findDevicePosition"]>[0],
+    ) => ({
+      source: {
+        kind: "track-device" as const,
+        track: {
+          index: params.source.track.index,
+          reference: params.source.track.expectedReference,
+          name: params.source.track.expectedName,
+        },
+        device: {
+          index: params.source.device.index,
+          reference: params.source.device.expectedReference,
+          name: params.source.device.expectedName,
+        },
+      },
+      destination: {
+        kind: "track" as const,
+        track: {
+          index: params.destination.track.index,
+          reference: params.destination.track.expectedReference,
+          name: params.destination.track.expectedName,
+        },
+        deviceIndex: params.destination.deviceIndex,
+      },
+      requestedIndex: params.destination.deviceIndex,
+      resolvedIndex: params.destination.deviceIndex,
+      apiTargetPosition: params.destination.deviceIndex,
+      sameParent: false,
+      exact: true,
+    }),
+    moveDevice: async (
+      params: Parameters<AbletonService["moveDevice"]>[0],
+    ) => ({
+      deviceReference: params.source.device.expectedReference,
+      before: {
+        kind: "track-device" as const,
+        track: {
+          index: params.source.track.index,
+          reference: params.source.track.expectedReference,
+          name: params.source.track.expectedName,
+        },
+        device: {
+          index: params.source.device.index,
+          reference: params.source.device.expectedReference,
+          name: params.source.device.expectedName,
+        },
+      },
+      after: {
+        kind: "track-device" as const,
+        track: {
+          index: params.destination.track.index,
+          reference: params.destination.track.expectedReference,
+          name: params.destination.track.expectedName,
+        },
+        device: {
+          index: params.destination.deviceIndex,
+          reference: params.source.device.expectedReference,
+          name: params.source.device.expectedName,
+        },
+      },
+      requestedDestinationIndex: params.destination.deviceIndex,
+      preflightIndex: params.destination.deviceIndex,
+      moveReturnedIndex: params.destination.deviceIndex,
+      sameParent: false,
+      verified: true as const,
+    }),
+    setChainProperties: async (
+      params: Parameters<AbletonService["setChainProperties"]>[0],
+    ) => ({
+      chainReference: params.target.chain.expectedReference,
+      before: {
+        name: params.target.chain.expectedName,
+        color: 0x0f_0f_0f,
+        colorIndex: 5,
+      },
+      after: {
+        name: params.name ?? params.target.chain.expectedName,
+        color: params.colorIndex === undefined ? 0x0f_0f_0f : 0x33_33_33,
+        colorIndex: params.colorIndex ?? 5,
+      },
+      verified: true as const,
+    }),
+    setChainMixer: async (
+      params: Parameters<AbletonService["setChainMixer"]>[0],
+    ) => {
+      const state = {
+        mute: false,
+        solo: false,
+        volume: null,
+        pan: null,
+        sends: [],
+      };
+      return {
+        chainReference: params.target.chain.expectedReference,
+        before: state,
+        after: { ...state, mute: params.mute ?? false },
+        verified: true as const,
+      };
+    },
     setDeviceEnabled: async (
       params: Parameters<AbletonService["setDeviceEnabled"]>[0],
     ) => ({
@@ -445,7 +565,7 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
     stop: vi.fn(async () => undefined),
     getStatus: vi.fn(async () => status),
     getCapabilities: vi.fn(async () => ({
-      selectedProtocolVersion: 5 as const,
+      selectedProtocolVersion: PROTOCOL_VERSION,
       liveVersion: "12.1",
       remoteScriptVersion: "0.2.0",
       liveSetId: "set",
@@ -469,6 +589,24 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
       trackCount: 0,
       tracks: [],
     })),
+    executeScenesOperation: vi.fn(async () => {
+      throw new Error("Not implemented by test service");
+    }),
+    executeTracksOperation: vi.fn(async () => {
+      throw new Error("Not implemented by test service");
+    }),
+    executeMixerRoutingOperation: vi.fn(async () => {
+      throw new Error("Not implemented by test service");
+    }),
+    executeTransportOperation: vi.fn(async () => {
+      throw new Error("Not implemented by test service");
+    }),
+    executeMidiNotesOperation: vi.fn(async () => {
+      throw new Error("Not implemented by test service");
+    }),
+    executeAudioClipsOperation: vi.fn(async () => {
+      throw new Error("Not implemented by test service");
+    }),
     setTempo: vi.fn(async (tempo: number) => ({
       beforeTempo: 120,
       afterTempo: tempo,
@@ -828,6 +966,32 @@ describe("CopilotAgentService", () => {
     const abort = vi.fn(() => Promise.resolve());
     const requestToolApproval = vi.fn(() => Promise.resolve(true));
     const runtimeEvents: AgentRuntimeEvent[] = [];
+    const jobId = "00000000-0000-4000-8000-000000000070";
+    const correlationId = "00000000-0000-4000-8000-000000000071";
+    const traceId = "00000000-0000-4000-8000-000000000072";
+    let receivedRecordingParams: unknown;
+    let jobStatus: "running" | "completed" = "running";
+    const workflowJob = () => ({
+      jobId,
+      kind: "timed-session-recording" as const,
+      status: jobStatus,
+      progress: jobStatus === "completed" ? 1 : 0.25,
+      createdAt: "2026-09-14T00:00:00.000Z",
+      updatedAt: "2026-09-14T00:00:01.000Z",
+      correlationId,
+      traceId,
+      ...(jobStatus === "completed" ? { result: { verified: true } } : {}),
+    });
+    const renameTrack = vi.fn(
+      (params: Parameters<CopilotAgentServiceOptions["renameTrack"]>[0]) =>
+        Promise.resolve({
+          reference: params.expectedReference,
+          index: params.index,
+          beforeName: params.expectedName,
+          afterName: params.name,
+          verified: true as const,
+        }),
+    );
     const appEvents: AppEvent[] = [];
     const events = new InMemoryEventPublisher();
     events.subscribe((event) => appEvents.push(event));
@@ -929,8 +1093,12 @@ describe("CopilotAgentService", () => {
             timestamp: new Date().toISOString(),
             data: {
               toolCallId: "mutation-call",
-              toolName: "ableton_arrangement_fill_region",
-              arguments: { regionStart: 0, regionEnd: 32 },
+              toolName: "ableton_arrangement",
+              arguments: {
+                action: "fill-region",
+                regionStart: 0,
+                regionEnd: 32,
+              },
             },
           });
           emit({
@@ -940,8 +1108,8 @@ describe("CopilotAgentService", () => {
             timestamp: new Date().toISOString(),
             data: {
               toolCallId: "read-call",
-              toolName: "ableton_arrangement_inspect",
-              arguments: {},
+              toolName: "ableton_arrangement",
+              arguments: { action: "inspect" },
             },
           });
         }
@@ -1016,14 +1184,7 @@ describe("CopilotAgentService", () => {
           },
           verified: true,
         }),
-      renameTrack: (params) =>
-        Promise.resolve({
-          reference: params.expectedReference,
-          index: params.index,
-          beforeName: params.expectedName,
-          afterName: params.name,
-          verified: true,
-        }),
+      renameTrack,
       setTrackMixer: (params) =>
         Promise.resolve({
           reference: params.expectedReference,
@@ -1213,6 +1374,19 @@ describe("CopilotAgentService", () => {
           },
           verified: true as const,
         }),
+      executeRecordingOperation: (params) => {
+        receivedRecordingParams = params;
+        return Promise.resolve({
+          action: params.action as "record-session-slot",
+          job: workflowJob(),
+          recordingIntent: "record" as const,
+        });
+      },
+      executeWorkflowJobOperation: (params) =>
+        Promise.resolve({
+          action: params.action as "get",
+          job: workflowJob(),
+        }),
       requestToolApproval,
       clientFactory: () => ({
         createSession: (received) => {
@@ -1255,6 +1429,107 @@ describe("CopilotAgentService", () => {
       name: "AgentTurnTimeoutError",
       timeoutMs: 250,
     });
+    type TestTool = {
+      name: string;
+      handler: (
+        args: unknown,
+        invocation: { toolCallId: string; arguments?: unknown },
+      ) => Promise<unknown>;
+    };
+    const configuredTools = config?.tools as unknown as TestTool[];
+    const recordingTool = configuredTools.find(
+      (tool) => tool.name === "ableton_recording",
+    );
+    const renameTool = configuredTools.find(
+      (tool) => tool.name === "ableton_tracks",
+    );
+    if (recordingTool === undefined || renameTool === undefined) {
+      throw new Error("Expected recording and rename tools");
+    }
+    const invalidRecordingArguments = { action: "set-punch" };
+    const invalidRecordingResult = (await recordingTool.handler(
+      invalidRecordingArguments,
+      {
+        toolCallId: "recording-invalid",
+        arguments: invalidRecordingArguments,
+      },
+    )) as { error?: string };
+    expect(parseAbletonToolFailure(invalidRecordingResult.error)).toMatchObject(
+      {
+        code: "invalid_tool_arguments",
+        retryable: true,
+      },
+    );
+    expect(
+      runtimeEvents.filter(
+        (event) =>
+          event.data.toolCallId === "recording-invalid" &&
+          (event.type === "agent.operation.requested" ||
+            event.type === "agent.operation.failed"),
+      ),
+    ).toHaveLength(2);
+    await recordingTool.handler(
+      {
+        action: "record-session-slot",
+        target: {
+          track: {
+            kind: "regular",
+            index: 0,
+            expectedReference: "00000000-0000-4000-8000-000000000001",
+            expectedName: "Drums",
+          },
+          sceneIndex: 0,
+          expectedSceneReference: "00000000-0000-4000-8000-000000000002",
+          expectedSceneName: "Verse",
+          expectedHasClip: false,
+        },
+        durationBeats: 4,
+      },
+      { toolCallId: "recording-1" },
+    );
+    const receivedRecording = recordingCommandParamsSchema.parse(
+      receivedRecordingParams,
+    );
+    if (receivedRecording.action !== "record-session-slot") {
+      throw new Error("Expected runtime-enriched recording parameters");
+    }
+    expect(receivedRecording.runtimeContext.ownerId).not.toHaveLength(0);
+    expect(receivedRecording.runtimeContext.correlationId).not.toHaveLength(0);
+    expect(receivedRecording.runtimeContext.causationId).toBe("recording-1");
+    expect(receivedRecording.runtimeContext.traceId).not.toHaveLength(0);
+    expect(receivedRecording.runtimeContext.trackReferences).toEqual([
+      "00000000-0000-4000-8000-000000000001",
+    ]);
+    const renamePromise = renameTool.handler(
+      {
+        action: "rename",
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Drums",
+        name: "Drums 2",
+      },
+      { toolCallId: "rename-1" },
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    expect(renameTrack).not.toHaveBeenCalled();
+    expect(
+      runtimeEvents.some(
+        (event) =>
+          event.type === "agent.operation.completed" &&
+          event.data.toolCallId === "recording-1",
+      ),
+    ).toBe(false);
+    jobStatus = "completed";
+    await vi.advanceTimersByTimeAsync(50);
+    await renamePromise;
+    expect(renameTrack).toHaveBeenCalledOnce();
+    expect(
+      runtimeEvents.some(
+        (event) =>
+          event.type === "agent.operation.completed" &&
+          event.data.toolCallId === "recording-1",
+      ),
+    ).toBe(true);
     await service.stop();
     vi.useRealTimers();
 
@@ -1278,52 +1553,33 @@ describe("CopilotAgentService", () => {
       "finished",
     ]);
     expect(config?.availableTools).toEqual([
-      "custom:ableton_connection_status",
-      "custom:ableton_session_inspect",
-      "custom:ableton_transport_set_tempo",
-      "custom:ableton_transport_set_playing",
-      "custom:ableton_transport_inspect_arrangement",
-      "custom:ableton_transport_set_arrangement_loop",
-      "custom:ableton_transport_create_cue_point",
-      "custom:ableton_transport_delete_cue_point",
-      "custom:ableton_tracks_create",
-      "custom:ableton_tracks_delete",
-      "custom:ableton_tracks_rename",
-      "custom:ableton_tracks_set_mixer",
-      "custom:ableton_clips_create_midi",
-      "custom:ableton_clips_replace_notes",
-      "custom:ableton_clips_launch",
-      "custom:ableton_clips_duplicate",
-      "custom:ableton_clips_delete",
-      "custom:ableton_clips_set_properties",
-      "custom:ableton_arrangement_create_midi_clip",
-      "custom:ableton_arrangement_inspect",
-      "custom:ableton_arrangement_delete_clip",
-      "custom:ableton_arrangement_replace_notes",
-      "custom:ableton_arrangement_duplicate_clip",
-      "custom:ableton_arrangement_set_clip_properties",
-      "custom:ableton_devices_inspect",
-      "custom:ableton_device_parameters_inspect",
-      "custom:ableton_rack_chains_inspect",
-      "custom:ableton_rack_chain_devices_inspect",
-      "custom:ableton_drum_rack_pads_inspect",
-      "custom:ableton_drum_pad_chains_inspect",
-      "custom:ableton_drum_pad_chain_devices_inspect",
-      "custom:ableton_device_set_enabled",
-      "custom:ableton_device_set_parameter",
-      "custom:ableton_browser_roots_inspect",
-      "custom:ableton_browser_children_inspect",
-      "custom:ableton_browser_search",
-      "custom:ableton_browser_search_external_plugins",
-      "custom:ableton_browser_load_item",
-      "custom:ableton_arrangement_fill_region",
+      "custom:ableton_session",
+      "custom:ableton_tracks",
+      "custom:ableton_mixer_routing",
+      "custom:ableton_transport",
+      "custom:ableton_session_clips",
+      "custom:ableton_arrangement",
+      "custom:ableton_devices",
+      "custom:ableton_browser",
+      "custom:ableton_scenes",
+      "custom:ableton_midi_notes",
+      "custom:ableton_audio_clips",
+      "custom:ableton_recording",
+      "custom:ableton_grooves",
+      "custom:ableton_selection_view",
+      "custom:ableton_live_history",
+      "custom:ableton_browser_adapters",
+      "custom:ableton_clip_automation",
+      "custom:ableton_warp_markers",
+      "custom:ableton_special_devices",
+      "custom:ableton_workflow_jobs",
       "custom:set_sql_search",
       "custom:read_plan",
       "custom:write_plan",
       "builtin:ask_user",
       "builtin:exit_plan_mode",
     ]);
-    expect(config?.tools).toHaveLength(42);
+    expect(config?.tools).toHaveLength(23);
     expect(config?.customAgents).toEqual([
       {
         name: "default-agent",
@@ -1371,6 +1627,29 @@ describe("CopilotAgentService", () => {
       ),
     ).resolves.toEqual({ kind: "approve-once" });
     expect(requestToolApproval).not.toHaveBeenCalled();
+    await expect(
+      config?.onPermissionRequest?.(
+        {
+          kind: "custom-tool",
+          toolName: "ableton_devices",
+          toolDescription: "Device operations",
+          args: { action: "get", index: 1 },
+        },
+        { sessionId: "session" },
+      ),
+    ).resolves.toEqual({ kind: "approve-once" });
+    const invalidDevicePermission = runtimeEvents.find(
+      (event) =>
+        event.type === "agent.permission.requested" &&
+        (
+          event.data.request as
+            { args?: Readonly<Record<string, unknown>> } | undefined
+        )?.args?.action === "get",
+    );
+    expect(invalidDevicePermission?.data).not.toHaveProperty(
+      "operationMetadata",
+    );
+    expect(requestToolApproval).not.toHaveBeenCalled();
     expect(
       config?.hooks?.onPreToolUse?.(
         {
@@ -1387,21 +1666,21 @@ describe("CopilotAgentService", () => {
       config?.onPermissionRequest?.(
         {
           kind: "custom-tool",
-          toolName: "ableton_transport_set_tempo",
+          toolName: "ableton_transport",
           toolDescription: "Set tempo",
-          args: { tempo: 132 },
+          args: { action: "set-tempo", tempo: 132 },
         },
         { sessionId: "session" },
       ),
     ).resolves.toEqual({ kind: "approve-once" });
     expect(requestToolApproval).toHaveBeenCalledOnce();
     requestToolApproval.mockResolvedValueOnce(false);
-    const deniedArgs = { tempo: 140 };
+    const deniedArgs = { action: "set-tempo", tempo: 140 };
     await expect(
       config?.onPermissionRequest?.(
         {
           kind: "custom-tool",
-          toolName: "ableton_transport_set_tempo",
+          toolName: "ableton_transport",
           toolDescription: "Set tempo",
           args: deniedArgs,
         },
@@ -1414,7 +1693,7 @@ describe("CopilotAgentService", () => {
           sessionId: "session",
           timestamp: new Date(),
           workingDirectory: "/tmp",
-          toolName: "ableton_transport_set_tempo",
+          toolName: "ableton_transport",
           toolArgs: deniedArgs,
         },
         { sessionId: "session" },
@@ -1439,7 +1718,7 @@ describe("CopilotAgentService", () => {
       "Ableton Live production assistant",
     );
     expect(JSON.stringify(snapshot?.data.tools)).toContain(
-      '"name":"ableton_transport_set_tempo"',
+      '"name":"ableton_transport"',
     );
     expect(JSON.stringify(snapshot?.data.tools)).toContain(
       '"parameterSchema":{"$schema":"https://json-schema.org/draft/2020-12/schema',
@@ -1481,10 +1760,14 @@ describe("CopilotAgentService", () => {
         expect.objectContaining({
           operationId: "mutation-call",
           code: "applied_indeterminate",
+          operationDescriptorId: "arrangement.fill_region",
+          action: "fill-region",
         }),
         expect.objectContaining({
           operationId: "read-call",
           code: "operation_timeout",
+          operationDescriptorId: "arrangement.inspect",
+          action: "inspect",
         }),
       ]),
     );
@@ -1785,17 +2068,8 @@ describe("CopilotAgentService", () => {
       timestamp: "2026-08-08T00:00:01.000Z",
       data: {
         toolCallId: "tool-1",
-        toolName: "ableton_session_inspect",
-      },
-    });
-    listener?.({
-      type: "tool.execution_complete",
-      id: "event-3",
-      parentId: "event-2",
-      timestamp: "2026-08-08T00:00:02.000Z",
-      data: {
-        toolCallId: "tool-1",
-        success: true,
+        toolName: "ableton_session",
+        arguments: { action: "inspect" },
       },
     });
     listener?.({
@@ -1813,6 +2087,16 @@ describe("CopilotAgentService", () => {
       timestamp: "2026-08-08T00:00:01.500Z",
       ephemeral: true,
       data: { toolCallId: "tool-1", partialOutput: "Track 1" },
+    });
+    listener?.({
+      type: "tool.execution_complete",
+      id: "event-3",
+      parentId: "event-2",
+      timestamp: "2026-08-08T00:00:02.000Z",
+      data: {
+        toolCallId: "tool-1",
+        success: true,
+      },
     });
     listener?.({
       type: "assistant.message",
@@ -1847,7 +2131,8 @@ describe("CopilotAgentService", () => {
       timestamp: "2026-08-08T00:00:03.000Z",
       data: {
         toolCallId: "tool-2",
-        toolName: "ableton_connection_status",
+        toolName: "ableton_session",
+        arguments: { action: "connection-status" },
       },
     });
     listener?.({
@@ -1881,33 +2166,72 @@ describe("CopilotAgentService", () => {
         type: "operation.started",
         operationId: "tool-1",
         label: "Inspect Ableton session",
-        toolName: "ableton_session_inspect",
-        arguments: {},
+        toolName: "ableton_session",
+        arguments: { action: "inspect" },
+        operationDescriptorId: "session.inspect",
+        action: "inspect",
+        targetIdentity: {
+          domain: "session",
+          action: "inspect",
+          targetKind: "session",
+          targetReferences: [],
+        },
         sdkSessionId: "session-1",
       },
       {
         type: "operation.completed",
         operationId: "tool-1",
+        label: "Inspect Ableton session",
         summary: "Inspect Ableton session completed",
-        toolName: "ableton_session_inspect",
+        toolName: "ableton_session",
+        arguments: { action: "inspect" },
+        operationDescriptorId: "session.inspect",
+        action: "inspect",
+        targetIdentity: {
+          domain: "session",
+          action: "inspect",
+          targetKind: "session",
+          targetReferences: [],
+        },
+        durationMs: 1_000,
         sdkSessionId: "session-1",
       },
       {
         type: "operation.started",
         operationId: "tool-2",
         label: "Check Ableton connection",
-        toolName: "ableton_connection_status",
-        arguments: {},
+        toolName: "ableton_session",
+        arguments: { action: "connection-status" },
+        operationDescriptorId: "session.connection_status",
+        action: "connection-status",
+        targetIdentity: {
+          domain: "session",
+          action: "connection-status",
+          targetKind: "connection",
+          targetReferences: [],
+        },
         sdkSessionId: "session-1",
       },
       {
         type: "operation.failed",
         operationId: "tool-2",
+        label: "Check Ableton connection",
         code: "offline",
         message: "Ableton is offline",
         retryable: true,
         details: { state: "disconnected" },
-        toolName: "ableton_connection_status",
+        failureSource: "tool",
+        toolName: "ableton_session",
+        arguments: { action: "connection-status" },
+        operationDescriptorId: "session.connection_status",
+        action: "connection-status",
+        targetIdentity: {
+          domain: "session",
+          action: "connection-status",
+          targetKind: "connection",
+          targetReferences: [],
+        },
+        durationMs: 1_000,
         sdkSessionId: "session-1",
       },
     ]);
@@ -1930,13 +2254,31 @@ describe("CopilotAgentService", () => {
         ?.data,
     ).toMatchObject({
       toolCallId: "tool-1",
-      arguments: {},
+      arguments: { action: "inspect" },
+      operationDescriptorId: "session.inspect",
+      action: "inspect",
       durationMs: 1_000,
+    });
+    expect(
+      runtimeEvents.find((event) => event.type === "agent.tool.progress")?.data,
+    ).toMatchObject({
+      toolCallId: "tool-1",
+      operationDescriptorId: "session.inspect",
+      action: "inspect",
+    });
+    expect(
+      runtimeEvents.find((event) => event.type === "agent.tool.partial")?.data,
+    ).toMatchObject({
+      toolCallId: "tool-1",
+      operationDescriptorId: "session.inspect",
+      action: "inspect",
     });
     expect(
       runtimeEvents.find((event) => event.type === "agent.tool.failed")?.data,
     ).toMatchObject({
       toolCallId: "tool-2",
+      operationDescriptorId: "session.connection_status",
+      action: "connection-status",
       structuredFailure: {
         code: "offline",
         message: "Ableton is offline",
@@ -1994,7 +2336,7 @@ describe("HeadlessApplication agent and connection ports", () => {
       label: "Compose",
       description: "Compose MIDI phrases.",
       systemPrompt: "Compose MIDI phrases safely.",
-      resolvedTools: ["ableton_session_inspect"],
+      resolvedTools: ["ableton_session"],
       editScope: ["session"],
       boundTracks: [],
       skills: ["midi"],

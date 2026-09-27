@@ -4,7 +4,10 @@
   "group": "inspection",
   "prompt": "Check the Ableton connection once. Do not inspect tracks, clips, devices, Browser content, or transport, and do not make changes.",
   "artifactPrefix": "AA_SMOKE_CAPS_",
-  "allowedTools": ["ableton_connection_status"],
+  "allowedTools": ["ableton_session"],
+  "allowedActions": {
+    "ableton_session": ["connection-status"]
+  },
   "allowedRisks": ["read"],
   "maxToolCalls": 1,
   "maxMutations": 0,
@@ -34,6 +37,11 @@
         "arrangement.set_clip_properties",
         "devices.inspect",
         "devices.inspect_parameters",
+        "devices.inspect_chain_mixer",
+        "devices.find_position",
+        "devices.move",
+        "devices.set_chain_properties",
+        "devices.set_chain_mixer",
         "devices.set_enabled",
         "devices.set_parameter",
         "browser.inspect_roots",
@@ -50,9 +58,10 @@
       "type": "tool-calls",
       "required": [
         {
-          "toolName": "ableton_connection_status",
+          "toolName": "ableton_session",
           "min": 1,
-          "max": 1
+          "max": 1,
+          "action": "connection-status"
         }
       ]
     },

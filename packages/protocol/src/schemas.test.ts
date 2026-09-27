@@ -4,6 +4,7 @@ import { commandCatalog } from "./catalog.js";
 import { PROTOCOL_VERSION } from "./constants.js";
 import {
   inspectBrowserChildrenParamsSchema,
+  inspectChainMixerParamsSchema,
   loadBrowserItemParamsSchema,
   searchBrowserParamsSchema,
   sessionSnapshotSchema,
@@ -14,6 +15,7 @@ import {
   duplicateClipToArrangementParamsSchema,
   fillArrangementRegionParamsSchema,
   duplicateSessionClipParamsSchema,
+  findDevicePositionParamsSchema,
   inspectDeviceParametersParamsSchema,
   inspectDevicesParamsSchema,
   inspectDrumPadChainDevicesParamsSchema,
@@ -24,6 +26,8 @@ import {
   inspectRackChainsParamsSchema,
   launchSessionClipParamsSchema,
   liveIdentitySchema,
+  setChainMixerParamsSchema,
+  setChainPropertiesParamsSchema,
   setDeviceEnabledParamsSchema,
   setDeviceParameterParamsSchema,
   setArrangementLoopParamsSchema,
@@ -120,6 +124,67 @@ describe("Live identity schema", () => {
       diagnostics: [],
     });
 
+    describe("Live event protocol schemas", () => {
+      const eventId = "live-event.00000000-0000-4000-8000-000000000099";
+      const trackReference = "00000000-0000-4000-8000-000000000010";
+      const trackIdentity = {
+        index: 0,
+        expectedReference: trackReference,
+        expectedName: "Drums",
+      };
+
+      it("strictly matches command parameters and correlated results", () => {
+        expect(
+          subscribeEventParamsSchema.safeParse({
+            ...trackIdentity,
+            eventId,
+            projectId: "project",
+            kind: "track.playing_clip_changed",
+            deviceIndex: 0,
+          }).success,
+        ).toBe(false);
+        expect(
+          inspectEventSelectionResultSchema.parse({
+            track: trackIdentity,
+            parameter: null,
+          }),
+        ).toEqual({ track: trackIdentity, parameter: null });
+        expect(
+          subscribeEventResultSchema.safeParse({
+            eventId,
+            kind: "track.playing_clip_changed",
+            target: { trackReference, track: { name: "Drums" } },
+            state: { state: "stopped" },
+            resolution: {
+              status: "resolved",
+              projectId: "project",
+              trackReference,
+              track: { name: "Drums" },
+            },
+            initialState: {
+              kind: "track.triggered_clip_changed",
+              state: { state: "none" },
+            },
+          }).success,
+        ).toBe(false);
+      });
+
+      it("parses typed occurred and invalidated event envelopes", () => {
+        expect(
+          liveEventEnvelopeSchema.parse({
+            protocolVersion: PROTOCOL_VERSION,
+            kind: "event",
+            event: "live_event.invalidated",
+            sequence: 2,
+            payload: {
+              eventId,
+              observedAt: "2000-01-01T00:00:00Z",
+              reason: "target-deleted",
+            },
+          }).event,
+        ).toBe("live_event.invalidated");
+      });
+    });
     expect(
       liveIdentitySchema.safeParse({
         liveSetId: "set-1",
@@ -279,6 +344,111 @@ describe("Live event protocol schemas", () => {
         fileSizeBytes: Number.MAX_SAFE_INTEGER + 1,
       }),
     ).toThrow();
+  });
+});
+
+describe("Live 11 device operation schemas", () => {
+  const device = {
+    index: 0,
+    expectedReference: "00000000-0000-4000-8000-000000000010",
+    expectedName: "Operator",
+  };
+  const rack = {
+    index: 1,
+    expectedReference: "00000000-0000-4000-8000-000000000011",
+    expectedName: "Instrument Rack",
+  };
+  const chain = {
+    index: 0,
+    expectedReference: "00000000-0000-4000-8000-000000000012",
+    expectedName: "Main",
+  };
+
+  it("accepts strict discriminated device and parent targets", () => {
+    expect(
+      findDevicePositionParamsSchema.parse({
+        source: { kind: "track-device", track: identity, device },
+        destination: {
+          kind: "rack-chain",
+          track: identity,
+          rack,
+          chain,
+          deviceIndex: 1,
+        },
+      }).destination.kind,
+    ).toBe("rack-chain");
+    expect(
+      findDevicePositionParamsSchema.safeParse({
+        source: {
+          kind: "track-device",
+          track: identity,
+          device,
+          nestedPath: [],
+        },
+        destination: {
+          kind: "track",
+          track: identity,
+          deviceIndex: 0,
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires a bounded explicit chain edit", () => {
+    const target = {
+      kind: "rack-chain" as const,
+      track: identity,
+      rack,
+      chain,
+    };
+    expect(inspectChainMixerParamsSchema.parse({ target })).toEqual({ target });
+    expect(
+      setChainPropertiesParamsSchema.parse({
+        target,
+        name: "Parallel",
+        colorIndex: 17,
+      }),
+    ).toMatchObject({ name: "Parallel", colorIndex: 17 });
+    expect(setChainPropertiesParamsSchema.safeParse({ target }).success).toBe(
+      false,
+    );
+    expect(
+      setChainPropertiesParamsSchema.safeParse({
+        target,
+        colorIndex: -1,
+      }).success,
+    ).toBe(false);
+    expect(
+      setChainPropertiesParamsSchema.safeParse({
+        target,
+        colorIndex: 70,
+      }).success,
+    ).toBe(false);
+    expect(
+      setChainPropertiesParamsSchema.safeParse({
+        target,
+        color: 0x12_34_56,
+      }).success,
+    ).toBe(false);
+    expect(
+      setChainMixerParamsSchema.safeParse({
+        target,
+        sends: [
+          {
+            index: 0,
+            expectedParameterReference: "00000000-0000-4000-8000-000000000013",
+            expectedParameterName: "Send A",
+            normalizedValue: 0.25,
+          },
+          {
+            index: 0,
+            expectedParameterReference: "00000000-0000-4000-8000-000000000014",
+            expectedParameterName: "Send B",
+            normalizedValue: 0.5,
+          },
+        ],
+      }).success,
+    ).toBe(false);
   });
 });
 

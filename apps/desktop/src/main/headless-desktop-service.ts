@@ -154,8 +154,10 @@ export interface LiveSetSnapshotHistoryRecord {
   readonly fileModifiedTimeNs?: string;
   readonly fileSizeBytes?: number;
   readonly productionSessionId?: string;
-  readonly activeAgentInstanceIds: readonly string[];
-  readonly sdkSessionIds: readonly string[];
+  readonly activeAgents: readonly {
+    readonly activeAgentId: string;
+    readonly sdkSessionId?: string;
+  }[];
 }
 
 /** Persistence seam implemented by the unified history database owner. */
@@ -2255,12 +2257,13 @@ export class HeadlessDesktopService implements DesktopService {
       ...(activeSession === undefined
         ? {}
         : { productionSessionId: activeSession.id }),
-      activeAgentInstanceIds:
-        activeSession?.activeAgents.map((agent) => agent.id) ?? [],
-      sdkSessionIds:
-        activeSession?.activeAgents.flatMap((agent) =>
-          agent.sdkSessionId === undefined ? [] : [agent.sdkSessionId],
-        ) ?? [],
+      activeAgents:
+        activeSession?.activeAgents.map((agent) => ({
+          activeAgentId: agent.id,
+          ...(agent.sdkSessionId === undefined
+            ? {}
+            : { sdkSessionId: agent.sdkSessionId }),
+        })) ?? [],
     });
   }
 
@@ -2770,6 +2773,7 @@ export class HeadlessDesktopService implements DesktopService {
           instructions: instance.config.systemPrompt,
           tools: instance.config.tools,
           resolved_tools: instance.config.resolvedTools,
+          resolved_operations: instance.config.resolvedOperations ?? [],
           edit_scope: instance.config.editScope,
           skills: instance.config.skills,
           input_channels: instance.config.inputChannels,
@@ -3106,6 +3110,20 @@ export class HeadlessDesktopService implements DesktopService {
           ? normalized.messageId
           : randomUUID();
     const toolName = "toolName" in event ? event.toolName : undefined;
+    const operationMetadata =
+      normalized.type === "operation.changed"
+        ? {
+            ...(normalized.operation.operationDescriptorId === undefined
+              ? {}
+              : {
+                  operation_descriptor_id:
+                    normalized.operation.operationDescriptorId,
+                }),
+            ...(normalized.operation.action === undefined
+              ? {}
+              : { action: normalized.operation.action }),
+          }
+        : {};
     const attributes =
       event.type === "agent.message_delta" ||
       event.type === "agent.message_complete"
@@ -3136,22 +3154,51 @@ export class HeadlessDesktopService implements DesktopService {
                 operation_id: event.operationId,
                 label: event.label.slice(0, 2_048),
                 status: "running",
+                ...(normalized.type !== "operation.changed" ||
+                normalized.operation.request === undefined
+                  ? {}
+                  : { request: normalized.operation.request }),
+                ...operationMetadata,
               }
             : event.type === "operation.completed"
               ? {
                   operation_id: event.operationId,
                   summary: event.summary.slice(0, 2_048),
                   status: "completed",
+                  ...(normalized.type !== "operation.changed" ||
+                  normalized.operation.request === undefined
+                    ? {}
+                    : { request: normalized.operation.request }),
+                  ...(normalized.type !== "operation.changed" ||
+                  normalized.operation.outcome === undefined
+                    ? {}
+                    : { outcome: normalized.operation.outcome }),
+                  ...(event.durationMs === undefined
+                    ? {}
+                    : { duration_ms: event.durationMs }),
+                  ...operationMetadata,
                 }
               : {
                   operation_id: event.operationId,
                   error_code: event.code.slice(0, 2_048),
                   error_message: event.message.slice(0, 2_048),
                   error_retryable: event.retryable ?? false,
+                  ...(normalized.type !== "operation.changed" ||
+                  normalized.operation.request === undefined
+                    ? {}
+                    : { request: normalized.operation.request }),
+                  ...(normalized.type !== "operation.changed" ||
+                  normalized.operation.failure === undefined
+                    ? {}
+                    : { failure: normalized.operation.failure }),
+                  ...(event.durationMs === undefined
+                    ? {}
+                    : { duration_ms: event.durationMs }),
                   ...(event.details === undefined
                     ? {}
                     : { error_details: event.details }),
                   status: "failed",
+                  ...operationMetadata,
                 };
     const activeSession = this.#activeSession();
     void this.#eventJournal
@@ -3624,6 +3671,9 @@ export class HeadlessDesktopService implements DesktopService {
           ? instance.config.systemPrompt
           : `${instance.config.systemPrompt}\n\n${inheritedContext}`,
       resolvedTools: instance.config.resolvedTools,
+      ...(instance.config.resolvedOperations === undefined
+        ? {}
+        : { resolvedOperations: instance.config.resolvedOperations }),
       editScope: instance.config.editScope,
       boundTracks: instance.boundTracks,
       skills: instance.config.skills,
@@ -3673,6 +3723,9 @@ export class HeadlessDesktopService implements DesktopService {
         systemPrompt: definition.systemPrompt,
         tools: definition.tools,
         resolvedTools: definition.resolvedTools,
+        ...(definition.resolvedOperations === undefined
+          ? {}
+          : { resolvedOperations: definition.resolvedOperations }),
         editScope: definition.editScope,
         skills: definition.skills,
         inputChannels: definition.inputChannels,

@@ -94,6 +94,12 @@ def _is_finite_number(value):
 
 def _track_reference(context, track):
     current_tracks = list(context.song.tracks)
+    current_tracks.extend(
+        list(_safe_lom_getattr(context.song, "return_tracks", ()) or ())
+    )
+    master = _safe_lom_getattr(context.song, "master_track")
+    if master is not None:
+        current_tracks.append(master)
     references = [
         (candidate, reference)
         for candidate, reference in getattr(context, "_track_references", [])
@@ -3619,3 +3625,9 @@ def register_system_commands(registry):
     from .browser_commands import register_browser_commands
 
     register_browser_commands(registry)
+    from .core_domain_commands import register_core_domain_commands
+
+    register_core_domain_commands(registry)
+    from .workflow_adapter_commands import register_workflow_adapter_commands
+
+    register_workflow_adapter_commands(registry)

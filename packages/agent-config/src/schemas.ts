@@ -413,6 +413,7 @@ export const activeAgentConfigSchema = agentDefinitionCoreSchema
   .omit({ name: true })
   .extend({
     resolvedTools: z.array(z.string().min(1)).max(256),
+    resolvedOperations: z.array(z.string().min(1)).max(512).optional(),
   });
 export type ActiveAgentConfig = z.infer<typeof activeAgentConfigSchema>;
 

@@ -73,13 +73,26 @@ The SDK owns conversation persistence. The application uses SDK session IDs and
 
 ## Tool sets
 
-YAML tool entries support exact names and `*` wildcards:
+YAML tool entries support exact tool names, canonical operation IDs, and `*`
+wildcards:
 
 ```yaml
 tools:
-  - ableton_devices_*
-  - ableton_browser_search
+  - recording.inspect
+  - recording.set_*
+  - browser.search
 ```
+
+Operation patterns compile to their canonical grouped domain tool with a
+pruned strict action schema. Connected capability flags remove unsupported
+actions before the SDK session is created; bridge execution remains
+fail-closed if capabilities later change. Superseded direct names are not
+registered as compatibility aliases: wildcard and exact references to a
+removed name are unmatched and invalidate the definition. Use the canonical
+operation ID, such as `tracks.delete`, or the grouped tool name. Permission
+policy rechecks both the resolved tool and operation allowlists. The
+application-owned `skill` tool is added independently when the definition
+enables at least one skill.
 
 Patterns are expanded against the application tool catalog before creating the
 SDK session. The catalog contains Ableton tools, application-owned tools, the

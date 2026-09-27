@@ -99,6 +99,17 @@ describe("agent safety evaluations", () => {
     ).toContain("Inspect the session before making Live Set-specific claims");
   });
 
+  it("keeps unsupported Live 11 claims and routing safety out of plans", () => {
+    expect(BASE_SYSTEM_MESSAGE).toContain(
+      "Discover routing options immediately before assignment",
+    );
+    expect(BASE_SYSTEM_MESSAGE).toContain(
+      "Never claim scene-scoped stop, arbitrary track reordering",
+    );
+    expect(BASE_SYSTEM_MESSAGE).toContain("per-note expression editing");
+    expect(BASE_SYSTEM_MESSAGE).toContain("empty rack-chain creation");
+  });
+
   it.each([
     [
       "stale_reference",
@@ -119,8 +130,8 @@ describe("agent safety evaluations", () => {
       },
     });
     policy.blockAttempt(
-      "ableton_tracks_delete",
-      { index: 1 },
+      "ableton_tracks",
+      { action: "delete", index: 1 },
       "Re-inspect before editing",
     );
 
@@ -130,8 +141,8 @@ describe("agent safety evaluations", () => {
           sessionId: "session-1",
           timestamp: new Date(),
           workingDirectory: "/tmp",
-          toolName: "ableton_tracks_delete",
-          toolArgs: { index: 1 },
+          toolName: "ableton_tracks",
+          toolArgs: { action: "delete", index: 1 },
         },
         { sessionId: "session-1" },
       ),

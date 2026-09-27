@@ -215,3 +215,9 @@ does not declare an object root. Invalid model-authored arguments fail before
 connection, authorization, queueing, or mutation with
 `invalid_tool_arguments`, `retryable: true`, bounded issue paths, valid
 actions, and the selected branch's expected shape.
+Grouped tool descriptions and branch schemas teach the agent the accepted
+action for a concrete task and the identity fields to copy from inspection.
+For example, Drum Rack pad lookup uses `inspect-drum-rack-pads`, while new
+Session MIDI clips use `create-midi` with the inspected track's direct
+identity. Corrective failures preserve the strict action enum and branch
+shape; descriptions emphasize valid next calls rather than guessed aliases.

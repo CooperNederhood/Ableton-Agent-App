@@ -127,6 +127,13 @@ MIDI note entries contain `pitch`, `startTime`, `duration`, `velocity`, and
 optional `mute`. Replacement tools accept at most 2,048 notes. Existing
 per-note MPE/expression data cannot be preserved and requires explicit opt-in
 when replacing notes in a non-empty clip.
+For `create-midi`, supply the inspected track's `index`,
+`expectedReference`, and `expectedName`, plus `sceneIndex` and `length`.
+`duplicate` instead identifies the destination with
+`destinationTrackIndex`, `expectedDestinationTrackReference`,
+`expectedDestinationTrackName`, and `destinationSceneIndex`. For
+`replace-notes`, explicitly set `allowPerNoteExpressionLoss` to `false`
+when expression must be preserved or `true` when its loss is acceptable.
 
 ## Arrangement clips and MIDI notes
 
@@ -171,12 +178,16 @@ observed RGB `color` alongside `colorIndex`. Drum Rack pad inspection scans
 the bounded 128-pad map and returns only occupied pads by default, with
 total/occupied/empty counts. `includeEmpty: true` preserves paginated
 diagnostic access to the complete pad map.
+Use `inspect-drum-rack-pads` to read pad names and MIDI notes from an
+inspected Drum Rack device.
 
 There is no device `get` action. Parameter workflows call `inspect`, then
 `inspect-parameters` with flat top-level track/device identity fields copied
 from inspection, and only then `set-parameter` with the exact returned
 parameter identity and normalized value. A nested `target` object is not part
 of these two action contracts.
+Copy `expectedParameterName` exactly from `inspect-parameters`, including
+literal punctuation, when setting a parameter.
 
 This slice does **not** support creating empty rack chains, direct native
 device insertion, deleting one chain, or reordering chains. Those operations

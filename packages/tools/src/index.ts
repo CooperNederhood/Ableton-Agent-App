@@ -1160,7 +1160,7 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
   });
   const sessionClipsTool = defineTool("ableton_session_clips", {
     description:
-      "Creates, edits, launches, duplicates, deletes, or updates exact identity-bound Session View clips through strict action variants.",
+      "Use action 'create-midi' to create a MIDI clip in an empty Session View slot on an inspected track; use 'replace-notes' to replace notes in an exact clip. Use 'launch', 'duplicate', 'delete', or 'set-properties' for existing clips.",
     parameters: abletonSessionClipsParamsSchema,
     handler: async (params) => {
       switch (params.action) {
@@ -1230,7 +1230,7 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
   });
   const devicesTool = defineTool("ableton_devices", {
     description:
-      "Inspects and mutates exact identity-bound Live 11 devices, parameters, rack chains, Drum Rack pads, chain mixers, and device positions through strict action variants. There is no 'get' action. To work with a parameter, first call action 'inspect' for the track's devices, then call 'inspect-parameters' with top-level index, expectedReference, expectedName, deviceIndex, expectedDeviceReference, and expectedDeviceName copied from that result. Do not wrap identity fields in a target object. Only then call 'set-parameter' with those same top-level identities plus parameterIndex, expectedParameterReference, expectedParameterName, and normalizedValue copied or derived from the parameter inspection.",
+      "Use action 'inspect-drum-rack-pads' to list Drum Rack pad names and MIDI notes. For parameters, call 'inspect' for the track's devices, then 'inspect-parameters' with top-level index, expectedReference, expectedName, deviceIndex, expectedDeviceReference, and expectedDeviceName copied from inspection. Call 'set-parameter' with those identities plus the inspected parameterIndex, expectedParameterReference, expectedParameterName, and a normalizedValue.",
     parameters: abletonDevicesParamsSchema,
     handler: async (params) => {
       switch (params.action) {

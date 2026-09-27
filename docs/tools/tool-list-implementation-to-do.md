@@ -10,3 +10,6 @@ Companion reference: [Ableton Tool List](tool-list.md)
   tables and document every specialized tool intentionally kept separate.
 - [x] Keep this reference synchronized when
   `packages/tools/src/index.ts` changes.
+- [x] Document the agent-facing Drum Rack pad and Session MIDI creation
+  actions, direct versus destination track identities, explicit note-expression
+  loss choice, and exact parameter-name handoff.

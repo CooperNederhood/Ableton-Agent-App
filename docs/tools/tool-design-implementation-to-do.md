@@ -44,6 +44,9 @@ Companion specification: [Tool Design](tool-design.md)
   - [x] Emit JSON-Schema-visible required-field alternatives, classify
     non-expressible semantic preconditions, and return retryable bounded
     `invalid_tool_arguments` guidance before side effects.
+  - [x] Give grouped device and Session clip tools affirmative, action-specific
+    guidance for Drum Rack pads, MIDI creation, explicit note-expression loss,
+    and exact inspected parameter identity.
 
 ## Inspection tools
 

@@ -1077,11 +1077,11 @@ function services() {
             createAbletonTools(services()),
             "ableton_devices",
           );
-          expect(tool.description).toContain("There is no 'get' action");
+          expect(tool.description).toContain("call 'inspect'");
           expect(tool.description).toContain(
-            "Do not wrap identity fields in a target object",
+            "top-level index, expectedReference, expectedName",
           );
-          expect(tool.description).toContain("Only then call 'set-parameter'");
+          expect(tool.description).toContain("Call 'set-parameter'");
 
           const schema = (
             tool.parameters as { toJSONSchema(): Record<string, unknown> }
@@ -1098,7 +1098,7 @@ function services() {
                 .action?.const === "set-parameter",
           );
           expect(inspectParameters?.description).toContain(
-            "Do not send a nested target object",
+            "identity fields at the top level",
           );
           expect(
             (
@@ -1111,6 +1111,14 @@ function services() {
           expect(setParameter?.description).toContain(
             "exact inspected parameter identity",
           );
+          expect(
+            (
+              setParameter?.properties as Record<
+                string,
+                Record<string, unknown>
+              >
+            ).expectedParameterName?.description,
+          ).toContain("including literal punctuation");
         });
       },
     ),
@@ -1422,6 +1430,114 @@ describe("Ableton tools", () => {
         toolName,
       ).toBe(false);
     }
+  });
+
+  it("guides pad inspection and Session clip creation with their exact actions and fields", () => {
+    const toolSet = createAbletonTools(services());
+    const devices = toolByName(toolSet, "ableton_devices");
+    const sessionClips = toolByName(toolSet, "ableton_session_clips");
+    expect(devices.description).toContain("inspect-drum-rack-pads");
+    expect(sessionClips.description).toContain("create-midi");
+    expect(sessionClips.description).toContain("replace-notes");
+
+    const branch = (tool: Tool, action: string) => {
+      const schema = (
+        tool.parameters as { toJSONSchema(): Record<string, unknown> }
+      ).toJSONSchema();
+      return (schema.oneOf as Record<string, unknown>[]).find(
+        (candidate) =>
+          (candidate.properties as Record<string, Record<string, unknown>>)
+            .action?.const === action,
+      );
+    };
+    expect(branch(devices, "inspect-drum-rack-pads")?.description).toContain(
+      "pad names and MIDI notes",
+    );
+    const createMidi = branch(sessionClips, "create-midi");
+    expect(createMidi?.description).toContain(
+      "index, expectedReference, expectedName",
+    );
+    expect(createMidi?.description).toContain("sceneIndex and length");
+    const duplicate = branch(sessionClips, "duplicate");
+    expect(duplicate?.description).toContain("destinationTrackIndex");
+    const replaceNotes = branch(sessionClips, "replace-notes");
+    const properties = replaceNotes?.properties as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(properties.allowPerNoteExpressionLoss?.description).toContain(
+      "explicitly",
+    );
+    expect(properties.allowPerNoteExpressionLoss?.description).toContain(
+      "false",
+    );
+    expect(properties.allowPerNoteExpressionLoss?.description).toContain(
+      "true",
+    );
+  });
+
+  it("rejects guessed actions and unsafe Session clip arguments before service calls", async () => {
+    const ports = services();
+    const toolSet = createAbletonTools(ports);
+    const cases = [
+      ["ableton_devices", { action: "inspect-pads" }],
+      ["ableton_session_clips", { action: "create" }],
+      [
+        "ableton_session_clips",
+        {
+          action: "create-midi",
+          destinationTrackIndex: 0,
+          expectedDestinationTrackReference:
+            "00000000-0000-4000-8000-000000000001",
+          expectedDestinationTrackName: "Drums",
+          sceneIndex: 0,
+          length: 4,
+        },
+      ],
+      [
+        "ableton_session_clips",
+        {
+          action: "replace-notes",
+          index: 0,
+          expectedReference: "00000000-0000-4000-8000-000000000001",
+          expectedName: "Drums",
+          sceneIndex: 0,
+          expectedClipReference: "00000000-0000-4000-8000-000000000010",
+          notes: [],
+        },
+      ],
+    ] as const;
+    for (const [toolName, args] of cases) {
+      const result = (await toolByName(toolSet, toolName).handler?.(args, {
+        sessionId: "session",
+        toolCallId: "invalid-clip-arguments",
+        toolName,
+        arguments: args,
+      })) as { error?: string };
+      const failure = parseAbletonToolFailure(result.error);
+      expect(failure).toMatchObject({
+        code: "invalid_tool_arguments",
+        retryable: true,
+      });
+      if (args.action === "inspect-pads" || args.action === "create") {
+        expect(failure?.details.validActions).toContain(
+          args.action === "inspect-pads"
+            ? "inspect-drum-rack-pads"
+            : "create-midi",
+        );
+      } else {
+        const shape = failure?.details.expectedShape as
+          { required?: string[] } | undefined;
+        expect(shape?.required).toContain(
+          args.action === "create-midi"
+            ? "expectedReference"
+            : "allowPerNoteExpressionLoss",
+        );
+      }
+    }
+    expect(ports.inspectDrumRackPads).not.toHaveBeenCalled();
+    expect(ports.createMidiClip).not.toHaveBeenCalled();
+    expect(ports.replaceMidiNotes).not.toHaveBeenCalled();
   });
 
   it("returns grouped action guidance without invoking fill-region", async () => {

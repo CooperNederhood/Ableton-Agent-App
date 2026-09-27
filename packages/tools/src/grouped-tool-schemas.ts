@@ -110,22 +110,33 @@ export const abletonTransportParamsSchema = z.discriminatedUnion("action", [
   transportDeleteCuePointParamsSchema,
 ]);
 
-export const sessionClipsCreateMidiParamsSchema =
-  createMidiClipParamsSchema.safeExtend({
+export const sessionClipsCreateMidiParamsSchema = createMidiClipParamsSchema
+  .safeExtend({
     action: z.literal("create-midi"),
-  });
+  })
+  .describe(
+    "Create a MIDI clip in an empty Session View slot. Supply the inspected track's index, expectedReference, expectedName, plus sceneIndex and length.",
+  );
 export const sessionClipsReplaceNotesParamsSchema =
   replaceMidiNotesParamsSchema.safeExtend({
     action: z.literal("replace-notes"),
+    allowPerNoteExpressionLoss:
+      replaceMidiNotesParamsSchema.shape.allowPerNoteExpressionLoss.describe(
+        "Supply explicitly: false when per-note expression must be preserved; true only when its loss is acceptable.",
+      ),
   });
 export const sessionClipsLaunchParamsSchema =
   launchSessionClipParamsSchema.safeExtend({
     action: z.literal("launch"),
   });
 export const sessionClipsDuplicateParamsSchema =
-  duplicateSessionClipParamsSchema.safeExtend({
-    action: z.literal("duplicate"),
-  });
+  duplicateSessionClipParamsSchema
+    .safeExtend({
+      action: z.literal("duplicate"),
+    })
+    .describe(
+      "Duplicate an exact Session clip into an empty slot; identify the destination with destinationTrackIndex, expectedDestinationTrackReference, expectedDestinationTrackName, and destinationSceneIndex.",
+    );
 export const sessionClipsDeleteParamsSchema =
   deleteSessionClipParamsSchema.safeExtend({
     action: z.literal("delete"),
@@ -219,7 +230,7 @@ export const devicesInspectParametersParamsSchema =
         ),
     })
     .describe(
-      "All track and device identity fields must be top-level. Do not send a nested target object.",
+      "Supply the inspected track and device identity fields at the top level.",
     );
 export const devicesInspectRackChainsParamsSchema =
   inspectRackChainsParamsSchema.safeExtend({
@@ -230,10 +241,14 @@ export const devicesInspectRackChainDevicesParamsSchema =
     action: z.literal("inspect-rack-chain-devices"),
   });
 export const devicesInspectDrumRackPadsParamsSchema =
-  inspectDrumRackPadsParamsSchema.safeExtend({
-    action: z.literal("inspect-drum-rack-pads"),
-    includeEmpty: z.boolean().default(false),
-  });
+  inspectDrumRackPadsParamsSchema
+    .safeExtend({
+      action: z.literal("inspect-drum-rack-pads"),
+      includeEmpty: z.boolean().default(false),
+    })
+    .describe(
+      "List Drum Rack pad names and MIDI notes for an inspected rack device; occupied pads are returned by default.",
+    );
 export const devicesInspectDrumPadChainsParamsSchema =
   inspectDrumPadChainsParamsSchema.safeExtend({
     action: z.literal("inspect-drum-pad-chains"),
@@ -282,7 +297,7 @@ export const devicesSetParameterParamsSchema = setDeviceParameterParamsSchema
       ),
     expectedParameterName:
       setDeviceParameterParamsSchema.shape.expectedParameterName.describe(
-        "Parameter name copied from the inspect-parameters result",
+        "Parameter name copied exactly from the inspect-parameters result, including literal punctuation",
       ),
     normalizedValue:
       setDeviceParameterParamsSchema.shape.normalizedValue.describe(

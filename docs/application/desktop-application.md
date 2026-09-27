@@ -30,9 +30,11 @@ endpoint.
 Desktop owns App-session identity. Ableton integration owns Live Set and Live
 Project identity. When a save event replaces an unsaved or Save As identity,
 Desktop serializes the ownership update before the next prompt is accepted. A
-clean ephemeral session is promoted without changing its App-session ID;
-conflicting saved-session associations continue through the explicit transition
-decision flow.
+Remote Script `firstSave` observation identifies the same open Song acquiring
+its first saved identity. Desktop promotes that exact App session regardless of
+conversation or configuration state and without changing its App-session,
+active-agent, or Copilot SDK session IDs. A dialog appears only when the saved
+target already has a different canonical App session.
 
 ## Electron process model
 
@@ -240,6 +242,11 @@ bounded pending batches during graceful shutdown. A journal failure degrades
 History and raises a visible diagnostic; it must not crash or stall the
 agent/Live control path. Storage migration lifecycle is replayed into this
 journal after it opens and is also mirrored to the structured log.
+Journal writes drain through one worker batch at a time. Public-history queries
+wait only for a bounded accepted-write barrier and fail as temporarily
+unavailable instead of remaining in a running state indefinitely when durable
+publication is stalled. Health includes pending, in-flight, rejected, and
+high-water write counts plus the latest drain timing.
 
 Desktop persists schema-v4 App sessions with required `liveSetId` and
 `liveSetName`, an immutable bounded ISO `createdAt`, and optional
@@ -255,10 +262,19 @@ session, forks the current setup for the new Set, or starts fresh. Canonical
 association is keyed by `liveSetId`, so switching Sets inside one Live Project
 still selects distinct App sessions and previous sessions remain in history.
 Profiles still shows the active in-memory session before it is persisted.
-Saving a clean Live Set promotes and associates that same session. Session
-artifact creation or transfer also promotes it, while conversation history by
-itself remains in Copilot SDK storage and does not create a `sessions.json`
-record. Sessions associated with saved Live Sets are persisted immediately.
+The first save of the same open Song promotes and associates the current
+session even when it contains meaningful work. If the target already has a
+canonical session, the user chooses whether the current or existing session is
+canonical; both are retained and the current session remains active. The
+canonical title is `App session`; non-canonical titles are deterministically
+`App session_2`, `App session_3`, and so on by immutable creation order. Titles
+are display metadata only: history and ownership continue to use immutable App
+session IDs. Session artifact creation or transfer also promotes an ephemeral
+session, while conversation history by itself remains in Copilot SDK storage
+and does not create a `sessions.json` record. Sessions associated with saved
+Live Sets are persisted immediately. Snapshot/history capture occurs after
+ownership settlement and a failure there reports degraded history without
+rolling back the successful session promotion.
 Forking creates new active-agent and Copilot SDK session IDs, carries the prior
 transcript forward as bounded conversation context, and leaves the source Live
 Set's stored session unchanged.

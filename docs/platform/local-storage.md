@@ -186,6 +186,10 @@ alone remains Copilot SDK-owned and does not promote the Desktop session.
   filesystem paths.
 - Keep one writer lock per profile-wide journal. A second writer degrades with
   an actionable diagnostic instead of forking or corrupting history.
+- Drain journal writes through one worker batch at a time and expose pending,
+  in-flight, rejected, high-water, and latest-drain health. Typed history reads
+  use a bounded accepted-write barrier and return a degraded/unavailable error
+  rather than waiting indefinitely for a stalled writer.
 - Keep App events and configuration snapshots physically separate from agent
   sessions/turns/messages/tool calls/results/approvals and Live Set
   saves/snapshots/trajectory records. The worker exposes only bounded,
@@ -201,6 +205,12 @@ alone remains Copilot SDK-owned and does not promote the Desktop session.
   a future independently versioned retention policy is introduced.
 - Publish files atomically and preserve the prior valid state when validation,
   migration, or publication fails.
+- App-session titles are mutable display metadata. Storage ownership,
+  canonical associations, directory identities, and Agent/Set History joins
+  use immutable App-session IDs. A first-save ownership change updates
+  `sessions.json`, session/Set/Project manifests, and
+  `live-set-sessions.json` as one rollback-capable operation; history capture
+  is subsequent and cannot roll back successful ownership.
 - Plan artifact updates require the current SHA-256 revision once the file
   exists. The application rejects stale or missing expected revisions rather
   than silently overwriting concurrent agent or user edits.

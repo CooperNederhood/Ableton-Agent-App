@@ -176,7 +176,9 @@ export const commandCatalog = {
   "system.hello": command(helloParamsSchema, capabilityDocumentSchema),
   "system.ping": command(emptyParamsSchema, pingResultSchema),
   "live_set.get_identity": command(emptyParamsSchema, liveIdentitySchema),
-  "session.inspect": command(emptyParamsSchema, sessionSnapshotSchema),
+  "session.inspect": command(emptyParamsSchema, sessionSnapshotSchema, {
+    timeoutClass: "long",
+  }),
   "scenes.inspect": command(
     scenesInspectParamsSchema,
     scenesOperationResultSchema,

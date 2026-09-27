@@ -37,6 +37,7 @@ class LiveSetSaveObserver(object):
         self._baseline = None
         self._candidate = None
         self._candidate_samples = 0
+        self._candidate_first_save = False
         self._had_unsaved_identity = False
 
     def start(self):
@@ -53,6 +54,7 @@ class LiveSetSaveObserver(object):
         self._generation += 1
         self._candidate = None
         self._candidate_samples = 0
+        self._candidate_first_save = False
 
     def sample_now(self):
         if self._started:
@@ -91,6 +93,7 @@ class LiveSetSaveObserver(object):
             self._baseline = None
             self._candidate = None
             self._candidate_samples = 0
+            self._candidate_first_save = False
             return
 
         metadata = self._metadata(getattr(song, "file_path", "") or "")
@@ -104,6 +107,7 @@ class LiveSetSaveObserver(object):
             self._baseline = None if (emit_initial or save_as) else metadata
             self._candidate = metadata if (emit_initial or save_as) else None
             self._candidate_samples = 1 if (emit_initial or save_as) else 0
+            self._candidate_first_save = emit_initial
             self._had_unsaved_identity = False
             if emit_initial or save_as:
                 return
@@ -117,6 +121,7 @@ class LiveSetSaveObserver(object):
         if metadata == self._baseline:
             self._candidate = None
             self._candidate_samples = 0
+            self._candidate_first_save = False
             return
         if metadata != self._candidate:
             self._candidate = metadata
@@ -129,6 +134,8 @@ class LiveSetSaveObserver(object):
         self._baseline = metadata
         self._candidate = None
         self._candidate_samples = 0
+        first_save = self._candidate_first_save
+        self._candidate_first_save = False
         self._had_unsaved_identity = False
         payload = dict(identity)
         payload.update(
@@ -136,6 +143,7 @@ class LiveSetSaveObserver(object):
                 "observedAt": _observed_at(),
                 "fileModifiedTimeNs": str(metadata[0]),
                 "fileSizeBytes": metadata[1],
+                "firstSave": first_save,
             }
         )
         self._publish_event(
@@ -150,6 +158,7 @@ class LiveSetSaveObserver(object):
         self._baseline = None
         self._candidate = None
         self._candidate_samples = 0
+        self._candidate_first_save = False
         self._had_unsaved_identity = not saved
         if saved:
             self._baseline = self._metadata(

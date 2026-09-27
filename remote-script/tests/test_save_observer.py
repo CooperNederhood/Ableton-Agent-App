@@ -71,6 +71,7 @@ class SaveObserverTests(unittest.TestCase):
         self.assertTrue(payload["saved"])
         self.assertEqual(payload["fileModifiedTimeNs"], "201")
         self.assertEqual(payload["fileSizeBytes"], 20)
+        self.assertFalse(payload["firstSave"])
         self.assertNotIn("filePath", payload)
         self.assertEqual(revision, 7)
 
@@ -111,6 +112,32 @@ class SaveObserverTests(unittest.TestCase):
             [item[1]["fileModifiedTimeNs"] for item in published],
             ["100", "200"],
         )
+        self.assertEqual(
+            [item[1]["firstSave"] for item in published],
+            [True, False],
+        )
+
+    def test_preserves_first_save_across_replacement_metadata(self):
+        song = FakeSong()
+        context = FakeContext(song)
+        metadata = [FakeStat(100, 10)]
+        published = []
+        observer = LiveSetSaveObserver(
+            context,
+            lambda *args: published.append(args),
+            stat_path=lambda _path: metadata[-1],
+        )
+        observer.start()
+
+        song.file_path = "/Music/First.als"
+        observer.sample_now()
+        metadata.append(FakeStat(101, 12))
+        observer.sample_now()
+        observer.sample_now()
+
+        self.assertEqual(len(published), 1)
+        self.assertTrue(published[0][1]["firstSave"])
+        self.assertEqual(published[0][1]["fileModifiedTimeNs"], "101")
 
     def test_tolerates_missing_and_rejects_unsafe_metadata(self):
         song = FakeSong("/Music/Set.als")

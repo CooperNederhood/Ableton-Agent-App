@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "id": "transport-inspection",
   "group": "inspection",
-  "prompt": "Inspect the Arrangement transport, including playback, loop range, and cue points. Do not change transport or project state.",
+  "prompt": "Make exactly one read-only call to ableton_transport with action inspect-arrangement, then summarize playback, loop range, and cue points. Do not make any other tool calls or changes.",
   "artifactPrefix": "AA_SMOKE_TRANSPORT_",
   "allowedTools": ["ableton_transport"],
   "allowedActions": {

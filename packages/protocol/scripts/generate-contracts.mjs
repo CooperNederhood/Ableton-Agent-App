@@ -235,6 +235,7 @@ const fixtures = {
         observedAt: "2000-01-01T00:00:02Z",
         fileModifiedTimeNs: "1700000000000000000",
         fileSizeBytes: 4096,
+        firstSave: true,
       },
       projectRevision: 4,
     }),

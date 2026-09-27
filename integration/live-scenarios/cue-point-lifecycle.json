@@ -2,35 +2,9 @@
   "formatVersion": 1,
   "id": "cue-point-lifecycle",
   "group": "arrangement-and-cues",
-  "prompt": "Create, inspect, and delete one unnamed Arrangement cue point without changing any other project state. Execute every mutation strictly sequentially and never issue cue mutations in parallel.",
+  "execution": "cue-point-runtime",
   "artifactPrefix": "AA_SMOKE_CUE_",
-  "allowedTools": ["ableton_transport"],
-  "allowedActions": {
-    "ableton_transport": [
-      "set-playing",
-      "create-cue-point",
-      "inspect-arrangement",
-      "delete-cue-point"
-    ]
-  },
-  "allowedRisks": ["read", "reversible", "destructive"],
-  "maxToolCalls": 8,
-  "maxMutations": 4,
-  "timeoutMs": 180000,
-  "ordering": [
-    {
-      "before": "ableton_transport",
-      "after": "ableton_transport",
-      "beforeAction": "create-cue-point",
-      "afterAction": "inspect-arrangement"
-    },
-    {
-      "before": "ableton_transport",
-      "after": "ableton_transport",
-      "beforeAction": "inspect-arrangement",
-      "afterAction": "delete-cue-point"
-    }
-  ],
+  "timeoutMs": 60000,
   "assertions": [
     {
       "type": "cue-point-lifecycle",

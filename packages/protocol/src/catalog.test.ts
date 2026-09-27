@@ -35,6 +35,10 @@ describe("command catalog", () => {
     }
   });
 
+  it("allows full session inspection to settle while Live is saving", () => {
+    expect(commandCatalog["session.inspect"].timeoutClass).toBe("long");
+  });
+
   it("covers every command issued by the TypeScript bridge", () => {
     const bridgeSource = readFileSync(
       resolve(process.cwd(), "packages/bridge/src/index.ts"),

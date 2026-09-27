@@ -9,7 +9,7 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 - [x] Define `system.hello`, authentication, capability, ping, and event schemas.
 - [x] Define the metadata-only `live_set.save_observed` event with complete
   bounded Live Set/Project identity, decimal nanosecond mtime, and safely
-  bounded byte size.
+  bounded byte size, plus a backward-compatible same-Song `firstSave` marker.
 - [x] Define the complete stable error-code union.
 - [x] Define command-specific request/result schemas.
   - [x] Define exact-reference Session clip launch, duplication, deletion, and

@@ -108,6 +108,11 @@ presentation state and say so; they are not applied to Live.
 - [x] Resolve Live Set transitions independently inside the same Live Project.
 - [x] Drive save-time identity transitions from authoritative bridge events and
   settle App-session ownership before accepting the next agent prompt.
+- [x] Promote meaningful unsaved App sessions in place on authoritative first
+  save, preserving App-session, active-agent, and SDK-session IDs.
+- [x] Resolve first-save canonical conflicts without deleting either session;
+  keep current work active and normalize titles to `App session`, `_2`, `_3`,
+  and so on while retaining immutable ID-based history joins.
 - [x] Keep unsaved and orphan Live Set sessions explicit but ephemeral during
   ordinary operation instead of inferring ownership from names or history.
 - [x] Store secrets in OS-backed secure storage.
@@ -123,6 +128,8 @@ presentation state and say so; they are not applied to Live.
   and preload APIs without exposing SQL or filesystem access.
 - [ ] Surface journal health, retention truncation, capture-paused, and write
   failure states without blocking core agent or Ableton behavior.
+- [x] Serialize journal batch publication and bound public-history read barriers
+  so a stalled writer cannot leave `set_sql_search` running indefinitely.
 
 ## Scoped automatic approval
 

@@ -192,6 +192,37 @@ describe("desktop components", () => {
     expect(html).not.toContain("Resume saved session");
   });
 
+  it("explains first-save canonical conflicts without offering deletion or a fork", () => {
+    const state: DesktopState = {
+      ...workspaceState(),
+      pendingLiveSetTransition: {
+        token: "00000000-0000-4000-8000-000000000099",
+        kind: "first-save-conflict",
+        liveSet: {
+          liveSetId: "saved-set",
+          liveSetName: "Saved Set",
+          saved: true,
+        },
+        currentSessionId: "session-a",
+        associatedSession: {
+          id: "session-b",
+          title: "App session",
+          updatedAt: "2026-09-20T20:00:00.000Z",
+        },
+        decisions: ["make-current-canonical", "keep-existing-canonical"],
+      },
+    };
+    const html = renderToStaticMarkup(
+      <LiveSetTransitionModal state={state} dispatch={vi.fn()} />,
+    );
+
+    expect(html).toContain("Both sessions will be kept");
+    expect(html).toContain("Make current session canonical");
+    expect(html).toContain("Keep existing session canonical");
+    expect(html).not.toContain("Start fresh");
+    expect(html).not.toContain("Continue current session");
+  });
+
   it("renders safe GitHub-flavored assistant Markdown", () => {
     const html = renderToStaticMarkup(
       <AssistantMarkdown

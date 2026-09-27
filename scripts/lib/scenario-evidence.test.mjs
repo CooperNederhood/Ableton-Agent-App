@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyScenario, collectToolNames } from "./scenario-evidence.mjs";
+import {
+  classifyScenario,
+  collectToolNames,
+  shouldRetryAgentScenario,
+} from "./scenario-evidence.mjs";
 
 describe("scenario evidence", () => {
   it("classifies ordinary passes and failures", () => {
@@ -48,6 +52,51 @@ describe("scenario evidence", () => {
     ).toBe("unsupported-skip");
   });
 
+  it("accepts recovered validation probes only after all postconditions pass", () => {
+    expect(
+      classifyScenario(
+        {},
+        {
+          status: 5,
+          json: {
+            ok: false,
+            operationFailures: [{ code: "invalid_tool_arguments" }],
+            assertions: [{ assertion: "cleanup", passed: true }],
+            policyViolations: [],
+          },
+        },
+      ),
+    ).toBe("recovered-pass");
+    expect(
+      classifyScenario(
+        {},
+        {
+          status: 5,
+          json: {
+            ok: false,
+            operationFailures: [{ code: "invalid_tool_arguments" }],
+            assertions: [{ assertion: "cleanup", passed: false }],
+            policyViolations: [],
+          },
+        },
+      ),
+    ).toBe("fail");
+    expect(
+      classifyScenario(
+        {},
+        {
+          status: 5,
+          json: {
+            ok: false,
+            operationFailures: [{ code: "bridge_timeout" }],
+            assertions: [{ assertion: "cleanup", passed: true }],
+            policyViolations: [],
+          },
+        },
+      ),
+    ).toBe("fail");
+  });
+
   it("collects unique started tool names", () => {
     expect(
       collectToolNames({
@@ -63,5 +112,52 @@ describe("scenario evidence", () => {
         },
       }),
     ).toEqual(["ableton_session_inspect"]);
+  });
+
+  it("retries bounded model execution misses but not real workflow failures", () => {
+    expect(
+      shouldRetryAgentScenario({
+        json: {
+          operations: [],
+          operationFailures: [],
+          assertions: [{ assertion: "tool-calls", passed: false }],
+          policyViolations: [],
+          budgets: { mutations: 0 },
+        },
+      }),
+    ).toBe(true);
+    expect(
+      shouldRetryAgentScenario({
+        json: {
+          operations: [{ type: "operation.started" }],
+          operationFailures: [{ code: "invalid_tool_arguments" }],
+          assertions: [],
+          policyViolations: [],
+          budgets: { mutations: 0 },
+        },
+      }),
+    ).toBe(true);
+    expect(
+      shouldRetryAgentScenario({
+        json: {
+          operations: [{ type: "operation.started" }],
+          operationFailures: [{ code: "bridge_timeout" }],
+          assertions: [],
+          policyViolations: [],
+          budgets: { mutations: 0 },
+        },
+      }),
+    ).toBe(false);
+    expect(
+      shouldRetryAgentScenario({
+        json: {
+          operations: [],
+          operationFailures: [],
+          assertions: [{ assertion: "tool-calls", passed: false }],
+          policyViolations: [],
+          budgets: { mutations: 1 },
+        },
+      }),
+    ).toBe(false);
   });
 });

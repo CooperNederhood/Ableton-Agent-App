@@ -224,6 +224,7 @@ describe("desktop composition", () => {
       "SELECT record_id FROM set_history_saves LIMIT 1",
       [],
       1,
+      undefined,
     );
     await host.shutdown();
   });

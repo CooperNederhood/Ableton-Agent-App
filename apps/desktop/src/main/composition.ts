@@ -337,11 +337,13 @@ export class DesktopJournalHost implements DesktopEventJournal {
     sql: string,
     parameters: readonly PublicHistorySqlValue[],
     maxRows: number,
+    signal?: AbortSignal,
   ): Promise<PublicHistoryQueryResult> {
     return (await this.#activeJournal()).queryPublicHistory(
       sql,
       parameters,
       maxRows,
+      signal,
     );
   }
 
@@ -636,6 +638,7 @@ export async function createDesktopComposition(
       detail: `Detailed history is disabled because the existing journal could not be opened: ${journalHost.failure}`,
     });
   }
+  let lastEventHistoryFailure: string | undefined;
   const telemetry = createNonBlockingObservabilityRecorder(
     {
       enqueue: (event) => journalHost.enqueue(event),
@@ -643,11 +646,15 @@ export async function createDesktopComposition(
         journalHost.enqueueConfigurationSnapshot(snapshot),
     },
     {
-      onFailure: ({ operation, error }) =>
+      onFailure: ({ operation, error }) => {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message === lastEventHistoryFailure) return;
+        lastEventHistoryFailure = message;
         options.onError?.("Detailed event history write failed", {
           operation,
-          error: error instanceof Error ? error.message : String(error),
-        }),
+          error: message,
+        });
+      },
     },
   );
   for (const event of options.storageMigrationEvents ?? []) {
@@ -728,14 +735,12 @@ export async function createDesktopComposition(
       ? undefined
       : {
           query: async ({ sql, parameters, maxRows, signal }) => {
-            signal?.throwIfAborted();
-            const result = await journalHost.queryPublicHistory(
+            return journalHost.queryPublicHistory(
               sql,
               parameters,
               maxRows,
+              signal,
             );
-            signal?.throwIfAborted();
-            return result;
           },
         });
   const snapshotCaptureAction: LiveSetSaveAction = {
@@ -746,6 +751,16 @@ export async function createDesktopComposition(
         throw new Error("Desktop snapshot capture is not ready");
       }
       await serviceRef.current.captureObservedSave(context);
+    },
+  };
+  const identitySettlementAction: LiveSetSaveAction = {
+    id: "settle-app-session-identity",
+    lifecycleName: "live_set.identity_settlement",
+    execute: async (context) => {
+      if (serviceRef.current === undefined) {
+        throw new Error("Desktop identity settlement is not ready");
+      }
+      await serviceRef.current.settleObservedSave(context);
     },
   };
 
@@ -807,7 +822,10 @@ export async function createDesktopComposition(
         }),
     ...(setHistoryQuery === undefined ? {} : { setHistoryQuery }),
     liveSetSaves: {
-      actions: snapshotHistory === undefined ? [] : [snapshotCaptureAction],
+      actions:
+        snapshotHistory === undefined
+          ? [identitySettlementAction]
+          : [identitySettlementAction, snapshotCaptureAction],
     },
     signal: {
       port: preferences.signalPort,

@@ -10,8 +10,8 @@
   mutation.
 - `browser-bounds`: verify Browser category and search traversal remain within
   reviewed node, result, depth, and duration limits.
-- `capability-surface`: verify the supported command/capability inventory
-  reported by the running Remote Script.
+- `capability-surface`: directly verify the supported command/capability
+  inventory reported by the running Remote Script without model mediation.
 
 `live-events`
 
@@ -39,9 +39,9 @@
 - `arrangement-region-fill-lifecycle`: fill a non-divisible Arrangement region
   with one bulk tool call, verify complete-tile placement and the reported
   remainder, remove every created tile, and restore the baseline Set.
-- `cue-point-lifecycle`: create an unnamed cue point at an exact time, inspect
-  it, delete it by returned identity, and restore the cue state. Live 11.3.43
-  naming support is covered as an explicit unsupported-capability path.
+- `cue-point-lifecycle`: directly create an unnamed cue point at an exact time,
+  inspect it, delete it by returned identity, and restore the cue state without
+  model-mediated action selection.
 
 `instruments`
 
@@ -79,5 +79,6 @@
   selection/view state, global history availability, and workflow-job list
   without mutation.
 
-Each group starts in a fresh runner-owned default Set. Copilot session context
-may continue, but Live artifacts never carry across group restarts.
+Each group starts in a fresh runner-owned default Set. Every scenario also uses
+a fresh Copilot session so prior prompts and tool calls cannot contaminate its
+reviewed action contract. Live artifacts never carry across group restarts.

@@ -311,6 +311,7 @@ describe("Live event protocol schemas", () => {
           observedAt: "2026-09-20T20:00:00.000Z",
           fileModifiedTimeNs: "1700000000000000000",
           fileSizeBytes: 4096,
+          firstSave: true,
         },
         projectRevision: 4,
       }).payload,
@@ -324,7 +325,19 @@ describe("Live event protocol schemas", () => {
       observedAt: "2026-09-20T20:00:00.000Z",
       fileModifiedTimeNs: "1700000000000000000",
       fileSizeBytes: 4096,
+      firstSave: true,
     });
+    expect(
+      liveSetSaveObservedPayloadSchema.parse({
+        liveSetId: "set-1",
+        liveSetName: "Saved Set",
+        saved: true,
+        diagnostics: [],
+        observedAt: "2026-09-20T20:00:00.000Z",
+        fileModifiedTimeNs: "1700000000000000000",
+        fileSizeBytes: 4096,
+      }),
+    ).toMatchObject({ firstSave: false });
     expect(() =>
       liveSetSaveObservedPayloadSchema.parse({
         liveSetId: "set-1",
@@ -333,6 +346,7 @@ describe("Live event protocol schemas", () => {
         observedAt: "2026-09-20T20:00:00.000Z",
         fileModifiedTimeNs: 1_700_000_000_000_000_000,
         fileSizeBytes: 4096,
+        firstSave: false,
         filePath: "/private/set.als",
       }),
     ).toThrow();
@@ -342,6 +356,7 @@ describe("Live event protocol schemas", () => {
         observedAt: "2026-09-20T20:00:00.000Z",
         fileModifiedTimeNs: "1",
         fileSizeBytes: Number.MAX_SAFE_INTEGER + 1,
+        firstSave: false,
       }),
     ).toThrow();
   });

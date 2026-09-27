@@ -2961,7 +2961,13 @@ export function LiveSetTransitionModal({
           Ableton is now using <strong>{transition.liveSet.liveSetName}</strong>
           .
         </p>
-        {transition.kind === "associated" ? (
+        {transition.kind === "first-save-conflict" ? (
+          <p>
+            This saved Live Set already has a canonical App session. Both
+            sessions will be kept, and your current work will remain active.
+            Choose which session should be canonical.
+          </p>
+        ) : transition.kind === "associated" ? (
           <p>
             This Live Set has a saved App session
             {transition.associatedSession === undefined
@@ -2998,12 +3004,32 @@ export function LiveSetTransitionModal({
               Continue current session
             </button>
           )}
-          <button
-            disabled={submitting}
-            onClick={() => void resolve("start-fresh")}
-          >
-            Start fresh
-          </button>
+          {transition.decisions.includes("make-current-canonical") && (
+            <button
+              className="primary"
+              autoFocus
+              disabled={submitting}
+              onClick={() => void resolve("make-current-canonical")}
+            >
+              Make current session canonical
+            </button>
+          )}
+          {transition.decisions.includes("keep-existing-canonical") && (
+            <button
+              disabled={submitting}
+              onClick={() => void resolve("keep-existing-canonical")}
+            >
+              Keep existing session canonical
+            </button>
+          )}
+          {transition.decisions.includes("start-fresh") && (
+            <button
+              disabled={submitting}
+              onClick={() => void resolve("start-fresh")}
+            >
+              Start fresh
+            </button>
+          )}
         </div>
       </section>
     </div>

@@ -890,9 +890,78 @@ describe("local observability journal", () => {
     await expect(journal.enqueue(event(2))).rejects.toThrow(
       JournalQueueFullError,
     );
-    expect((await journal.getHealth()).maxPendingWrites).toBe(1);
+    expect(await journal.getHealth()).toMatchObject({
+      status: "degraded",
+      maxPendingWrites: 1,
+      highWaterPendingWrites: 1,
+      inFlightWrites: 0,
+    });
     await journal.flush();
     await accepted;
+    expect(await journal.getHealth()).toMatchObject({
+      status: "healthy",
+      pendingWrites: 0,
+      rejectedWrites: 1,
+    });
+  });
+
+  it("bounds public-history read barriers when the writer is stalled", async () => {
+    let worker: Worker | undefined;
+    const journal = await openJournal({
+      batchSize: 1,
+      batchDelayMs: 0,
+      readBarrierTimeoutMs: 10,
+      workerFactory: () => {
+        worker = new Worker(
+          new URL("./journal-hanging-worker.mjs", import.meta.url),
+        );
+        return worker;
+      },
+    });
+    const write = journal.enqueue(event(1));
+
+    await expect(
+      journal.queryPublicHistory(
+        "SELECT record_id FROM agent_history_sessions",
+        [],
+        10,
+      ),
+    ).rejects.toThrow(
+      "Public history is temporarily unavailable while accepted journal writes are still draining",
+    );
+
+    await worker?.terminate();
+    await expect(write).rejects.toMatchObject({ code: "io" });
+    openJournals.splice(openJournals.indexOf(journal), 1);
+  });
+
+  it("cancels a public-history read while accepted writes are draining", async () => {
+    let worker: Worker | undefined;
+    const journal = await openJournal({
+      batchSize: 1,
+      batchDelayMs: 0,
+      readBarrierTimeoutMs: 5_000,
+      workerFactory: () => {
+        worker = new Worker(
+          new URL("./journal-hanging-worker.mjs", import.meta.url),
+        );
+        return worker;
+      },
+    });
+    const write = journal.enqueue(event(1));
+    const controller = new AbortController();
+    const query = journal.queryPublicHistory(
+      "SELECT record_id FROM agent_history_sessions",
+      [],
+      10,
+      controller.signal,
+    );
+    controller.abort();
+
+    await expect(query).rejects.toMatchObject({ name: "AbortError" });
+    await worker?.terminate();
+    await expect(write).rejects.toMatchObject({ code: "io" });
+    openJournals.splice(openJournals.indexOf(journal), 1);
   });
 
   it("prunes expired traces as roots and expires configuration snapshots", async () => {

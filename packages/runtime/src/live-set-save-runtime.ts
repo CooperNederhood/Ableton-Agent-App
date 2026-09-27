@@ -293,6 +293,7 @@ export class DefaultLiveSetSaveRuntime implements LiveSetSaveRuntime {
         receivedAt: event.receivedAt,
         fileModifiedTimeNs: event.payload.fileModifiedTimeNs,
         fileSizeBytes: event.payload.fileSizeBytes,
+        firstSave: event.payload.firstSave,
         sequence: event.sequence,
         ...(event.projectRevision === undefined
           ? {}

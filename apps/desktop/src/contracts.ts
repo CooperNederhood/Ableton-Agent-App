@@ -494,6 +494,8 @@ export const liveSetTransitionDecisionSchema = z.enum([
   "resume-associated",
   "fork-current",
   "start-fresh",
+  "make-current-canonical",
+  "keep-existing-canonical",
 ]);
 export type LiveSetTransitionDecision = z.infer<
   typeof liveSetTransitionDecisionSchema
@@ -501,7 +503,7 @@ export type LiveSetTransitionDecision = z.infer<
 
 export const pendingLiveSetTransitionSchema = z.object({
   token: z.string().uuid(),
-  kind: z.enum(["associated", "unassociated"]),
+  kind: z.enum(["associated", "unassociated", "first-save-conflict"]),
   liveSet: desktopLiveSetIdentitySchema,
   currentSessionId: z.string().min(1).optional(),
   associatedSession: z

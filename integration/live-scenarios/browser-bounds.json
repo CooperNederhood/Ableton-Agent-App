@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "id": "browser-bounds",
   "group": "inspection",
-  "prompt": "Inspect the Ableton Browser roots, inspect one bounded page of the Drums root, and perform one bounded built-in Browser search for 808. Do not load anything or change the Set.",
+  "prompt": "Make exactly three read-only ableton_browser calls in this order. First call roots. Second call children for the returned Drums root, copying its expectedItemReference, expectedItemRoot, expectedItemPath, expectedItemName, and expectedItemUri exactly and passing offset 0 and limit 20; do not pass maxDepth. Third call search with query 808, roots [drums, packs, user_library], and maxResults 20. Do not make other tool calls, load anything, or change the Set.",
   "artifactPrefix": "AA_SMOKE_BROWSER_",
   "allowedTools": ["ableton_browser"],
   "allowedActions": {

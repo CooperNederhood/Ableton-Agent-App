@@ -69,6 +69,7 @@ import { sanitizeTelemetryAttributes } from "./sanitizer.js";
 
 const DEFAULT_BATCH_SIZE = 64;
 const DEFAULT_BATCH_DELAY_MS = 20;
+const DEFAULT_READ_BARRIER_TIMEOUT_MS = 5_000;
 
 interface PendingEvent {
   readonly kind: "event";
@@ -158,6 +159,8 @@ export interface ObservabilityJournalOptions {
   readonly batchDelayMs?: number;
   /** Maximum accepted writes waiting for worker persistence. Defaults to 10,000. */
   readonly maxPendingWrites?: number;
+  /** Maximum time a public-history read waits for accepted writes. */
+  readonly readBarrierTimeoutMs?: number;
   readonly retention?: RetentionPolicyInput;
   /** Injectable clock for deterministic hosts and tests. */
   readonly now?: () => Date;
@@ -187,13 +190,14 @@ export class LocalObservabilityJournal implements ObservabilitySink {
   readonly #batchSize: number;
   readonly #batchDelayMs: number;
   readonly #maxPendingWrites: number;
+  readonly #readBarrierTimeoutMs: number;
   readonly #retention: RetentionPolicy;
   readonly #now: () => Date;
   readonly #pending: PendingWrite[] = [];
   readonly #pendingIds = new Set<string>();
   readonly #requests = new Map<
     number,
-    { resolve: (value: unknown) => void; reject: (error: unknown) => void }
+    { resolve: (value: unknown) => void; reject: (error: Error) => void }
   >();
   #nextRequestId = 1;
   #timer: ReturnType<typeof setTimeout> | undefined;
@@ -202,7 +206,12 @@ export class LocalObservabilityJournal implements ObservabilitySink {
   #terminating = false;
   #terminalFailure: ObservabilityJournalError | undefined;
   #inFlightWrites = 0;
+  #highWaterPendingWrites = 0;
+  #lastDrainAt: string | null = null;
+  #lastDrainDurationMs: number | undefined;
+  #queueDegradedAt: string | undefined;
   #rejectedWrites = 0;
+  #lastWorkerHealth: WorkerHealth | undefined;
   #closedHealth: ClosedHealth | undefined;
 
   private constructor(
@@ -212,6 +221,7 @@ export class LocalObservabilityJournal implements ObservabilitySink {
       readonly batchSize: number;
       readonly batchDelayMs: number;
       readonly maxPendingWrites: number;
+      readonly readBarrierTimeoutMs: number;
       readonly retention: RetentionPolicy;
       readonly now: () => Date;
     },
@@ -221,6 +231,7 @@ export class LocalObservabilityJournal implements ObservabilitySink {
     this.#batchSize = options.batchSize;
     this.#batchDelayMs = options.batchDelayMs;
     this.#maxPendingWrites = options.maxPendingWrites;
+    this.#readBarrierTimeoutMs = options.readBarrierTimeoutMs;
     this.#retention = options.retention;
     this.#now = options.now;
     worker.on("message", (message: WorkerResponse) => {
@@ -261,6 +272,11 @@ export class LocalObservabilityJournal implements ObservabilitySink {
       DEFAULT_MAX_PENDING_WRITES,
       "maxPendingWrites",
     );
+    const readBarrierTimeoutMs = positiveInteger(
+      options.readBarrierTimeoutMs,
+      DEFAULT_READ_BARRIER_TIMEOUT_MS,
+      "readBarrierTimeoutMs",
+    );
     const retention = retentionPolicySchema.parse(options.retention ?? {});
     const now = options.now ?? (() => new Date());
     const workerUrl = new URL("./journal-worker.mjs", import.meta.url);
@@ -276,6 +292,7 @@ export class LocalObservabilityJournal implements ObservabilitySink {
       batchSize,
       batchDelayMs,
       maxPendingWrites,
+      readBarrierTimeoutMs,
       retention,
       now,
     });
@@ -445,6 +462,7 @@ export class LocalObservabilityJournal implements ObservabilitySink {
     sql: string,
     parameters: readonly PublicHistorySqlValue[],
     maxRows: number,
+    signal?: AbortSignal,
   ): Promise<PublicHistoryQueryResult> {
     this.#assertOpen();
     if (
@@ -488,13 +506,18 @@ export class LocalObservabilityJournal implements ObservabilitySink {
         `Public history maxRows must be between 1 and ${MAX_PUBLIC_HISTORY_ROWS}`,
       );
     }
-    await this.#flushPending();
+    await this.#flushPending(this.#readBarrierTimeoutMs, signal);
+    signal?.throwIfAborted();
     return publicHistoryQueryResultSchema.parse(
-      await this.#call("queryPublicHistory", {
-        sql,
-        parameters,
-        maxRows,
-      }),
+      await this.#call(
+        "queryPublicHistory",
+        {
+          sql,
+          parameters,
+          maxRows,
+        },
+        signal,
+      ),
     );
   }
 
@@ -578,6 +601,12 @@ export class LocalObservabilityJournal implements ObservabilitySink {
           health?.persistedConfigurationSnapshots ?? 0,
         rejectedWrites: this.#rejectedWrites,
         maxPendingWrites: this.#maxPendingWrites,
+        inFlightWrites: 0,
+        highWaterPendingWrites: this.#highWaterPendingWrites,
+        lastDrainAt: this.#lastDrainAt,
+        ...(this.#lastDrainDurationMs === undefined
+          ? {}
+          : { lastDrainDurationMs: this.#lastDrainDurationMs }),
         databaseBytes: health?.databaseBytes ?? 0,
         oldestEventAt: null,
         newestEventAt: null,
@@ -586,12 +615,45 @@ export class LocalObservabilityJournal implements ObservabilitySink {
         retention: this.#retention,
       });
     }
-    const workerHealth = await this.#call<WorkerHealth>("health", {});
+    const queueError =
+      this.#queueDegradedAt === undefined
+        ? undefined
+        : {
+            code: "queue_full" as const,
+            message: `The observability journal queue reached its ${this.#maxPendingWrites} write limit`,
+            at: this.#queueDegradedAt,
+          };
+    const workerHealth =
+      queueError === undefined
+        ? await this.#call<WorkerHealth>("health", {})
+        : (this.#lastWorkerHealth ?? {
+            version: OBSERVABILITY_CONTRACT_VERSION,
+            status: "degraded" as const,
+            schemaVersion: observabilitySchemaVersion,
+            persistedEvents: 0,
+            persistedConfigurationSnapshots: 0,
+            databaseBytes: 0,
+            oldestEventAt: null,
+            newestEventAt: null,
+            lastFlushAt: this.#lastDrainAt,
+            lastError: queueError,
+            retention: this.#retention,
+          });
+    if (queueError === undefined) this.#lastWorkerHealth = workerHealth;
     return journalHealthSchema.parse({
       ...workerHealth,
+      status:
+        queueError === undefined ? workerHealth.status : ("degraded" as const),
       pendingWrites: this.#pending.length + this.#inFlightWrites,
       rejectedWrites: this.#rejectedWrites,
       maxPendingWrites: this.#maxPendingWrites,
+      inFlightWrites: this.#inFlightWrites,
+      highWaterPendingWrites: this.#highWaterPendingWrites,
+      lastDrainAt: this.#lastDrainAt,
+      ...(this.#lastDrainDurationMs === undefined
+        ? {}
+        : { lastDrainDurationMs: this.#lastDrainDurationMs }),
+      ...(queueError === undefined ? {} : { lastError: queueError }),
     });
   }
 
@@ -630,6 +692,7 @@ export class LocalObservabilityJournal implements ObservabilitySink {
   ): Promise<void> {
     if (this.#pending.length + this.#inFlightWrites >= this.#maxPendingWrites) {
       this.#rejectedWrites += 1;
+      this.#queueDegradedAt ??= this.#now().toISOString();
       return Promise.reject(new JournalQueueFullError(this.#maxPendingWrites));
     }
     if (this.#pendingIds.has(value.id)) {
@@ -673,6 +736,10 @@ export class LocalObservabilityJournal implements ObservabilitySink {
       }
     });
     this.#pendingIds.add(value.id);
+    this.#highWaterPendingWrites = Math.max(
+      this.#highWaterPendingWrites,
+      this.#pending.length + this.#inFlightWrites,
+    );
     this.#scheduleDrain();
     return result;
   }
@@ -692,8 +759,10 @@ export class LocalObservabilityJournal implements ObservabilitySink {
   }
 
   #startDrain(): void {
+    if (this.#inFlightWrites > 0) return;
     const batch = this.#pending.splice(0, this.#batchSize);
     if (batch.length === 0) return;
+    const startedAt = Date.now();
     this.#inFlightWrites += batch.length;
     void this.#call<WorkerBatchResult>("batch", {
       writes: batch.map(({ kind, value }) => ({ kind, value })),
@@ -735,11 +804,14 @@ export class LocalObservabilityJournal implements ObservabilitySink {
       .finally(() => {
         for (const item of batch) this.#pendingIds.delete(item.value.id);
         this.#inFlightWrites -= batch.length;
+        this.#lastDrainAt = this.#now().toISOString();
+        this.#lastDrainDurationMs = Date.now() - startedAt;
+        if (this.#pending.length === 0) this.#queueDegradedAt = undefined;
         if (this.#pending.length > 0) this.#scheduleDrain();
       });
   }
 
-  async #flushPending(): Promise<void> {
+  async #flushPending(timeoutMs?: number, signal?: AbortSignal): Promise<void> {
     // Producer adapters enqueue on a microtask so their public methods remain
     // strictly void/non-blocking. Include those same-turn writes in barriers.
     await Promise.resolve();
@@ -747,27 +819,51 @@ export class LocalObservabilityJournal implements ObservabilitySink {
       clearTimeout(this.#timer);
       this.#timer = undefined;
     }
-    while (this.#pending.length > 0) this.#startDrain();
-    while (this.#inFlightWrites > 0) {
+    const deadline =
+      timeoutMs === undefined ? undefined : Date.now() + timeoutMs;
+    while (this.#pending.length > 0 || this.#inFlightWrites > 0) {
+      signal?.throwIfAborted();
+      this.#startDrain();
+      if (deadline !== undefined && Date.now() >= deadline) {
+        throw new JournalQueryError(
+          "Public history is temporarily unavailable while accepted journal writes are still draining",
+        );
+      }
       await new Promise<void>((resolve) => {
-        setTimeout(resolve, 0);
+        setTimeout(resolve, 1);
       });
     }
   }
 
-  #call<T = unknown>(method: string, args: unknown): Promise<T> {
+  #call<T = unknown>(
+    method: string,
+    args: unknown,
+    signal?: AbortSignal,
+  ): Promise<T> {
     if (this.#terminalFailure !== undefined)
       return Promise.reject(this.#terminalFailure);
     if (this.#closed) return Promise.reject(new JournalClosedError());
+    signal?.throwIfAborted();
     const id = this.#nextRequestId;
     this.#nextRequestId += 1;
     return new Promise<T>((resolve, reject) => {
+      const abort = () => {
+        this.#requests.delete(id);
+        const error = new Error("Cancelled");
+        error.name = "AbortError";
+        reject(error);
+      };
       this.#requests.set(id, {
         resolve: (value) => {
+          signal?.removeEventListener("abort", abort);
           resolve(value as T);
         },
-        reject,
+        reject: (error) => {
+          signal?.removeEventListener("abort", abort);
+          reject(error);
+        },
       });
+      signal?.addEventListener("abort", abort, { once: true });
       this.#worker.postMessage({ id, method, args });
     });
   }

@@ -18,6 +18,7 @@ import {
 } from "@ableton-agent/application";
 import type {
   AgentLiveEventListener,
+  LiveSetSaveActionContext,
   LiveEventRuntime,
   LiveEventRuntimeEvent,
   LiveEventRuntimeState,
@@ -330,6 +331,34 @@ async function harness(
     liveSetSessionStore,
     preferencesStore,
     sessionStore,
+  };
+}
+
+function firstSaveContext(
+  liveSetId: string,
+  liveSetName: string,
+  liveProjectId?: string,
+): LiveSetSaveActionContext {
+  return {
+    observation: {
+      liveSetId,
+      liveSetName,
+      saved: true,
+      ...(liveProjectId === undefined
+        ? {}
+        : {
+            liveProjectId,
+            liveProjectName: "Album",
+          }),
+      diagnostics: [],
+      observedAt: "2026-09-20T20:00:00.000Z",
+      fileModifiedTimeNs: "1234567890123456789",
+      fileSizeBytes: 4096,
+      firstSave: true,
+    },
+    receivedAt: "2026-09-20T20:00:00.000Z",
+    signal: new AbortController().signal,
+    reportProgress: vi.fn(),
   };
 }
 
@@ -2903,6 +2932,7 @@ describe("desktop adapter over the shared application", () => {
         observedAt: "2026-09-20T20:00:00.000Z",
         fileModifiedTimeNs: "1234567890123456789",
         fileSizeBytes: 4096,
+        firstSave: false,
       },
       receivedAt: "2026-09-20T20:00:00.000Z",
       signal: new AbortController().signal,
@@ -3509,6 +3539,12 @@ describe("desktop adapter over the shared application", () => {
 
     await service.start();
     const before = (await service.getSessions())[0]!;
+    await service.sendToActiveAgent(
+      before.activeAgents[0]!.id,
+      "Remember this before the Set is saved",
+      [],
+    );
+    await settle();
     const savedStatus = {
       state: "connected" as const,
       liveVersion: ableton.status.liveVersion,
@@ -3521,10 +3557,9 @@ describe("desktop adapter over the shared application", () => {
     };
     ableton.status = savedStatus;
     ableton.liveIdentity = { ...savedStatus, diagnostics: [] };
-    fake.events.publish({
-      type: "ableton.connection_changed",
-      status: savedStatus,
-    });
+    await service.settleObservedSave(
+      firstSaveContext("set-after-save", "Saved Set", "project-after-save"),
+    );
 
     await service.sendToActiveAgent(
       before.activeAgents[0]!.id,
@@ -3540,8 +3575,195 @@ describe("desktop adapter over the shared application", () => {
     });
     expect(service.activeLiveSetId).toBe("set-after-save");
     expect(service.activeLiveProjectId).toBe("project-after-save");
+    expect(after.activeAgents[0]?.id).toBe(before.activeAgents[0]?.id);
+    expect(after.activeAgents[0]?.sdkSessionId).toBe(
+      before.activeAgents[0]?.sdkSessionId,
+    );
+    expect(
+      (await service.hydrateActiveAgentHistory(after.activeAgents[0]!.id)).some(
+        ({ content }) =>
+          content.includes("Remember this before the Set is saved"),
+      ),
+    ).toBe(true);
     await service.stop();
   });
+
+  it.each([
+    {
+      decision: "make-current-canonical" as const,
+      currentCanonical: true,
+    },
+    {
+      decision: "keep-existing-canonical" as const,
+      currentCanonical: false,
+    },
+  ])(
+    "retains both sessions and resolves a first-save canonical conflict with $decision",
+    async ({ decision, currentCanonical }) => {
+      const directory = await temporaryDirectory();
+      const preferencesStore = new JsonPreferencesStore(
+        join(directory, "preferences.json"),
+      );
+      const sessionStore = new JsonSessionStore(
+        join(directory, "sessions.json"),
+      );
+      const liveSetSessionStore = new JsonLiveSetSessionStore(
+        join(directory, "live-set-sessions.json"),
+      );
+      const catalog = defaultCatalog();
+      const savedAbleton = defaultFakeState();
+      if (
+        savedAbleton.status.state !== "connected" ||
+        !("liveSetId" in savedAbleton.status)
+      ) {
+        throw new Error("Expected connected fake state");
+      }
+      savedAbleton.status = {
+        ...savedAbleton.status,
+        liveSetId: "saved-set",
+        liveSetName: "Saved Set",
+        saved: true,
+      };
+      savedAbleton.liveIdentity = {
+        liveSetId: "saved-set",
+        liveSetName: "Saved Set",
+        saved: true,
+        diagnostics: [],
+      };
+      const savedFake = createFakeApplication({ ableton: savedAbleton });
+      const savedService = new HeadlessDesktopService({
+        application: savedFake.application,
+        approvals: new ApprovalCoordinator(),
+        preferencesStore,
+        sessionStore,
+        liveSetSessionStore,
+        agentCatalog: {
+          current: catalog,
+          refresh: () => Promise.resolve(catalog),
+        },
+      });
+      await savedService.start();
+      const existingCanonical = (await savedService.getSessions())[0]!;
+      await savedService.stop();
+
+      const unsavedAbleton = defaultFakeState();
+      if (
+        unsavedAbleton.status.state !== "connected" ||
+        !("liveSetId" in unsavedAbleton.status)
+      ) {
+        throw new Error("Expected connected fake state");
+      }
+      unsavedAbleton.status = {
+        ...unsavedAbleton.status,
+        liveSetId: "unsaved-set",
+        liveSetName: "Untitled",
+        saved: false,
+      };
+      unsavedAbleton.liveIdentity = {
+        liveSetId: "unsaved-set",
+        liveSetName: "Untitled",
+        saved: false,
+        diagnostics: [],
+      };
+      const unsavedFake = createFakeApplication({ ableton: unsavedAbleton });
+      const saveHistory = vi.fn();
+      const service = new HeadlessDesktopService({
+        application: unsavedFake.application,
+        approvals: new ApprovalCoordinator(),
+        preferencesStore,
+        sessionStore,
+        liveSetSessionStore,
+        agentCatalog: {
+          current: catalog,
+          refresh: () => Promise.resolve(catalog),
+        },
+        saveCaptureDelayMs: 0,
+        snapshotHistory: { save: saveHistory },
+      });
+      const events: DesktopAppEvent[] = [];
+      service.subscribe((event) => events.push(event));
+      await service.start();
+      const current = (await service.getSessions())[0]!;
+      expect(current.id).not.toBe(existingCanonical.id);
+
+      const saveContext = firstSaveContext("saved-set", "Saved Set");
+      unsavedFake.ableton.state.liveIdentity = {
+        liveSetId: "saved-set",
+        liveSetName: "Saved Set",
+        saved: true,
+        diagnostics: [],
+      };
+      unsavedFake.ableton.state.status = {
+        state: "connected",
+        liveVersion: unsavedAbleton.status.liveVersion,
+        remoteScriptVersion: unsavedAbleton.status.remoteScriptVersion,
+        liveSetId: "saved-set",
+        liveSetName: "Saved Set",
+        saved: true,
+      };
+      await service.settleObservedSave(saveContext);
+      await service.captureObservedSave(saveContext);
+      expect(saveHistory).not.toHaveBeenCalled();
+      const requested = events.find(
+        (event) =>
+          event.type === "live_set.transition_requested" &&
+          event.transition.kind === "first-save-conflict",
+      );
+      expect(requested).toMatchObject({
+        type: "live_set.transition_requested",
+        transition: {
+          currentSessionId: current.id,
+          associatedSession: { id: existingCanonical.id },
+          decisions: ["make-current-canonical", "keep-existing-canonical"],
+        },
+      });
+      if (requested?.type !== "live_set.transition_requested") {
+        throw new Error("Expected a first-save canonical conflict");
+      }
+
+      const active = await service.resolveLiveSetTransition(
+        requested.transition.token,
+        decision,
+      );
+      const sessions = (await service.getSessions()).filter(
+        ({ liveSetId }) => liveSetId === "saved-set",
+      );
+      const associations = await liveSetSessionStore.load(sessions);
+      const canonicalId = currentCanonical ? current.id : existingCanonical.id;
+      expect(active.id).toBe(current.id);
+      expect(associations).toContainEqual(
+        expect.objectContaining({
+          liveSetId: "saved-set",
+          sessionId: canonicalId,
+        }),
+      );
+      expect(sessions).toHaveLength(2);
+      expect(sessions.find(({ id }) => id === canonicalId)?.title).toBe(
+        "App session",
+      );
+      expect(sessions.find(({ id }) => id !== canonicalId)?.title).toBe(
+        "App session_2",
+      );
+      expect(active.activeAgents[0]?.id).toBe(current.activeAgents[0]?.id);
+      expect(active.activeAgents[0]?.sdkSessionId).toBe(
+        current.activeAgents[0]?.sdkSessionId,
+      );
+      expect(
+        events.filter(
+          (event) =>
+            event.type === "diagnostic" &&
+            event.message.includes("save history"),
+        ),
+      ).toEqual([]);
+      expect(saveHistory).toHaveBeenCalledOnce();
+      expect(saveHistory.mock.calls[0]?.[0]).toMatchObject({
+        trigger: "save",
+        productionSessionId: current.id,
+        snapshot: { liveSetId: "saved-set" },
+      });
+      await service.stop();
+    },
+  );
 
   it("persists an unsaved Live Set session when Session Scope is requested", async () => {
     const directory = await temporaryDirectory();

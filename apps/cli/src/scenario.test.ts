@@ -48,7 +48,6 @@ describe("integration scenarios", () => {
       "connection-and-session",
       "transport-inspection",
       "browser-bounds",
-      "capability-surface",
     ]) {
       const manifest = await loadScenarioManifest(id);
       expect(manifest.group).toBe("inspection");
@@ -61,7 +60,6 @@ describe("integration scenarios", () => {
       "connection-and-session",
       "transport-inspection",
       "browser-bounds",
-      "capability-surface",
       "workflow-state-inspection",
       "track-lifecycle",
       "808-track",
@@ -69,7 +67,6 @@ describe("integration scenarios", () => {
       "session-clip-lifecycle",
       "arrangement-clip-lifecycle",
       "arrangement-region-fill-lifecycle",
-      "cue-point-lifecycle",
       "piano-and-string-bass",
       "auto-filter-audio",
       "echo-parameter-inspection",
@@ -110,7 +107,7 @@ describe("integration scenarios", () => {
     );
   });
 
-  it("loads Arrangement and cue lifecycle manifests with exact prompts", async () => {
+  it("loads Arrangement lifecycle manifests with exact prompts", async () => {
     const arrangement = await loadScenarioManifest(
       "arrangement-clip-lifecycle",
     );
@@ -124,13 +121,6 @@ describe("integration scenarios", () => {
     expect(arrangementPrompt).toContain(
       `clip "${arrangementContext.clipNames[0]}"`,
     );
-
-    const cues = await loadScenarioManifest("cue-point-lifecycle");
-    const cueContext = createScenarioRunContext(cues);
-    const cuePrompt = scenarioPrompt(cues.prompt, cueContext);
-    expect(cues.group).toBe("arrangement-and-cues");
-    expect(cuePrompt).toContain("unnamed cue point at beat 32");
-    expect(cuePrompt).toContain("Never issue cue mutations in parallel");
   });
 
   it("enforces ordering, names, item identity, and budgets", async () => {

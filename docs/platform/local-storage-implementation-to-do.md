@@ -35,6 +35,11 @@ Companion specification: [Local Storage Layout](local-storage.md)
 - [x] Keep v1 automatic age/size retention scoped to App events and
   configuration snapshots; retain agent and Live Set history until explicit
   clear.
+- [x] Serialize journal batch publication, expose queue/drain health, and bound
+  public-history read barriers so stalled persistence fails visibly instead of
+  hanging queries.
+- [x] Keep App-session titles as mutable display metadata while canonical
+  ownership and all history joins remain keyed by immutable App-session IDs.
 - [x] Add root-owned profile registry and editable System Scope artifacts.
 - [x] Add Profile and Session Scope agent/skill directories and tombstones.
 - [ ] Preserve bundled agents and skills as immutable fallback resources.

@@ -321,6 +321,10 @@ The runtime consumes typed `live_set.save_observed` bridge events through a
 per-Live-Set dispatcher. Duplicate metadata tuples are ignored, observations
 for one Set are serialized, and registered actions execute in deterministic
 order. A Set switch or runtime shutdown aborts obsolete work.
+Desktop registers identity settlement before snapshot capture so first-save
+ownership cannot depend on optional history persistence. Full
+`session.inspect` uses the long bridge timeout class because Live may keep its
+main thread busy while completing a save.
 
 Actions are injected through `LiveSetSaveAction`, allowing snapshot capture or
 persistence to remain a separate package. Each action receives the bounded

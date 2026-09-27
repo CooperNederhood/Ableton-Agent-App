@@ -101,6 +101,7 @@ describe("AbletonBridgeService", () => {
         saved: true,
         fileModifiedTimeNs: "1700000000000000000",
         fileSizeBytes: 4096,
+        firstSave: false,
       },
     });
     expect(saves[0]?.payload).not.toHaveProperty("filePath");

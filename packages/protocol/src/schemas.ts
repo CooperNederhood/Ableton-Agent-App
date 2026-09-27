@@ -459,6 +459,7 @@ export const liveSetSaveObservedPayloadSchema = z
       .max(32)
       .regex(/^(0|[1-9][0-9]*)$/u),
     fileSizeBytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    firstSave: z.boolean().default(false),
   })
   .strict();
 

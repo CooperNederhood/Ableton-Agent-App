@@ -215,11 +215,13 @@ metadata are ignored.
 
 The nanosecond modification time crosses the protocol as a decimal string to
 avoid JavaScript precision loss. File size is limited to JavaScript's maximum
-safe integer. Each observation also carries the complete bounded identity
-returned by `build_live_identity`, allowing clients to replace Live Set and
-Live Project identity as one transition without exposing the path. The first
-save of an unsaved Set and Save As are observed after stabilization. Replacing
-the Song object establishes a fresh baseline so switching Sets cannot be
+safe integer. The payload also marks `firstSave` only when the same Song object
+changes from an unsaved identity to its first saved identity; Save As and
+ordinary saves report `false`. Each observation also carries the complete
+bounded identity returned by `build_live_identity`, allowing clients to replace
+Live Set and Live Project identity as one transition without exposing the path.
+The first save of an unsaved Set and Save As are observed after stabilization.
+Replacing the Song object establishes a fresh baseline so switching Sets cannot
 mistaken for a save. Script shutdown cancels future sampling.
 
 ## Events

@@ -107,7 +107,10 @@ The lifecycle subscription `live_set.save_observed` reports a settled
 filesystem-metadata change for the current saved Set. Its payload contains the
 complete bounded `live_set.get_identity` result plus `observedAt`,
 decimal-string `fileModifiedTimeNs`, and a non-negative JavaScript-safe
-`fileSizeBytes`; it never contains the path or file contents. Carrying the
+`fileSizeBytes`. The `firstSave` flag is true only when the same in-memory Song
+changes from an unsaved identity to its first path-derived saved identity; it
+defaults to false when reading events from an older compatible script. The
+event never contains the path or file contents. Carrying the
 complete identity lets the bridge replace Set and optional Live Project
 identity atomically when first save or Save As changes the path-derived ID. A
 connection starts from a baseline, so reconnecting does not replay a save. Save

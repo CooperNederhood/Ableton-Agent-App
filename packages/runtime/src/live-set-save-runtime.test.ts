@@ -46,6 +46,7 @@ function saveEvent(
       observedAt: "2026-09-20T20:00:00.000Z",
       fileModifiedTimeNs: modified,
       fileSizeBytes: 4096,
+      firstSave: false,
     },
     receivedAt: "2026-09-20T20:00:00.100Z",
     projectRevision: 7,

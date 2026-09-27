@@ -340,7 +340,8 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991
-            }
+            },
+            "firstSave": { "default": false, "type": "boolean" }
           },
           "required": [
             "liveSetId",
@@ -349,7 +350,8 @@
             "diagnostics",
             "observedAt",
             "fileModifiedTimeNs",
-            "fileSizeBytes"
+            "fileSizeBytes",
+            "firstSave"
           ],
           "additionalProperties": false
         },
@@ -583,7 +585,7 @@
     },
     "session.inspect": {
       "mutates": false,
-      "timeoutClass": "normal",
+      "timeoutClass": "long",
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",

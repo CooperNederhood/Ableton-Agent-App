@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "id": "track-lifecycle",
   "group": "tracks",
-  "prompt": "Create one temporary MIDI track, rename it, set its mixer state, verify it, and delete it so the Set returns to its original track state.",
+  "prompt": "Perform exactly this track lifecycle sequentially; never issue these calls in parallel. First create one MIDI track with the required Initial artifact name and wait for its result. Only then copy the returned index, reference, and exact name into the rename call and wait for its result. Only then copy the renamed track's index, reference, and exact Final name into one set-track-mixer call with isMuted true, isSoloed true, isArmed true, volume 0.42, and pan -0.25, and wait for its result. Only then copy that same index, reference, exact Final name, and kind midi into one delete call. Do not issue speculative calls, omit identity guards, touch pre-existing tracks, or leave the created track behind.",
   "artifactPrefix": "AA_SMOKE_TRACK_",
   "allowedTools": [
     "ableton_session",

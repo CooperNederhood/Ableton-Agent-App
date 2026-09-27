@@ -13,7 +13,9 @@ import {
 import {
   classifyScenario,
   collectToolNames,
+  shouldRetryAgentScenario,
 } from "./lib/scenario-evidence.mjs";
+import { createIsolatedScenarioSession } from "./lib/scenario-session.mjs";
 
 function option(name) {
   const index = process.argv.indexOf(`--${name}`);
@@ -76,8 +78,6 @@ try {
   const environment = { ...process.env, ABLETON_AGENT_TOKEN: token };
   const suite = await loadScenarioSuite();
   const selectedGroups = selectScenarioGroups(suite, evidence.selection);
-  let sessionId;
-
   for (const selectedGroup of selectedGroups) {
     const group = selectedGroup.id;
     const scenarios = await Promise.all(
@@ -107,8 +107,17 @@ try {
         "traces",
         `${manifest.id}.json`,
       );
-      if (manifest.execution === "live-event-runtime") {
-        const result = await runLiveEventRuntimeScenario(manifest, environment);
+      if (
+        manifest.execution === "live-event-runtime" ||
+        manifest.execution === "capability-surface" ||
+        manifest.execution === "cue-point-runtime"
+      ) {
+        const result =
+          manifest.execution === "live-event-runtime"
+            ? await runLiveEventRuntimeScenario(manifest, environment)
+            : manifest.execution === "capability-surface"
+              ? await runCapabilitySurfaceScenario(manifest, environment)
+              : await runCuePointRuntimeScenario(manifest, environment);
         await mkdir(dirname(tracePath), { recursive: true });
         await writeFile(
           tracePath,
@@ -137,41 +146,64 @@ try {
         }
         continue;
       }
-      if (sessionId === undefined) {
-        const session = await runCli(
-          ["session-new", "--json", "--quiet"],
-          environment,
+      const attempts = [];
+      let sessionId;
+      let result;
+      let classification;
+      let finalTracePath = tracePath;
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        sessionId = await createIsolatedScenarioSession((args) =>
+          runCli(args, environment),
         );
-        if (
-          session.status !== 0 ||
-          typeof session.json?.sessionId !== "string"
-        ) {
-          throw new Error(
-            `Unable to create Copilot session: ${session.stderr}`,
-          );
-        }
-        sessionId = session.json.sessionId;
-        evidence.sessionId = sessionId;
-      }
-      const result = await runCli(
-        [
-          "run",
-          manifest.prompt,
-          "--scenario",
-          manifest.id,
-          "--session",
+        finalTracePath =
+          attempt === 1
+            ? tracePath
+            : resolve(
+                dirname(output),
+                "traces",
+                `${manifest.id}.attempt-2.json`,
+              );
+        result = await runCli(
+          [
+            "run",
+            manifest.prompt,
+            "--scenario",
+            manifest.id,
+            "--session",
+            sessionId,
+            "--trace",
+            finalTracePath,
+            "--timeout-ms",
+            String(manifest.timeoutMs),
+            "--json",
+            "--quiet",
+          ],
+          environment,
+          manifest.timeoutMs + 30_000,
+        );
+        classification = classifyScenario(manifest, result);
+        attempts.push({
+          attempt,
           sessionId,
-          "--trace",
-          tracePath,
-          "--timeout-ms",
-          String(manifest.timeoutMs),
-          "--json",
-          "--quiet",
-        ],
-        environment,
-        manifest.timeoutMs + 30_000,
-      );
-      const classification = classifyScenario(manifest, result);
+          status: result.status,
+          classification,
+          tracePath: finalTracePath,
+        });
+        if (
+          classification !== "fail" ||
+          attempt === 2 ||
+          !shouldRetryAgentScenario(result)
+        ) {
+          break;
+        }
+      }
+      if (
+        sessionId === undefined ||
+        result === undefined ||
+        classification === undefined
+      ) {
+        throw new Error(`Scenario '${manifest.id}' did not execute`);
+      }
       const toolNames = collectToolNames(result);
       for (const toolName of toolNames) coveredTools.add(toolName);
       evidence.scenarios.push({
@@ -180,8 +212,10 @@ try {
         status: result.status,
         classification,
         passed: classification !== "fail",
+        sessionId,
+        attempts,
         toolNames,
-        tracePath,
+        tracePath: finalTracePath,
         result: result.json,
         stderr: bounded(result.stderr),
       });
@@ -257,12 +291,16 @@ async function loadManifest(id) {
   }
   if (
     manifest.execution !== undefined &&
-    manifest.execution !== "live-event-runtime"
+    manifest.execution !== "live-event-runtime" &&
+    manifest.execution !== "capability-surface" &&
+    manifest.execution !== "cue-point-runtime"
   ) {
     throw new Error(`Invalid scenario execution mode: ${manifest.execution}`);
   }
   if (
-    manifest.execution === "live-event-runtime" &&
+    (manifest.execution === "live-event-runtime" ||
+      manifest.execution === "capability-surface" ||
+      manifest.execution === "cue-point-runtime") &&
     (!Number.isInteger(manifest.timeoutMs) ||
       manifest.timeoutMs < 10_000 ||
       manifest.timeoutMs > 60_000)
@@ -270,6 +308,129 @@ async function loadManifest(id) {
     throw new Error(`Invalid direct scenario timeout: ${manifest.timeoutMs}`);
   }
   return manifest;
+}
+
+async function runCuePointRuntimeScenario(manifest, environment) {
+  const { createAgentRuntime, resolveAbletonSettingsFromEnvironment } =
+    await import("../packages/runtime/dist/index.js");
+  const runtime = createAgentRuntime({
+    ableton: resolveAbletonSettingsFromEnvironment(environment),
+  });
+  const assertions = [];
+  let stopError;
+  try {
+    await runtime.application.start({ startAgent: false });
+    const baseline = await runtime.application.inspectArrangementTransport({
+      offset: 0,
+      limit: 100,
+    });
+    const created = await runtime.application.createCuePoint({ time: 32 });
+    const inspected = await runtime.application.inspectArrangementTransport({
+      offset: 0,
+      limit: 100,
+    });
+    const observed = inspected.cuePoints.find(
+      ({ reference }) => reference === created.cuePoint.reference,
+    );
+    await runtime.application.deleteCuePoint({
+      expectedReference: created.cuePoint.reference,
+      expectedName: created.cuePoint.name,
+      expectedTime: created.cuePoint.time,
+    });
+    const after = await runtime.application.inspectArrangementTransport({
+      offset: 0,
+      limit: 100,
+    });
+    assertions.push({
+      assertion: "cue-point-lifecycle",
+      passed:
+        created.verified === true &&
+        observed?.time === 32 &&
+        observed.name === created.cuePoint.name &&
+        JSON.stringify(after) === JSON.stringify(baseline),
+      evidence: { baseline, created, observed, after },
+    });
+  } catch (error) {
+    assertions.push({
+      assertion: "scenario-execution",
+      passed: false,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    try {
+      await runtime.application.stop();
+    } catch (error) {
+      stopError = error instanceof Error ? error.message : String(error);
+    }
+  }
+  if (stopError !== undefined) {
+    assertions.push({
+      assertion: "runtime-cleanup",
+      passed: false,
+      message: stopError,
+    });
+  }
+  return {
+    ok: assertions.every(({ passed }) => passed),
+    scenarioId: manifest.id,
+    assertions,
+  };
+}
+
+async function runCapabilitySurfaceScenario(manifest, environment) {
+  const { createAgentRuntime, resolveAbletonSettingsFromEnvironment } =
+    await import("../packages/runtime/dist/index.js");
+  const runtime = createAgentRuntime({
+    ableton: resolveAbletonSettingsFromEnvironment(environment),
+  });
+  const assertions = [];
+  let stopError;
+  try {
+    await runtime.application.start({ startAgent: false });
+    const status = await runtime.application.getStatus();
+    const capabilities = await runtime.ableton.getCapabilities();
+    const requirement = manifest.assertions.find(
+      ({ type }) => type === "connection-capabilities",
+    );
+    const requiredCapabilities = requirement?.requiredCapabilities ?? [];
+    const missing = requiredCapabilities.filter(
+      (capability) => capabilities.capabilities[capability] !== true,
+    );
+    assertions.push({
+      assertion: "connection-capabilities",
+      passed: status.state === "connected" && missing.length === 0,
+      evidence: {
+        status,
+        selectedProtocolVersion: capabilities.selectedProtocolVersion,
+        requiredCapabilities,
+        missing,
+      },
+    });
+  } catch (error) {
+    assertions.push({
+      assertion: "scenario-execution",
+      passed: false,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    try {
+      await runtime.application.stop();
+    } catch (error) {
+      stopError = error instanceof Error ? error.message : String(error);
+    }
+  }
+  if (stopError !== undefined) {
+    assertions.push({
+      assertion: "runtime-cleanup",
+      passed: false,
+      message: stopError,
+    });
+  }
+  return {
+    ok: assertions.every(({ passed }) => passed),
+    scenarioId: manifest.id,
+    assertions,
+  };
 }
 
 async function runLiveEventRuntimeScenario(manifest, environment) {
@@ -316,7 +477,7 @@ async function runLiveEventRuntimeScenario(manifest, environment) {
     const definition = {
       id: eventId,
       name: "Runner triggered clip",
-      projectId: status.projectId,
+      projectId: status.liveSetId,
       kind: "track.triggered_clip_changed",
       classification: "discrete",
       enabled: true,

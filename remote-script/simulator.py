@@ -5428,6 +5428,7 @@ def serve(
                                             "1700000000000000000"
                                         ),
                                         "fileSizeBytes": 4096,
+                                        "firstSave": False,
                                     },
                                     "projectRevision": 0,
                                 }

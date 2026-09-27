@@ -141,42 +141,65 @@ function createRuntimeObserver(
   }
   const toolNames = new Map<string, string>();
   const turnOrigins = new Map<string, string>();
+  const projectionFailures = new Map<
+    "agent" | "set",
+    { message: string; suppressed: number }
+  >();
+  const reportProjectionFailure = (
+    domain: "agent" | "set",
+    record: AgentHistoryRecord | SetHistoryRecord,
+    error: unknown,
+  ): void => {
+    const message = error instanceof Error ? error.message : String(error);
+    const previous = projectionFailures.get(domain);
+    if (previous?.message === message) {
+      previous.suppressed += 1;
+      return;
+    }
+    projectionFailures.set(domain, { message, suppressed: 0 });
+    logger.warn(
+      domain === "agent"
+        ? "Agent history projection failed"
+        : "Set trajectory projection failed",
+      { kind: record.kind, id: record.id, error: message },
+    );
+  };
+  const reportProjectionRecovery = (domain: "agent" | "set"): void => {
+    const previous = projectionFailures.get(domain);
+    if (previous === undefined) return;
+    projectionFailures.delete(domain);
+    logger.info(
+      domain === "agent"
+        ? "Agent history projection recovered"
+        : "Set trajectory projection recovered",
+      {
+        previousError: previous.message,
+        suppressedFailures: previous.suppressed,
+      },
+    );
+  };
   const persistAgentHistory = (record: AgentHistoryRecord): void => {
     if (agentHistory === undefined) return;
     try {
       const write = agentHistory.appendAgentHistory(record);
-      void write.catch((error) => {
-        logger.warn("Agent history projection failed", {
-          kind: record.kind,
-          id: record.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
+      void write.then(
+        () => reportProjectionRecovery("agent"),
+        (error) => reportProjectionFailure("agent", record, error),
+      );
     } catch (error) {
-      logger.warn("Agent history projection failed", {
-        kind: record.kind,
-        id: record.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      reportProjectionFailure("agent", record, error);
     }
   };
   const persistSetHistory = (record: SetHistoryRecord): void => {
     if (setHistory === undefined) return;
     try {
       const write = setHistory.appendSetHistory(record);
-      void write.catch((error) => {
-        logger.warn("Set trajectory projection failed", {
-          kind: record.kind,
-          id: record.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
+      void write.then(
+        () => reportProjectionRecovery("set"),
+        (error) => reportProjectionFailure("set", record, error),
+      );
     } catch (error) {
-      logger.warn("Set trajectory projection failed", {
-        kind: record.kind,
-        id: record.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      reportProjectionFailure("set", record, error);
     }
   };
   return {

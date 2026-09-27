@@ -58,6 +58,7 @@ import {
   desktopAgentCatalogSchema,
   desktopAgentConversationSettingsSchema,
   desktopAgentModelsSchema,
+  desktopLiveSetIdentitySchema,
   connectionStatusSchema,
   MAX_AGENT_TRIGGER_HISTORY,
   preferencesSchema,
@@ -125,6 +126,34 @@ const forkedHistoryCharacterLimit = 40_000;
 const storedSessionLimit = 100;
 const defaultLiveSetIdentityPollIntervalMs = 10_000;
 const maximumLiveSetIdentityPollBackoffMs = 60_000;
+
+function normalizeLiveSetSessionTitles(
+  sessions: readonly DesktopSession[],
+  liveSetId: string,
+  canonicalSessionId: string,
+  updatedAt: string,
+): DesktopSession[] {
+  const ordered = sessions
+    .filter((session) => session.liveSetId === liveSetId)
+    .sort(
+      (left, right) =>
+        left.createdAt.localeCompare(right.createdAt) ||
+        left.id.localeCompare(right.id),
+    );
+  const nonCanonical = ordered.filter(({ id }) => id !== canonicalSessionId);
+  const titles = new Map<string, string>([
+    [canonicalSessionId, "App session"],
+    ...nonCanonical.map(
+      (session, index) => [session.id, `App session_${index + 2}`] as const,
+    ),
+  ]);
+  return sessions.map((session) => {
+    const title = titles.get(session.id);
+    return title === undefined || title === session.title
+      ? session
+      : { ...session, title, updatedAt };
+  });
+}
 
 function cancellableDelay(
   durationMs: number,
@@ -288,6 +317,12 @@ export class HeadlessDesktopService implements DesktopService {
   #liveSetAssociations: LiveSetSessionAssociation[] = [];
   #liveSetIdentity: DesktopLiveSetIdentity | undefined;
   #pendingLiveSetTransition: PendingLiveSetTransition | undefined;
+  #pendingFirstSaveCapture:
+    | Pick<
+        LiveSetSaveActionContext,
+        "observation" | "receivedAt" | "projectRevision"
+      >
+    | undefined;
   #liveSetIdentityTimer: NodeJS.Timeout | undefined;
   #liveSetIdentityRefresh: Promise<void> | undefined;
   #liveSetIdentityRead: Promise<DesktopLiveSetIdentity | undefined> | undefined;
@@ -726,6 +761,10 @@ export class HeadlessDesktopService implements DesktopService {
 
   public async refreshAgentCatalog(): Promise<DesktopAgentCatalog> {
     this.#assertAccepting();
+    return this.#refreshAgentCatalogUnchecked();
+  }
+
+  async #refreshAgentCatalogUnchecked(): Promise<DesktopAgentCatalog> {
     if (this.options.agentCatalog === undefined) {
       throw new Error("Agent definitions are not configured");
     }
@@ -1531,10 +1570,26 @@ export class HeadlessDesktopService implements DesktopService {
       }
       this.#transitionCommitting = true;
       const previousIdentity = this.#liveSetIdentity;
+      this.#pendingLiveSetTransition = undefined;
       this.#liveSetIdentity = transition.liveSet;
       try {
         let session: DesktopSession;
-        if (decision === "resume-associated") {
+        if (
+          decision === "make-current-canonical" ||
+          decision === "keep-existing-canonical"
+        ) {
+          if (transition.associatedSession === undefined) {
+            throw new Error("Associated Live Set session is unavailable");
+          }
+          const canonicalSessionId =
+            decision === "make-current-canonical"
+              ? this.#requireActiveSession().id
+              : transition.associatedSession.id;
+          session = await this.#promoteCurrentSession(
+            transition.liveSet,
+            canonicalSessionId,
+          );
+        } else if (decision === "resume-associated") {
           if (transition.associatedSession === undefined) {
             throw new Error("Associated Live Set session is unavailable");
           }
@@ -1551,14 +1606,37 @@ export class HeadlessDesktopService implements DesktopService {
           );
           session = this.#requireActiveSession();
         }
-        this.#pendingLiveSetTransition = undefined;
-        await this.#associateActiveSession(transition.liveSet);
+        if (
+          decision !== "make-current-canonical" &&
+          decision !== "keep-existing-canonical"
+        ) {
+          await this.#associateActiveSession(transition.liveSet);
+        }
         this.#bindActiveOutputAssignments();
         this.emit({ type: "live_set.transition_cleared", token });
         this.emit({ type: "session.context_restored", session });
+        if (
+          (decision === "make-current-canonical" ||
+            decision === "keep-existing-canonical") &&
+          this.#pendingFirstSaveCapture !== undefined
+        ) {
+          const deferred = this.#pendingFirstSaveCapture;
+          this.#pendingFirstSaveCapture = undefined;
+          try {
+            await this.captureObservedSave({
+              ...deferred,
+              signal: new AbortController().signal,
+              reportProgress: () => undefined,
+            });
+          } catch {
+            // Snapshot/history failure is already surfaced and does not roll
+            // back the successful ownership transition.
+          }
+        }
         return session;
       } catch (error) {
         this.#liveSetIdentity = previousIdentity;
+        this.#pendingLiveSetTransition = transition;
         throw error;
       } finally {
         this.#transitionCommitting = false;
@@ -1638,11 +1716,16 @@ export class HeadlessDesktopService implements DesktopService {
         target,
         true,
       );
-      this.#sessions = [target, ...this.#sessions].slice(0, storedSessionLimit);
+      this.#sessions = normalizeLiveSetSessionTitles(
+        [target, ...this.#sessions].slice(0, storedSessionLimit),
+        identity.liveSetId,
+        target.id,
+        createdAt,
+      );
       this.#activeAppSessionId = target.id;
       await this.#persistSessions();
       this.#publishAutoApprovedAgentIds();
-      return target;
+      return this.#requireActiveSession();
     } catch (error) {
       await this.#deactivateAgents(created);
       throw error;
@@ -1741,6 +1824,194 @@ export class HeadlessDesktopService implements DesktopService {
       });
       return;
     }
+  }
+
+  public async settleObservedSave(
+    context: LiveSetSaveActionContext,
+  ): Promise<void> {
+    if (!context.observation.firstSave) return;
+    const identity = desktopLiveSetIdentitySchema.parse({
+      liveSetId: context.observation.liveSetId,
+      liveSetName: context.observation.liveSetName,
+      saved: context.observation.saved,
+      ...(context.observation.liveProjectId === undefined
+        ? {}
+        : { liveProjectId: context.observation.liveProjectId }),
+      ...(context.observation.liveProjectName === undefined
+        ? {}
+        : { liveProjectName: context.observation.liveProjectName }),
+    });
+    context.reportProgress({ phase: "identity_settlement_started" });
+    await this.#queueSessionAction(async () => {
+      const current = this.#requireActiveSession();
+      if (
+        current.liveSetId === identity.liveSetId &&
+        this.#liveSetIdentity?.liveSetId === identity.liveSetId
+      ) {
+        return;
+      }
+      const previous = this.#liveSetIdentity;
+      if (
+        previous?.saved !== false ||
+        current.liveSetId !== previous.liveSetId
+      ) {
+        throw new Error(
+          "The first-save observation does not match the active unsaved App session",
+        );
+      }
+      const previousTransition = this.#pendingLiveSetTransition;
+      const associated = this.#associatedSession(identity.liveSetId);
+      if (associated !== undefined && associated.id !== current.id) {
+        const transition: PendingLiveSetTransition = {
+          token: randomUUID(),
+          kind: "first-save-conflict",
+          liveSet: identity,
+          currentSessionId: current.id,
+          associatedSession: {
+            id: associated.id,
+            title: associated.title,
+            updatedAt: associated.updatedAt,
+          },
+          decisions: ["make-current-canonical", "keep-existing-canonical"],
+        };
+        this.#pendingLiveSetTransition = transition;
+        this.#pendingFirstSaveCapture = {
+          observation: context.observation,
+          receivedAt: context.receivedAt,
+          ...(context.projectRevision === undefined
+            ? {}
+            : { projectRevision: context.projectRevision }),
+        };
+        this.#approvals.denyAll();
+        this.#signals.setActiveAgentInstances([]);
+        if (previousTransition !== undefined) {
+          this.emit({
+            type: "live_set.transition_cleared",
+            token: previousTransition.token,
+          });
+        }
+        this.emit({ type: "live_set.transition_requested", transition });
+        context.reportProgress({ phase: "canonical_conflict_requested" });
+        return;
+      }
+      this.#pendingLiveSetTransition = undefined;
+      try {
+        await this.#promoteCurrentSession(identity, current.id);
+      } catch (error) {
+        this.#pendingLiveSetTransition = previousTransition;
+        throw error;
+      }
+      if (previousTransition !== undefined) {
+        this.emit({
+          type: "live_set.transition_cleared",
+          token: previousTransition.token,
+        });
+      }
+      this.emit({
+        type: "session.context_restored",
+        session: this.#requireActiveSession(),
+      });
+      context.reportProgress({ phase: "identity_settled" });
+    });
+  }
+
+  async #promoteCurrentSession(
+    identity: DesktopLiveSetIdentity,
+    canonicalSessionId: string,
+  ): Promise<DesktopSession> {
+    const current = this.#requireActiveSession();
+    const previousSessions = this.#sessions;
+    const previousAssociations = this.#liveSetAssociations;
+    const wasEphemeral = this.#ephemeralSessionIds.has(current.id);
+    const updatedAt = new Date().toISOString();
+    const rehomed = this.#sessions.map((session) =>
+      session.id === current.id
+        ? {
+            ...session,
+            liveSetId: identity.liveSetId,
+            liveSetName: identity.liveSetName,
+            ...(identity.liveProjectId === undefined
+              ? { liveProjectId: undefined }
+              : { liveProjectId: identity.liveProjectId }),
+            ...(identity.liveProjectName === undefined
+              ? { liveProjectName: undefined }
+              : { liveProjectName: identity.liveProjectName }),
+            updatedAt,
+          }
+        : session,
+    );
+    const normalized = normalizeLiveSetSessionTitles(
+      rehomed,
+      identity.liveSetId,
+      canonicalSessionId,
+      updatedAt,
+    );
+    const nextAssociations: LiveSetSessionAssociation[] = [
+      {
+        liveSetId: identity.liveSetId,
+        liveSetName: identity.liveSetName,
+        sessionId: canonicalSessionId,
+        updatedAt,
+      },
+      ...previousAssociations.filter(
+        ({ liveSetId }) => liveSetId !== identity.liveSetId,
+      ),
+    ];
+    this.#sessions = [
+      normalized.find(({ id }) => id === current.id)!,
+      ...normalized.filter(({ id }) => id !== current.id),
+    ];
+    this.#liveSetAssociations = nextAssociations;
+    this.#ephemeralSessionIds.delete(current.id);
+    let sessionsPersisted = false;
+    try {
+      await this.options.sessionStore.save(
+        this.#sessions.filter(({ id }) => !this.#ephemeralSessionIds.has(id)),
+      );
+      sessionsPersisted = true;
+      await this.options.liveSetSessionStore?.save(nextAssociations);
+    } catch (error) {
+      this.#sessions = previousSessions;
+      this.#liveSetAssociations = previousAssociations;
+      if (wasEphemeral) this.#ephemeralSessionIds.add(current.id);
+      const rollbackErrors: unknown[] = [];
+      if (sessionsPersisted) {
+        try {
+          await this.options.sessionStore.save(
+            previousSessions.filter(
+              ({ id }) => !(wasEphemeral && id === current.id),
+            ),
+          );
+        } catch (rollbackError) {
+          rollbackErrors.push(rollbackError);
+        }
+      }
+      try {
+        await this.options.liveSetSessionStore?.save(previousAssociations);
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+      if (rollbackErrors.length > 0) {
+        throw new AggregateError(
+          [error, ...rollbackErrors],
+          "Live Set promotion failed and rollback was incomplete",
+        );
+      }
+      throw error;
+    }
+    this.#liveSetIdentity = identity;
+    try {
+      await this.#refreshAgentCatalogUnchecked();
+    } catch (error) {
+      this.#report("Agent catalog could not be refreshed after save", error);
+    }
+    const promoted = this.#requireActiveSession();
+    this.emit({
+      type: "sessions.changed",
+      sessions: [...this.#sessions],
+      activeSessionId: promoted.id,
+    });
+    return promoted;
   }
 
   async #observeLiveIdentity(identity: DesktopLiveSetIdentity): Promise<void> {
@@ -1956,23 +2227,38 @@ export class HeadlessDesktopService implements DesktopService {
   public async captureObservedSave(
     context: LiveSetSaveActionContext,
   ): Promise<void> {
-    await cancellableDelay(
-      this.options.saveCaptureDelayMs ?? 2_000,
-      context.signal,
-    );
-    context.reportProgress({ phase: "capture_started" });
-    const snapshot = await this.#beginSnapshotRefresh(true, "save");
-    if (snapshot.liveSetId !== context.observation.liveSetId) {
-      throw new Error(
-        "The active Live Set changed before the observed-save snapshot completed",
+    try {
+      if (
+        this.#pendingLiveSetTransition?.kind === "first-save-conflict" &&
+        this.#pendingLiveSetTransition.liveSet.liveSetId ===
+          context.observation.liveSetId
+      ) {
+        context.reportProgress({
+          phase: "deferred_for_canonical_decision",
+        });
+        return;
+      }
+      await cancellableDelay(
+        this.options.saveCaptureDelayMs ?? 2_000,
+        context.signal,
       );
+      context.reportProgress({ phase: "capture_started" });
+      const snapshot = await this.#beginSnapshotRefresh(true, "save");
+      if (snapshot.liveSetId !== context.observation.liveSetId) {
+        throw new Error(
+          "The active Live Set changed before the observed-save snapshot completed",
+        );
+      }
+      await this.#persistSnapshot(snapshot, "save", {
+        observedAt: context.receivedAt,
+        fileModifiedTimeNs: context.observation.fileModifiedTimeNs,
+        fileSizeBytes: context.observation.fileSizeBytes,
+      });
+      context.reportProgress({ phase: "persisted" });
+    } catch (error) {
+      this.#report("Live Set save history could not be captured", error);
+      throw error;
     }
-    await this.#persistSnapshot(snapshot, "save", {
-      observedAt: context.receivedAt,
-      fileModifiedTimeNs: context.observation.fileModifiedTimeNs,
-      fileSizeBytes: context.observation.fileSizeBytes,
-    });
-    context.reportProgress({ phase: "persisted" });
   }
 
   #beginSnapshotRefresh(
@@ -2491,7 +2777,7 @@ export class HeadlessDesktopService implements DesktopService {
             ? `Detailed event history is degraded: ${journalFailure}`
             : journalHealth === undefined
               ? "Detailed event history is unavailable in this host"
-              : `${journalHealth.persistedEvents} events, ${journalHealth.persistedConfigurationSnapshots} agent snapshots, ${journalHealth.databaseBytes} bytes (${journalHealth.status})`,
+              : `${journalHealth.persistedEvents} events, ${journalHealth.persistedConfigurationSnapshots} agent snapshots, ${journalHealth.databaseBytes} bytes, ${journalHealth.pendingWrites} pending, ${journalHealth.rejectedWrites} rejected (${journalHealth.status})`,
       },
       ...(this.options.startupNotices ?? []),
     ];
@@ -3422,6 +3708,13 @@ export class HeadlessDesktopService implements DesktopService {
     this.#activeAppSessionId = productionSessionId;
     if (identity?.saved !== true) {
       this.#ephemeralSessionIds.add(productionSessionId);
+    } else {
+      this.#sessions = normalizeLiveSetSessionTitles(
+        this.#sessions,
+        identity.liveSetId,
+        productionSessionId,
+        createdAt,
+      );
     }
     await this.#persistSessions();
     await this.#associateActiveSession(identity);
@@ -3487,6 +3780,13 @@ export class HeadlessDesktopService implements DesktopService {
       sessionActivated = true;
       if (identity?.saved !== true) {
         this.#ephemeralSessionIds.add(productionSessionId);
+      } else {
+        this.#sessions = normalizeLiveSetSessionTitles(
+          this.#sessions,
+          identity.liveSetId,
+          productionSessionId,
+          createdAt,
+        );
       }
       await this.#persistSessions();
       if (catalog !== undefined) {

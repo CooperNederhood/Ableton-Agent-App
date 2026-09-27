@@ -2975,7 +2975,7 @@ it("configures profile-owned spill output and gates bash to read-only spill insp
     const request = {
       kind: "shell",
       canOfferSessionApproval: false,
-      commands: [{ identifier: "jq", readOnly: true }],
+      commands: [{ identifier: "jq", readOnly: false }],
       commandSegments: [
         {
           identifier: "jq",

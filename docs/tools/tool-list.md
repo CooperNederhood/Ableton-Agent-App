@@ -49,6 +49,10 @@ The allowlisted views are `agent_history_sessions`, `agent_history_turns`,
 `set_history_session_clips`, `set_history_arrangement_clips`,
 `set_history_scenes`, `set_history_cue_points`, `set_history_trajectories`,
 and `set_history_agent_links`. Results include `schemaVersion` and `elapsedMs`.
+Every key in `parameters` must appear in the SQL as a named placeholder, every
+placeholder must have a matching key, and parameter-free queries omit the
+`parameters` object. Binding mistakes fail before database access with
+retryable corrective guidance.
 Grouped Ableton calls expose their stable `operation_id`, discriminated
 `action`, `mutation_target`, and bounded `target_identity_json`; terminal
 mutations are linked across agent and Set history by `tool_call_id`.
@@ -167,6 +171,12 @@ observed RGB `color` alongside `colorIndex`. Drum Rack pad inspection scans
 the bounded 128-pad map and returns only occupied pads by default, with
 total/occupied/empty counts. `includeEmpty: true` preserves paginated
 diagnostic access to the complete pad map.
+
+There is no device `get` action. Parameter workflows call `inspect`, then
+`inspect-parameters` with flat top-level track/device identity fields copied
+from inspection, and only then `set-parameter` with the exact returned
+parameter identity and normalized value. A nested `target` object is not part
+of these two action contracts.
 
 This slice does **not** support creating empty rack chains, direct native
 device insertion, deleting one chain, or reordering chains. Those operations

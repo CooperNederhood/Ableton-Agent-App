@@ -51,6 +51,19 @@ export const SET_SQL_MAX_CELL_CHARACTERS = 4_096;
 export const SET_SQL_MAX_PARAMETERS = 128;
 export const SET_SQL_MAX_PARAMETER_NAME_LENGTH = 64;
 
+export class SetSqlInvalidArgumentsError extends TypeError {
+  public readonly code = "invalid_tool_arguments";
+  public readonly retryable = true;
+
+  public constructor(
+    message: string,
+    public readonly details: Readonly<Record<string, unknown>> = {},
+  ) {
+    super(message);
+    this.name = "SetSqlInvalidArgumentsError";
+  }
+}
+
 const forbiddenKeyword =
   /\b(?:alter|analyze|attach|begin|commit|create|delete|detach|drop|insert|pragma|reindex|release|replace|rollback|savepoint|update|vacuum)\b/iu;
 const sourceReference = /\b(?:from|join)\s+([a-z_][a-z0-9_]*)/giu;
@@ -67,23 +80,31 @@ function normalizedSql(sql: string): string {
  */
 export function validateSetSqlSearch(sql: string): string {
   if (sql.length === 0 || sql.length > SET_SQL_MAX_LENGTH) {
-    throw new TypeError(`SQL must contain 1-${SET_SQL_MAX_LENGTH} characters`);
+    throw new SetSqlInvalidArgumentsError(
+      `SQL must contain 1-${SET_SQL_MAX_LENGTH} characters`,
+    );
   }
   if (/--|\/\*|\*\//u.test(sql)) {
-    throw new TypeError("SQL comments are not allowed");
+    throw new SetSqlInvalidArgumentsError("SQL comments are not allowed");
   }
   const statement = normalizedSql(sql);
   if (statement.includes(";")) {
-    throw new TypeError("Exactly one SQL statement is allowed");
+    throw new SetSqlInvalidArgumentsError(
+      "Exactly one SQL statement is allowed",
+    );
   }
   if (!/^(?:select|with)\b/iu.test(statement)) {
-    throw new TypeError("Only a SELECT or CTE query is allowed");
+    throw new SetSqlInvalidArgumentsError(
+      "Only a SELECT or CTE query is allowed",
+    );
   }
   if (/^with\s+recursive\b/iu.test(statement)) {
-    throw new TypeError("Recursive CTEs are not allowed");
+    throw new SetSqlInvalidArgumentsError("Recursive CTEs are not allowed");
   }
   if (forbiddenKeyword.test(statement)) {
-    throw new TypeError("SQL contains a prohibited statement keyword");
+    throw new SetSqlInvalidArgumentsError(
+      "SQL contains a prohibited statement keyword",
+    );
   }
 
   const ctes = new Set<string>();
@@ -102,16 +123,18 @@ export function validateSetSqlSearch(sql: string): string {
     if (allowed.has(source)) {
       publicSourceCount++;
     } else if (!ctes.has(source)) {
-      throw new TypeError(
+      throw new SetSqlInvalidArgumentsError(
         `SQL source '${source}' is not an allowlisted Set History view`,
       );
     }
   }
   if (sourceCount === 0) {
-    throw new TypeError("SQL must read from an allowlisted Set History view");
+    throw new SetSqlInvalidArgumentsError(
+      "SQL must read from an allowlisted Set History view",
+    );
   }
   if (publicSourceCount === 0) {
-    throw new TypeError(
+    throw new SetSqlInvalidArgumentsError(
       "SQL must reference at least one allowlisted Set History view",
     );
   }
@@ -124,7 +147,7 @@ export function validateSetSqlParameters(
   if (parameters === undefined) return undefined;
   const entries = Object.entries(parameters);
   if (entries.length > SET_SQL_MAX_PARAMETERS) {
-    throw new TypeError(
+    throw new SetSqlInvalidArgumentsError(
       `SQL parameters must contain at most ${SET_SQL_MAX_PARAMETERS} entries`,
     );
   }
@@ -134,7 +157,7 @@ export function validateSetSqlParameters(
       name.length > SET_SQL_MAX_PARAMETER_NAME_LENGTH ||
       !/^[a-z_][a-z0-9_]*$/iu.test(name)
     ) {
-      throw new TypeError(
+      throw new SetSqlInvalidArgumentsError(
         "SQL parameter names must start with a letter or underscore and contain only letters, numbers, or underscores",
       );
     }
@@ -144,16 +167,20 @@ export function validateSetSqlParameters(
       typeof value !== "number" &&
       typeof value !== "boolean"
     ) {
-      throw new TypeError("SQL parameters must be scalar values");
+      throw new SetSqlInvalidArgumentsError(
+        "SQL parameters must be scalar values",
+      );
     }
     if (typeof value === "number" && !Number.isFinite(value)) {
-      throw new TypeError("Numeric SQL parameters must be finite");
+      throw new SetSqlInvalidArgumentsError(
+        "Numeric SQL parameters must be finite",
+      );
     }
     if (
       typeof value === "string" &&
       value.length > SET_SQL_MAX_CELL_CHARACTERS
     ) {
-      throw new TypeError(
+      throw new SetSqlInvalidArgumentsError(
         `String SQL parameters must not exceed ${SET_SQL_MAX_CELL_CHARACTERS} characters`,
       );
     }
@@ -198,8 +225,9 @@ export function bindSetSqlParameters(
       continue;
     }
     if (character === "?") {
-      throw new TypeError(
-        "Positional SQL placeholders are not allowed; use named parameters",
+      throw new SetSqlInvalidArgumentsError(
+        "Positional SQL placeholders are not allowed; use named parameters such as :liveSetId",
+        { reason: "positional_parameter" },
       );
     }
     if (
@@ -210,7 +238,14 @@ export function bindSetSqlParameters(
       while (/^[a-z0-9_]$/iu.test(sql[end] ?? "")) end++;
       const name = sql.slice(index + 1, end);
       if (!Object.prototype.hasOwnProperty.call(validated, name)) {
-        throw new TypeError(`SQL parameter '${name}' is not provided`);
+        throw new SetSqlInvalidArgumentsError(
+          `SQL parameter '${name}' is not provided`,
+          {
+            reason: "missing_parameter",
+            parameterName: name,
+            correction: `Add '${name}' to parameters or remove the placeholder from SQL`,
+          },
+        );
       }
       used.add(name);
       values.push(validated[name]!);
@@ -223,7 +258,15 @@ export function bindSetSqlParameters(
 
   const unused = Object.keys(validated).filter((name) => !used.has(name));
   if (unused.length > 0) {
-    throw new TypeError(`SQL parameter '${unused[0]}' is not used`);
+    const name = unused[0]!;
+    throw new SetSqlInvalidArgumentsError(
+      `SQL parameter '${name}' is not used`,
+      {
+        reason: "unused_parameter",
+        parameterName: name,
+        correction: `Remove '${name}' from parameters or reference it as :${name} in SQL`,
+      },
+    );
   }
   return { sql: boundSql, parameters: values };
 }

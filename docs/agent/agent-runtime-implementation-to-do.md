@@ -30,6 +30,8 @@ Companion specification: [Agent Runtime](agent-runtime.md)
   network tools.
 - [x] Enable SDK `bash` only through a fail-closed command/path policy for
   bounded read-only inspection of profile-owned large-output spill files.
+  - [x] Treat the application-owned command grammar and spill-path validation
+    as authoritative when the SDK advisory `readOnly` classification is false.
 - [ ] Enable the runtime's native filesystem/network sandbox as defense in
   depth when the public SDK exposes supported `sandboxConfig` session wiring.
 - [x] Disable SDK tool search so the runtime never injects an implicit

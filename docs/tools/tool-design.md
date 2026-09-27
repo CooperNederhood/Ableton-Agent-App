@@ -130,12 +130,15 @@ accepts one `SELECT` or CTE, rejects comments and mutation/administrative
 keywords and recursive CTEs, restricts sources to documented `agent_history_*`
 and `set_history_*` public views, accepts bounded named scalar parameters, and
 caps returned rows. Results report the database `schemaVersion` and query
-`elapsedMs`. Tool guidance requires needed columns, narrow Live Set/time/ID
-filters, modest limits, summary/ID discovery before detail queries, and narrower
-follow-ups after truncation; it warns against `SELECT *`, broad joins, and broad
-scans. The injected query service must open storage read-only, honor
-cancellation, and must not expose a database handle or filesystem path to the
-model or renderer.
+`elapsedMs`. Every provided parameter must have an exact named placeholder and
+every placeholder must have a provided value; parameter-free SQL omits the
+parameters object. Binding mistakes return bounded, retryable
+`invalid_tool_arguments` guidance before the query service runs. Tool guidance
+requires needed columns, narrow Live Set/time/ID filters, modest limits,
+summary/ID discovery before detail queries, and narrower follow-ups after
+truncation; it warns against `SELECT *`, broad joins, and broad scans. The
+injected query service must open storage read-only, honor cancellation, and
+must not expose a database handle or filesystem path to the model or renderer.
 
 Custom tool failures use the Copilot SDK's native failure result rather than a
 thrown handler exception. The bounded failure payload retains a stable code,

@@ -9,6 +9,7 @@ import {
   createAbletonTools,
   deprecatedAbletonToolNames,
   parseAbletonToolFailure,
+  resolveAbletonToolMetadata,
   resolveAbletonOperation,
   scopeAbletonTools,
   toolCatalogPolicy,
@@ -1070,6 +1071,47 @@ function services() {
           requestedNormalizedValue: params.normalizedValue,
           verified: true as const,
         });
+
+        it("describes the exact device parameter inspection handoff to the agent", () => {
+          const tool = toolByName(
+            createAbletonTools(services()),
+            "ableton_devices",
+          );
+          expect(tool.description).toContain("There is no 'get' action");
+          expect(tool.description).toContain(
+            "Do not wrap identity fields in a target object",
+          );
+          expect(tool.description).toContain("Only then call 'set-parameter'");
+
+          const schema = (
+            tool.parameters as { toJSONSchema(): Record<string, unknown> }
+          ).toJSONSchema();
+          const branches = schema.oneOf as Record<string, unknown>[];
+          const inspectParameters = branches.find(
+            (branch) =>
+              (branch.properties as Record<string, Record<string, unknown>>)
+                .action?.const === "inspect-parameters",
+          );
+          const setParameter = branches.find(
+            (branch) =>
+              (branch.properties as Record<string, Record<string, unknown>>)
+                .action?.const === "set-parameter",
+          );
+          expect(inspectParameters?.description).toContain(
+            "Do not send a nested target object",
+          );
+          expect(
+            (
+              inspectParameters?.properties as Record<
+                string,
+                Record<string, unknown>
+              >
+            ).deviceIndex?.description,
+          ).toContain("Top-level device index");
+          expect(setParameter?.description).toContain(
+            "exact inspected parameter identity",
+          );
+        });
       },
     ),
   };
@@ -1559,6 +1601,12 @@ describe("Ableton tools", () => {
     );
     expect(setSqlSearch?.description).toContain("Select only needed columns");
     expect(setSqlSearch?.description).toContain("named scalar parameters");
+    expect(setSqlSearch?.description).toContain(
+      "Every provided parameter key must appear in SQL",
+    );
+    expect(setSqlSearch?.description).toContain(
+      "Omit parameters entirely when SQL contains no placeholders",
+    );
     expect(setSqlSearch?.description).toContain("If truncated, narrow");
     expect(setSqlSearch?.description).toContain(
       "set_history_snapshots(snapshot_id",
@@ -2943,6 +2991,140 @@ describe("Ableton tools", () => {
 
     expect(result).toEqual({ kind: "approve-once" });
     expect(requestApproval).not.toHaveBeenCalled();
+  });
+
+  it("does not attribute malformed grouped device calls to another action", async () => {
+    const requestApproval = vi.fn(() => Promise.resolve(true));
+    const permission = createAbletonPermissionHandler(requestApproval);
+
+    expect(
+      resolveAbletonToolMetadata("ableton_devices", {
+        action: "get",
+        index: 1,
+      }),
+    ).toBeUndefined();
+    expect(
+      resolveAbletonToolMetadata("ableton_devices", {
+        action: "set-parameter",
+      }),
+    ).toMatchObject({
+      operationId: "devices.set_parameter",
+      action: "set-parameter",
+    });
+    await expect(
+      permission(
+        {
+          kind: "custom-tool",
+          toolName: "ableton_devices",
+          toolDescription: "Device operations",
+          args: { action: "get", index: 1 },
+        },
+        { sessionId: "session", managedSettingsEnabled: false },
+      ),
+    ).resolves.toEqual({ kind: "approve-once" });
+    expect(requestApproval).not.toHaveBeenCalled();
+  });
+
+  it("returns corrective failures for the observed malformed device calls", async () => {
+    const deviceTool = toolByName(
+      createAbletonTools(services()),
+      "ableton_devices",
+    );
+    const invocation = {
+      sessionId: "session",
+      toolCallId: "invalid-device",
+      toolName: "ableton_devices",
+      arguments: {},
+    };
+
+    const invalidAction = (await deviceTool.handler?.(
+      {
+        action: "get",
+        index: 1,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Sine Kick",
+        expectedDeviceReference: "00000000-0000-4000-8000-000000000040",
+        expectedDeviceName: "Operator",
+        limit: 256,
+      },
+      invocation,
+    )) as { error?: string };
+    const invalidActionFailure = parseAbletonToolFailure(invalidAction.error);
+    expect(invalidActionFailure).toMatchObject({
+      code: "invalid_tool_arguments",
+      retryable: true,
+      details: {
+        suppliedAction: "get",
+      },
+    });
+    expect(invalidActionFailure?.details.validActions).toEqual(
+      expect.arrayContaining(["inspect-parameters"]),
+    );
+
+    const nestedTarget = (await deviceTool.handler?.(
+      {
+        action: "inspect-parameters",
+        target: {
+          kind: "track",
+          track: {
+            index: 1,
+            expectedReference: "00000000-0000-4000-8000-000000000001",
+            expectedName: "Sine Kick",
+          },
+          deviceIndex: 0,
+        },
+        expectedDeviceReference: "00000000-0000-4000-8000-000000000040",
+        expectedDeviceName: "Operator",
+        limit: 256,
+      },
+      invocation,
+    )) as { error?: string };
+    const nestedTargetFailure = parseAbletonToolFailure(nestedTarget.error);
+    expect(nestedTargetFailure).toMatchObject({
+      code: "invalid_tool_arguments",
+      retryable: true,
+      details: {
+        suppliedAction: "inspect-parameters",
+      },
+    });
+    const expectedShape = nestedTargetFailure?.details.expectedShape as
+      { readonly required?: unknown } | undefined;
+    expect(expectedShape?.required).toEqual(
+      expect.arrayContaining([
+        "index",
+        "expectedReference",
+        "expectedName",
+        "deviceIndex",
+      ]),
+    );
+  });
+
+  it("returns corrective SQL binding failures without querying history", async () => {
+    const ports = services();
+    const tool = toolByName(createAbletonTools(ports), "set_sql_search");
+    const result = (await tool.handler?.(
+      {
+        sql: "SELECT occurred_at, tool_name FROM agent_history_tool_calls WHERE live_set_id = 'set-id' ORDER BY occurred_at DESC LIMIT 10",
+        parameters: { agentSessionId: null },
+        limit: 10,
+      },
+      {
+        sessionId: "session",
+        toolCallId: "invalid-sql",
+        toolName: "set_sql_search",
+        arguments: {},
+      },
+    )) as { error?: string };
+
+    expect(ports.setHistoryQuery.query).not.toHaveBeenCalled();
+    expect(parseAbletonToolFailure(result.error)).toMatchObject({
+      code: "invalid_tool_arguments",
+      retryable: true,
+      details: {
+        reason: "unused_parameter",
+        parameterName: "agentSessionId",
+      },
+    });
   });
 
   it("does not misclassify invalid Browser arguments as user rejection", async () => {

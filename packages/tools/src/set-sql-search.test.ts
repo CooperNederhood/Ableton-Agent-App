@@ -7,6 +7,7 @@ import {
   validateSetSqlParameters,
   validateSetSqlSearch,
 } from "./set-sql-search.js";
+import type { SetSqlInvalidArgumentsError } from "./set-sql-search.js";
 
 describe("Set History SQL validation", () => {
   it("accepts one SELECT or CTE over public views", () => {
@@ -127,6 +128,63 @@ describe("Set History SQL validation", () => {
     ],
   ])("rejects missing, unused, or positional parameters", (sql, parameters) => {
     expect(() => bindSetSqlParameters(sql, parameters)).toThrow();
+  });
+
+  it("provides bounded correction details for missing and unused parameters", () => {
+    expect(() =>
+      bindSetSqlParameters(
+        "SELECT snapshot_id FROM set_history_snapshots WHERE live_set_id = :liveSetId",
+        undefined,
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        code: "invalid_tool_arguments",
+        retryable: true,
+        details: {
+          reason: "missing_parameter",
+          parameterName: "liveSetId",
+          correction:
+            "Add 'liveSetId' to parameters or remove the placeholder from SQL",
+        },
+      }) as SetSqlInvalidArgumentsError,
+    );
+    expect(() =>
+      bindSetSqlParameters("SELECT snapshot_id FROM set_history_snapshots", {
+        agentSessionId: null,
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        code: "invalid_tool_arguments",
+        retryable: true,
+        details: {
+          reason: "unused_parameter",
+          parameterName: "agentSessionId",
+          correction:
+            "Remove 'agentSessionId' from parameters or reference it as :agentSessionId in SQL",
+        },
+      }) as SetSqlInvalidArgumentsError,
+    );
+  });
+
+  it("supports intentionally bound null and parameter-free SQL", () => {
+    expect(
+      bindSetSqlParameters(
+        "SELECT record_id FROM agent_history_sessions WHERE live_set_id IS :liveSetId",
+        { liveSetId: null },
+      ),
+    ).toEqual({
+      sql: "SELECT record_id FROM agent_history_sessions WHERE live_set_id IS ?",
+      parameters: [null],
+    });
+    expect(
+      bindSetSqlParameters(
+        "SELECT snapshot_id FROM set_history_snapshots LIMIT 10",
+        undefined,
+      ),
+    ).toEqual({
+      sql: "SELECT snapshot_id FROM set_history_snapshots LIMIT 10",
+      parameters: [],
+    });
   });
 
   it("bounds rows and scalar text returned by the injected service", () => {

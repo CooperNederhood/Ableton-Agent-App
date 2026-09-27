@@ -49,11 +49,15 @@ Companion specification: [Tool Design](tool-design.md)
 
 - [x] Add bounded read-only `set_sql_search` over allowlisted Set History
   public views through an injected query service.
+  - [x] Require exact placeholder/parameter correspondence and return
+    retryable corrective argument failures before executing malformed SQL.
 - [~] Implement project overview and capability tools.
 - [x] Implement track, clip, arrangement, and transport inspection.
 - [~] Implement device/parameter, rack, Drum Rack, and browser inspection.
   - [x] Add read-risk bounded top-level device and exact-device parameter
     inspection for identity-bound regular tracks.
+  - [x] Document the flat device/parameter identity handoff and keep malformed
+    grouped actions unattributed until argument validation identifies them.
   - [x] Add read-risk bounded exact-rack chain/device and Drum Rack
     pad/chain/device inspection without recursive expansion.
   - [x] Return occupied Drum Rack pads by default with explicit counts while

@@ -32,7 +32,10 @@ application-owned spill file. Shell permission checks reject writes, arbitrary
 filesystem paths, network targets, command substitution, environment access,
 unsafe command flags, and sandbox escalation. Large files are inspected in
 bounded pieces or projected with `jq`; they are not copied wholesale back into
-model context.
+model context. The application-owned executable, argument, syntax, and path
+checks are authoritative; the SDK's advisory command `readOnly` classification
+does not override an otherwise valid request because supported SDK versions may
+classify these approved readers conservatively.
 
 The runtime protocol contains native filesystem/network sandbox policy, but
 the pinned public SDK session API does not currently expose that configuration.

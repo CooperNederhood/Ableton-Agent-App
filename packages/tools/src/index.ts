@@ -162,6 +162,7 @@ import {
   SET_SQL_MAX_PARAMETERS,
   SET_SQL_MAX_ROWS,
   SET_SQL_SEARCH_TOOL_NAME,
+  SetSqlInvalidArgumentsError,
   bindSetSqlParameters,
   boundSetSqlSearchResult,
   validateSetSqlSearch,
@@ -420,7 +421,18 @@ export function resolveAbletonToolMetadata(
       editScope: descriptor.editScope,
     };
   }
+  if (
+    abletonOperationDescriptors.some(
+      (descriptor) => descriptor.toolName === toolName,
+    )
+  ) {
+    return undefined;
+  }
   return abletonToolMetadata.find((candidate) => candidate.name === toolName);
+}
+
+export function isKnownAbletonToolName(toolName: string): boolean {
+  return abletonToolMetadata.some((candidate) => candidate.name === toolName);
 }
 
 export interface ToolApprovalRequest {
@@ -453,6 +465,9 @@ export function createAbletonPermissionHandler(
       request.args ?? {},
     );
     if (!metadata) {
+      if (isKnownAbletonToolName(request.toolName)) {
+        return { kind: "approve-once" };
+      }
       return { kind: "reject", feedback: "Unknown Ableton tool" };
     }
     const actionDescriptor =
@@ -832,7 +847,7 @@ Set schema: set_history_saves(save_id, saved_at, app_session_id, live_set_id, li
 
 Agent schema: agent_history_sessions(record_id, occurred_at, app_session_id, agent_session_id, sdk_session_id, active_agent_id, live_set_id, live_project_id, status); agent_history_turns(record_id, occurred_at, app_session_id, agent_session_id, turn_id, active_agent_id, live_set_id, status, completed_at, prompt, duration_ms); agent_history_messages(record_id, occurred_at, app_session_id, agent_session_id, turn_id, active_agent_id, live_set_id, role, content, message_index); agent_history_tool_calls(record_id, occurred_at, agent_session_id, turn_id, tool_call_id, live_set_id, status, tool_name, arguments_json, operation_id, action, mutation_target, target_identity_json); agent_history_tool_results(record_id, occurred_at, agent_session_id, turn_id, tool_call_id, live_set_id, outcome, duration_ms, result_json, error, tool_name, operation_id, action, mutation_target, target_identity_json); agent_history_approvals(record_id, occurred_at, agent_session_id, turn_id, tool_call_id, live_set_id, status, resolved_at, summary).
 
-Join musical entities to snapshots with snapshot_id. Join trajectories to agent history with agent_session_id, turn_id, or tool_call_id; app_session_id and live_set_id provide broader ownership. First discover recent snapshot/trajectory IDs, then request bounded detail. Example: SELECT snapshot_id, captured_at, track_count FROM set_history_snapshots WHERE live_set_id = :liveSetId ORDER BY captured_at DESC LIMIT 10. Example detail: SELECT role, occurred_at, content FROM agent_history_messages WHERE turn_id = :turnId ORDER BY occurred_at, message_index LIMIT 20.
+Join musical entities to snapshots with snapshot_id. Join trajectories to agent history with agent_session_id, turn_id, or tool_call_id; app_session_id and live_set_id provide broader ownership. First discover recent snapshot/trajectory IDs, then request bounded detail. Every provided parameter key must appear in SQL as :name, @name, or $name, and every placeholder must have a matching parameter. Omit parameters entirely when SQL contains no placeholders. Parameterized example: {"sql":"SELECT snapshot_id, captured_at, track_count FROM set_history_snapshots WHERE live_set_id = :liveSetId ORDER BY captured_at DESC LIMIT 10","parameters":{"liveSetId":"set-id"}}. Parameter-free example: {"sql":"SELECT snapshot_id, captured_at FROM set_history_snapshots ORDER BY captured_at DESC LIMIT 10"}. Example detail: SELECT role, occurred_at, content FROM agent_history_messages WHERE turn_id = :turnId ORDER BY occurred_at, message_index LIMIT 20.
 
 Select only needed columns; filter narrowly by Live Set, time range, and IDs using named scalar parameters; use a modest LIMIT; query summaries and IDs before details; avoid SELECT *, broad joins, broad scans, and recursive CTEs. If truncated, narrow the query instead of increasing scope. The set-history-sql-search skill provides deeper comparison and interpretation patterns but is not required for basic queries.`,
     parameters: z
@@ -862,7 +877,7 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
           )
           .optional()
           .describe(
-            "Named scalar bindings referenced as :name, @name, or $name in SQL",
+            "Named scalar bindings with an exact one-to-one relationship to SQL placeholders: every key must appear as :name, @name, or $name, every placeholder needs a matching key, and this object must be omitted when SQL has no placeholders",
           ),
         limit: z
           .number()
@@ -887,10 +902,18 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
           "Set History search was cancelled",
         );
       }
-      const boundQuery = bindSetSqlParameters(
-        validateSetSqlSearch(sql),
-        parameters,
-      );
+      let boundQuery;
+      try {
+        boundQuery = bindSetSqlParameters(
+          validateSetSqlSearch(sql),
+          parameters,
+        );
+      } catch (error) {
+        if (error instanceof SetSqlInvalidArgumentsError) {
+          return failureToolResult(error);
+        }
+        throw error;
+      }
       const result = await services.setHistoryQuery.query({
         sql: boundQuery.sql,
         parameters: boundQuery.parameters,
@@ -1207,7 +1230,7 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
   });
   const devicesTool = defineTool("ableton_devices", {
     description:
-      "Inspects and mutates exact identity-bound Live 11 devices, parameters, rack chains, Drum Rack pads, chain mixers, and device positions through strict action variants.",
+      "Inspects and mutates exact identity-bound Live 11 devices, parameters, rack chains, Drum Rack pads, chain mixers, and device positions through strict action variants. There is no 'get' action. To work with a parameter, first call action 'inspect' for the track's devices, then call 'inspect-parameters' with top-level index, expectedReference, expectedName, deviceIndex, expectedDeviceReference, and expectedDeviceName copied from that result. Do not wrap identity fields in a target object. Only then call 'set-parameter' with those same top-level identities plus parameterIndex, expectedParameterReference, expectedParameterName, and normalizedValue copied or derived from the parameter inspection.",
     parameters: abletonDevicesParamsSchema,
     handler: async (params) => {
       switch (params.action) {

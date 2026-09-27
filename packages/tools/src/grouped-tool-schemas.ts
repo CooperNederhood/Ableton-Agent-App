@@ -187,9 +187,40 @@ export const devicesInspectParamsSchema = inspectDevicesParamsSchema.safeExtend(
   },
 );
 export const devicesInspectParametersParamsSchema =
-  inspectDeviceParametersParamsSchema.safeExtend({
-    action: z.literal("inspect-parameters"),
-  });
+  inspectDeviceParametersParamsSchema
+    .safeExtend({
+      action: z
+        .literal("inspect-parameters")
+        .describe(
+          "Inspect one exact device's parameter page after ableton_devices action 'inspect'",
+        ),
+      index: inspectDeviceParametersParamsSchema.shape.index.describe(
+        "Top-level regular-track index copied from the inspected track",
+      ),
+      expectedReference:
+        inspectDeviceParametersParamsSchema.shape.expectedReference.describe(
+          "Top-level track reference copied from the inspected track",
+        ),
+      expectedName:
+        inspectDeviceParametersParamsSchema.shape.expectedName.describe(
+          "Top-level track name copied from the inspected track",
+        ),
+      deviceIndex:
+        inspectDeviceParametersParamsSchema.shape.deviceIndex.describe(
+          "Top-level device index copied from the ableton_devices inspect result",
+        ),
+      expectedDeviceReference:
+        inspectDeviceParametersParamsSchema.shape.expectedDeviceReference.describe(
+          "Top-level device reference copied from the ableton_devices inspect result",
+        ),
+      expectedDeviceName:
+        inspectDeviceParametersParamsSchema.shape.expectedDeviceName.describe(
+          "Top-level device name copied from the ableton_devices inspect result",
+        ),
+    })
+    .describe(
+      "All track and device identity fields must be top-level. Do not send a nested target object.",
+    );
 export const devicesInspectRackChainsParamsSchema =
   inspectRackChainsParamsSchema.safeExtend({
     action: z.literal("inspect-rack-chains"),
@@ -234,10 +265,33 @@ export const devicesSetEnabledParamsSchema =
   setDeviceEnabledParamsSchema.safeExtend({
     action: z.literal("set-enabled"),
   });
-export const devicesSetParameterParamsSchema =
-  setDeviceParameterParamsSchema.safeExtend({
-    action: z.literal("set-parameter"),
-  });
+export const devicesSetParameterParamsSchema = setDeviceParameterParamsSchema
+  .safeExtend({
+    action: z
+      .literal("set-parameter")
+      .describe(
+        "Set one exact parameter after ableton_devices action 'inspect-parameters'",
+      ),
+    parameterIndex:
+      setDeviceParameterParamsSchema.shape.parameterIndex.describe(
+        "Parameter index copied from the inspect-parameters result",
+      ),
+    expectedParameterReference:
+      setDeviceParameterParamsSchema.shape.expectedParameterReference.describe(
+        "Parameter reference copied from the inspect-parameters result",
+      ),
+    expectedParameterName:
+      setDeviceParameterParamsSchema.shape.expectedParameterName.describe(
+        "Parameter name copied from the inspect-parameters result",
+      ),
+    normalizedValue:
+      setDeviceParameterParamsSchema.shape.normalizedValue.describe(
+        "Requested normalized parameter value from 0 through 1",
+      ),
+  })
+  .describe(
+    "Requires top-level track and device identity plus the exact inspected parameter identity and normalizedValue.",
+  );
 export const abletonDevicesParamsSchema = z.discriminatedUnion("action", [
   devicesInspectParamsSchema,
   devicesInspectParametersParamsSchema,

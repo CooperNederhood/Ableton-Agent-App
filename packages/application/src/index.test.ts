@@ -1627,6 +1627,29 @@ describe("CopilotAgentService", () => {
       ),
     ).resolves.toEqual({ kind: "approve-once" });
     expect(requestToolApproval).not.toHaveBeenCalled();
+    await expect(
+      config?.onPermissionRequest?.(
+        {
+          kind: "custom-tool",
+          toolName: "ableton_devices",
+          toolDescription: "Device operations",
+          args: { action: "get", index: 1 },
+        },
+        { sessionId: "session" },
+      ),
+    ).resolves.toEqual({ kind: "approve-once" });
+    const invalidDevicePermission = runtimeEvents.find(
+      (event) =>
+        event.type === "agent.permission.requested" &&
+        (
+          event.data.request as
+            { args?: Readonly<Record<string, unknown>> } | undefined
+        )?.args?.action === "get",
+    );
+    expect(invalidDevicePermission?.data).not.toHaveProperty(
+      "operationMetadata",
+    );
+    expect(requestToolApproval).not.toHaveBeenCalled();
     expect(
       config?.hooks?.onPreToolUse?.(
         {

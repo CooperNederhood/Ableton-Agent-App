@@ -233,10 +233,7 @@ export function evaluateSpillFileShellPermission(
   }
   if (
     request.commands.length === 0 ||
-    request.commands.some(
-      ({ identifier, readOnly }) =>
-        !readOnly || !allowedCommands.has(identifier),
-    )
+    request.commands.some(({ identifier }) => !allowedCommands.has(identifier))
   ) {
     return reject(
       "Shell access is limited to read-only grep, head, tail, wc, and jq commands.",

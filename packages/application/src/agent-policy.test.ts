@@ -402,6 +402,30 @@ describe("agent policy", () => {
       additionalContext:
         "Plan mode is read-only. Finish the plan before changing Ableton.",
     });
+    expect(
+      await hooks.onPreToolUse?.(
+        {
+          sessionId: "session-1",
+          timestamp: new Date(),
+          workingDirectory: "/tmp",
+          toolName: "ableton_devices",
+          toolArgs: { action: "set-parameter" },
+        },
+        { sessionId: "session-1" },
+      ),
+    ).toBeUndefined();
+    expect(
+      await hooks.onPreToolUse?.(
+        {
+          sessionId: "session-1",
+          timestamp: new Date(),
+          workingDirectory: "/tmp",
+          toolName: "ableton_devices",
+          toolArgs: { action: "get" },
+        },
+        { sessionId: "session-1" },
+      ),
+    ).toBeUndefined();
     expect(inspection).toBeUndefined();
     expect(exitPlanMode).toBeUndefined();
   });

@@ -86,9 +86,33 @@ describe("spill file shell permission", () => {
 
   it("approves bounded jq inspection of a profile-owned spill file", async () => {
     const { directory, file } = await fixture();
+    const fullCommandText = `jq -c '.pads[] | {note, name}' '${file}'`;
 
     expect(
-      evaluateSpillFileShellPermission(shellRequest(file), directory),
+      evaluateSpillFileShellPermission(
+        shellRequest(file, {
+          commands: [{ identifier: "jq", readOnly: false }],
+          commandSegments: [{ identifier: "jq", fullCommandText }],
+          fullCommandText,
+        }),
+        directory,
+      ),
+    ).toEqual({ kind: "approve-once" });
+  });
+
+  it("approves wc when the SDK advisory read-only classification is false", async () => {
+    const { directory, file } = await fixture();
+    const fullCommandText = `wc -l '${file}'`;
+
+    expect(
+      evaluateSpillFileShellPermission(
+        shellRequest(file, {
+          commands: [{ identifier: "wc", readOnly: false }],
+          commandSegments: [{ identifier: "wc", fullCommandText }],
+          fullCommandText,
+        }),
+        directory,
+      ),
     ).toEqual({ kind: "approve-once" });
   });
 
@@ -100,8 +124,8 @@ describe("spill file shell permission", () => {
       evaluateSpillFileShellPermission(
         shellRequest(file, {
           commands: [
-            { identifier: "grep", readOnly: true },
-            { identifier: "head", readOnly: true },
+            { identifier: "grep", readOnly: false },
+            { identifier: "head", readOnly: false },
           ],
           commandSegments: [
             {
@@ -129,10 +153,6 @@ describe("spill file shell permission", () => {
     {
       name: "sandbox bypass",
       overrides: { requestSandboxBypass: true },
-    },
-    {
-      name: "non-read-only command",
-      overrides: { commands: [{ identifier: "grep", readOnly: false }] },
     },
     {
       name: "unapproved executable",

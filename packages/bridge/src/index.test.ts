@@ -3,7 +3,11 @@ import { createInterface } from "node:readline";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { InMemoryEventPublisher, type AppEvent } from "@ableton-agent/shared";
+import {
+  InMemoryEventPublisher,
+  PRODUCT_VERSIONS,
+  type AppEvent,
+} from "@ableton-agent/shared";
 import {
   registerCorrelationContext,
   unregisterCorrelationContext,
@@ -143,7 +147,7 @@ describe("AbletonBridgeService", () => {
     expect(await service.getStatus()).toEqual({
       state: "connected",
       liveVersion: "11.3-simulator",
-      remoteScriptVersion: "0.6.0",
+      remoteScriptVersion: PRODUCT_VERSIONS.remoteScript,
       liveSetId: "simulated-live-set",
       liveSetName: "Simulated Set",
       saved: false,

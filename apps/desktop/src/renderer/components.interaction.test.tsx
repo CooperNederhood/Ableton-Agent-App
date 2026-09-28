@@ -77,6 +77,7 @@ function activeAgent(
 function rendererState(active = true): DesktopState {
   return {
     ...initialState,
+    agentWorkspaces: { ...initialState.agentWorkspaces },
     lifecycle: "ready",
     ...(active ? { activeSessionId: sessionId } : {}),
     sessions: [
@@ -1959,6 +1960,58 @@ describe("desktop component interactions", () => {
     expect(container.querySelector<HTMLTextAreaElement>("#prompt")?.value).toBe(
       "preserve this draft",
     );
+  });
+
+  it("shows submission waiting and preserves the draft when acceptance fails", async () => {
+    let rejectSend!: (error: Error) => void;
+    const send = vi.fn(
+      () =>
+        new Promise<{ accepted: true; messageId: string }>(
+          (_resolve, reject) => {
+            rejectSend = reject;
+          },
+        ),
+    );
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktopApi({ send }),
+    });
+    const onValueChange = vi.fn();
+    const onErrorChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <DesktopComposer
+          state={rendererState()}
+          composerRef={createRef<HTMLTextAreaElement>()}
+          dispatch={vi.fn()}
+          value="hello"
+          error=""
+          onValueChange={onValueChange}
+          onErrorChange={onErrorChange}
+        />,
+      );
+    });
+
+    await act(async () => {
+      const form = container.querySelector("form");
+      if (form === null) throw new Error("Composer form not found");
+      form.requestSubmit();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("Waiting for message acceptance");
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Waiting for message acceptance"]',
+      )?.disabled,
+    ).toBe(true);
+    expect(onValueChange).not.toHaveBeenCalledWith("");
+
+    await act(async () => {
+      rejectSend(new Error("message was not sent; retry"));
+      await Promise.resolve();
+    });
+    expect(onErrorChange).toHaveBeenCalledWith("message was not sent; retry");
+    expect(onValueChange).not.toHaveBeenCalledWith("");
   });
 
   it("submits a custom radio answer and resizes the question panel upward", async () => {

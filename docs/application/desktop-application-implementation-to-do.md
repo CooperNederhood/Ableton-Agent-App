@@ -60,6 +60,11 @@ never left pending, when no renderer is listening or the app is shutting down.
 - [x] Implement connection, status, capability, snapshot, and diagnostic APIs.
 - [x] Keep automatic startup snapshots to bounded core Session state; publish
   device and parameter enrichment only for explicit coalesced refreshes.
+- [x] Keep periodic identity polling and snapshot enrichment off the prompt
+  critical path; gate sends only on active ownership commits for at most two
+  seconds.
+- [x] Present a distinct accessible composer submission state, add the user
+  message only after IPC acceptance, and preserve failed drafts for retry.
 - [x] Implement approval resolution APIs.
 - [x] Forward shared `AppEvent` values to the renderer with runtime validation.
 - [x] Ensure every essential CLI interaction has a desktop equivalent.
@@ -108,6 +113,8 @@ presentation state and say so; they are not applied to Live.
 - [x] Resolve Live Set transitions independently inside the same Live Project.
 - [x] Drive save-time identity transitions from authoritative bridge events and
   settle App-session ownership before accepting the next agent prompt.
+- [x] Record bounded queued, started, completed, failed, timed-out, and
+  cancelled ownership-gate events with timing and trace relationships.
 - [x] Promote meaningful unsaved App sessions in place on authoritative first
   save, preserving App-session, active-agent, and SDK-session IDs.
 - [x] Resolve first-save canonical conflicts without deleting either session;
@@ -154,6 +161,9 @@ presentation state and say so; they are not applied to Live.
 - [x] Test the desktop adapter against the shared application with fake
   services (start, streaming, cancellation, approvals, sessions, snapshot
   refusal, diagnostics, preferences).
+- [x] Regress slow snapshot enrichment, bounded ownership waits and timeouts,
+  pending transition decisions, lifecycle telemetry, accepted-message IDs, and
+  renderer draft recovery.
 - [~] Add Playwright Electron tests for launch, chat, streaming, approval,
   cancellation, resume, connection failure, and shutdown.
   - [x] Cover real Electron launch, preload isolation, application landmarks,

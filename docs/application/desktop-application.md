@@ -29,12 +29,15 @@ endpoint.
 
 Desktop owns App-session identity. Ableton integration owns Live Set and Live
 Project identity. When a save event replaces an unsaved or Save As identity,
-Desktop serializes the ownership update before the next prompt is accepted. A
-Remote Script `firstSave` observation identifies the same open Song acquiring
-its first saved identity. Desktop promotes that exact App session regardless of
-conversation or configuration state and without changing its App-session,
-active-agent, or Copilot SDK session IDs. A dialog appears only when the saved
-target already has a different canonical App session.
+Desktop serializes only the ownership-changing commit before the next prompt is
+accepted, with a maximum wait of two seconds. Periodic identity polling,
+startup snapshots, explicit snapshot enrichment, and prepared-context refreshes
+never become prompt barriers. A Remote Script `firstSave` observation identifies
+the same open Song acquiring its first saved identity. Desktop promotes that
+exact App session regardless of conversation or configuration state and without
+changing its App-session, active-agent, or Copilot SDK session IDs. A dialog
+appears only when the saved target already has a different canonical App
+session; prompts remain immediately fail-closed while that decision is pending.
 
 ## Electron process model
 
@@ -165,6 +168,14 @@ it sections when applicable. Structured results are summarized by top-level
 fields and collection counts instead of exposing raw unbounded payloads.
 Profile-owned Copilot spill paths appear as `<spill-file>`.
 
+The composer distinguishes IPC submission from an accepted agent turn. While
+Desktop checks a real ownership-transition barrier, the composer shows an
+accessible `Waiting for message acceptance` status and prevents duplicate
+submission without presenting the agent as running. The user bubble is added
+only after main-process acceptance, using the accepted message ID. If
+acceptance fails or the two-second ownership gate expires, the draft remains
+available for retry and no Copilot prompt or conversation turn is created.
+
 ## Application event model
 
 Normalize Copilot, bridge, approval, and project-state events into an
@@ -261,6 +272,11 @@ agent actions and Output delivery until the user resumes the associated App
 session, forks the current setup for the new Set, or starts fresh. Canonical
 association is keyed by `liveSetId`, so switching Sets inside one Live Project
 still selects distinct App sessions and previous sessions remain in history.
+Background Set observation remains independent from prompt acceptance. A
+message waits only while an ownership mutation is actively committing, and
+only for two seconds; after the wait Desktop revalidates the active session and
+agent before creating the turn. Timeout, transition failure, or shutdown
+rejects the message with an actionable retry error.
 Profiles still shows the active in-memory session before it is persisted.
 The first save of the same open Song promotes and associates the current
 session even when it contains meaningful work. If the target already has a

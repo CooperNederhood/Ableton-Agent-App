@@ -837,6 +837,43 @@ describe("desktop components", () => {
     );
   });
 
+  it("does not present a user message before main-process acceptance", async () => {
+    const state = workspaceState(secondAgentId);
+    let accept!: (value: { accepted: true; messageId: string }) => void;
+    const send = vi.fn(
+      () =>
+        new Promise<{ accepted: true; messageId: string }>((resolve) => {
+          accept = resolve;
+        }),
+    );
+    const desktop = {
+      agents: { send },
+      project: { setContext: vi.fn() },
+    } as unknown as DesktopApi;
+    const dispatch = vi.fn();
+
+    const submission = sendComposerMessage(
+      desktop,
+      state,
+      "Wait for acceptance",
+      dispatch,
+    );
+    await Promise.resolve();
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "user-message" }),
+    );
+
+    accept({ accepted: true, messageId: "accepted-message" });
+    await submission;
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "user-message",
+        id: "accepted-message",
+        content: "Wait for acceptance",
+      }),
+    );
+  });
+
   it("uses the current context for each managed-agent turn", async () => {
     const state = workspaceState(secondAgentId);
     const send = vi.fn().mockResolvedValue({

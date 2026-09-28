@@ -32,7 +32,10 @@ import type {
 } from "@ableton-agent/signal-routing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { abletonToolMetadata } from "@ableton-agent/tools";
-import type { RetentionPolicy } from "@ableton-agent/observability";
+import type {
+  RetentionPolicy,
+  TelemetryEventEnvelope,
+} from "@ableton-agent/observability";
 import {
   resolveLiveAgentStorage,
   resolveNestedSessionStorage,
@@ -3630,6 +3633,219 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
+  it("waits briefly for an in-flight first-save ownership commit before sending", async () => {
+    const directory = await temporaryDirectory();
+    const ableton = defaultFakeState();
+    if (
+      ableton.status.state !== "connected" ||
+      !("liveSetId" in ableton.status)
+    ) {
+      throw new Error("Expected connected fake state");
+    }
+    ableton.status = {
+      ...ableton.status,
+      liveSetId: "set-before-save",
+      liveSetName: "Untitled",
+      saved: false,
+    };
+    ableton.liveIdentity = {
+      liveSetId: "set-before-save",
+      liveSetName: "Untitled",
+      saved: false,
+      diagnostics: [],
+    };
+    const fake = createFakeApplication({ ableton });
+    const sessionStore = new JsonSessionStore(join(directory, "sessions.json"));
+    const transitionEvents: TelemetryEventEnvelope[] = [];
+    const service = new HeadlessDesktopService({
+      application: fake.application,
+      approvals: new ApprovalCoordinator(),
+      preferencesStore: new JsonPreferencesStore(
+        join(directory, "preferences.json"),
+      ),
+      sessionStore,
+      liveSetSessionStore: new JsonLiveSetSessionStore(
+        join(directory, "live-set-sessions.json"),
+      ),
+      agentCatalog: {
+        current: defaultCatalog(),
+        refresh: () => Promise.resolve(defaultCatalog()),
+      },
+      agentSendTransitionWaitMs: 100,
+      eventJournal: {
+        enqueue: vi.fn((event: TelemetryEventEnvelope) => {
+          transitionEvents.push(event);
+          return Promise.resolve();
+        }),
+        shutdown: vi.fn().mockResolvedValue(undefined),
+      } as unknown as DesktopEventJournal,
+    });
+
+    await service.start();
+    const before = (await service.getSessions())[0]!;
+    const saveEntered = deferred<void>();
+    const releaseSave = deferred<void>();
+    const originalSave = sessionStore.save.bind(sessionStore);
+    vi.spyOn(sessionStore, "save").mockImplementationOnce(async (sessions) => {
+      saveEntered.resolve();
+      await releaseSave.promise;
+      await originalSave(sessions);
+    });
+    const savedStatus = {
+      state: "connected" as const,
+      liveVersion: ableton.status.liveVersion,
+      remoteScriptVersion: ableton.status.remoteScriptVersion,
+      liveSetId: "set-after-save",
+      liveSetName: "Saved Set",
+      saved: true,
+      liveProjectId: "project-after-save",
+      liveProjectName: "Album",
+    };
+    ableton.status = savedStatus;
+    ableton.liveIdentity = { ...savedStatus, diagnostics: [] };
+
+    const settlement = service.settleObservedSave(
+      firstSaveContext("set-after-save", "Saved Set", "project-after-save"),
+    );
+    await saveEntered.promise;
+    const send = service.sendToActiveAgent(
+      before.activeAgents[0]!.id,
+      "Continue after save",
+    );
+    const waiting = await Promise.race([
+      send.then(() => false),
+      new Promise<true>((resolve) => setTimeout(() => resolve(true), 20)),
+    ]);
+
+    releaseSave.resolve();
+    await settlement;
+    await expect(send).resolves.toMatchObject({ accepted: true });
+    await service.stop();
+
+    expect(waiting).toBe(true);
+    const sendTransitionEvents = transitionEvents.filter(({ name }) =>
+      name.startsWith("desktop.agent_send_transition_gate."),
+    );
+    expect(sendTransitionEvents.map(({ name }) => name)).toEqual([
+      "desktop.agent_send_transition_gate.queued",
+      "desktop.agent_send_transition_gate.started",
+      "desktop.agent_send_transition_gate.completed",
+    ]);
+    expect(sendTransitionEvents[2]).toMatchObject({
+      outcome: "success",
+      attributes: {
+        reason: "live_set_ownership_transition",
+        transitionCount: 0,
+      },
+    });
+    expect(sendTransitionEvents[2]?.correlationId).toEqual(expect.any(String));
+  });
+
+  it("fails a send when an ownership commit exceeds the bounded wait", async () => {
+    const directory = await temporaryDirectory();
+    const ableton = defaultFakeState();
+    if (
+      ableton.status.state !== "connected" ||
+      !("liveSetId" in ableton.status)
+    ) {
+      throw new Error("Expected connected fake state");
+    }
+    ableton.status = {
+      ...ableton.status,
+      liveSetId: "set-before-save",
+      liveSetName: "Untitled",
+      saved: false,
+    };
+    ableton.liveIdentity = {
+      liveSetId: "set-before-save",
+      liveSetName: "Untitled",
+      saved: false,
+      diagnostics: [],
+    };
+    const fake = createFakeApplication({ ableton });
+    const sessionStore = new JsonSessionStore(join(directory, "sessions.json"));
+    const transitionEvents: TelemetryEventEnvelope[] = [];
+    const service = new HeadlessDesktopService({
+      application: fake.application,
+      approvals: new ApprovalCoordinator(),
+      preferencesStore: new JsonPreferencesStore(
+        join(directory, "preferences.json"),
+      ),
+      sessionStore,
+      liveSetSessionStore: new JsonLiveSetSessionStore(
+        join(directory, "live-set-sessions.json"),
+      ),
+      agentCatalog: {
+        current: defaultCatalog(),
+        refresh: () => Promise.resolve(defaultCatalog()),
+      },
+      agentSendTransitionWaitMs: 20,
+      eventJournal: {
+        enqueue: vi.fn((event: TelemetryEventEnvelope) => {
+          transitionEvents.push(event);
+          return Promise.resolve();
+        }),
+        shutdown: vi.fn().mockResolvedValue(undefined),
+      } as unknown as DesktopEventJournal,
+    });
+
+    await service.start();
+    const before = (await service.getSessions())[0]!;
+    const saveEntered = deferred<void>();
+    const releaseSave = deferred<void>();
+    vi.spyOn(sessionStore, "save").mockImplementationOnce(async () => {
+      saveEntered.resolve();
+      await releaseSave.promise;
+    });
+    const savedStatus = {
+      state: "connected" as const,
+      liveVersion: ableton.status.liveVersion,
+      remoteScriptVersion: ableton.status.remoteScriptVersion,
+      liveSetId: "set-after-save",
+      liveSetName: "Saved Set",
+      saved: true,
+      liveProjectId: "project-after-save",
+      liveProjectName: "Album",
+    };
+    ableton.status = savedStatus;
+    ableton.liveIdentity = { ...savedStatus, diagnostics: [] };
+
+    const settlement = service.settleObservedSave(
+      firstSaveContext("set-after-save", "Saved Set", "project-after-save"),
+    );
+    await saveEntered.promise;
+    await expect(
+      service.sendToActiveAgent(
+        before.activeAgents[0]!.id,
+        "Do not send while ownership is uncertain",
+      ),
+    ).rejects.toThrow("message was not sent");
+
+    releaseSave.resolve();
+    await settlement;
+    expect(fake.agent.managedPrompts.get(before.activeAgents[0]!.id)).toEqual(
+      [],
+    );
+    await service.stop();
+    expect(transitionEvents.map(({ name }) => name)).toEqual([
+      "desktop.agent_send_transition_gate.queued",
+      "desktop.agent_send_transition_gate.started",
+      "desktop.agent_send_transition_gate.timed_out",
+    ]);
+    expect(transitionEvents[2]).toMatchObject({
+      level: "warn",
+      outcome: "failure",
+      attributes: {
+        errorCode: "transition_timed_out",
+        reason: "live_set_ownership_transition",
+        transitionCount: 1,
+      },
+    });
+    expect(JSON.stringify(transitionEvents)).not.toContain(
+      "Do not send while ownership is uncertain",
+    );
+  });
+
   it.each([
     {
       decision: "make-current-canonical" as const,
@@ -3927,9 +4143,9 @@ describe("desktop adapter over the shared application", () => {
       },
     });
     const activeAgentId = (await service.listActiveAgents())[0]!.id;
-    expect(() =>
+    await expect(
       service.sendToActiveAgent(activeAgentId, "Do not run", []),
-    ).toThrow("transition decision");
+    ).rejects.toThrow("transition decision");
     if (requested?.type !== "live_set.transition_requested") {
       throw new Error("Expected a pending Live Set transition");
     }
@@ -5847,6 +6063,44 @@ describe("desktop adapter over the shared application", () => {
       expect(getLiveIdentity.mock.calls.length).toBeGreaterThan(1),
     );
     await service.stop();
+  });
+
+  it("accepts an agent message while identity polling waits for snapshot enrichment", async () => {
+    const { service, application } = await harness(
+      {},
+      { liveSetIdentityPollIntervalMs: 5 },
+    );
+    await service.start();
+    const [agent] = await service.listActiveAgents();
+
+    const deviceRead = deferred<void>();
+    const deviceReadEntered = deferred<void>();
+    const originalInspectDevices = application.inspectDevices.bind(application);
+    vi.spyOn(application, "inspectDevices").mockImplementation(
+      async (params) => {
+        deviceReadEntered.resolve();
+        await deviceRead.promise;
+        return originalInspectDevices(params);
+      },
+    );
+
+    const refresh = service.getSnapshot();
+    await deviceReadEntered.promise;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const send = service.sendToActiveAgent(agent!.id, "hello");
+    const acceptance = await Promise.race([
+      send.then(() => "accepted" as const),
+      new Promise<"blocked">((resolve) =>
+        setTimeout(() => resolve("blocked"), 20),
+      ),
+    ]);
+
+    deviceRead.resolve();
+    await Promise.all([refresh, send]);
+    await service.stop();
+
+    expect(acceptance).toBe("accepted");
   });
 
   it("waits for an in-flight identity poll before starting a snapshot", async () => {

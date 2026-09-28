@@ -128,6 +128,19 @@ const forkedHistoryCharacterLimit = 40_000;
 const storedSessionLimit = 100;
 const defaultLiveSetIdentityPollIntervalMs = 10_000;
 const maximumLiveSetIdentityPollBackoffMs = 60_000;
+const defaultAgentSendTransitionWaitMs = 2_000;
+
+class AgentSendTransitionError extends Error {
+  public constructor(
+    public readonly code:
+      "transition_failed" | "transition_timed_out" | "service_stopping",
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "AgentSendTransitionError";
+  }
+}
 
 function normalizeLiveSetSessionTitles(
   sessions: readonly DesktopSession[],
@@ -230,6 +243,7 @@ export interface HeadlessDesktopServiceOptions {
   ) => void;
   logger?: Logger;
   liveSetIdentityPollIntervalMs?: number;
+  agentSendTransitionWaitMs?: number;
   /** Quiet period after an observed Save before reading the LOM. */
   saveCaptureDelayMs?: number;
   /** Main-process-owned journal. It is never exposed to the renderer. */
@@ -330,6 +344,7 @@ export class HeadlessDesktopService implements DesktopService {
   #liveSetIdentityRefresh: Promise<void> | undefined;
   #liveSetIdentityRead: Promise<DesktopLiveSetIdentity | undefined> | undefined;
   #liveSetIdentityPollFailures = 0;
+  readonly #liveSetOwnershipTransitions = new Set<Promise<void>>();
   #transitionCommitting = false;
   #eventJournal: DesktopEventJournal | undefined;
   #eventJournalTransitionFailure: string | undefined;
@@ -452,6 +467,32 @@ export class HeadlessDesktopService implements DesktopService {
     this.#approvals.denyAll();
     await this.#preferenceSaveTail;
     await this.#liveSetIdentityRefresh;
+    if (this.#liveSetOwnershipTransitions.size > 0) {
+      const ownershipDrain = Promise.allSettled([
+        ...this.#liveSetOwnershipTransitions,
+      ]);
+      let drainTimeout: NodeJS.Timeout | undefined;
+      const drained = await Promise.race([
+        ownershipDrain.then(() => true),
+        new Promise<false>((resolve) => {
+          drainTimeout = setTimeout(
+            () => resolve(false),
+            defaultAgentSendTransitionWaitMs,
+          );
+        }),
+      ]);
+      if (drainTimeout !== undefined) clearTimeout(drainTimeout);
+      if (!drained) {
+        this.#logger.warn(
+          "Live Set ownership transitions did not settle during shutdown",
+          {
+            transitionCount: this.#liveSetOwnershipTransitions.size,
+            waitLimitMs: defaultAgentSendTransitionWaitMs,
+          },
+        );
+      }
+      this.#liveSetOwnershipTransitions.clear();
+    }
     await this.#drainSnapshotRefresh();
     await this.#sessionActionTail;
     await this.#drainAgentActions();
@@ -1367,12 +1408,15 @@ export class HeadlessDesktopService implements DesktopService {
     );
   }
 
-  public sendToActiveAgent(
+  public async sendToActiveAgent(
     instanceId: string,
     message: string,
     context: ContextChip[] = [],
     agentMode: DesktopAgentMode = "interactive",
   ): Promise<{ accepted: true; messageId: string }> {
+    this.#assertSendAvailable();
+    const messageId = randomUUID();
+    await this.#waitForLiveSetOwnershipTransitions(messageId);
     this.#assertAccepting();
     const send = () => {
       const prompt = composeAgentPrompt(
@@ -1383,11 +1427,11 @@ export class HeadlessDesktopService implements DesktopService {
         this.#captureActiveAgentTarget(instanceId),
         () =>
           this.#application.sendToManagedAgent(instanceId, prompt, agentMode),
+        undefined,
+        messageId,
       );
     };
-    return this.#liveSetIdentityRefresh === undefined
-      ? send()
-      : this.#liveSetIdentityRefresh.then(send);
+    return send();
   }
 
   public setActiveAgentMode(
@@ -1687,7 +1731,7 @@ export class HeadlessDesktopService implements DesktopService {
     decision: LiveSetTransitionDecision,
   ): Promise<DesktopSession> {
     this.#assertAccepting(true);
-    return this.#queueSessionAction(async () => {
+    const resolution = this.#queueSessionAction(async () => {
       const transition = this.#pendingLiveSetTransition;
       if (transition === undefined || transition.token !== token) {
         throw new Error("Live Set transition is no longer pending");
@@ -1769,6 +1813,7 @@ export class HeadlessDesktopService implements DesktopService {
         this.#transitionCommitting = false;
       }
     });
+    return this.#trackLiveSetOwnershipTransition(resolution);
   }
 
   async #forkCurrentSession(
@@ -1936,7 +1981,7 @@ export class HeadlessDesktopService implements DesktopService {
     try {
       const identity = await this.#readLiveIdentity();
       if (identity === undefined) return;
-      await this.#observeLiveIdentity(identity);
+      await this.#observeLiveIdentityWithTracking(identity);
       this.#liveSetIdentityPollFailures = 0;
     } catch (error) {
       this.#liveSetIdentityPollFailures += 1;
@@ -1953,10 +1998,16 @@ export class HeadlessDesktopService implements DesktopService {
     }
   }
 
-  public async settleObservedSave(
+  public settleObservedSave(context: LiveSetSaveActionContext): Promise<void> {
+    if (!context.observation.firstSave) return Promise.resolve();
+    return this.#trackLiveSetOwnershipTransition(
+      this.#settleObservedFirstSave(context),
+    );
+  }
+
+  async #settleObservedFirstSave(
     context: LiveSetSaveActionContext,
   ): Promise<void> {
-    if (!context.observation.firstSave) return;
     const identity = desktopLiveSetIdentitySchema.parse({
       liveSetId: context.observation.liveSetId,
       liveSetName: context.observation.liveSetName,
@@ -2139,6 +2190,21 @@ export class HeadlessDesktopService implements DesktopService {
       activeSessionId: promoted.id,
     });
     return promoted;
+  }
+
+  #observeLiveIdentityWithTracking(
+    identity: DesktopLiveSetIdentity,
+  ): Promise<void> {
+    const previous = this.#liveSetIdentity;
+    const changesOwnership =
+      previous !== undefined &&
+      (previous.liveSetId !== identity.liveSetId ||
+        previous.saved !== identity.saved ||
+        previous.liveProjectId !== identity.liveProjectId);
+    const observation = this.#observeLiveIdentity(identity);
+    return changesOwnership
+      ? this.#trackLiveSetOwnershipTransition(observation)
+      : observation;
   }
 
   async #observeLiveIdentity(identity: DesktopLiveSetIdentity): Promise<void> {
@@ -2487,7 +2553,9 @@ export class HeadlessDesktopService implements DesktopService {
     const capabilities = toDesktopCapabilities(capabilityDocument.capabilities);
     const identity = await this.#readLiveIdentity();
     this.#liveSetIdentityPollFailures = 0;
-    if (identity !== undefined) await this.#observeLiveIdentity(identity);
+    if (identity !== undefined) {
+      await this.#observeLiveIdentityWithTracking(identity);
+    }
     const baseSnapshot = toDesktopSnapshot(snapshot, status, [], {
       source: trigger,
       capabilities,
@@ -3313,7 +3381,7 @@ export class HeadlessDesktopService implements DesktopService {
     const previousRefresh = this.#liveSetIdentityRefresh;
     const refresh = (previousRefresh ?? Promise.resolve())
       .catch(() => undefined)
-      .then(() => this.#observeLiveIdentity(identity));
+      .then(() => this.#observeLiveIdentityWithTracking(identity));
     this.#liveSetIdentityRefresh = refresh;
     void refresh.then(
       () => {
@@ -4309,6 +4377,193 @@ export class HeadlessDesktopService implements DesktopService {
     }
   }
 
+  #trackLiveSetOwnershipTransition<T>(operation: Promise<T>): Promise<T> {
+    const barrier = operation.then(() => undefined);
+    this.#liveSetOwnershipTransitions.add(barrier);
+    void barrier.then(
+      () => this.#liveSetOwnershipTransitions.delete(barrier),
+      () => this.#liveSetOwnershipTransitions.delete(barrier),
+    );
+    return operation;
+  }
+
+  async #waitForLiveSetOwnershipTransitions(messageId: string): Promise<void> {
+    if (this.#liveSetOwnershipTransitions.size === 0) return;
+    const timeoutMs =
+      this.options.agentSendTransitionWaitMs ??
+      defaultAgentSendTransitionWaitMs;
+    const startedAt = Date.now();
+    const traceId = stableTelemetryId(messageId);
+    const queuedSpanId = randomUUID();
+    this.#enqueueAgentSendTransitionEvent(
+      "desktop.agent_send_transition_gate.queued",
+      {
+        messageId,
+        traceId,
+        spanId: queuedSpanId,
+        transitionCount: this.#liveSetOwnershipTransitions.size,
+      },
+    );
+    const startedSpanId = randomUUID();
+    this.#enqueueAgentSendTransitionEvent(
+      "desktop.agent_send_transition_gate.started",
+      {
+        messageId,
+        traceId,
+        spanId: startedSpanId,
+        parentSpanId: queuedSpanId,
+        causationId: queuedSpanId,
+        transitionCount: this.#liveSetOwnershipTransitions.size,
+      },
+    );
+    const deadline = Date.now() + timeoutMs;
+    try {
+      while (this.#liveSetOwnershipTransitions.size > 0) {
+        const remainingMs = deadline - Date.now();
+        if (remainingMs <= 0) {
+          throw new AgentSendTransitionError(
+            "transition_timed_out",
+            `The Live Set transition did not settle within ${timeoutMs} ms. The message was not sent; retry after the transition finishes.`,
+          );
+        }
+        let timeout: NodeJS.Timeout | undefined;
+        try {
+          await Promise.race([
+            Promise.all([...this.#liveSetOwnershipTransitions]),
+            new Promise<never>((_resolve, reject) => {
+              timeout = setTimeout(
+                () =>
+                  reject(
+                    new AgentSendTransitionError(
+                      "transition_timed_out",
+                      `The Live Set transition did not settle within ${timeoutMs} ms. The message was not sent; retry after the transition finishes.`,
+                    ),
+                  ),
+                remainingMs,
+              );
+              timeout.unref?.();
+            }),
+          ]);
+        } catch (error) {
+          if (error instanceof AgentSendTransitionError) throw error;
+          throw new AgentSendTransitionError(
+            "transition_failed",
+            "The Live Set transition failed. The message was not sent; retry after resolving the transition.",
+            { cause: error },
+          );
+        } finally {
+          if (timeout !== undefined) clearTimeout(timeout);
+        }
+      }
+      if (!this.#acceptingActions) {
+        throw new AgentSendTransitionError(
+          "service_stopping",
+          "Ableton Agent stopped while waiting for the Live Set transition. The message was not sent; retry after restarting the app.",
+        );
+      }
+      this.#enqueueAgentSendTransitionEvent(
+        "desktop.agent_send_transition_gate.completed",
+        {
+          messageId,
+          traceId,
+          spanId: randomUUID(),
+          parentSpanId: startedSpanId,
+          causationId: startedSpanId,
+          transitionCount: 0,
+          durationMs: Date.now() - startedAt,
+          outcome: "success",
+        },
+      );
+    } catch (error) {
+      const transitionError =
+        error instanceof AgentSendTransitionError
+          ? error
+          : new AgentSendTransitionError(
+              "transition_failed",
+              "The Live Set transition failed. The message was not sent; retry after resolving the transition.",
+              { cause: error },
+            );
+      const terminalName =
+        transitionError.code === "transition_timed_out"
+          ? "desktop.agent_send_transition_gate.timed_out"
+          : transitionError.code === "service_stopping"
+            ? "desktop.agent_send_transition_gate.cancelled"
+            : "desktop.agent_send_transition_gate.failed";
+      this.#enqueueAgentSendTransitionEvent(terminalName, {
+        messageId,
+        traceId,
+        spanId: randomUUID(),
+        parentSpanId: startedSpanId,
+        causationId: startedSpanId,
+        transitionCount: this.#liveSetOwnershipTransitions.size,
+        durationMs: Date.now() - startedAt,
+        outcome: "failure",
+        level: transitionError.code === "transition_failed" ? "error" : "warn",
+        errorCode: transitionError.code,
+      });
+      throw transitionError;
+    }
+    this.#logger.debug("Agent send ownership transition settled", {
+      messageId,
+      waitLimitMs: timeoutMs,
+    });
+  }
+
+  #enqueueAgentSendTransitionEvent(
+    name: string,
+    input: {
+      messageId: string;
+      traceId: string;
+      spanId: string;
+      parentSpanId?: string;
+      causationId?: string;
+      transitionCount: number;
+      durationMs?: number;
+      outcome?: "success" | "failure";
+      level?: "info" | "warn" | "error";
+      errorCode?: AgentSendTransitionError["code"];
+    },
+  ): void {
+    void this.#eventJournal
+      ?.enqueue({
+        version: 2,
+        id: randomUUID(),
+        occurredAt: new Date().toISOString(),
+        name,
+        category: "application",
+        source: "desktop-agent-send",
+        level: input.level ?? "info",
+        ...(input.outcome === undefined ? {} : { outcome: input.outcome }),
+        ...(input.durationMs === undefined
+          ? {}
+          : { durationMs: input.durationMs }),
+        correlationId: input.messageId,
+        ...(input.causationId === undefined
+          ? {}
+          : { causationId: input.causationId }),
+        trace: {
+          traceId: input.traceId,
+          spanId: input.spanId,
+          ...(input.parentSpanId === undefined
+            ? {}
+            : { parentSpanId: input.parentSpanId }),
+        },
+        attributes: {
+          reason: "live_set_ownership_transition",
+          transitionCount: input.transitionCount,
+          ...(input.errorCode === undefined
+            ? {}
+            : { errorCode: input.errorCode }),
+        },
+      })
+      .catch((error: unknown) => {
+        this.options.onError?.("Agent send transition event write failed", {
+          operation: name,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+  }
+
   #queueAgentAction<T>(
     instanceId: string,
     action: () => Promise<T>,
@@ -5269,8 +5524,8 @@ export class HeadlessDesktopService implements DesktopService {
     target: ActiveAgentTarget,
     run: () => Promise<string>,
     validate?: (instance: DesktopActiveAgent) => void,
+    messageId = randomUUID(),
   ): Promise<{ accepted: true; messageId: string }> {
-    const messageId = randomUUID();
     const turn: ActiveTurn = {
       messageId,
       assistantMessageId: randomUUID(),
@@ -5519,6 +5774,15 @@ export class HeadlessDesktopService implements DesktopService {
       (this.#pendingLiveSetTransition !== undefined ||
         this.#transitionCommitting)
     ) {
+      throw new Error("A Live Set transition decision is required");
+    }
+  }
+
+  #assertSendAvailable(): void {
+    if (!this.#acceptingActions) {
+      throw new Error("Desktop service is not accepting actions");
+    }
+    if (this.#pendingLiveSetTransition !== undefined) {
       throw new Error("A Live Set transition decision is required");
     }
   }

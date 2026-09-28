@@ -159,6 +159,11 @@ Critical workflows:
 - Project switch.
 - Debug-only isolated automation launch, selected startup agent/YOLO state,
   authenticated external message acceptance, and visible user-turn rendering.
+- Slow snapshot enrichment that remains active while a prompt reaches visible
+  submission and acceptance without waiting for optional enrichment.
+- Ownership-transition submission states: bounded waiting, accepted-message
+  identity, actionable timeout, preserved retry text, and no duplicate user
+  bubble.
 
 The external driver uses the local stdio MCP adapter only to submit a message.
 Computer-use owns screenshots and visual inspection of the Electron app and
@@ -189,6 +194,9 @@ Use fake clocks, deterministic IDs, and bounded stores to verify:
 - configuration snapshots are emitted on create, resume, and effective change;
 - every supported SDK, tool/workflow, approval, bridge, Live Event, and Output
   lifecycle path records the required stages, outcomes, and timings;
+- prompt ownership gates record queued, started, completed, failed, timed-out,
+  and cancelled stages without storing prompt text, and correlate those stages
+  to the accepted message ID;
 - trace/correlation/causation IDs survive fan-out, reconnect, automatic turns,
   failures, cancellation, and retries without cross-agent attribution;
 - bounded prompts, assistant text, paths, structured musical/MIDI and event

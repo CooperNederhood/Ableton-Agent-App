@@ -158,6 +158,8 @@ presentation state and say so; they are not applied to Live.
   cancellation, resume, connection failure, and shutdown.
   - [x] Cover real Electron launch, preload isolation, application landmarks,
     keyboard shortcuts, and clean shutdown.
+  - [x] Cover packaged Copilot authentication-required recovery and an
+    authenticated installed-app model-discovery smoke.
   - [ ] Cover live Copilot chat/tool streaming and approval flows in packaged
     builds.
   - [x] Cover isolated automation launch and an externally submitted visible

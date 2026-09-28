@@ -955,6 +955,33 @@ export const desktopAgentModelsSchema = z
   .array(desktopAgentModelSchema)
   .max(256);
 
+export const desktopCopilotAuthStatusSchema = z.discriminatedUnion("state", [
+  z
+    .object({
+      state: z.literal("authenticated"),
+      authType: z.enum(["user", "env", "gh-cli", "hmac", "api-key", "token"]),
+      host: z.string().url().max(2048).optional(),
+      login: z.string().min(1).max(256).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      state: z.enum([
+        "authentication-required",
+        "cli-unavailable",
+        "credential-invalid-or-expired",
+        "entitlement-unavailable",
+        "runtime-unavailable",
+        "transient-failure",
+      ]),
+      message: z.string().min(1).max(1024),
+    })
+    .strict(),
+]);
+export type DesktopCopilotAuthStatus = z.infer<
+  typeof desktopCopilotAuthStatusSchema
+>;
+
 export const desktopAgentConversationSettingsSchema = z
   .object({
     model: z.string().trim().min(1).optional(),
@@ -1756,6 +1783,14 @@ export const ipcSchemas = {
     request: z.object({}).strict(),
     response: desktopAgentModelsSchema,
   },
+  "agents:auth-status": {
+    request: z.object({}).strict(),
+    response: desktopCopilotAuthStatusSchema,
+  },
+  "agents:auth-refresh": {
+    request: z.object({}).strict(),
+    response: desktopCopilotAuthStatusSchema,
+  },
   "agents:create": {
     request: z.object({ definitionName: z.string().min(1) }).strict(),
     response: desktopActiveAgentSchema,
@@ -2277,6 +2312,8 @@ export interface DesktopApi {
     }>;
     listActive(): Promise<DesktopActiveAgent[]>;
     listModels(): Promise<DesktopAgentModel[]>;
+    getAuthStatus(): Promise<DesktopCopilotAuthStatus>;
+    refreshAuthentication(): Promise<DesktopCopilotAuthStatus>;
     create(definitionName: string): Promise<DesktopActiveAgent>;
     rename(instanceId: string, label: string): Promise<DesktopActiveAgent>;
     configure(

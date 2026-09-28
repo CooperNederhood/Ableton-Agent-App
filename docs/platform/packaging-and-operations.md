@@ -46,12 +46,31 @@ This command removes stale release artifacts, restores the pinned dependencies,
 runs the production quality and source-mode Electron gates, packages only the
 host architecture, smoke-tests the packaged app, updates the managed Remote
 Script, applies a complete local ad-hoc signature, atomically replaces
-`/Applications/Ableton Agent.app`, and launches that exact installed path.
+`/Applications/Ableton Agent.app`, verifies Copilot authentication and model
+discovery against that exact installed path with a Finder-like environment, and
+launches it.
 Application profiles, history, credentials, bridge tokens, and Ableton projects
 are preserved. The command fails before mutation if Live or any Ableton Agent
 copy is still running. Use `--skip-checks` only after a fully verified build,
+`--skip-auth-smoke` only when offline or deliberately recovering authentication,
 `--skip-remote-script` when Python sources are unchanged, or `--no-launch` when
 the installed app should remain closed.
+
+The packaged app keeps Copilot session/configuration state under the selected
+Ableton Agent profile, but GitHub authentication remains owned by GitHub CLI.
+Finder does not inherit a terminal's Homebrew PATH, so Desktop resolves a
+bounded executable candidate such as `/opt/homebrew/bin/gh` and exposes only
+that directory to the embedded Copilot runtime. It does not execute
+`gh auth token`, copy `~/.copilot`, or persist a GitHub token. If the app reports
+that authentication is required, run:
+
+```bash
+gh auth login
+```
+
+Then choose **Check again** in Ableton Agent. A GitHub CLI sign-in problem is
+separate from macOS Keychain prompts used by Electron `safeStorage` for the
+Ableton Remote Script bridge credential.
 
 `electron-builder.yml` produces DMG/ZIP artifacts for Intel and Apple Silicon
 macOS and an assisted, per-user NSIS installer for 64-bit Windows. Signing and
@@ -287,7 +306,9 @@ desktop credential vault. CLI users still provide it through
 | Bridge remains disconnected | Confirm the Control Surface is selected, Live was restarted after installation, and the app port matches the Remote Script port. |
 | Authentication fails | Reinstall/update the Remote Script to preserve or regenerate its token, then restart the desktop app. |
 | Compatibility check fails | Update the Remote Script first; if Live is outside the supported matrix, do not force mutations. |
-| Agent session does not start | Confirm GitHub Copilot authentication, inspect Diagnostics, and export a redacted support bundle. |
+| GitHub authentication required | Install GitHub CLI if needed, run `gh auth login`, then choose **Check again**. Finder-launched apps do not inherit the terminal's Homebrew PATH; Desktop resolves supported standard locations explicitly. |
+| Copilot entitlement unavailable | Confirm the authenticated GitHub account has Copilot access, then retry. |
+| Agent session does not start | Inspect the typed Copilot authentication state and Diagnostics, then export a redacted support bundle. |
 | Renderer recovers or restarts | Preserve the support bundle; the isolated main-process session should remain available after reload. |
 | Upgrade behaves unexpectedly | Restore the timestamped Remote Script backup from `.ableton-agent-backups` and attach version evidence to the issue. |
 

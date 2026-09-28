@@ -309,6 +309,19 @@ export interface AgentModelDescriptor {
   readonly defaultReasoningEffort?: string | undefined;
 }
 
+export type AgentAuthenticationStatus =
+  | {
+      readonly state: "authenticated";
+      readonly authType:
+        "user" | "env" | "gh-cli" | "hmac" | "api-key" | "token";
+      readonly host?: string;
+      readonly login?: string;
+    }
+  | {
+      readonly state: "authentication-required";
+      readonly message?: string;
+    };
+
 export interface AgentSkillDescriptor {
   readonly name: string;
   readonly description: string;
@@ -346,6 +359,10 @@ export interface AgentService
   resumeSession(sessionId: string): Promise<void>;
   /** Lists models reported by the connected Copilot runtime. */
   listModels?(): Promise<readonly AgentModelDescriptor[]>;
+  /** Returns credential-free authentication state from the Copilot runtime. */
+  getAuthenticationStatus?(): Promise<AgentAuthenticationStatus>;
+  /** Restarts the Copilot runtime and reconnects idle sessions. */
+  refreshAuthentication?(): Promise<AgentAuthenticationStatus>;
   /** Creates or replaces a managed agent session for one application instance. */
   createManagedAgent?(
     configuration: AgentSessionConfiguration,
@@ -408,7 +425,7 @@ export interface AgentService
 }
 
 const missingCopilotSessionPattern =
-  /^Request session\.(?:send|getMessages) failed with message: Session not found for sessionId: [^\s]+$/u;
+  /^(?:Request session\.(?:send|getMessages) failed with message: Session not found for sessionId: [^\s]+|Request session\.resume failed with message: Failed to load session events: Session not found: [^\s]+|Session not found: [^\s]+)$/u;
 
 export class MissingCopilotSessionError extends Error {
   public readonly cleanupError: unknown;
@@ -627,6 +644,13 @@ interface CopilotClientAdapter {
     config: ResumeSessionConfig,
   ): Promise<CopilotSessionAdapter>;
   listModels?(): Promise<ModelInfo[]>;
+  getAuthStatus?(): Promise<{
+    isAuthenticated: boolean;
+    authType?: "user" | "env" | "gh-cli" | "hmac" | "api-key" | "token";
+    host?: string;
+    login?: string;
+    statusMessage?: string;
+  }>;
   stop(): Promise<unknown>;
 }
 
@@ -791,6 +815,7 @@ export interface CopilotAgentServiceOptions {
   askForReadApproval?: boolean | (() => boolean);
   clientFactory?: () => CopilotClientAdapter;
   baseDirectory?: string;
+  runtimeEnvironment?: Record<string, string | undefined>;
   largeOutputDirectory?: string;
   resolvePlanArtifactPaths?: PlanArtifactPathResolver;
   model?: string;
@@ -1724,6 +1749,9 @@ export class CopilotAgentService implements AgentService {
         new CopilotClient({
           mode: "empty",
           baseDirectory: options.baseDirectory ?? storage.copilotDirectory,
+          ...(options.runtimeEnvironment === undefined
+            ? {}
+            : { env: options.runtimeEnvironment }),
         }));
   }
 
@@ -4070,10 +4098,15 @@ export class CopilotAgentService implements AgentService {
     sdkSessionId: string,
   ): Promise<CopilotSessionAdapter> {
     const config = await this.#sessionConfig(state);
-    const session = await this.#requireClient().resumeSession(
-      sdkSessionId,
-      config,
-    );
+    let session: CopilotSessionAdapter;
+    try {
+      session = await this.#requireClient().resumeSession(sdkSessionId, config);
+    } catch (error) {
+      if (isMissingCopilotSessionError(error)) {
+        throw new MissingCopilotSessionError(sdkSessionId, { cause: error });
+      }
+      throw error;
+    }
     try {
       await session.getEvents?.();
     } catch (error) {
@@ -4483,6 +4516,94 @@ export class CopilotAgentService implements AgentService {
     return (await listModels())
       .filter(({ id }) => id !== "auto")
       .map(toAgentModelDescriptor);
+  }
+
+  public async getAuthenticationStatus(): Promise<AgentAuthenticationStatus> {
+    const client = this.#requireClient();
+    const getAuthStatus = client.getAuthStatus?.bind(client);
+    if (getAuthStatus === undefined) {
+      throw new Error(
+        "Configured Copilot client does not support authentication status",
+      );
+    }
+    const status = await getAuthStatus();
+    if (!status.isAuthenticated || status.authType === undefined) {
+      return {
+        state: "authentication-required",
+        ...(status.statusMessage === undefined
+          ? {}
+          : { message: status.statusMessage }),
+      };
+    }
+    return {
+      state: "authenticated",
+      authType: status.authType,
+      ...(status.host === undefined ? {} : { host: status.host }),
+      ...(status.login === undefined ? {} : { login: status.login }),
+    };
+  }
+
+  public async refreshAuthentication(): Promise<AgentAuthenticationStatus> {
+    const previousClient = this.#requireClient();
+    const snapshots = [...this.#states.values()].map((state) => {
+      this.#assertIdle(state, "refresh Copilot authentication");
+      return {
+        state,
+        sessionId: state.session?.sessionId,
+      };
+    });
+    for (const snapshot of snapshots) {
+      snapshot.state.unsubscribe?.();
+      snapshot.state.unsubscribe = undefined;
+      snapshot.state.session = undefined;
+    }
+    this.#client = undefined;
+    await previousClient.stop();
+    const replacementClient = this.#clientFactory();
+    this.#client = replacementClient;
+    try {
+      for (const snapshot of snapshots) {
+        if (snapshot.sessionId === undefined) continue;
+        try {
+          await this.#connectResumedState(snapshot.state, snapshot.sessionId);
+        } catch (error) {
+          if (!isMissingCopilotSessionError(error)) throw error;
+          const replacement = await this.#connectCreatedState(snapshot.state);
+          this.#logger.warn(
+            "Copilot authentication refresh replaced a missing SDK session",
+            {
+              previousSessionId: snapshot.sessionId,
+              sessionId: replacement.sessionId,
+            },
+          );
+        }
+      }
+    } catch (error) {
+      const cleanupFailures: unknown[] = [error];
+      for (const snapshot of snapshots) {
+        snapshot.state.unsubscribe?.();
+        snapshot.state.unsubscribe = undefined;
+        try {
+          await snapshot.state.session?.disconnect();
+        } catch (disconnectError) {
+          cleanupFailures.push(disconnectError);
+        }
+        snapshot.state.session = undefined;
+      }
+      try {
+        await replacementClient.stop();
+      } catch (stopError) {
+        cleanupFailures.push(stopError);
+      }
+      this.#client = undefined;
+      throw new AggregateError(
+        cleanupFailures,
+        `Copilot authentication refresh failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+    return this.getAuthenticationStatus();
   }
 
   public async resumeSession(sessionId: string): Promise<void> {
@@ -5539,7 +5660,9 @@ export class HeadlessApplication {
       | "readManagedAgentPlan"
       | "writeManagedAgentPlan"
       | "resolveManagedAgentElicitation"
-      | "listModels",
+      | "listModels"
+      | "getAuthenticationStatus"
+      | "refreshAuthentication",
   >(name: K): NonNullable<AgentService[K]> {
     const method = this.services.agent[name];
     if (method === undefined) {
@@ -5658,6 +5781,14 @@ export class HeadlessApplication {
 
   public listModels(): Promise<readonly AgentModelDescriptor[]> {
     return this.#requireManagedAgentMethod("listModels")();
+  }
+
+  public getAuthenticationStatus(): Promise<AgentAuthenticationStatus> {
+    return this.#requireManagedAgentMethod("getAuthenticationStatus")();
+  }
+
+  public refreshAuthentication(): Promise<AgentAuthenticationStatus> {
+    return this.#requireManagedAgentMethod("refreshAuthentication")();
   }
 
   public getManagedAgentSessionId(instanceId: string): string | undefined {

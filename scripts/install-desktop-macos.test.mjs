@@ -10,6 +10,7 @@ import {
 describe("macOS desktop installer", () => {
   it("uses safe full-install defaults", () => {
     expect(parseInstallArguments([])).toEqual({
+      authSmoke: true,
       checks: true,
       launch: true,
       remoteScript: true,
@@ -21,10 +22,12 @@ describe("macOS desktop installer", () => {
       parseInstallArguments([
         "--",
         "--skip-checks",
+        "--skip-auth-smoke",
         "--skip-remote-script",
         "--no-launch",
       ]),
     ).toEqual({
+      authSmoke: false,
       checks: false,
       launch: false,
       remoteScript: false,

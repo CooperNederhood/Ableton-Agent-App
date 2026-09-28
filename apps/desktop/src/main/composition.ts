@@ -78,6 +78,10 @@ export interface DesktopCompositionOptions {
   signalDescriptorPath?: string;
   /** Copilot session storage owned by the desktop app. */
   agentBaseDirectory: string;
+  /** Environment inherited only by the embedded Copilot runtime. */
+  copilotRuntimeEnvironment?: Record<string, string | undefined>;
+  copilotCliAvailable?: boolean;
+  copilotCliSource?: "environment-path" | "explicit" | "standard-location";
   /** Token from OS-backed secure storage, when one has been provisioned. */
   storedToken?: string | undefined;
   credentialVault?: BridgeCredentialVault;
@@ -619,6 +623,14 @@ export async function createDesktopComposition(
             detail: options.storageMigrationFailure,
           },
         ];
+  if (options.copilotCliAvailable === false) {
+    notices.push({
+      label: "Copilot authentication",
+      status: "warn",
+      detail:
+        "GitHub CLI was not found. Install GitHub CLI and run 'gh auth login' before using Copilot agents.",
+    });
+  }
   const preferences = await loadPreferences(preferencesStore, notices);
   const eventJournalPath =
     options.eventJournalPath ??
@@ -657,6 +669,57 @@ export async function createDesktopComposition(
       },
     },
   );
+  {
+    const correlationId = randomUUID();
+    const traceId = randomUUID();
+    const startedAt = new Date().toISOString();
+    const base = {
+      version: 2 as const,
+      category: "application" as const,
+      source: "desktop-copilot-auth",
+      level: "info" as const,
+      correlationId,
+      attributes: {},
+    };
+    const queuedSpanId = randomUUID();
+    telemetry.enqueue({
+      ...base,
+      id: randomUUID(),
+      occurredAt: startedAt,
+      name: "desktop.copilot_auth_discovery.queued",
+      trace: { traceId, spanId: queuedSpanId },
+    });
+    const startedSpanId = randomUUID();
+    telemetry.enqueue({
+      ...base,
+      id: randomUUID(),
+      occurredAt: startedAt,
+      name: "desktop.copilot_auth_discovery.started",
+      causationId: queuedSpanId,
+      trace: {
+        traceId,
+        spanId: startedSpanId,
+        parentSpanId: queuedSpanId,
+      },
+    });
+    telemetry.enqueue({
+      ...base,
+      id: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      name: "desktop.copilot_auth_discovery.completed",
+      outcome: "success",
+      causationId: startedSpanId,
+      trace: {
+        traceId,
+        spanId: randomUUID(),
+        parentSpanId: startedSpanId,
+      },
+      attributes: {
+        available: options.copilotCliAvailable ?? false,
+        source: options.copilotCliSource ?? "none",
+      },
+    });
+  }
   for (const event of options.storageMigrationEvents ?? []) {
     telemetry.enqueue({
       version: 2,
@@ -772,6 +835,9 @@ export async function createDesktopComposition(
     },
     agent: {
       baseDirectory: options.agentBaseDirectory,
+      ...(options.copilotRuntimeEnvironment === undefined
+        ? {}
+        : { runtimeEnvironment: options.copilotRuntimeEnvironment }),
       largeOutputDirectory:
         storage?.copilotToolOutputDirectory ??
         join(options.agentBaseDirectory, "tool-output"),
@@ -874,6 +940,9 @@ export async function createDesktopComposition(
     agentCatalog,
     signals: runtime.signals,
     liveEvents: runtime.liveEvents,
+    ...(options.copilotCliAvailable === undefined
+      ? {}
+      : { copilotCliAvailable: options.copilotCliAvailable }),
     ...(snapshotHistory === undefined ? {} : { snapshotHistory }),
     ...(journalHost.journal === undefined ? {} : { eventJournal: journalHost }),
     eventHistoryUnavailable: journalHost.journal === undefined,

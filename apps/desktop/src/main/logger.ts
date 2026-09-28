@@ -19,6 +19,8 @@ const logLevelPriority: Readonly<Record<LogLevel, number>> = {
   debug: 3,
 };
 const bearerToken = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/giu;
+const githubToken =
+  /\b(?:github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,})\b/gu;
 const maximumStringLength = 8_192;
 const maximumArrayLength = 100;
 const maximumObjectEntries = 100;
@@ -61,7 +63,9 @@ function sanitizeDiagnosticValue(
 ): unknown {
   if (isCredentialKey(key)) return "[REDACTED]";
   if (typeof value === "string") {
-    const redacted = value.replace(bearerToken, "******");
+    const redacted = value
+      .replace(bearerToken, "******")
+      .replace(githubToken, "******");
     return redacted.length <= maximumStringLength
       ? redacted
       : `${redacted.slice(0, maximumStringLength)}${truncated}`;

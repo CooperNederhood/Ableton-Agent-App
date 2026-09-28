@@ -3326,6 +3326,18 @@ describe("CopilotAgentService model selection", () => {
         } as unknown as Partial<ModelInfo>),
       ])
       .mockRejectedValueOnce(new Error("catalog unavailable"));
+    const getAuthStatus = vi
+      .fn()
+      .mockResolvedValueOnce({
+        isAuthenticated: true,
+        authType: "gh-cli" as const,
+        host: "https://github.com",
+        login: "octocat",
+      })
+      .mockResolvedValueOnce({
+        isAuthenticated: false,
+        statusMessage: "Not authenticated",
+      });
     const service = new CopilotAgentService(
       baseOptions({
         clientFactory: () => ({
@@ -3334,6 +3346,7 @@ describe("CopilotAgentService model selection", () => {
             throw new Error("unused");
           }),
           listModels,
+          getAuthStatus,
           stop: vi.fn(async () => undefined),
         }),
       }),
@@ -3375,6 +3388,120 @@ describe("CopilotAgentService model selection", () => {
       },
     ]);
     await expect(service.listModels()).rejects.toThrow("catalog unavailable");
+    await expect(service.getAuthenticationStatus()).resolves.toEqual({
+      state: "authenticated",
+      authType: "gh-cli",
+      host: "https://github.com",
+      login: "octocat",
+    });
+    await expect(service.getAuthenticationStatus()).resolves.toEqual({
+      state: "authentication-required",
+      message: "Not authenticated",
+    });
+    await service.stop();
+  });
+
+  it("restarts the runtime and resumes idle sessions when authentication is refreshed", async () => {
+    const originalStop = vi.fn(async () => undefined);
+    const replacementStop = vi.fn(async () => undefined);
+    const replacementResume = vi.fn(async (sessionId: string) =>
+      createFakeSession(sessionId),
+    );
+    const clients = [
+      {
+        createSession: vi.fn(async () => createFakeSession("default-session")),
+        resumeSession: vi.fn(async () => {
+          throw new Error("unused");
+        }),
+        getAuthStatus: vi.fn(async () => ({
+          isAuthenticated: false,
+          statusMessage: "Not authenticated",
+        })),
+        stop: originalStop,
+      },
+      {
+        createSession: vi.fn(async () => {
+          throw new Error("unused");
+        }),
+        resumeSession: replacementResume,
+        getAuthStatus: vi.fn(async () => ({
+          isAuthenticated: true,
+          authType: "gh-cli" as const,
+          host: "https://github.com",
+          login: "octocat",
+        })),
+        stop: replacementStop,
+      },
+    ];
+    const service = new CopilotAgentService(
+      baseOptions({
+        clientFactory: () => {
+          const client = clients.shift();
+          if (client === undefined) throw new Error("unexpected client");
+          return client;
+        },
+      }),
+    );
+    await service.start();
+
+    await expect(service.refreshAuthentication()).resolves.toEqual({
+      state: "authenticated",
+      authType: "gh-cli",
+      host: "https://github.com",
+      login: "octocat",
+    });
+    expect(replacementResume).toHaveBeenCalledWith(
+      "default-session",
+      expect.any(Object),
+    );
+    expect(originalStop).toHaveBeenCalledOnce();
+    expect(service.sessionId).toBe("default-session");
+
+    await service.stop();
+    expect(replacementStop).toHaveBeenCalledOnce();
+  });
+
+  it("rotates an ephemeral SDK session when refresh cannot resume it", async () => {
+    const clients = [
+      {
+        createSession: vi.fn(async () =>
+          createFakeSession("ephemeral-session"),
+        ),
+        resumeSession: vi.fn(async () => {
+          throw new Error("unused");
+        }),
+        stop: vi.fn(async () => undefined),
+      },
+      {
+        createSession: vi.fn(async () =>
+          createFakeSession("replacement-session"),
+        ),
+        resumeSession: vi.fn(async (sessionId: string) => {
+          throw new Error(`Session not found: ${sessionId}`);
+        }),
+        getAuthStatus: vi.fn(async () => ({
+          isAuthenticated: true,
+          authType: "gh-cli" as const,
+        })),
+        stop: vi.fn(async () => undefined),
+      },
+    ];
+    const service = new CopilotAgentService(
+      baseOptions({
+        clientFactory: () => {
+          const client = clients.shift();
+          if (client === undefined) throw new Error("unexpected client");
+          return client;
+        },
+      }),
+    );
+    await service.start();
+
+    await expect(service.refreshAuthentication()).resolves.toEqual({
+      state: "authenticated",
+      authType: "gh-cli",
+    });
+    expect(service.sessionId).toBe("replacement-session");
     await service.stop();
   });
 

@@ -27,6 +27,7 @@ import type {
   DesktopAgentHistoryMessage,
   DesktopAgentCatalog,
   DesktopAgentModel,
+  DesktopCopilotAuthStatus,
   DesktopAgentMode,
   DesktopPlanArtifactSnapshot,
   DesktopAutoApprovalUpdate,
@@ -83,6 +84,8 @@ export interface DesktopService {
   refreshAgentCatalog(): Promise<DesktopAgentCatalog>;
   listActiveAgents(): Promise<DesktopActiveAgent[]>;
   listAgentModels(): Promise<DesktopAgentModel[]>;
+  getCopilotAuthStatus(): Promise<DesktopCopilotAuthStatus>;
+  refreshCopilotAuthentication(): Promise<DesktopCopilotAuthStatus>;
   createActiveAgent(definitionName: string): Promise<DesktopActiveAgent>;
   renameActiveAgent(
     instanceId: string,

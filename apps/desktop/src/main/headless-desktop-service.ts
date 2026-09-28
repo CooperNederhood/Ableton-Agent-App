@@ -58,6 +58,7 @@ import {
   desktopAgentCatalogSchema,
   desktopAgentConversationSettingsSchema,
   desktopAgentModelsSchema,
+  desktopCopilotAuthStatusSchema,
   desktopLiveSetIdentitySchema,
   connectionStatusSchema,
   MAX_AGENT_TRIGGER_HISTORY,
@@ -83,6 +84,7 @@ import {
   type DesktopAgentHistoryMessage,
   type DesktopActiveAgent,
   type DesktopAgentModel,
+  type DesktopCopilotAuthStatus,
   type DesktopAgentMode,
   type DesktopPlanArtifactSnapshot,
   type DesktopPreferences,
@@ -236,6 +238,7 @@ export interface HeadlessDesktopServiceOptions {
   onEventHistoryEnabledChange?: (enabled: boolean) => void;
   eventHistoryUnavailable?: boolean;
   snapshotHistory?: LiveSetSnapshotHistoryRepository;
+  copilotCliAvailable?: boolean;
 }
 
 export type DesktopEventJournal = Pick<
@@ -782,6 +785,130 @@ export class HeadlessDesktopService implements DesktopService {
 
   public async listActiveAgents(): Promise<DesktopActiveAgent[]> {
     return [...this.#requireActiveSession().activeAgents];
+  }
+
+  public async getCopilotAuthStatus(): Promise<DesktopCopilotAuthStatus> {
+    this.#assertAccepting();
+    const startedAt = Date.now();
+    const correlationId = randomUUID();
+    const traceId = randomUUID();
+    const queuedSpanId = randomUUID();
+    const enqueueLifecycle = (
+      name: string,
+      input: {
+        spanId: string;
+        parentSpanId?: string;
+        causationId?: string;
+        level?: "info" | "warn" | "error";
+        outcome?: "success" | "failure";
+        durationMs?: number;
+        state?: DesktopCopilotAuthStatus["state"];
+      },
+    ): void => {
+      const event = {
+        version: 2 as const,
+        id: randomUUID(),
+        occurredAt: new Date().toISOString(),
+        name,
+        category: "application",
+        source: "desktop-copilot-auth",
+        level: input.level ?? "info",
+        ...(input.outcome === undefined ? {} : { outcome: input.outcome }),
+        ...(input.durationMs === undefined
+          ? {}
+          : { durationMs: input.durationMs }),
+        correlationId,
+        ...(input.causationId === undefined
+          ? {}
+          : { causationId: input.causationId }),
+        trace: {
+          traceId,
+          spanId: input.spanId,
+          ...(input.parentSpanId === undefined
+            ? {}
+            : { parentSpanId: input.parentSpanId }),
+        },
+        attributes: input.state === undefined ? {} : { state: input.state },
+      };
+      void this.#eventJournal?.enqueue(event).catch((error: unknown) => {
+        this.options.onError?.("Copilot authentication event write failed", {
+          operation: name,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    };
+    enqueueLifecycle("desktop.copilot_auth_check.queued", {
+      spanId: queuedSpanId,
+    });
+    const startedSpanId = randomUUID();
+    enqueueLifecycle("desktop.copilot_auth_check.started", {
+      spanId: startedSpanId,
+      parentSpanId: queuedSpanId,
+      causationId: queuedSpanId,
+    });
+    try {
+      const status = await this.#application.getAuthenticationStatus();
+      if (status.state === "authenticated") {
+        const result = desktopCopilotAuthStatusSchema.parse(status);
+        enqueueLifecycle("desktop.copilot_auth_check.completed", {
+          spanId: randomUUID(),
+          parentSpanId: startedSpanId,
+          causationId: startedSpanId,
+          outcome: "success",
+          durationMs: Date.now() - startedAt,
+          state: result.state,
+        });
+        return result;
+      }
+      const result = desktopCopilotAuthStatusSchema.parse({
+        state:
+          this.options.copilotCliAvailable === false
+            ? "cli-unavailable"
+            : "authentication-required",
+        message:
+          this.options.copilotCliAvailable === false
+            ? "GitHub CLI was not found. Install GitHub CLI and run 'gh auth login'."
+            : "GitHub CLI is not authenticated. Run 'gh auth login', then restart Ableton Agent.",
+      });
+      enqueueLifecycle("desktop.copilot_auth_check.completed", {
+        spanId: randomUUID(),
+        parentSpanId: startedSpanId,
+        causationId: startedSpanId,
+        outcome: "success",
+        durationMs: Date.now() - startedAt,
+        state: result.state,
+      });
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const normalized = message.toLowerCase();
+      const state = normalized.includes("not authenticated")
+        ? "authentication-required"
+        : normalized.includes("entitlement") ||
+            normalized.includes("copilot access")
+          ? "entitlement-unavailable"
+          : normalized.includes("runtime") ||
+              normalized.includes("client not connected")
+            ? "runtime-unavailable"
+            : "transient-failure";
+      const result = desktopCopilotAuthStatusSchema.parse({ state, message });
+      enqueueLifecycle("desktop.copilot_auth_check.failed", {
+        spanId: randomUUID(),
+        parentSpanId: startedSpanId,
+        causationId: startedSpanId,
+        level: "error",
+        outcome: "failure",
+        durationMs: Date.now() - startedAt,
+        state: result.state,
+      });
+      return result;
+    }
+  }
+
+  public async refreshCopilotAuthentication(): Promise<DesktopCopilotAuthStatus> {
+    this.#assertAccepting();
+    await this.#application.refreshAuthentication();
+    return this.getCopilotAuthStatus();
   }
 
   public async listAgentModels(): Promise<DesktopAgentModel[]> {

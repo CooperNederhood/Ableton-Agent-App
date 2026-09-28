@@ -31,6 +31,7 @@ import type {
   DesktopActiveAgent,
   DesktopAgentDefinition,
   DesktopAgentModel,
+  DesktopCopilotAuthStatus,
   DesktopAppEvent,
   DesktopConnectionStatus,
   DesktopOutputAssignment,
@@ -4045,7 +4046,12 @@ export function AgentsView({
   const [modelsState, setModelsState] = useState<
     | { status: "loading"; models: DesktopAgentModel[] }
     | { status: "loaded"; models: DesktopAgentModel[] }
-    | { status: "failed"; models: DesktopAgentModel[]; message: string }
+    | {
+        status: "failed";
+        models: DesktopAgentModel[];
+        message: string;
+        auth?: DesktopCopilotAuthStatus;
+      }
   >({ status: "loading", models: [] });
   const inactiveDefinitions = useMemo(() => {
     const activeDefinitionNames = new Set(
@@ -4095,6 +4101,16 @@ export function AgentsView({
       models: current.models,
     }));
     try {
+      const auth = await window.desktop.agents.getAuthStatus();
+      if (auth.state !== "authenticated") {
+        setModelsState((current) => ({
+          status: "failed",
+          models: current.models,
+          message: auth.message,
+          auth,
+        }));
+        return;
+      }
       setModelsState({
         status: "loaded",
         models: await window.desktop.agents.listModels(),
@@ -4263,8 +4279,56 @@ export function AgentsView({
       )}
       {modelsState.status === "failed" && (
         <div className="notice" role="alert">
-          <span>Copilot models could not be loaded: {modelsState.message}</span>
-          <button onClick={() => void loadModels()}>Retry models</button>
+          {modelsState.auth?.state === "authentication-required" ||
+          modelsState.auth?.state === "cli-unavailable" ||
+          modelsState.auth?.state === "credential-invalid-or-expired" ? (
+            <>
+              <strong>GitHub authentication required.</strong>
+              <span>{modelsState.message}</span>
+              <span>
+                Run <code>gh auth login</code> in Terminal, then check again.
+              </span>
+              <button
+                onClick={() =>
+                  void navigator.clipboard.writeText("gh auth login")
+                }
+              >
+                Copy sign-in command
+              </button>
+              <button
+                onClick={() =>
+                  void window.desktop.agents
+                    .refreshAuthentication()
+                    .then(() => loadModels())
+                    .catch((error: unknown) => {
+                      const message =
+                        error instanceof Error
+                          ? error.message
+                          : "Authentication could not be refreshed";
+                      setModelsState((current) => ({
+                        status: "failed",
+                        models: current.models,
+                        message,
+                        auth: {
+                          state: "transient-failure",
+                          message,
+                        },
+                      }));
+                      reportError(error, message);
+                    })
+                }
+              >
+                Check again
+              </button>
+            </>
+          ) : (
+            <>
+              <span>
+                Copilot models could not be loaded: {modelsState.message}
+              </span>
+              <button onClick={() => void loadModels()}>Retry models</button>
+            </>
+          )}
         </div>
       )}
       {modelsState.status === "loaded" && modelsState.models.length === 0 && (
@@ -4977,7 +5041,7 @@ export function AgentModelEditor({
         Model
         <select
           aria-label={`Model for ${agentLabel}`}
-          disabled={busy || modelsStatus === "loading"}
+          disabled={busy || modelsStatus !== "loaded"}
           value={model}
           onChange={(event) => onModelChange(event.target.value)}
         >
@@ -5007,7 +5071,7 @@ export function AgentModelEditor({
           aria-label={`Reasoning for ${agentLabel}`}
           disabled={
             busy ||
-            modelsStatus === "loading" ||
+            modelsStatus !== "loaded" ||
             (reasoningOptions.length === 0 && !currentReasoningUnavailable)
           }
           value={reasoningEffort}
@@ -5554,7 +5618,7 @@ function ActiveAgentCard({
                 Model
                 <select
                   aria-label={`Model for ${title}`}
-                  disabled={busy || modelsStatus === "loading"}
+                  disabled={busy || modelsStatus !== "loaded"}
                   value={model}
                   onChange={(event) => {
                     const nextModel = event.target.value;
@@ -5593,7 +5657,7 @@ function ActiveAgentCard({
                   aria-label={`Reasoning for ${title}`}
                   disabled={
                     busy ||
-                    modelsStatus === "loading" ||
+                    modelsStatus !== "loaded" ||
                     (reasoningOptions.length === 0 && !reasoningUnavailable)
                   }
                   value={reasoningEffort}

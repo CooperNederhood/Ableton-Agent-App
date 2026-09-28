@@ -134,6 +134,16 @@ function desktopApi(
 ): DesktopApi {
   return {
     agents: {
+      getAuthStatus: vi.fn().mockResolvedValue({
+        state: "authenticated",
+        authType: "gh-cli",
+        host: "https://github.com",
+        login: "octocat",
+      }),
+      refreshAuthentication: vi.fn().mockResolvedValue({
+        state: "authenticated",
+        authType: "gh-cli",
+      }),
       listModels: vi.fn().mockResolvedValue(models),
       saveDefinition: vi.fn(),
       readPlan: vi.fn().mockResolvedValue({
@@ -1186,6 +1196,59 @@ describe("desktop component interactions", () => {
     expect(disable).not.toHaveBeenCalled();
   });
 
+  it("shows actionable GitHub authentication recovery before loading models", async () => {
+    const getAuthStatus = vi
+      .fn()
+      .mockResolvedValueOnce({
+        state: "authentication-required",
+        message:
+          "GitHub CLI is not authenticated. Run 'gh auth login', then restart Ableton Agent.",
+      })
+      .mockResolvedValueOnce({
+        state: "authenticated",
+        authType: "gh-cli",
+        host: "https://github.com",
+        login: "octocat",
+      });
+    const listModels = vi.fn().mockResolvedValue(models);
+    const refreshAuthentication = vi.fn().mockResolvedValue({
+      state: "authenticated",
+      authType: "gh-cli",
+    });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: desktopApi({
+        getAuthStatus,
+        listModels,
+        refreshAuthentication,
+      }),
+    });
+
+    await act(async () => {
+      root.render(<AgentHarness state={rendererState()} />);
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("GitHub authentication required.");
+    expect(container.textContent).toContain("gh auth login");
+    expect(listModels).not.toHaveBeenCalled();
+    await click(container, "Copy sign-in command");
+    expect(writeText).toHaveBeenCalledWith("gh auth login");
+
+    await click(container, "Check again");
+    expect(refreshAuthentication).toHaveBeenCalledOnce();
+    expect(getAuthStatus).toHaveBeenCalledTimes(2);
+    expect(listModels).toHaveBeenCalledOnce();
+    expect(container.textContent).not.toContain(
+      "GitHub authentication required.",
+    );
+  });
+
   it("waits for context restoration before hydrating Agent history", async () => {
     let publish!: (event: DesktopAppEvent) => void;
     const hydrateHistory = vi.fn().mockResolvedValue([]);
@@ -1256,6 +1319,14 @@ describe("desktop component interactions", () => {
         readPlan: vi.fn().mockResolvedValue({
           exists: false,
           productionSessionId: sessionId,
+        }),
+        getAuthStatus: vi.fn().mockResolvedValue({
+          state: "authenticated",
+          authType: "gh-cli",
+        }),
+        refreshAuthentication: vi.fn().mockResolvedValue({
+          state: "authenticated",
+          authType: "gh-cli",
         }),
         listModels: vi.fn().mockResolvedValue(models),
       },
@@ -1328,6 +1399,14 @@ describe("desktop component interactions", () => {
           readPlan: vi.fn().mockResolvedValue({
             exists: false,
             productionSessionId: sessionId,
+          }),
+          getAuthStatus: vi.fn().mockResolvedValue({
+            state: "authenticated",
+            authType: "gh-cli",
+          }),
+          refreshAuthentication: vi.fn().mockResolvedValue({
+            state: "authenticated",
+            authType: "gh-cli",
           }),
           listModels: vi.fn().mockResolvedValue(models),
         },

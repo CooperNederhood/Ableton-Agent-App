@@ -704,6 +704,7 @@ export interface AgentSettings {
   reasoningSummary?:
     AgentReasoningSummary | (() => AgentReasoningSummary) | undefined;
   baseDirectory?: string | undefined;
+  runtimeEnvironment?: CopilotAgentServiceOptions["runtimeEnvironment"];
   largeOutputDirectory?: string | undefined;
   resolvePlanArtifactPaths?: CopilotAgentServiceOptions["resolvePlanArtifactPaths"];
   turnTimeoutMs?: number | (() => number) | undefined;
@@ -1151,6 +1152,9 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     ...(agentSettings.baseDirectory === undefined
       ? {}
       : { baseDirectory: agentSettings.baseDirectory }),
+    ...(agentSettings.runtimeEnvironment === undefined
+      ? {}
+      : { runtimeEnvironment: agentSettings.runtimeEnvironment }),
     ...(agentSettings.largeOutputDirectory === undefined
       ? {}
       : { largeOutputDirectory: agentSettings.largeOutputDirectory }),

@@ -59,6 +59,8 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
         }),
       listActive: () => invoke("agents:active", {}),
       listModels: () => invoke("agents:models", {}),
+      getAuthStatus: () => invoke("agents:auth-status", {}),
+      refreshAuthentication: () => invoke("agents:auth-refresh", {}),
       create: (definitionName) => invoke("agents:create", { definitionName }),
       rename: (instanceId, label) =>
         invoke("agents:rename", { instanceId, label }),

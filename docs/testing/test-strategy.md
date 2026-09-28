@@ -135,6 +135,10 @@ Critical workflows:
 
 - Launch the generated macOS application with `app.isPackaged`, packaged
   resources, production profile selection, and isolated local storage.
+- Launch with token variables removed and a Finder-like minimal PATH. Cover the
+  explicit authentication-required UX without credentials, and gate a local
+  macOS smoke that verifies `gh-cli` authentication and model discovery against
+  the exact installed `/Applications` executable.
 
 - Definition refresh and active-agent creation.
 - Switching independent active-agent conversations.

@@ -11,6 +11,7 @@ const applicationPath = "/Applications/Ableton Agent.app";
 
 export function parseInstallArguments(argv) {
   const options = {
+    authSmoke: true,
     checks: true,
     launch: true,
     remoteScript: true,
@@ -18,6 +19,7 @@ export function parseInstallArguments(argv) {
   for (const argument of argv) {
     if (argument === "--") continue;
     if (argument === "--skip-checks") options.checks = false;
+    else if (argument === "--skip-auth-smoke") options.authSmoke = false;
     else if (argument === "--no-launch") options.launch = false;
     else if (argument === "--skip-remote-script") options.remoteScript = false;
     else {
@@ -59,6 +61,7 @@ function run(command, args, options = {}) {
     cwd: repositoryRoot,
     encoding: "utf8",
     stdio: options.capture ? "pipe" : "inherit",
+    env: { ...process.env, ...options.env },
   });
   if (result.error) throw result.error;
   if (result.status !== 0) {
@@ -222,6 +225,30 @@ export async function installDesktopMacos(
     ]);
   }
   await installApplication(packagedPath);
+  if (options.authSmoke) {
+    run(
+      "pnpm",
+      [
+        "exec",
+        "playwright",
+        "test",
+        "--project=electron-packaged",
+        "--grep",
+        "authenticates the installed production application",
+      ],
+      {
+        env: {
+          ABLETON_AGENT_AUTH_SMOKE: "1",
+          ABLETON_AGENT_PACKAGED_EXECUTABLE: join(
+            applicationPath,
+            "Contents",
+            "MacOS",
+            "Ableton Agent",
+          ),
+        },
+      },
+    );
+  }
   if (options.launch) await verifyLaunch();
   process.stdout.write(
     `\nInstalled the verified ${arch()} application at ${applicationPath}.\n` +

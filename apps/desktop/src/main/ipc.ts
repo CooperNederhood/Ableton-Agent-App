@@ -110,6 +110,8 @@ export function createIpcHandlers(
     "skills:save": (request) => profiles.saveSkill(request),
     "agents:active": () => service.listActiveAgents(),
     "agents:models": () => service.listAgentModels(),
+    "agents:auth-status": () => service.getCopilotAuthStatus(),
+    "agents:auth-refresh": () => service.refreshCopilotAuthentication(),
     "agents:create": ({ definitionName }) =>
       service.createActiveAgent(definitionName),
     "agents:rename": ({ instanceId, label }) =>

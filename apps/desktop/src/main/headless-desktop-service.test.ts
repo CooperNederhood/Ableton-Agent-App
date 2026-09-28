@@ -289,6 +289,7 @@ async function harness(
     eventJournal?: DesktopEventJournal;
     reconfigureEventJournal?: (policy: RetentionPolicy) => Promise<void>;
     snapshotHistory?: LiveSetSnapshotHistoryRepository;
+    copilotCliAvailable?: boolean;
   } = {},
 ) {
   const directory = await temporaryDirectory();
@@ -860,6 +861,47 @@ describe("desktop persistence stores", () => {
 });
 
 describe("desktop adapter over the shared application", () => {
+  it("maps missing CLI authentication and refreshes through the application", async () => {
+    const { service, application } = await harness(
+      {},
+      { copilotCliAvailable: false },
+    );
+    const getAuthenticationStatus = vi
+      .spyOn(application, "getAuthenticationStatus")
+      .mockResolvedValueOnce({
+        state: "authentication-required",
+        message: "Not authenticated",
+      })
+      .mockResolvedValueOnce({
+        state: "authenticated",
+        authType: "gh-cli",
+        host: "https://github.com",
+        login: "octocat",
+      });
+    const refreshAuthentication = vi
+      .spyOn(application, "refreshAuthentication")
+      .mockResolvedValue({
+        state: "authenticated",
+        authType: "gh-cli",
+      });
+    await service.start();
+
+    await expect(service.getCopilotAuthStatus()).resolves.toEqual({
+      state: "cli-unavailable",
+      message:
+        "GitHub CLI was not found. Install GitHub CLI and run 'gh auth login'.",
+    });
+    await expect(service.refreshCopilotAuthentication()).resolves.toEqual({
+      state: "authenticated",
+      authType: "gh-cli",
+      host: "https://github.com",
+      login: "octocat",
+    });
+    expect(refreshAuthentication).toHaveBeenCalledOnce();
+    expect(getAuthenticationStatus).toHaveBeenCalledTimes(2);
+    await service.stop();
+  });
+
   it("uses root pagination for history and preserves trace page metadata", async () => {
     const traceId = "00000000-0000-4000-8000-000000000100";
     const roots = {

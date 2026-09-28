@@ -359,6 +359,19 @@ describe("desktop IPC contracts", () => {
       model,
     ]);
     expect(
+      ipcSchemas["agents:auth-status"].response.parse({
+        state: "authenticated",
+        authType: "gh-cli",
+        host: "https://github.com",
+        login: "octocat",
+      }),
+    ).toEqual({
+      state: "authenticated",
+      authType: "gh-cli",
+      host: "https://github.com",
+      login: "octocat",
+    });
+    expect(
       ipcSchemas["agents:set-conversation-settings"].request.parse({
         instanceId: "00000000-0000-4000-8000-000000000001",
         settings: {

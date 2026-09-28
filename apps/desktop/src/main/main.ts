@@ -52,6 +52,7 @@ import {
   createDesktopAutomationServer,
 } from "./automation-host.js";
 import { resolvePackagedCopilotRuntimePath } from "./copilot-runtime.js";
+import { discoverGitHubCli, type GitHubCliDiscovery } from "./copilot-auth.js";
 import { parseDesktopLaunchOptions } from "./launch-options.js";
 import type { AutomationControlServer } from "@ableton-agent/debug-control";
 import { DesktopProfileManager } from "./profile-manager.js";
@@ -298,6 +299,7 @@ app.on("open-url", (event, url) => {
 });
 
 let composition: DesktopComposition | undefined;
+let githubCliDiscovery: GitHubCliDiscovery | undefined;
 
 async function composeProfile(
   layout: typeof storage,
@@ -315,6 +317,15 @@ async function composeProfile(
     skillsDirectory: bundledSkillsDirectory,
     storage: layout,
     agentBaseDirectory: layout.copilotDirectory,
+    ...(githubCliDiscovery === undefined
+      ? {}
+      : {
+          copilotRuntimeEnvironment: githubCliDiscovery.runtimeEnvironment,
+          copilotCliAvailable: githubCliDiscovery.status === "found",
+          ...(githubCliDiscovery.status === "found"
+            ? { copilotCliSource: githubCliDiscovery.source }
+            : {}),
+        }),
     eventJournalPath: layout.eventJournalPath,
     ...(migration === undefined
       ? {}
@@ -388,6 +399,7 @@ async function bootstrap(): Promise<void> {
     await access(runtimePath);
     process.env.COPILOT_CLI_PATH = runtimePath;
   }
+  githubCliDiscovery = await discoverGitHubCli({ environment: process.env });
   const legacyLogName = app.isPackaged
     ? "desktop.log"
     : "desktop-development.log";

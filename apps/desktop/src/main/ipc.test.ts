@@ -297,10 +297,20 @@ describe("desktop IPC", () => {
 
   it("routes model discovery and per-agent conversation replacement", async () => {
     const listAgentModels = vi.fn().mockResolvedValue([]);
+    const getCopilotAuthStatus = vi.fn().mockResolvedValue({
+      state: "authenticated",
+      authType: "gh-cli",
+    });
+    const refreshCopilotAuthentication = vi.fn().mockResolvedValue({
+      state: "authenticated",
+      authType: "gh-cli",
+    });
     const setActiveAgentConversationSettings = vi.fn().mockResolvedValue({});
     const handlers = createIpcHandlers(
       {
         listAgentModels,
+        getCopilotAuthStatus,
+        refreshCopilotAuthentication,
         setActiveAgentConversationSettings,
       } as unknown as DesktopService,
       {} as DiagnosticsActions,
@@ -309,6 +319,8 @@ describe("desktop IPC", () => {
     const settings = { model: "model-a", reasoningEffort: "high" } as const;
 
     await handlers["agents:models"]({});
+    await handlers["agents:auth-status"]({});
+    await handlers["agents:auth-refresh"]({});
     await handlers["agents:set-conversation-settings"]({
       instanceId,
       settings,
@@ -319,6 +331,8 @@ describe("desktop IPC", () => {
     });
 
     expect(listAgentModels).toHaveBeenCalledOnce();
+    expect(getCopilotAuthStatus).toHaveBeenCalledOnce();
+    expect(refreshCopilotAuthentication).toHaveBeenCalledOnce();
     expect(setActiveAgentConversationSettings.mock.calls).toEqual([
       [instanceId, settings],
       [instanceId, {}],

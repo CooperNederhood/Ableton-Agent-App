@@ -538,12 +538,28 @@ describe("preload API", () => {
       },
     ];
     const transport = transportFor({
+      "agents:auth-status": {
+        state: "authenticated",
+        authType: "gh-cli",
+      },
+      "agents:auth-refresh": {
+        state: "authenticated",
+        authType: "gh-cli",
+      },
       "agents:models": models,
       "agents:set-conversation-settings": activeAgent,
     });
     const api = createDesktopApi(transport);
 
     await expect(api.agents.listModels()).resolves.toEqual(models);
+    await expect(api.agents.getAuthStatus()).resolves.toEqual({
+      state: "authenticated",
+      authType: "gh-cli",
+    });
+    await expect(api.agents.refreshAuthentication()).resolves.toEqual({
+      state: "authenticated",
+      authType: "gh-cli",
+    });
     await api.agents.setConversationSettings(instanceId, {
       model: "model-a",
       reasoningEffort: "high",
@@ -552,6 +568,8 @@ describe("preload API", () => {
 
     expect(vi.mocked(transport).invoke.mock.calls).toEqual([
       ["agents:models", {}],
+      ["agents:auth-status", {}],
+      ["agents:auth-refresh", {}],
       [
         "agents:set-conversation-settings",
         {

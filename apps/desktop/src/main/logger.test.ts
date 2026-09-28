@@ -67,6 +67,19 @@ describe("desktop diagnostics privacy", () => {
     });
   });
 
+  it("redacts GitHub token shapes embedded in arbitrary strings", () => {
+    expect(
+      redactDiagnosticValue(
+        "GitHub rejected github_pat_abcdefghijklmnopqrstuvwxyz0123456789",
+      ),
+    ).toBe("GitHub rejected ******");
+    expect(
+      redactDiagnosticValue(
+        "OAuth failed for gho_abcdefghijklmnopqrstuvwxyz0123456789",
+      ),
+    ).toBe("OAuth failed for ******");
+  });
+
   it("omits binary data and bounds oversized diagnostic values", () => {
     const result = redactDiagnosticValue({
       audio: Buffer.alloc(128),

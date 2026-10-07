@@ -636,7 +636,7 @@ export async function sendComposerMessage(
       throw new Error(`Unknown skill '/${invocation.skillName}'.`);
     }
     const context = contextForSelection(state);
-    await desktop.agents.invokeSkill(
+    const accepted = await desktop.agents.invokeSkill(
       agent.id,
       invocation.skillName,
       invocation.request,
@@ -645,26 +645,26 @@ export async function sendComposerMessage(
     );
     dispatch({
       type: "user-message",
-      id: crypto.randomUUID(),
+      id: accepted.messageId,
       content: message,
       agentInstanceId: agent.id,
       agentMode,
     });
     return;
   }
-  dispatch({
-    type: "user-message",
-    id: crypto.randomUUID(),
-    content: message,
-    agentInstanceId: agent.id,
-    agentMode,
-  });
-  await desktop.agents.send(
+  const accepted = await desktop.agents.send(
     agent.id,
     message,
     contextForSelection(state),
     agentMode,
   );
+  dispatch({
+    type: "user-message",
+    id: accepted.messageId,
+    content: message,
+    agentInstanceId: agent.id,
+    agentMode,
+  });
 }
 
 export async function setSelectedAgentMode(
@@ -7751,6 +7751,7 @@ export function DesktopComposer({
 }): React.JSX.Element {
   const selectedInstanceId = selectedAgentInstance(state)?.id;
   const workspace = selectedAgentWorkspace(state);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     onErrorChange("");
@@ -7789,15 +7790,15 @@ export function DesktopComposer({
     const message = value.trim();
     if (!message) return;
     onErrorChange("");
-    onValueChange("");
+    setSubmitting(true);
     try {
       await sendComposerMessage(window.desktop, state, message, dispatch);
+      onValueChange("");
     } catch (submitError) {
       const messageText =
         submitError instanceof Error
           ? submitError.message
           : "Agent message failed";
-      if (message.startsWith("/")) onValueChange(message);
       onErrorChange(messageText);
       dispatch({
         type: "event",
@@ -7808,6 +7809,7 @@ export function DesktopComposer({
         },
       });
     } finally {
+      setSubmitting(false);
       composerRef.current?.focus();
     }
   };
@@ -7816,7 +7818,8 @@ export function DesktopComposer({
     <Composer
       state={state}
       value={value}
-      busy={false}
+      busy={submitting}
+      submitting={submitting}
       composerRef={composerRef}
       error={error}
       onChange={(nextValue) => {
@@ -8369,6 +8372,7 @@ export function Composer({
   state,
   value,
   busy,
+  submitting = false,
   error,
   composerRef,
   onChange,
@@ -8378,6 +8382,7 @@ export function Composer({
   state: DesktopState;
   value: string;
   busy: boolean;
+  submitting?: boolean;
   error?: string | undefined;
   composerRef: React.RefObject<HTMLTextAreaElement | null>;
   onChange: (value: string) => void;
@@ -8467,6 +8472,11 @@ export function Composer({
             {error}
           </p>
         )}
+        {submitting && (
+          <p className="composer-status" role="status">
+            Waiting for message acceptance…
+          </p>
+        )}
         <label className="sr-only" htmlFor="prompt">
           Message the Ableton agent
         </label>
@@ -8520,7 +8530,17 @@ export function Composer({
           ) : (
             <span />
           )}
-          {activeBusy ? (
+          {submitting ? (
+            <button
+              className="composer-action-button primary"
+              type="submit"
+              aria-label="Waiting for message acceptance"
+              title="Waiting for message acceptance"
+              disabled
+            >
+              <ComposerActionIcon type="send" />
+            </button>
+          ) : activeBusy ? (
             <button
               type="button"
               className="composer-action-button stop"

@@ -50,6 +50,9 @@ Companion specification: [Remote Script](remote-script.md)
   - [x] Implement return/master/group-aware inspection, return creation,
     regular-track duplication, monitoring/fold/state actions, mixer controls,
     bounded meters, and snapshot-bound routing assignment.
+  - [x] Resolve equivalent routing wrappers by stable Live routing identifier
+    across input/output types and channels, fail closed on ambiguous current
+    state, and retain exact snapshot-token assignment.
 - [~] Implement session clip and MIDI-note handlers.
   - [x] Create guarded MIDI clips in empty Session View slots.
   - [x] Replace bounded MIDI note sets with full-note verification and recovery.

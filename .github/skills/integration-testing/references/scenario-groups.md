@@ -24,6 +24,9 @@
 
 - `track-lifecycle`: create, rename, inspect, and remove one namespaced track,
   then restore the baseline Set.
+- `audio-input-routing`: create namespaced MIDI/audio tracks, resolve a
+  current-only audio input route, assign the source and `Post FX`, verify both
+  from fresh option snapshots, then restore the baseline Set.
 - `808-track`: search first, create exactly one namespaced MIDI track, load
   `808 Core Kit.adg`, and verify one `808 Core Kit` device.
 - `four-on-floor`: create the namespaced 808 track and one-bar clip, write four

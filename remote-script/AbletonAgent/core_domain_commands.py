@@ -1678,6 +1678,68 @@ def _routing_display(option):
     )[:256]
 
 
+def _routing_identifier(option):
+    return _safe_lom_getattr(option, "identifier")
+
+
+def _same_routing_identifier(left, right):
+    if left is None or right is None:
+        return False
+    if _same_lom_object(left, right):
+        return True
+    scalar_types = (bool, int, float, str)
+    return (
+        isinstance(left, scalar_types)
+        and isinstance(right, scalar_types)
+        and type(left) is type(right)
+        and left == right
+    )
+
+
+def _same_routing_option(left, right):
+    if left is None or right is None:
+        return left is right
+    if _same_lom_object(left, right):
+        return True
+    return _same_routing_identifier(
+        _routing_identifier(left),
+        _routing_identifier(right),
+    )
+
+
+def _matching_routing_options(options, current):
+    direct = [
+        option for option in options if _same_routing_option(option, current)
+    ]
+    if direct:
+        return direct
+    if current is None:
+        return []
+    current_display = _routing_display(current)
+    return [
+        option
+        for option in options
+        if _routing_display(option) == current_display
+    ]
+
+
+def _resolve_current_routing_option(
+    options,
+    current,
+    error_code,
+    message,
+    allow_unavailable=False,
+):
+    if current is None:
+        return None
+    matches = _matching_routing_options(options, current)
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) == 0 and allow_unavailable:
+        return current
+    raise ProtocolFailure(error_code, message)
+
+
 def _external_midi(display_name):
     lowered = display_name.lower()
     return any(
@@ -1893,6 +1955,22 @@ def execute_mixer(context, params):
         snapshot_options = {}
         current = getattr(track, current_name)
         warnings = []
+        current_option = _resolve_current_routing_option(
+            options,
+            current,
+            "conflict",
+            "Current routing option could not be matched uniquely",
+            allow_unavailable=True,
+        )
+        current_is_available = any(
+            option is current_option for option in options
+        )
+        if (
+            current_option is not None
+            and not current_is_available
+            and len(options) >= 256
+        ):
+            options = options[:255]
         for option in options:
             token = str(uuid.uuid4())
             display = _routing_display(option)
@@ -1903,10 +1981,27 @@ def execute_mixer(context, params):
             }
             entries.append(entry)
             snapshot_options[token] = (option, entry)
-            if _same_lom_object(option, current):
+            if option is current_option:
                 current_token = token
             warnings.extend(
                 _routing_warnings(track.name, params["direction"], option)
+            )
+        if current_option is not None and not current_is_available:
+            current_token = str(uuid.uuid4())
+            display = _routing_display(current_option)
+            entry = {
+                "token": current_token,
+                "displayName": display,
+                "isExternalMidi": _external_midi(display),
+            }
+            entries.append(entry)
+            snapshot_options[current_token] = (current_option, entry)
+            warnings.extend(
+                _routing_warnings(
+                    track.name,
+                    params["direction"],
+                    current_option,
+                )
             )
         now = time.time()
         _store_routing_snapshot(context, snapshot_id, {
@@ -1951,23 +2046,26 @@ def execute_mixer(context, params):
             "stale_reference", "Routing option identity changed"
         )
     current = getattr(track, current_name)
-    before_token = next(
-        (
-            pair
-            for pair in snapshot["options"].values()
-            if _same_lom_object(pair[0], current)
-        ),
-        None,
+    before_option = _resolve_current_routing_option(
+        [pair[0] for pair in snapshot["options"].values()],
+        current,
+        "stale_reference",
+        "Current routing option was not in the snapshot",
     )
-    if before_token is None:
+    if before_option is None:
         raise ProtocolFailure(
             "stale_reference", "Current routing option was not in the snapshot"
         )
+    before_token = next(
+        pair
+        for pair in snapshot["options"].values()
+        if pair[0] is before_option
+    )
     before = before_token[1]
     try:
         setattr(track, current_name, selected[0])
         after_option = getattr(track, current_name)
-        if not _same_lom_object(after_option, selected[0]):
+        if not _same_routing_option(after_option, selected[0]):
             raise ProtocolFailure(
                 "conflict", "Routing assignment could not be verified"
             )

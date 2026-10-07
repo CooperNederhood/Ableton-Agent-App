@@ -1258,6 +1258,7 @@ describe("AbletonBridgeService", () => {
     if (routing.action !== "routing-options") {
       throw new Error("Expected routing options");
     }
+    expect(routing.currentOptionToken).toBe(routing.options[0]?.token);
     const externalMidi = routing.options.find(
       ({ isExternalMidi }) => isExternalMidi,
     );

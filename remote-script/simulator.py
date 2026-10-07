@@ -1737,6 +1737,7 @@ def _handle_sim_mixer(request, params, state):
         options = []
         token_map = {}
         current_token = None
+        current_matches = 0
         warnings = []
         for display in track["routingOptions"][direction]:
             token = str(uuid.uuid4())
@@ -1749,6 +1750,7 @@ def _handle_sim_mixer(request, params, state):
             token_map[token] = option
             if display == track["routing"][direction]:
                 current_token = token
+                current_matches += 1
             if option["isExternalMidi"]:
                 warnings.append(
                     "This routing option targets external MIDI; verify connected hardware."
@@ -1760,6 +1762,22 @@ def _handle_sim_mixer(request, params, state):
                 warnings.append(
                     "This routing option may create an audio or MIDI feedback loop."
                 )
+        if current_matches > 1:
+            return failure(
+                request,
+                "conflict",
+                "Current routing option could not be matched uniquely",
+            )
+        if track["routing"][direction] is not None and current_matches == 0:
+            current_token = str(uuid.uuid4())
+            display = track["routing"][direction]
+            current_option = {
+                "token": current_token,
+                "displayName": display,
+                "isExternalMidi": "external midi" in display.lower(),
+            }
+            options.append(current_option)
+            token_map[current_token] = current_option
         now = time.time()
         _store_sim_routing_snapshot(state, snapshot_id, {
             "created": now,

@@ -46,9 +46,70 @@ class CoreScene(object):
         self.is_triggered = True
 
 
+_UNSET = object()
+
+
 class RoutingOption(object):
-    def __init__(self, display_name):
+    def __init__(self, display_name, identifier=_UNSET):
         self.display_name = display_name
+        self.identifier = (
+            display_name if identifier is _UNSET else identifier
+        )
+
+
+class FreshRoutingTrack(FakeTrack):
+    def _fresh_routing_option(self, option):
+        if option is None:
+            return None
+        return RoutingOption(option.display_name, option.identifier)
+
+    @property
+    def input_routing_type(self):
+        return self._fresh_routing_option(
+            getattr(self, "_input_routing_type", None)
+        )
+
+    @input_routing_type.setter
+    def input_routing_type(self, option):
+        self._input_routing_type = option
+
+    @property
+    def input_routing_channel(self):
+        return self._fresh_routing_option(
+            getattr(self, "_input_routing_channel", None)
+        )
+
+    @input_routing_channel.setter
+    def input_routing_channel(self, option):
+        self._input_routing_channel = option
+
+    @property
+    def output_routing_type(self):
+        return self._fresh_routing_option(
+            getattr(self, "_output_routing_type", None)
+        )
+
+    @output_routing_type.setter
+    def output_routing_type(self, option):
+        self._output_routing_type = option
+
+    @property
+    def output_routing_channel(self):
+        return self._fresh_routing_option(
+            getattr(self, "_output_routing_channel", None)
+        )
+
+    @output_routing_channel.setter
+    def output_routing_channel(self, option):
+        self._output_routing_channel = option
+
+
+class RejectingFreshRoutingTrack(FreshRoutingTrack):
+    @FreshRoutingTrack.input_routing_type.setter
+    def input_routing_type(self, option):
+        if getattr(self, "reject_input_routing_type", False):
+            return
+        self._input_routing_type = option
 
 
 class CoreMidiClip(FakeClip):
@@ -1393,6 +1454,226 @@ class CoreDomainCommandTests(unittest.TestCase):
             options["snapshotId"], self.context._routing_snapshots
         )
 
+    def test_routing_matches_equivalent_fresh_option_wrappers(self):
+        track = FreshRoutingTrack("Fresh Audio", midi=False)
+        self._prepare_track(track)
+        self.context.song.tracks[0] = track
+        regular = self.tracks()[0]
+
+        for direction in (
+            "input-type",
+            "input-channel",
+            "output-type",
+            "output-channel",
+        ):
+            options = self.execute(
+                "mixer_routing.execute",
+                {
+                    "action": "routing-options",
+                    "target": target(regular),
+                    "direction": direction,
+                },
+            )["result"]
+            self.assertEqual(
+                options["currentOptionToken"],
+                options["options"][0]["token"],
+            )
+
+        options = self.execute(
+            "mixer_routing.execute",
+            {
+                "action": "routing-options",
+                "target": target(regular),
+                "direction": "input-type",
+            },
+        )["result"]
+        selected = options["options"][1]
+        assigned = self.execute(
+            "mixer_routing.execute",
+            {
+                "action": "set-routing",
+                "target": target(regular),
+                "direction": "input-type",
+                "snapshotId": options["snapshotId"],
+                "optionToken": selected["token"],
+                "expectedDisplayName": selected["displayName"],
+            },
+        )
+        self.assertTrue(assigned["ok"])
+        self.assertEqual(
+            assigned["result"]["after"]["displayName"],
+            selected["displayName"],
+        )
+
+    def test_routing_identity_fallback_requires_one_unique_match(self):
+        track = FreshRoutingTrack("Fresh Audio", midi=False)
+        self._prepare_track(track)
+        self.context.song.tracks[0] = track
+        regular = self.tracks()[0]
+
+        track.available_input_routing_types = [
+            RoutingOption("No Input", "available-no-input"),
+            RoutingOption("Resampling", "available-resampling"),
+        ]
+        track.input_routing_type = RoutingOption("No Input", "current-no-input")
+        options = self.execute(
+            "mixer_routing.execute",
+            {
+                "action": "routing-options",
+                "target": target(regular),
+                "direction": "input-type",
+            },
+        )
+        self.assertTrue(options["ok"])
+        self.assertEqual(
+            options["result"]["currentOptionToken"],
+            options["result"]["options"][0]["token"],
+        )
+
+        track.available_input_routing_types = [
+            RoutingOption("No Input", "first-no-input"),
+            RoutingOption("No Input", "second-no-input"),
+        ]
+        ambiguous = self.execute(
+            "mixer_routing.execute",
+            {
+                "action": "routing-options",
+                "target": target(regular),
+                "direction": "input-type",
+            },
+        )
+        self.assertFalse(ambiguous["ok"])
+        self.assertEqual(ambiguous["error"]["code"], "conflict")
+
+    def test_routing_options_include_unavailable_current_route(self):
+        track = FreshRoutingTrack("Fresh Audio", midi=False)
+        self._prepare_track(track)
+        self.context.song.tracks[0] = track
+        regular = self.tracks()[0]
+        track.input_routing_type = RoutingOption(
+            "Missing Input",
+            "missing-input",
+        )
+
+        result = self.execute(
+            "mixer_routing.execute",
+            {
+                "action": "routing-options",
+                "target": target(regular),
+                "direction": "input-type",
+            },
+        )
+        self.assertTrue(result["ok"])
+        current = next(
+            option
+            for option in result["result"]["options"]
+            if option["token"] == result["result"]["currentOptionToken"]
+        )
+        self.assertEqual(current["displayName"], "Missing Input")
+        selected = next(
+            option
+            for option in result["result"]["options"]
+            if option["displayName"] == "External MIDI"
+        )
+        assigned = self.execute(
+            "mixer_routing.execute",
+            {
+                "action": "set-routing",
+                "target": target(regular),
+                "direction": "input-type",
+                "snapshotId": result["result"]["snapshotId"],
+                "optionToken": selected["token"],
+                "expectedDisplayName": selected["displayName"],
+            },
+        )
+        self.assertTrue(assigned["ok"])
+        self.assertEqual(
+            assigned["result"]["before"]["displayName"],
+            "Missing Input",
+        )
+
+    def test_routing_allows_empty_options_only_without_a_current_route(self):
+        track = FreshRoutingTrack("Fresh Audio", midi=False)
+        self._prepare_track(track)
+        self.context.song.tracks[0] = track
+        regular = self.tracks()[0]
+        track.available_input_routing_channels = []
+        track.input_routing_channel = None
+
+        result = self.execute(
+            "mixer_routing.execute",
+            {
+                "action": "routing-options",
+                "target": target(regular),
+                "direction": "input-channel",
+            },
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["result"]["options"], [])
+        self.assertIsNone(result["result"]["currentOptionToken"])
+
+    def test_routing_current_only_entry_preserves_option_bound(self):
+        track = FreshRoutingTrack("Fresh Audio", midi=False)
+        self._prepare_track(track)
+        self.context.song.tracks[0] = track
+        regular = self.tracks()[0]
+        track.available_input_routing_types = [
+            RoutingOption("Input {0}".format(index), "input-{0}".format(index))
+            for index in range(256)
+        ]
+        track.input_routing_type = RoutingOption(
+            "Unavailable Input",
+            "unavailable-input",
+        )
+
+        result = self.execute(
+            "mixer_routing.execute",
+            {
+                "action": "routing-options",
+                "target": target(regular),
+                "direction": "input-type",
+            },
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(len(result["result"]["options"]), 256)
+        current = next(
+            option
+            for option in result["result"]["options"]
+            if option["token"] == result["result"]["currentOptionToken"]
+        )
+        self.assertEqual(current["displayName"], "Unavailable Input")
+
+    def test_routing_verification_uses_stable_identity_and_fails_closed(self):
+        track = RejectingFreshRoutingTrack("Fresh Audio", midi=False)
+        self._prepare_track(track)
+        self.context.song.tracks[0] = track
+        regular = self.tracks()[0]
+        options = self.execute(
+            "mixer_routing.execute",
+            {
+                "action": "routing-options",
+                "target": target(regular),
+                "direction": "input-type",
+            },
+        )["result"]
+        selected = options["options"][1]
+        track.reject_input_routing_type = True
+
+        result = self.execute(
+            "mixer_routing.execute",
+            {
+                "action": "set-routing",
+                "target": target(regular),
+                "direction": "input-type",
+                "snapshotId": options["snapshotId"],
+                "optionToken": selected["token"],
+                "expectedDisplayName": selected["displayName"],
+            },
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "conflict")
+        self.assertIn("could not be verified", result["error"]["message"])
+
 
 class SimulatorCoreDomainTests(unittest.TestCase):
     def setUp(self):
@@ -1633,6 +1914,48 @@ class SimulatorCoreDomainTests(unittest.TestCase):
             )["ok"]
         )
         self.assertNotIn(fresh["snapshotId"], self.state.routing_snapshots)
+
+    def test_simulator_fails_when_current_route_is_not_unique(self):
+        track = self.execute(
+            "tracks.execute", {"action": "list"}
+        )["result"]["tracks"][0]
+        self.state.tracks[0]["routingOptions"]["input-type"] = [
+            "All Ins",
+            "All Ins",
+        ]
+
+        result = self.execute(
+            "mixer_routing.execute",
+            {
+                "action": "routing-options",
+                "target": target(track),
+                "direction": "input-type",
+            },
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "conflict")
+
+    def test_simulator_includes_unavailable_current_route(self):
+        track = self.execute(
+            "tracks.execute", {"action": "list"}
+        )["result"]["tracks"][0]
+        self.state.tracks[0]["routing"]["input-type"] = "Unavailable Input"
+
+        result = self.execute(
+            "mixer_routing.execute",
+            {
+                "action": "routing-options",
+                "target": target(track),
+                "direction": "input-type",
+            },
+        )
+        self.assertTrue(result["ok"])
+        current = next(
+            option
+            for option in result["result"]["options"]
+            if option["token"] == result["result"]["currentOptionToken"]
+        )
+        self.assertEqual(current["displayName"], "Unavailable Input")
 
 
 if __name__ == "__main__":

@@ -36,6 +36,8 @@ Tests must catch:
 - Missing journal lifecycle stages, broken trace/correlation propagation,
   unsanitized payloads, retention/cap failures, and cross-agent query leakage.
 - Edit-scope bypasses and overlapping multi-agent mutation races.
+- Equivalent-but-distinct Live routing wrappers, ambiguous routing identities,
+  stale type/channel snapshots, and routing assignment verification failures.
 
 ## Test layers
 

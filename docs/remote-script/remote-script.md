@@ -156,7 +156,26 @@ cue points, mixer parameters, MIDI note IDs, and routing options. Mutations
 revalidate every supplied identity immediately before touching the LOM.
 Routing options are short-lived snapshots: assignment requires the exact
 snapshot ID, option token, display name, target, and direction, and returns
-warnings for feedback-prone or external-MIDI routes.
+warnings for feedback-prone or external-MIDI routes. Current routing values and
+snapshot entries are matched by Live's stable `RoutingOption.identifier`
+because Live may return equivalent but distinct Python wrappers from the
+current-value and available-options getters. Direct object equality remains a
+fast path; when Live's current and available identifiers are not
+equality-compatible, a display-name fallback is allowed only when the name
+resolves to exactly one option. A non-null current route that cannot be matched
+uniquely is reported as an explicit consistency failure rather than a
+successful response with a null current token. Live can retain a current route
+that it no longer exposes in the corresponding `available_*` collection, such
+as `Ext. In` when no external input is available. The bridge includes that
+actual value as a short-lived current-only snapshot entry so it remains
+identity-bound for inspection, stale-state checking, rollback, and switching
+to an available option.
+
+Input-channel options are always read after the current input type. An empty
+channel list is valid only when Live itself exposes no channels for that type,
+such as a route with no selectable channel. Changing input type invalidates any
+older input-channel snapshot, so callers must fetch fresh channel options
+before assigning a channel.
 
 Modern MIDI edits use Live 11 note IDs and the extended note API, retaining
 probability, velocity deviation, and release velocity. The existing

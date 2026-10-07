@@ -17,7 +17,7 @@
     },
     {
       "id": "tracks",
-      "scenarios": ["track-lifecycle", "808-track"]
+      "scenarios": ["track-lifecycle", "audio-input-routing", "808-track"]
     },
     {
       "id": "session-clips",

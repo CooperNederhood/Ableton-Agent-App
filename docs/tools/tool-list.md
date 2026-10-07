@@ -98,7 +98,16 @@ lifecycle identity.
 
 Routing assignments require a recent option snapshot, exact option token, exact
 display name, target identity, and routing direction. Results surface warnings
-for feedback-prone routes and external MIDI destinations.
+for feedback-prone routes and external MIDI destinations. The bridge first
+resolves the current option by Live's routing identifier rather than Python
+wrapper identity, then permits a display-name fallback only when exactly one
+option has that label. A non-null current route that cannot be matched uniquely
+is an explicit consistency failure. If Live retains a current route that is no
+longer available for new selection, the result includes it as a current-only,
+snapshot-bound option so the current token remains truthful and assignment can
+move safely to an available route. Callers must refresh `input-channel` options
+after changing `input-type`; an empty channel list is accepted only when Live
+exposes no channel choices for the selected type.
 
 MIDI note removal is destructive and requires destructive-operation approval.
 Warp-mode assignment must select a mode from the exact availability list

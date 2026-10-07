@@ -1,0 +1,14 @@
+{
+  "formatVersion": 1,
+  "id": "audio-input-routing",
+  "group": "tracks",
+  "execution": "routing-runtime",
+  "prompt": "Create one temporary MIDI source track and one temporary audio destination track. Resolve the destination's current input routing from fresh routing options, route its input type to the generated source track, route its input channel to Post FX, verify both assignments from fresh option reads, then delete both generated tracks and restore the Set.",
+  "artifactPrefix": "AA_SMOKE_ROUTING_",
+  "timeoutMs": 60000,
+  "assertions": [
+    {
+      "type": "audio-input-routing"
+    }
+  ]
+}

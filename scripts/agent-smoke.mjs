@@ -110,14 +110,17 @@ try {
       if (
         manifest.execution === "live-event-runtime" ||
         manifest.execution === "capability-surface" ||
-        manifest.execution === "cue-point-runtime"
+        manifest.execution === "cue-point-runtime" ||
+        manifest.execution === "routing-runtime"
       ) {
         const result =
           manifest.execution === "live-event-runtime"
             ? await runLiveEventRuntimeScenario(manifest, environment)
             : manifest.execution === "capability-surface"
               ? await runCapabilitySurfaceScenario(manifest, environment)
-              : await runCuePointRuntimeScenario(manifest, environment);
+              : manifest.execution === "cue-point-runtime"
+                ? await runCuePointRuntimeScenario(manifest, environment)
+                : await runRoutingRuntimeScenario(manifest, environment);
         await mkdir(dirname(tracePath), { recursive: true });
         await writeFile(
           tracePath,
@@ -293,14 +296,16 @@ async function loadManifest(id) {
     manifest.execution !== undefined &&
     manifest.execution !== "live-event-runtime" &&
     manifest.execution !== "capability-surface" &&
-    manifest.execution !== "cue-point-runtime"
+    manifest.execution !== "cue-point-runtime" &&
+    manifest.execution !== "routing-runtime"
   ) {
     throw new Error(`Invalid scenario execution mode: ${manifest.execution}`);
   }
   if (
     (manifest.execution === "live-event-runtime" ||
       manifest.execution === "capability-surface" ||
-      manifest.execution === "cue-point-runtime") &&
+      manifest.execution === "cue-point-runtime" ||
+      manifest.execution === "routing-runtime") &&
     (!Number.isInteger(manifest.timeoutMs) ||
       manifest.timeoutMs < 10_000 ||
       manifest.timeoutMs > 60_000)
@@ -308,6 +313,198 @@ async function loadManifest(id) {
     throw new Error(`Invalid direct scenario timeout: ${manifest.timeoutMs}`);
   }
   return manifest;
+}
+
+async function runRoutingRuntimeScenario(manifest, environment) {
+  const { createAgentRuntime, resolveAbletonSettingsFromEnvironment } =
+    await import("../packages/runtime/dist/index.js");
+  const runtime = createAgentRuntime({
+    ableton: resolveAbletonSettingsFromEnvironment(environment),
+  });
+  const assertions = [];
+  const artifactPrefix = `${manifest.artifactPrefix}${randomUUID().slice(0, 8)}_`;
+  const sourceName = `${artifactPrefix}Source`;
+  const destinationName = `${artifactPrefix}Destination`;
+  let baseline;
+  let observed;
+  let cleanupError;
+  try {
+    await runtime.application.start({ startAgent: false });
+    baseline = await runtime.application.inspectSession();
+    const source = await runtime.application.createTrack({
+      kind: "midi",
+      name: sourceName,
+    });
+    const destination = await runtime.application.createTrack({
+      kind: "audio",
+      name: destinationName,
+    });
+    const target = {
+      kind: "regular",
+      index: destination.track.index,
+      expectedReference: destination.track.reference,
+      expectedName: destination.track.name,
+    };
+    const beforeType = await runtime.application.executeMixerRoutingOperation({
+      action: "routing-options",
+      target,
+      direction: "input-type",
+    });
+    if (beforeType.action !== "routing-options") {
+      throw new Error("Expected input-type routing options");
+    }
+    const beforeCurrent = beforeType.options.find(
+      ({ token }) => token === beforeType.currentOptionToken,
+    );
+    const sourceOption = beforeType.options.find(
+      ({ displayName }) => displayName === sourceName,
+    );
+    if (beforeCurrent === undefined || sourceOption === undefined) {
+      throw new Error(
+        "Fresh audio input type did not resolve its current or source routing option",
+      );
+    }
+    const assignedType = await runtime.application.executeMixerRoutingOperation(
+      {
+        action: "set-routing",
+        target,
+        direction: "input-type",
+        snapshotId: beforeType.snapshotId,
+        optionToken: sourceOption.token,
+        expectedDisplayName: sourceOption.displayName,
+      },
+    );
+    const afterType = await runtime.application.executeMixerRoutingOperation({
+      action: "routing-options",
+      target,
+      direction: "input-type",
+    });
+    if (afterType.action !== "routing-options") {
+      throw new Error("Expected refreshed input-type routing options");
+    }
+    const currentType = afterType.options.find(
+      ({ token }) => token === afterType.currentOptionToken,
+    );
+    const beforeChannel =
+      await runtime.application.executeMixerRoutingOperation({
+        action: "routing-options",
+        target,
+        direction: "input-channel",
+      });
+    if (beforeChannel.action !== "routing-options") {
+      throw new Error("Expected input-channel routing options");
+    }
+    const beforeCurrentChannel = beforeChannel.options.find(
+      ({ token }) => token === beforeChannel.currentOptionToken,
+    );
+    const postFx = beforeChannel.options.find(
+      ({ displayName }) => displayName === "Post FX",
+    );
+    if (beforeCurrentChannel === undefined || postFx === undefined) {
+      throw new Error(
+        "Source-track input channels did not resolve the current channel and Post FX",
+      );
+    }
+    const assignedChannel =
+      await runtime.application.executeMixerRoutingOperation({
+        action: "set-routing",
+        target,
+        direction: "input-channel",
+        snapshotId: beforeChannel.snapshotId,
+        optionToken: postFx.token,
+        expectedDisplayName: postFx.displayName,
+      });
+    const afterChannel = await runtime.application.executeMixerRoutingOperation(
+      {
+        action: "routing-options",
+        target,
+        direction: "input-channel",
+      },
+    );
+    if (afterChannel.action !== "routing-options") {
+      throw new Error("Expected refreshed input-channel routing options");
+    }
+    const currentChannel = afterChannel.options.find(
+      ({ token }) => token === afterChannel.currentOptionToken,
+    );
+    observed = {
+      source,
+      destination,
+      beforeCurrent,
+      assignedType,
+      currentType,
+      beforeCurrentChannel,
+      assignedChannel,
+      currentChannel,
+    };
+    assertions.push({
+      assertion: "audio-input-routing",
+      passed:
+        source.verified === true &&
+        destination.verified === true &&
+        assignedType.action === "set-routing" &&
+        assignedType.verified === true &&
+        currentType?.displayName === sourceName &&
+        assignedChannel.action === "set-routing" &&
+        assignedChannel.verified === true &&
+        currentChannel?.displayName === "Post FX",
+      evidence: observed,
+    });
+  } catch (error) {
+    assertions.push({
+      assertion: "scenario-execution",
+      passed: false,
+      message: error instanceof Error ? error.message : String(error),
+      evidence: observed,
+    });
+  } finally {
+    if (baseline !== undefined) {
+      try {
+        const current = await runtime.application.inspectSession();
+        const generated = current.tracks
+          .filter(
+            (track) =>
+              track.kind !== "master" &&
+              track.kind !== "return" &&
+              track.name.startsWith(artifactPrefix),
+          )
+          .sort((left, right) => right.index - left.index);
+        for (const track of generated) {
+          await runtime.application.deleteTrack({
+            index: track.index,
+            expectedReference: track.reference,
+            expectedName: track.name,
+            expectedKind: track.kind,
+          });
+        }
+        const after = await runtime.application.inspectSession();
+        assertions.push({
+          assertion: "routing-cleanup",
+          passed: JSON.stringify(after) === JSON.stringify(baseline),
+          evidence: { baseline, after },
+        });
+      } catch (error) {
+        cleanupError = error instanceof Error ? error.message : String(error);
+      }
+    }
+    try {
+      await runtime.application.stop();
+    } catch (error) {
+      cleanupError ??= error instanceof Error ? error.message : String(error);
+    }
+  }
+  if (cleanupError !== undefined) {
+    assertions.push({
+      assertion: "runtime-cleanup",
+      passed: false,
+      message: cleanupError,
+    });
+  }
+  return {
+    ok: assertions.every(({ passed }) => passed),
+    scenarioId: manifest.id,
+    assertions,
+  };
 }
 
 async function runCuePointRuntimeScenario(manifest, environment) {

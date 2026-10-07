@@ -33,6 +33,7 @@ import {
 
 const temporaryRoot = fileURLToPath(new URL("../.test-tmp/", import.meta.url));
 const openJournals: LocalObservabilityJournal[] = [];
+const testNow = "2026-08-30T00:00:00.000Z";
 
 const id = (value: number): string =>
   `00000000-0000-4000-8000-${value.toString(16).padStart(12, "0")}`;
@@ -298,7 +299,10 @@ async function databasePath(name = "observability.sqlite"): Promise<string> {
 async function openJournal(
   options: Parameters<typeof LocalObservabilityJournal.open>[0] = {},
 ): Promise<LocalObservabilityJournal> {
-  const journal = await LocalObservabilityJournal.open(options);
+  const journal = await LocalObservabilityJournal.open({
+    ...options,
+    now: options.now ?? (() => new Date(testNow)),
+  });
   openJournals.push(journal);
   return journal;
 }

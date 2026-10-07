@@ -27,6 +27,8 @@ const snapshot: ConfigurationSnapshot = {
   values: {},
 };
 
+const testNow = "2026-08-30T00:00:00.000Z";
+
 describe("non-blocking observability recorder", () => {
   it("injects a void producer API while forwarding records to the async sink", async () => {
     const events: TelemetryEventEnvelope[] = [];
@@ -98,6 +100,7 @@ describe("non-blocking observability recorder", () => {
   it("hands queued producer calls to the journal before graceful shutdown", async () => {
     const journal = await LocalObservabilityJournal.open({
       batchDelayMs: 5_000,
+      now: () => new Date(testNow),
     });
     const recorder = createNonBlockingObservabilityRecorder(journal);
 

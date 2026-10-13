@@ -275,6 +275,30 @@ See [Live Events](../events/live-events.md).
 
 ## Security
 
+### Guarded listening playback
+
+`listening.start_playback` supports Arrangement only, inside one main-thread
+executor command: validate exact Set/revision and bounded listener targets,
+require stopped transport, all four recording flags off, known disabled loop
+and no Session override/pending launch, seek `current_song_time`, recheck
+recording/source/target guards, then call `continue_playing` (not
+`start_playing`, which uses the insert marker). It never modifies routing,
+solo/mute, loop or Back to Arrangement.
+
+The result is `{schemaVersion:1,mode:"arrangement",cleanupPolicy:"leave-running",
+startedAtBeat,sourceOnset:"unverified"}`. Playback deliberately continues after
+capture completion, cancellation, disconnect and errors. There is no ownership
+token, automatic stop, or verified sounding-onset claim. Session start and
+`listening.stop_playback` remain unsupported. Native timing readiness is a
+separate application gate.
+
+Pre-mutation denials include `mutated:false`. Once a seek/start has been
+attempted, failures report `mutationState:"indeterminate"`, the failed
+`stage`, bounded observed `playing/currentBeat`, and the leave-running policy;
+they never guess rollback or stop independent user playback. Existing executor
+and bridge command events carry queued/start/completion/failure timing and trace
+context. The command registers no monitoring resources or delayed cleanup.
+
 - Bind to `127.0.0.1`, never `0.0.0.0`.
 - Require a per-installation authentication token.
 - Reject requests before authentication completes.

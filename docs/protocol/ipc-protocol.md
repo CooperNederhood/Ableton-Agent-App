@@ -201,6 +201,17 @@ Initial stable error codes:
 
 ## Schema ownership
 
+### Listening start cleanup contract
+
+`listening.start_playback` returns only `schemaVersion:1`, `mode:"arrangement"`,
+`cleanupPolicy:"leave-running"`, `startedAtBeat` (requested beat after verified
+seek), and `sourceOnset:"unverified"`. No ownership field is accepted. This
+acknowledges guarded seek/continue, not exact audible onset. Session start and
+stop remain unsupported; bounded listener capture cleanup must not stop Live.
+Partial mutation errors retain explicit indeterminate stage/observation details
+without claiming rollback. Command correlation/trace uses the existing request
+envelope, not arbitrary fields in the strict parameters.
+
 TypeScript schemas are canonical for the application packages. Export JSON
 Schema fixtures and validate them against Python-side parsing in contract tests.
 Do not rely on manually synchronized interfaces.

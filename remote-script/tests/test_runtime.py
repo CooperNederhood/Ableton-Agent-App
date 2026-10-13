@@ -4688,6 +4688,10 @@ class CapabilityAndTokenTests(unittest.TestCase):
             registry,
             note_editing_supported=True,
         )
+        for name in ("listening.start_playback", "listening.stop_playback"):
+            self.assertFalse(document["capabilities"][name])
+            self.assertEqual(document["capabilityDetails"][name]["evidence"], "unavailable")
+            self.assertTrue(document["capabilityDetails"][name]["limitations"])
 
         self.assertEqual(document["liveVersion"], "11.3-test")
         self.assertEqual(document["liveSetName"], "Example")

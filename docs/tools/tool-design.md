@@ -15,6 +15,29 @@ Agent tools should be:
 - Structured in both success and failure.
 - Verifiable.
 
+## Audio metadata and playback observations
+
+The existing `ableton_audio_clips` read surface returns identity-bound source
+metadata: gain/pitch, warp state/mode and available modes, start/end/loop
+markers, RAM mode, file path, sample length/rate, and paginated warp markers.
+Unavailable LOM fields remain null; source metadata is not an audio descriptor.
+`ableton_mixer_routing` meter reads expose bounded input/output left/right
+values, not a waveform, spectral analysis, or calibrated perceptual loudness.
+
+[Playback Listening](playback-listening.md) defines the optional playback-first
+analysis surface and App-session context. Reuse shared MIDI producer
+registration/connection infrastructure, but keep signal-rate measurement timing
+distinct from MIDI event timestamps. The application owns context publication;
+devices never receive database handles or arbitrary context-write access.
+
+Read-only context queries and playback-and-listen have different risks.
+Play-and-listen requires session transport authorization and retains the
+mutation lease until the app-owned pass terminates. Cancellation remains
+owner-scoped and must not wait for the lease held by the pass it cancels.
+Context pruning is destructive and requires exact reviewed scope. Capability
+gates must not advertise unvalidated production audio timing solely because
+MCP development tools are connected.
+
 ## Three levels
 
 ### Inspection tools

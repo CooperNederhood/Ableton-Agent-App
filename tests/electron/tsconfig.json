@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.test-runtime.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": [
+    "desktop.spec.ts",
+    "listening-context-fixture.ts",
+    "../../apps/desktop/src/renderer/global.d.ts"
+  ]
+}

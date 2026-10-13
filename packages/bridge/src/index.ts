@@ -3,6 +3,20 @@ import { createConnection, type Socket } from "node:net";
 
 import type { AbletonService } from "@ableton-agent/ableton-contracts";
 import {
+  inspectListeningContextParamsSchema,
+  inspectListeningContextResultSchema,
+  type InspectListeningContextParams,
+  type InspectListeningContextResult,
+  startListeningPlaybackParamsSchema,
+  startListeningPlaybackResultSchema,
+  stopListeningPlaybackParamsSchema,
+  stopListeningPlaybackResultSchema,
+  type StartListeningPlaybackParams,
+  type StartListeningPlaybackResult,
+  type StopListeningPlaybackParams,
+  type StopListeningPlaybackResult,
+} from "@ableton-agent/protocol";
+import {
   FrameDecoder,
   PROTOCOL_VERSION,
   audioClipsOperationParamsSchema,
@@ -936,6 +950,36 @@ export class AbletonBridgeService implements AbletonService {
     this.#requireCapability("events.inspect_curated_state");
     return inspectCuratedLiveStateResultSchema.parse(
       await this.#request("events.inspect_curated_state", {}),
+    );
+  }
+
+  public async inspectListeningContext(
+    params: InspectListeningContextParams,
+  ): Promise<InspectListeningContextResult> {
+    const validated = inspectListeningContextParamsSchema.parse(params);
+    this.#requireCapability("listening.inspect_context");
+    return inspectListeningContextResultSchema.parse(
+      await this.#request("listening.inspect_context", validated),
+    );
+  }
+
+  public async startListeningPlayback(
+    params: StartListeningPlaybackParams,
+  ): Promise<StartListeningPlaybackResult> {
+    const validated = startListeningPlaybackParamsSchema.parse(params);
+    this.#requireCapability("listening.start_playback");
+    return startListeningPlaybackResultSchema.parse(
+      await this.#mutationRequest("listening.start_playback", validated),
+    );
+  }
+
+  public async stopListeningPlayback(
+    params: StopListeningPlaybackParams,
+  ): Promise<StopListeningPlaybackResult> {
+    const validated = stopListeningPlaybackParamsSchema.parse(params);
+    this.#requireCapability("listening.stop_playback");
+    return stopListeningPlaybackResultSchema.parse(
+      await this.#mutationRequest("listening.stop_playback", validated),
     );
   }
 

@@ -88,7 +88,7 @@ export default tseslint.config(
           allowDefaultProject: [
             "vitest.config.ts",
             "playwright.config.ts",
-            "tests/electron/*.ts",
+            "tests/electron/packaged-desktop.spec.ts",
           ],
         },
         tsconfigRootDir: import.meta.dirname,

@@ -12,6 +12,53 @@ There are three distinct kinds of state:
 
 Agent conversation is never treated as authoritative project state.
 
+## App-session entity context
+
+[Playback Listening](../tools/playback-listening.md) adds typed App-session
+context associated with exact Live Set clips, tracks, and Arrangement ranges.
+Only listener measurements are in the initial payload registry; future typed
+kinds need their own bounds, provenance, freshness policy, and tests. Context
+does not mutate the `.als` or duplicate raw audio.
+
+Immutable listening passes preserve evidence; independently validated entity
+links describe current applicability. Active agents in one App session share
+context, while independent sessions stay isolated. Reopen restores the same
+context before preparing a bounded agent inventory; detailed measurements are
+queried on demand. Reconciliation cannot treat runtime references, names, or
+positions as durable identity.
+
+Context uses a resolver-owned nested App-session store and survives diagnostic
+journal retention. Publishing for an unsaved in-memory session must persist its
+ownership manifest/registry so results can be rediscovered. First-save ownership
+transitions preserve earlier observation attribution and expose historical
+context without silently rewriting Live Set IDs. Missing/corrupt stores are
+explicit recovery failures, not empty successful inventories.
+
+The main-process Desktop context manager resolves `ListeningExecutionContext`
+by its invoking `sessionId`, never by UI selection. Its resolver feeds the
+application `createSessionContextHost` for bounded inventory and typed queries.
+All read calls accept per-query trace/causation, agent attribution, and
+cancellation; conservative revalidation remains independent of resumption.
+The specific-session publication API checks session/Set/agent ownership and
+atomically publishes the existing JSON registry and a strict bounded ownership
+manifest before the first immutable pass append. Read-only preparation of an
+empty ephemeral session does not persist it.
+
+`JsonSessionStore` accepts a context transition handler. A prepare/apply/
+complete/rollback lease closes repositories before moving their Set subtree,
+updates only current ownership headers, and restores source ownership after
+rollback. Active listening reservations/publications fail closed rather than
+moving an open store. Sessions sharing one source Set directory transition as
+one ownership group; their previous observation evidence is retained exactly.
+Context-owning sessions/references cannot be silently dropped by metadata
+retention. Cache closure/eviction never implements context retention.
+
+The manager and publication hooks are implemented independently of renderer
+selection and journal enabled/retention state. Production composition wiring,
+native timing verification, physical-ID/bridge-UUID attestation, and isolated
+visible/end-to-end acceptance remain separate gates, not inferred from durable
+inventory availability.
+
 ## Live Set snapshot
 
 A normalized snapshot should include:

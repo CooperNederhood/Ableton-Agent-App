@@ -350,6 +350,8 @@ describe("SignalIngressServer", () => {
       protocol: "newline-delimited-json",
       protocolVersion: PRODUCER_PROTOCOL_VERSION,
       maxFrameBytes: 128 * 1024,
+      listenerVersions: [1],
+      listenerCapabilities: ["audio-listener/v1"],
     });
     expect(descriptorText).not.toContain(SECRET);
     expect((await stat(descriptorPath)).mode & 0o777).toBe(0o600);
@@ -374,9 +376,52 @@ describe("SignalIngressServer", () => {
       code: "server-shutdown",
       fatal: true,
     });
+
     await firstStop;
     await expect(readFile(descriptorPath, "utf8")).rejects.toMatchObject({
       code: "ENOENT",
     });
+  });
+
+  it("publishes canonical and legacy discovery with identical capability and removes only owned descriptors", async () => {
+    const descriptorPath = resolve(artifactRoot, "canonical.json");
+    const legacyDescriptorPath = resolve(artifactRoot, "legacy-midi.json");
+    const { server } = await startServer({
+      descriptorPath,
+      legacyDescriptorPath,
+    });
+    expect(await readFile(legacyDescriptorPath, "utf8")).toBe(
+      await readFile(descriptorPath, "utf8"),
+    );
+    expect((await stat(legacyDescriptorPath)).mode & 0o777).toBe(0o600);
+    await server.stop();
+    await expect(stat(descriptorPath)).rejects.toThrow();
+    await expect(stat(legacyDescriptorPath)).rejects.toThrow();
+  });
+
+  it("publishes a bounded credential file reference, never credential contents", async () => {
+    const descriptorPath = resolve(artifactRoot, "credential-reference.json");
+    const secretPath = resolve(
+      artifactRoot,
+      "credentials",
+      "signal-ingress-secret.json",
+    );
+    await startServer({ descriptorPath, secretPath });
+    const body = await readFile(descriptorPath, "utf8");
+    expect(JSON.parse(body)).toMatchObject({ secretPath });
+    expect(body).not.toContain(SECRET);
+    expect(
+      () =>
+        new SignalIngressServer({
+          secret: SECRET,
+          secretPath: SECRET,
+          registry: new InMemoryConnectionRegistry({ staleAfterMs: 10000 }),
+          router: {
+            route: () => {
+              throw new Error("unreachable");
+            },
+          },
+        }),
+    ).toThrow("absolute file reference");
   });
 });

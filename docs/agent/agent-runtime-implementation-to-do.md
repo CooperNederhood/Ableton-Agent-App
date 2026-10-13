@@ -4,6 +4,25 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 
 ## Copilot integration
 
+- [x] Compose optional listening hosts against the same bridge and authenticated
+  ingress, preserving caller ownership, deferred trace and terminal-pass leases.
+- [x] Shut down listening capture/publication before normal runtime teardown.
+- [x] Wire production Desktop context queries and resume inventory to the
+  canonical invoking-session manager, with relocation and ordered handle
+  closure; keep capture/playback composition separately gated.
+- [x] Propagate caller cancellation through pending listening/context
+  resolution, background passes after SDK idle, timeout and session disconnect;
+  retain transport ownership through cleanup and surface failed cancellation
+  with original per-pass trace attribution.
+- [x] Implement and export exact-instance same-ingress capture with
+  subscribe-before-control ordering, all-listener readiness/arming,
+  bounded compensation, epoch/sequence validation, complete-result enforcement,
+  native timing/readiness denial, and correlated lifecycle telemetry.
+- [x] Assemble/export the concrete runtime listening host and wire it into
+  canonical-storage Desktop composition, retaining independent application-owned
+  commissioning denial before controls and no automatic transport stop.
+- [ ] Complete concrete verified playback, listener capture and persisted
+  App-session context composition with real-device acceptance evidence.
 - [x] Add the Node.js Copilot SDK and pin a tested version.
 - [x] Implement `CopilotService` lifecycle and authentication diagnostics.
 - [x] Implement session create, resume, send, cancel, event subscription, and

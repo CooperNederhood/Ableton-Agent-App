@@ -74,6 +74,80 @@ const connected = {
 } as const;
 
 describe("agent policy", () => {
+  it("restores bounded session context per prompt rather than copying detail into the system message", async () => {
+    let inventory = "Session context: pass-yesterday";
+    const getInventory = vi.fn(async () => inventory);
+    const hooks = createAgentHooks({
+      getAbletonStatus: async () => connected,
+      preparedContext: { getPreparedContext: () => "project-context" },
+      sessionContext: { getInventory },
+    });
+    const prompt = {
+      sessionId: "sdk",
+      timestamp: new Date(),
+      workingDirectory: "/tmp",
+      prompt: "What did we learn yesterday?",
+    };
+    const first = await hooks.onUserPromptSubmitted?.(prompt, {
+      sessionId: "sdk",
+    });
+    expect(first?.additionalContext).toContain("pass-yesterday");
+    inventory = "Session context: destination-session";
+    const switched = await hooks.onUserPromptSubmitted?.(prompt, {
+      sessionId: "sdk",
+    });
+    expect(switched?.additionalContext).toContain("destination-session");
+    expect(switched?.additionalContext).not.toContain("pass-yesterday");
+    inventory = "a".repeat(20_000);
+    const bounded = await hooks.onUserPromptSubmitted?.(prompt, {
+      sessionId: "sdk",
+    });
+    expect(bounded?.additionalContext?.length).toBeLessThan(17_000);
+    expect(getInventory).toHaveBeenCalledTimes(3);
+  });
+
+  it("surfaces missing/corrupt context rather than pretending the session has no observations", async () => {
+    const hooks = createAgentHooks({
+      getAbletonStatus: async () => connected,
+      sessionContext: {
+        getInventory: async () => {
+          throw new Error("Context store failed validation");
+        },
+      },
+    });
+    await expect(
+      hooks.onUserPromptSubmitted?.(
+        {
+          sessionId: "sdk",
+          timestamp: new Date(),
+          workingDirectory: "/tmp",
+          prompt: "Read context",
+        },
+        { sessionId: "sdk" },
+      ),
+    ).rejects.toThrow("Context store failed validation");
+  });
+
+  it("does not inject unrelated session inventory into automatic observation turns", async () => {
+    const getInventory = vi.fn(async () => "private session context");
+    const hooks = createAgentHooks({
+      getAbletonStatus: async () => connected,
+      sessionContext: { getInventory },
+      promptContextEnabled: () => false,
+    });
+    const result = await hooks.onUserPromptSubmitted?.(
+      {
+        sessionId: "sdk",
+        timestamp: new Date(),
+        workingDirectory: "/tmp",
+        prompt: "Automatic observation",
+      },
+      { sessionId: "sdk" },
+    );
+    expect(getInventory).not.toHaveBeenCalled();
+    expect(result?.additionalContext).not.toContain("private session context");
+  });
+
   it("builds fresh action context without repeating session identity", () => {
     const context = compactProjectContext(connected, snapshot);
 

@@ -1,11 +1,9 @@
-import { mkdir, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
-
 import type { HeadlessApplication } from "@ableton-agent/application";
 import type { BrowserRootKey } from "@ableton-agent/protocol";
 import type { AppEvent } from "@ableton-agent/shared";
 
 import { EXIT_CODES, exitCodeForOperationFailures } from "./exit-codes.js";
+import { RunTraceWriter } from "./run-trace.js";
 import {
   renderMarkdown,
   sanitizeTerminalText,
@@ -136,6 +134,10 @@ export type CliCommand =
   | { name: "help"; json: false };
 
 export class CliUsageError extends Error {}
+
+export class NoninteractiveHumanGateError extends Error {
+  readonly code = "approval_required";
+}
 
 export function parseArgs(args: readonly string[]): CliCommand {
   const json = args.includes("--json");
@@ -744,27 +746,53 @@ export async function runCommand(
     return runInteractive(application, io, input, options);
   }
 
-  await application.start({
-    startAgent:
-      command.name === "run" ||
-      command.name === "session-new" ||
-      command.name === "session-resume" ||
-      command.name === "session-current",
-    ...(command.name === "run" && command.sessionId !== undefined
-      ? { preferredAgentSessionId: command.sessionId }
-      : {}),
-  });
   const operationFailures: Array<
     Extract<AppEvent, { type: "operation.failed" }>
   > = [];
   const turnEvents: AppEvent[] = [];
+  let rejectHumanGate:
+    ((error: NoninteractiveHumanGateError) => void) | undefined;
+  const humanGate = new Promise<never>((_resolve, reject) => {
+    rejectHumanGate = reject;
+  });
+  void humanGate.catch(() => undefined);
+  const traceStartedAt = new Date().toISOString();
+  const traceWriter =
+    command.name === "run" && command.tracePath !== undefined
+      ? new RunTraceWriter(command.tracePath)
+      : undefined;
   const unsubscribe = application.subscribe((event) => {
+    if (
+      command.name === "run" &&
+      (event.type === "agent.elicitation_requested" ||
+        event.type === "agent.plan_approval_requested")
+    ) {
+      rejectHumanGate?.(
+        new NoninteractiveHumanGateError(
+          `Non-interactive run cannot resolve ${event.type}; no answer or approval was supplied`,
+        ),
+      );
+      return;
+    }
+    if (!event.type.startsWith("operation.")) return;
     turnEvents.push(event);
     if (event.type === "operation.failed") {
       operationFailures.push(event);
     }
+    traceWriter?.checkpoint(partialTrace("running"));
   });
   try {
+    await traceWriter?.write(partialTrace("running"));
+    await application.start({
+      startAgent:
+        command.name === "run" ||
+        command.name === "session-new" ||
+        command.name === "session-resume" ||
+        command.name === "session-current",
+      ...(command.name === "run" && command.sessionId !== undefined
+        ? { preferredAgentSessionId: command.sessionId }
+        : {}),
+    });
     if (command.name === "session-current") {
       const payload = { sessionId: application.agentSessionId };
       io.write(
@@ -1301,11 +1329,14 @@ export async function runCommand(
       scenario === undefined
         ? undefined
         : await captureScenarioBaseline(application);
-    const response = await application.send(
-      scenario === undefined
-        ? command.prompt
-        : scenarioPrompt(command.prompt, scenario),
-    );
+    const response = await Promise.race([
+      application.send(
+        scenario === undefined
+          ? command.prompt
+          : scenarioPrompt(command.prompt, scenario),
+      ),
+      humanGate,
+    ]);
     const assertions =
       scenario === undefined || baseline === undefined
         ? []
@@ -1340,6 +1371,9 @@ export async function runCommand(
       assertions.every((assertion) => assertion.passed);
     const payload = {
       ok,
+      traceState: "completed",
+      startedAt: traceStartedAt,
+      finishedAt: new Date().toISOString(),
       response,
       sessionId: application.agentSessionId,
       scenarioId: command.scenarioId,
@@ -1356,6 +1390,8 @@ export async function runCommand(
       operations: turnEvents
         .filter((event) => event.type.startsWith("operation."))
         .map((event) => sanitizeTraceValue(event)),
+      operationsTruncated: turnEvents.length > 64,
+      approvalsTruncated: approvalDecisions.length > 64,
       approvals: approvalDecisions,
       assertions,
       policyViolations,
@@ -1377,9 +1413,10 @@ export async function runCommand(
           ? "scenario_failed"
           : "operation_failed",
     };
-    if (command.tracePath !== undefined) {
-      await writeTraceFile(command.tracePath, payload);
-    }
+    await traceWriter?.finish({
+      ...payload,
+      response: "[assistant response omitted from trace; retained in stdout]",
+    });
     io.write(
       command.json
         ? JSON.stringify(payload)
@@ -1389,29 +1426,59 @@ export async function runCommand(
     return operationFailures.length > 0
       ? exitCodeForOperationFailures(operationFailures)
       : EXIT_CODES.OPERATION_ERROR;
+  } catch (error) {
+    if (error instanceof NoninteractiveHumanGateError) {
+      await application.cancel();
+    }
+    if (traceWriter !== undefined) {
+      try {
+        await traceWriter.finish({
+          ...partialTrace("failed"),
+          finishedAt: new Date().toISOString(),
+          error: error instanceof Error ? error.message : String(error),
+        });
+      } catch (traceError) {
+        if (traceError !== error) {
+          throw new AggregateError(
+            [error, traceError],
+            "CLI run failed and its trace could not be persisted",
+          );
+        }
+      }
+    }
+    throw error;
   } finally {
     unsubscribe();
     await application.stop();
   }
 
-  async function writeTraceFile(path: string, payload: unknown): Promise<void> {
-    const directory = dirname(path);
-    await mkdir(directory, { recursive: true });
-    const temporaryPath = `${path}.${process.pid}.tmp`;
-    const tracePayload =
-      typeof payload === "object" && payload !== null && "response" in payload
-        ? {
-            ...(payload as Record<string, unknown>),
-            response:
-              "[assistant response omitted from trace; retained in stdout]",
-          }
-        : payload;
-    await writeFile(
-      temporaryPath,
-      `${JSON.stringify(sanitizeTraceValue(tracePayload), undefined, 2)}\n`,
-      { encoding: "utf8", mode: 0o600 },
-    );
-    await rename(temporaryPath, path);
+  function partialTrace(traceState: "running" | "failed") {
+    const decisions = options.scenario?.approvals.decisions ?? [];
+    return {
+      ok: false,
+      traceState,
+      startedAt: traceStartedAt,
+      updatedAt: new Date().toISOString(),
+      sessionId: application.agentSessionId,
+      scenarioId: command.name === "run" ? command.scenarioId : undefined,
+      operations: turnEvents,
+      operationFailures,
+      approvals: decisions,
+      assertions: [],
+      policyViolations: [],
+      operationsTruncated: turnEvents.length > 64,
+      approvalsTruncated: decisions.length > 64,
+      budgets: {
+        toolCalls: turnEvents.filter(
+          (event) => event.type === "operation.started",
+        ).length,
+        mutations: decisions.filter(
+          (decision) => decision.approved && decision.risk !== "read",
+        ).length,
+      },
+      exitClassification:
+        traceState === "running" ? "run_incomplete" : "run_failed",
+    };
   }
 
   async function resolveTrack(

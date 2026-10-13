@@ -1,0 +1,160 @@
+{
+  "schemaVersion": 1,
+  "status": "specification_only_not_executable_or_certification",
+  "scope": "Live Suite 11.3.42 Arrangement transport ownership; no Session onset certification",
+  "conclusion": "No available property-only interface proves exclusive transport ownership across all external actions.",
+  "sources": [
+    {
+      "url": "https://docs.cycling74.com/legacy/max8/vignettes/live_object_model",
+      "authority": "Official LOM property/function prior art, not a build-pinned Python callback ordering guarantee",
+      "relevant": [
+        "Song.current_song_time",
+        "Song.is_playing",
+        "Song.start_time",
+        "Song.start_playing",
+        "Song.continue_playing",
+        "Song.back_to_arranger",
+        "Song.record_mode",
+        "Song.arrangement_overdub",
+        "Song.session_record",
+        "Song.session_automation_record",
+        "Song.loop",
+        "Song.loop_start",
+        "Song.loop_length",
+        "Track.back_to_arranger",
+        "Track.playing_slot_index",
+        "Track.fired_slot_index"
+      ]
+    },
+    {
+      "url": "https://docs.cycling74.com/apiref/lom/song/",
+      "authority": "Current official cross-check; includes post-Live11 features, not Live11 runtime evidence"
+    },
+    {
+      "url": "https://github.com/gluon/AbletonLive11_MIDIRemoteScripts/blob/main/ableton/v2/control_surface/components/transport.py",
+      "authority": "Unofficial decompiled Live11 transport prior art; not normative or certification",
+      "relevant": [
+        "is_playing value listener",
+        "direct current_song_time writes",
+        "no universal external action-origin generation"
+      ]
+    }
+  ],
+  "repositoryEvidence": {
+    "executor": "MainThreadExecutor serializes application commands, not all native UI/MIDI/Link/audio actors; drain executes up to eight commands per scheduled task.",
+    "curatedListeners": "LomListenerManager observes is_playing, record_mode and session_record but not current_song_time, loop, loop_start, loop_length, back_to_arranger, arrangement_overdub or session_automation_record. Missing registrations are skipped/logged, not a proof of supported ownership observation.",
+    "dynamicListeners": "LiveEventSubscriptionManager observes playing_slot_index/fired_slot_index and recording fallbacks; discrete publication compares the current reread with previous state, so it is not an action log. Parameter callbacks are deliberately coalesced.",
+    "transportSetter": "system_commands.set_playing calls start_playing/stop_playing and verifies a later boolean; it does not preserve ownership, source identity or exact seek-to-start semantics.",
+    "sentinelWarning": "Existing playing_clip_state labels -2 as arrangement, whereas the public Track LOM describes -2 as Session Clip Stop fired and -1 as Arrangement recording without Session clip. Never use that label alone as Arrangement source proof."
+  },
+  "callbackClassification": {
+    "conditionallyLatchable": [
+      "is_playing transitions",
+      "loop/loop_start/loop_length transitions",
+      "all four recording flags",
+      "Song/Track back_to_arranger transitions",
+      "Track fired_slot_index/playing_slot_index transitions",
+      "tempo/nudge/Link/punch mode changes",
+      "target deletion or topology changes"
+    ],
+    "condition": "Every required callback must be available, lossless and delivered before the protected stop mutation. Latch loss directly inside the raw Python callback, even if a subsequent read has reverted; do not rely on curated/coalesced network events. This host ordering is not proven by the public documentation or simulator.",
+    "notAnOriginProof": [
+      "current_song_time values during advancement vs forward seek",
+      "same-value seek or start/retrigger with no state transition",
+      "external source intent when its visible properties remain unchanged"
+    ],
+    "pollingOnlyLimit": "Polling or final snapshot equality misses any on/off or stop/start takeover completed between samples; elapsed time and monotonic position tolerances are heuristics, not authority.",
+    "unsupportedRequiredProperty": "Fail before any transport mutation; do not omit an observer or substitute a default value."
+  },
+  "runner": {
+    "preflight": "Use the existing runner-owned process/profile guard. Refuse any pre-existing Live process, including user PID 56060; never install, attach, mutate or kill it.",
+    "version": "Record exact Live/Python/OS build and introspected listener availability. Live12 and unknown builds are unsupported.",
+    "fixture": "Fresh disposable unsaved Set, one ordinary audio track with deterministic Arrangement clip over beats 0..32, one Session clip on that track for override-only tests, no armed tracks, all recording flags false, loop false, no automation, fixed tempo. Record exact bridge references and canonical paths.",
+    "actors": "Separate test-only owner probe and independent injector on the runner-owned host. Injector must not share the owner's suppression flag. Exercise both independent Python/M4L control and runner-owned UI/MIDI actions; Python-only injection cannot establish UI callback equivalence.",
+    "probe": "Non-publishing test instrumentation only. Register raw known-property callbacks before mutation; callbacks append bounded samples and immediately latch invalidation without scheduling/debounce. No production playback command, success token or audio publication is enabled.",
+    "startSemanticsExperiment": "Compare setting current_song_time followed by start_playing versus continue_playing with start_time deliberately different. Document which primitive starts from the requested beat without changing the insert marker; never assume start_playing means continue from current position.",
+    "orderingExperiment": "Log injector.before_call, raw_callback_enter, raw_callback_exit, injector.after_call, owner.before_stop_guard and owner.after_stop_call with monotonic nanoseconds, main-thread identity and sequential counter. Test stop requests immediately after actions and after zero, one and two scheduled ticks. Log registration/removal failures.",
+    "budgets": {
+      "cases": 32,
+      "repetitionsPerCase": 20,
+      "secondsPerCase": 5,
+      "maxRecordsPerCase": 4096,
+      "snapshotFrequencyHz": 10,
+      "maxTracks": 4,
+      "maxClips": 8
+    },
+    "overflow": "Any dropped event, record overflow, unavailable observer, inconsistent thread/order, timeout or malformed trace means UNKNOWN/FAIL, never ownership confirmed.",
+    "trace": "Carry traceId/correlationId/causationId/passId/probeGeneration through runner, injector, callbacks and terminal report. Record queued/started/progress/completed/failed/cancelled plus duration; bounded sanitized metadata only, no PCM, secrets or arbitrary LOM properties.",
+    "cleanup": "Remove every installed callback in reverse order and verify no further probe callbacks. A separate runner janitor may stop/discard only its own disposable process/Set; distinguish janitor cleanup from owner stop. Clear timers and generation on disconnect/deletion/cancellation. Never cleanup a user process.",
+    "verdict": "Observations can falsify synchronous/lossless ordering assumptions but finite successful trials cannot create an undocumented universal action-origin guarantee. Result remains UNVERIFIED unless a host-native generation/CAS API with the stated contract is independently established."
+  },
+  "cases": [
+    {
+      "id": "baseline-advance",
+      "action": "No injection during beats 8..12",
+      "assert": "Capture ordinary current_song_time callback cadence; conservative invalidate-on-any-position may lose immediately and is not useful owned playback."
+    },
+    {
+      "id": "seek-back",
+      "action": "Independent current_song_time write to beat 7 while playing",
+      "assert": "Position-change callback and loss ordering recorded; never stop after loss."
+    },
+    {
+      "id": "seek-forward",
+      "action": "Independent write to beat 9 and to a small forward delta within one normal notification interval",
+      "assert": "Large displacement may be recognizable; small forward displacement has no documented origin classifier."
+    },
+    {
+      "id": "seek-same",
+      "action": "Independent write of the exact current_song_time value",
+      "assert": "Record whether an event exists; no event is permitted by a value-change-only contract."
+    },
+    {
+      "id": "retrigger",
+      "action": "Independent start_playing, continue_playing and is_playing=True while already running, with insert marker equal and unequal to current position",
+      "assert": "Determine state/position changes; no equal-value action notification is documented."
+    },
+    {
+      "id": "stop-start",
+      "action": "Independent stop_playing then continue_playing/start_playing in one native task, then in separate ticks",
+      "assert": "If both raw callbacks precede the guard, latch lost on the first and never recover. A final playing=True snapshot cannot prove no takeover."
+    },
+    {
+      "id": "source-override",
+      "action": "Fire the fixture Session clip, fire Clip Stop, return to Arrangement, and repeat a same-slot fire; these are takeover injections only",
+      "assert": "Record fired/playing indices and Song/Track back_to_arranger callbacks; any takeover latches loss. Do not infer actual Session sounding onset or Arrangement source from -2."
+    },
+    {
+      "id": "record-flags",
+      "action": "Toggle each of record_mode, arrangement_overdub, session_record and session_automation_record on then off in one task and across ticks; fixture tracks stay unarmed",
+      "assert": "All four callbacks required; first unsafe notification latches loss even if all flags are false again."
+    },
+    {
+      "id": "loop",
+      "action": "Toggle loop on/off and change/restore loop_start/loop_length within one task and across ticks",
+      "assert": "Any loop takeover latches loss; equal final loop snapshot is insufficient."
+    },
+    {
+      "id": "mode",
+      "action": "Independent nudge, tempo, punch and Link-mode changes using supported known controls",
+      "assert": "Unknown/unobservable mode or timing change fails closed; do not normalize it into ordinary progress."
+    },
+    {
+      "id": "boundary",
+      "action": "Injection before start guard, during owner native-call scope, immediately after start and immediately before stop guard",
+      "assert": "Test that blanket self-mutation suppression cannot mask independent actor events; unknown interleaving cannot issue or redeem a token."
+    },
+    {
+      "id": "cleanup",
+      "action": "Disconnect, cancel, delete target and simulate registration failure before/after probing",
+      "assert": "No owner stop after loss, no leaking callbacks/timers, no success token, capability remains disabled."
+    }
+  ],
+  "minimumApiChange": {
+    "authority": "Host-native authority, not a Python counter fed only by property notifications",
+    "generation": "Monotonic transport/source mutation generation covering every UI/MIDI/Link/control-surface seek/start/retrigger/stop/source/record/loop/mode action, including same-value actions; natural progression alone must not increment it.",
+    "atomicStart": "Native transaction rechecks stopped, all recording-off, exact Set/targets and Arrangement source constraints; seeks/continues and returns ownerId/passId/generation plus exact source generation. External actions inside the transaction must be serialized or invalidate its result.",
+    "atomicStop": "Host compare-and-stop(ownerId, generation, sourceGeneration) checks authority and performs stop in the same native critical section; a mismatched/lost token produces stopped=false without mutation.",
+    "alternative": "Explicitly weaken the product contract to best-effort playback without stop ownership, or enforce an independently proven exclusive host actor environment. Neither is the current safe listening ownership contract."
+  }
+}

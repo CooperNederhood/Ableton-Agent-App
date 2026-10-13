@@ -75,6 +75,8 @@ import {
 } from "./inspector-layout";
 import { parseYoloCommand, yoloCommandUsage } from "./yolo-command";
 import { ProfileManagerView } from "./ProfileManagerView";
+import { EntityContextPanel } from "./EntityContextPanel";
+import { ListeningPassPanel } from "./ListeningPassPanel";
 
 type CatalogSkill = DesktopState["agentCatalog"]["skills"][number];
 
@@ -1112,7 +1114,11 @@ export function App(): React.JSX.Element {
             }
           />
         ) : state.activeView === "outputs" ? (
-          <OutputsView state={state} dispatch={dispatch} />
+          <OutputsView
+            state={state}
+            dispatch={dispatch}
+            contextEpoch={profileRefreshToken}
+          />
         ) : state.activeView === "events" ? (
           <EventsView state={state} dispatch={dispatch} />
         ) : state.activeView === "browser" ? (
@@ -2400,9 +2406,11 @@ export function EventCard({
 export function OutputsView({
   state,
   dispatch,
+  contextEpoch = 0,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+  contextEpoch?: number;
 }): React.JSX.Element {
   const [refreshing, setRefreshing] = useState(false);
   const [removingAssignmentId, setRemovingAssignmentId] = useState<string>();
@@ -2487,6 +2495,21 @@ export function OutputsView({
           </button>
         </div>
       </div>
+      <EntityContextPanel
+        sessionId={state.activeSessionId}
+        api={
+          typeof window === "undefined"
+            ? undefined
+            : window.desktop?.entityContext
+        }
+        contextEpoch={contextEpoch}
+      />
+      <ListeningPassPanel
+        sessionId={state.activeSessionId}
+        agentId={selectedAgentInstance(state)?.id}
+        api={typeof window === "undefined" ? undefined : window.desktop}
+        contextEpoch={contextEpoch}
+      />
       {unavailable && (
         <div className="notice" role="status">
           {state.outputs.status.state === "disabled" ||

@@ -94,11 +94,109 @@ interface DesktopApi {
     setCaptureEnabled(enabled: boolean): Promise<void>;
     clear(input?: HistoryDeleteScope): Promise<void>;
   };
+  entityContext: {
+    list(input: DesktopContextListRequest): Promise<DesktopContextPage>;
+    get(input: DesktopContextGetRequest): Promise<DesktopContextDetail>;
+  };
 }
 ```
 
 Do not expose generic `invoke(channel, payload)` or Node primitives to the
 renderer.
+
+`entity-context:list` and `entity-context:get` are read-only, strictly validated
+main-process boundaries scoped to an explicit App session. Preload creates a
+WebCrypto trace/correlation/causation tuple for each query and main forwards it
+through the shared context host to the application-owned repository. UI reads
+are application actors, never fabricated model-agent operations. Main records
+queued, started, completed, failed, and supported cancellation query events with
+bounded sanitized errors and elapsed timing. The renderer receives no database
+path, SQL, prune, arbitrary context-write, or filesystem capability.
+Public query input types preserve schema defaults: historical inclusion
+defaults to false and list pages default to twenty items; validated results
+remain separate output DTOs.
+
+Outputs includes a **Stored listening context** panel with bounded paginated
+summaries and detail, an explicit historical-inclusion control, and retryable
+errors. Unknown freshness is displayed as unknown rather than certified fresh;
+mixed or unresolved attribution is not presented as isolated clip evidence.
+Changing App session or profile refresh epoch clears selection and invalidates
+pending results; mismatched detail IDs are rejected. Reading stored context
+does not depend on the listener remaining connected. A context-file or
+composition failure is an actionable error, not a successful empty page.
+
+When canonical profile storage is configured, production Desktop composition
+shares one session-context manager between SDK queries/resume inventory and the
+main-only context reader. Ownership resolves by the invoking session, not the
+selected conversation. First publication registers that exact session and
+manifest; ordinary empty reads do not publish metadata. JsonSessionStore
+ownership transitions use the manager's close/relocate/reopen transaction.
+The same runtime's concrete listening factory supplies SDK discovery, pass and
+cancellation ports alongside context queries. Its owner resolver uses the
+invoking session ID, never the selected conversation; absent canonical storage
+does not construct a listening host. Native capture remains explicitly gated
+before controls pending real-device timing evidence. Producer readiness
+self-report cannot unlock this gate. Arrangement capture cleanup leaves playback
+running; cancelling a pass does not stop Live.
+Shutdown first quiesces listening while ingress is available, preserves the
+existing ingress-before-application stop order, then closes context handles
+after runtime/action drain and before journal closure. A quiescence failure
+retains ingress for cleanup; a context-close failure is surfaced rather than
+reported as clean shutdown.
+
+Outputs also includes **Listening passes**, scoped to the explicit App-session
+and selected agent. `listening:list` is the only listening inventory IPC/preload
+method: it accepts bounded identifiers, a limit of at most 100, and an optional
+UI trace; it exposes no SQL, paths, controls, raw audio or mutation API. Main
+retains at most 100 runtime lifecycle snapshots, evicts only terminal jobs, and
+rejects foreign owners, rebound pass IDs and unsupported playback-ownership
+claims. These snapshots are ephemeral lifecycle state, not stored observations
+or proof of certified native capture. All outbound strings are sanitized and
+bounded. `HeadlessDesktopService.reportListeningJob(job)` is the concrete
+runtime's `onChange` adapter and emits typed `listening.changed` snapshots;
+the coordinator remains the authority for capture lifecycle and original traces.
+
+The panel shows queued, validation, reservation, arming, playback-start, capture,
+publication and terminal stages, elapsed duration and actionable failure detail.
+It explicitly states that bounded Arrangement playback is **left running** on
+completion, cancellation, failure and timeout; Session capture is unsupported
+and production timing certification is still unavailable. The cancel control
+uses the existing `agents:cancel` service path for that agent's active turn and
+all its owned captures, including after SDK idle. Its expected App-session ID is
+revalidated before cancellation; no arbitrary renderer actor, direct bridge stop
+or transport-ownership token is introduced.
+
+Inventory and user-cancellation boundaries record ordered queued, started,
+progress, completed, failed or supported cancelled events with sanitized payloads,
+elapsed timing and UI trace/causation IDs. UI reads are application-attributed,
+with the target agent recorded as a subject rather than a fabricated model
+actor. The presentation relay preserves coordinator agent/Set attribution and
+does not start an independent capture lifecycle. Selection/profile changes,
+shutdown and owner removal clear stale views and subscriptions; monotonic
+inventory revisions prevent late queries from replacing newer events.
+Deterministic component/main/IPC/preload tests and an isolated, explicitly
+synthetic Electron event fixture cover these boundaries. Synthetic presentation
+is not positive measured-Max evidence. Physical visual acceptance remains gated
+on Accessibility/Screen Recording permissions and a runner-owned Live process;
+pre-existing user Live instances must not be controlled.
+
+Electron regressions use workspace-owned homes, caches and temporary directories,
+an allowlisted child environment with no inherited credentials/SDK or renderer
+overrides, and owned rejecting bridge endpoints. Both bridge and signal ports
+are written into resolver-owned preferences before launch: Desktop selects its
+bridge port from `preferences.abletonPort`, not `ABLETON_AGENT_PORT`. A process
+environment port override alone is therefore not sufficient isolation. Explicit
+synthetic fixture credentials/endpoints are the only permitted overrides;
+restart and automation launches retain the same protection. The secure-contract
+test verifies the exact owned preference port and preserves the exact
+**No connected Live Set** tree postcondition rather than matching arbitrary
+user Set names. Owned servers and profiles are closed/removed by the harness.
+Persistent launch-isolation coverage lives in the normal Desktop Vitest suite,
+not the excluded Electron test directory:
+`pnpm exec vitest run apps/desktop/src/main/desktop-test-environment.test.ts`.
+It uses synthetic environments and actual shared-resolver preference writes
+for initial/restart and normal/automation profiles, including the reviewed
+51234 bridge port versus the unsafe product default 8765.
 
 ### Renderer
 

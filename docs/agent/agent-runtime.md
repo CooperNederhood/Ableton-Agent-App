@@ -6,6 +6,66 @@ The agent translates musical intent into safe, observable, verifiable
 operations. It is not the source of truth for the Live set and does not execute
 arbitrary code inside Ableton.
 
+## Optional playback listening host
+
+`prepareListenerCapture` is the concrete same-ingress capture adapter. It
+subscribes before control, validates exact producer instances and connection
+epochs, prepares every selected listener, and arms all of them before returning
+a `PreparedListenerCapture`. The handle exposes `jobId`, `passId`, the complete
+multi-listener `result` promise, and idempotent bounded `disarm()`. Coordinator
+composition maps `result` to its observation waiter; this adapter never starts
+Live playback or publishes context itself. Stale sequences, partial results,
+disconnects, unsupported bounds, readiness denial, and cleanup failure are
+explicit failures with correlated bounded lifecycle records. Native
+`UNVERIFIED` timing or `BLOCKED` readiness is rejected before controls, and
+registration is rechecked during preparation and capture. Connectivity is not
+native readiness.
+
+Listening invocation contexts carry a caller cancellation signal in addition
+to immutable owner and trace IDs. User cancellation, parent-turn timeout and
+SDK-session disconnection abort pending ownership/target resolution and cancel
+already-started passes using their original invoking context, not Desktop's
+new selection. Cancellation remains available after SDK idle while a listening
+pass owns background work. The SDK waits for terminal capture, publication and
+cleanup receipts before reporting clean cancellation or releasing transport;
+cleanup failure remains an explicit failure. Per-pass
+`agent.listening_cancel.*` queued, started, acknowledged progress, completed and
+failed records preserve the original trace, tool causation and timing. The
+context host combines caller cancellation with its lifetime signal, including
+pre-commit prune guards. Tool-host lifecycle callbacks receive cloned snapshots
+without replacing the host's owner-scoped job inventory.
+
+Clients may supply a listening/context host directly or through a factory
+receiving the runtime's existing bridge, authenticated Signal runtime, event
+publisher and observability recorder. This keeps capture control on the same
+ingress as MIDI producers. A playback host must expose a terminal-pass wait
+boundary so the SDK retains the shared transport lease through capture,
+publication and cleanup. A factory does not bypass this requirement.
+
+`createListeningRuntimeHost` assembles the concrete listening ports from these
+same dependencies and explicit invoking-owner/repository resolvers. It retains
+canonical-path binding, pass quota reservation, prepare-before-start ordering,
+Arrangement guard enforcement, atomic publication, and compensating cleanup
+behind the application-owned commissioning gate. Optional context ports are
+composed without opening another transport or store. The current production
+gate denies with `real_live_timing_validation_required` before reservation,
+listener controls, playback, or publication. There is no certificate-file or
+producer-READY bypass. Test-owned injected adapter evidence is not production
+certification.
+
+Arrangement cleanup deliberately leaves playback running and releases only
+local monitors/listeners. A guarded start acknowledgement with unverified
+source onset does not establish measured audio time. Session listening remains
+unsupported until quantized onset is independently verified.
+
+The headless tool facade resolves ownership from the invoking App session and
+agent, forwards pass/owner/trace context through deferred adapter calls, and
+bounds its job inventory and owner-scoped continuation cursors. Shutdown ends
+listening work before tearing down the bridge and agent. Persisted measurements
+remain separate from this transient job inventory and the diagnostic journal.
+Production device readiness, timing and exact cross-boundary binding require
+their own evidence; an injected host is not certification.
+
 ## Copilot SDK configuration
 
 The default session should:

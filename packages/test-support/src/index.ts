@@ -1,6 +1,9 @@
 import { HeadlessApplication } from "@ableton-agent/application";
 import { InMemoryEventPublisher, noopLogger } from "@ableton-agent/shared";
 
+export * from "./listening-fixture.js";
+export * from "./listening-verifier.js";
+
 import {
   FakeAbletonService,
   type FakeAbletonState,

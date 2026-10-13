@@ -499,6 +499,9 @@ function reduceEvent(
   event: DesktopAppEvent,
 ): DesktopState {
   switch (event.type) {
+    case "listening.changed":
+    case "listening.reset":
+      return state;
     case "lifecycle.changed":
       return { ...state, lifecycle: event.state };
     case "ableton.connection_changed":

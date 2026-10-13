@@ -66,6 +66,9 @@ function identityContextKey(context: AgentIdentityContext): string {
 }
 
 export interface AgentPolicyServices {
+  sessionContext?: {
+    getInventory(): Promise<string>;
+  };
   getAbletonStatus(): Promise<ConnectionStatus>;
   /** Retained for tool-service compatibility; prompt hooks never call it. */
   inspectSession?: () => Promise<SessionSnapshot>;
@@ -267,6 +270,10 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
         const parts = [
           changedIdentityContext(),
           await context(),
+          services.sessionContext === undefined ||
+          !(services.promptContextEnabled?.() ?? true)
+            ? undefined
+            : (await services.sessionContext.getInventory()).slice(0, 16_384),
           browserIntentGuidance(input.prompt),
         ];
         const signalOptions = services.signalContext;

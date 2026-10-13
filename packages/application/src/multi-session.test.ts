@@ -1717,6 +1717,404 @@ describe("CopilotAgentService managed sessions", () => {
     await service.stop();
   });
 
+  it("supplies invoking-session ownership and fresh query traces to resumed inventory hooks", async () => {
+    const configs: SessionConfig[] = [];
+    const runtimeEvents: AgentRuntimeEvent[] = [];
+    const getSessionContextInventory = vi.fn<
+      NonNullable<CopilotAgentServiceOptions["getSessionContextInventory"]>
+    >(async () => "Historical observations: none");
+    const service = new CopilotAgentService(
+      baseOptions({
+        getSessionContextInventory,
+        runtimeObserver: { enqueue: (event) => runtimeEvents.push(event) },
+        clientFactory: () => ({
+          createSession: vi.fn(async (config: SessionConfig) => {
+            configs.push(config);
+            const sessionId = `session-${configs.length}`;
+            return createFakeSession(sessionId, {
+              onSend: async (prompt) => {
+                await config.hooks?.onUserPromptSubmitted?.(
+                  {
+                    sessionId,
+                    timestamp: new Date(),
+                    workingDirectory: "/tmp",
+                    prompt,
+                  },
+                  { sessionId },
+                );
+                return { data: { content: "Context inspected" } };
+              },
+            });
+          }),
+          resumeSession: vi.fn(async () => {
+            throw new Error("resume not expected");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+    await service.createManagedAgent(configuration("agent-a"));
+    await service.createManagedAgent(configuration("agent-b"));
+    for (const [index, agent] of [
+      [1, "agent-a"],
+      [2, "agent-b"],
+    ] as const) {
+      const hook = configs[index]?.hooks?.onUserPromptSubmitted;
+      expect(hook).toBeDefined();
+      await service.sendToManagedAgent(agent, "What context is available?");
+      expect(getSessionContextInventory.mock.lastCall?.[0]).toBe(
+        `production-${agent}`,
+      );
+      expect(getSessionContextInventory.mock.lastCall?.[1]).toMatchObject({
+        sessionId: `production-${agent}`,
+        agentId: agent,
+      });
+    }
+    const contexts = getSessionContextInventory.mock.calls.map(
+      ([, context]) => context,
+    );
+    expect(contexts).toHaveLength(2);
+    expect(contexts[0]?.trace.traceId).not.toBe(contexts[1]?.trace.traceId);
+    const inventoryEvents = runtimeEvents.filter(
+      ({ type }) => type === "agent.context_inventory.started",
+    );
+    expect(inventoryEvents).toHaveLength(2);
+    contexts.forEach(({ trace }, index) => {
+      expect(inventoryEvents[index]?.trace?.traceId).toBe(trace.traceId);
+      expect(inventoryEvents[index]?.data.correlationId).toBe(
+        trace.correlationId,
+      );
+      expect(inventoryEvents[index]?.data.contextRequestId).toBe(
+        trace.causationId,
+      );
+    });
+    await service.stop();
+  });
+
+  it("rejects listening registration without a terminal completion boundary", () => {
+    expect(
+      () =>
+        new CopilotAgentService(
+          baseOptions({
+            executeListeningOperation: vi.fn(),
+          }),
+        ),
+    ).toThrow("owned-pass completion boundary");
+  });
+
+  it("attributes context queries to the invoking App session and agent, not the selected session", async () => {
+    const configs: SessionConfig[] = [];
+    const executeContextOperation = vi.fn<
+      NonNullable<CopilotAgentServiceOptions["executeContextOperation"]>
+    >(async () => ({ action: "list", entries: [] }));
+    const service = new CopilotAgentService(
+      baseOptions({
+        executeContextOperation,
+        clientFactory: () => ({
+          createSession: vi.fn(async (config: SessionConfig) => {
+            configs.push(config);
+            return createFakeSession(`session-${configs.length}`);
+          }),
+          resumeSession: vi.fn(async () => {
+            throw new Error("resume not expected");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+    await service.createManagedAgent(
+      configuration("agent-a", {
+        resolvedTools: ["ableton_context"],
+      }),
+    );
+    await service.createManagedAgent(
+      configuration("agent-b", {
+        resolvedTools: ["ableton_context"],
+      }),
+    );
+    for (const [index, agent] of [
+      [1, "agent-a"],
+      [2, "agent-b"],
+    ] as const) {
+      const handler = configs[index]?.tools?.find(
+        ({ name }) => name === "ableton_context",
+      )?.handler;
+      expect(handler).toBeDefined();
+      await handler?.(
+        { action: "list" },
+        {
+          sessionId: `session-${index + 1}`,
+          toolCallId: `context-${agent}`,
+          toolName: "ableton_context",
+          arguments: { action: "list" },
+        },
+      );
+      expect(executeContextOperation.mock.lastCall?.[0].action).toBe("list");
+      expect(executeContextOperation.mock.lastCall?.[1]).toMatchObject({
+        sessionId: `production-${agent}`,
+        agentId: agent,
+        trace: { causationId: `context-${agent}` },
+      });
+    }
+    await service.stop();
+  });
+
+  it.each(["completed", "failed", "cancelled"] as const)(
+    "retains the listening transport lease until %s and reports the terminal outcome",
+    async (stage) => {
+      const configs: SessionConfig[] = [];
+      const runtimeEvents: AgentRuntimeEvent[] = [];
+      const terminal = deferred<{
+        passId: string;
+        stage: typeof stage;
+      }>();
+      const executeListeningOperation = vi.fn<
+        NonNullable<CopilotAgentServiceOptions["executeListeningOperation"]>
+      >(async () => ({
+        action: "play-arrangement-and-listen",
+        job: {
+          passId: "owned-pass",
+          stage: "capturing",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          durationMs: 0,
+          contextIds: [],
+        },
+      }));
+      const waitForListeningPass = vi.fn<
+        NonNullable<CopilotAgentServiceOptions["waitForListeningPass"]>
+      >(() => terminal.promise);
+      const createTrack = vi.fn(async () => ({
+        beforeTrackCount: 0,
+        afterTrackCount: 1,
+        track: {
+          reference: trackAReference,
+          index: 0,
+          name: "New",
+          kind: "midi" as const,
+        },
+        verified: true,
+      }));
+      const service = new CopilotAgentService(
+        baseOptions({
+          getAbletonStatus: async () => ({
+            state: "connected",
+            liveVersion: "11.3.42",
+            remoteScriptVersion: "0.4.0",
+            liveSetId: "set",
+            liveSetName: "Test Set",
+            saved: true,
+          }),
+          executeListeningOperation,
+          waitForListeningPass,
+          createTrack,
+          runtimeObserver: { enqueue: (event) => runtimeEvents.push(event) },
+          clientFactory: () => ({
+            createSession: vi.fn(async (config: SessionConfig) => {
+              configs.push(config);
+              return createFakeSession(`session-${configs.length}`);
+            }),
+            resumeSession: vi.fn(async () => {
+              throw new Error("resume not expected");
+            }),
+            stop: vi.fn(async () => undefined),
+          }),
+        }),
+      );
+
+      await service.start();
+      await service.createManagedAgent(
+        configuration("listener", {
+          resolvedTools: ["ableton_listening"],
+        }),
+      );
+      await service.createManagedAgent(
+        configuration("other", {
+          resolvedTools: ["ableton_tracks"],
+        }),
+      );
+      const listen = configs[1]?.tools?.find(
+        ({ name }) => name === "ableton_listening",
+      )?.handler;
+      const create = configs[2]?.tools?.find(
+        ({ name }) => name === "ableton_tracks",
+      )?.handler;
+      expect(listen).toBeDefined();
+      expect(create).toBeDefined();
+      const args = {
+        action: "play-arrangement-and-listen",
+        listenerIds: ["tap"],
+        startBeat: 0,
+        endBeat: 16,
+      };
+      await listen?.(args, {
+        sessionId: "session-2",
+        toolCallId: "listen-call",
+        toolName: "ableton_listening",
+        arguments: args,
+      });
+      const queued = create?.(
+        { action: "create", kind: "midi", name: "New" },
+        {
+          sessionId: "session-3",
+          toolCallId: "other-call",
+          toolName: "ableton_tracks",
+          arguments: {},
+        },
+      );
+      await flushMicrotasks();
+      expect(createTrack).not.toHaveBeenCalled();
+      expect(waitForListeningPass).toHaveBeenCalledOnce();
+      expect(waitForListeningPass.mock.lastCall?.[1]).toEqual(
+        executeListeningOperation.mock.lastCall?.[1],
+      );
+      terminal.resolve({ passId: "owned-pass", stage });
+      await queued;
+      expect(createTrack).toHaveBeenCalledOnce();
+      const listeningEvents = runtimeEvents.filter(
+        (event) => event.data.toolCallId === "listen-call",
+      );
+      const terminalType =
+        stage === "completed"
+          ? "completed"
+          : stage === "cancelled"
+            ? "cancelled"
+            : "failed";
+      expect(listeningEvents.at(-1)?.type).toBe(
+        `agent.operation.${terminalType}`,
+      );
+      expect(
+        listeningEvents.some(
+          (event) => event.type === "agent.operation.completed",
+        ),
+      ).toBe(stage === "completed");
+      await service.stop();
+    },
+  );
+
+  it.each(["cancelled", "failed", "disconnect"] as const)(
+    "cancels an owned background listening pass after SDK idle and surfaces %s cleanup",
+    async (scenario) => {
+      const stage = scenario === "failed" ? "failed" : "cancelled";
+      const configs: SessionConfig[] = [];
+      const events: AgentRuntimeEvent[] = [];
+      const terminal = deferred<{
+        passId: string;
+        stage: typeof stage;
+        error?: string;
+      }>();
+      const job = (status: "capturing" | typeof stage) => ({
+        passId: "owned-pass",
+        stage: status,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        durationMs: 0,
+        contextIds: [],
+        ...(status === "failed" ? { error: "Listener disarm failed" } : {}),
+      });
+      const execute = vi.fn<
+        NonNullable<CopilotAgentServiceOptions["executeListeningOperation"]>
+      >(async (params) => {
+        if (params.action === "cancel") {
+          terminal.resolve({
+            passId: params.passId,
+            stage,
+            ...(stage === "failed" ? { error: "Listener disarm failed" } : {}),
+          });
+          return { action: "cancel", job: job(stage) };
+        }
+        return { action: "play-arrangement-and-listen", job: job("capturing") };
+      });
+      const service = new CopilotAgentService(
+        baseOptions({
+          executeListeningOperation: execute,
+          getAbletonStatus: async () => ({
+            state: "connected",
+            liveVersion: "11.3.42",
+            remoteScriptVersion: "0.4.0",
+            liveSetId: "set",
+            liveSetName: "Test Set",
+            saved: true,
+          }),
+          waitForListeningPass: () => terminal.promise,
+          runtimeObserver: { enqueue: (event) => events.push(event) },
+          clientFactory: () => ({
+            createSession: vi.fn(async (config: SessionConfig) => {
+              configs.push(config);
+              return createFakeSession(`session-${configs.length}`);
+            }),
+            resumeSession: vi.fn(async () => {
+              throw new Error("Unexpected resume");
+            }),
+            stop: vi.fn(async () => undefined),
+          }),
+        }),
+      );
+      await service.start();
+      await service.createManagedAgent(
+        configuration("listener", { resolvedTools: ["ableton_listening"] }),
+      );
+      await service.createManagedAgent(
+        configuration("other", { resolvedTools: ["ableton_listening"] }),
+      );
+      const handler = configs[1]?.tools?.find(
+        ({ name }) => name === "ableton_listening",
+      )?.handler;
+      if (handler === undefined) throw new Error("Missing listening tool");
+      const args = {
+        action: "play-arrangement-and-listen",
+        listenerIds: ["tap"],
+        startBeat: 0,
+        endBeat: 4,
+      };
+      await handler(args, {
+        sessionId: "session-2",
+        toolCallId: "listen-cancel-call",
+        toolName: "ableton_listening",
+        arguments: args,
+      });
+      const original = execute.mock.calls[0]?.[1];
+      if (original === undefined) throw new Error("Missing invocation owner");
+      await expect(service.cancelManagedAgent("other")).resolves.toBe(false);
+      expect(original.signal?.aborted).toBe(false);
+      if (scenario === "disconnect") {
+        await service.deactivateManagedAgent("listener");
+        expect(service.getManagedAgentSessionId("listener")).toBeUndefined();
+      } else if (stage === "cancelled")
+        await expect(service.cancelManagedAgent("listener")).resolves.toBe(
+          true,
+        );
+      else
+        await expect(service.cancelManagedAgent("listener")).rejects.toThrow(
+          "Listening cancellation did not complete cleanly",
+        );
+      expect(original.signal?.aborted).toBe(true);
+      expect(execute.mock.calls[1]).toEqual([
+        { action: "cancel", passId: "owned-pass" },
+        original,
+      ]);
+      const cancellation = events.filter((event) =>
+        event.type.startsWith("agent.listening_cancel."),
+      );
+      expect(cancellation.map((event) => event.type)).toEqual([
+        "agent.listening_cancel.queued",
+        "agent.listening_cancel.started",
+        ...(stage === "cancelled" ? ["agent.listening_cancel.progress"] : []),
+        `agent.listening_cancel.${stage === "cancelled" ? "completed" : "failed"}`,
+      ]);
+      for (const event of cancellation) {
+        expect(event.agentInstanceId).toBe("listener");
+        expect(event.trace?.traceId).toBe(original.trace.traceId);
+        expect(event.trace?.turnId).toBe(original.trace.correlationId);
+        expect(event.data.toolCallId).toBe(original.trace.causationId);
+        expect(event.data.appSessionId).toBe(original.sessionId);
+      }
+      await service.stop();
+    },
+  );
+
   it("shares overlap-aware mutation locks across active agent instances", async () => {
     const snapshot = {
       ...emptySnapshot,

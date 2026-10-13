@@ -135,6 +135,14 @@ export function defaultFakeState(): FakeAbletonState {
  * {@link UnsupportedByFakeError} rather than returning invented success.
  */
 export class FakeAbletonService implements AbletonService {
+  public inspectListeningContext(
+    params: Protocol.InspectListeningContextParams,
+  ): Promise<Protocol.InspectListeningContextResult> {
+    void params;
+    return Promise.reject(
+      new UnsupportedByFakeError("inspectListeningContext"),
+    );
+  }
   public started = false;
   public state: FakeAbletonState;
 

@@ -1,0 +1,227 @@
+{
+  "patcher": {
+    "fileversion": 1,
+    "appversion": {
+      "major": 8,
+      "minor": 5,
+      "revision": 5,
+      "architecture": "x64",
+      "modernui": 1
+    },
+    "classnamespace": "dsp.gen",
+    "rect": [
+      0,
+      0,
+      800,
+      380
+    ],
+    "boxes": [
+      {
+        "box": {
+          "id": "code",
+          "maxclass": "codebox",
+          "code": "History n(0);\nHistory sumL(0); History sumR(0);\nHistory peakL(0); History peakR(0);\nHistory heldL(0); History heldR(0);\nHistory heldRmsL(0); History heldRmsR(0);\nHistory completed(0);\nhop = max(1, round(samplerate / 10));\nsumL = sumL + in1 * in1; sumR = sumR + in2 * in2;\npeakL = max(peakL, abs(in1)); peakR = max(peakR, abs(in2));\nn = n + 1;\nif (n >= hop) {\n heldL = peakL; heldR = peakR;\n heldRmsL = sqrt(sumL / hop); heldRmsR = sqrt(sumR / hop);\n completed = completed + hop;\n n = 0; sumL = 0; sumR = 0; peakL = 0; peakR = 0;\n}\nout1 = heldL; out2 = heldR; out3 = heldRmsL; out4 = heldRmsR;\nout5 = completed;",
+          "numinlets": 2,
+          "numoutlets": 5,
+          "patching_rect": [
+            100,
+            50,
+            580,
+            240
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "in0",
+          "maxclass": "newobj",
+          "text": "in 1",
+          "numinlets": 0,
+          "numoutlets": 1,
+          "patching_rect": [
+            10,
+            20,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "in1",
+          "maxclass": "newobj",
+          "text": "in 2",
+          "numinlets": 0,
+          "numoutlets": 1,
+          "patching_rect": [
+            10,
+            55,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out0",
+          "maxclass": "newobj",
+          "text": "out 1",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            20,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out1",
+          "maxclass": "newobj",
+          "text": "out 2",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            55,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out2",
+          "maxclass": "newobj",
+          "text": "out 3",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            90,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out3",
+          "maxclass": "newobj",
+          "text": "out 4",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            125,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out4",
+          "maxclass": "newobj",
+          "text": "out 5",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            160,
+            60,
+            22
+          ]
+        }
+      }
+    ],
+    "lines": [
+      {
+        "patchline": {
+          "source": [
+            "in0",
+            0
+          ],
+          "destination": [
+            "code",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "in1",
+            0
+          ],
+          "destination": [
+            "code",
+            1
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            0
+          ],
+          "destination": [
+            "out0",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            1
+          ],
+          "destination": [
+            "out1",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            2
+          ],
+          "destination": [
+            "out2",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            3
+          ],
+          "destination": [
+            "out3",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            4
+          ],
+          "destination": [
+            "out4",
+            0
+          ]
+        }
+      }
+    ]
+  }
+}

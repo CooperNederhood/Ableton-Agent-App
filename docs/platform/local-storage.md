@@ -62,9 +62,11 @@ never sufficient and no flat session-state compatibility path is exposed.
     │   ├── state/
     │   │   ├── sessions.json
     │   │   ├── live-set-sessions.json
-    │   │   └── live-projects.json
+    │   │   ├── live-projects.json
+    │   │   └── signal-ingress.json
     │   ├── credentials/
-    │   │   └── {credential-key}
+    │   │   ├── {credential-key}
+    │   │   └── signal-ingress-secret.json
     │   ├── copilot/
     │   │   ├── {Copilot SDK-owned data}
     │   │   └── tool-output/
@@ -109,6 +111,8 @@ never sufficient and no flat session-state compatibility path is exposed.
     │                   ├── artifact-state/
     │                   │   ├── agents.json
     │                   │   └── skills.json
+    │                   ├── context/
+    │                   │   └── entity-context.sqlite
     │                   └── artifacts/
     │                       └── plan.md
     ├── development/
@@ -130,7 +134,7 @@ up or recovered atomically.
 | `system/` | Scoped artifact manager | Editable System Scope agent and skill additions, overrides, and tombstones. Bundled resources remain immutable fallback content. |
 | `config/` | Desktop/application configuration | Validated, non-secret preferences, including the global Off/Concise/Detailed agent reasoning-summary visibility setting. |
 | `state/` | Desktop production-session stores | Validated app-session records, Live Set associations, and the bounded, revision-checked Live Projects registry. |
-| `credentials/` | Main process secure store | Ciphertext encrypted through OS-backed facilities. Credentials never enter renderer state, logs, journal payloads, or support bundles. |
+| `credentials/` | Main process credential providers | OS-backed encrypted credentials, plus the owner-only local producer-authentication key described below. Credentials never enter renderer state, logs, journal payloads, or support bundles. |
 | `copilot/` | Copilot SDK adapter | SDK conversation/session data plus transient `tool-output/` spill files. Application code must not invent a parallel transcript store. Spill files are owner-only, age/size-pruned, and are not durable history. GitHub CLI authentication remains externally owned: Desktop may make a validated `gh` executable discoverable to the embedded runtime, but must not copy `~/.copilot` or persist the GitHub token in this directory. |
 | `observability/` | Unified local history database | One profile-wide SQLite database for App events, agent history, Live Set history, cross-session queries, traces, retention, and health. Do not create one database per App session. |
 | `logs/` | Structured diagnostic logger | Bounded, redacted newline-delimited JSON logs. |
@@ -139,6 +143,7 @@ up or recovered atomically.
 | `project-state/{project-id}/live-set-state/{live-set-id}/` | Project-owned Live Set persistence | Live Set metadata, reserved memory, and nested app sessions. |
 | `unassigned-live-set-state/{live-set-id}/` | Unassigned Live Set persistence | Live Sets without a known Live Project, including all migrated legacy sets. |
 | `*/session-state/{app-session-id}/` | App-session persistence | Bounded ownership manifest plus session-owned artifacts. `artifacts/plan.md` is the shared planning document for the app session. |
+| `*/session-state/{app-session-id}/context/` | Typed entity-context repository | Immutable listening passes and processed observations, independent subject/freshness links, explicit pruning, and bounded quotas. This is not an event-journal database. |
 
 Profile, Project, and app-session `agents/`, `skills/`, and `artifact-state/`
 files implement copy-on-write scoped customization. Effective resolution is
@@ -153,6 +158,109 @@ publication or transfer persists the session record and creates its canonical
 `unassigned-live-set-state/{live-set-id}/session-state/{app-session-id}/`
 directories. Conversation history
 alone remains Copilot SDK-owned and does not promote the Desktop session.
+
+## Listening context and producer discovery
+
+`resolveNestedSessionStorage` returns `contextDirectory` and `entityContextPath`
+from the required Set/Project/App-session ownership tuple. Store processed,
+credential-redacted `audio-observation/v1` payloads only; raw audio and arbitrary
+JSON are not accepted. The default limits are 256 KiB per entry, 2 MiB per pass
+and 32 MiB per App-session store. Full-store failure is visible and does not
+silently evict observations.
+
+Context survives diagnostic-journal retention. Context pruning requires exact
+reviewed IDs and removes context records only, never Live clips or source
+files. Current freshness requires privileged revalidation; missing content,
+identity or dependency evidence remains unknown or unresolved. Historical
+passes retain their original attribution when Set ownership changes.
+
+The first observation for an unsaved in-memory App session must also publish
+its registry record and canonical session manifest with the typed context-store
+reference. The repository provides an idempotent `publishSessionContext` hook;
+production composition must inject it. Failure or cancellation of that hook
+prevents observation publication. The main-process
+`createDesktopSessionContextManager` resolves the invoking App-session ID,
+checks initiating-agent membership, and shares one bounded cached repository
+per session/ownership in its profile. Trusted main-process application readers
+receive a read-only facade with no model-agent attribution; their get/list
+queries still validate session, Set and profile ownership. Mutation and handle
+closure are denied on that facade, including when it shares a cached store
+with an agent. Repository resolution combines the invocation's cancellation
+signal with an explicitly supplied operation signal; cancelled queued reads
+never open or publish a store. Empty inventory reads do not promote an
+ephemeral session. Closing an unpublished store after cancelled or failed
+capture setup releases its reservation ownership and removes the empty file;
+reopening returns empty inventory without claiming saved observations. Cleanup
+of a retained shared repository releases the pass reservation without closing
+other callers' repository. Its first append uses the specific-session
+`HeadlessDesktopService.publishSessionContext` API, not selected-UI-session
+publication, to commit the registry record and strict, credential-redacted
+`session.json` reference before observations. The reference contains only
+schema version, `context/entity-context.sqlite`, and registered kinds; it
+never duplicates measurements. A declared missing/corrupt store or ownership
+manifest is an explicit recovery failure, not an empty replacement.
+
+Composition registers the manager's `prepareSessionTransition` through
+`JsonSessionStore.setSessionContextTransitionHandler`. Preparation drains and
+closes cached SQLite handles before moving the complete Live Set subtree.
+Active append/publication/reservation work, including queued reservation
+admission, denies relocation and requires a retry. Closing an evicted repository
+handle cannot remove its replacement from the session cache. The lease applies
+destination ownership headers before registry
+publication, completes only after that publication, and restores source
+headers after directory/manifest rollback on failure or cancellation. All
+sessions sharing a moved Set directory must transition together. Earlier
+pass, entry, subject, and link provenance is never rewritten or merged.
+Implicit registry eviction or removal of declared context references is
+rejected. Cache eviction closes a handle, not its persisted observations.
+Unpublished empty stores are cleaned on ordinary shutdown; orphan stores
+after a crash require explicit recovery rather than silent adoption.
+
+Manager resolution, first publication, transition preparation/application/
+rollback, and closure have application-owned bounded, redacted lifecycle
+records with timing and caller trace/correlation/causation/agent IDs. Queries
+forward per-invocation context rather than inheriting an opening trace.
+Parent composition still owns wiring and shutdown order: stop new work,
+drain Desktop session actions, then close the context manager. Native timing,
+physical-listener-to-bridge identity verification, and isolated Live/visible
+Desktop acceptance are separate production gates; storage does not establish
+musical identity. No `.als` or Ableton Project-folder sidecars are introduced.
+
+The resolver also supplies `signalIngressDescriptorPath` under `state/` and
+`signalIngressSecretPath` under `credentials/`. The descriptor is bounded local
+discovery metadata, not a second server. Node-for-Max requires the local
+producer-authentication key, so this specific secret is an owner-only local
+key file rather than an Electron-only encrypted credential. Keep its directory
+owner-only, its file mode `0600`, and its contents out of renderer APIs, logs,
+history payloads and support bundles.
+
+Already-installed MIDI clients may require an explicitly configured legacy
+discovery descriptor. Compatibility uses the same authenticated ingress and
+secret, not a second listener or a separate context store. Legacy publication
+is explicit; the resolver does not invent or automatically write an additional
+home-directory path.
+
+The migration-only resolver fields `legacySignalIngressDescriptorPath` and
+`legacySignalIngressSecretPath` identify the historical
+`~/.ableton-agent/signal-ingress.json` and
+`~/.ableton-agent/signal-ingress.secret` locations. They remain independent of
+`LIVE_AGENT_HOME` and profile selection. Storage bootstrap never creates or
+writes them. Desktop consumes these resolver fields only when explicitly
+enabling compatibility publication; already-installed MIDI clients require a
+plaintext key body even though upgraded clients also support canonical JSON.
+
+Desktop now passes the selected profile's canonical descriptor and credential
+reference to runtime composition and publishes the same local key before
+starting ingress. The existing credential writer uses the supported plaintext
+key format; a `.json` filename does not imply a second key or different secret.
+Normal, non-isolated startup also explicitly requests the pre-existing legacy
+MIDI descriptor/key pair for compatibility. Automation and explicit
+`LIVE_AGENT_HOME` roots do not publish that global compatibility pair. Legacy
+discovery remains a single compatibility endpoint, not profile selection;
+upgraded companions use their generated canonical profile configuration.
+Publication failure/cancellation cleans owned values, and cleanup preserves a
+file replaced by another publisher. Lifecycle events contain paths/counts and
+timing, never key bytes.
 
 ## Data that intentionally remains outside the root
 

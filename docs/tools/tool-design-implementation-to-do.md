@@ -1,5 +1,13 @@
 # Tool Design Implementation To-Do
 
+## Playback listening and entity context
+
+- [x] Document current audio metadata and bounded meter coverage.
+- [x] Define playback-first, App-session-owned context architecture in
+  [ADR 0006](../architecture/decisions/0006-playback-listening-and-entity-context.md).
+- [ ] Complete optional listening/context tool and shared MIDI transport work
+  tracked in [Playback Listening](playback-listening-implementation-to-do.md).
+
 Companion specification: [Tool Design](tool-design.md)
 
 ## Tool framework

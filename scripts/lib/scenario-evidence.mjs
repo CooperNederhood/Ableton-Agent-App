@@ -1,4 +1,53 @@
+import { readFile, stat } from "node:fs/promises";
+
+export async function recoverScenarioTrace(result, tracePath, scenarioId) {
+  if (result.json !== undefined) {
+    return { ...result, evidenceSource: "stdout" };
+  }
+  try {
+    if ((await stat(tracePath)).size > 2 * 1024 * 1024) {
+      throw new Error("Scenario trace exceeds the 2 MiB evidence limit");
+    }
+    const json = JSON.parse(await readFile(tracePath, "utf8"));
+    if (
+      json === null ||
+      typeof json !== "object" ||
+      json.scenarioId !== scenarioId ||
+      !["running", "failed", "completed"].includes(json.traceState) ||
+      !Array.isArray(json.operations)
+    ) {
+      throw new Error("Scenario trace identity or checkpoint shape is invalid");
+    }
+    return { ...result, json, evidenceSource: "trace-checkpoint" };
+  } catch (error) {
+    return {
+      ...result,
+      evidenceSource: "unavailable",
+      traceEvidenceError:
+        error instanceof SyntaxError
+          ? "Scenario trace is not valid JSON"
+          : error instanceof Error && "code" in error
+            ? `Scenario trace read failed (${String(error.code)})`
+            : error instanceof Error
+              ? error.message.slice(0, 2048)
+              : "Trace read failed",
+    };
+  }
+}
+
+function incompleteResult(result) {
+  const payload = result.json;
+  return (
+    result.timedOut === true ||
+    result.signal != null ||
+    (payload?.traceState !== undefined && payload.traceState !== "completed") ||
+    payload?.operationsTruncated === true ||
+    payload?.approvalsTruncated === true
+  );
+}
+
 export function classifyScenario(manifest, result) {
+  if (incompleteResult(result)) return "fail";
   if (result.status === 0 && result.json?.ok === true) return "pass";
   const payload = result.json;
   if (
@@ -61,6 +110,7 @@ export function collectToolNames(result) {
 export function shouldRetryAgentScenario(result) {
   const payload = result.json;
   if (payload === null || typeof payload !== "object") return false;
+  if (incompleteResult(result)) return false;
   if ((payload.budgets?.mutations ?? 0) > 0) return false;
   const policyViolations = payload.policyViolations ?? [];
   if (

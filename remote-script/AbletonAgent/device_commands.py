@@ -38,7 +38,9 @@ def _runtime_references(context, attribute, targets, reachable):
     entries = [
         (candidate, reference)
         for candidate, reference in getattr(context, attribute, [])
-        if any(_same_lom_object(candidate, current) for current in reachable)
+        if reachable is None or any(
+            _same_lom_object(candidate, current) for current in reachable
+        )
     ]
     references = []
     for target in targets:
@@ -51,20 +53,29 @@ def _runtime_references(context, attribute, targets, reachable):
             reference = str(uuid.uuid4())
             entries.append((target, reference))
         references.append(reference)
+    if reachable is None:
+        entries = entries[-8192:]
     setattr(context, attribute, entries)
     return references
 
 
-def _device_reference(context, device):
+def _device_reference(context, device, bounded=False):
     return _runtime_reference(
-        context, "_device_references", device, _reachable_devices(context)
+        context, "_device_references", device,
+        None if bounded else _reachable_devices(context),
     )
 
 
 def _top_level_devices(context):
+    tracks = list(context.song.tracks) + list(
+        getattr(context.song, "return_tracks", ())
+    )
+    master = getattr(context.song, "master_track", None)
+    if master is not None:
+        tracks.append(master)
     return [
         device
-        for track in context.song.tracks
+        for track in tracks
         for device in getattr(track, "devices", ())
     ]
 
@@ -118,12 +129,12 @@ def _chain_device_reference(context, device):
     return reference
 
 
-def _parameter_reference(context, parameter):
+def _parameter_reference(context, parameter, bounded=False):
     return _runtime_reference(
         context,
         "_parameter_references",
         parameter,
-        all_reachable_parameters(context.song),
+        None if bounded else all_reachable_parameters(context.song),
     )
 
 

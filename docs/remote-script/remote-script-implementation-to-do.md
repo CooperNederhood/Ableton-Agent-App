@@ -157,6 +157,13 @@ Companion specification: [Remote Script](remote-script.md)
 
 ## Exit criteria
 
+- [x] Implement bounded, main-thread guarded Arrangement seek/continue with
+  explicit leave-running cleanup policy and no ownership/stop token.
+- [x] Cover changed Set/revision/targets, unknown recording/source state,
+  partial mutations, ordering and no rollback using Python and bridge simulators.
+- [ ] Validate guarded Arrangement start against runner-owned Live 11.3.42;
+  native capture timing and Session sounding onset remain unverified.
+
 - [x] No model, cloud, MCP, or third-party dependency exists in the script.
 - [x] All commands are registered, validated, scheduled, and tested.
 - [x] Disconnect leaves no listeners, sockets, or active client threads.

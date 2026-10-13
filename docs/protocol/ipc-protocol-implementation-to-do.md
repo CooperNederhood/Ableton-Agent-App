@@ -4,6 +4,11 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 
 ## Schema design
 
+- [x] Replace prospective listening start ownership with strict Arrangement
+  `cleanupPolicy:"leave-running"` acknowledgement and unverified source onset.
+- [x] Regenerate paired JSON fixtures and cover strict rejection of ownership
+  fields, traced guarded start, changed identity and unsupported Session/stop.
+
 - [x] Define canonical Zod schemas for every envelope and shared scalar.
 - [x] Define protocol constants, frame limits, timeout classes, and versions.
 - [x] Define `system.hello`, authentication, capability, ping, and event schemas.

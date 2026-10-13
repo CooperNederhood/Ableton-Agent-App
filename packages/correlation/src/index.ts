@@ -39,11 +39,12 @@ export function unregisterCorrelationContext(correlationId: string): void {
 }
 
 export function withCorrelation<T>(
-  correlationId: string,
+  context: string | CorrelationTraceContext,
   operation: () => T,
 ): T {
-  return storage.run(
-    registeredContexts.get(correlationId) ?? { correlationId },
-    operation,
-  );
+  const resolved =
+    typeof context === "string"
+      ? (registeredContexts.get(context) ?? { correlationId: context })
+      : context;
+  return storage.run({ ...resolved }, operation);
 }

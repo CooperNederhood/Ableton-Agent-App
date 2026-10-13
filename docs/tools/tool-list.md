@@ -38,6 +38,14 @@ if the target changed.
 
 ## Set History
 
+App-session entity context is separate from event/Set History retention. The
+optional `ableton_context` surface uses typed list/get/prune actions, not SQL;
+the optional `ableton_listening` surface discovers listeners and coordinates
+bounded Session/Arrangement playback with capture. They are registered only
+when their application services are configured. Production enablement requires
+the timing, device, and integration gates in
+[Playback Listening](playback-listening.md).
+
 | Tool | Purpose | Risk | Scope | Duration | Key inputs |
 | --- | --- | --- | --- | --- | --- |
 | `set_sql_search` | Run one bounded parameterized read-only SQL query over the documented agent and Set History public views. | `read` | `read` | `short` | `sql`, optional named scalar `parameters`, optional `limit` (1–200) |
@@ -95,6 +103,13 @@ lifecycle identity.
 | `ableton_warp_markers` | Revision-bound add/move/remove with ordering, BPM validation, verification, and compensation |
 | `ableton_special_devices` | Capability-detected Live 11 Simpler, Looper, and Wavetable operations |
 | `ableton_workflow_jobs` | Get/list bounded asynchronous workflow jobs and cancel only jobs owned by the active agent |
+
+Audio clip `inspect` returns gain/pitch, warp state/mode and available modes,
+start/end/loop markers, RAM mode, source file path, sample length/rate, and exact
+identity. The separate `warp-markers` read is paginated. LOM fields that are not
+exposed remain null. Mixer `meters` reads input/output left/right values in
+`0..1`, with unsupported readings null; these are not offline analysis, FFT
+data, or LUFS measurements.
 
 Routing assignments require a recent option snapshot, exact option token, exact
 display name, target identity, and routing direction. Results surface warnings

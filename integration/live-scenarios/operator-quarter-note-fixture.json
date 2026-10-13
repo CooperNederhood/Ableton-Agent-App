@@ -1,0 +1,97 @@
+{
+  "formatVersion": 1,
+  "id": "operator-quarter-note-fixture",
+  "group": "listening-fixtures",
+  "prompt": "Construct only the source for a later listening test using Live 11's supported Session-to-Arrangement workflow: search for Operator, create exactly one MIDI track, and load exactly one Operator. Create a four-beat Session MIDI clip in zero-based sceneIndex 0, write exactly four A4 notes at beats 0, 1, 2, and 3 with duration 0.5 beat and velocity 100, then duplicate that exact completed Session clip into Arrangement at beat zero using its returned identity. Inspect both clips. Do not attempt direct Arrangement MIDI creation or rewrite Arrangement notes. Do not start playback, launch Session clips, record, install a listener, or change tempo, mixer, routing, instrument parameters, or pre-existing artifacts. Retain only the generated track, Session source and Arrangement copy in the runner-owned group Set. This fixture establishes instrument identity and MIDI content, not a verified sine waveform, absolute amplitude, or successful listening.",
+  "artifactPrefix": "AA_SMOKE_OP_QTR_",
+  "allowedTools": [
+    "ableton_session",
+    "ableton_browser",
+    "ableton_tracks",
+    "ableton_devices",
+    "ableton_arrangement",
+    "ableton_session_clips"
+  ],
+  "allowedActions": {
+    "ableton_session": ["connection-status", "inspect"],
+    "ableton_browser": ["roots", "children", "search", "load-item"],
+    "ableton_tracks": ["create"],
+    "ableton_devices": ["inspect"],
+    "ableton_arrangement": ["duplicate-clip", "inspect"],
+    "ableton_session_clips": ["create-midi", "replace-notes"]
+  },
+  "allowedRisks": ["read", "reversible", "destructive"],
+  "maxToolCalls": 16,
+  "maxMutations": 5,
+  "timeoutMs": 240000,
+  "ordering": [
+    {
+      "before": "ableton_browser",
+      "after": "ableton_tracks",
+      "beforeAction": "search",
+      "afterAction": "create"
+    },
+    {
+      "before": "ableton_tracks",
+      "after": "ableton_browser",
+      "beforeAction": "create",
+      "afterAction": "load-item"
+    },
+    {
+      "before": "ableton_browser",
+      "after": "ableton_session_clips",
+      "beforeAction": "load-item",
+      "afterAction": "create-midi"
+    },
+    {
+      "before": "ableton_session_clips",
+      "after": "ableton_session_clips",
+      "beforeAction": "create-midi",
+      "afterAction": "replace-notes"
+    },
+    {
+      "before": "ableton_session_clips",
+      "after": "ableton_arrangement",
+      "beforeAction": "replace-notes",
+      "afterAction": "duplicate-clip"
+    }
+  ],
+  "trackNameSuffixes": ["Operator Quarter Notes"],
+  "clipNameSuffixes": ["Quarter Notes"],
+  "browserItemNames": ["Operator"],
+  "browserLoadTargets": [
+    {
+      "trackNameSuffix": "Operator Quarter Notes",
+      "itemName": "Operator"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "track-device",
+      "trackNameSuffix": "Operator Quarter Notes",
+      "trackKind": "midi",
+      "deviceName": "Operator"
+    },
+    {
+      "type": "session-midi-pattern",
+      "trackNameSuffix": "Operator Quarter Notes",
+      "clipNameSuffix": "Quarter Notes",
+      "sceneIndex": 0,
+      "pitch": 69,
+      "starts": [0, 1, 2, 3],
+      "duration": 0.5,
+      "velocity": 100
+    },
+    {
+      "type": "arrangement-midi-pattern",
+      "trackNameSuffix": "Operator Quarter Notes",
+      "clipNameSuffix": "Quarter Notes",
+      "startTime": 0,
+      "length": 4,
+      "pitch": 69,
+      "starts": [0, 1, 2, 3],
+      "duration": 0.5,
+      "velocity": 100
+    }
+  ]
+}

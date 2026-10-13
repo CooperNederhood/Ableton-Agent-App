@@ -3,6 +3,11 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import type { HeadlessApplication } from "@ableton-agent/application";
+import {
+  AUDIO_OMITTED_VALUE,
+  BINARY_OMITTED_VALUE,
+  sanitizePersistedText,
+} from "@ableton-agent/observability";
 import type { SessionSnapshot } from "@ableton-agent/protocol";
 import type { ToolApprovalRequest, ToolRisk } from "@ableton-agent/tools";
 import { z } from "zod";
@@ -370,9 +375,19 @@ export function scenarioPrompt(
         assertion.type === "session-midi-pattern"
           ? 'ableton_session_clips with action "replace-notes"'
           : 'ableton_arrangement with action "replace-notes"';
+      const usesDuplication =
+        assertion.type === "arrangement-midi-pattern" &&
+        context.manifest.allowedActions.ableton_arrangement?.includes(
+          "duplicate-clip",
+        ) &&
+        !context.manifest.allowedActions.ableton_arrangement?.includes(
+          "replace-notes",
+        );
       return [
         `The MIDI clip must contain exactly ${assertion.starts.length} notes and no others: pitch ${assertion.pitch}, starts ${assertion.starts.join(", ")}, duration ${assertion.duration}, velocity ${assertion.velocity}, mute false.`,
-        `For ${toolInstruction}, expectedName is the track name "${trackName}", while expectedClipReference identifies clip "${clipName}".`,
+        usesDuplication
+          ? `Use ableton_arrangement action "duplicate-clip" (NOT ableton_session_clips action "duplicate") with index, expectedReference and expectedName from track "${trackName}", sceneIndex from the Session source, expectedClipReference from completed Session clip "${clipName}", and destinationTime ${assertion.startTime}. Do not rewrite Arrangement notes or attempt unsupported direct creation.`
+          : `For ${toolInstruction}, expectedName is the track name "${trackName}", while expectedClipReference identifies clip "${clipName}". Include required allowPerNoteExpressionLoss false; a newly created plain-note source requires no expression loss.`,
       ];
     },
   );
@@ -389,9 +404,11 @@ export function scenarioPrompt(
       : []),
     "Do not create, rename, mutate, or delete any other user artifacts.",
     "Run dependent tools sequentially: wait for each completed tool result before requesting the next dependent operation.",
+    `Use only this reviewed tool/action surface: ${JSON.stringify(context.manifest.allowedActions)}. Other exposed tools are not approved for this scenario. The runner independently reads exact final note contents; do not substitute an unlisted MIDI query tool for the permitted inspections.`,
     ...browserLoadInstructions,
     ...assertionInstructions,
     "Inspect after uncertain outcomes; never repeat an unchanged mutation.",
+    "This is a non-interactive reviewed scenario: do not call ask_user or request a new plan approval. If the permitted tools cannot complete it, report the limitation and finish without an alternative mutation.",
   ].join("\n");
 }
 
@@ -856,8 +873,20 @@ export async function captureScenarioBaseline(
   return application.inspectSession();
 }
 
+type ScenarioInspectionApplication = Pick<
+  HeadlessApplication,
+  | "inspectSession"
+  | "inspectDevices"
+  | "inspectArrangement"
+  | "inspectArrangementMidiNotes"
+  | "inspectMidiNotes"
+  | "inspectArrangementTransport"
+  | "getStatus"
+  | "getCapabilities"
+>;
+
 export async function verifyScenario(
-  application: HeadlessApplication,
+  application: ScenarioInspectionApplication,
   context: ScenarioRunContext,
   baseline: SessionSnapshot,
 ): Promise<ScenarioAssertionResult[]> {
@@ -1366,26 +1395,37 @@ export function sanitizeTraceValue(
   key = "",
 ): unknown {
   if (depth > 6) return "[depth-limited]";
+  if (/^(audioBody|audioBuffer|audioBytes|audioData|pcmData)$/i.test(key)) {
+    return AUDIO_OMITTED_VALUE;
+  }
+  if (
+    value instanceof ArrayBuffer ||
+    ArrayBuffer.isView(value) ||
+    /^(binaryBody|binaryBuffer|binaryBytes|binaryData)$/i.test(key)
+  ) {
+    return BINARY_OMITTED_VALUE;
+  }
   if (typeof value === "string") {
+    const text = sanitizePersistedText(value);
     if (
       /name/i.test(key) &&
-      !value.startsWith("AA_SMOKE_") &&
+      !text.startsWith("AA_SMOKE_") &&
       !key.toLowerCase().includes("toolname")
     ) {
       return "[name-redacted]";
     }
     if (
       depth < 6 &&
-      value.length <= 100_000 &&
-      (/^\s*\{/.test(value) || /^\s*\[/.test(value))
+      text.length <= 100_000 &&
+      (/^\s*\{/.test(text) || /^\s*\[/.test(text))
     ) {
       try {
-        return sanitizeTraceValue(JSON.parse(value), depth + 1, key);
+        return sanitizeTraceValue(JSON.parse(text), depth + 1, key);
       } catch {
         // Some model-facing tool strings begin with JSON punctuation.
       }
     }
-    return value.length > 2048 ? `${value.slice(0, 2048)}…` : value;
+    return text.length > 2048 ? `${text.slice(0, 2048)}…` : text;
   }
   if (
     value === null ||

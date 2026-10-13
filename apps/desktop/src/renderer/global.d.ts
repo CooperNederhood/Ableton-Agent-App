@@ -1,4 +1,4 @@
-import type { DesktopApi } from "../contracts";
+import type { DesktopApi } from "../contracts.js";
 
 declare global {
   interface Window {

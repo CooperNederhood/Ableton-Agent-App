@@ -4,6 +4,14 @@ Companion specification: [Project State](project-state.md)
 
 ## Models and storage
 
+- [x] Implement App-session-owned typed entries/passes/links, quota/pruning,
+  specific-session Desktop publication and durable bounded resume inventory.
+- [x] Add closed-handle context relocation leases, ownership-header rollback,
+  manifest restoration, caller attribution, cancellation and isolation tests.
+- [ ] Wire production composition and establish verified entity freshness,
+  physical binding and native timing gates as tracked in
+  [Playback Listening](../tools/playback-listening-implementation-to-do.md).
+
 - [x] Define project identity, snapshot, entity reference, revision, production
   plan, and change-set schemas.
 - [x] Promote clean unsaved App sessions to canonical saved Set/Project

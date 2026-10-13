@@ -6,6 +6,7 @@ import datetime
 import math
 import time
 import uuid
+from itertools import islice
 
 try:
     from Live.Clip import MidiNoteSpecification
@@ -810,7 +811,9 @@ def _reference(context, cache_name, value, current_values):
     references = [
         (candidate, reference)
         for candidate, reference in getattr(context, cache_name, [])
-        if any(_same_lom_object(candidate, current) for current in current_values)
+        if current_values is None or any(
+            _same_lom_object(candidate, current) for current in current_values
+        )
     ]
     for candidate, reference in references:
         if _same_lom_object(candidate, value):
@@ -818,6 +821,8 @@ def _reference(context, cache_name, value, current_values):
             return reference
     reference = str(uuid.uuid4())
     references.append((value, reference))
+    if current_values is None:
+        references = references[-8192:]
     setattr(context, cache_name, references)
     return reference
 
@@ -834,8 +839,9 @@ def _all_tracks(song):
     )
 
 
-def _track_reference(context, track):
-    return _reference(context, "_track_references", track, _all_tracks(context.song))
+def _track_reference(context, track, bounded=False):
+    return _reference(context, "_track_references", track,
+                      None if bounded else _all_tracks(context.song))
 
 
 def _scene_reference(context, scene):
@@ -856,7 +862,9 @@ def _parameter_reference(context, parameter):
     )
 
 
-def _clip_reference(context, clip):
+def _clip_reference(context, clip, bounded=False):
+    if bounded:
+        return _reference(context, "_clip_references", clip, None)
     clips = []
     for track in list(_safe_lom_getattr(context.song, "tracks", ()) or ()):
         for slot in list(_safe_lom_getattr(track, "clip_slots", ()) or ()):
@@ -902,17 +910,17 @@ def _resolve_scene(context, target):
     return scene
 
 
-def _resolve_track(context, target):
+def _resolve_track(context, target, bounded=False):
     song = context.song
     kind = target["kind"]
     if kind == "regular":
-        tracks = list(_safe_lom_getattr(song, "tracks", ()) or ())
+        tracks = _safe_lom_getattr(song, "tracks", ()) or ()
         index = target["index"]
         if index >= len(tracks):
             raise ProtocolFailure("not_found", "Track index is out of range")
         track = tracks[index]
     elif kind == "return":
-        tracks = list(_safe_lom_getattr(song, "return_tracks", ()) or ())
+        tracks = _safe_lom_getattr(song, "return_tracks", ()) or ()
         index = target["index"]
         if index >= len(tracks):
             raise ProtocolFailure(
@@ -926,7 +934,7 @@ def _resolve_track(context, target):
                 "unsupported_capability", "Master track is unavailable"
             )
     if (
-        _track_reference(context, track) != target["expectedReference"]
+        _track_reference(context, track, bounded=bounded) != target["expectedReference"]
         or (_safe_lom_getattr(track, "name", "") or "")
         != target["expectedName"]
     ):
@@ -2279,10 +2287,10 @@ def execute_transport(context, params):
     }
 
 
-def _resolve_clip(context, target):
-    track = _resolve_track(context, target["track"])
+def _resolve_clip(context, target, scan_limit=None):
+    track = _resolve_track(context, target["track"], bounded=scan_limit is not None)
     if target["view"] == "session":
-        slots = list(_safe_lom_getattr(track, "clip_slots", ()) or ())
+        slots = _safe_lom_getattr(track, "clip_slots", ()) or ()
         index = target["sceneIndex"]
         if index >= len(slots) or not bool(
             _safe_lom_getattr(slots[index], "has_clip", False)
@@ -2291,11 +2299,11 @@ def _resolve_clip(context, target):
         clip = slots[index].clip
     else:
         clip = None
-        for candidate in list(
-            _safe_lom_getattr(track, "arrangement_clips", ()) or ()
-        ):
+        candidates = _safe_lom_getattr(track, "arrangement_clips", ()) or ()
+        bounded_candidates = candidates if scan_limit is None else islice(candidates, scan_limit)
+        for candidate in bounded_candidates:
             if (
-                _clip_reference(context, candidate)
+                _clip_reference(context, candidate, bounded=scan_limit is not None)
                 == target["expectedClipReference"]
             ):
                 clip = candidate
@@ -2308,7 +2316,7 @@ def _resolve_clip(context, target):
         ) > 0.000001:
             raise ProtocolFailure("stale_reference", "Clip position changed")
     if (
-        _clip_reference(context, clip) != target["expectedClipReference"]
+        _clip_reference(context, clip, bounded=scan_limit is not None) != target["expectedClipReference"]
         or (_safe_lom_getattr(clip, "name", "") or "")
         != target["expectedClipName"]
     ):

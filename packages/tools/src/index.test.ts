@@ -1682,7 +1682,14 @@ describe("Ableton tools", () => {
               name as (typeof deprecatedAbletonToolNames)[number],
             ),
         ),
-    ).toEqual(abletonToolMetadata.map((metadata) => metadata.name));
+    ).toEqual(
+      abletonToolMetadata
+        .filter(
+          ({ name }) =>
+            name !== "ableton_listening" && name !== "ableton_context",
+        )
+        .map((metadata) => metadata.name),
+    );
     expect(toolSet.availableTools).not.toContain(
       "custom:ableton_tracks_delete",
     );
@@ -1790,6 +1797,39 @@ describe("Ableton tools", () => {
       "ableton_special_devices",
       "ableton_workflow_jobs",
     ]);
+  });
+
+  it("registers optional listening and context tools only for configured services", () => {
+    const base = services();
+    const defaults = createAbletonTools(base);
+    expect(defaults.availableTools).not.toContain("custom:ableton_listening");
+    expect(defaults.availableTools).not.toContain("custom:ableton_context");
+
+    const listening = createAbletonTools({
+      ...base,
+      executeListeningOperation:
+        vi.fn<NonNullable<AbletonToolServices["executeListeningOperation"]>>(),
+    });
+    expect(listening.availableTools).toContain("custom:ableton_listening");
+    expect(listening.availableTools).not.toContain("custom:ableton_context");
+
+    const configured = createAbletonTools({
+      ...base,
+      executeListeningOperation:
+        vi.fn<NonNullable<AbletonToolServices["executeListeningOperation"]>>(),
+      executeContextOperation:
+        vi.fn<NonNullable<AbletonToolServices["executeContextOperation"]>>(),
+    });
+    expect(
+      configured.tools
+        .map(({ name }) => name)
+        .filter(
+          (name) =>
+            !deprecatedAbletonToolNames.includes(
+              name as (typeof deprecatedAbletonToolNames)[number],
+            ),
+        ),
+    ).toEqual(abletonToolMetadata.map(({ name }) => name));
   });
 
   it("prunes grouped tool actions by operation allowlist and capabilities", () => {

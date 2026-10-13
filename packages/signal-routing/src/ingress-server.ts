@@ -1,5 +1,6 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
+import { isAbsolute } from "node:path";
 
 import type {
   OutputConnection,
@@ -21,6 +22,18 @@ import {
 import type { RouteResult } from "./router.js";
 import { recordSignalTelemetry, stableTelemetryId } from "./telemetry.js";
 import type { NonBlockingObservabilityRecorder } from "@ableton-agent/observability";
+import { sanitizePersistedText } from "@ableton-agent/observability";
+import {
+  listenerControlInputSchema,
+  type ListenerControl,
+  type ListenerControlInput,
+  type ListenerControlOptions,
+  type ListenerDescriptor,
+  type ListenerReply,
+  type ListenerResult,
+  type ListenerResultEvent,
+  type ListenerService,
+} from "./listener-contracts.js";
 
 export interface SignalIngressRegistry {
   register(connectionId: string, producer: OutputProducer): OutputConnection;
@@ -54,6 +67,7 @@ export interface SignalIngressDiagnostic {
 
 export interface SignalIngressServerOptions {
   readonly secret: string;
+  readonly secretPath?: string;
   readonly registry: SignalIngressRegistry;
   readonly router: SignalIngressRouter;
   readonly host?: string;
@@ -63,6 +77,7 @@ export interface SignalIngressServerOptions {
   readonly idleTimeoutMs?: number;
   readonly idleCheckIntervalMs?: number;
   readonly descriptorPath?: string;
+  readonly legacyDescriptorPath?: string;
   readonly onStatus?: (status: SignalIngressStatus) => void;
   readonly onDiagnostic?: (diagnostic: SignalIngressDiagnostic) => void;
   readonly now?: () => number;
@@ -84,13 +99,29 @@ interface ClientState {
   producer: OutputProducer | undefined;
   lastHeartbeatAt: number;
   lastSequence: number;
+  listener?: ListenerDescriptor["registration"];
+  listenerSequence: number;
+  listenerPhase: ListenerDescriptor["phase"];
+  listenerOwner?: ListenerControl;
+  listenerDeadline?: number;
+  listenerResults: number;
+  listenerStartedAt?: number;
+}
+
+interface PendingListenerControl {
+  readonly state: ClientState;
+  readonly control: ListenerControl;
+  readonly startedAt: number;
+  readonly resolve: (reply: ListenerReply) => void;
+  readonly reject: (error: Error) => void;
+  readonly cleanup: () => void;
 }
 
 const MAX_DIAGNOSTIC_MESSAGE_LENGTH = 512;
 const MAX_DIAGNOSTICS_PER_WINDOW = 20;
 const DIAGNOSTIC_WINDOW_MS = 1000;
 
-export class SignalIngressServer {
+export class SignalIngressServer implements ListenerService {
   readonly #options: Required<
     Pick<
       SignalIngressServerOptions,
@@ -106,9 +137,12 @@ export class SignalIngressServer {
   readonly #server: Server;
   readonly #clients = new Set<ClientState>();
   readonly #liveInstances = new Map<string, ClientState>();
+  readonly #listenerControls = new Map<string, PendingListenerControl>();
+  readonly #resultListeners = new Set<(event: ListenerResultEvent) => void>();
   readonly #now: () => number;
   readonly #secretBytes: Buffer;
   readonly #descriptor: DiscoveryDescriptorLifecycle | undefined;
+  readonly #legacyDescriptor: DiscoveryDescriptorLifecycle | undefined;
   #idleTimer: NodeJS.Timeout | undefined;
   #startPromise: Promise<SignalIngressEndpoint> | undefined;
   #stopPromise: Promise<void> | undefined;
@@ -122,6 +156,13 @@ export class SignalIngressServer {
         "Signal ingress secret must be at least 32 characters",
       );
     }
+    if (
+      options.secretPath !== undefined &&
+      (!isAbsolute(options.secretPath) || options.secretPath.length > 4096)
+    )
+      throw new RangeError(
+        "Signal ingress secretPath must be a bounded absolute file reference",
+      );
     const maxFrameBytes =
       options.maxFrameBytes ?? DEFAULT_MAX_INGRESS_FRAME_BYTES;
     const maxOutstandingMessages = options.maxOutstandingMessages ?? 32;
@@ -157,6 +198,11 @@ export class SignalIngressServer {
       options.descriptorPath === undefined
         ? undefined
         : new DiscoveryDescriptorLifecycle(options.descriptorPath);
+    this.#legacyDescriptor =
+      options.legacyDescriptorPath === undefined ||
+      options.legacyDescriptorPath === options.descriptorPath
+        ? undefined
+        : new DiscoveryDescriptorLifecycle(options.legacyDescriptorPath);
     this.#server = createServer((socket) => this.#accept(socket));
     this.#server.on("error", (error) => {
       this.#diagnostic("server-error", error.message);
@@ -176,6 +222,273 @@ export class SignalIngressServer {
   stop(): Promise<void> {
     this.#stopPromise ??= this.#stop();
     return this.#stopPromise;
+  }
+
+  inspectListeners(): readonly ListenerDescriptor[] {
+    return [...this.#clients].flatMap((state) =>
+      state.listener &&
+      state.connectionId &&
+      state.producer &&
+      state.producer.track?.id !== undefined &&
+      state.producer.device?.id !== undefined &&
+      !state.closing &&
+      !state.socket.destroyed
+        ? [
+            {
+              connectionId: state.connectionId,
+              binding: {
+                trackId: state.producer.track.id,
+                deviceId: state.producer.device.id,
+              },
+              producer: structuredClone(state.producer),
+              registration: structuredClone(state.listener),
+              phase: state.listenerPhase,
+              ...(state.listenerOwner
+                ? {
+                    jobId: state.listenerOwner.jobId,
+                    passId: state.listenerOwner.passId,
+                  }
+                : {}),
+            },
+          ]
+        : [],
+    );
+  }
+
+  onListenerResult(listener: (event: ListenerResultEvent) => void): () => void {
+    this.#resultListeners.add(listener);
+    return () => {
+      this.#resultListeners.delete(listener);
+    };
+  }
+
+  async requestListenerControl(
+    connectionId: string,
+    input: ListenerControlInput,
+    options: ListenerControlOptions = {},
+  ): Promise<ListenerReply> {
+    const value = listenerControlInputSchema.parse(input);
+    const denied = (reason: string): Error => {
+      recordSignalTelemetry(this.#options.telemetry, {
+        name: "output.listener.denied",
+        source: "output-ingress",
+        outcome: "failure",
+        correlationId: value.correlationId,
+        causationId: value.causationId,
+        trace: {
+          traceId: value.traceId,
+          spanId: stableTelemetryId(`${value.traceId}:denied:${value.action}`),
+        },
+        attributes: {
+          reason,
+          connectionId,
+          jobId: value.jobId,
+          passId: value.passId,
+          action: value.action,
+        },
+      });
+      return new Error(reason);
+    };
+    const timeoutMs = options.timeoutMs ?? 5000;
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120000)
+      throw new RangeError("Listener timeout must be 1 to 120000ms");
+    if (options.signal?.aborted) throw denied("Listener control cancelled");
+    const state = [...this.#clients].find(
+      (client) => client.connectionId === connectionId,
+    );
+    if (
+      !state?.listener ||
+      !state.producer ||
+      state.closing ||
+      state.socket.destroyed
+    )
+      throw denied("Listener unavailable");
+    if (this.#listenerControls.size >= 64)
+      throw denied("Listener control backpressure");
+    if (value.action === "prepare") {
+      if (state.listenerOwner) throw denied("Listener already owned");
+      if (
+        state.listener.deviceCanonicalPath === undefined ||
+        state.listener.trackCanonicalPath === undefined ||
+        state.listener.nativeStatus === undefined
+      )
+        throw denied("listener_metadata_missing");
+      if (
+        state.listener.nativeStatus.timing !== "VERIFIED" ||
+        state.listener.nativeStatus.readiness !== "READY"
+      )
+        throw denied(
+          state.listener.nativeStatus.reason ??
+            "real_live_timing_validation_required",
+        );
+    } else {
+      if (
+        !state.listenerOwner ||
+        state.listenerOwner.jobId !== value.jobId ||
+        state.listenerOwner.passId !== value.passId ||
+        state.listenerOwner.traceId !== value.traceId
+      )
+        throw denied("Listener ownership mismatch");
+      if (value.action === "arm" && state.listenerPhase !== "ready")
+        throw denied("Listener is not ready");
+      if (value.action === "cancel" && state.listenerPhase === "cancelling")
+        throw denied("Listener cancellation already pending");
+    }
+    const control: ListenerControl = {
+      ...value,
+      type: "listener.control",
+      protocolVersion: 1,
+      listenerVersion: 1,
+      requestId: randomUUID(),
+      connectionEpoch: state.listener.connectionEpoch,
+    };
+    if (value.action === "prepare") {
+      state.listenerOwner = control;
+      state.listenerDeadline =
+        this.#now() + (value.config?.durationMs ?? 0) + 20000;
+      state.listenerResults = 0;
+      state.listenerStartedAt = this.#now();
+    }
+    state.listenerPhase =
+      value.action === "prepare"
+        ? "preparing"
+        : value.action === "arm"
+          ? "arming"
+          : "cancelling";
+    this.#listenerTelemetry("queued", state, control);
+    return new Promise<ListenerReply>((resolve, reject) => {
+      const onAbort = (): void => {
+        this.#finishListenerControl(
+          control.requestId,
+          undefined,
+          new Error("Listener control cancelled"),
+          "cancelled",
+        );
+        this.#publishListenerFailure(state, "control_cancelled");
+        // Losing a reply leaves execution unknown: disconnect, never claim a successful disarm.
+        state.socket.destroy();
+      };
+      const timer = setTimeout(() => {
+        this.#finishListenerControl(
+          control.requestId,
+          undefined,
+          new Error("Listener control timed out"),
+        );
+        this.#publishListenerFailure(state, "control_timeout");
+        state.socket.destroy();
+      }, timeoutMs);
+      timer.unref();
+      const pending: PendingListenerControl = {
+        state,
+        control,
+        startedAt: this.#now(),
+        resolve,
+        reject,
+        cleanup: () => {
+          clearTimeout(timer);
+          options.signal?.removeEventListener("abort", onAbort);
+        },
+      };
+      this.#listenerControls.set(control.requestId, pending);
+      options.signal?.addEventListener("abort", onAbort, { once: true });
+      if (options.signal?.aborted) {
+        onAbort();
+        return;
+      }
+      this.#listenerTelemetry("started", state, control);
+      void this.#write(state, control).catch(() => {
+        this.#finishListenerControl(
+          control.requestId,
+          undefined,
+          new Error("Listener control write failed"),
+        );
+        state.socket.destroy();
+      });
+    });
+  }
+
+  #listenerTelemetry(
+    stage: string,
+    state: ClientState,
+    message: ListenerControl | ListenerReply | ListenerResult,
+    durationMs?: number,
+  ): void {
+    recordSignalTelemetry(this.#options.telemetry, {
+      name: `output.listener.${stage}`,
+      source: "output-ingress",
+      correlationId: message.correlationId,
+      causationId: message.causationId,
+      trace: {
+        traceId: message.traceId,
+        spanId: stableTelemetryId(
+          `${message.traceId}:${message.requestId}:${stage}`,
+        ),
+      },
+      ...(durationMs === undefined
+        ? state.listenerStartedAt === undefined
+          ? {}
+          : { durationMs: this.#now() - state.listenerStartedAt }
+        : { durationMs }),
+      outcome:
+        stage === "failed"
+          ? "failure"
+          : stage === "cancelled"
+            ? "cancelled"
+            : "success",
+      attributes: {
+        connectionId: state.connectionId ?? "",
+        ...(state.producer === undefined
+          ? {}
+          : {
+              producerId: state.producer.producerId,
+              ...(state.producer.track?.id === undefined
+                ? {}
+                : { trackId: state.producer.track.id }),
+              ...(state.producer.device?.id === undefined
+                ? {}
+                : { deviceId: state.producer.device.id }),
+            }),
+        connectionEpoch: message.connectionEpoch,
+        jobId: message.jobId,
+        passId: message.passId,
+        requestId: message.requestId,
+        ...("action" in message
+          ? { action: message.action }
+          : { status: message.status }),
+        ...("reason" in message && message.reason !== undefined
+          ? { reason: sanitizePersistedText(message.reason).slice(0, 512) }
+          : {}),
+        ...("observation" in message && message.observation !== undefined
+          ? { observation: message.observation }
+          : {}),
+      },
+    });
+  }
+
+  #finishListenerControl(
+    requestId: string,
+    reply?: ListenerReply,
+    error?: Error,
+    stage = "failed",
+  ): void {
+    const pending = this.#listenerControls.get(requestId);
+    if (!pending) return;
+    this.#listenerControls.delete(requestId);
+    pending.cleanup();
+    this.#listenerTelemetry(
+      reply
+        ? reply.status === "failed"
+          ? "failed"
+          : reply.status === "cancelled"
+            ? "cancelled"
+            : "completed"
+        : stage,
+      pending.state,
+      reply ?? pending.control,
+      this.#now() - pending.startedAt,
+    );
+    if (error) pending.reject(error);
+    else if (reply) pending.resolve(reply);
   }
 
   async #listen(): Promise<SignalIngressEndpoint> {
@@ -203,11 +516,48 @@ export class SignalIngressServer {
       protocol: "newline-delimited-json",
       protocolVersion: PRODUCER_PROTOCOL_VERSION,
       maxFrameBytes: this.#options.maxFrameBytes,
+      ...(this.#options.secretPath === undefined
+        ? {}
+        : { secretPath: this.#options.secretPath }),
+      listenerVersions: [1],
+      listenerCapabilities: ["audio-listener/v1"],
     };
+    const descriptorStartedAt = this.#now();
+    if (this.#legacyDescriptor) {
+      for (const stage of ["queued", "started"])
+        recordSignalTelemetry(this.#options.telemetry, {
+          name: `output.ingress.legacy-discovery-${stage}`,
+          source: "output-ingress",
+          attributes: { compatibility: "installed-midi-producers" },
+        });
+    }
     try {
       await this.#descriptor?.write(descriptor);
+      await this.#legacyDescriptor?.write(descriptor);
+      if (this.#legacyDescriptor)
+        recordSignalTelemetry(this.#options.telemetry, {
+          name: "output.ingress.legacy-discovery-published",
+          source: "output-ingress",
+          outcome: "success",
+          durationMs: this.#now() - descriptorStartedAt,
+          attributes: { compatibility: "installed-midi-producers" },
+        });
     } catch (error) {
+      if (this.#legacyDescriptor)
+        recordSignalTelemetry(this.#options.telemetry, {
+          name: "output.ingress.legacy-discovery-failed",
+          source: "output-ingress",
+          outcome: "failure",
+          durationMs: this.#now() - descriptorStartedAt,
+          attributes: { compatibility: "installed-midi-producers" },
+        });
+      for (const state of this.#clients) {
+        state.socket.destroy();
+        this.#cleanupClient(state);
+      }
       await this.#closeServer();
+      await this.#descriptor?.remove();
+      await this.#legacyDescriptor?.remove();
       throw error;
     }
     this.#started = true;
@@ -232,6 +582,9 @@ export class SignalIngressServer {
       producer: undefined,
       lastHeartbeatAt: this.#now(),
       lastSequence: -1,
+      listenerSequence: -1,
+      listenerPhase: "idle",
+      listenerResults: 0,
     };
     this.#clients.add(state);
     socket.on("data", (chunk) => this.#receive(state, chunk));
@@ -422,6 +775,10 @@ export class SignalIngressServer {
         state.closing = true;
         state.socket.end();
         break;
+      case "listener.reply":
+      case "listener.result":
+        await this.#listenerMessage(state, message);
+        break;
     }
   }
 
@@ -452,6 +809,24 @@ export class SignalIngressServer {
       );
       return;
     }
+    if (
+      (message.listener !== undefined &&
+        (message.producer.signalKind !== "audio" ||
+          message.producer.schemaVersion !== "audio-observation/v1" ||
+          message.producer.track?.id === undefined ||
+          message.producer.device?.id === undefined)) ||
+      (message.producer.schemaVersion === "audio-observation/v1" &&
+        message.listener === undefined)
+    ) {
+      await this.#fail(
+        state,
+        "invalid-message",
+        "Audio observations require negotiated listener capability and track/device binding",
+        true,
+        message.requestId,
+      );
+      return;
+    }
     const live = this.#liveInstances.get(message.producer.instanceId);
     if (live !== undefined && !live.closing) {
       await this.#fail(
@@ -463,9 +838,27 @@ export class SignalIngressServer {
       );
       return;
     }
+    if (
+      message.listener &&
+      [...this.#liveInstances.values()].some(
+        (candidate) =>
+          !candidate.closing &&
+          candidate.producer?.producerId === message.producer.producerId,
+      )
+    ) {
+      await this.#fail(
+        state,
+        "duplicate-instance",
+        "Listener producer already has an active connection",
+        true,
+        message.requestId,
+      );
+      return;
+    }
     const connectionId = randomUUID();
     state.connectionId = connectionId;
     state.producer = message.producer;
+    if (message.listener) state.listener = message.listener;
     state.lastHeartbeatAt = this.#now();
     this.#liveInstances.set(message.producer.instanceId, state);
     try {
@@ -483,6 +876,229 @@ export class SignalIngressServer {
       instanceId: message.producer.instanceId,
     });
     await this.#ack(state, message.requestId, "hello", connectionId);
+  }
+
+  async #listenerMessage(
+    state: ClientState,
+    message: ListenerReply | ListenerResult,
+  ): Promise<void> {
+    if (message.reason !== undefined)
+      message.reason = sanitizePersistedText(message.reason).slice(0, 512);
+    const owner = state.listenerOwner;
+    if (
+      !state.listener ||
+      !owner ||
+      message.connectionEpoch !== state.listener.connectionEpoch ||
+      message.jobId !== owner.jobId ||
+      message.passId !== owner.passId ||
+      message.traceId !== owner.traceId
+    ) {
+      await this.#fail(
+        state,
+        "route-rejected",
+        "Listener epoch or ownership mismatch",
+        true,
+        message.requestId,
+      );
+      return;
+    }
+    if (message.sequence !== state.listenerSequence + 1) {
+      this.#publishListenerFailure(state, "sequence_gap");
+      await this.#fail(
+        state,
+        "sequence-replay",
+        "Listener sequences must be contiguous",
+        true,
+        message.requestId,
+      );
+      return;
+    }
+    state.listenerSequence = message.sequence;
+    state.lastHeartbeatAt = this.#now();
+    if (message.type === "listener.reply") {
+      const pending = this.#listenerControls.get(message.requestId);
+      if (
+        !pending ||
+        pending.state !== state ||
+        pending.control.correlationId !== message.correlationId ||
+        pending.control.causationId !== message.causationId ||
+        (message.status !== "failed" &&
+          message.status !==
+            (pending.control.action === "prepare"
+              ? "ready"
+              : pending.control.action === "arm"
+                ? "armed"
+                : "cancelled"))
+      ) {
+        await this.#fail(
+          state,
+          "route-rejected",
+          "Unexpected listener control reply",
+          true,
+          message.requestId,
+        );
+        return;
+      }
+      if (
+        state.listenerPhase !== "cancelling" ||
+        pending.control.action === "cancel"
+      ) {
+        state.listenerPhase =
+          message.status === "ready"
+            ? "ready"
+            : message.status === "armed"
+              ? "armed"
+              : "idle";
+        if (state.listenerPhase === "idle") {
+          delete state.listenerOwner;
+          delete state.listenerDeadline;
+        } else if (message.status === "armed") {
+          state.listenerDeadline =
+            this.#now() + (owner.config?.durationMs ?? 0) + 5000;
+        }
+      }
+      this.#finishListenerControl(message.requestId, message);
+      if (message.status === "cancelled" || message.status === "failed") {
+        for (const [requestId, other] of this.#listenerControls) {
+          if (other.state === state)
+            this.#finishListenerControl(
+              requestId,
+              undefined,
+              new Error("Listener operation ended"),
+              "cancelled",
+            );
+        }
+      }
+    } else {
+      if (
+        state.listenerPhase !== "armed" &&
+        state.listenerPhase !== "cancelling"
+      ) {
+        await this.#fail(
+          state,
+          "route-rejected",
+          "Listener result received before arm readiness",
+          true,
+          message.requestId,
+        );
+        return;
+      }
+      if (message.correlationId !== owner.correlationId) {
+        await this.#fail(
+          state,
+          "route-rejected",
+          "Listener result correlation mismatch",
+          true,
+          message.requestId,
+        );
+        return;
+      }
+      state.listenerResults += 1;
+      const observation = message.observation;
+      if (
+        state.listenerResults > 1024 ||
+        (observation !== undefined &&
+          (observation.listenerId !== state.producer?.producerId ||
+            observation.passId !== owner.passId ||
+            observation.sampleRate !== state.listener.sampleRate ||
+            observation.algorithm.version !== state.listener.algorithmVersion ||
+            observation.samples.length > (owner.config?.maxWindows ?? 0) ||
+            observation.startBeat < (owner.config?.source.startBeat ?? 0) ||
+            observation.endBeat > (owner.config?.source.endBeat ?? 0) ||
+            (message.status === "completed" &&
+              (!observation.complete ||
+                observation.endSample <= observation.startSample ||
+                observation.startBeat !== owner.config?.source.startBeat ||
+                observation.endBeat !== owner.config?.source.endBeat)) ||
+            (message.status !== "completed" && observation.complete) ||
+            observation.endSample - observation.startSample >
+              ((owner.config?.durationMs ?? 0) * observation.sampleRate) /
+                1000 +
+                observation.algorithm.timingUncertaintySamples))
+      ) {
+        await this.#fail(
+          state,
+          "route-rejected",
+          "Listener observation attribution or capture bounds mismatch",
+          true,
+          message.requestId,
+        );
+        return;
+      }
+      this.#listenerTelemetry(
+        message.status === "progress"
+          ? "progress"
+          : message.status === "completed"
+            ? "completed"
+            : "failed",
+        state,
+        message,
+      );
+      this.#emitListenerResult(state, message);
+      if (
+        message.status !== "progress" &&
+        state.listenerPhase !== "cancelling"
+      ) {
+        delete state.listenerOwner;
+        delete state.listenerDeadline;
+        state.listenerPhase = "idle";
+      }
+    }
+    await this.#ack(state, message.requestId, "listener");
+  }
+
+  #emitListenerResult(state: ClientState, result: ListenerResult): void {
+    if (
+      !state.connectionId ||
+      !state.producer ||
+      state.producer.track?.id === undefined ||
+      state.producer.device?.id === undefined
+    )
+      return;
+    for (const callback of this.#resultListeners) {
+      try {
+        callback({
+          connectionId: state.connectionId,
+          binding: {
+            trackId: state.producer.track.id,
+            deviceId: state.producer.device.id,
+          },
+          producer: structuredClone(state.producer),
+          result: structuredClone(result),
+        });
+      } catch {
+        this.#diagnostic(
+          "internal-error",
+          "Listener result subscriber failed",
+          state.connectionId,
+        );
+      }
+    }
+  }
+
+  #publishListenerFailure(state: ClientState, reason: string): void {
+    const owner = state.listenerOwner;
+    if (!owner) return;
+    const result: ListenerResult = {
+      type: "listener.result",
+      protocolVersion: 1,
+      listenerVersion: 1,
+      requestId: randomUUID(),
+      connectionEpoch: owner.connectionEpoch,
+      jobId: owner.jobId,
+      passId: owner.passId,
+      traceId: owner.traceId,
+      correlationId: owner.correlationId,
+      causationId: owner.causationId,
+      sequence: Math.min(Number.MAX_SAFE_INTEGER, state.listenerSequence + 1),
+      status: "partial",
+      reason,
+    };
+    this.#listenerTelemetry("failed", state, result);
+    this.#emitListenerResult(state, result);
+    delete state.listenerOwner;
+    delete state.listenerDeadline;
+    state.listenerPhase = "idle";
   }
 
   async #route(
@@ -594,6 +1210,10 @@ export class SignalIngressServer {
     requestId?: string,
     startedAt = this.#now(),
   ): Promise<void> {
+    if (fatal) {
+      state.closing = true;
+      this.#publishListenerFailure(state, code);
+    }
     this.#diagnostic(code, message, state.connectionId);
     this.#recordFailure(code, requestId, state.connectionId, fatal, startedAt);
     const response: ProducerErrorResponse = {
@@ -654,24 +1274,40 @@ export class SignalIngressServer {
 
   async #write(state: ClientState, value: object): Promise<void> {
     if (state.socket.destroyed) {
-      return;
+      throw new Error("Ingress socket closed");
     }
-    const writable = state.socket.write(`${JSON.stringify(value)}\n`);
+    const encoded = `${JSON.stringify(value)}\n`;
+    if (Buffer.byteLength(encoded, "utf8") - 1 > this.#options.maxFrameBytes)
+      throw new Error("Ingress response exceeds frame bounds");
+    if (
+      state.listener &&
+      state.socket.writableLength > this.#options.maxFrameBytes * 2
+    )
+      throw new Error("Listener outbound backpressure");
+    const writable = state.socket.write(encoded);
     if (!writable) {
       await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          cleanup();
+          this.#publishListenerFailure(state, "outbound_backpressure");
+          state.socket.destroy();
+          reject(new Error("Ingress drain timed out"));
+        }, 1000);
+        timer.unref();
         const onDrain = (): void => {
           cleanup();
           resolve();
         };
         const onClose = (): void => {
           cleanup();
-          resolve();
+          reject(new Error("Ingress socket closed before drain"));
         };
         const onError = (error: Error): void => {
           cleanup();
           reject(error);
         };
         const cleanup = (): void => {
+          clearTimeout(timer);
           state.socket.off("drain", onDrain);
           state.socket.off("close", onClose);
           state.socket.off("error", onError);
@@ -695,6 +1331,15 @@ export class SignalIngressServer {
     const now = this.#now();
     for (const state of this.#clients) {
       if (
+        state.listenerDeadline !== undefined &&
+        now > state.listenerDeadline &&
+        !state.closing
+      ) {
+        this.#publishListenerFailure(state, "capture_watchdog_timeout");
+        state.socket.destroy();
+        continue;
+      }
+      if (
         state.connectionId !== undefined &&
         !state.closing &&
         now - state.lastHeartbeatAt >= this.#options.idleTimeoutMs
@@ -712,6 +1357,15 @@ export class SignalIngressServer {
   #cleanupClient(state: ClientState): void {
     if (!this.#clients.delete(state)) {
       return;
+    }
+    this.#publishListenerFailure(state, "disconnected");
+    for (const [requestId, pending] of this.#listenerControls) {
+      if (pending.state === state)
+        this.#finishListenerControl(
+          requestId,
+          undefined,
+          new Error("Listener disconnected"),
+        );
     }
     const { connectionId, producer } = state;
     if (
@@ -760,6 +1414,16 @@ export class SignalIngressServer {
       this.#idleTimer = undefined;
     }
     for (const state of this.#clients) {
+      this.#publishListenerFailure(state, "server_shutdown");
+      for (const [requestId, pending] of this.#listenerControls) {
+        if (pending.state === state)
+          this.#finishListenerControl(
+            requestId,
+            undefined,
+            new Error("Listener ingress stopped"),
+            "cancelled",
+          );
+      }
       state.closing = true;
       if (!state.socket.destroyed) {
         const response: ProducerErrorResponse = {
@@ -772,7 +1436,15 @@ export class SignalIngressServer {
         state.socket.end(`${JSON.stringify(response)}\n`);
       }
     }
-    await this.#closeServer();
+    const closeTimer = setTimeout(() => {
+      for (const state of this.#clients) state.socket.destroy();
+    }, 250);
+    closeTimer.unref();
+    try {
+      await this.#closeServer();
+    } finally {
+      clearTimeout(closeTimer);
+    }
     for (const state of this.#clients) {
       if (!state.socket.destroyed) {
         state.socket.destroy();
@@ -780,6 +1452,8 @@ export class SignalIngressServer {
       this.#cleanupClient(state);
     }
     await this.#descriptor?.remove();
+    await this.#legacyDescriptor?.remove();
+    this.#resultListeners.clear();
     if (this.#started) {
       this.#started = false;
       this.#options.onStatus?.({ kind: "stopped" });

@@ -1,4 +1,12 @@
 import { z, type ZodType } from "zod";
+import {
+  inspectListeningContextParamsSchema,
+  inspectListeningContextResultSchema,
+  startListeningPlaybackParamsSchema,
+  startListeningPlaybackResultSchema,
+  stopListeningPlaybackParamsSchema,
+  stopListeningPlaybackResultSchema,
+} from "./listening-live-schemas.js";
 
 import {
   capabilityDocumentSchema,
@@ -713,6 +721,20 @@ export const commandCatalog = {
   "arrangement.set_clip_properties": command(
     setArrangementClipPropertiesParamsSchema,
     setArrangementClipPropertiesResultSchema,
+    { mutates: true },
+  ),
+  "listening.inspect_context": command(
+    inspectListeningContextParamsSchema,
+    inspectListeningContextResultSchema,
+  ),
+  "listening.start_playback": command(
+    startListeningPlaybackParamsSchema,
+    startListeningPlaybackResultSchema,
+    { mutates: true },
+  ),
+  "listening.stop_playback": command(
+    stopListeningPlaybackParamsSchema,
+    stopListeningPlaybackResultSchema,
     { mutates: true },
   ),
 } as const satisfies Record<string, CommandDefinition>;

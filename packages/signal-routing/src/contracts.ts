@@ -48,10 +48,11 @@ export const outputProducerSchema = z
   })
   .refine(
     (producer) =>
-      producer.schemaVersion ===
-      (producer.signalKind === "midi"
-        ? "midi-sample/v1"
-        : "audio-reference/v1"),
+      producer.signalKind === "midi"
+        ? producer.schemaVersion === "midi-sample/v1"
+        : ["audio-reference/v1", "audio-observation/v1"].includes(
+            producer.schemaVersion,
+          ),
     {
       path: ["schemaVersion"],
       message: "Schema version must match the producer signal kind",

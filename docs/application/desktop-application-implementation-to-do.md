@@ -98,6 +98,35 @@ presentation state and say so; they are not applied to Live.
 
 ## Configuration and persistence
 
+- [x] Define strictly typed read-only context list/detail IPC and preload APIs
+  with explicit App-session scope and application-attributed query traces.
+- [x] Add bounded Outputs context summaries/detail, historical inclusion,
+  unknown-freshness labels, retry, and session/profile race protection.
+- [x] Record ordered query lifecycle, timing, sanitized failure, and supported
+  cancellation events without impersonating an agent.
+- [x] Include the context restart fixture and primary Electron suite in strict
+  test-project typechecking through the normal quality gate.
+- [x] Wire canonical session repositories and publication references into
+  production Desktop composition and pass the Electron restart regression.
+- [x] Compose the concrete listening factory with the existing runtime and
+  context ports, reject missing invoking owners/unavailable ingress explicitly,
+  and preserve ordered listening shutdown and the native commissioning gate.
+- [ ] Validate stored listening context and listening lifecycle presentation
+  visually in a fresh isolated Desktop/runner-owned Live session.
+- [x] Present bounded, sanitized listening job DTOs through read-only inventory
+  IPC/preload and typed main-process lifecycle change/reset events.
+- [x] Present owned listening progress/cancellation after SDK idle through the
+  existing agent cancellation path, with expected-session guards and explicit
+  leave-playback-running policy and actionable failures.
+- [x] Cover selected-agent/session/profile races, stale inventory, bounded
+  ownership, redaction, traced UI reads and cleanup in deterministic tests.
+- [x] Verify isolated synthetic Electron listening lifecycle regression.
+- [x] Isolate every primary Electron launch/restart from inherited credentials,
+  home directories, SDK/renderer overrides and production bridge/signal ports;
+  verify preference-selected endpoints without weakening UI postconditions.
+- [ ] Complete physical listening lifecycle acceptance after permission and
+  runner-owned Live/native timing prerequisites are satisfied.
+
 - [x] Store conversations in versioned App sessions with
   multiple active agents.
 - [x] Persist session-level agent overrides and output subscriptions.

@@ -393,6 +393,7 @@ test("handles recoverable ingress errors without disconnecting", async () => {
       );
     }
   });
+
   const client = createClient(ingress.descriptor, {
     heartbeatMs: 1000,
     onStatus: (...items) => statuses.push(items),
@@ -412,4 +413,266 @@ test("handles recoverable ingress errors without disconnecting", async () => {
   assert.equal(client.isConnected(), true);
   client.stop();
   await ingress.close();
+});
+
+test("MIDI compatibility entry point exports the single common implementation and unchanged IDs", () => {
+  const common = require("../shared/agent_signal_client.js");
+  assert.equal(AgentSignalClient, common.AgentSignalClient);
+  const canonicalPath = "live_set tracks 2 devices 1";
+  assert.equal(
+    producerIdForCanonicalPath(canonicalPath),
+    common.producerIdForCanonicalPath(canonicalPath, "ableton-midi-capture"),
+  );
+  assert.notEqual(
+    producerIdForCanonicalPath(canonicalPath),
+    common.producerIdForCanonicalPath(canonicalPath, "ableton-audio-listener"),
+  );
+});
+
+function audioClient(descriptor, overrides = {}) {
+  return createClient(
+    {
+      ...descriptor,
+      listenerVersions: [1],
+      listenerCapabilities: ["audio-listener/v1"],
+    },
+    {
+      signalKind: "audio",
+      schemaVersion: "audio-observation/v1",
+      producerIdPrefix: "ableton-audio-listener",
+      displayName: "Audio Listener",
+      listener: {
+        version: 1,
+        capabilities: ["audio-listener/v1"],
+        sampleRate: 48000,
+        algorithmVersion: "native/v1",
+      },
+      ...overrides,
+    },
+  );
+}
+
+test("audio controls preserve trace context, rotate reconnect epochs, and reject stale controls", async () => {
+  const messages = [];
+  const failures = [];
+  let serverSocket;
+  const ingress = await createIngress((message, socket) => {
+    serverSocket = socket;
+    messages.push(message);
+    socket.write(
+      `${JSON.stringify({
+        type: "producer.ack",
+        protocolVersion: 1,
+        requestId: message.requestId,
+        action: message.type === "producer.hello" ? "hello" : "listener",
+        ...(message.type === "producer.hello"
+          ? { connectionId: "audio-connection" }
+          : {}),
+      })}\n`,
+    );
+  });
+  let client;
+  client = audioClient(ingress.descriptor, {
+    onListenerFailure: (reason) => failures.push(reason),
+    onListenerControl: (control) =>
+      client.sendListenerReply(control, { status: "ready" }),
+  });
+  client.sendSample({ schema: "audio-observation/v1" });
+  assert.equal(client.offlineQueue.length, 0);
+  assert.ok(failures.includes("offline_audio_not_replayed"));
+  client.start();
+  await waitFor(() => client.isConnected());
+  const firstEpoch = client.listener.connectionEpoch;
+  const control = {
+    type: "listener.control",
+    protocolVersion: 1,
+    listenerVersion: 1,
+    requestId: "prepare",
+    connectionEpoch: firstEpoch,
+    jobId: "job",
+    passId: "pass",
+    traceId: "trace",
+    correlationId: "correlation",
+    causationId: "causation",
+    action: "prepare",
+    config: {
+      durationMs: 1000,
+      maxWindows: 8,
+      source: { mode: "session", startBeat: 0, endBeat: 2 },
+    },
+  };
+  serverSocket.write(`${JSON.stringify(control)}\n`);
+  const reply = await waitFor(() =>
+    messages.find((message) => message.type === "listener.reply"),
+  );
+  assert.equal(reply.traceId, control.traceId);
+  assert.equal(reply.correlationId, control.correlationId);
+  assert.equal(reply.causationId, control.causationId);
+  assert.equal(reply.sequence, 0);
+  serverSocket.destroy();
+  await waitFor(
+    () =>
+      messages.filter((message) => message.type === "producer.hello").length ===
+        2 && client.isConnected(),
+  );
+  assert.notEqual(client.listener.connectionEpoch, firstEpoch);
+  assert.equal(client.listenerSequence, 0);
+  assert.equal(client.listenerJob, null);
+  serverSocket.write(`${JSON.stringify(control)}\n`);
+  await waitFor(() => failures.includes("invalid_control"));
+  client.stop();
+  await ingress.close();
+});
+
+test("audio backpressure is an explicit failure rather than lossy offline coalescing", () => {
+  const failures = [];
+  const client = audioClient(
+    {},
+    { onListenerFailure: (reason) => failures.push(reason) },
+  );
+  client.authenticated = true;
+  client.socket = {
+    destroyed: false,
+    write: () => false,
+    destroy() {
+      this.destroyed = true;
+    },
+  };
+  const control = {
+    connectionEpoch: client.listener.connectionEpoch,
+    requestId: "r",
+    jobId: "j",
+    passId: "p",
+    traceId: "t",
+    correlationId: "c",
+    causationId: "a",
+  };
+  assert.equal(client.sendListenerReply(control, { status: "ready" }), false);
+  assert.ok(failures.includes("backpressure"));
+  assert.equal(client.socket.destroyed, true);
+  assert.equal(client.offlineQueue.length, 0);
+});
+
+test("audio refuses old ingress descriptors without listener opt-in", async () => {
+  const statuses = [];
+  const descriptor = {
+    host: "127.0.0.1",
+    port: 45832,
+    protocol: "newline-delimited-json",
+    protocolVersion: 1,
+    maxFrameBytes: 128 * 1024,
+  };
+  const client = audioClient(descriptor, {
+    readText: async () => JSON.stringify(descriptor),
+    onStatus: (...items) => statuses.push(items),
+  });
+  client.start();
+  await waitFor(() => statuses.find((items) => items[1] === "unavailable"));
+  assert.match(
+    statuses.find((items) => items[1] === "unavailable")[2],
+    /not advertised/,
+  );
+  client.stop();
+});
+
+test("credential file references accept canonical JSON and retain explicit and legacy precedence", async () => {
+  const paths = [];
+  const reader = new AgentSignalClient({
+    env: {},
+    readText: async (file) => {
+      paths.push(file);
+      return JSON.stringify({ version: 1, secret: SECRET });
+    },
+  });
+  assert.equal(
+    await reader.loadSecret({
+      secretPath: "/profile/credentials/signal-ingress-secret.json",
+    }),
+    SECRET,
+  );
+  assert.deepEqual(paths, ["/profile/credentials/signal-ingress-secret.json"]);
+  const explicit = new AgentSignalClient({
+    env: {},
+    secretPath: "/explicit/credential",
+    readText: async (file) => {
+      paths.push(file);
+      return SECRET;
+    },
+  });
+  assert.equal(
+    await explicit.loadSecret({ secretPath: "/different/profile/credential" }),
+    SECRET,
+  );
+  assert.equal(paths.at(-1), "/explicit/credential");
+  const token = new AgentSignalClient({
+    env: {},
+    secretPath: "/profile/credential",
+    readText: async () => JSON.stringify({ version: 1, token: SECRET }),
+  });
+  assert.equal(await token.loadSecret(), SECRET);
+  for (const text of [
+    JSON.stringify({ version: 2, secret: SECRET }),
+    JSON.stringify({ version: 1, secret: SECRET, token: SECRET }),
+    `{"version":1,"secret":"${SECRET}"`,
+    "x".repeat(4097),
+  ]) {
+    const invalid = new AgentSignalClient({
+      env: {},
+      secretPath: "/profile/credential",
+      readText: async () => text,
+    });
+    await assert.rejects(invalid.loadSecret(), (error) => {
+      assert.equal(error.message.includes(SECRET), false);
+      return true;
+    });
+  }
+});
+
+test("default discovery/credential reader bounds filesystem content and closes failed reads", async () => {
+  const files = require("node:fs/promises");
+  const path = require("node:path");
+  const directory = path.resolve(
+    "max-patches/midi-capture/.test-artifacts",
+    require("node:crypto").randomUUID(),
+  );
+  const secretPath = path.join(directory, "signal-ingress-secret.json");
+  try {
+    await files.mkdir(directory, { recursive: true });
+    await files.writeFile(
+      secretPath,
+      JSON.stringify({ version: 1, secret: SECRET }),
+    );
+    const client = new AgentSignalClient({
+      env: {},
+      secretPath,
+      descriptorPath: secretPath,
+    });
+    assert.equal(await client.loadSecret(), SECRET);
+    await files.writeFile(secretPath, "x".repeat(128 * 1024 + 1));
+    await assert.rejects(client.loadSecret(), /bounded regular files/);
+    await assert.rejects(client.loadDescriptor(), /bounded regular files/);
+    await files.writeFile(secretPath, SECRET);
+    assert.equal(await client.loadSecret(), SECRET);
+  } finally {
+    await files.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("new audio has no legacy discovery fallback while MIDI defaults remain compatible", async () => {
+  const audio = new AgentSignalClient({ env: {}, signalKind: "audio" });
+  assert.equal(audio.descriptorPath, null);
+  assert.equal(audio.secretPath, null);
+  assert.equal(audio.legacyDiscovery, false);
+  await assert.rejects(audio.loadDescriptor(), /not configured/);
+  await assert.rejects(audio.loadSecret(), /not configured/);
+  const midi = new AgentSignalClient({ env: {} });
+  assert.equal(midi.legacyDiscovery, true);
+  assert.equal(
+    midi.descriptorPath,
+    require("./agent_signal_client.js").DEFAULT_DESCRIPTOR_PATH,
+  );
+  assert.equal(
+    midi.secretPath,
+    require("./agent_signal_client.js").DEFAULT_SECRET_PATH,
+  );
 });

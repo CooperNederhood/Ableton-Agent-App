@@ -13,7 +13,7 @@ function quotedCommands(source: string): string[] {
   ]);
   return [
     ...source.matchAll(
-      /"(?:system|live_set|session|scenes|transport|tracks|mixer_routing|midi_notes|audio_clips|clips|arrangement|devices|browser|events|recording|grooves|selection_view|live_history|browser_adapters|clip_automation|warp_markers|special_devices|workflow_jobs)\.[a-z_]+"/g,
+      /"(?:system|live_set|session|scenes|transport|tracks|mixer_routing|midi_notes|audio_clips|clips|arrangement|devices|browser|events|recording|grooves|selection_view|live_history|browser_adapters|clip_automation|warp_markers|special_devices|workflow_jobs|listening)\.[a-z_]+"/g,
     ),
   ]
     .map(([match]) => match.slice(1, -1))
@@ -55,6 +55,8 @@ describe("command catalog", () => {
       "remote-script/AbletonAgent/browser_commands.py",
       "remote-script/AbletonAgent/event_subscriptions.py",
       "remote-script/AbletonAgent/workflow_adapter_commands.py",
+      "remote-script/AbletonAgent/listening_commands.py",
+      "remote-script/AbletonAgent/listening_playback.py",
     ].map((path) => readFileSync(resolve(process.cwd(), path), "utf8"));
     const registered = quotedCommands(sources.join("\n"));
     const expected = commandNames

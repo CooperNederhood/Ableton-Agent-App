@@ -9,6 +9,58 @@ const owned = {
 };
 
 describe("LiveProcessController", () => {
+  it("coordinates a sanctioned external launch without shell launch or dialog actions", async () => {
+    const lists = [[], [], [owned], [owned]];
+    const run = vi.fn();
+    const requestLaunch = vi.fn(async () => undefined);
+    const controller = new LiveProcessController({
+      listProcesses: async () => lists.shift() ?? [owned],
+      run,
+      requestLaunch,
+      handleStartupDialogs: async () => "none",
+    });
+    await controller.launch("/Applications/Ableton Live 11 Suite.app", 1000);
+    expect(requestLaunch).toHaveBeenCalledWith(
+      "/Applications/Ableton Live 11 Suite.app",
+    );
+    expect(run).not.toHaveBeenCalled();
+    expect(controller.publicRecord().pid).toBe(owned.pid);
+    await expect(controller.dismissKnownStartupDialogs()).resolves.toBe("none");
+  });
+
+  it("refuses external launch when a user process already exists", async () => {
+    const requestLaunch = vi.fn();
+    const controller = new LiveProcessController({
+      listProcesses: async () => [owned],
+      requestLaunch,
+    });
+    await expect(
+      controller.launch("/Applications/Ableton Live 11 Suite.app"),
+    ).rejects.toThrow("already running");
+    expect(requestLaunch).not.toHaveBeenCalled();
+  });
+
+  it("refuses an unexpected executable after an external launch", async () => {
+    const lists = [
+      [],
+      [],
+      [
+        {
+          ...owned,
+          command:
+            "/Applications/Ableton Live 12 Suite.app/Contents/MacOS/Live",
+        },
+      ],
+    ];
+    const controller = new LiveProcessController({
+      listProcesses: async () => lists.shift() ?? [],
+      requestLaunch: async () => undefined,
+    });
+    await expect(
+      controller.launch("/Applications/Ableton Live 11 Suite.app", 1000),
+    ).rejects.toThrow("does not match");
+    expect(controller.publicRecord()).toBeUndefined();
+  });
   it("refuses a pre-existing Live process", async () => {
     const controller = new LiveProcessController({
       listProcesses: async () => [owned],

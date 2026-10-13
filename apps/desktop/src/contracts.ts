@@ -25,7 +25,21 @@ import type {
   TelemetryEventPage,
 } from "@ableton-agent/observability";
 import { z } from "zod";
+import {
+  desktopListeningListRequestSchema,
+  desktopListeningPageSchema,
+  desktopListeningTraceSchema,
+  type DesktopListeningApi,
+  type DesktopListeningCancellationOptions,
+} from "./listening-contracts.js";
 import type { AgentMode } from "@ableton-agent/shared";
+import {
+  desktopContextDetailSchema,
+  desktopContextGetRequestSchema,
+  desktopContextListRequestSchema,
+  desktopContextPageSchema,
+  type DesktopEntityContextApi,
+} from "./context-contracts.js";
 
 const telemetryNameSchema = z
   .string()
@@ -1018,6 +1032,38 @@ export type DesktopAgentHistoryMessage = z.infer<
   typeof desktopAgentHistoryMessageSchema
 >;
 
+export const desktopSessionContextStoreReferenceSchema = z
+  .object({
+    schemaVersion: z.literal(2),
+    relativePath: z.literal("context/entity-context.sqlite"),
+    kinds: z.array(z.literal("audio-observation/v1")).min(1).max(1).readonly(),
+  })
+  .strict()
+  .readonly();
+
+export const desktopSessionOwnershipManifestSchema = z
+  .object({
+    version: z.literal(1),
+    appSessionId: z.string().min(1).max(200),
+    title: z.string().min(1).max(2000),
+    createdAt: z.string().datetime({ offset: true }),
+    updatedAt: z.string().datetime({ offset: true }),
+    liveSetId: z.string().min(1).max(200),
+    liveSetName: z.string().min(1).max(2000),
+    liveProjectId: z.string().min(1).max(200).optional(),
+    liveProjectName: z.string().min(1).max(2000).optional(),
+    activeAgentIds: z.array(z.string().uuid()).max(64),
+    sdkSessionIds: z.array(z.string().min(1).max(200)).max(64),
+    contextStore: desktopSessionContextStoreReferenceSchema.optional(),
+  })
+  .strict()
+  .refine(
+    (manifest) =>
+      new TextEncoder().encode(JSON.stringify(manifest)).byteLength <=
+      64 * 1024,
+    "Session ownership manifest exceeds its encoded quota",
+  );
+
 export const sessionSchema = z
   .object({
     version: z.literal(4),
@@ -1029,6 +1075,7 @@ export const sessionSchema = z
     liveSetName: z.string().min(1),
     liveProjectId: z.string().min(1).optional(),
     liveProjectName: z.string().min(1).optional(),
+    contextStore: desktopSessionContextStoreReferenceSchema.optional(),
     activeAgents: z.array(desktopActiveAgentSchema).default([]),
     selectedAgentInstanceId: z.string().uuid().optional(),
     productionPlan: z.array(planSectionSchema).default([]),
@@ -1474,6 +1521,14 @@ const artifactMutationBaseSchema = z
   .strict();
 
 export const appEventSchema = z.discriminatedUnion("type", [
+  z.strictObject({
+    type: z.literal("listening.changed"),
+    page: desktopListeningPageSchema,
+  }),
+  z.strictObject({
+    type: z.literal("listening.reset"),
+    reason: z.enum(["shutdown", "session-closed", "ownership-changed"]),
+  }),
   z.object({
     type: z.literal("lifecycle.changed"),
     state: z.enum(lifecycleStates),
@@ -1926,7 +1981,11 @@ export const ipcSchemas = {
     response: z.object({ accepted: z.literal(true), messageId: z.string() }),
   },
   "agents:cancel": {
-    request: z.object({ instanceId: z.string().uuid() }).strict(),
+    request: z.strictObject({
+      instanceId: z.string().uuid(),
+      sessionId: z.string().min(1).max(256).optional(),
+      trace: desktopListeningTraceSchema.optional(),
+    }),
     response: z.object({ cancelled: z.boolean() }),
   },
   "profiles:get": {
@@ -2088,6 +2147,18 @@ export const ipcSchemas = {
   "operation:undo": {
     request: z.object({ id: z.string() }),
     response: z.object({ accepted: z.boolean() }),
+  },
+  "entity-context:list": {
+    request: desktopContextListRequestSchema,
+    response: desktopContextPageSchema,
+  },
+  "listening:list": {
+    request: desktopListeningListRequestSchema,
+    response: desktopListeningPageSchema,
+  },
+  "entity-context:get": {
+    request: desktopContextGetRequestSchema,
+    response: desktopContextDetailSchema,
   },
   "outputs:list": {
     request: z.object({}),
@@ -2280,11 +2351,16 @@ export type IpcChannel = keyof typeof ipcSchemas;
 export type RequestOf<C extends IpcChannel> = z.infer<
   (typeof ipcSchemas)[C]["request"]
 >;
+export type RequestInputOf<C extends IpcChannel> = z.input<
+  (typeof ipcSchemas)[C]["request"]
+>;
 export type ResponseOf<C extends IpcChannel> = z.infer<
   (typeof ipcSchemas)[C]["response"]
 >;
 
 export interface DesktopApi {
+  entityContext: DesktopEntityContextApi;
+  listening: DesktopListeningApi;
   lifecycle: {
     get(): Promise<DesktopLifecycleState>;
   };
@@ -2374,7 +2450,10 @@ export interface DesktopApi {
       context: ContextChip[],
       agentMode?: AgentMode,
     ): Promise<{ accepted: true; messageId: string }>;
-    cancel(instanceId: string): Promise<{ cancelled: boolean }>;
+    cancel(
+      instanceId: string,
+      options?: DesktopListeningCancellationOptions,
+    ): Promise<{ cancelled: boolean }>;
   };
   skills: {
     read(name: string): Promise<DesktopSkillDocument>;

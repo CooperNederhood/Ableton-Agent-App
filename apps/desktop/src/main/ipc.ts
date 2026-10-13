@@ -12,6 +12,7 @@ import {
   type ResponseOf,
 } from "../contracts.js";
 import type { DesktopService } from "./desktop-service.js";
+import type { DesktopEntityContextApi } from "../context-contracts.js";
 
 export const eventChannel = "app:event";
 let nextInvocationId = 0;
@@ -78,12 +79,25 @@ const unavailableProfiles: ProfileManagerActions = new Proxy(
   },
 ) as ProfileManagerActions;
 
+const unavailableContext: DesktopEntityContextApi = {
+  list: async () => {
+    throw new Error("App-session context storage is unavailable");
+  },
+  get: async () => {
+    throw new Error("App-session context storage is unavailable");
+  },
+};
+
 export function createIpcHandlers(
   service: DesktopService,
   diagnostics: DiagnosticsActions,
   profiles: ProfileManagerActions = unavailableProfiles,
+  context: DesktopEntityContextApi = unavailableContext,
 ): IpcHandlers {
   return {
+    "listening:list": (request) => service.listListeningJobs(request),
+    "entity-context:list": (request) => context.list(request),
+    "entity-context:get": (request) => context.get(request),
     "app:lifecycle": async () => ({
       state: await service.getLifecycleState(),
     }),
@@ -188,7 +202,13 @@ export function createIpcHandlers(
         context,
         agentMode ?? "interactive",
       ),
-    "agents:cancel": ({ instanceId }) => service.cancelActiveAgent(instanceId),
+    "agents:cancel": ({ instanceId, sessionId, trace }) =>
+      sessionId === undefined
+        ? service.cancelActiveAgent(instanceId)
+        : service.cancelActiveAgent(instanceId, {
+            sessionId,
+            ...(trace === undefined ? {} : { trace }),
+          }),
     "profiles:get": ({ selectedProfile }) => profiles.get(selectedProfile),
     "profiles:status": () => profiles.status(),
     "profiles:create": (request) => profiles.create(request),
@@ -350,8 +370,9 @@ export function registerIpc(
   isTrustedSender: (event: IpcMainInvokeEvent) => boolean,
   logger?: Logger,
   profiles: ProfileManagerActions = unavailableProfiles,
+  context: DesktopEntityContextApi = unavailableContext,
 ): () => void {
-  const handlers = createIpcHandlers(service, diagnostics, profiles);
+  const handlers = createIpcHandlers(service, diagnostics, profiles, context);
   const channels = Object.keys(ipcSchemas) as IpcChannel[];
   for (const channel of channels) {
     ipcMain.handle(channel, async (event, payload: unknown) => {

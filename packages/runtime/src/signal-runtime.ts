@@ -16,6 +16,7 @@ import {
   type OutputConnection,
   type SignalIngressEndpoint,
   type TranslatedSignalContext,
+  type ListenerService,
 } from "@ableton-agent/signal-routing";
 import type { NonBlockingObservabilityRecorder } from "@ableton-agent/observability";
 import { noopLogger, type Logger } from "@ableton-agent/shared";
@@ -53,7 +54,9 @@ export type SignalRuntimeEvent =
 
 export interface SignalRuntimeOptions {
   readonly secret?: string;
+  readonly secretPath?: string;
   readonly descriptorPath?: string;
+  readonly legacyDescriptorPath?: string;
   readonly port?: number;
   readonly staleAfterMs?: number;
   readonly logger?: Logger;
@@ -63,6 +66,8 @@ export interface SignalRuntimeOptions {
 
 export interface SignalRuntime {
   readonly provider: SignalContextProvider;
+  readonly listeners?: ListenerService | undefined;
+  readonly listenerTransport?: ListenerService | undefined;
   getStatus(): SignalRuntimeStatus;
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -131,6 +136,9 @@ export class DefaultSignalRuntime
         ? undefined
         : new SignalIngressServer({
             secret: options.secret,
+            ...(options.secretPath === undefined
+              ? {}
+              : { secretPath: options.secretPath }),
             registry: this.#registry,
             router: this.#router,
             host: DEFAULT_SIGNAL_INGRESS_HOST,
@@ -138,6 +146,9 @@ export class DefaultSignalRuntime
             ...(options.descriptorPath === undefined
               ? {}
               : { descriptorPath: options.descriptorPath }),
+            ...(options.legacyDescriptorPath === undefined
+              ? {}
+              : { legacyDescriptorPath: options.legacyDescriptorPath }),
             ...(this.#telemetry === undefined
               ? {}
               : { telemetry: this.#telemetry }),
@@ -175,6 +186,14 @@ export class DefaultSignalRuntime
 
   get provider(): SignalContextProvider {
     return this;
+  }
+
+  get listeners(): ListenerService | undefined {
+    return this.#ingress;
+  }
+
+  get listenerTransport(): ListenerService | undefined {
+    return this.#ingress;
   }
 
   getStatus(): SignalRuntimeStatus {

@@ -38,6 +38,10 @@
     {
       "id": "audio-effects",
       "scenarios": ["auto-filter-audio", "echo-parameter-inspection"]
+    },
+    {
+      "id": "listening-fixtures",
+      "scenarios": ["operator-quarter-note-fixture"]
     }
   ]
 }

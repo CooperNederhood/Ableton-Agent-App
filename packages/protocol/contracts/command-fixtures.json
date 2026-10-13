@@ -6315,6 +6315,223 @@
           "details": {}
         }
       }
+    },
+    "listening.inspect_context": {
+      "request": {
+        "protocolVersion": 6,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001121",
+        "command": "listening.inspect_context",
+        "params": {
+          "schemaVersion": 1,
+          "bindingQueryId": "00000000-0000-4000-8000-000000000099",
+          "listeners": [
+            {
+              "track": {
+                "kind": "regular",
+                "index": 0,
+                "expectedReference": "00000000-0000-4000-8000-000000000099",
+                "expectedName": "x"
+              },
+              "deviceIndex": 0,
+              "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+              "expectedDeviceName": "x",
+              "expectedClassName": "MxDeviceAudioEffect"
+            }
+          ],
+          "range": { "startBeat": 0, "endBeat": 1 },
+          "maxClips": 32,
+          "maxParameters": 16
+        }
+      },
+      "canonicalPathRequest": {
+        "protocolVersion": 6,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001121",
+        "command": "listening.inspect_context",
+        "params": {
+          "schemaVersion": 1,
+          "bindingQueryId": "00000000-0000-4000-8000-000000000099",
+          "listeners": [{ "canonicalPath": "live_set tracks 0 devices 0" }],
+          "range": { "startBeat": 0, "endBeat": 1 },
+          "maxClips": 32,
+          "maxParameters": 16
+        }
+      },
+      "success": {
+        "protocolVersion": 6,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001121",
+        "ok": true,
+        "result": {
+          "schemaVersion": 1,
+          "bindingQueryId": "00000000-0000-4000-8000-000000000099",
+          "projectRevision": 0,
+          "bindingScope": "live-connection",
+          "transport": {
+            "playing": false,
+            "currentBeat": 0,
+            "tempo": 1,
+            "recording": {
+              "recordMode": false,
+              "sessionRecord": false,
+              "arrangementOverdub": false,
+              "sessionAutomationRecord": false
+            },
+            "safeToStart": false
+          },
+          "listeners": [
+            {
+              "binding": {
+                "track": {
+                  "kind": "regular",
+                  "index": 0,
+                  "expectedReference": "00000000-0000-4000-8000-000000000099",
+                  "expectedName": "x"
+                },
+                "deviceIndex": 0,
+                "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+                "expectedDeviceName": "x",
+                "expectedClassName": "MxDeviceAudioEffect"
+              },
+              "verified": true,
+              "canonicalPath": "live_set tracks 0 devices 0",
+              "pathAttestation": {
+                "schemaVersion": 1,
+                "source": "remote-script-lom",
+                "canonicalDevicePath": "live_set tracks 0 devices 0",
+                "canonicalTrackPath": "live_set tracks 0",
+                "trackReference": "00000000-0000-4000-8000-000000000099",
+                "deviceReference": "00000000-0000-4000-8000-000000000099",
+                "placement": { "kind": "track-device", "deviceIndex": 0 }
+              },
+              "enabled": false,
+              "sessionOverride": false,
+              "clips": [],
+              "clipsTruncated": false,
+              "trackEvidence": [],
+              "upstreamDevices": [],
+              "dependenciesTruncated": false,
+              "fingerprint": {
+                "algorithm": "sha256",
+                "scope": "available-live-fields/v1",
+                "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "completeness": "complete",
+                "unknownReasons": []
+              },
+              "attribution": "nonexclusive",
+              "unknownReasons": []
+            }
+          ]
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 6,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001121",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden listening.inspect_context failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "listening.start_playback": {
+      "request": {
+        "protocolVersion": 6,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001122",
+        "command": "listening.start_playback",
+        "params": {
+          "schemaVersion": 1,
+          "ownerId": "x",
+          "passId": "00000000-0000-4000-8000-000000000099",
+          "expectedLiveSetId": "x",
+          "expectedProjectRevision": 0,
+          "listeners": [
+            {
+              "track": {
+                "kind": "regular",
+                "index": 0,
+                "expectedReference": "00000000-0000-4000-8000-000000000099",
+                "expectedName": "x"
+              },
+              "deviceIndex": 0,
+              "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+              "expectedDeviceName": "x",
+              "expectedClassName": "MxDeviceAudioEffect"
+            }
+          ],
+          "range": { "startBeat": 0, "endBeat": 1 },
+          "mode": "arrangement"
+        }
+      },
+      "success": {
+        "protocolVersion": 6,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001122",
+        "ok": true,
+        "result": {
+          "schemaVersion": 1,
+          "mode": "arrangement",
+          "cleanupPolicy": "leave-running",
+          "startedAtBeat": 0,
+          "sourceOnset": "unverified"
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 6,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001122",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden listening.start_playback failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "listening.stop_playback": {
+      "request": {
+        "protocolVersion": 6,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001123",
+        "command": "listening.stop_playback",
+        "params": {
+          "schemaVersion": 1,
+          "ownership": {
+            "ownerId": "x",
+            "passId": "00000000-0000-4000-8000-000000000099",
+            "generation": "00000000-0000-4000-8000-000000000099",
+            "liveSetId": "x"
+          }
+        }
+      },
+      "success": {
+        "protocolVersion": 6,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001123",
+        "ok": true,
+        "result": { "schemaVersion": 1, "ownership": "owned", "stopped": true },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 6,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001123",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden listening.stop_playback failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
     }
   }
 }

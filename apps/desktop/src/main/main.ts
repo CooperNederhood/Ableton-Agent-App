@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { access } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -28,10 +28,7 @@ import {
   stopDesktopLifecycle,
 } from "./lifecycle.js";
 import { OsCredentialVault } from "./secure-store.js";
-import {
-  signalDescriptorPath,
-  writeSignalSecret,
-} from "./signal-credentials.js";
+import { publishSignalSecrets } from "./signal-credentials.js";
 import {
   ensureLiveAgentStorage,
   loadProfileRegistry,
@@ -305,6 +302,9 @@ async function composeProfile(
   layout: typeof storage,
   migration?: StorageMigrationResult,
 ): Promise<DesktopComposition> {
+  const legacyDiscoveryEnabled =
+    launchOptions.automation === undefined &&
+    process.env.LIVE_AGENT_HOME === undefined;
   credentialVault = new OsCredentialVault(
     layout.credentialsDirectory,
     safeStorage,
@@ -330,7 +330,13 @@ async function composeProfile(
     ...(migration === undefined
       ? {}
       : { storageMigrationEvents: migration.events }),
-    signalDescriptorPath,
+    signalDescriptorPath: layout.signalIngressDescriptorPath,
+    signalSecretPath: layout.signalIngressSecretPath,
+    ...(legacyDiscoveryEnabled
+      ? {
+          legacySignalDescriptorPath: layout.legacySignalIngressDescriptorPath,
+        }
+      : {}),
     credentialVault,
     homeDirectory: homedir(),
     platform: process.platform,
@@ -348,7 +354,21 @@ async function composeProfile(
     },
   });
   if (next.bridgeToken !== undefined) {
-    removeSignalSecret = await writeSignalSecret(next.bridgeToken);
+    removeSignalSecret = await publishSignalSecrets(next.bridgeToken, {
+      canonical: {
+        directory: layout.credentialsDirectory,
+        secretPath: layout.signalIngressSecretPath,
+      },
+      ...(legacyDiscoveryEnabled
+        ? {
+            legacy: {
+              directory: dirname(layout.legacySignalIngressSecretPath),
+              secretPath: layout.legacySignalIngressSecretPath,
+            },
+          }
+        : {}),
+      telemetry: next.telemetry,
+    });
   }
   activeLoggingLevel = environmentLoggingLevel ?? next.preferences.loggingLevel;
   logger.setLevel(activeLoggingLevel);
@@ -591,6 +611,20 @@ async function bootstrap(): Promise<void> {
       error: (message, context) => void logger.write("error", message, context),
     },
     profileManager,
+    {
+      list: (request) => {
+        if (composition?.entityContext === undefined) {
+          throw new Error("App-session context storage is unavailable");
+        }
+        return composition.entityContext.list(request);
+      },
+      get: (request) => {
+        if (composition?.entityContext === undefined) {
+          throw new Error("App-session context storage is unavailable");
+        }
+        return composition.entityContext.get(request);
+      },
+    },
   );
   app.on("activate", () => {
     if (!mainWindow) void createWindow();

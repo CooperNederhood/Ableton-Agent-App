@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 
 import {
   LiveProcessController,
+  createComputerUseLiveController,
   runProcess,
 } from "./lib/live-process-controller.mjs";
 import {
@@ -13,6 +14,7 @@ import {
 import {
   classifyScenario,
   collectToolNames,
+  recoverScenarioTrace,
   shouldRetryAgentScenario,
 } from "./lib/scenario-evidence.mjs";
 import { createIsolatedScenarioSession } from "./lib/scenario-session.mjs";
@@ -40,7 +42,9 @@ const requestedScenarios = (option("scenarios") ?? "")
   .split(",")
   .map((value) => value.trim())
   .filter(Boolean);
-const controller = new LiveProcessController();
+const controller = hasFlag("computer-use")
+  ? createComputerUseLiveController()
+  : new LiveProcessController();
 const evidence = {
   formatVersion: 1,
   runId: randomUUID(),
@@ -99,12 +103,26 @@ try {
     evidence.groups.push(groupEvidence);
     await controller.launch(applicationPath);
     evidence.liveProcess = controller.publicRecord();
-    await waitForBridge(environment, controller, evidence);
+    if (hasFlag("computer-use")) {
+      console.log(
+        JSON.stringify({
+          type: "runner.process_owned",
+          liveProcess: evidence.liveProcess,
+        }),
+      );
+    }
+    await waitForBridge(
+      environment,
+      controller,
+      evidence,
+      hasFlag("computer-use") ? 600_000 : 120_000,
+    );
     let groupPassed = true;
     for (const manifest of scenarios) {
       const tracePath = resolve(
         dirname(output),
         "traces",
+        evidence.runId,
         `${manifest.id}.json`,
       );
       if (
@@ -164,6 +182,7 @@ try {
             : resolve(
                 dirname(output),
                 "traces",
+                evidence.runId,
                 `${manifest.id}.attempt-2.json`,
               );
         result = await runCli(
@@ -184,6 +203,11 @@ try {
           environment,
           manifest.timeoutMs + 30_000,
         );
+        result = await recoverScenarioTrace(
+          result,
+          finalTracePath,
+          manifest.id,
+        );
         classification = classifyScenario(manifest, result);
         attempts.push({
           attempt,
@@ -191,6 +215,8 @@ try {
           status: result.status,
           classification,
           tracePath: finalTracePath,
+          evidenceSource: result.evidenceSource,
+          traceEvidenceError: result.traceEvidenceError,
         });
         if (
           classification !== "fail" ||
@@ -219,6 +245,8 @@ try {
         attempts,
         toolNames,
         tracePath: finalTracePath,
+        evidenceSource: result.evidenceSource,
+        traceEvidenceError: result.traceEvidenceError,
         result: result.json,
         stderr: bounded(result.stderr),
       });

@@ -1,0 +1,247 @@
+import {
+  defineTool,
+  type Tool,
+  type ToolInvocation,
+} from "@github/copilot-sdk";
+import {
+  audioObservationSchema,
+  clipLocationSchema,
+} from "@ableton-agent/protocol";
+import { z } from "zod";
+
+const id = z.string().min(1).max(256);
+const listenerIds = z
+  .array(id)
+  .min(1)
+  .max(8)
+  .refine((values) => new Set(values).size === values.length, {
+    message: "Listener IDs must be distinct",
+  });
+const passTarget = { passId: id };
+const cursor = z.string().min(1).max(2048);
+const page = {
+  cursor: cursor.optional(),
+  limit: z.number().int().min(1).max(100).default(20),
+};
+
+export const listeningOperationParamsSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("inspect-listeners") }).strict(),
+  z
+    .object({
+      action: z.literal("play-session-and-listen"),
+      target: clipLocationSchema.options[0],
+      listenerIds,
+      durationBeats: z.number().finite().positive().max(256).default(16),
+      maximumDurationMs: z.number().int().min(1).max(300_000).default(300_000),
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal("play-arrangement-and-listen"),
+      listenerIds,
+      startBeat: z.number().finite().nonnegative(),
+      endBeat: z.number().finite().positive(),
+      maximumDurationMs: z.number().int().min(1).max(300_000).default(300_000),
+    })
+    .strict()
+    .refine((range) => range.endBeat > range.startBeat, {
+      message: "Arrangement end must follow its start",
+    }),
+  z.object({ action: z.literal("get-pass"), ...passTarget }).strict(),
+  z.object({ action: z.literal("list-passes"), ...page }).strict(),
+  z.object({ action: z.literal("cancel"), ...passTarget }).strict(),
+]);
+
+export const listeningJobSchema = z
+  .object({
+    passId: id,
+    stage: z.enum([
+      "queued",
+      "validating",
+      "reserving-context",
+      "arming",
+      "starting-playback",
+      "capturing",
+      "persisting",
+      "completed",
+      "failed",
+      "cancelled",
+      "interrupted",
+    ]),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+    durationMs: z.number().finite().nonnegative(),
+    contextIds: z.array(id).max(8),
+    cleanupPolicy: z.enum(["stop-owned", "leave-running"]).optional(),
+    error: z.string().max(2048).optional(),
+  })
+  .strict();
+
+export const listenerViewSchema = z
+  .object({
+    listenerId: id,
+    instanceId: id,
+    trackReference: id,
+    deviceReference: id,
+    displayName: z.string().max(128),
+    ready: z.boolean(),
+    limitations: z.array(z.string().max(512)).max(16),
+  })
+  .strict();
+
+export const listeningOperationResultSchema = z.discriminatedUnion("action", [
+  z
+    .object({
+      action: z.literal("inspect-listeners"),
+      listeners: z.array(listenerViewSchema).max(256),
+      truncated: z.boolean(),
+    })
+    .strict(),
+  ...(
+    [
+      "play-session-and-listen",
+      "play-arrangement-and-listen",
+      "get-pass",
+      "cancel",
+    ] as const
+  ).map((action) =>
+    z.object({ action: z.literal(action), job: listeningJobSchema }).strict(),
+  ),
+  z
+    .object({
+      action: z.literal("list-passes"),
+      jobs: z.array(listeningJobSchema).max(100),
+      nextCursor: cursor.optional(),
+    })
+    .strict(),
+]);
+
+export const contextOperationParamsSchema = z.discriminatedUnion("action", [
+  z
+    .object({
+      action: z.literal("list"),
+      subjectId: id.optional(),
+      listenerId: id.optional(),
+      passId: id.optional(),
+      includeHistorical: z.boolean().default(false),
+      ...page,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal("get"),
+      contextId: id,
+      includeHistorical: z.boolean().default(false),
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal("prune"),
+      contextIds: z
+        .array(id)
+        .min(1)
+        .max(100)
+        .refine((ids) => new Set(ids).size === ids.length),
+      confirm: z.literal("prune-session-context"),
+    })
+    .strict(),
+]);
+
+const contextSummarySchema = z
+  .object({
+    contextId: id,
+    passId: id,
+    listenerId: id,
+    subjectId: id,
+    kind: z.literal("audio-observation/v1"),
+    createdAt: z.string().datetime(),
+    freshness: z.enum([
+      "fresh",
+      "stale",
+      "unknown",
+      "unresolved",
+      "historical",
+    ]),
+    summary: z.string().max(2048),
+  })
+  .strict();
+
+export const contextOperationResultSchema = z.discriminatedUnion("action", [
+  z
+    .object({
+      action: z.literal("list"),
+      entries: z.array(contextSummarySchema).max(100),
+      nextCursor: cursor.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal("get"),
+      entry: contextSummarySchema,
+      observation: audioObservationSchema,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal("prune"),
+      prunedContextIds: z.array(id).max(100),
+    })
+    .strict(),
+]);
+
+export type ListeningOperationParams = z.infer<
+  typeof listeningOperationParamsSchema
+>;
+export type ListeningOperationResult = z.infer<
+  typeof listeningOperationResultSchema
+>;
+export type ContextOperationParams = z.infer<
+  typeof contextOperationParamsSchema
+>;
+export type ContextOperationResult = z.infer<
+  typeof contextOperationResultSchema
+>;
+
+export interface ListeningToolServices {
+  executeListeningOperation(
+    params: ListeningOperationParams,
+    invocation: ToolInvocation,
+  ): Promise<ListeningOperationResult>;
+  executeContextOperation(
+    params: ContextOperationParams,
+    invocation: ToolInvocation,
+  ): Promise<ContextOperationResult>;
+}
+
+export function createListeningTools(
+  services: ListeningToolServices,
+): [Tool<ListeningOperationParams>, Tool<ContextOperationParams>] {
+  return [
+    defineTool("ableton_listening", {
+      description:
+        "Discover exact audio listeners and explicitly play an Arrangement range while capturing bounded measurements. Requires stopped transport, verified recording off, and commissioned listener timing; never solos/mutes tracks or changes effects. Playback continues after completion, cancellation, failure, or timeout: cancel stops capture, not transport. Session listening is unsupported until quantized source onset is verified. Passes are owned by the active App session/agent; cancel only owned passes. Master/return measurements are mixes, not isolated clip facts. Read status and cleanupPolicy before treating a pass as completed; results persist only after verified context publication.",
+      parameters: listeningOperationParamsSchema,
+      handler: async (params, invocation) => {
+        const result = listeningOperationResultSchema.parse(
+          await services.executeListeningOperation(params, invocation),
+        );
+        if (result.action !== params.action)
+          throw new Error("Listening result action mismatch");
+        return result;
+      },
+    }),
+    defineTool("ableton_context", {
+      description:
+        "Query typed listening context owned by the active App session. List compact summaries before requesting observation detail. Current-only reads revalidate identity/freshness; explicitly include historical entries to inspect stale or unresolved evidence. RMS dBFS is not LUFS; attacks and attribution can be uncertain. Pruning deletes only explicitly named App-session context, requires approval and confirm='prune-session-context', and never deletes Live clips or source audio. No arbitrary SQL, filesystem paths, raw audio, or generic context writes.",
+      parameters: contextOperationParamsSchema,
+      handler: async (params, invocation) => {
+        const result = contextOperationResultSchema.parse(
+          await services.executeContextOperation(params, invocation),
+        );
+        if (result.action !== params.action)
+          throw new Error("Context result action mismatch");
+        return result;
+      },
+    }),
+  ];
+}

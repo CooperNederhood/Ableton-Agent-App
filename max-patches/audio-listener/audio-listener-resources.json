@@ -1,0 +1,29 @@
+{
+  "formatVersion": 1,
+  "deviceType": "MxDeviceAudioEffect",
+  "deviceFile": "Audio-Listener.amxd",
+  "canonicalSource": "Audio-Listener.maxpat",
+  "template": "audio-effect-template.amxd",
+  "algorithmVersion": "1.0.0",
+  "observationSchema": "audio-observation/v1",
+  "resources": [
+    "audio_listener_engine.js",
+    "audio_listener_runtime.js",
+    "audio_listener_max.js",
+    "audio_listener_guard.js",
+    "package.json",
+    "audio_listener_analysis.maxpat",
+    "audio_listener_spectrum.maxpat",
+    "audio_listener_envelope.gendsp",
+    "audio_listener_spectrum_energy.gendsp",
+    "agent_signal_client_common.js",
+    "producer_identity_common.js"
+  ],
+  "sharedResources": {
+    "agent_signal_client_common.js": "../shared/agent_signal_client.js",
+    "producer_identity_common.js": "../shared/producer_identity.js"
+  },
+  "optionalProfileConfiguration": "agent_signal_storage.js",
+  "realLiveValidated": false,
+  "captureReadinessDefault": "real_live_timing_validation_required"
+}

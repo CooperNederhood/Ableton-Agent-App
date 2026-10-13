@@ -15,6 +15,7 @@ import {
 import {
   MissingCopilotSessionError,
   type AgentSkillDescriptor,
+  type ListeningJob,
 } from "@ableton-agent/application";
 import type {
   AgentLiveEventListener,
@@ -40,6 +41,8 @@ import {
   resolveLiveAgentStorage,
   resolveNestedSessionStorage,
 } from "@ableton-agent/storage";
+import { SESSION_CONTEXT_STORE_REFERENCE } from "@ableton-agent/project-state";
+import { randomUUID } from "node:crypto";
 
 import {
   desktopAgentCatalogSchema,
@@ -718,9 +721,7 @@ describe("desktop persistence stores", () => {
           liveProjectName: "Album",
         },
       ]),
-    ).rejects.toThrow(
-      "Session persistence failed and storage relocation rollback was incomplete",
-    );
+    ).rejects.toMatchObject({ code: "EISDIR" });
 
     await expect(store.load()).resolves.toEqual([session]);
     await expect(
@@ -864,6 +865,310 @@ describe("desktop persistence stores", () => {
 });
 
 describe("desktop adapter over the shared application", () => {
+  it("publishes bounded redacted owned listening lifecycle and traced read-only inventory without model-agent query attribution", async () => {
+    const records: Parameters<DesktopEventJournal["enqueue"]>[0][] = [];
+    const eventJournal = {
+      enqueue: vi.fn(
+        async (event: Parameters<DesktopEventJournal["enqueue"]>[0]) => {
+          records.push(event);
+        },
+      ),
+      enqueueConfigurationSnapshot: vi.fn().mockResolvedValue(undefined),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    } as unknown as DesktopEventJournal;
+    const { service, events, agent } = await harness({}, { eventJournal });
+    await service.start();
+    const first = (await service.listActiveAgents())[0]!;
+    const second = await service.createActiveAgent("default");
+    const owner = (await service.getSessions()).find((value) =>
+      value.activeAgents.some(({ id }) => id === first.id),
+    )!;
+    const trace = {
+      traceId: randomUUID(),
+      correlationId: "synthetic-lifecycle",
+      causationId: "fixture",
+    };
+    const job: ListeningJob = {
+      passId: "synthetic-service-pass",
+      owner: {
+        sessionId: owner.id,
+        liveSetId: owner.liveSetId,
+        agentId: first.id,
+      },
+      trace,
+      stage: "queued",
+      createdAt: "2026-10-12T00:00:00.000Z",
+      updatedAt: "2026-10-12T00:00:00.000Z",
+      durationMs: 0,
+      contextIds: [],
+      cleanupPolicy: "leave-running",
+    };
+    const failureDetail = [
+      "Synthetic fixture:",
+      "Bearer",
+      "secret-do-not-expose-1234567890",
+    ].join(" ");
+    expect(failureDetail).toContain("secret-do-not-expose");
+    for (const stage of [
+      "queued",
+      "validating",
+      "reserving-context",
+      "arming",
+      "starting-playback",
+      "capturing",
+      "persisting",
+      "failed",
+    ] as const)
+      service.reportListeningJob({
+        ...job,
+        stage,
+        error: failureDetail,
+        durationMs: 2000,
+      });
+    service.reportListeningJob({ ...job, stage: "queued" });
+    const queryTrace = {
+      ...trace,
+      traceId: randomUUID(),
+      causationId: "query",
+    };
+    const request = {
+      sessionId: owner.id,
+      agentId: first.id,
+      trace: queryTrace,
+    };
+    const result = await service.listListeningJobs(request);
+    expect(result.jobs).toHaveLength(1);
+    expect(result.jobs[0]).toMatchObject({
+      stage: "failed",
+      evidence: "lifecycle-only",
+      cleanupPolicy: "leave-running",
+    });
+    expect(JSON.stringify(result)).not.toContain("secret-do-not-expose");
+    result.jobs.splice(0);
+    expect((await service.listListeningJobs(request)).jobs).toHaveLength(1);
+    expect(
+      (await service.listListeningJobs({ ...request, agentId: second.id }))
+        .jobs,
+    ).toEqual([]);
+    await expect(
+      service.listListeningJobs({ ...request, sessionId: "foreign" }),
+    ).rejects.toThrow("Unknown App session");
+    await expect(
+      service.listListeningJobs({ ...request, agentId: randomUUID() }),
+    ).rejects.toThrow("Unknown App session");
+    await expect(
+      service.listListeningJobs({ ...request, limit: 101 }),
+    ).rejects.toThrow();
+    expect(() =>
+      service.reportListeningJob({
+        ...job,
+        owner: { ...job.owner, liveSetId: "foreign" },
+      }),
+    ).toThrow("owner");
+    expect(() =>
+      service.reportListeningJob({
+        ...job,
+        owner: { ...job.owner, agentId: second.id },
+      }),
+    ).toThrow("rebound");
+    expect(() =>
+      service.reportListeningJob({ ...job, cleanupPolicy: "stop-owned" }),
+    ).toThrow("ownership token");
+    expect(() =>
+      service.reportListeningJob({ ...job, passId: "x".repeat(129) }),
+    ).toThrow();
+    await settle();
+    const queryEvents = records.filter(
+      (value) => value.trace?.traceId === queryTrace.traceId,
+    );
+    expect(queryEvents.slice(0, 4).map((value) => value.stage)).toEqual([
+      "queued",
+      "started",
+      "progress",
+      "completed",
+    ]);
+    expect(
+      queryEvents.every((value) => value.activeAgentId === undefined),
+    ).toBe(true);
+    expect(
+      queryEvents.every((value) => typeof value.durationMs === "number"),
+    ).toBe(true);
+    expect(queryEvents[1]?.causationId).toBe(queryEvents[0]?.id);
+    expect(JSON.stringify(records)).not.toContain("secret-do-not-expose");
+    expect(events.some((event) => event.type === "listening.changed")).toBe(
+      true,
+    );
+    const cancellationTrace = {
+      ...trace,
+      traceId: randomUUID(),
+      causationId: "cancel",
+    };
+    vi.spyOn(agent, "cancelManagedAgent").mockRejectedValueOnce(
+      new DOMException(failureDetail, "AbortError"),
+    );
+    const cancellation = service.cancelActiveAgent(first.id, {
+      sessionId: owner.id,
+      trace: cancellationTrace,
+    });
+    await expect(cancellation).rejects.toMatchObject({ name: "AbortError" });
+    await expect(cancellation).rejects.not.toThrow("secret-do-not-expose");
+    await settle();
+    const cancellationEvents = records.filter(
+      (value) => value.trace?.traceId === cancellationTrace.traceId,
+    );
+    expect(cancellationEvents.map((value) => value.stage)).toEqual([
+      "queued",
+      "started",
+      "progress",
+      "cancelled",
+    ]);
+    expect(
+      cancellationEvents.every((value) => value.activeAgentId === undefined),
+    ).toBe(true);
+    expect(JSON.stringify(cancellationEvents)).not.toContain(
+      "secret-do-not-expose",
+    );
+    await service.stop();
+    expect(
+      events.some(
+        (event) =>
+          event.type === "listening.reset" && event.reason === "shutdown",
+      ),
+    ).toBe(true);
+    expect(() => service.reportListeningJob(job)).toThrow("owner");
+  });
+
+  it("bounds active listening jobs, evicts only terminal entries and resets inventory when ownership disappears", async () => {
+    const { service, events } = await harness();
+    await service.start();
+    const first = (await service.listActiveAgents())[0]!;
+    const owner = (await service.getSessions()).find((value) =>
+      value.activeAgents.some(({ id }) => id === first.id),
+    )!;
+    const job: ListeningJob = {
+      passId: "synthetic-bounded",
+      owner: {
+        sessionId: owner.id,
+        liveSetId: owner.liveSetId,
+        agentId: first.id,
+      },
+      trace: {
+        traceId: randomUUID(),
+        correlationId: "synthetic",
+        causationId: "fixture",
+      },
+      stage: "queued",
+      createdAt: "2026-10-12T00:00:00.000Z",
+      updatedAt: "2026-10-12T00:00:00.000Z",
+      durationMs: 0,
+      contextIds: [],
+    };
+    for (let index = 0; index < 100; index++)
+      service.reportListeningJob({ ...job, passId: `synthetic-${index}` });
+    expect(() => service.reportListeningJob(job)).toThrow("inventory is full");
+    service.reportListeningJob({
+      ...job,
+      passId: "synthetic-0",
+      stage: "completed",
+    });
+    service.reportListeningJob(job);
+    const page = await service.listListeningJobs({
+      sessionId: owner.id,
+      agentId: first.id,
+    });
+    expect(page.jobs).toHaveLength(100);
+    expect(page.jobs.some(({ passId }) => passId === "synthetic-0")).toBe(
+      false,
+    );
+    expect(() =>
+      service.reportListeningJob({
+        ...job,
+        passId: "synthetic-0",
+        stage: "completed",
+      }),
+    ).toThrow("owner");
+    await service.deactivateActiveAgent(first.id);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "listening.reset" &&
+          event.reason === "ownership-changed",
+      ),
+    ).toBe(true);
+    await service.stop();
+  });
+
+  it("uses original managed cancellation after SDK idle and denies stale-session and failed cancellations explicitly", async () => {
+    const { service, agent } = await harness();
+    await service.start();
+    const first = (await service.listActiveAgents())[0]!;
+    const owner = (await service.getSessions()).find((value) =>
+      value.activeAgents.some(({ id }) => id === first.id),
+    )!;
+    const cancel = vi
+      .spyOn(agent, "cancelManagedAgent")
+      .mockResolvedValueOnce(true);
+    await expect(
+      service.cancelActiveAgent(first.id, { sessionId: owner.id }),
+    ).resolves.toEqual({ cancelled: true });
+    expect(cancel).toHaveBeenCalledWith(first.id);
+    await expect(
+      service.cancelActiveAgent(first.id, { sessionId: "stale" }),
+    ).rejects.toThrow("selected App session changed");
+    expect(cancel).toHaveBeenCalledTimes(1);
+    cancel.mockRejectedValueOnce(new Error("Synthetic cleanup failed"));
+    await expect(
+      service.cancelActiveAgent(first.id, { sessionId: owner.id }),
+    ).rejects.toThrow("cleanup failed");
+    await service.stop();
+  });
+
+  it("resets closed-session lifecycle without accepting retired late callbacks on resume", async () => {
+    const { service, events } = await harness();
+    await service.start();
+    const first = (await service.listActiveAgents())[0]!;
+    const owner = (await service.getSessions()).find((value) =>
+      value.activeAgents.some(({ id }) => id === first.id),
+    )!;
+    const job: ListeningJob = {
+      passId: "synthetic-closed-pass",
+      owner: {
+        sessionId: owner.id,
+        liveSetId: owner.liveSetId,
+        agentId: first.id,
+      },
+      trace: {
+        traceId: randomUUID(),
+        correlationId: "synthetic",
+        causationId: "fixture",
+      },
+      stage: "cancelled",
+      createdAt: "2026-10-12T00:00:00.000Z",
+      updatedAt: "2026-10-12T00:00:00.000Z",
+      durationMs: 1000,
+      contextIds: [],
+    };
+    service.reportListeningJob(job);
+    await service.closeSession();
+    expect(
+      events.some(
+        (event) =>
+          event.type === "listening.reset" && event.reason === "session-closed",
+      ),
+    ).toBe(true);
+    expect(
+      (
+        await service.listListeningJobs({
+          sessionId: owner.id,
+          agentId: first.id,
+        })
+      ).jobs,
+    ).toEqual([]);
+    await service.resumeSession(owner.id);
+    expect(() => service.reportListeningJob(job)).toThrow("owner");
+    await service.stop();
+  });
+
   it("maps missing CLI authentication and refreshes through the application", async () => {
     const { service, application } = await harness(
       {},
@@ -3287,8 +3592,8 @@ describe("desktop adapter over the shared application", () => {
     await expect(service.cancel()).resolves.toEqual({ cancelled: true });
     await settle();
 
-    // The first cancel never reached the agent: no turn was in flight.
-    expect(agent.cancelCalls).toBe(1);
+    // SDK idle does not rule out background-owned listening work.
+    expect(agent.cancelCalls).toBe(2);
     expect(
       events.find(
         (event) =>
@@ -4049,6 +4354,7 @@ describe("desktop adapter over the shared application", () => {
         refresh: () => Promise.resolve(defaultCatalog()),
       },
     });
+
     const events: DesktopAppEvent[] = [];
     service.subscribe((event) => events.push(event));
 
@@ -4069,6 +4375,123 @@ describe("desktop adapter over the shared application", () => {
       type: "sessions.changed",
       activeSessionId: active.id,
     });
+  });
+
+  it("publishes context for the invoking ephemeral session without changing UI selection and rolls back denial/failure/cancellation", async () => {
+    const directory = await temporaryDirectory();
+    const storage = resolveLiveAgentStorage({
+      homeDirectory: directory,
+      environment: {},
+      profile: "test",
+    });
+    const ableton = defaultFakeState();
+    ableton.liveIdentity = {
+      liveSetId: "set:unsaved",
+      liveSetName: "Untitled",
+      saved: false,
+      diagnostics: [],
+    };
+    const fake = createFakeApplication({ ableton });
+    const sessionStore = new JsonSessionStore(storage.sessionsPath, storage);
+    const service = new HeadlessDesktopService({
+      application: fake.application,
+      approvals: new ApprovalCoordinator(),
+      preferencesStore: new JsonPreferencesStore(storage.preferencesPath),
+      sessionStore,
+      agentCatalog: {
+        current: defaultCatalog(),
+        refresh: () => Promise.resolve(defaultCatalog()),
+      },
+    });
+    const events: DesktopAppEvent[] = [];
+    service.subscribe((event) => events.push(event));
+    await service.start();
+    try {
+      const invoking = (await service.getSessions())[0]!;
+      const selectedId = await service.createSession();
+      const selected = (await service.getSessions()).find(
+        ({ id }) => id === selectedId,
+      )!;
+      const request = {
+        sessionId: invoking.id,
+        liveSetId: invoking.liveSetId,
+        activeAgentId: invoking.activeAgents[0]!.id,
+        contextStore: SESSION_CONTEXT_STORE_REFERENCE,
+        trace: {
+          traceId: randomUUID(),
+          correlationId: "tool:context",
+          causationId: "call:context",
+        },
+      };
+      expect(await sessionStore.load()).toEqual([]);
+      await expect(
+        service.publishSessionContext({ ...request, sessionId: randomUUID() }),
+      ).rejects.toThrow("invoking");
+      await expect(
+        service.publishSessionContext({ ...request, liveSetId: "set:foreign" }),
+      ).rejects.toThrow("invoking");
+      await expect(
+        service.publishSessionContext({
+          ...request,
+          activeAgentId: randomUUID(),
+        }),
+      ).rejects.toThrow("invoking");
+      const published = await service.publishSessionContext(request);
+      expect(published.contextStore).toEqual(SESSION_CONTEXT_STORE_REFERENCE);
+      expect((await sessionStore.load()).map(({ id }) => id)).toEqual([
+        invoking.id,
+      ]);
+      expect(
+        [...events]
+          .reverse()
+          .find((event) => event.type === "sessions.changed"),
+      ).toMatchObject({
+        activeSessionId: selectedId,
+      });
+      const manifest = JSON.parse(
+        await readFile(
+          resolveNestedSessionStorage(storage, {
+            sessionId: invoking.id,
+            liveSetId: invoking.liveSetId,
+          }).manifestPath,
+          "utf8",
+        ),
+      ) as Record<string, unknown>;
+      expect(manifest.contextStore).toEqual(SESSION_CONTEXT_STORE_REFERENCE);
+      const selectedRequest = {
+        ...request,
+        sessionId: selected.id,
+        activeAgentId: selected.activeAgents[0]!.id,
+      };
+      const abort = new AbortController();
+      abort.abort();
+      await expect(
+        service.publishSessionContext({
+          ...selectedRequest,
+          signal: abort.signal,
+        }),
+      ).rejects.toThrow();
+      vi.spyOn(sessionStore, "save").mockRejectedValueOnce(
+        new Error("registry failure"),
+      );
+      await expect(
+        service.publishSessionContext(selectedRequest),
+      ).rejects.toThrow("registry failure");
+      expect(
+        (await service.getSessionForContext(selected.id))?.contextStore,
+      ).toBeUndefined();
+      expect((await sessionStore.load()).map(({ id }) => id)).toEqual([
+        invoking.id,
+      ]);
+      expect(await service.getSessionForContext(randomUUID())).toBeUndefined();
+      const clone = await service.getSessionForContext(invoking.id);
+      clone!.title = "changed external copy";
+      expect((await service.getSessionForContext(invoking.id))?.title).not.toBe(
+        "changed external copy",
+      );
+    } finally {
+      await service.stop();
+    }
   });
 
   it("requests a decision when the open Live Set changes mid-run", async () => {
@@ -4978,40 +5401,77 @@ describe("desktop adapter over the shared application", () => {
     },
   );
 
-  it("starts ingress before the application and stops it first", async () => {
-    const directory = await temporaryDirectory();
-    const lifecycle: string[] = [];
-    const fake = createFakeApplication();
-    const originalStart = fake.application.start.bind(fake.application);
-    const originalStop = fake.application.stop.bind(fake.application);
-    fake.application.start = async (options) => {
-      lifecycle.push("application:start");
-      await originalStart(options);
-    };
-    fake.application.stop = async () => {
-      lifecycle.push("application:stop");
-      await originalStop();
-    };
-    const service = new HeadlessDesktopService({
-      application: fake.application,
-      approvals: new ApprovalCoordinator(),
-      preferencesStore: new JsonPreferencesStore(
-        join(directory, "preferences.json"),
-      ),
-      sessionStore: new JsonSessionStore(join(directory, "sessions.json")),
-      signals: new FakeSignalRuntime(lifecycle),
-    });
+  it.each(["none", "success", "quiesce-failure", "context-failure"] as const)(
+    "preserves ingress lifecycle and orders listening/context cleanup (%s)",
+    async (mode) => {
+      const directory = await temporaryDirectory();
+      const lifecycle: string[] = [];
+      let failQuiesce = mode === "quiesce-failure";
+      const fake = createFakeApplication();
+      const originalStart = fake.application.start.bind(fake.application);
+      const originalStop = fake.application.stop.bind(fake.application);
+      fake.application.start = async (options) => {
+        lifecycle.push("application:start");
+        await originalStart(options);
+      };
+      fake.application.stop = async () => {
+        lifecycle.push("application:stop");
+        await originalStop();
+      };
+      const service = new HeadlessDesktopService({
+        application: fake.application,
+        approvals: new ApprovalCoordinator(),
+        preferencesStore: new JsonPreferencesStore(
+          join(directory, "preferences.json"),
+        ),
+        sessionStore: new JsonSessionStore(join(directory, "sessions.json")),
+        signals: new FakeSignalRuntime(lifecycle),
+        ...(mode === "none"
+          ? {}
+          : {
+              quiesceListening: async () => {
+                lifecycle.push("listening:quiesce");
+                if (failQuiesce) {
+                  failQuiesce = false;
+                  throw new Error("Listener cleanup failed");
+                }
+              },
+              closeSessionContext: async () => {
+                lifecycle.push("context:close");
+                if (mode === "context-failure") {
+                  throw new Error("Context close failed");
+                }
+              },
+            }),
+      });
 
-    await service.start();
-    await service.stop();
+      await service.start();
+      if (mode === "quiesce-failure") {
+        await expect(service.stop()).rejects.toThrow("Listener cleanup failed");
+        expect(lifecycle).toEqual([
+          "signals:start",
+          "application:start",
+          "listening:quiesce",
+        ]);
+        await service.stop();
+        return;
+      }
+      if (mode === "context-failure") {
+        await expect(service.stop()).rejects.toThrow("Context close failed");
+      } else {
+        await service.stop();
+      }
 
-    expect(lifecycle).toEqual([
-      "signals:start",
-      "application:start",
-      "signals:stop",
-      "application:stop",
-    ]);
-  });
+      expect(lifecycle).toEqual([
+        "signals:start",
+        "application:start",
+        ...(mode === "none" ? [] : ["listening:quiesce"]),
+        "signals:stop",
+        "application:stop",
+        ...(mode === "none" ? [] : ["context:close"]),
+      ]);
+    },
+  );
 
   it("rejects sends while a session transition is in progress", async () => {
     const { service, agent } = await harness();

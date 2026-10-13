@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@ableton-agent/application": "workspace:*",
+    "@ableton-agent/observability": "workspace:*",
     "@ableton-agent/protocol": "workspace:*",
     "@ableton-agent/runtime": "workspace:*",
     "@ableton-agent/shared": "workspace:*",

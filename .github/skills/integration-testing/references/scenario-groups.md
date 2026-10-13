@@ -69,6 +69,20 @@
 - transport loop mutation/restoration, denial, and retry safety;
 - startup, manual-refresh, and settled-idle performance profiling.
 
+## Listening source fixtures
+
+`listening-fixtures`
+
+- `operator-quarter-note-fixture`: search for Operator, create one namespaced
+  MIDI track with that exact instrument, write a four-beat Session source, and
+  duplicate its exact identity into Arrangement using supported Live 11 actions.
+  Independently verify exactly four A4 notes in both clips at beats 0-3 with
+  half-beat duration and velocity 100. Playback, recording, routing, mixer and instrument-parameter changes are
+  excluded. The generated Session source and Arrangement copy are retained only
+  in the runner-owned group Set.
+  This proves instrument/MIDI structure, not a sine waveform, calibrated
+  amplitude, actual listener measurements or listening readiness.
+
 ## Live 11 core-domain inspection
 
 `inspection`

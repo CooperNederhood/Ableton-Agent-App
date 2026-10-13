@@ -1,4 +1,3 @@
-import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import {
   copyFile,
@@ -9,8 +8,21 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, join, normalize, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  producerCompanionSource,
+  SHARED_PRODUCER_COMPANION,
+  resolveProducerDiscoveryStorage,
+  writeProducerDiscoveryConfiguration,
+} from "./m4l-producer-companions.mjs";
+import {
+  decodeAmxd,
+  encodeAmxd,
+  renderPortableDevice,
+  renderInstalledDevice as renderSharedInstalledDevice,
+} from "./max-device-publisher.mjs";
+export { decodeAmxd, encodeAmxd } from "./max-device-publisher.mjs";
 
 export const DEVICE_FILE_NAME = "midi-capture.amxd";
 export const DEVICE_DIRECTORY_PARTS = [
@@ -24,6 +36,7 @@ export const COMPANION_FILES = [
   "midi_capture_identity.js",
   "midi_capture_writer.js",
   "agent_signal_client.js",
+  SHARED_PRODUCER_COMPANION,
 ];
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -32,119 +45,16 @@ const canonicalDirectory = join(repositoryRoot, "max-patches", "midi-capture");
 const canonicalDevice = join(canonicalDirectory, "Midi-Capture.amxd");
 const metadataFileName = ".ableton-agent-midi-capture.json";
 
-function uint32LittleEndian(value) {
-  const buffer = Buffer.alloc(4);
-  buffer.writeUInt32LE(value);
-  return buffer;
-}
-
-export function decodeAmxd(raw) {
-  const marker = raw.indexOf(Buffer.from("ptch"));
-  if (marker < 0) {
-    throw new Error("AMXD does not contain a ptch chunk");
-  }
-  const size = raw.readUInt32LE(marker + 4);
-  const payloadStart = marker + 8;
-  const payloadEnd = payloadStart + size;
-  if (payloadEnd > raw.length) {
-    throw new Error("AMXD ptch chunk is truncated");
-  }
-  const payload = raw.subarray(payloadStart, payloadEnd);
-  if (payload.subarray(0, 4).toString("ascii") === "mx@c") {
-    throw new Error(
-      "Compressed AMXD ptch chunks are not supported by the publisher",
-    );
-  }
-  const json = payload.subarray(
-    0,
-    payload.length - (payload.at(-1) === 0 ? 1 : 0),
-  );
-  return {
-    document: JSON.parse(json.toString("utf8")),
-    prefix: raw.subarray(0, marker + 4),
-    suffix: raw.subarray(payloadEnd),
-  };
-}
-
-export function encodeAmxd(container, document) {
-  const json = Buffer.from(
-    `${JSON.stringify(document, null, "\t")}\n\0`,
-    "utf8",
-  );
-  return Buffer.concat([
-    container.prefix,
-    uint32LittleEndian(json.length),
-    json,
-    container.suffix,
-  ]);
-}
-
-function mapStrings(value, transform) {
-  if (typeof value === "string") return transform(value);
-  if (Array.isArray(value)) {
-    return value.map((entry) => mapStrings(entry, transform));
-  }
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [
-        key,
-        mapStrings(entry, transform),
-      ]),
-    );
-  }
-  return value;
-}
-
-function stripMcpBridge(document) {
-  const patcher = document?.patcher;
-  if (!patcher || !Array.isArray(patcher.boxes)) return document;
-  const bridgeIds = new Set(
-    patcher.boxes
-      .filter(({ box }) => box?.text === "mcp_bridge")
-      .map(({ box }) => box.id),
-  );
-  if (bridgeIds.size === 0) return document;
-  return {
-    ...document,
-    patcher: {
-      ...patcher,
-      boxes: patcher.boxes.filter(({ box }) => !bridgeIds.has(box?.id)),
-      lines: Array.isArray(patcher.lines)
-        ? patcher.lines.filter(({ patchline }) => {
-            const source = patchline?.source?.[0];
-            const destination = patchline?.destination?.[0];
-            return !bridgeIds.has(source) && !bridgeIds.has(destination);
-          })
-        : patcher.lines,
-      dependency_cache: Array.isArray(patcher.dependency_cache)
-        ? patcher.dependency_cache.filter((dependency) => {
-            const serialized = JSON.stringify(dependency);
-            return (
-              !serialized.includes("mcp_bridge") &&
-              !serialized.includes("m4l_mcp")
-            );
-          })
-        : patcher.dependency_cache,
-    },
-  };
-}
-
 export function normalizeValidatedDevice(document, sourceDirectory) {
-  const source = normalize(sourceDirectory);
-  const slashSource = source.replaceAll("\\", "/");
-  const portable = mapStrings(document, (value) =>
-    value
-      .replaceAll(source, PATH_PLACEHOLDER)
-      .replaceAll(slashSource, PATH_PLACEHOLDER),
-  );
-  return stripMcpBridge(portable);
+  return renderPortableDevice(document, sourceDirectory, {
+    pathPlaceholder: PATH_PLACEHOLDER,
+  });
 }
 
 export function renderInstalledDevice(document, destinationDirectory) {
-  const destination = normalize(destinationDirectory).replaceAll("\\", "/");
-  return mapStrings(document, (value) =>
-    value.replaceAll(PATH_PLACEHOLDER, destination),
-  );
+  return renderSharedInstalledDevice(document, destinationDirectory, {
+    pathPlaceholder: PATH_PLACEHOLDER,
+  });
 }
 
 function sha256(value) {
@@ -243,6 +153,7 @@ async function promote(options) {
   );
   const encoded = encodeAmxd(container, portable);
   for (const fileName of COMPANION_FILES) {
+    if (fileName === SHARED_PRODUCER_COMPANION) continue;
     const source = join(sourceDirectory, fileName);
     if (!(await exists(source))) {
       throw new Error(`Missing validated companion script: ${source}`);
@@ -251,6 +162,12 @@ async function promote(options) {
   if (!options.dryRun) {
     await atomicWrite(canonicalDevice, encoded);
     for (const fileName of COMPANION_FILES) {
+      if (
+        fileName === SHARED_PRODUCER_COMPANION ||
+        fileName === "agent_signal_client.js" ||
+        fileName === "midi_capture_identity.js"
+      )
+        continue;
       const source = join(sourceDirectory, fileName);
       await copyFile(source, join(canonicalDirectory, fileName));
     }
@@ -276,7 +193,9 @@ async function checkCanonical() {
     throw new Error("Canonical AMXD contains an absolute machine path");
   }
   for (const fileName of COMPANION_FILES) {
-    if (!(await exists(join(canonicalDirectory, fileName)))) {
+    if (
+      !(await exists(producerCompanionSource(fileName, canonicalDirectory)))
+    ) {
       throw new Error(`Canonical companion script is missing: ${fileName}`);
     }
   }
@@ -285,6 +204,9 @@ async function checkCanonical() {
 
 async function install(options) {
   await checkCanonical();
+  const storage = await resolveProducerDiscoveryStorage(
+    options.profile ? { profile: options.profile } : {},
+  );
   const userLibrary = await resolveUserLibrary(options["user-library"]);
   const destinationDirectory = join(userLibrary, ...DEVICE_DIRECTORY_PARTS);
   const destinationDevice = join(destinationDirectory, DEVICE_FILE_NAME);
@@ -299,11 +221,12 @@ async function install(options) {
     await mkdir(destinationDirectory, { recursive: true });
     for (const fileName of COMPANION_FILES) {
       await copyFile(
-        join(canonicalDirectory, fileName),
+        producerCompanionSource(fileName, canonicalDirectory),
         join(destinationDirectory, fileName),
       );
     }
     await atomicWrite(destinationDevice, encoded);
+    await writeProducerDiscoveryConfiguration(destinationDirectory, storage);
     await atomicWrite(
       join(destinationDirectory, metadataFileName),
       `${JSON.stringify(

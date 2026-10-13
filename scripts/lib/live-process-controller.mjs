@@ -46,6 +46,7 @@ export class LiveProcessController {
   #randomUUID;
   #requestQuit;
   #handleStartupDialogs;
+  #requestLaunch;
 
   constructor({
     listProcesses = listLiveProcesses,
@@ -55,6 +56,7 @@ export class LiveProcessController {
     randomUUID: createRunId = randomUUID,
     requestQuit = requestLiveQuit,
     handleStartupDialogs = dismissKnownLiveStartupDialogs,
+    requestLaunch,
   } = {}) {
     this.#listProcesses = listProcesses;
     this.#run = run;
@@ -63,6 +65,7 @@ export class LiveProcessController {
     this.#randomUUID = createRunId;
     this.#requestQuit = requestQuit;
     this.#handleStartupDialogs = handleStartupDialogs;
+    this.#requestLaunch = requestLaunch;
   }
 
   publicRecord() {
@@ -84,11 +87,15 @@ export class LiveProcessController {
     }
     await this.assertNoPreExistingLive();
     const before = new Set((await this.#listProcesses()).map(({ pid }) => pid));
-    const launched = await this.#run("open", ["-n", "-a", applicationPath], {
-      timeoutMs: 15_000,
-    });
-    if (launched.status !== 0) {
-      throw new Error(`Unable to launch Live: ${launched.stderr.trim()}`);
+    if (this.#requestLaunch !== undefined) {
+      await this.#requestLaunch(applicationPath);
+    } else {
+      const launched = await this.#run("open", ["-n", "-a", applicationPath], {
+        timeoutMs: 15_000,
+      });
+      if (launched.status !== 0) {
+        throw new Error(`Unable to launch Live: ${launched.stderr.trim()}`);
+      }
     }
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
@@ -96,6 +103,13 @@ export class LiveProcessController {
         ({ pid }) => !before.has(pid),
       );
       if (candidates.length === 1) {
+        if (
+          candidates[0].command !== `${applicationPath}/Contents/MacOS/Live`
+        ) {
+          throw new Error(
+            "Launched Live executable does not match the requested application",
+          );
+        }
         this.#owned = {
           ...candidates[0],
           applicationPath,
@@ -104,6 +118,7 @@ export class LiveProcessController {
         };
         return this.publicRecord();
       }
+
       if (candidates.length > 1) {
         throw new Error(
           "Live launch produced multiple candidate processes; ownership is ambiguous",
@@ -194,6 +209,25 @@ export class LiveProcessController {
       throw error;
     }
   }
+}
+
+export function createComputerUseLiveController() {
+  return new LiveProcessController({
+    requestLaunch: async (applicationPath) => {
+      console.log(
+        JSON.stringify({
+          type: "runner.launch_requested",
+          applicationPath,
+          launchVia: "computer-use",
+          startedAt: new Date().toISOString(),
+        }),
+      );
+    },
+    handleStartupDialogs: async () => "none",
+    requestQuit: async (owned) => {
+      process.kill(owned.pid, "SIGTERM");
+    },
+  });
 }
 
 async function requestLiveQuit() {

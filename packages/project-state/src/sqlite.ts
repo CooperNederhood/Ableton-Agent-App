@@ -42,7 +42,7 @@ import {
 
 let runtime: Promise<SqlJsStatic> | undefined;
 
-function loadSqlJs(): Promise<SqlJsStatic> {
+export function loadSqlJs(): Promise<SqlJsStatic> {
   runtime ??= initSqlJs();
   return runtime;
 }
@@ -760,7 +760,7 @@ export class SqliteProjectStateStore implements ProjectStateStore {
   }
 }
 
-async function acquireDatabaseLock(path: string): Promise<FileHandle> {
+export async function acquireDatabaseLock(path: string): Promise<FileHandle> {
   try {
     return await createDatabaseLock(path);
   } catch (error) {
@@ -842,7 +842,7 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
-async function releaseDatabaseLock(
+export async function releaseDatabaseLock(
   handle: FileHandle | undefined,
   path: string | undefined,
 ): Promise<void> {
@@ -869,7 +869,7 @@ async function readDatabase(path: string): Promise<Uint8Array | undefined> {
   }
 }
 
-async function syncDirectory(path: string): Promise<void> {
+export async function syncDirectory(path: string): Promise<void> {
   let handle: FileHandle | undefined;
   try {
     handle = await open(path, "r");

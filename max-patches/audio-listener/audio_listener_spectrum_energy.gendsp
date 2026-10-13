@@ -1,0 +1,227 @@
+{
+  "patcher": {
+    "fileversion": 1,
+    "appversion": {
+      "major": 8,
+      "minor": 5,
+      "revision": 5,
+      "architecture": "x64",
+      "modernui": 1
+    },
+    "classnamespace": "dsp.gen",
+    "rect": [
+      0,
+      0,
+      800,
+      380
+    ],
+    "boxes": [
+      {
+        "box": {
+          "id": "code",
+          "maxclass": "codebox",
+          "code": "Param sourceSampleRate(48000);\nHistory energy(0); History weighted(0);\nHistory heldCentroid(0); History heldEnergy(0);\nbin = in5;\nif (bin == 0) { energy = 0; weighted = 0; }\nif (bin <= 1024) {\n binEnergy = in1 * in1 + in2 * in2 + in3 * in3 + in4 * in4;\n energy = energy + binEnergy;\n weighted = weighted + binEnergy * bin * sourceSampleRate / 2048;\n if (bin == 1024) {\n  heldEnergy = energy;\n  heldCentroid = energy > 0.00000000000000000001 ? weighted / energy : 0;\n }\n}\nout1 = heldCentroid; out2 = heldEnergy;",
+          "numinlets": 5,
+          "numoutlets": 2,
+          "patching_rect": [
+            100,
+            50,
+            580,
+            240
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "in0",
+          "maxclass": "newobj",
+          "text": "in 1",
+          "numinlets": 0,
+          "numoutlets": 1,
+          "patching_rect": [
+            10,
+            20,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "in1",
+          "maxclass": "newobj",
+          "text": "in 2",
+          "numinlets": 0,
+          "numoutlets": 1,
+          "patching_rect": [
+            10,
+            55,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "in2",
+          "maxclass": "newobj",
+          "text": "in 3",
+          "numinlets": 0,
+          "numoutlets": 1,
+          "patching_rect": [
+            10,
+            90,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "in3",
+          "maxclass": "newobj",
+          "text": "in 4",
+          "numinlets": 0,
+          "numoutlets": 1,
+          "patching_rect": [
+            10,
+            125,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "in4",
+          "maxclass": "newobj",
+          "text": "in 5",
+          "numinlets": 0,
+          "numoutlets": 1,
+          "patching_rect": [
+            10,
+            160,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out0",
+          "maxclass": "newobj",
+          "text": "out 1",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            20,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out1",
+          "maxclass": "newobj",
+          "text": "out 2",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            55,
+            60,
+            22
+          ]
+        }
+      }
+    ],
+    "lines": [
+      {
+        "patchline": {
+          "source": [
+            "in0",
+            0
+          ],
+          "destination": [
+            "code",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "in1",
+            0
+          ],
+          "destination": [
+            "code",
+            1
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "in2",
+            0
+          ],
+          "destination": [
+            "code",
+            2
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "in3",
+            0
+          ],
+          "destination": [
+            "code",
+            3
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "in4",
+            0
+          ],
+          "destination": [
+            "code",
+            4
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            0
+          ],
+          "destination": [
+            "out0",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            1
+          ],
+          "destination": [
+            "out1",
+            0
+          ]
+        }
+      }
+    ]
+  }
+}

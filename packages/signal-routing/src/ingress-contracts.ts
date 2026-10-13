@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 import { outputProducerSchema, signalPayloadSchema } from "./contracts.js";
+import {
+  listenerRegistrationSchema,
+  listenerReplySchema,
+  listenerResultSchema,
+} from "./listener-contracts.js";
 
 export const PRODUCER_PROTOCOL_VERSION = 1 as const;
 export const DEFAULT_SIGNAL_INGRESS_HOST = "127.0.0.1";
@@ -16,6 +21,7 @@ export const producerHelloSchema = z
     requestId: requestIdSchema,
     secret: z.string().min(32).max(4096),
     producer: outputProducerSchema,
+    listener: listenerRegistrationSchema.optional(),
   })
   .strict();
 
@@ -24,7 +30,7 @@ export const producerSignalFrameSchema = z
     type: z.literal("signal.frame"),
     protocolVersion: z.literal(PRODUCER_PROTOCOL_VERSION),
     requestId: requestIdSchema,
-    sequence: z.number().int().nonnegative(),
+    sequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
     capturedAt: z.number().int().nonnegative(),
     payload: signalPayloadSchema,
   })
@@ -51,6 +57,8 @@ export const producerMessageSchema = z.discriminatedUnion("type", [
   producerSignalFrameSchema,
   producerHeartbeatSchema,
   producerDisconnectSchema,
+  listenerReplySchema,
+  listenerResultSchema,
 ]);
 export type ProducerMessage = z.infer<typeof producerMessageSchema>;
 
@@ -76,7 +84,7 @@ export interface ProducerAcknowledgement {
   readonly type: "producer.ack";
   readonly protocolVersion: typeof PRODUCER_PROTOCOL_VERSION;
   readonly requestId: string;
-  readonly action: "hello" | "signal" | "heartbeat" | "disconnect";
+  readonly action: "hello" | "signal" | "heartbeat" | "disconnect" | "listener";
   readonly connectionId?: string;
 }
 
@@ -97,4 +105,7 @@ export interface SignalIngressDiscoveryDescriptor {
   readonly protocol: "newline-delimited-json";
   readonly protocolVersion: typeof PRODUCER_PROTOCOL_VERSION;
   readonly maxFrameBytes: number;
+  readonly secretPath?: string;
+  readonly listenerVersions?: readonly [1];
+  readonly listenerCapabilities?: readonly ["audio-listener/v1"];
 }

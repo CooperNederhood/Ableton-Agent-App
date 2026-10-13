@@ -52,6 +52,49 @@ type TestSession = Awaited<ReturnType<TestClient["createSession"]>>;
 type TestSessionEvent = Parameters<Parameters<TestSession["on"]>[0]>[0];
 
 describe("runtime configuration", () => {
+  it("composes the listening factory with the same bridge and authenticated ingress", async () => {
+    const shutdown = vi.fn(async () => {});
+    const factory = vi.fn(() => ({
+      shutdown,
+    }));
+    const runtime = createAgentRuntime({
+      ableton: { port: 8765 },
+      listening: factory,
+    });
+    expect(factory).toHaveBeenCalledOnce();
+    expect(factory).toHaveBeenCalledWith({
+      ableton: runtime.ableton,
+      signals: runtime.signals,
+      events: runtime.events,
+    });
+    await runtime.application.stop();
+    expect(shutdown).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a factory host without a completion/lease boundary", () => {
+    expect(() =>
+      createAgentRuntime({
+        ableton: { port: 8765 },
+        listening: () => ({
+          executeListeningOperation: vi.fn(),
+          shutdown: vi.fn(async () => {}),
+        }),
+      }),
+    ).toThrow("owned-pass completion boundary");
+  });
+
+  it("rejects listening without a completion boundary before constructing runtime services", () => {
+    expect(() =>
+      createAgentRuntime({
+        ableton: { port: 8765 },
+        listening: {
+          executeListeningOperation: vi.fn(),
+          shutdown: vi.fn(async () => {}),
+        },
+      }),
+    ).toThrow("owned-pass completion boundary");
+  });
+
   it("defaults the bridge port and rejects invalid values", () => {
     expect(parseAbletonPort(undefined)).toBe(8765);
     expect(parseAbletonPort("9000")).toBe(9000);

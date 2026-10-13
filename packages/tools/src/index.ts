@@ -149,6 +149,13 @@ import {
 import { z, type ZodType } from "zod";
 import type { MutationTarget } from "./mutation-policy.js";
 import {
+  createListeningTools,
+  type ContextOperationParams,
+  type ListeningOperationParams,
+  type ListeningToolServices,
+} from "./listening-tools.js";
+export * from "./listening-tools.js";
+import {
   abletonOperationDescriptors,
   getAbletonOperationDescriptorForAction,
   resolveAbletonOperation,
@@ -213,6 +220,8 @@ export interface AbletonToolMetadata {
 }
 
 export interface AbletonToolServices {
+  executeListeningOperation?: ListeningToolServices["executeListeningOperation"];
+  executeContextOperation?: ListeningToolServices["executeContextOperation"];
   setHistoryQuery?: SetHistoryQueryService;
   getConnectionStatus(): Promise<ConnectionStatus>;
   inspectSession(): Promise<SessionSnapshot>;
@@ -545,6 +554,7 @@ export interface AbletonToolSet {
     Tool<WarpMarkerOperationParams>,
     Tool<SpecializedDeviceOperationParams>,
     Tool<WorkflowJobOperationParams>,
+    ...(Tool<ListeningOperationParams> | Tool<ContextOperationParams>)[],
     Tool<{
       sql: string;
       parameters?: SetSqlParameters | undefined;
@@ -839,6 +849,40 @@ export function createAbletonTools(
     throw new Error(
       "Ableton tool catalog exceeds the eager-registration limit; split it into deferred groups",
     );
+  }
+  const contextTools: (
+    Tool<ListeningOperationParams> | Tool<ContextOperationParams>
+  )[] = [];
+  if (
+    services.executeListeningOperation !== undefined ||
+    services.executeContextOperation !== undefined
+  ) {
+    const [listening, context] = createListeningTools({
+      executeListeningOperation: (params, invocation) => {
+        if (services.executeListeningOperation === undefined) {
+          throw new AbletonToolPreconditionError(
+            "unsupported_capability",
+            "Audio listening is not configured",
+          );
+        }
+        return services.executeListeningOperation(params, invocation);
+      },
+      executeContextOperation: (params, invocation) => {
+        if (services.executeContextOperation === undefined) {
+          throw new AbletonToolPreconditionError(
+            "unsupported_capability",
+            "App-session context is not configured",
+          );
+        }
+        return services.executeContextOperation(params, invocation);
+      },
+    });
+    if (services.executeListeningOperation !== undefined) {
+      contextTools.push(requireConnectedTool(listening, services));
+    }
+    if (services.executeContextOperation !== undefined) {
+      contextTools.push(withStructuredFailures(context));
+    }
   }
   const setSqlSearchTool = defineTool(SET_SQL_SEARCH_TOOL_NAME, {
     description: `Runs one bounded read-only SELECT or non-recursive CTE against these allowlisted public views.
@@ -1374,11 +1418,20 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
       requireConnectedTool(warpMarkersTool, services),
       requireConnectedTool(specializedDevicesTool, services),
       requireConnectedTool(workflowJobsTool, services),
+      ...contextTools,
       withStructuredFailures(setSqlSearchTool),
     ],
     availableTools: [
       ...new Set(
-        abletonToolMetadata.map((metadata) => `custom:${metadata.name}`),
+        abletonToolMetadata
+          .filter((metadata) =>
+            metadata.name === "ableton_listening"
+              ? services.executeListeningOperation !== undefined
+              : metadata.name === "ableton_context"
+                ? services.executeContextOperation !== undefined
+                : true,
+          )
+          .map((metadata) => `custom:${metadata.name}`),
       ),
     ],
   };

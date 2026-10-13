@@ -6,6 +6,29 @@ Companion checklist:
 Architecture decision:
 [ADR 0006](../architecture/decisions/0006-playback-listening-and-entity-context.md).
 
+## Current acceptance checkpoint
+
+The [implementation checkpoint and regression
+baseline](playback-listening-implementation-to-do.md#issue-29-checkpoint---2026-10-13)
+records achieved code, native measurements, remaining acceptance and rerun
+commands at code baseline `bf61bc3`. The feature is not end-to-end ready.
+
+Earlier development registration on DRUMS remains historical evidence. The
+freshly loaded current candidate on `14 Audio` retains its initial flag but
+reports `editor_preview_blocked` with the editor closed, preventing discovery.
+The preview policy described below is candidate behavior, not a validated
+host/editor discriminator; its synthetic tests do not certify those semantics.
+Automatic editor isolation can be deferred for a controlled development
+prototype, but no policy change is made at this checkpoint. Authentication,
+duplicate-listener protection, exact identity/epoch ownership, production timing
+denial and safe transport cleanup remain mandatory.
+
+The next acceptance target is one actual, bounded Arrangement capture with
+independently verified measurements and correct durable context publication.
+Session onset support, portable promotion and production enablement remain
+unaccepted. Neither passing synthetic capture/IPC tests nor the successful
+source-fixture scenario is evidence of a successful real audio capture.
+
 ## Ownership and scope
 
 A listener is a transparent Max Audio Effect measuring the signal at its

@@ -34,7 +34,6 @@ const runtime = createRuntime({
 });
 handlers.identity(JSON.stringify({canonicalPath:"live_set tracks 0 devices 0",
   track:{id:"1",name:"fixture"},device:{id:"2",name:"Audio-Listener"}}));
-handlers["device-preview"](0);
 handlers.dsp(1,48000,64); handlers.host(0,4,10000,3);
 let readiness = null;
 if (runtime.engine) {

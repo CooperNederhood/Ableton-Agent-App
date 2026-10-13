@@ -81,7 +81,7 @@ test("Max startup failure never emits an adapter-started acknowledgement", async
   assert.deepEqual(output, []);
 });
 
-test("native preview state survives arriving before Node readiness; getstate is not a preview query", () => {
+test("authored native metadata latch retains early values without making getstate a preview query", () => {
   const p = sourceDocuments()["Audio-Listener.maxpat"].patcher;
   const latch = p.boxes.find(({ box }) => box.id === "ml_device_preview_latch");
   assert.equal(latch?.box.text, "int -1");
@@ -346,7 +346,6 @@ test("runtime control API uses shared client; uncertified prepare explicitly fai
     }),
   );
   handlers.dsp(1, 48000, 64);
-  handlers["device-preview"](0);
   handlers.host(0, 4, 10000, 3);
   assert.equal(options.signalKind, "audio");
   assert.equal(options.schemaVersion, "audio-observation/v1");
@@ -396,7 +395,6 @@ test("runtime requires explicit profile discovery; no audio legacy default", () 
     }),
   );
   handlers.dsp(1, 48000, 64);
-  handlers["device-preview"](0);
   handlers.host(0, 4, 10000, 3);
   assert.equal(runtime.client, null);
   assert.ok(
@@ -469,7 +467,6 @@ test("runtime adapter wire lifecycle with synthetic calibrated host frames (NOT 
     }),
   );
   handlers.dsp(1, 48000, 64);
-  handlers["device-preview"](0);
   handlers.host(0, 4, 10000, 3);
   handlers["attack-threshold"](9);
   handlers["attack-spacing-ms"](200);
@@ -540,7 +537,6 @@ test("actual shared client identity API and registration refresh: no invented se
   };
   handlers.identity(JSON.stringify(identity));
   handlers.dsp(1, 48000, 64);
-  handlers["device-preview"](0);
   handlers.host(0, 4, 10000, 3);
   assert.equal(created.length, 1);
   assert.ok(runtime.client.producer);
@@ -591,7 +587,6 @@ test("audio never reads legacy credentials when only an explicit descriptor is g
     }),
   );
   handlers.dsp(1, 48000, 64);
-  handlers["device-preview"](0);
   handlers.host(0, 4, 10000, 3);
   assert.equal(runtime.client, null);
   runtime.stop();

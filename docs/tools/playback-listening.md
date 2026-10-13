@@ -14,12 +14,12 @@ records achieved code, native measurements, remaining acceptance and rerun
 commands at code baseline `bf61bc3`. The feature is not end-to-end ready.
 
 Earlier development registration on DRUMS remains historical evidence. The
-freshly loaded current candidate on `14 Audio` retains its initial flag but
-reports `editor_preview_blocked` with the editor closed, preventing discovery.
-The preview policy described below is candidate behavior, not a validated
-host/editor discriminator; its synthetic tests do not certify those semantics.
-Automatic editor isolation can be deferred for a controlled development
-prototype, but no policy change is made at this checkpoint. Authentication,
+candidate at `bf61bc3` on `14 Audio` retained its initial flag but reported
+`editor_preview_blocked` with the editor closed, preventing discovery. The
+approved prototype now removes that unverified flag as a registration
+requirement; automatic editor isolation is deferred and the editor must stay
+closed during hosted-device commissioning. Actual registration with this
+replacement still needs isolated Live validation. Authentication,
 duplicate-listener protection, exact identity/epoch ownership, production timing
 denial and safe transport cleanup remain mandatory.
 
@@ -337,7 +337,7 @@ was initially absent. After manual development-App startup, the App advertised
 Audio-Listener on DRUMS associated with Machine-Listening. This output remained
 connected after the editor-preview adapter was stopped and the Max editor was
 closed. Opening the editor also produced duplicate-listener connection
-rejections. The updated candidate now uses the documented third outlet of
+rejections. An earlier candidate used the documented third outlet of
 [`live.thisdevice`](https://docs.cycling74.com/reference/live.thisdevice) rather
 than guessing editor state from identity, DSP activity, names or connection
 errors. The native third-outlet preview emission is also retained in the cold
@@ -346,31 +346,34 @@ inlet of `int -1`, so an emission before Node readiness is not lost. After
 reads the retained preview flag, then requests identity. `getstate` is **not**
 relied on to query preview: the isolated Live 11.3.43 device emitted enabled
 state `1` on outlet 1 but nothing on outlet 2 when queried. Native
-`device-preview 0` permits registration; `1` blocks
-it. Missing or malformed state fails closed. Preview/state failures produce
-bounded diagnostics and reset only analysis; they never interrupt stereo
-pass-through or control Live transport.
+zero/one gate semantics were not validated: fresh loading retained a flag
+that blocked a hosted device with its editor closed. That policy is superseded.
 
-A transition to preview terminates any local pass as partial, using its
-existing control and trace attribution, before closing its registration.
-Queued callbacks from that registration are fenced. Returning to explicit
-non-preview state creates a fresh producer instance if all other prerequisites
-remain valid; stopping the adapter prevents subsequent state updates from
-restarting it. Existing authenticated ingress/disconnect and capture-terminal
-events retain their application-owned lifecycle; a blocked preview does not
-create a second App listener or a new persisted payload. The
-single-active-listener ingress guard is unchanged. Authored staging adds the
-four native routing objects to older saved devices without replacing their
-layout or unrelated wiring. Complete earlier three-object routing is upgraded
-idempotently; partial or conflicting routing is rejected. An unobserved preview
-flag remains `-1` and is denied, never silently interpreted as hosted state.
+Registration now depends on actual identity, valid DSP/host metadata and
+explicit profile discovery through the existing shared authenticated client,
+not on a preview flag. The authored `device-preview` selector and native
+metadata routing remain compatible without replacing the layout. Numeric
+zero/one reports have no control effect; malformed reports produce one bounded
+`invalid_device_preview_state_ignored` diagnostic per invalid run, without
+logging their raw value, disarming analysis or closing registration. No preview
+value grants capture readiness or disables authentication.
 
-Runtime, serialized-graph and staged-artifact regressions cover unknown,
-preview, malformed state, bounded polling, transitions, stale callbacks,
-partial-pass attribution and cleanup. The regenerated repository AMXD and
-staging bundle contain the routing; the User Library installation has **not**
-been replaced with this candidate. Actual editor open/preview-toggle/close and
-hosted-listener continuity still require isolated Live validation. Registration
+Actual identity, DSP configuration and producer instance/connection-epoch
+changes still reset local analysis, terminate affected passes with existing
+attribution, close stale registrations and fence late callbacks. Stop remains
+terminal. Existing authenticated ingress/disconnect and capture-terminal
+events retain their application-owned lifecycle. The single-active-listener
+ingress guard is unchanged; editor duplicates are still denied by ingress,
+not guessed from this native flag. Keep the editor closed for the first
+prototype; automatic editor-preview isolation is explicitly deferred.
+
+Native metadata helpers remain for authored compatibility, including
+idempotent migration of complete earlier routing and rejection of partial or
+conflicting routing. They are not an authoritative context classifier.
+Runtime and staged-artifact regressions cover missing/zero/one/malformed flags,
+bounded diagnostics, identity/epoch replacement, stale callbacks, partial-pass
+attribution, cancellation and production denial. The User Library installation
+has **not** been replaced. Registration
 establishes transport connectivity only, not capture readiness or calibrated
 timing; `real_live_timing_validation_required` remains unchanged.
 
@@ -380,9 +383,10 @@ The isolated staged device was confirmed on `14-Audio`, with native
 process exited; it connected to Live but discovered no output from the earlier
 candidate. Startup console evidence showed preview messages arriving before
 Node readiness. Temporary metadata probes were removed without saving the
-loaded patch or changing audio routing. The native-latch correction has
-deterministic coverage, but fresh-load registration and editor-preview
-acceptance remain pending; these measurements are not timing certification.
+loaded patch or changing audio routing. The subsequent latch candidate still
+reported `editor_preview_blocked` with the editor closed, motivating the
+approved simpler registration policy. Real hosted registration of that
+replacement is pending; these measurements are not timing certification.
 
 `max-patches/audio-listener/Machine-Listening-Development.amxd` checkpoints the
 authored layout and presentation with relative listener references and the

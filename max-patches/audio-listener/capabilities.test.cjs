@@ -67,7 +67,6 @@ function fixture(path = "live_set tracks 0 devices 1") {
         ...changes,
       }),
     );
-  handlers["device-preview"](0);
   identity();
   handlers.dsp(1, 48000, 64);
   handlers.host(0, 4, 10000, 3);
@@ -351,7 +350,6 @@ test("actual shared hello serialization and reconnect retain path/status capabil
         device: { id: "202", name: "fixture" },
       }),
     );
-    handlers["device-preview"](0);
     handlers.dsp(1, 48000, 64);
     handlers.host(0, 4, 10000, 3);
     await settled();

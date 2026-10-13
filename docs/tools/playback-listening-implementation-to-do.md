@@ -37,8 +37,13 @@ coverage do not replace real installed-device/Live validation.
 - [x] Verify native loaded-patcher metadata for analysis, spectrum and both Gen
   resources, plus Node entry reveal/Get Info, resolve to the adjacent folder
   rather than the temporary development search path.
-- [ ] Verify the normal Max editor save/reopen round-trip and recheck the saved
-  bundle manifest after any editor serialization changes.
+- [x] Verify the normal Max editor save/reopen round-trip, preserve presentation
+  and relative listener references, recheck stereo wiring, and refresh the
+  working development manifest digest after editor serialization.
+- [x] Configure the working device for the explicitly selected development
+  profile using the shared storage resolver and path-only discovery writer.
+- [ ] Start the development App ingress and verify authenticated producer and
+  listener registration; path configuration alone is not a connection.
 - [ ] Verify candidate compilation and transparent stereo DSP in actual Max.
 - [ ] Verify transport validity, sample timing, quantized launches, and gaps.
 - [ ] Reconcile provider limits and physical-ID/bridge-reference binding.

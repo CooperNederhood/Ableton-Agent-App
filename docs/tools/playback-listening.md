@@ -300,7 +300,17 @@ patchers and both Gen patchers resolve from that adjacent folder. Native
 Node entry. The probes were removed; the packaged device has no temporary
 search-path helpers. These checks establish resource provenance for this load,
 not independent timing or capture readiness. The normal Max editor save/reopen
-round-trip is still outstanding, and profile discovery remains unconfigured.
+round-trip now preserves the panel, relative listener references and stereo
+wiring. Max adds local dependency-cache metadata and changes the AMXD digest;
+the working development manifest was updated only after inspection, and the
+saved device was rebuilt through authored staging to remove that metadata from
+the checkpoint asset. Repackaging remains necessary after further authoring.
+
+The working device now has path-only discovery configuration for the explicitly
+selected `development` profile, generated through the shared storage resolver.
+No secret was copied into the device or repository. The App ingress descriptor
+is currently absent, so authenticated registration remains outstanding; this
+configuration is not evidence of an App connection or capture readiness.
 
 `max-patches/audio-listener/Machine-Listening-Development.amxd` checkpoints the
 authored layout and presentation with relative listener references and the

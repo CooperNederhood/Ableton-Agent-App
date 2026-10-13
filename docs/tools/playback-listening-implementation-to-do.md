@@ -42,8 +42,13 @@ coverage do not replace real installed-device/Live validation.
   working development manifest digest after editor serialization.
 - [x] Configure the working device for the explicitly selected development
   profile using the shared storage resolver and path-only discovery writer.
-- [ ] Start the development App ingress and verify authenticated producer and
-  listener registration; path configuration alone is not a connection.
+- [x] Start the development App ingress and verify its advertised listener
+  capability plus the connected Audio-Listener output on DRUMS associated with
+  Machine-Listening; verify it remains connected after quiescing the editor
+  preview adapter and closing the editor.
+- [ ] Handle authoring-preview connection collisions explicitly. The ingress
+  currently rejects a second connection for the same listener producer; keep
+  that guard and do not treat an editor-preview connection as an extra listener.
 - [ ] Verify candidate compilation and transparent stereo DSP in actual Max.
 - [ ] Verify transport validity, sample timing, quantized launches, and gaps.
 - [ ] Reconcile provider limits and physical-ID/bridge-reference binding.

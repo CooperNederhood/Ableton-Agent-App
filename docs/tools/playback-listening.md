@@ -309,8 +309,14 @@ the checkpoint asset. Repackaging remains necessary after further authoring.
 The working device now has path-only discovery configuration for the explicitly
 selected `development` profile, generated through the shared storage resolver.
 No secret was copied into the device or repository. The App ingress descriptor
-is currently absent, so authenticated registration remains outstanding; this
-configuration is not evidence of an App connection or capture readiness.
+was initially absent. After manual development-App startup, the App advertised
+`audio-listener/v1`, and its typed Outputs view showed one connected
+Audio-Listener on DRUMS associated with Machine-Listening. This output remained
+connected after the editor-preview adapter was stopped and the Max editor was
+closed. Opening the editor also produced duplicate-listener connection
+rejections, so authoring-preview collision handling remains outstanding. The
+single-active-listener ingress guard was not relaxed. Registration establishes
+transport connectivity only, not capture readiness or calibrated timing.
 
 `max-patches/audio-listener/Machine-Listening-Development.amxd` checkpoints the
 authored layout and presentation with relative listener references and the

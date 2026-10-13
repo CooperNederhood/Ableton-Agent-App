@@ -46,16 +46,21 @@ coverage do not replace real installed-device/Live validation.
   capability plus the connected Audio-Listener output on DRUMS associated with
   Machine-Listening; verify it remains connected after quiescing the editor
   preview adapter and closing the editor.
-- [x] Gate candidate registration on documented native `live.thisdevice`
-  preview state, queried before identity after adapter startup. Unknown,
+- [x] Gate candidate registration on native `live.thisdevice` preview state,
+  retained before Node readiness and read before identity after adapter startup.
+  Do not rely on `getstate` to query preview. Unknown,
   malformed and preview states fail closed with bounded diagnostics; preview
   transitions disarm only local analysis, terminate partial passes with existing
   attribution, close registration and fence late callbacks. Add regressions for
   state ordering/denial, polling, recovery, partial-pass timing and cleanup.
 - [x] Regenerate the canonical patch and normalized authored AMXD; upgrade older
-  authored staging with three native routing objects while preserving layout,
+  authored staging with four native routing objects while preserving layout,
   presentation, unrelated cords and stereo pass-through. Reject ambiguous
   startup bindings and partial/conflicting routing.
+- [x] Correct the observed early-preview startup race with a cold-inlet
+  `int -1` latch and ordered three-bang startup; migrate complete earlier
+  three-object routing idempotently. Never infer hosted state from enabled
+  state or from an unobserved flag. Add serialized-graph and migration regressions.
 - [ ] Validate authoring-preview isolation in fresh runner-owned Live: editor
   open, preview on/off, close/reopen, hosted registration continuity, no duplicate
   App listener and transparent audio. The updated candidate is staged only;
@@ -98,6 +103,17 @@ development-only staging bundle with no profile credentials/configuration.
 No User Library replacement, editor round-trip or real-Live preview acceptance
 was performed for this candidate. The pre-existing manual Live process remains
 user-owned; it was not adopted, mutated or terminated.
+
+Subsequent runner-owned Live validation confirmed the staged device on
+`14-Audio`, native DSP at 48 kHz/vector 64, valid canonical identity and host
+metadata, and stopped playback. The isolated App was recovered after its
+process exited; Live connectivity returned but the earlier candidate still
+discovered no listener. Native probes showed `getstate` emitting enabled state
+on outlet 1 and no preview flag on outlet 2, while startup had sent preview
+before Node readiness. Temporary probes were removed. The latch correction
+passes 27 focused tests and all 116 Max owning tests, plus listener static
+checks; fresh-load registration and preview-toggle acceptance are still
+pending. The production timing gate is unchanged.
 
 ## Application context
 

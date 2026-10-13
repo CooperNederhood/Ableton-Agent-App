@@ -81,6 +81,40 @@ test("Max startup failure never emits an adapter-started acknowledgement", async
   assert.deepEqual(output, []);
 });
 
+test("native preview state survives arriving before Node readiness; getstate is not a preview query", () => {
+  const p = sourceDocuments()["Audio-Listener.maxpat"].patcher;
+  const latch = p.boxes.find(({ box }) => box.id === "ml_device_preview_latch");
+  assert.equal(latch?.box.text, "int -1");
+  assert.equal(
+    p.boxes.find(({ box }) => box.id === "ml_adapter_init").box.text,
+    "trigger b b b",
+  );
+  for (const [source, outlet, destination, inlet] of [
+    ["init", 2, "ml_device_preview_latch", 1],
+    ["ml_adapter_init", 2, "ml_device_state_query", 0],
+    ["ml_adapter_init", 1, "ml_device_preview_latch", 0],
+    ["ml_device_preview_latch", 0, "ml_device_preview", 0],
+  ]) {
+    assert.ok(
+      p.lines.some(
+        ({ patchline: l }) =>
+          l.source[0] === source &&
+          l.source[1] === outlet &&
+          l.destination[0] === destination &&
+          l.destination[1] === inlet,
+      ),
+    );
+  }
+  assert.ok(
+    !p.lines.some(
+      ({ patchline: l }) =>
+        l.source[0] === "init" &&
+        l.source[1] === 1 &&
+        l.destination[0] === "ml_device_preview_latch",
+    ),
+  );
+});
+
 test("source parity, valid native cords, usable coordinates, explicit analysis gating and stereo path", async () => {
   const docs = await checkSource();
   assert.equal(Object.keys(docs).length, 5);
@@ -98,7 +132,7 @@ test("source parity, valid native cords, usable coordinates, explicit analysis g
   for (const [source, outlet, destination] of [
     ["init", 2, "ml_device_preview"],
     ["ml_device_preview", 0, "node"],
-    ["ml_adapter_init", 1, "ml_device_state_query"],
+    ["ml_adapter_init", 2, "ml_device_state_query"],
     ["ml_device_state_query", 0, "init"],
     ["ml_adapter_init", 0, "init"],
   ]) {

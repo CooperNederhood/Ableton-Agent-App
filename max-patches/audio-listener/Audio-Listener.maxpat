@@ -612,13 +612,13 @@
         "box": {
           "id": "ml_adapter_init",
           "maxclass": "newobj",
-          "text": "trigger b b",
+          "text": "trigger b b b",
           "numinlets": 1,
-          "numoutlets": 2,
+          "numoutlets": 3,
           "patching_rect": [
             670,
             275,
-            66,
+            78,
             22
           ],
           "varname": "ml_adapter_init"
@@ -638,6 +638,22 @@
             22
           ],
           "varname": "ml_device_state_query"
+        }
+      },
+      {
+        "box": {
+          "id": "ml_device_preview_latch",
+          "maxclass": "newobj",
+          "text": "int -1",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "patching_rect": [
+            670,
+            345,
+            60,
+            22
+          ],
+          "varname": "ml_device_preview_latch"
         }
       }
     ],
@@ -1438,7 +1454,7 @@
         "patchline": {
           "source": [
             "ml_adapter_init",
-            1
+            2
           ],
           "destination": [
             "ml_device_state_query",
@@ -1466,6 +1482,42 @@
           ],
           "destination": [
             "init",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "init",
+            2
+          ],
+          "destination": [
+            "ml_device_preview_latch",
+            1
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "ml_adapter_init",
+            1
+          ],
+          "destination": [
+            "ml_device_preview_latch",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "ml_device_preview_latch",
+            0
+          ],
+          "destination": [
+            "ml_device_preview",
             0
           ]
         }

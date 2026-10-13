@@ -47,19 +47,24 @@ export function addDevicePreviewRouting(document, { x = 670, y = 240 } = {}) {
   const node = one("node.script audio_listener_max.js @autostart 1 @watch 0");
   const boxes = [
     box("ml_device_preview", "prepend device-preview", x, y),
-    box("ml_adapter_init", "trigger b b", x, y + 35, 1, 2),
+    box("ml_adapter_init", "trigger b b b", x, y + 35, 1, 3),
     box("ml_device_state_query", "getstate", x, y + 70, 2, 1, {
       maxclass: "message",
     }),
+    // Retain the early preview emission; getstate can report only enabled state.
+    box("ml_device_preview_latch", "int -1", x, y + 105, 2, 1),
   ];
   for (const { box: b } of boxes) b.varname = b.id;
   const lines = [
     wire(init, 2, "ml_device_preview"),
     wire("ml_device_preview", 0, node),
     wire(route, 0, "ml_adapter_init"),
-    wire("ml_adapter_init", 1, "ml_device_state_query"),
+    wire("ml_adapter_init", 2, "ml_device_state_query"),
     wire("ml_device_state_query", 0, init),
     wire("ml_adapter_init", 0, init),
+    wire(init, 2, "ml_device_preview_latch", 1),
+    wire("ml_adapter_init", 1, "ml_device_preview_latch"),
+    wire("ml_device_preview_latch", 0, "ml_device_preview"),
   ];
   const matches = boxes.map(({ box: expected }) =>
     p.boxes.filter(
@@ -77,16 +82,48 @@ export function addDevicePreviewRouting(document, { x = 670, y = 240 } = {}) {
     );
   const direct = wire(route, 0, init);
   if (matches.some((m) => m.length > 0)) {
+    const sameBox = (m, i, text = boxes[i].box.text) =>
+      m.length === 1 &&
+      m[0].box.id === boxes[i].box.id &&
+      m[0].box.text === text &&
+      m[0].box.maxclass === boxes[i].box.maxclass;
+    const oldQuery = wire("ml_adapter_init", 1, "ml_device_state_query");
+    const legacyLines = [...lines.slice(0, 3), oldQuery, ...lines.slice(4, 6)];
     if (
-      matches.some(
-        (m, i) =>
-          m.length !== 1 ||
-          m[0].box.id !== boxes[i].box.id ||
-          m[0].box.text !== boxes[i].box.text ||
-          m[0].box.maxclass !== boxes[i].box.maxclass,
-      ) ||
+      matches[3].length === 0 &&
+      matches
+        .slice(0, 3)
+        .every((m, i) =>
+          sameBox(m, i, i === 1 ? "trigger b b" : boxes[i].box.text),
+        ) &&
+      legacyLines.every(hasLine) &&
+      !hasLine(direct) &&
+      !hasLine(lines[3]) &&
+      !p.lines.some(
+        ({ patchline }) =>
+          patchline.source[0] === "ml_device_preview_latch" ||
+          patchline.destination[0] === "ml_device_preview_latch",
+      )
+    ) {
+      matches[1][0].box.text = "trigger b b b";
+      matches[1][0].box.numoutlets = 3;
+      const query = p.lines.find(
+        ({ patchline }) =>
+          JSON.stringify(patchline.source) ===
+            JSON.stringify(oldQuery.patchline.source) &&
+          JSON.stringify(patchline.destination) ===
+            JSON.stringify(oldQuery.patchline.destination),
+      );
+      query.patchline.source[1] = 2;
+      p.boxes.push(boxes[3]);
+      p.lines.push(...lines.slice(6));
+      return document;
+    }
+    if (
+      matches.some((m, i) => !sameBox(m, i)) ||
       !lines.every(hasLine) ||
-      hasLine(direct)
+      hasLine(direct) ||
+      hasLine(oldQuery)
     ) {
       throw new Error("invalid device preview routing");
     }

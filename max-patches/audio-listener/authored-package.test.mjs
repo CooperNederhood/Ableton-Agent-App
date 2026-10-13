@@ -164,6 +164,7 @@ test("older authored devices acquire native preview routing without replacing th
     "ml_device_preview",
     "ml_adapter_init",
     "ml_device_state_query",
+    "ml_device_preview_latch",
   ]);
   original.patcher.boxes = original.patcher.boxes.filter(
     ({ box }) => !helperIds.has(box.id),
@@ -216,7 +217,7 @@ test("older authored devices acquire native preview routing without replacing th
     result.patcher.boxes
       .filter(({ box }) => helperIds.has(box.id))
       .map(({ box }) => box.text),
-    ["prepend device-preview", "trigger b b", "getstate"],
+    ["prepend device-preview", "trigger b b b", "getstate", "int -1"],
   );
   assert.ok(
     result.patcher.lines.some(
@@ -225,6 +226,37 @@ test("older authored devices acquire native preview routing without replacing th
         patchline.source[1] === 2 &&
         patchline.destination[0] === "ml_device_preview",
     ),
+  );
+});
+
+test("complete older preview routing is upgraded idempotently without treating enabled state as preview", () => {
+  const original = fixture();
+  const p = original.patcher;
+  p.boxes = p.boxes.filter(({ box }) => box.id !== "ml_device_preview_latch");
+  const trigger = p.boxes.find(({ box }) => box.id === "ml_adapter_init").box;
+  trigger.text = "trigger b b";
+  trigger.numoutlets = 2;
+  p.lines = p.lines.filter(
+    ({ patchline: l }) =>
+      l.source[0] !== "ml_device_preview_latch" &&
+      l.destination[0] !== "ml_device_preview_latch",
+  );
+  p.lines.find(
+    ({ patchline: l }) =>
+      l.source[0] === "ml_adapter_init" &&
+      l.destination[0] === "ml_device_state_query",
+  ).patchline.source[1] = 1;
+  const snapshot = structuredClone(original);
+  const result = prepareAuthoredDevice(original, { keepMcpBridge: true });
+  assert.deepEqual(original, snapshot);
+  assert.deepEqual(
+    prepareAuthoredDevice(result, { keepMcpBridge: true }),
+    result,
+  );
+  assert.equal(
+    result.patcher.boxes.find(({ box }) => box.id === "ml_device_preview_latch")
+      .box.text,
+    "int -1",
   );
 });
 

@@ -126,11 +126,17 @@ group, including owned-process cleanup. The broader run completed eleven
 passing scenarios before legacy group shutdown failed. Coordinated startup now
 has a tested bounded deadline. Arrangement clip lifecycle subsequently passed,
 but region-fill cleanup correctly failed because the agent skipped its required
-inspection. Explicit inspection/identity guidance now has failing-before-fix
-regression coverage; its live rerun executed no scenarios because Live stalled
-at MIDI input/output initialization and never exposed the bridge. The owned
-process was cleaned up. The full smoke suite and real listening acceptance
-remain incomplete; no production gate was enabled.
+inspection. Explicit inspection/identity guidance has failing-before-fix
+regression coverage. After an initial rerun was blocked at MIDI startup and
+the operator confirmed normal startup had recovered, the corrected isolated
+region-fill scenario passed with exactly one fill, one required inspection,
+two tile deletions and complete baseline restoration; corrected argument
+probes remain recorded as a recovered pass. Owned-process cleanup completed.
+The full owning-group rerun again timed out before bridge readiness and executed
+no scenarios. Its exact owned process was cleaned up; a later manually launched
+Live process was not adopted or controlled by the runner. The full owning group,
+remaining smoke groups and real listening acceptance remain incomplete; no
+production gate was enabled.
 
 - [x] Generate independent PCM sine, silence and anti-phase source fixtures
   with exact quarter-note spacing, gates and quantized peak/RMS references.

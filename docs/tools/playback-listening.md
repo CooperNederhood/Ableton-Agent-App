@@ -314,9 +314,35 @@ was initially absent. After manual development-App startup, the App advertised
 Audio-Listener on DRUMS associated with Machine-Listening. This output remained
 connected after the editor-preview adapter was stopped and the Max editor was
 closed. Opening the editor also produced duplicate-listener connection
-rejections, so authoring-preview collision handling remains outstanding. The
-single-active-listener ingress guard was not relaxed. Registration establishes
-transport connectivity only, not capture readiness or calibrated timing.
+rejections. The updated candidate now uses the documented third outlet of
+[`live.thisdevice`](https://docs.cycling74.com/reference/live.thisdevice) rather
+than guessing editor state from identity, DSP activity, names or connection
+errors. After `adapter-started`, a native `trigger b b` sends `getstate` before
+the identity bang. Native `device-preview 0` permits registration; `1` blocks
+it. Missing or malformed state fails closed. Preview/state failures produce
+bounded diagnostics and reset only analysis; they never interrupt stereo
+pass-through or control Live transport.
+
+A transition to preview terminates any local pass as partial, using its
+existing control and trace attribution, before closing its registration.
+Queued callbacks from that registration are fenced. Returning to explicit
+non-preview state creates a fresh producer instance if all other prerequisites
+remain valid; stopping the adapter prevents subsequent state updates from
+restarting it. Existing authenticated ingress/disconnect and capture-terminal
+events retain their application-owned lifecycle; a blocked preview does not
+create a second App listener or a new persisted payload. The
+single-active-listener ingress guard is unchanged. Authored staging adds the
+three native routing objects to older saved devices without replacing their
+layout or unrelated wiring, and rejects partial or conflicting routing.
+
+Runtime, serialized-graph and staged-artifact regressions cover unknown,
+preview, malformed state, bounded polling, transitions, stale callbacks,
+partial-pass attribution and cleanup. The regenerated repository AMXD and
+staging bundle contain the routing; the User Library installation has **not**
+been replaced with this candidate. Actual editor open/preview-toggle/close and
+hosted-listener continuity still require isolated Live validation. Registration
+establishes transport connectivity only, not capture readiness or calibrated
+timing; `real_live_timing_validation_required` remains unchanged.
 
 `max-patches/audio-listener/Machine-Listening-Development.amxd` checkpoints the
 authored layout and presentation with relative listener references and the

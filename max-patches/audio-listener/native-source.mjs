@@ -34,6 +34,79 @@ const patch = (boxes, lines, extra = {}) => ({
   },
 });
 
+export function addDevicePreviewRouting(document, { x = 670, y = 240 } = {}) {
+  const p = document.patcher;
+  const one = (text) => {
+    const matches = p.boxes.filter(({ box }) => box.text === text);
+    if (matches.length !== 1)
+      throw new Error(`expected one startup object: ${text}`);
+    return matches[0].box.id;
+  };
+  const init = one("live.thisdevice");
+  const route = one("route adapter-started");
+  const node = one("node.script audio_listener_max.js @autostart 1 @watch 0");
+  const boxes = [
+    box("ml_device_preview", "prepend device-preview", x, y),
+    box("ml_adapter_init", "trigger b b", x, y + 35, 1, 2),
+    box("ml_device_state_query", "getstate", x, y + 70, 2, 1, {
+      maxclass: "message",
+    }),
+  ];
+  for (const { box: b } of boxes) b.varname = b.id;
+  const lines = [
+    wire(init, 2, "ml_device_preview"),
+    wire("ml_device_preview", 0, node),
+    wire(route, 0, "ml_adapter_init"),
+    wire("ml_adapter_init", 1, "ml_device_state_query"),
+    wire("ml_device_state_query", 0, init),
+    wire("ml_adapter_init", 0, init),
+  ];
+  const matches = boxes.map(({ box: expected }) =>
+    p.boxes.filter(
+      ({ box: actual }) =>
+        actual.id === expected.id || actual.varname === expected.varname,
+    ),
+  );
+  const hasLine = (expected) =>
+    p.lines.some(
+      ({ patchline }) =>
+        JSON.stringify(patchline.source) ===
+          JSON.stringify(expected.patchline.source) &&
+        JSON.stringify(patchline.destination) ===
+          JSON.stringify(expected.patchline.destination),
+    );
+  const direct = wire(route, 0, init);
+  if (matches.some((m) => m.length > 0)) {
+    if (
+      matches.some(
+        (m, i) =>
+          m.length !== 1 ||
+          m[0].box.id !== boxes[i].box.id ||
+          m[0].box.text !== boxes[i].box.text ||
+          m[0].box.maxclass !== boxes[i].box.maxclass,
+      ) ||
+      !lines.every(hasLine) ||
+      hasLine(direct)
+    ) {
+      throw new Error("invalid device preview routing");
+    }
+    return document;
+  }
+  if (!hasLine(direct)) throw new Error("missing adapter startup route");
+  p.lines = p.lines.filter(
+    ({ patchline }) =>
+      !(
+        patchline.source[0] === route &&
+        patchline.source[1] === 0 &&
+        patchline.destination[0] === init &&
+        patchline.destination[1] === 0
+      ),
+  );
+  p.boxes.push(...boxes);
+  p.lines.push(...lines);
+  return document;
+}
+
 export const ENVELOPE_CODE = `History n(0);
 History sumL(0); History sumR(0);
 History peakL(0); History peakR(0);
@@ -326,17 +399,19 @@ export function deviceDocument() {
       },
     ),
   );
-  return patch(boxes, lines, {
-    devicewidth: 560,
-    openinpresentation: 1,
-    parameters: {
-      threshold: ["Attack rise dB", "Attack rise dB", 0],
-      spacing: ["Attack gap ms", "Attack gap ms", 0],
-    },
-    description:
-      "On-demand native measurements. No audio recording. Calibration required.",
-    dependency_cache: [],
-  });
+  return addDevicePreviewRouting(
+    patch(boxes, lines, {
+      devicewidth: 560,
+      openinpresentation: 1,
+      parameters: {
+        threshold: ["Attack rise dB", "Attack rise dB", 0],
+        spacing: ["Attack gap ms", "Attack gap ms", 0],
+      },
+      description:
+        "On-demand native measurements. No audio recording. Calibration required.",
+      dependency_cache: [],
+    }),
+  );
 }
 
 export function sourceDocuments() {

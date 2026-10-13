@@ -46,9 +46,22 @@ coverage do not replace real installed-device/Live validation.
   capability plus the connected Audio-Listener output on DRUMS associated with
   Machine-Listening; verify it remains connected after quiescing the editor
   preview adapter and closing the editor.
-- [ ] Handle authoring-preview connection collisions explicitly. The ingress
-  currently rejects a second connection for the same listener producer; keep
-  that guard and do not treat an editor-preview connection as an extra listener.
+- [x] Gate candidate registration on documented native `live.thisdevice`
+  preview state, queried before identity after adapter startup. Unknown,
+  malformed and preview states fail closed with bounded diagnostics; preview
+  transitions disarm only local analysis, terminate partial passes with existing
+  attribution, close registration and fence late callbacks. Add regressions for
+  state ordering/denial, polling, recovery, partial-pass timing and cleanup.
+- [x] Regenerate the canonical patch and normalized authored AMXD; upgrade older
+  authored staging with three native routing objects while preserving layout,
+  presentation, unrelated cords and stereo pass-through. Reject ambiguous
+  startup bindings and partial/conflicting routing.
+- [ ] Validate authoring-preview isolation in fresh runner-owned Live: editor
+  open, preview on/off, close/reopen, hosted registration continuity, no duplicate
+  App listener and transparent audio. The updated candidate is staged only;
+  the existing User Library copy is unchanged. A pre-existing user-owned Live
+  process blocks isolated validation. Keep the single-active-listener ingress
+  guard; do not treat an editor-preview connection as an extra listener.
 - [ ] Verify candidate compilation and transparent stereo DSP in actual Max.
 - [ ] Verify transport validity, sample timing, quantized launches, and gaps.
 - [ ] Reconcile provider limits and physical-ID/bridge-reference binding.
@@ -74,6 +87,17 @@ with `real_live_timing_validation_required`. Generated profile configuration is
 consumed through the shared reader without a separate parser or legacy audio
 fallback. Configuration/isolation tests do not certify actual authentication,
 DSP or real-device readiness.
+
+Preview-isolation checkpoint: the new runtime regressions failed before the
+guard, and canonical-source/checkpoint-asset checks detected the missing native
+routing before regeneration. The focused runtime/artifact/profile suites pass
+37 tests, and the full Max owning suite passes 114 tests; workspace build,
+listener static checks, scoped lint and paired-document checks pass.
+`.test-artifacts/listener-preview-isolation-2026-10-13/` holds a checked,
+development-only staging bundle with no profile credentials/configuration.
+No User Library replacement, editor round-trip or real-Live preview acceptance
+was performed for this candidate. The pre-existing manual Live process remains
+user-owned; it was not adopted, mutated or terminated.
 
 ## Application context
 

@@ -78,6 +78,7 @@ function createRuntime({
   let control = null;
   let dsp = null;
   let host = null;
+  let devicePreview = null;
   let generation = 0;
   let nativeZero = null;
   let attackThresholdDb = 6;
@@ -162,6 +163,16 @@ function createRuntime({
       !dsp.dspOn
     )
       return;
+    if (devicePreview !== 0) {
+      discoveryFailure(
+        devicePreview === 1
+          ? "editor_preview_blocked"
+          : devicePreview === null
+            ? "device_preview_state_required"
+            : "invalid_device_preview_state",
+      );
+      return;
+    }
     // The shared client's reader is the ONLY installed configuration parser.
     // Explicit overrides win, but neither absent nor malformed profile evidence
     // may silently fall through to the MIDI client's legacy discovery defaults.
@@ -415,6 +426,22 @@ function createRuntime({
   });
   maxApi.addHandler("device-enabled", (value) => {
     if (value !== 1) fail("device_disabled");
+  });
+  maxApi.addHandler("device-preview", (value) => {
+    if (stopped) return;
+    const next = value === 0 || value === 1 ? value : "invalid";
+    if (next === devicePreview) return;
+    devicePreview = next;
+    if (next !== 0) {
+      const reason =
+        next === 1 ? "editor_preview_blocked" : "invalid_device_preview_state";
+      restartRegistration(reason);
+      discoveryDiagnosticReason = reason;
+      output("diagnostic", reason);
+    } else {
+      discoveryDiagnosticReason = null;
+      maybeStart();
+    }
   });
   timers.push(
     interval(() => {

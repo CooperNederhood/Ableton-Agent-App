@@ -158,6 +158,116 @@ test("missing/duplicate owned boxes, foreign absolute references, wrong types an
   }
 });
 
+test("older authored devices acquire native preview routing without replacing their layout or unrelated wiring", () => {
+  const original = fixture();
+  const helperIds = new Set([
+    "ml_device_preview",
+    "ml_adapter_init",
+    "ml_device_state_query",
+  ]);
+  original.patcher.boxes = original.patcher.boxes.filter(
+    ({ box }) => !helperIds.has(box.id),
+  );
+  original.patcher.lines = original.patcher.lines.filter(
+    ({ patchline }) =>
+      !helperIds.has(patchline.source[0]) &&
+      !helperIds.has(patchline.destination[0]),
+  );
+  original.patcher.lines.push({
+    patchline: { source: ["nodeMessages", 0], destination: ["init", 0] },
+  });
+  const snapshot = structuredClone(original);
+  const result = prepareAuthoredDevice(original, { keepMcpBridge: true });
+  assert.deepEqual(original, snapshot);
+  assert.deepEqual(
+    prepareAuthoredDevice(result, { keepMcpBridge: true }),
+    result,
+  );
+  for (const { box } of original.patcher.boxes) {
+    if (
+      [
+        "ml_analysis",
+        "ml_runtime",
+        "ml_guard",
+        "ml_identity",
+        "ml_resource_path",
+        "ml_add_resource_path",
+      ].includes(box.varname)
+    )
+      continue;
+    assert.deepEqual(
+      result.patcher.boxes.find((b) => b.box.id === box.id)?.box,
+      box,
+    );
+  }
+  for (const line of original.patcher.lines) {
+    if (
+      line.patchline.source[0] === "append" ||
+      line.patchline.source[0] === "nodeMessages"
+    )
+      continue;
+    assert.ok(
+      result.patcher.lines.some(
+        (l) => JSON.stringify(l) === JSON.stringify(line),
+      ),
+    );
+  }
+  assert.deepEqual(
+    result.patcher.boxes
+      .filter(({ box }) => helperIds.has(box.id))
+      .map(({ box }) => box.text),
+    ["prepend device-preview", "trigger b b", "getstate"],
+  );
+  assert.ok(
+    result.patcher.lines.some(
+      ({ patchline }) =>
+        patchline.source[0] === "init" &&
+        patchline.source[1] === 2 &&
+        patchline.destination[0] === "ml_device_preview",
+    ),
+  );
+});
+
+test("partial, conflicting or damaged preview routing and ambiguous startup objects are rejected", () => {
+  for (const mutate of [
+    (d) => {
+      d.patcher.boxes = d.patcher.boxes.filter(
+        ({ box }) => box.id !== "ml_device_preview",
+      );
+    },
+    (d) => {
+      d.patcher.boxes.find(
+        ({ box }) => box.id === "ml_device_state_query",
+      ).box.text = "bang";
+    },
+    (d) => {
+      d.patcher.lines = d.patcher.lines.filter(
+        ({ patchline }) =>
+          !(
+            patchline.source[0] === "ml_adapter_init" &&
+            patchline.source[1] === 1
+          ),
+      );
+    },
+    (d) => {
+      d.patcher.lines.push({
+        patchline: { source: ["nodeMessages", 0], destination: ["init", 0] },
+      });
+    },
+    (d) => {
+      const b = structuredClone(
+        d.patcher.boxes.find(({ box }) => box.id === "init"),
+      );
+      b.box.id = "second-init";
+      d.patcher.boxes.push(b);
+    },
+  ]) {
+    const d = fixture();
+    mutate(d);
+    assert.throws(() => prepareAuthoredDevice(d, { keepMcpBridge: true }));
+  }
+});
+
 test("existing canonical v1 artifact manifests remain readable without new authored-package fields", async (t) => {
   const dir = await mkdtemp(join(SOURCE_DIRECTORY, ".legacy-artifact-test-"));
   t.after(() => rm(dir, { recursive: true, force: true }));

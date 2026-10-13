@@ -95,6 +95,39 @@ test("source parity, valid native cords, usable coordinates, explicit analysis g
           patchline.destination[1] === channel,
       ),
     );
+  for (const [source, outlet, destination] of [
+    ["init", 2, "ml_device_preview"],
+    ["ml_device_preview", 0, "node"],
+    ["ml_adapter_init", 1, "ml_device_state_query"],
+    ["ml_device_state_query", 0, "init"],
+    ["ml_adapter_init", 0, "init"],
+  ]) {
+    assert.ok(
+      p.lines.some(
+        ({ patchline }) =>
+          patchline.source[0] === source &&
+          patchline.source[1] === outlet &&
+          patchline.destination[0] === destination &&
+          patchline.destination[1] === 0,
+      ),
+    );
+  }
+  assert.equal(
+    p.boxes.find(({ box }) => box.id === "ml_device_preview").box.text,
+    "prepend device-preview",
+  );
+  assert.equal(
+    p.boxes.find(({ box }) => box.id === "ml_device_state_query").box.text,
+    "getstate",
+  );
+  assert.ok(
+    !p.lines.some(
+      ({ patchline }) =>
+        patchline.source[0] === "nodeMessages" &&
+        patchline.source[1] === 0 &&
+        patchline.destination[0] === "init",
+    ),
+  );
   assert.ok(p.boxes.some(({ box }) => box.text === "loadmess mute 0 1"));
   assert.ok(
     p.boxes.some(({ box }) => box.text.includes("audio_listener_guard.js")),
@@ -105,7 +138,7 @@ test("source parity, valid native cords, usable coordinates, explicit analysis g
       ({ patchline }) =>
         patchline.source[0] === "nodeMessages" &&
         patchline.source[1] === 0 &&
-        patchline.destination[0] === "init",
+        patchline.destination[0] === "ml_adapter_init",
     ),
   );
   assert.ok(!JSON.stringify(docs).includes("buffer~")); // no recording/waveform buffer
@@ -279,6 +312,7 @@ test("runtime control API uses shared client; uncertified prepare explicitly fai
     }),
   );
   handlers.dsp(1, 48000, 64);
+  handlers["device-preview"](0);
   handlers.host(0, 4, 10000, 3);
   assert.equal(options.signalKind, "audio");
   assert.equal(options.schemaVersion, "audio-observation/v1");
@@ -328,6 +362,7 @@ test("runtime requires explicit profile discovery; no audio legacy default", () 
     }),
   );
   handlers.dsp(1, 48000, 64);
+  handlers["device-preview"](0);
   handlers.host(0, 4, 10000, 3);
   assert.equal(runtime.client, null);
   assert.ok(
@@ -400,6 +435,7 @@ test("runtime adapter wire lifecycle with synthetic calibrated host frames (NOT 
     }),
   );
   handlers.dsp(1, 48000, 64);
+  handlers["device-preview"](0);
   handlers.host(0, 4, 10000, 3);
   handlers["attack-threshold"](9);
   handlers["attack-spacing-ms"](200);
@@ -470,6 +506,7 @@ test("actual shared client identity API and registration refresh: no invented se
   };
   handlers.identity(JSON.stringify(identity));
   handlers.dsp(1, 48000, 64);
+  handlers["device-preview"](0);
   handlers.host(0, 4, 10000, 3);
   assert.equal(created.length, 1);
   assert.ok(runtime.client.producer);
@@ -520,6 +557,7 @@ test("audio never reads legacy credentials when only an explicit descriptor is g
     }),
   );
   handlers.dsp(1, 48000, 64);
+  handlers["device-preview"](0);
   handlers.host(0, 4, 10000, 3);
   assert.equal(runtime.client, null);
   runtime.stop();

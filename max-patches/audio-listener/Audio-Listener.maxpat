@@ -591,6 +591,54 @@
             40
           ]
         }
+      },
+      {
+        "box": {
+          "id": "ml_device_preview",
+          "maxclass": "newobj",
+          "text": "prepend device-preview",
+          "numinlets": 1,
+          "numoutlets": 1,
+          "patching_rect": [
+            670,
+            240,
+            110,
+            22
+          ],
+          "varname": "ml_device_preview"
+        }
+      },
+      {
+        "box": {
+          "id": "ml_adapter_init",
+          "maxclass": "newobj",
+          "text": "trigger b b",
+          "numinlets": 1,
+          "numoutlets": 2,
+          "patching_rect": [
+            670,
+            275,
+            66,
+            22
+          ],
+          "varname": "ml_adapter_init"
+        }
+      },
+      {
+        "box": {
+          "id": "ml_device_state_query",
+          "maxclass": "message",
+          "text": "getstate",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "patching_rect": [
+            670,
+            310,
+            60,
+            22
+          ],
+          "varname": "ml_device_state_query"
+        }
       }
     ],
     "lines": [
@@ -662,18 +710,6 @@
           ],
           "destination": [
             "nodeMessages",
-            0
-          ]
-        }
-      },
-      {
-        "patchline": {
-          "source": [
-            "nodeMessages",
-            0
-          ],
-          "destination": [
-            "init",
             0
           ]
         }
@@ -1359,6 +1395,78 @@
           "destination": [
             "framePack",
             6
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "init",
+            2
+          ],
+          "destination": [
+            "ml_device_preview",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "ml_device_preview",
+            0
+          ],
+          "destination": [
+            "node",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "nodeMessages",
+            0
+          ],
+          "destination": [
+            "ml_adapter_init",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "ml_adapter_init",
+            1
+          ],
+          "destination": [
+            "ml_device_state_query",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "ml_device_state_query",
+            0
+          ],
+          "destination": [
+            "init",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "ml_adapter_init",
+            0
+          ],
+          "destination": [
+            "init",
+            0
           ]
         }
       }

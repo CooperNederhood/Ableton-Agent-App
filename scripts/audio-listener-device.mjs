@@ -14,7 +14,10 @@ import {
   SHARED_PRODUCER_IDENTITY,
   writeProducerDiscoveryConfiguration,
 } from "./m4l-producer-companions.mjs";
-import { sourceDocuments } from "../max-patches/audio-listener/native-source.mjs";
+import {
+  addDevicePreviewRouting,
+  sourceDocuments,
+} from "../max-patches/audio-listener/native-source.mjs";
 import { calibrationDocuments } from "../max-patches/audio-listener/calibration-source.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -146,6 +149,22 @@ export function prepareAuthoredDevice(
       throw new Error(`unexpected owned object type: ${name}`);
     b.text = text;
   }
+  const bottom = Math.max(
+    ...p.boxes.map(({ box }) =>
+      Array.isArray(box.patching_rect)
+        ? box.patching_rect[1] + box.patching_rect[3]
+        : 0,
+    ),
+  );
+  addDevicePreviewRouting(result, { x: 30, y: bottom + 30 });
+  p.rect[3] = Math.max(
+    p.rect[3],
+    ...p.boxes.map(({ box }) =>
+      Array.isArray(box.patching_rect)
+        ? box.patching_rect[1] + box.patching_rect[3] + 30
+        : 0,
+    ),
+  );
   const removed = new Set(
     p.boxes
       .filter(({ box }) =>

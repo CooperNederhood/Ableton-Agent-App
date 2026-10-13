@@ -91,6 +91,11 @@ and emits `runner.process_owned`. This mode runs no shell launch or scripted
 dialog actions. Handle dialogs through the approved computer-use policy.
 Cleanup terminates only the validated disposable runner PID; it does not save
 the generated test Set. The same scenario guards and readiness checks apply.
+Externally coordinated launches have a ten-minute default launch deadline,
+matching the coordinated bridge-readiness budget and allowing time for app
+approval and startup UI handling. Ordinary launches retain the ninety-second
+default. An explicit launch deadline remains authoritative; timeout never
+claims or terminates a process that appears afterward.
 
 ### Diagnostics
 

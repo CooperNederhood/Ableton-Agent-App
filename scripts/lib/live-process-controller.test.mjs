@@ -9,6 +9,46 @@ const owned = {
 };
 
 describe("LiveProcessController", () => {
+  it("allows an externally coordinated launch beyond the ordinary 90-second startup deadline", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const startedAt = Date.now();
+      const requestLaunch = vi.fn(async () => undefined);
+      const controller = new LiveProcessController({
+        listProcesses: async () =>
+          Date.now() - startedAt >= 120_000 ? [owned] : [],
+        requestLaunch,
+        sleep: async (ms) => vi.setSystemTime(Date.now() + ms),
+      });
+
+      await controller.launch("/Applications/Ableton Live 11 Suite.app");
+      expect(controller.publicRecord().pid).toBe(owned.pid);
+      expect(requestLaunch).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps an explicit external launch deadline bounded without claiming or controlling a late process", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const kill = vi.fn();
+      const controller = new LiveProcessController({
+        listProcesses: async () => [],
+        requestLaunch: vi.fn(async () => undefined),
+        sleep: async (ms) => vi.setSystemTime(Date.now() + ms),
+        kill,
+      });
+      await expect(
+        controller.launch("/Applications/Ableton Live 11 Suite.app", 1_000),
+      ).rejects.toThrow("Timed out");
+      expect(controller.publicRecord()).toBeUndefined();
+      expect(kill).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("coordinates a sanctioned external launch without shell launch or dialog actions", async () => {
     const lists = [[], [], [owned], [owned]];
     const run = vi.fn();

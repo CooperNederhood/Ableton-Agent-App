@@ -81,7 +81,10 @@ export class LiveProcessController {
     }
   }
 
-  async launch(applicationPath, timeoutMs = 90_000) {
+  async launch(
+    applicationPath,
+    timeoutMs = this.#requestLaunch === undefined ? 90_000 : 600_000,
+  ) {
     if (this.#owned !== undefined) {
       throw new Error("This controller already owns a Live process");
     }

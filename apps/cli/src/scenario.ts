@@ -359,7 +359,9 @@ export function scenarioPrompt(
         return [
           `Create exactly one MIDI track "${trackName}" and one ${assertion.sourceLength}-beat Session MIDI clip "${clipName}" at zero-based sceneIndex ${assertion.sourceSceneIndex} (Session scene ${assertion.sourceSceneIndex + 1}).`,
           `Use ableton_arrangement with action "fill-region" exactly once to fill the half-open Arrangement region [${assertion.regionStart}, ${assertion.regionEnd}). Verify that it created exactly ${assertion.expectedTileCount} full tiles and reported ${assertion.expectedUnusedRemainder} uncovered beats.`,
-          `Inspect the Arrangement, delete every Arrangement clip created by the fill using its returned identity and start time, then delete the Session source clip and generated track.`,
+          'Call ableton_arrangement action "inspect" before any deletion and wait for its completed result. The fill-region result does not replace this inspection; cleanup approval requires this distinct inspect call.',
+          `For fill-region and Arrangement deletion, index and expectedReference identify track "${trackName}", and expectedName is the track name "${trackName}", not the clip name. expectedClipReference identifies Session source "${clipName}" when filling and each exact Arrangement tile when deleting; expectedStartTime is that tile's start time.`,
+          "Delete every inspected generated Arrangement tile sequentially, then delete the Session source using its exact clip reference and finally delete the generated track using its identity-bound target object.",
           'Do not substitute repeated ableton_arrangement action "duplicate-clip" calls and do not touch pre-existing clips or tracks.',
         ];
       }

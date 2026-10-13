@@ -121,6 +121,17 @@ The items above are not end-to-end completion claims.
 
 ## Validation
 
+Latest isolated runs verified the Operator source fixture and the session-clip
+group, including owned-process cleanup. The broader run completed eleven
+passing scenarios before legacy group shutdown failed. Coordinated startup now
+has a tested bounded deadline. Arrangement clip lifecycle subsequently passed,
+but region-fill cleanup correctly failed because the agent skipped its required
+inspection. Explicit inspection/identity guidance now has failing-before-fix
+regression coverage; its live rerun executed no scenarios because Live stalled
+at MIDI input/output initialization and never exposed the bridge. The owned
+process was cleaned up. The full smoke suite and real listening acceptance
+remain incomplete; no production gate was enabled.
+
 - [x] Generate independent PCM sine, silence and anti-phase source fixtures
   with exact quarter-note spacing, gates and quantized peak/RMS references.
 - [x] Add a canonical-result numeric verifier with independent host anchors,

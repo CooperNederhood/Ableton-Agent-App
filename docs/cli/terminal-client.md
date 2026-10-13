@@ -97,6 +97,12 @@ approval and startup UI handling. Ordinary launches retain the ninety-second
 default. An explicit launch deadline remains authoritative; timeout never
 claims or terminates a process that appears afterward.
 
+Reviewed region-fill scenarios explicitly require a separate Arrangement
+inspection before cleanup; the fill operation's own result is not that read.
+Prompt guidance distinguishes track identity/name from each tile's clip
+identity/start time. Missing inspection still denies deletion; action/risk
+allowlists, mutation budgets and ordering guards remain unchanged.
+
 ### Diagnostics
 
 ```bash

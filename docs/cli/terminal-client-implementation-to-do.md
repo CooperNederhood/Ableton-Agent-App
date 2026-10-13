@@ -57,6 +57,8 @@ Companion specification: [Terminal Client](terminal-client.md)
 - [x] Give externally coordinated launches a bounded ten-minute startup window,
   retaining ordinary/explicit deadlines and refusing late process ownership,
   with a regression that fails under the prior ninety-second default.
+- [x] Make reviewed region-fill inspection and identity-bound cleanup explicit
+  in scenario guidance, retaining the deny-before-inspection guard and budgets.
 - [x] Fail and cancel noninteractive SDK human gates without supplying answers
   or approvals, with prompt/schema guidance and regression coverage.
 - [x] Ensure diagnostics avoid model invocation where possible.

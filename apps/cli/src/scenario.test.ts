@@ -91,6 +91,68 @@ describe("integration scenarios", () => {
     );
   });
 
+  it("requires an explicit region-fill inspection before identity-bound cleanup without widening approval", async () => {
+    const manifest = await loadScenarioManifest(
+      "arrangement-region-fill-lifecycle",
+    );
+    const context = createScenarioRunContext(manifest);
+    const prompt = scenarioPrompt(manifest.prompt, context);
+    const trackName = context.trackNames[0]!;
+    const clipName = context.clipNames[0]!;
+    expect(prompt).toContain(
+      'Call ableton_arrangement action "inspect" before any deletion',
+    );
+    expect(prompt).toContain(
+      "The fill-region result does not replace this inspection",
+    );
+    expect(prompt).toContain(`expectedName is the track name "${trackName}"`);
+    expect(manifest.maxToolCalls).toBe(14);
+    expect(manifest.maxMutations).toBe(8);
+
+    for (const approval of [
+      request("ableton_tracks", "reversible", {
+        action: "create",
+        kind: "midi",
+        name: trackName,
+      }),
+      request("ableton_session_clips", "reversible", {
+        action: "create-midi",
+        expectedName: trackName,
+        name: clipName,
+        sceneIndex: 5,
+        length: 4,
+      }),
+      request("ableton_arrangement", "reversible", {
+        action: "fill-region",
+        expectedName: trackName,
+        sceneIndex: 5,
+        regionStart: 32,
+        regionEnd: 42,
+      }),
+    ]) {
+      expect(await context.approvals.request(approval)).toBe(true);
+    }
+    const deletion = request("ableton_arrangement", "destructive", {
+      action: "delete-clip",
+      expectedName: trackName,
+      expectedClipReference: "generated-tile",
+      expectedStartTime: 32,
+    });
+    expect(await context.approvals.request(deletion)).toBe(false);
+    expect(context.approvals.decisions.at(-1)?.reason).toBe(
+      "ordering_requires_ableton_arrangement_inspect",
+    );
+    expect(
+      await context.approvals.request(
+        request("ableton_arrangement", "read", {
+          action: "inspect",
+          expectedName: trackName,
+        }),
+      ),
+    ).toBe(true);
+    expect(await context.approvals.request(deletion)).toBe(true);
+  });
+
   it("bounds the Operator source fixture without claiming measured listening", async () => {
     const manifest = await loadScenarioManifest(
       "operator-quarter-note-fixture",

@@ -189,18 +189,40 @@ Arrangement capture/publication, resume and release acceptance remain open.
   named cables/direct stereo wiring, and restore the inaudible test's Master
   fader from zero to its observed 0.85 after the source finished. Leave transport
   running; do not save probe changes into the authored AMXD or User Library.
-- [ ] Establish full pass coverage and whole-pass RMS. The bridge's 200-message
-  console cap makes retained diagnostic windows insufficient for this claim.
-- [ ] Complete anti-phase/silence PCM, exact attacks, independent sample/beat
-  alignment, offsets/gaps, transparent pass-through and resource-cost checks.
+- [x] Retain 100 contiguous native envelope windows spanning the known source
+  and trailing silence. Normal and anti-phase whole-fixture energy agree with
+  independent quantized PCM within -0.001204 dB; four envelope burst groups are
+  present in each. This is level/energy acceptance, not source/host timing or
+  production attack-event certification.
+- [x] Add an engineering-only bounded native collector: reset plus fresh silent
+  window before source fire, 100 contiguous windows, held-counter deduplication,
+  12-second timeout, visible failure/cancellation and analysis reset on deletion.
+  Export indexed eight-frame ASCII-hex chunks with trace/timing lifecycle data;
+  no installed device, readiness or context-publication behavior changes.
+- [x] Protect native compatibility and report framing with failing-before-fix
+  ES5, eval-scoped handler, JSON-symbol framing and stale-zero launch/baseline
+  regressions. Eight targeted tests and the 126-test owning Max suite pass.
+- [x] Observe actual anti-phase PCM with non-cancelled spectrum, then 100 silent
+  windows after reset. Observe the silence source's actual playing slot
+  transition, not just its fire request. Import only generated source assets
+  into independently verified empty slots; retain/account for all three clips.
+- [x] Exercise actual probe cancellation: retain 28 contiguous windows and
+  explicit cancelled outcome after 2,848 ms. Disable/reset analysis, remove six
+  temporary objects and verify exact native graph restoration. Verify all
+  sources finished before restoring Master volume; leave transport running.
+- [ ] Complete production attack events, independent sample/beat alignment,
+  FFT/report offsets, transparent pass-through and resource-cost checks.
 - [ ] Commission timing through a reviewed bound path, then prove actual agent
   Arrangement capture/publication/resume. Manual analyzer enable grants none
   of these capabilities or production readiness.
 
-The first unfiltered collection retained only silence and is inconclusive;
+The earlier unfiltered collection retained only silence and is inconclusive;
 the repeated duplicate-filtered collection contains 33 nonzero records and
 12 selected steady spectral frames. Bounded processed engineering evidence is
 in `.test-artifacts/listener-calibration-native-quarter-sine-levels.json`.
+The later bounded collector supersedes the console-fragment coverage limit;
+its continuous normal/anti-phase/silence and partial-cancellation evidence is
+listed in the companion specification. It does not grant timing readiness.
 The earlier stale-bridge attempt also remains a failed preflight, not a pass.
 Startup recovery exposed the separate coordinated-readiness deadline bug;
 `3d78a19` fixes it with failing-before-fix regressions and 31 passing owning

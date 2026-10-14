@@ -534,6 +534,93 @@ only after explicit user approval. The coordinated UX readiness deadline fix
 at `3d78a19` preserves the ordinary deadline and prevents the interactive path
 from inheriting its short timeout; see the testing specification.
 
+### Bounded hosted descriptor collection
+
+`hosted_calibration_probe.js` is a temporary engineering probe, not an installed
+listener companion or commissioning authority. It taps the existing seven-value
+native frame list; it does not synthesize descriptors or change the stereo
+audio path. The operator must independently attest the owned Live process and
+exact source clip before providing the `runner-owned` acknowledgement and a
+UUID trace. Acknowledgement is not process or source attestation.
+
+The probe resets/enables analysis through the existing watchdog guard, observes
+a zero counter, then requires one completed, silent 4,800-sample native window
+before requesting the source clip's `fire`. A stale zero alone cannot trigger
+the source. It retains exactly 100 contiguous envelope windows in bounded
+memory, ignores duplicate held counters, fails on malformed data, non-silent
+baseline, gaps or resets, and has a 12-second reset/collection deadline.
+Completion, failure and cancellation disable/reset analysis. Object deletion
+requests the same cleanup and cancels the probe timer, but native cleanup must
+explicitly disarm before removal rather than relying on cables during object
+destruction. None of these paths stops a clip, rewinds or stops transport.
+
+Queued, started, four progress checkpoints and terminal events retain elapsed
+time and trace/correlation/causation identifiers in the descriptor-only report.
+Exports contain one bounded header and at most 13 indexed eight-frame chunks,
+well below the console's 200-record cap. JSON is hex-encoded as ASCII for the
+Max message boundary: directly printing JSON symbols reinterpreted quotes and
+commas in the observed native path. Consumers must decode, verify the trace,
+require every declared chunk exactly once, and check all sample increments
+before using a collected report. Native `js` syntax is checked as ES5 and its
+message handlers are tested with eval-scoped loading, rather than assuming
+modern Node parsing proves Max compatibility.
+
+The report always declares `calibrationOnly: true`, `nativeTiming: UNVERIFIED`
+and `productionReady: false`. It has no filesystem, credentials, network,
+context publication or production prepare/arm access. Source identity/hash,
+independent sample-rate verification, host/source timing and transparent
+pass-through still require separate evidence. Any retained engineering report
+belongs under the documented test artifacts, not the App context database.
+
+The actual guarded-start run retained all 100 windows (10 seconds) with an
+initial silent window; source fire was requested after 106 ms. Both the normal
+and independently generated anti-phase PCM measured stereo peak 0.5. Summing
+the squared native 100 ms RMS windows and normalizing by the known 96,000
+source frames gives **0.24662070585665122**, versus independent whole-fixture
+PCM RMS **0.24665487816027645**: **-0.001203452463732628 dB** error per channel.
+The denominator is the two-second source, not the ten-second padded collection.
+Each run has four separated positive-envelope groups and trailing silence.
+Four selected steady spectral windows per run remain within the two-bin
+tolerance: normal **442.4286824110682-459.9323760696037 Hz**, anti-phase
+**441.71705667354917-459.77766789894224 Hz**. This demonstrates non-cancelled
+spectral analysis of actual opposite-polarity track input, not an internally
+inverted synthetic signal.
+
+The anti-phase and silence sources were imported into previously empty Session
+slots 1 and 2 through the running Live 11 ClipSlot's inspected
+`create_audio_clip` method. Native reads confirmed the exact generated paths;
+looping/warping were disabled and end markers set to two seconds. This is
+engineering setup, not a new advertised agent import or Session-listening tool.
+After the anti-phase run, the silence run retained 100 windows with exactly
+zero peak, RMS, centroid signal and spectral energy. Independent track
+`playing_slot_index` observation changed from -2 to 2 and back to -2 across
+the two-second source. The Clip's `is_playing` property could not be observed
+through `live.observer`; track slot state supplied the separate playback proof.
+These are scheduler-level observations, not sample-accurate launch markers.
+
+An actual cancellation retained 28 contiguous windows and reported
+`cancelled/operator_cancelled` after 2,848 ms rather than presenting a partial
+report as collected. Earlier native syntax/framing failures and a zero-frame
+collection timeout remain failed engineering attempts; they are not acceptance.
+After all runs, analysis was disabled/reset, all six temporary objects and
+their cables removed, and the entire inspected native graph matched this run's
+complete baseline exactly. All three non-looping source clips were independently
+verified no longer playing before the Master fader was restored to 0.85.
+Transport was deliberately not stopped. The current calibration Set retains
+the three generated clips; no saved authored device or User Library asset
+was replaced.
+
+Bounded evidence is in
+`.test-artifacts/listener-calibration-hosted-contiguous-quarter-sine-guarded-start.json`,
+`.test-artifacts/listener-calibration-hosted-contiguous-anti-phase.json`,
+`.test-artifacts/listener-calibration-hosted-contiguous-silence.json` and
+`.test-artifacts/listener-calibration-hosted-cancelled.json`. These results
+establish the narrow continuous level/energy and silence-reset checks. Four
+envelope groups do not certify production attack events. Host/source
+sample/beat alignment, FFT/report offsets, attack timing, transparent
+pass-through, actual Arrangement capture/publication and resource-cost
+acceptance remain open; production readiness is still denied.
+
 Capture boundaries and declared timing uncertainty must remain within one DSP
 vector of independently supplied host coordinates. The verifier must not be
 given start coordinates copied from the observation being tested. These numeric

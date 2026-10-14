@@ -1,0 +1,10 @@
+{
+  "overrides": [
+    {
+      "files": "hosted_calibration_probe.js",
+      "options": {
+        "trailingComma": "es5"
+      }
+    }
+  ]
+}

@@ -75,6 +75,10 @@ Companion specification: [Test Strategy](test-strategy.md)
     without storing project content.
   - [x] Make exact-PID cleanup tolerate process-exit races at the final
     liveness check and when a timed helper process has already exited.
+  - [x] Give computer-use-coordinated UX readiness a bounded 600-second default
+    without changing ordinary 120-second readiness or explicit helper deadlines;
+    disable automatic recovery discard in coordinated startup. Cover successful
+    late readiness, both timeout boundaries and explicit overrides.
   - [ ] Create and publish the canonical Ableton Live test project.
   - [ ] Record real-Live results for Session launch quantization and rollback,
     MIDI/audio duplication compatibility, deletion, and mute/loop property

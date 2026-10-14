@@ -171,6 +171,16 @@ The external driver uses the local stdio MCP adapter only to submit a message.
 Computer-use owns screenshots and visual inspection of the Electron app and
 Ableton Live.
 
+The runner-owned UX host keeps ordinary Remote Script readiness bounded to
+120 seconds. With `pnpm live:ux-host --computer-use`, launch/dialog handling is
+coordinated externally and readiness has a bounded 600-second deadline so a
+manual recovery decision does not silently inherit the ordinary deadline.
+Explicit helper deadlines remain authoritative. Coordinated startup disables
+automatic recovery discard; recovery decisions require the operator's approval.
+Timeouts still fail visibly and clean up only the identity-attested owned
+process. A connected socket or cached snapshot does not establish fresh bridge
+readiness after a Set transition.
+
 ### CLI integration tests
 
 Run the real CLI presentation adapter against fake application services and the

@@ -8,7 +8,8 @@ import { waitForRunnerOwnedLiveReady } from "./lib/live-ux-host.mjs";
 
 const applicationPath =
   process.env.ABLETON_LIVE_APP ?? "/Applications/Ableton Live 11 Suite.app";
-const controller = process.argv.includes("--computer-use")
+const coordinatedStartup = process.argv.includes("--computer-use");
+const controller = coordinatedStartup
   ? createComputerUseLiveController()
   : new LiveProcessController();
 let launched = false;
@@ -25,7 +26,10 @@ try {
   const liveProcess = await controller.launch(applicationPath);
   launched = true;
   console.log(JSON.stringify({ type: "runner.process_owned", liveProcess }));
-  const readiness = await waitForRunnerOwnedLiveReady(controller);
+  const readiness = await waitForRunnerOwnedLiveReady(controller, {
+    coordinatedStartup,
+    discardRecovery: !coordinatedStartup,
+  });
   console.log(
     JSON.stringify({
       ready: true,

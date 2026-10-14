@@ -3,10 +3,11 @@ import { connect } from "node:net";
 export async function waitForRunnerOwnedLiveReady(
   controller,
   {
-    discardRecovery = true,
+    coordinatedStartup = false,
+    discardRecovery = !coordinatedStartup,
     host = "127.0.0.1",
     port = 8765,
-    timeoutMs = 120_000,
+    timeoutMs = coordinatedStartup ? 600_000 : 120_000,
     isReady = () => canConnect(host, port),
     sleep = (milliseconds) =>
       new Promise((resolve) => setTimeout(resolve, milliseconds)),

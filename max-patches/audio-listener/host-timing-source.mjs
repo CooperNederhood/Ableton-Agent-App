@@ -1,14 +1,21 @@
 import { genDocument } from "./native-source.mjs";
 
 // Engineering-only 48 kHz/120 BPM marker; 24,000 samples per beat is not general.
-// No analysis gate or production readiness output.
-export const HOST_TIMING_CODE = `Param epoch(0); Param cancel(0);
+// The standalone marker has no analysis gate or production readiness output.
+export function hostTimingCode({
+  extraState = "",
+  beforeOutputs = "",
+  captureDelay = 0,
+} = {}) {
+  if (captureDelay !== 0 && captureDelay !== 64)
+    throw new Error("unsupported engineering capture delay");
+  return `Param epoch(0); Param cancel(0);
 History seenEpoch(0); History clock(0); History armed(0); History active(0);
 History launchClock(-1); History sourceClock(-1); History onsetCount(0);
 History launchPhaseSamples(-1); History firstSourceClock(-1);
 History rejected(0); History previousPhase(0); History quietSamples(240);
 History stablePhaseSamples(0);
-if (epoch != seenEpoch && epoch != 0) {
+${extraState ? `${extraState}\n` : ""}if (epoch != seenEpoch && epoch != 0) {
   if (epoch > seenEpoch && epoch <= 1000000 && floor(epoch) == epoch) {
     seenEpoch = epoch; clock = 0; armed = 0; active = 0;
     launchClock = -1; sourceClock = -1; onsetCount = 0;
@@ -47,12 +54,15 @@ if (armed > 0 || active > 0) {
 }
 stablePhaseSamples = in1 == previousPhase ? min(128, stablePhaseSamples + 1) : 0;
 if (active > 0 && stablePhaseSamples >= 64) { active = 0; rejected = 3; }
-if (active > 0 && clock - launchClock >= 480000) { active = 0; }
-out1 = seenEpoch; out2 = launchClock; out3 = sourceClock;
+if (active > 0 && ${captureDelay ? "clock - launchClock + launchPhaseSamples >= 480064" : "clock - launchClock >= 480000"}) { active = 0; }
+${beforeOutputs ? `${beforeOutputs}\n` : ""}out1 = seenEpoch; out2 = launchClock; out3 = sourceClock;
 out4 = onsetCount; out5 = rejected; out6 = active;
 out7 = launchPhaseSamples; out8 = firstSourceClock;
 previousPhase = in1;
 clock = clock + 1;`;
+}
+
+export const HOST_TIMING_CODE = hostTimingCode();
 
 export function hostTimingDocument() {
   return genDocument(HOST_TIMING_CODE, 3, 8);

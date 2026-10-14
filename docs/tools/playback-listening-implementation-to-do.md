@@ -288,9 +288,52 @@ Arrangement capture/publication, resume and release acceptance remain open.
 - [x] Observe the three phase/first-input model regressions and updated artifact
   contract failing before the extension, then pass all 149 owning Max tests,
   source/resource isolation, scoped lint/format and paired documentation checks.
-- [ ] Use bounded native pre-roll and signal-rate reset to align real envelope
+- [x] Use bounded native pre-roll and signal-rate reset to align real envelope
   windows to the independently verified origin. Reject unhandled phase/rate/
   vector conditions instead of truncating early input or inventing readiness.
+  Acceptance is the narrow experiment below, not a production adapter.
+
+### Synchronized native envelope subset
+
+- [x] Compose the original envelope fragments with a 64-sample stereo native
+  delay, epoch reset, phase-derived render index, quiet-history/continuity guards
+  and complete 100-window coverage. Preserve the production envelope bytes and
+  standalone marker behavior; exclude the probe from shipped resources.
+- [x] Extend the existing engineering collector with an epoch-bound 13-channel
+  mode, same-packet native arm acknowledgement, traced lifecycle/timing,
+  bounded export, explicit rejection/timeout/cancellation and timer cleanup.
+  Preserve legacy mode; never stop transport as capture cleanup.
+- [x] In actual hosted Live, collect fresh- and held-phase windows with origins
+  `513 - 1 = 512` and `576 - 64 = 512`. Require all 100 stereo descriptors to
+  match between runs, including the input preceding held-phase movement.
+- [x] Retain the original first-window PCM discrepancy rather than widening
+  tolerance. Temporarily place the clip edge in silence using independently
+  read `loop_start = 0.251` seconds, then match all 100 windows to source bytes
+  within `1e-12`; maximum observed error is `5.551115123125783e-17`.
+  The three-burst window sequence and first/last input offsets (11,953/59,953)
+  agree with the phase-derived origin. Restore the original start marker.
+- [x] Exercise actual synchronized cancellation (27 retained windows, 2,741 ms)
+  and playing-arm denial (zero windows/no source request, rejection 1).
+  Read transport still running and all four source clips stopped; restore
+  Master 0.85 and remove all fourteen probes. Assert exact original graph
+  equality: 130 boxes and 150 cables.
+- [x] Check in bounded recorded-native descriptor/lifecycle evidence and source/
+  Gen hashes. Add model coverage for normal/anti-phase/silence, first-sample
+  retention, new epochs and guards; observe two early/boundary regressions fail
+  with a 63-sample tap before restoring the 64-sample implementation.
+- [x] Pass all 171 owning Max tests, production resource isolation, scoped
+  lint/format, paired documentation and knowledge-root checks. Validate/ingest
+  the measured result and limitations in canonical Max knowledge.
+- [ ] Integrate global host anchoring and FFT/reset/report offsets with the
+  actual runtime, exact instance/epoch ownership and App-wide trace/journal
+  events. Verify production attacks and the remaining native source/host matrix
+  before enabling capture; engineering collector events do not complete this.
+
+Actual latest host version is Live 11.3.43, independently read from its bundle;
+the 48 kHz/vector-64 subset does not separately qualify 11.3.42. The export's
+two reserved FFT fields are uncollected placeholders. Production readiness and
+packaging remain unchanged, with no certificate-file bypass. The original
+first-window discrepancy's host-processing mechanism is still unverified.
 
 The earlier unfiltered collection retained only silence and is inconclusive;
 the repeated duplicate-filtered collection contains 33 nonzero records and

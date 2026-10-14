@@ -144,13 +144,13 @@ export function addDevicePreviewRouting(document, { x = 670, y = 240 } = {}) {
   return document;
 }
 
-export const ENVELOPE_CODE = `History n(0);
+export const ENVELOPE_STATE = `History n(0);
 History sumL(0); History sumR(0);
 History peakL(0); History peakR(0);
 History heldL(0); History heldR(0);
 History heldRmsL(0); History heldRmsR(0);
-History completed(0);
-hop = max(1, round(samplerate / 10));
+History completed(0);`;
+export const ENVELOPE_STEP = `hop = max(1, round(samplerate / 10));
 sumL = sumL + in1 * in1; sumR = sumR + in2 * in2;
 peakL = max(peakL, abs(in1)); peakR = max(peakR, abs(in2));
 n = n + 1;
@@ -159,9 +159,10 @@ if (n >= hop) {
  heldRmsL = sqrt(sumL / hop); heldRmsR = sqrt(sumR / hop);
  completed = completed + hop;
  n = 0; sumL = 0; sumR = 0; peakL = 0; peakR = 0;
-}
-out1 = heldL; out2 = heldR; out3 = heldRmsL; out4 = heldRmsR;
+}`;
+export const ENVELOPE_OUTPUT = `out1 = heldL; out2 = heldR; out3 = heldRmsL; out4 = heldRmsR;
 out5 = completed;`;
+export const ENVELOPE_CODE = `${ENVELOPE_STATE}\n${ENVELOPE_STEP}\n${ENVELOPE_OUTPUT}`;
 
 export const SPECTRUM_CODE = `Param sourceSampleRate(48000);
 History energy(0); History weighted(0);

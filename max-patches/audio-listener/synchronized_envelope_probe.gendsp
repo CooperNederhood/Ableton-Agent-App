@@ -1,0 +1,470 @@
+{
+  "patcher": {
+    "fileversion": 1,
+    "appversion": {
+      "major": 8,
+      "minor": 5,
+      "revision": 5,
+      "architecture": "x64",
+      "modernui": 1
+    },
+    "classnamespace": "dsp.gen",
+    "rect": [
+      0,
+      0,
+      800,
+      380
+    ],
+    "boxes": [
+      {
+        "box": {
+          "id": "code",
+          "maxclass": "codebox",
+          "code": "Param epoch(0); Param cancel(0);\nHistory seenEpoch(0); History clock(0); History armed(0); History active(0);\nHistory launchClock(-1); History sourceClock(-1); History onsetCount(0);\nHistory launchPhaseSamples(-1); History firstSourceClock(-1);\nHistory rejected(0); History previousPhase(0); History quietSamples(240);\nHistory stablePhaseSamples(0);\nHistory n(0);\nHistory sumL(0); History sumR(0);\nHistory peakL(0); History peakR(0);\nHistory heldL(0); History heldR(0);\nHistory heldRmsL(0); History heldRmsR(0);\nHistory completed(0);\nHistory envelopeEpoch(0); History preQuiet(0);\nDelay preL(64); Delay preR(64);\nnewRequest = epoch != seenEpoch && epoch != 0;\ndelayedL = preL.read(64); delayedR = preR.read(64);\npreL.write(in2); preR.write(in3);\nif (epoch != seenEpoch && epoch != 0) {\n  if (epoch > seenEpoch && epoch <= 1000000 && floor(epoch) == epoch) {\n    seenEpoch = epoch; clock = 0; armed = 0; active = 0;\n    launchClock = -1; sourceClock = -1; onsetCount = 0;\n    launchPhaseSamples = -1; firstSourceClock = -1;\n    quietSamples = 240; rejected = 0;\n    if (in1 != previousPhase || stablePhaseSamples < 64) { rejected = 1; }\n    else if (abs(in2) + abs(in3) > 0.000000000001) { rejected = 8; }\n    else { armed = 1; }\n  } else { armed = 0; active = 0; rejected = 6; }\n}\nif (epoch == 0) { armed = 0; active = 0; }\nif (seenEpoch > 0 && samplerate != 48000) {\n  armed = 0; active = 0; rejected = 5;\n}\nif (cancel > 0 && (armed > 0 || active > 0)) {\n  armed = 0; active = 0; rejected = 4;\n}\nif (armed > 0 && clock >= 480000) {\n  armed = 0; rejected = 2;\n}\nif (armed > 0 && in1 != previousPhase) {\n  launchClock = clock; armed = 0; active = 1;\n  launchPhaseSamples = round(in1 * 24000);\n}\nif (armed > 0 || active > 0) {\n  hasInput = abs(in2) + abs(in3) > 0.000000000001;\n  if (hasInput) {\n    if (quietSamples >= 240) {\n      sourceClock = clock;\n      if (onsetCount == 0) { firstSourceClock = clock; }\n      onsetCount = onsetCount + 1;\n      if (onsetCount > 8) { armed = 0; active = 0; rejected = 7; }\n    }\n    quietSamples = 0;\n  } else { quietSamples = min(240, quietSamples + 1); }\n}\nstablePhaseSamples = in1 == previousPhase ? min(128, stablePhaseSamples + 1) : 0;\nif (active > 0 && stablePhaseSamples >= 64) { active = 0; rejected = 3; }\nif (active > 0 && clock - launchClock + launchPhaseSamples >= 480064) { active = 0; }\nif (envelopeEpoch != seenEpoch) {\n  envelopeEpoch = seenEpoch; n = 0; sumL = 0; sumR = 0; peakL = 0; peakR = 0; heldL = 0; heldR = 0; heldRmsL = 0; heldRmsR = 0; completed = 0;\n}\nif (newRequest && (armed > 0 || active > 0) && preQuiet < 64) {\n  armed = 0; active = 0; rejected = 10;\n}\norigin = launchClock - launchPhaseSamples;\nif (active > 0 && (launchPhaseSamples < 0 || launchPhaseSamples > 64 || origin < 0)) {\n  active = 0; rejected = 9;\n}\nrenderIndex = clock - origin - 64;\nif (active > 0 && renderIndex >= 0 && renderIndex < 480000) {\n  if (renderIndex != completed + n) { active = 0; rejected = 11; }\n  else {\nhop = max(1, round(samplerate / 10));\nsumL = sumL + delayedL * delayedL; sumR = sumR + delayedR * delayedR;\npeakL = max(peakL, abs(delayedL)); peakR = max(peakR, abs(delayedR));\nn = n + 1;\nif (n >= hop) {\n heldL = peakL; heldR = peakR;\n heldRmsL = sqrt(sumL / hop); heldRmsR = sqrt(sumR / hop);\n completed = completed + hop;\n n = 0; sumL = 0; sumR = 0; peakL = 0; peakR = 0;\n}\n  }\n}\npreQuiet = abs(in2) + abs(in3) <= 0.000000000001 ? min(64, preQuiet + 1) : 0;\nout9 = heldL; out10 = heldR; out11 = heldRmsL; out12 = heldRmsR;\nout13 = completed;\nout1 = seenEpoch; out2 = launchClock; out3 = sourceClock;\nout4 = onsetCount; out5 = rejected; out6 = active;\nout7 = launchPhaseSamples; out8 = firstSourceClock;\npreviousPhase = in1;\nclock = clock + 1;",
+          "numinlets": 3,
+          "numoutlets": 13,
+          "patching_rect": [
+            100,
+            50,
+            580,
+            240
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "in0",
+          "maxclass": "newobj",
+          "text": "in 1",
+          "numinlets": 0,
+          "numoutlets": 1,
+          "patching_rect": [
+            10,
+            20,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "in1",
+          "maxclass": "newobj",
+          "text": "in 2",
+          "numinlets": 0,
+          "numoutlets": 1,
+          "patching_rect": [
+            10,
+            55,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "in2",
+          "maxclass": "newobj",
+          "text": "in 3",
+          "numinlets": 0,
+          "numoutlets": 1,
+          "patching_rect": [
+            10,
+            90,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out0",
+          "maxclass": "newobj",
+          "text": "out 1",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            20,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out1",
+          "maxclass": "newobj",
+          "text": "out 2",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            45,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out2",
+          "maxclass": "newobj",
+          "text": "out 3",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            70,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out3",
+          "maxclass": "newobj",
+          "text": "out 4",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            95,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out4",
+          "maxclass": "newobj",
+          "text": "out 5",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            120,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out5",
+          "maxclass": "newobj",
+          "text": "out 6",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            145,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out6",
+          "maxclass": "newobj",
+          "text": "out 7",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            170,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out7",
+          "maxclass": "newobj",
+          "text": "out 8",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            195,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out8",
+          "maxclass": "newobj",
+          "text": "out 9",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            220,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out9",
+          "maxclass": "newobj",
+          "text": "out 10",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            245,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out10",
+          "maxclass": "newobj",
+          "text": "out 11",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            270,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out11",
+          "maxclass": "newobj",
+          "text": "out 12",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            295,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out12",
+          "maxclass": "newobj",
+          "text": "out 13",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            320,
+            60,
+            22
+          ]
+        }
+      }
+    ],
+    "lines": [
+      {
+        "patchline": {
+          "source": [
+            "in0",
+            0
+          ],
+          "destination": [
+            "code",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "in1",
+            0
+          ],
+          "destination": [
+            "code",
+            1
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "in2",
+            0
+          ],
+          "destination": [
+            "code",
+            2
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            0
+          ],
+          "destination": [
+            "out0",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            1
+          ],
+          "destination": [
+            "out1",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            2
+          ],
+          "destination": [
+            "out2",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            3
+          ],
+          "destination": [
+            "out3",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            4
+          ],
+          "destination": [
+            "out4",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            5
+          ],
+          "destination": [
+            "out5",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            6
+          ],
+          "destination": [
+            "out6",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            7
+          ],
+          "destination": [
+            "out7",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            8
+          ],
+          "destination": [
+            "out8",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            9
+          ],
+          "destination": [
+            "out9",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            10
+          ],
+          "destination": [
+            "out10",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            11
+          ],
+          "destination": [
+            "out11",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            12
+          ],
+          "destination": [
+            "out12",
+            0
+          ]
+        }
+      }
+    ]
+  }
+}

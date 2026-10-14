@@ -18,8 +18,8 @@ candidate at `bf61bc3` on `14 Audio` retained its initial flag but reported
 `editor_preview_blocked` with the editor closed, preventing discovery. The
 approved prototype now removes that unverified flag as a registration
 requirement; automatic editor isolation is deferred and the editor must stay
-closed during hosted-device commissioning. Actual registration with this
-replacement still needs isolated Live validation. Authentication,
+closed during hosted-device commissioning. Actual hosted registration and
+reconnect passed; the native envelope follow-up is recorded below. Authentication,
 duplicate-listener protection, exact identity/epoch ownership, production timing
 denial and safe transport cleanup remain mandatory.
 
@@ -824,9 +824,81 @@ and no new Set clip, AMXD replacement or User Library update was made.
 Bounded numeric evidence, the timeout and source/probe hashes are retained in
 `.test-artifacts/listener-calibration-native-origin.json`.
 
-Next, implement and independently verify bounded one-vector native pre-roll
-and signal-rate envelope reset using the phase-derived origin. Early audio
-must remain available until phase movement is observed; do not gate it away
-and retroactively relabel truncated descriptors. Global host-coordinate
-anchoring, FFT/report offsets, application-owned capture lifecycle/trace,
-publication/resume and release acceptance still remain open.
+### Synchronized native envelope pre-roll
+
+The engineering-only `synchronized_envelope_probe.gendsp` composes the same
+envelope accumulation/output fragments as the original analyzer with the
+phase-derived marker. The generated production envelope remains byte-identical.
+Two native 64-sample `Delay` buffers retain stereo input until host phase
+movement is observed. A valid new epoch resets envelope state at signal rate;
+accumulation uses `clock - origin - 64`, requires exact counter continuity,
+and retains all 100 windows, including the final delayed window. Sample labels
+remain origin-relative multiples of 4,800, not scheduler delivery times.
+Require 64 quiet samples before arm. Reject invalid inferred phase/origin,
+insufficient pre-roll history or a discontinuous render index. Rate is checked
+inside Gen; vector 64 is independently preflighted/postchecked, not intrinsically
+certified by the Gen routine.
+
+The existing bounded engineering collector now has a separate
+`start_synchronized runner-owned <trace UUID> <native epoch>` mode. Its
+13-channel packet contains the completed counter, exact epoch, phase/source
+markers, rejection/active state and stereo peak/RMS. It starts the Song only
+after a same-packet native epoch/reset acknowledgement. Use an explicitly
+float-typed `pack`: JSON `0.0` became integer zero and would truncate RMS.
+Fractional initial atoms establish float typing; they must be overwritten before
+the hot counter outlet emits a valid packet. Changed duplicate descriptors,
+gaps, invalid packets, foreign epochs and bounded arm/collection timeouts fail
+explicitly. Terminal cleanup disarms the native epoch without stopping playback.
+Deletion cancels the collector's owned timer. Existing legacy collection remains
+covered. Reports retain bounded lifecycle timing and trace/correlation/causation
+IDs; this is not proof of application-wide journal/trace propagation.
+
+Actual hosted results on Live **11.3.43**, 48 kHz/vector 64, 120 BPM and stopped
+Arrangement beat-zero setup:
+
+| Run | Phase-change clock / phase samples | Origin | Result |
+| --- | --- | --- | --- |
+| Fresh phase, epoch 1 | 513 / 1 | 512 | 100 windows, four source onsets. |
+| Held phase, epoch 2 | 576 / 64 | 512 | All 100 stereo windows exactly equal the fresh run, including the first window. |
+| Silent clip edge, epoch 3 | 576 / 64 | 512 | All 100 windows match independent PCM within `1e-12` absolute; maximum observed difference `5.551115123125783e-17`. |
+| Operator cancellation, epoch 4 | 576 / 64 | 512 | Cancelled at 2,741 ms, retaining 27 windows exactly equal to the original run's prefix. |
+| Arm while playing, epoch 5 | No launch | None | Failed with native rejection 1 after 9 ms, zero frames and no source-start request. |
+
+The original source's first-window RMS is `0.34713641522274874`, versus raw-file
+PCM `0.3476300464841661`; the other 99 windows match the independent reference.
+Do not call that a full raw-file pass or widen tolerance. To isolate the edge,
+the stopped Arrangement clip's unwarped `loop_start` was temporarily set to
+0.251 seconds (12,048 source samples), placing its initial edge in silence and
+retaining three later bursts. Readback confirmed start marker 0.251, Arrangement
+start 0 and end 4 beats. Setting `start_marker` alone had left it at zero in this
+host; the readback, not the setter acknowledgement, determined the fixture.
+Independent bytes predict first nonzero input at relative sample 11,953; native
+clock 12,465 minus origin 512 matches exactly. The exact host processing behind
+the original edge discrepancy remains unverified; this experiment does not
+claim to disable or characterize Live fades.
+
+Bounded processed native evidence, including cancellation/denial lifecycle and
+the original discrepancy, is checked into
+`max-patches/audio-listener/fixtures/synchronized-native-envelope.json`.
+Consecutive peak/RMS rows plus an exact zero-tail count encode the verified
+windows without audio. Replays bind the source and generated Gen hashes and
+check the independent PCM, phase offsets, terminal ordering and trace chains.
+A 63-sample-tap mutation fails the sample-zero and source-offset regressions;
+the latter detects a one-sample error that periodic zero-crossing fixtures
+alone can miss. The test-only Gen interpreter remains neither a Max compiler
+nor an independent native timing oracle.
+
+The fixture's start marker was restored to zero; all four source clips were
+read stopped before restoring Master 0.85. All fourteen temporary objects were
+disarmed/removed and the entire original 130-box/150-cable graph restored
+exactly. Postchecks retained DSP 48 kHz/vector 64, host flags 31, tempo 120,
+loop/record off and running transport. No clip was added/deleted, temporary
+AMXD saved, authored resource promoted or User Library updated.
+
+This passes the bounded local-origin envelope experiment only. The two reserved
+FFT fields in its seven-field export are zero placeholders, **not collected
+spectral data**. Global host anchoring, FFT/report/reset alignment, full native
+source coverage, actual App capture/publication/resume, pass-through/resource
+cost and portable release remain open. The installed host was independently
+read as 11.3.43; this is not a separate 11.3.42 qualification. Production has no
+certificate-file loader, remains timing-denied, and does not package this probe.

@@ -289,6 +289,19 @@ false`. An attempted seek or continue remains indeterminate on failure and
 never restores position or stops playback. This does not prove the physical
 effect of a redundant setter or upgrade the unverified onset acknowledgement.
 
+Live 11 may omit Track `back_to_arranger`. Inspection and source guards share
+one conservative proof: a playing Session slot or explicit track override wins;
+otherwise an explicit clear track flag or Arrangement-playing sentinel `-2`
+establishes no override. With an unavailable track flag and idle sentinel `-1`,
+only independently known `Song.back_to_arranger == False` and
+`fired_slot_index == -1` establish no override. Unknown global/fired state
+cannot authorize that fallback. Start still requires every regular track idle;
+independent post-start verification additionally permits Arrangement sentinel
+`-2`, while retaining clear global override, no pending launches, recording and
+all other guards. Canonical `Song.overdub` must be a known false boolean; an
+absent optional `arrangement_overdub` alias is not required, but an unreadable,
+unknown or true alias still denies execution.
+
 The separate `Audio-Listener-Commissioning.maxpat` harness feeds independent PCM
 through the exact production native analysis resources without the production
 client, credentials, context repository or preparation API. Its bounded
@@ -1323,9 +1336,27 @@ The adapter now projects only `startBeat`/`endBeat` at that boundary; it does no
 weaken the protocol or any recording/readiness guard. The focused regression
 reproduces the exact real error before the fix; all host fixture inspections
 and native source-start calls now parse their actual strict protocol schemas.
-The complete 52-test host suite passes. The running Desktop still needs the
-corrected runtime loaded before a new real attempt; no audio acceptance follows
-from this fix alone.
+The complete 52-test host suite passes. The operator restarted Desktop with the
+corrected runtime; no audio acceptance follows from this fix alone.
+
+Two further candidate-only attempts published no context. Pass
+`09cb72d7-ab14-4e64-ac3c-6b37c871f506` failed after 1416 ms with
+`transport_not_safe_to_start`; actual Automation Arm was enabled. After explicit
+calibration setup cleared that flag and returned the stopped transport to beat
+zero, pass `bb436511-62b2-448c-b3f4-fa6a9b7f6bb1` failed after 1657 ms with
+`arrangement_source_unknown`. Actual typed reads establish the target track's
+override property unavailable and the global flag false. This error denotes
+unknown override evidence, not proof that Arrangement clips are absent.
+
+Regressions reproduce the missing-track-field and Arrangement-sentinel failures
+before the Live 11 guard fix. Canonical overdub without the optional alias is
+also covered, but absence of that Python alias has not been measured in the
+actual host. The full 200-test Python suite and 137 protocol/simulator bridge
+tests pass, followed by 679 broader owning TypeScript tests. Simulator source
+start now omits the synthetic optional overdub
+alias and reports actual Arrangement-playing slot semantics. Fresh Python
+requires a new owned Live process. Native arm, capture and context publication
+remain unaccepted until a new actual pass establishes them.
 
 `NativeCaptureController` composes the actual signal engine and bounded native
 assembler. `prepare` only validates/freezes eligibility with a bounded

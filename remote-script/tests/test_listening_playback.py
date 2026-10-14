@@ -103,6 +103,54 @@ class ListeningPlaybackTest(unittest.TestCase):
             stop_listening_playback(self.context, STOP)
         self.assertTrue(self.song.is_playing)
 
+    def test_live11_missing_track_override_and_playing_arrangement_sentinel(self):
+        track = self.song.tracks[0]
+        del track.back_to_arranger
+        def start():
+            self.calls.append(("start", self.song.current_song_time))
+            self.song.is_playing = True
+            track.playing_slot_index = -2
+        self.song.start_playing = start
+        result = start_listening_playback(self.context, self.params)
+        self.assertEqual(result["sourceOnset"], "unverified")
+        self.assertEqual(result["cleanupPolicy"], "leave-running")
+        self.assertEqual(self.calls, [("start", 0)])
+        self.assertTrue(self.song.is_playing)
+
+    def test_live11_canonical_overdub_without_optional_alias_is_supported(self):
+        del self.song.arrangement_overdub
+        self.assertTrue(guarded_arrangement_start_supported(self.song))
+        result = start_listening_playback(self.context, self.params)
+        self.assertEqual(result["sourceOnset"], "unverified")
+        self.assertEqual(self.calls, [("start", 0)])
+
+    def test_live11_fallback_still_rejects_a_session_launch_after_start(self):
+        track = self.song.tracks[0]
+        del track.back_to_arranger
+        def start():
+            self.calls.append(("start", self.song.current_song_time))
+            self.song.is_playing = True
+            track.playing_slot_index = 0
+        self.song.start_playing = start
+        with self.assertRaises(ProtocolFailure) as raised:
+            start_listening_playback(self.context, self.params)
+        self.assertEqual(self.calls, [("start", 0)])
+        self.assertTrue(self.song.is_playing)
+        self.assertEqual(raised.exception.details["mutationState"], "indeterminate")
+        self.assertEqual(raised.exception.details["cleanupPolicy"], "leave-running")
+
+    def test_unreadable_optional_overdub_alias_is_not_treated_as_absent(self):
+        class UnreadableAlias(types.SimpleNamespace):
+            def __getattribute__(song, field):
+                if field == "arrangement_overdub":
+                    raise RuntimeError("unavailable LOM property")
+                return super(UnreadableAlias, song).__getattribute__(field)
+        self.context.song = UnreadableAlias(**vars(self.song))
+        self.assertFalse(guarded_arrangement_start_supported(self.context.song))
+        with self.assertRaises(ProtocolFailure):
+            start_listening_playback(self.context, self.params)
+        self.assertEqual(self.calls, [])
+
     def test_already_at_start_does_not_seek_or_retrigger_an_armed_native_phase(self):
         writes = []
         class PhaseSensitiveSong(types.SimpleNamespace):

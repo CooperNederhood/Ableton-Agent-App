@@ -578,9 +578,18 @@ checkpoint above. The production timing gate is unchanged.
   native controls or publication. Project only beat bounds into bridge range;
   require strict request parsing in all host inspection fixtures and native
   source-start fixtures. Focused regression fails before fix; 52 host tests pass.
-- [ ] Reload the corrected App runtime and repeat the exact candidate-only
-  beats 0-4 capture. Retain the failed 396 ms pass and empty publication as
-  non-acceptance evidence; do not reinterpret it as measured audio.
+- [x] Reload the corrected App runtime and repeat candidate-only beats 0-4.
+  Retain the 396 ms range failure, 1416 ms recording-state denial and 1657 ms
+  unknown-override denial with empty publication. Actual track override is
+  unavailable and global override false; this is not absent-clip evidence.
+- [x] Share conservative Live 11 override evidence between inspection and
+  mutation guards. Require clear global state and both idle slots when the
+  track flag is unavailable; accept Arrangement `-2` only after source start.
+  Require canonical overdub, treat only an absent optional alias as optional,
+  and deny unreadable/unknown/contradictory recording evidence. Reproduce
+  failures before fix; pass 200 Python, 137 protocol/simulator bridge and 679
+  broader owning TypeScript tests.
+  Actual Python alias absence remains unqualified.
 - [x] Compose the actual controller/engine/assembler with N4M and native graph;
   observe genuine reset ACK and launch, then independently validate their
   origin in the App protocol without claiming authenticated wire acceptance.
@@ -625,8 +634,9 @@ checkpoint above. The production timing gate is unchanged.
   missing/failed scheduling and post-start recording changes at Python and
   simulator-backed bridge boundaries; preserve all original guards.
 - [ ] Qualify the freshly installed Python path against runner-owned Live.
+  Restart the owned process before retesting the corrected Live 11 guards.
   Max native onset/source-start evidence does not establish Python API
-  availability, especially Track `back_to_arranger`, or permit weaker guards.
+  availability or permit weaker guards; preserve the saved calibration Set.
 - [x] Contrast actual marker-zero Max `start_playing` with the prior continue
   behavior: observed running beat12.866375 after6.460 seconds, not the old
   stop above13931. Preserve unchanged marker, exact one-helper cleanup and

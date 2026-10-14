@@ -203,6 +203,21 @@ def _boolean(obj, name):
     return value if isinstance(value, bool) else None
 
 
+def _session_override(song, track):
+    index = _read(track, "playing_slot_index")
+    back = _boolean(track, "back_to_arranger")
+    if _integer(index, 0) or back is True:
+        return True
+    if index == -2 or back is False:
+        return False
+    # Live 11 can omit the per-track flag; a known clear global flag and
+    # independently idle playing/fired slots still prove no Session override.
+    if (index == -1 and _read(track, "fired_slot_index") == -1
+            and _boolean(song, "back_to_arranger") is False):
+        return False
+    return None
+
+
 def _beat(obj, name):
     value = _read(obj, name)
     return value if _number(value, 0, MAX_BEATS) else None
@@ -308,12 +323,7 @@ def _listener(context, target, params, transport):
     # Downstream devices do not affect a known top-level tap.
     dependencies_truncated = dependencies_truncated or len(upstream) != target["deviceIndex"] + 1
     index = _read(track, "playing_slot_index")
-    back = _boolean(track, "back_to_arranger")
-    override = (
-        True if _integer(index, 0) or back is True
-        else False if index == -2 or back is False
-        else None
-    )
+    override = _session_override(context.song, track)
     clips = []
     truncated = False
     max_clips = params.get("maxClips", 32)

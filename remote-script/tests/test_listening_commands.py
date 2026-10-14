@@ -99,6 +99,31 @@ class ListeningCommandsTest(unittest.TestCase):
         self.track.back_to_arranger = True
         self.assertEqual(self.inspect()["listeners"][0]["clips"][-1]["activity"], "inactive")
 
+    def test_missing_track_override_requires_independent_global_and_idle_slot_evidence(self):
+        del self.track.back_to_arranger
+        self.track.playing_slot_index = -1
+        self.track.fired_slot_index = -1
+        self.song.back_to_arranger = False
+        self.assertIs(self.inspect()["listeners"][0]["sessionOverride"], False)
+        for field, value in (
+            ("back_to_arranger", True), ("back_to_arranger", None),
+        ):
+            setattr(self.song, field, value)
+            self.assertIsNone(self.inspect()["listeners"][0]["sessionOverride"])
+        self.song.back_to_arranger = False
+        for value in (None, 0, -2):
+            self.track.fired_slot_index = value
+            self.assertIsNone(self.inspect()["listeners"][0]["sessionOverride"])
+        self.track.fired_slot_index = -1
+        self.track.clip_slots = [types.SimpleNamespace(
+            has_clip=True, clip=audio_clip("Session"),
+        )]
+        self.track.playing_slot_index = 0
+        self.assertIs(self.inspect()["listeners"][0]["sessionOverride"], True)
+        self.track.playing_slot_index = -1
+        self.track.back_to_arranger = True
+        self.assertIs(self.inspect()["listeners"][0]["sessionOverride"], True)
+
     def test_recording_or_unknown_flags_and_clip_state_fail_closed(self):
         for field in ("record_mode", "session_record", "overdub", "session_automation_record"):
             setattr(self.song, field, True)

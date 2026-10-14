@@ -6,7 +6,9 @@ from .core_domain_commands import (
 from .errors import ProtocolFailure
 from .executor import DeferredResult
 from .identity import build_live_identity
-from .listening_commands import inspect_listening_context, _placement_collection
+from .listening_commands import (
+    inspect_listening_context, _placement_collection, _session_override,
+)
 from .system_commands import _safe_lom_getattr
 
 OWNERSHIP_LIMITATION = (
@@ -24,13 +26,28 @@ START_LIMITATION = (
 )
 
 
+def _overdub_state(song):
+    canonical = _safe_lom_getattr(song, "overdub")
+    if not isinstance(canonical, bool):
+        return None
+    try:
+        alias = getattr(song, "arrangement_overdub")
+    except AttributeError:
+        return canonical
+    except RuntimeError:
+        return None
+    if not isinstance(alias, bool):
+        return None
+    return canonical or alias
+
+
 def guarded_arrangement_start_supported(song):
     return (
         callable(_safe_lom_getattr(song, "start_playing"))
+        and _overdub_state(song) is not None
         and all(_safe_lom_getattr(song, field) is not None for field in (
             "current_song_time", "start_time", "is_playing", "loop", "back_to_arranger",
-            "record_mode", "session_record", "arrangement_overdub",
-            "session_automation_record",
+            "record_mode", "session_record", "session_automation_record",
         ))
     )
 
@@ -46,22 +63,21 @@ def _transport_guards(context, params, identity_builder, check_revision=True,
         raise ProtocolFailure("conflict", "Listening transport state is unsafe or unknown",
                               details={"reason": "unsafe_or_unknown_is_playing", "mutated": False})
     for field in (
-        "record_mode", "session_record", "arrangement_overdub",
+        "record_mode", "session_record",
         "session_automation_record", "loop", "back_to_arranger",
     ):
         value = _safe_lom_getattr(song, field)
         if value is not False:
             raise ProtocolFailure("conflict", "Listening requires known stopped/recording-off/Arrangement state",
                                   details={"reason": "unsafe_or_unknown_" + field, "mutated": False})
-    # Legacy MIDI-overdub alias must not hide a contradictory recording flag.
-    alias = _safe_lom_getattr(song, "overdub", False)
-    if alias is not False:
+    if _overdub_state(song) is not False:
         raise ProtocolFailure("conflict", "Listening overdub state is unsafe or unknown")
     if not _number(_safe_lom_getattr(song, "current_song_time"), 0, 1576800):
         raise ProtocolFailure("unsupported_capability", "Listening position is unknown")
+    allowed_slots = (-1, -2) if expected_playing else (-1,)
     for track in _placement_collection(song, "tracks", 256):
-        if (_safe_lom_getattr(track, "back_to_arranger") is not False
-                or _safe_lom_getattr(track, "playing_slot_index") != -1
+        if (_session_override(song, track) is not False
+                or _safe_lom_getattr(track, "playing_slot_index") not in allowed_slots
                 or _safe_lom_getattr(track, "fired_slot_index") != -1):
             raise ProtocolFailure("conflict", "Session source override or pending launch is unsupported")
 

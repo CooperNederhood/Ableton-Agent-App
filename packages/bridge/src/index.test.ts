@@ -220,15 +220,13 @@ describe("AbletonBridgeService", () => {
       expect(afterSessionCount).toBe(afterStartCount + 1);
       expect(requests).toHaveLength(afterSessionCount);
       expect(requests).not.toContain("transport.set_playing");
-      expect(
-        (
-          await service.inspectListeningContext({
-            schemaVersion: 1,
-            listeners: [context.listeners[0]!.binding],
-            range: { startBeat: 0, endBeat: 8 },
-          })
-        ).transport.playing,
-      ).toBe(true);
+      const running = await service.inspectListeningContext({
+        schemaVersion: 1,
+        listeners: [context.listeners[0]!.binding],
+        range: { startBeat: 0, endBeat: 8 },
+      });
+      expect(running.transport.playing).toBe(true);
+      expect(running.listeners[0]?.sessionOverride).toBe(false);
     } finally {
       unregisterCorrelationContext("guarded-start");
       await service.stop();

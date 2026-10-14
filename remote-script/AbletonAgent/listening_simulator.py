@@ -91,7 +91,6 @@ def build_listening_simulator_context(state):
         record_mode=state.recording_state["arrangementRecord"],
         session_record=state.recording_state["sessionRecord"],
         overdub=state.recording_state["overdub"],
-        arrangement_overdub=state.recording_state["overdub"],
         session_automation_record=state.recording_state["sessionAutomationRecord"],
         loop=state.loop_enabled, back_to_arranger=state.back_to_arrangement,
     )
@@ -100,6 +99,10 @@ def build_listening_simulator_context(state):
         context.song.current_song_time = state.current_song_time
         state.is_playing = True
         context.song.is_playing = True
+        for item in context.song.tracks:
+            if any(clip.start_time <= state.current_song_time < clip.end_time
+                   for clip in item.arrangement_clips):
+                item.playing_slot_index = -2
     context.song.start_playing = start_playing
     for key, entries in references.items():
         setattr(context, key, entries)

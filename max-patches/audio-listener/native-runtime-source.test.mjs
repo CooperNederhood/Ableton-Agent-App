@@ -55,13 +55,17 @@ test("opt-in authored native composition preserves the existing client, presenta
     box.text?.startsWith("node.script "),
   ).box;
   node.varname = "ml_runtime";
+  const guard = authored.patcher.boxes.find(
+    ({ box }) => box.text === "js audio_listener_guard.js",
+  ).box;
+  guard.varname = "ml_guard";
   const original = JSON.stringify(authored);
   const native = appendNativeRuntimeGraph(authored, {
     runtimeEntry: "audio_listener_native_max.js",
   });
   assert.equal(JSON.stringify(authored), original);
   assert.equal(native.patcher.boxes.length, authored.patcher.boxes.length + 5);
-  assert.equal(native.patcher.lines.length, authored.patcher.lines.length + 10);
+  assert.equal(native.patcher.lines.length, authored.patcher.lines.length + 13);
   for (const { box: before } of authored.patcher.boxes) {
     const after = boxes(native).get(before.id);
     assert.deepEqual(
@@ -111,6 +115,23 @@ test("opt-in authored native composition preserves the existing client, presenta
   );
   assert.ok(connected(native, "scoped-native-clock", 1, node.id));
   assert.ok(connected(native, "scoped-native-analysis", 1, node.id));
+  assert.ok(connected(native, "scoped-native-control", 0, guard.id));
+  assert.ok(connected(native, guard.id, 2, "scoped-native-clock"));
+  assert.ok(connected(native, guard.id, 2, "scoped-native-analysis"));
+  assert.deepEqual(
+    native.patcher.lines
+      .filter(
+        ({ patchline }) =>
+          patchline.source[0] === "scoped-native-control" &&
+          patchline.source[1] === 0,
+      )
+      .map(({ patchline }) => [patchline.destination[0], patchline.order]),
+    [
+      ["scoped-native-clock", 0],
+      ["scoped-native-analysis", 1],
+      [guard.id, 2],
+    ],
+  );
   assert.throws(
     () => appendNativeRuntimeGraph(authored),
     /native_runtime_entry_required/,

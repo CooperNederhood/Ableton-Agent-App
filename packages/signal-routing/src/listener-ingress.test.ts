@@ -310,6 +310,8 @@ describe("shared authenticated listener ingress", () => {
           eventId: firstId,
           causationId: context.causationId,
           stage: "queued",
+          phase: "preflight",
+          generation: "66666666-6666-4666-8666-666666666666",
           nativeEpoch: 1,
           elapsedMs: 0,
           frames: 0,
@@ -325,6 +327,8 @@ describe("shared authenticated listener ingress", () => {
           eventId: secondId,
           causationId: firstId,
           stage: "started",
+          phase: "capture",
+          generation: "66666666-6666-4666-8666-666666666666",
           nativeEpoch: 1,
           elapsedMs: 12,
           frames: 0,
@@ -358,7 +362,7 @@ describe("shared authenticated listener ingress", () => {
       scope: NATIVE_LISTENER_SCOPE,
     });
     expect(native.map((event) => event.name)).toEqual([
-      "output.listener.native.queued",
+      "output.listener.native.preflight.queued",
       "output.listener.native.started",
     ]);
     expect(native[0]!.id).not.toBe(firstId);
@@ -371,6 +375,8 @@ describe("shared authenticated listener ingress", () => {
         producerId: "audio",
         instanceId: "audio-instance",
         nativeEpoch: 1,
+        phase: "capture",
+        generation: "66666666-6666-4666-8666-666666666666",
       },
     });
     expect(

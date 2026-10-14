@@ -486,7 +486,11 @@ export class SignalIngressServer implements ListenerService {
         );
       recordSignalTelemetry(this.#options.telemetry, {
         id: key(native.eventId),
-        name: `output.listener.native.${native.stage}`,
+        name: `output.listener.native.${
+          native.phase !== undefined && native.phase !== "capture"
+            ? `${native.phase}.`
+            : ""
+        }${native.stage}`,
         source: "output-ingress",
         correlationId: message.correlationId,
         causationId:

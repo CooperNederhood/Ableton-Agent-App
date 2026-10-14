@@ -189,12 +189,22 @@ describe("independent native listener evidence", () => {
       frames: 0,
     };
     expect(nativeListenerLifecycleSchema.parse(event)).toEqual(event);
+    for (const phase of ["preflight", "reset", "capture"]) {
+      const scoped = {
+        ...event,
+        phase,
+        generation: "22222222-2222-4222-8222-222222222222",
+      };
+      expect(nativeListenerLifecycleSchema.parse(scoped)).toEqual(scoped);
+    }
     for (const patch of [
       { rawAudio: [1, 2, 3] },
       { reason: "unbounded external error: password=secret" },
       { frames: 101 },
       { nativeEpoch: 1000001 },
       { elapsedMs: Infinity },
+      { phase: "arbitrary" },
+      { generation: "not-a-native-generation" },
     ])
       expect(
         nativeListenerLifecycleSchema.safeParse({ ...event, ...patch }).success,

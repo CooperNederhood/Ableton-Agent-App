@@ -130,6 +130,8 @@ export type NativeCaptureProof = z.infer<typeof nativeCaptureProofSchema>;
 export const nativeListenerLifecycleSchema = z.strictObject({
   eventId: z.string().uuid(),
   causationId: z.string().min(1).max(128),
+  phase: z.enum(["preflight", "reset", "capture"]).optional(),
+  generation: z.string().uuid().optional(),
   stage: z.enum([
     "queued",
     "started",

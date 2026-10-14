@@ -10,6 +10,7 @@ import {
   prepareAuthoredDevice,
   SOURCE_DIRECTORY,
   ALL_RESOURCES,
+  NATIVE_CANDIDATE_RESOURCES,
 } from "../../scripts/audio-listener-device.mjs";
 import { decodeAmxd, encodeAmxd } from "../../scripts/max-device-publisher.mjs";
 
@@ -67,6 +68,72 @@ function fixture() {
   ];
   return d;
 }
+
+test("native candidate stages the authored UI and one SDK client with hashed relative native resources", async (t) => {
+  const dir = await mkdtemp(join(SOURCE_DIRECTORY, ".native-authored-test-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const source = join(SOURCE_DIRECTORY, "Machine-Listening-Development.amxd");
+  const before = await readFile(source);
+  const out = join(dir, "candidate");
+  const events = [];
+  const manifest = await build(out, {
+    authoredDevicePath: source,
+    nativeMode: true,
+    traceId: "native-package",
+    onEvent: (event) => events.push(event),
+  });
+  assert.equal(manifest.nativeMode, true);
+  assert.equal(
+    manifest.nativeScope,
+    "arrangement-beat0-120bpm-48000hz-vector64/v1",
+  );
+  assert.equal(manifest.realLiveValidated, false);
+  assert.equal(manifest.providerLimits.durationMs, 10000);
+  assert.equal(manifest.providerLimits.maxWindows, 100);
+  assert.equal(manifest.planningCeilings.watchdogMs, 30000);
+  assert.equal(manifest.portable, true);
+  assert.deepEqual(
+    manifest.resources.map(({ name }) => name),
+    [...ALL_RESOURCES, ...NATIVE_CANDIDATE_RESOURCES],
+  );
+  assert.equal((await checkArtifact(out)).nativeMode, true);
+  const { document } = decodeAmxd(
+    await readFile(join(out, manifest.deviceFile)),
+  );
+  const runtime = document.patcher.boxes.find(
+    ({ box }) => box.varname === "ml_runtime",
+  ).box;
+  assert.equal(
+    runtime.text,
+    "node.script audio_listener_native_max.js @autostart 1 @watch 0",
+  );
+  assert.equal(
+    document.patcher.boxes.filter(({ box }) =>
+      box.text?.startsWith("node.script "),
+    ).length,
+    1,
+  );
+  assert.ok(
+    document.patcher.boxes.some(({ box }) => box.varname === "ml_panel_title"),
+  );
+  assert.doesNotMatch(
+    JSON.stringify(document),
+    /mcp_bridge|\/Users\/|copilot-worktrees/,
+  );
+  assert.match(
+    await readFile(join(out, "audio_listener_native_max.js"), "utf8"),
+    /nativeMode: true/,
+  );
+  assert.deepEqual(await readFile(source), before);
+  assert.equal(events[0].stage, "queued");
+  assert.equal(events.at(-1).stage, "completed");
+  await assert.rejects(
+    build(join(dir, "no-source"), { nativeMode: true }),
+    /explicit authored source/,
+  );
+  await writeFile(join(out, "audio_listener_native_clock.gendsp"), "tampered");
+  await assert.rejects(checkArtifact(out), /resource hash mismatch/);
+});
 
 test("checkpointed authored development device preserves both presentation comments and relative listener references", async () => {
   const raw = await readFile(

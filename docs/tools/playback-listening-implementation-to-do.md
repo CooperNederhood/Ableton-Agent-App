@@ -545,6 +545,24 @@ checkpoint above. The production timing gate is unchanged.
   Check the actual preserved authored source without loading/saving it.
 - [ ] Package and exercise the candidate entry/resources with native generation
   watchdog, real authenticated runtime delivery and fresh host acceptance.
+- [x] Implement candidate-only authored staging with the explicit native wrapper,
+  relative adjacent generated resources, bounded manifest limits, hashes and
+  unchanged default builds. No installation/promotion or real-host claim.
+- [x] Extend the existing Max watchdog with generation-owned native controls,
+  redacted trace context, 2-second heartbeat/30-second total bounds and exact
+  stop on replacement/deletion. Wire fail-closed control order and preserve
+  independent clock/FFT and transport. Actual loaded-host acceptance is open.
+- [x] Add bounded optional preflight/reset/capture phase and generation metadata
+  to native lifecycle contracts and phase-specific History events with one
+  cross-phase causal UUID namespace. Forward at most 200 actual diagnostics
+  after armed reply and before capture events; preserve local-only failed
+  pre-arm outcomes, ownership, cancellation and overflow denial.
+- [x] Integrate the native controller into the existing SDK runtime with one
+  client, synchronous armed-reply ordering, frozen attack settings and bounded
+  reentrant control handling. Publish watchdog context before native begin.
+  Pass 25 runtime regressions, 320 owning Max tests and 301 broader
+  protocol/ingress/capture/runtime-host tests; full workspace build passes.
+  Fresh authenticated native delivery and actual tool/context/resume remain open.
 - [x] Verify real compiled ABI/message delivery with 84 clock and 85
   envelope/spectrum packets, all ABI values 1, observed DSP/FFT metadata and
   32 coherent host brackets; correct physical poly~ outlet numbering.

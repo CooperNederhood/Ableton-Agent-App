@@ -77,10 +77,18 @@ export function appendNativeRuntimeGraph(document, { runtimeEntry } = {}) {
       box.varname === "ml_runtime" && box.text?.startsWith("node.script "),
   );
   const inputs = patcher.boxes.filter(({ box }) => box.text === "plugin~");
-  if (runtimes.length !== 1 || inputs.length !== 1)
+  const guards = patcher.boxes.filter(
+    ({ box }) =>
+      box.varname === "ml_guard" &&
+      box.text?.startsWith("js audio_listener_guard.js"),
+  );
+  if (runtimes.length !== 1 || inputs.length !== 1 || guards.length !== 1)
     throw new Error("ambiguous_authored_native_runtime_or_input");
   const runtime = runtimes[0].box;
   const input = inputs[0].box;
+  const guard = guards[0].box;
+  if (guard.numoutlets !== undefined && guard.numoutlets < 3)
+    throw new Error("authored_native_watchdog_outlet_missing");
   const routes = patcher.lines.filter(
     ({ patchline }) =>
       patchline.source[0] === runtime.id && patchline.source[1] === 0,
@@ -136,7 +144,22 @@ export function appendNativeRuntimeGraph(document, { runtimeEntry } = {}) {
     wire("scoped-native-analysis", 0, "scoped-native-analysis_sink"),
     wire("scoped-native-clock", 1, runtime.id),
     wire("scoped-native-analysis", 1, runtime.id),
+    wire("scoped-native-control", 0, guard.id),
+    wire(guard.id, 2, "scoped-native-clock"),
+    wire(guard.id, 2, "scoped-native-analysis"),
   );
+  for (const { patchline } of patcher.lines) {
+    if (
+      patchline.source[0] === "scoped-native-control" &&
+      patchline.source[1] === 0
+    )
+      patchline.order =
+        patchline.destination[0] === "scoped-native-clock"
+          ? 0
+          : patchline.destination[0] === "scoped-native-analysis"
+            ? 1
+            : 2;
+  }
   if (Array.isArray(patcher.rect))
     patcher.rect[3] = Math.max(patcher.rect[3], bottom + 300);
   return result;

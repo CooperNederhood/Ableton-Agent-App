@@ -1270,6 +1270,37 @@ not promoted by this App-side integration.
 
 ### Inactive native controller
 
+The existing authenticated runtime accepts `createRuntime({ nativeMode: true })`;
+default wrappers omit it. It reuses the same SDK client,
+identity and epoch fencing. Max inputs are `native <generation> <type>
+<numbers...>`; outputs are `native_control <begin|arm|stop> <generation>
+[epoch]` plus bounded `native_diagnostic` metadata. Source transport remains
+App-owned. Actual arm proof is sent synchronously in the armed reply before
+buffered capture events, never as a duplicate promise-resolution reply.
+Attack threshold/spacing are frozen at prepare and truthfully reported;
+they do not alter native acquisition/timing constants.
+
+Native lifecycle metadata optionally identifies phase `preflight`, `reset` or
+`capture` and the UUID generation. Omitted phase retains legacy capture naming.
+Ingress records preflight/reset-specific History event names while retaining
+one UUID namespace across phases, so causal parents do not disappear at a
+phase boundary. These bounded diagnostics remain non-authoritative; only
+actual arm/launch/capture proof validates measurements.
+
+The runtime buffers at most 200 actual preflight/reset lifecycle records, then
+publishes them through the existing result channel only after the synchronous
+armed reply and before capture events. Reset queued/started follows the actual
+arm command; completion requires its genuine acknowledgement. Failed pre-arm
+attempts retain local diagnostics and failed/cancelled control outcomes, never
+illegal pre-armed results. Overflow fails explicitly and cancellation releases
+the buffer. The native-only watchdog context outlet must succeed before begin;
+default mode emits neither native controls nor watchdog context.
+
+The combined checkpoint passes 320 Max tests, including 25 SDK-runtime
+regressions, and 301 broader protocol/ingress/capture/runtime-host tests.
+The full workspace builds. These checks establish implementation boundaries,
+not fresh authenticated native capture or context/resume acceptance.
+
 `NativeCaptureController` composes the actual signal engine and bounded native
 assembler. `prepare` only validates/freezes eligibility with a bounded
 reservation; `arm` gathers fresh generation-owned DSP/FFT/ABI metadata,
@@ -1351,9 +1382,32 @@ Node. No transport control or second registration is introduced.
 The actual preserved authored source composes from 63 boxes to 62 after the
 existing portable bridge removal, then 67 with native wiring. This was a
 read-only composition check: no AMXD was written/loaded and no device promoted.
-Runtime entry, resource publication, watchdog and fresh host acceptance remain
-required. Ambiguous runtime/input ownership, missing routes, duplicate native
-objects and unsafe entry paths fail without changing the source document.
+The runtime, resource publication and watchdog changes below still require
+fresh host acceptance. Ambiguous runtime/input/guard ownership, missing routes,
+duplicate native objects and unsafe entry paths fail without changing the
+source document.
+
+The candidate now wires its existing Max guard's unused outlet 2 to native
+parents, increasing the composition by 13 cords rather than 10. Native begin
+reaches both parents before the guard, so a missing context can fail closed
+with an exact-generation stop. `native_watchdog_context` precedes begin and
+retains bounded/redacted trace/correlation/causation IDs. The guard cancels
+owned polling/envelopes after a 2000 ms heartbeat loss or 30000 ms total
+bound, on replacement or deletion; stale arm/stop cannot affect a new owner.
+It never controls transport or resets the independent native clock/FFT.
+Local watchdog lifecycle completion means monitoring ended, not capture
+success; Node-dead App failure remains the existing producer-disconnect/
+control-failure record, not fabricated completion.
+
+`build-native-authored --source <device.amxd> --out <staging-directory>`
+stages the explicit candidate only. It preserves authored presentation,
+uses `audio_listener_native_max.js`, hashes the adjacent native IO and seven
+generated DSP/message resources, and retains `realLiveValidated: false`.
+Its manifest limits are 10000 ms, 100 windows and a 30000 ms watchdog.
+Default builds remain unchanged; no installation or promotion is performed.
+Resource corruption, unsafe source/destination and missing authored source
+are denied. Packaging and VM tests do not establish actual loaded-host or
+tool/publication acceptance.
 
 The unactivated `native-runtime-source.mjs` candidate derives separate clock,
 envelope and tagged-FFT parents from the measured native math without changing

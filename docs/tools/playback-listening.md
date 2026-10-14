@@ -1116,3 +1116,45 @@ envelope cadence, including below-floor spectral weighting. It is still not
 proof of real Node/Max delivery. The companion is hashed in both bundle resource
 lists and excluded from calibration-only staging; the shipping runtime does
 not instantiate it and remains timing-denied.
+
+### Independent actual-input RMS measurement
+
+The remaining first-window question was checked against actual plugin input,
+not an adjusted WAV oracle. Each channel branches through integer
+`delay~ 64 64`, `average~ 4800 rms` with an explicit 4,800-sample interval, and
+`sah~ 0` triggered by the native completed-window step through `delta~`.
+This is the existing fixed 64-sample signal history, not a fitted shift.
+Signal-controlled delay was not used because it adds interpolation latency.
+
+Actual trace `b0a55fb6-dffa-4b57-ae0c-bc9411e38138` collected all 100 paired
+windows at source offset zero, 120 BPM/48 kHz/vector 64. Every stereo squared-RMS
+error was below the predeclared `1e-12` criterion; maximum observed error was
+`8.326672684688674e-17`. First-window native and independent MSP RMS were
+exactly `0.34713641522274874`, while the verified source WAV gives
+`0.3476300464841661`. The native RMS calculation therefore agrees with the
+actual plugin input. The exact upstream Live rendering difference is still
+unproven; do not claim a particular fade, fit a gain or shift the source.
+The clip's normalized gain `0.4` was read back as `0.00 dB`, not linear 0.4.
+
+Before/after each retained 32 coherent brackets with identical host offset
+`1407845460`, discarding three/two torn reads. Arm `20619776` plus local origin
+512 gives absolute origin `20620288`; adding the offset exactly equals the
+independent PPQ-zero intercept `1428465748`. First source onset is at relative
+sample 1 and the fourth at 72,001. These manual engineering bindings are not
+timely Node/Max delivery or production capture acceptance.
+
+The reference-only parent starts its polling only after an owned request and
+stops it on completion, failure, cancellation or deletion. A native attempt
+exposed nested message handlers invisible to Max; a Max-like VM regression now
+requires global handlers. The failed parent was removed and recreated from
+fresh resources, not reloaded in place. Default calibration graphs and all
+production Gen bytes remain unchanged.
+
+Bounded processed evidence is retained in
+`max-patches/audio-listener/fixtures/native-rms-reference.json`; rows append two
+reference scalars to the original seven processed fields. No raw audio was
+recorded/exported. All six temporary roots/sinks/metadata objects were removed,
+and the full 130-box/150-cable graph matched the pre-experiment baseline exactly.
+Source markers stayed zero, Arrangement clip 14 read stopped, Master read 0.85
+without modification and Song read running. Existing Set/Live/Desktop/Max
+processes and User Library device were preserved.

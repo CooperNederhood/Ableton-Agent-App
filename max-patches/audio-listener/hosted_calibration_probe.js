@@ -78,6 +78,7 @@ HostedCalibrationCollector.prototype.begin = function (
   this.startedAt = this.now();
   this.synchronized = epoch !== undefined;
   this.expectedEpoch = epoch;
+  this.referenceMode = false;
   this.result = {
     schema: "hosted-native-capture/v1",
     calibrationOnly: true,
@@ -109,11 +110,64 @@ HostedCalibrationCollector.prototype.begin = function (
   } else this.control("analysis", 1, 1, 48000);
 };
 
+HostedCalibrationCollector.prototype.startReference = function (
+  ownership,
+  traceId,
+  epoch
+) {
+  this.startSynchronized(ownership, traceId, epoch);
+  this.referenceMode = true;
+  this.result.schema = "hosted-native-envelope-reference/v1";
+  this.result.reference = {
+    object: "average~",
+    mode: "rms",
+    intervalSamples: 4800,
+    integerDelaySamples: 64,
+    hold: "native_window_completion",
+    comparison: "squared_amplitude_absolute_error",
+    tolerance: 0.000000000001,
+  };
+  this.control("native", "reference_poll", 1);
+};
+
+HostedCalibrationCollector.prototype.referenceFrame = function (values) {
+  if (this.state !== "waiting-reset" && this.state !== "collecting") return;
+  if (
+    !this.referenceMode ||
+    !Array.isArray(values) ||
+    values.length !== 15 ||
+    typeof values[13] !== "number" ||
+    !isFinite(values[13]) ||
+    values[13] < 0 ||
+    values[13] > 64 ||
+    typeof values[14] !== "number" ||
+    !isFinite(values[14]) ||
+    values[14] < 0 ||
+    values[14] > 64
+  ) {
+    this.finish("failed", "invalid_reference_packet");
+    return;
+  }
+  var before = this.result.frames.length;
+  this.frame(values.slice(0, 13));
+  if (this.result.frames.length > before) {
+    this.result.frames[before].push(values[13], values[14]);
+  } else if (before && this.state === "collecting") {
+    var previous = this.result.frames[before - 1];
+    if (
+      previous[4] === values[0] &&
+      (previous[7] !== values[13] || previous[8] !== values[14])
+    )
+      this.finish("failed", "changed_reference_hold");
+  }
+};
+
 HostedCalibrationCollector.prototype.finish = function (outcome, reason) {
   if (this.state !== "waiting-reset" && this.state !== "collecting") return;
   this.state = "done";
   this.result.outcome = outcome;
   this.result.reason = reason;
+  if (this.referenceMode) this.control("native", "reference_poll", 0);
   if (this.synchronized) this.control("native", "epoch", 0);
   else this.control("analysis", 0, 1, 48000);
   this.event(outcome === "collected" ? "completed" : outcome);
@@ -697,6 +751,16 @@ function start_synchronized(ownership, traceId, epoch) {
   } catch (error) {
     outlet(0, "rejected", "invalid_start_or_active_collection");
   }
+}
+function start_reference(ownership, traceId, epoch) {
+  try {
+    hostedCollector.startReference(ownership, traceId, epoch);
+  } catch (error) {
+    outlet(0, "rejected", "invalid_start_or_active_collection");
+  }
+}
+function rms_reference() {
+  hostedCollector.referenceFrame(arrayfromargs(arguments));
 }
 function list() {
   hostedCollector.frame(arrayfromargs(arguments));

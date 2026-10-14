@@ -334,6 +334,9 @@ the 48 kHz/vector-64 subset does not separately qualify 11.3.42. The export's
 two reserved FFT fields are uncollected placeholders. Production readiness and
 packaging remain unchanged, with no certificate-file bypass. The original
 first-window discrepancy's host-processing mechanism is still unverified.
+The later independent actual-input RMS measurement verifies the native
+calculation at that same file-start boundary; only the upstream rendering
+mechanism remains uncharacterized.
 
 The earlier unfiltered collection retained only silence and is inconclusive;
 the repeated duplicate-filtered collection contains 33 nonzero records and
@@ -505,6 +508,14 @@ checkpoint above. The production timing gate is unchanged.
   engine, independent App validator and strict wire schema, using explicitly
   synthetic timely host/post callbacks. Keep FFT window metadata distinct from
   envelope cadence and preserve below-floor centroid weighting.
+- [x] Independently measure actual plugin-input RMS with integer-delay MSP
+  averaging/sample-hold at native window completion. At source offset zero,
+  all 100 stereo windows pass the predeclared `1e-12` squared-error bound
+  (maximum `8.326672684688674e-17`), including the disputed first window.
+- [x] Preserve the raw-WAV/input distinction and normalized gain units without
+  fitted corrections or claiming an unproven Live fade. Retain processed
+  source/code-bound evidence, global-handler/request-gated-poll regressions,
+  exact graph restoration and leave-running cleanup.
 - [ ] Verify the broader native source/host matrix, production reset and
   cancellation/disconnect behavior; the single offset fixture is not a certificate.
 - [ ] Prove real agent playback-and-listen publishes correct atomic context

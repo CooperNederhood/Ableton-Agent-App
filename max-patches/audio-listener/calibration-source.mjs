@@ -337,6 +337,7 @@ export function taggedSpectrumDocument({ resourceDirectory = null } = {}) {
 
 export function synchronizedAnalysisDocument({
   resourceDirectory = null,
+  rmsReference = false,
 } = {}) {
   const resource = engineeringResources(resourceDirectory);
   const boxes = [
@@ -434,7 +435,12 @@ export function synchronizedAnalysisDocument({
   for (let i = 0; i < 13; i++) {
     lines.push(
       w("gen", i, "channels", i),
-      w("gate", i, "pack", i === 12 ? 0 : i + 1),
+      w(
+        "gate",
+        i,
+        "pack",
+        rmsReference ? (i === 12 ? 1 : i + 2) : i === 12 ? 0 : i + 1,
+      ),
     );
   }
   for (const [i, output] of [
@@ -455,6 +461,59 @@ export function synchronizedAnalysisDocument({
         i === 0 ? 0 : 3 - i,
       ),
     );
+  }
+  if (rmsReference) {
+    boxes.find(({ box }) => box.id === "poll").box.text = "qmetro 10 @active 0";
+    boxes.find(({ box }) => box.id === "channels").box.text = "mc.pack~ 15";
+    boxes.find(({ box }) => box.id === "channels").box.numinlets = 15;
+    boxes.find(({ box }) => box.id === "gate").box.text = "gate 15";
+    boxes.find(({ box }) => box.id === "gate").box.numoutlets = 15;
+    boxes.find(({ box }) => box.id === "pack").box.text =
+      `pack rms_reference ${Array(15).fill("0.125").join(" ")}`;
+    boxes.find(({ box }) => box.id === "pack").box.numinlets = 16;
+    boxes.push(
+      b("refDone", "delta~", 780, 50),
+      b("refInterval", "4800", 780, 10, 2, 1, { maxclass: "message" }),
+      b("refHot", "trigger b f", 780, 230, 1, 2),
+      b("refRoute", "route reference_poll", 10, 200, 1, 2),
+    );
+    const controlIndex = lines.findIndex(
+      ({ patchline }) =>
+        patchline.source[0] === "collector" &&
+        patchline.source[1] === 1 &&
+        patchline.destination[0] === "gen",
+    );
+    if (controlIndex < 0)
+      throw new Error("Missing native envelope control route");
+    lines.splice(controlIndex, 1);
+    lines.push(
+      w("collector", 1, "refRoute"),
+      w("refRoute", 0, "poll"),
+      w("refRoute", 1, "gen"),
+    );
+    lines.push(
+      w("gen", 12, "refDone"),
+      w("load", 0, "refInterval"),
+      w("gate", 14, "refHot"),
+      w("refHot", 1, "pack", 15),
+      w("refHot", 0, "pack"),
+    );
+    for (const [index, input] of ["left", "right"].entries()) {
+      boxes.push(
+        b(`refDelay${index}`, "delay~ 64 64", 780 + index * 150, 90, 2),
+        b(`refAverage${index}`, "average~ 4800 rms", 780 + index * 150, 130),
+        b(`refHold${index}`, "sah~ 0", 780 + index * 150, 170, 2),
+      );
+      lines.push(
+        w(input, 0, `refDelay${index}`),
+        w(`refDelay${index}`, 0, `refAverage${index}`),
+        w("refInterval", 0, `refAverage${index}`),
+        w(`refAverage${index}`, 0, `refHold${index}`),
+        w("refDone", 0, `refHold${index}`, 1),
+        w(`refHold${index}`, 0, "channels", 13 + index),
+      );
+    }
+    lines.push(w("gate", 13, "pack", 14));
   }
   for (const { box } of boxes) box.varname = `ml_synced_${box.id}`;
   return { patcher: patch(boxes, lines) };

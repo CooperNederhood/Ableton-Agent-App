@@ -1,14 +1,15 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createRuntime } = require("./audio_listener_runtime.js");
+const { VERSION } = require("./audio_listener_engine.js");
 
 const SYNTHETIC_CERTIFICATE = {
   validated: true,
-  algorithmVersion: "1.0.0",
+  algorithmVersion: VERSION,
   hostVersion: "test-double",
   maxVersion: "test-double",
   launchAligned: true,
-  requiredHostFlags: 3,
+  requiredHostFlags: 19,
   uncertaintySamples: 64,
   descriptorOffsetSamples: 0,
   sampleRate: 48000,
@@ -85,7 +86,7 @@ function fixture({
   const poll = () => {
     handlers.identity(JSON.stringify(IDENTITY));
     handlers.dsp(1, 48000, 64);
-    handlers.host(0, 4, 10000, 3);
+    handlers.host(0, 4, 10000, 19);
     timers[0]();
   };
   return { runtime, handlers, clients, output, events, timers, poll };
@@ -210,7 +211,7 @@ test("preview metadata does not terminate synthetic capture; actual identity los
     const client = f.runtime.client;
     client.options.onListenerControl({ ...OWNER, action: "prepare" });
     client.options.onListenerControl({ ...OWNER, action: "arm" });
-    f.handlers.host(1, 4, 10000, 3);
+    f.handlers.host(1, 4, 10000, 19);
     assert.equal(f.runtime.engine.state, "capturing");
     f.handlers["device-preview"](1);
     f.handlers["device-preview"](undefined);
@@ -238,7 +239,7 @@ test("ignoring preview metadata cannot bypass DSP or identity prerequisites", ()
   try {
     f.handlers["device-preview"](1);
     f.handlers.dsp(1, 48000, 64);
-    f.handlers.host(0, 4, 10000, 3);
+    f.handlers.host(0, 4, 10000, 19);
     assert.equal(f.clients.length, 0);
     f.handlers.dsp(0, 48000, 64);
     f.handlers.identity(JSON.stringify(IDENTITY));

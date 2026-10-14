@@ -3,10 +3,12 @@
 "use strict";
 
 const ALGORITHM = "native-max-stereo-energy-envelope-rise";
-const VERSION = "1.0.0";
+const VERSION = "1.0.1";
 const LIMITS = Object.freeze({ points: 1024, attacks: 512, watchdogMs: 300000, startMs: 15000 });
 const FLOOR_DB = -120;
 const FFT_SIZE = 2048;
+// plugsync~ validity bits: sample count, PPQ beats, transport state.
+const REQUIRED_HOST_FLAGS = 1 | 2 | 16;
 
 function finite(value, name, min = 0, max = Number.MAX_SAFE_INTEGER) {
   if (!Number.isFinite(value) || value < min || value > max) throw new Error(`invalid ${name}`);
@@ -51,6 +53,9 @@ function timingCertificate(value) {
       typeof value.maxVersion !== "string" || !value.maxVersion ||
       value.launchAligned !== true) throw new Error("real_live_timing_validation_required");
   integer(value.requiredHostFlags, "requiredHostFlags", 1, 0x7fffffff);
+  if ((value.requiredHostFlags & REQUIRED_HOST_FLAGS) !== REQUIRED_HOST_FLAGS) {
+    throw new Error("real_live_timing_validation_required");
+  }
   integer(value.sampleRate, "certificate sampleRate", 8000, 384000);
   integer(value.vectorSize, "certificate vectorSize", 1, 65536);
   integer(value.uncertaintySamples, "uncertaintySamples");
@@ -79,10 +84,14 @@ class AudioListenerEngine {
     integer(host.flags, "host flags", 0, 0x7fffffff);
     if (typeof host.playing !== "boolean" || typeof host.dspOn !== "boolean") throw new Error("invalid host state");
     this.host = { ...host, observedAt: this.now() };
-    if (this.pass && (host.sampleRate !== this.pass.sampleRate || !host.dspOn)) {
+    if (this.pass && (host.sampleRate !== this.pass.sampleRate ||
+        host.vectorSize !== this.pass.certificate.vectorSize || !host.dspOn)) {
       return this.terminate("failed", "dsp_changed");
     }
     if (this.state === "armed" && host.playing) {
+      if ((host.flags & this.pass.certificate.requiredHostFlags) !== this.pass.certificate.requiredHostFlags) {
+        return this.terminate("failed", "invalid_host_flags");
+      }
       if (host.beat < this.pass.startBeat) return;
       // A calibrated host/descriptor boundary, not arrival-time timestamping.
       if (host.beat > this.pass.startBeat + this.pass.launchToleranceBeats) {
@@ -133,6 +142,7 @@ class AudioListenerEngine {
       preparedAt: this.now(), startedAt: null, points: [], attacks: [], previousFrame: null,
       peak: [0, 0], squareSum: [0, 0], totalSamples: 0, centroidSum: 0, energySum: 0,
       originalSamples: 0, originalAttacks: 0, previousLevel: FLOOR_DB, lastAttack: -Infinity,
+      riseHasAttack: false,
       certificate: cert,
     };
     this.state = "prepared";
@@ -198,13 +208,15 @@ class AudioListenerEngine {
     }
     const level = Math.max(...point.rmsDbfs.map((x) => x ?? FLOOR_DB));
     const rise = level - p.previousLevel;
-    if (level > FLOOR_DB && rise > 0 && rise >= p.threshold && f.sample - p.lastAttack >= p.spacing) {
+    if (rise <= 0) p.riseHasAttack = false;
+    if (!p.riseHasAttack && level > FLOOR_DB && rise > 0 && rise >= p.threshold && f.sample - p.lastAttack >= p.spacing) {
       p.originalAttacks++;
       if (p.attacks.length >= LIMITS.attacks) {
         this.terminate("partial", "attack_limit"); return false;
       }
       p.attacks.push({ sample: f.sample, beat: f.beat, strength: rise });
       p.lastAttack = f.sample;
+      p.riseHasAttack = true;
     }
     p.previousLevel = level;
     return true;
@@ -252,6 +264,7 @@ class AudioListenerEngine {
       limitations: [
         "RMS dBFS is not perceptual LUFS.",
         "Attacks are 100ms envelope-rise estimates, not exact onsets.",
+        "Each continuous rise emits at most one attack estimate; a plateau or fall rearms it.",
         "FFT is rectangular 2048-sample non-overlap; stereo complex-bin energies are pooled, never waveforms downmixed.",
         "Spectral points are latest complete FFT frames, not full 100ms spectral averages.",
         `Termination: ${reason}`,

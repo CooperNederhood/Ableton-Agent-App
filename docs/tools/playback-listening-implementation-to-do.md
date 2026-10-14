@@ -12,7 +12,7 @@ implementation items are not automatically real-Live acceptance.
 | Area | Achieved | Remaining acceptance |
 | --- | --- | --- |
 | Architecture and scope | ADR 0006; bounded playback-first native descriptors and App-session entity context. | Reconcile original issue criteria with the narrow Arrangement prototype; do not silently expand scope to Session onset, transcription or source separation. |
-| Native analyzer | Stereo tap; native peak/RMS, estimated envelope-rise attacks and centroid; Gen/FFT corrections, reset and watchdog; minimal presentation. Limited sine/anti-phase measurements recorded. | Independent audio/timing, attacks, gaps, transparent pass-through and measured resource cost. |
+| Native analyzer | Stereo tap; native peak/RMS, estimated envelope-rise attacks and centroid; Gen/FFT corrections, reset/watchdog; continuous normal/anti-phase/silence PCM evidence. Algorithm 1.0.1 fixes split-window duplicate attack estimates and hardens launch validity/vector fences. | Independent native source/host timing, production attacks, transparent pass-through and measured resource cost. |
 | Authored packaging | Actual authored layout preserved, adjacent resources, hashes, source/destination guards, explicit profiles, save/reopen evidence and original fallback. | Portable release without the external development MCP bridge; no candidate promotion has occurred. |
 | Connection | Shared authenticated MIDI/audio ingress, bounded listener controls and exact instance/epoch binding. After `a0cb4e8`, actual hosted registration and reconnect passed on `14-Audio` with one output, unchanged track/device references and a fresh producer instance. | Independent audio/timing and capture acceptance; automatic editor-preview isolation remains deferred. |
 | Capture and tools | Guarded Arrangement assembly, bounded jobs, readiness, owner cancellation, cleanup and publication implemented with deterministic coverage. | Successful real-device capture. Session capture remains unsupported. Production still denies uncommissioned timing. |
@@ -212,6 +212,25 @@ Arrangement capture/publication, resume and release acceptance remain open.
   sources finished before restoring Master volume; leave transport running.
 - [ ] Complete production attack events, independent sample/beat alignment,
   FFT/report offsets, transparent pass-through and resource-cost checks.
+- [x] Correct phase-dependent duplicate attack estimates in algorithm 1.0.1.
+  Replay both recorded normal-envelope phases and anti-phase/silence inputs;
+  independently sweep 76 phases across three PCM sources and two thresholds.
+  Preserve threshold/spacing semantics, pass reset and historical observations.
+  Numeric/replay checks do not certify real host launch timing.
+- [x] Require sample/beat/transport validity (mask 19) in approved-runner timing
+  declarations. Fail before enabling analysis if launch validity is lost;
+  invalidate captures on DSP vector changes. Keep production uncertified.
+- [x] Read actual flags 31 and DSP 48 kHz/vector 64 without transport mutation;
+  remove both read-only probes and verify exact native graph restoration.
+- [x] Observe seven attack/timing-fence regressions failing before their fixes;
+  pass the full 137-test Max owning suite, production source/package checks,
+  scoped lint and paired documentation checks. Preserve historical algorithm
+  observations and reject outdated algorithm certificates. The existing hosted
+  engineering bundle has not been promoted/replaced by these code changes.
+- [ ] Replace scheduler/Node launch inference with independently validated
+  native signal-rate launch/source markers. Do not loosen exact-boundary
+  tolerance, infer certificate readiness from flags, or assume legacy tempo
+  outlet units without native evidence.
 - [ ] Commission timing through a reviewed bound path, then prove actual agent
   Arrangement capture/publication/resume. Manual analyzer enable grants none
   of these capabilities or production readiness.

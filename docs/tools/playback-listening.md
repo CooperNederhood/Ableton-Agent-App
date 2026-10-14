@@ -621,6 +621,56 @@ sample/beat alignment, FFT/report offsets, attack timing, transparent
 pass-through, actual Arrangement capture/publication and resource-cost
 acceptance remain open; production readiness is still denied.
 
+### Attack phase correction and host-validity fencing
+
+Algorithm **1.0.1** fixes a phase-dependent double count found in the retained
+native windows: the same four-burst PCM source could produce four or eight
+estimates depending on how its rising envelope crossed the reporting windows.
+After one estimate is emitted, subsequent increasing windows in that same
+continuous rise do not emit another. A plateau or fall rearms estimation;
+threshold and minimum-spacing controls still apply. A subthreshold or
+spacing-suppressed rise does not latch the episode. State resets for each pass.
+This remains a coarse envelope-rise estimator, not exact onset detection.
+
+Four regressions failed before the correction. The corrected engine produces
+four estimates for both retained normal-source phases and the anti-phase run,
+and none for silence when replayed with explicitly synthetic host coordinates.
+Independent quantized-PCM tests sweep 76 reporting phases for normal,
+anti-phase and silence at thresholds 0 and 6 dB: 456 combinations check counts
+and the declared coarse timing bound. Neither replay nor numeric integration
+certifies execution/timing of an actual production capture.
+
+The source manifest, staged package metadata and runtime now share algorithm
+version 1.0.1. An older 1.0.0 timing certificate cannot authorize this version;
+historical 1.0.0 observations remain readable. These code/packaging changes
+have not replaced the current hosted engineering bundle or User Library.
+
+Approved-runner timing declarations must require `plugsync~` validity bits
+sample count (1), PPQ beats (2) and transport (16), minimum mask **19**.
+The official [Max reference](https://docs.cycling74.com/legacy/max8/refpages/plugsync~)
+defines those bits; sample validity alone is not transport validity.
+Loss of mandatory flags before actual launch fails without enabling analysis.
+Loss during capture yields an explicit partial result. A changed DSP vector
+invalidates an in-flight timing binding just as a changed sample rate does.
+These fences do not supply a missing certificate or calibrate a launch.
+
+Read-only native probes on the owned device observed `host` flags **31** and
+`dsp 1 48000 64`, corroborated by a separate Live transport read at 120 BPM.
+Two host sample/PPQ pairs advanced coherently at 24,000 samples/beat; this is
+counter/beat evidence, not a source-launch or FFT-offset measurement. The
+sixth `plugsync~` outlet returned **120** in this host, despite the legacy
+reference describing samples/beat there; do not blindly apply that legacy
+unit conversion. The listener uses the separately verified PPQ/sample/flag
+outlets, not that tempo outlet. Both temporary probes were removed and the
+inspected native graph restored exactly, without altering transport.
+
+The remaining launch-adapter gap is concrete: a 10 ms scheduler poll and a
+Node receipt cannot prove the requested DSP launch boundary or align an
+analyzer reset to it. The current exact-boundary guard must continue rejecting
+missed launches; widening tolerance or writing a generic certificate is not a
+fix. A native signal-rate launch/source marker, paired with independent host
+coordinates and descriptor-offset evidence, is still required.
+
 Capture boundaries and declared timing uncertainty must remain within one DSP
 vector of independently supplied host coordinates. The verifier must not be
 given start coordinates copied from the observation being tested. These numeric

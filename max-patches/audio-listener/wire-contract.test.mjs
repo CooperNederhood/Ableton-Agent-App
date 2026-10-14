@@ -32,10 +32,10 @@ test("actual shared client serializes canonical listener replies/results with co
   assert.deepEqual(listenerReplySchema.parse(frames[0]), frames[0]);
   const engine = new AudioListenerEngine({ listenerId: producer.producerId, now: () => 0,
     certificate: { validated: true, algorithmVersion: VERSION, hostVersion: "test-double",
-      maxVersion: "test-double", launchAligned: true, requiredHostFlags: 1,
+      maxVersion: "test-double", launchAligned: true, requiredHostFlags: 19,
       uncertaintySamples: 64, descriptorOffsetSamples: 0, sampleRate: 48000, vectorSize: 64 } });
   const host = (playing, sample, beat) => engine.configureHost({
-    playing, sample, beat, flags: 1, dspOn: true, sampleRate: 48000, vectorSize: 64 });
+    playing, sample, beat, flags: 19, dspOn: true, sampleRate: 48000, vectorSize: 64 });
   host(false, 10000, 4);
   engine.prepare({ ...control, ...control.config.source });
   engine.arm(control); host(true, 10000, 4); host(true, 14800, 4.2);

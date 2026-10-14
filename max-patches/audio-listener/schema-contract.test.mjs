@@ -5,12 +5,12 @@ import { audioObservationSchema } from "../../packages/protocol/src/audio-observ
 const require = createRequire(import.meta.url);
 const { AudioListenerEngine, VERSION } = require("./audio_listener_engine.js");
 const cert = { validated: true, algorithmVersion: VERSION, hostVersion: "fixture",
-  maxVersion: "fixture", requiredHostFlags: 1, uncertaintySamples: 64,
+  maxVersion: "fixture", requiredHostFlags: 19, uncertaintySamples: 64,
   descriptorOffsetSamples: 0, launchAligned: true, sampleRate: 48000, vectorSize: 64 };
 function observation(status = "complete") {
   const engine = new AudioListenerEngine({ listenerId: "listener", certificate: cert, now: () => 0 });
   const host = (playing, sample, beat) => engine.configureHost({
-    dspOn: true, playing, sample, beat, sampleRate: 48000, vectorSize: 64, flags: 1 });
+    dspOn: true, playing, sample, beat, sampleRate: 48000, vectorSize: 64, flags: 19 });
   const owner = { passId: "pass", connectionEpoch: "epoch" };
   host(false, 10000, 4);
   engine.prepare({ ...owner, startBeat: 4, endBeat: 4.2 });
@@ -25,6 +25,12 @@ test("engine terminal outputs match the actual strict protocol schema, not a cop
     assert.deepEqual(audioObservationSchema.parse(value), value);
     assert.equal(value.complete, status === "complete");
   }
+});
+test("versioned attack correction does not invalidate historical observations", () => {
+  const value = observation();
+  assert.equal(value.algorithm.version, VERSION);
+  value.algorithm.version = "1.0.0";
+  assert.deepEqual(audioObservationSchema.parse(value), value);
 });
 test("schema rejects raw payload, Nyquist overflow, unmarked reduction and malformed coordinates", () => {
   for (const mutate of [

@@ -4,7 +4,7 @@
   "deviceFile": "Audio-Listener.amxd",
   "canonicalSource": "Audio-Listener.maxpat",
   "template": "audio-effect-template.amxd",
-  "algorithmVersion": "1.0.0",
+  "algorithmVersion": "1.0.1",
   "observationSchema": "audio-observation/v1",
   "resources": [
     "audio_listener_engine.js",

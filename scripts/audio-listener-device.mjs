@@ -19,6 +19,7 @@ import {
   sourceDocuments,
 } from "../max-patches/audio-listener/native-source.mjs";
 import { calibrationDocuments } from "../max-patches/audio-listener/calibration-source.mjs";
+import { VERSION } from "../max-patches/audio-listener/audio_listener_engine.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const SOURCE_DIRECTORY = join(root, "max-patches", "audio-listener");
@@ -232,6 +233,7 @@ export async function checkSource() {
     JSON.stringify(manifest.resources) !== JSON.stringify(ALL_RESOURCES) ||
     manifest.optionalProfileConfiguration !== PROFILE_CONFIGURATION ||
     manifest.realLiveValidated !== false ||
+    manifest.algorithmVersion !== VERSION ||
     manifest.observationSchema !== "audio-observation/v1"
   ) {
     throw new Error("canonical resource manifest mismatch");
@@ -386,7 +388,7 @@ async function buildPackage(
     authored: authoredDevicePath !== undefined,
     externalAuthoringBridge: keepMcpBridge,
     deviceType: "MxDeviceAudioEffect",
-    algorithmVersion: "1.0.0",
+    algorithmVersion: VERSION,
     observationSchema: "audio-observation/v1",
     sharedTransportProtocolVersion: 1,
     discoveryConfigured: discoveryStorage !== undefined,

@@ -16,6 +16,7 @@ import {
 } from "../../scripts/audio-listener-device.mjs";
 import { sourceDocuments } from "./native-source.mjs";
 import { decodeAmxd } from "../../scripts/max-device-publisher.mjs";
+import { VERSION } from "./audio_listener_engine.js";
 
 test("Max module-loaded entry starts the adapter and owns signal cleanup without require.main", async () => {
   const code = await readFile(
@@ -256,6 +257,7 @@ test("installed-artifact isolation: real Audio Effect container, all resources, 
   try {
     const manifest = await build(directory); // temporary staging, NOT a user's User Library installation
     assert.equal(manifest.realLiveValidated, false);
+    assert.equal(manifest.algorithmVersion, VERSION);
     assert.deepEqual(
       manifest.resources.map((r) => r.name),
       ALL_RESOURCES,
@@ -448,11 +450,11 @@ test("runtime adapter wire lifecycle with synthetic calibrated host frames (NOT 
     clear: () => {},
     certificate: {
       validated: true,
-      algorithmVersion: "1.0.0",
+      algorithmVersion: VERSION,
       hostVersion: "test-double",
       maxVersion: "test-double",
       launchAligned: true,
-      requiredHostFlags: 3,
+      requiredHostFlags: 19,
       uncertaintySamples: 64,
       descriptorOffsetSamples: 0,
       sampleRate: 48000,
@@ -467,7 +469,7 @@ test("runtime adapter wire lifecycle with synthetic calibrated host frames (NOT 
     }),
   );
   handlers.dsp(1, 48000, 64);
-  handlers.host(0, 4, 10000, 3);
+  handlers.host(0, 4, 10000, 19);
   handlers["attack-threshold"](9);
   handlers["attack-spacing-ms"](200);
   const control = {
@@ -483,8 +485,8 @@ test("runtime adapter wire lifecycle with synthetic calibrated host frames (NOT 
   options.onListenerControl({ ...control, action: "prepare" });
   options.onListenerControl({ ...control, action: "arm" });
   assert.deepEqual(replies, [{ status: "ready" }, { status: "armed" }]);
-  handlers.host(1, 4, 10000, 3);
-  handlers.host(1, 4.2, 14800, 3);
+  handlers.host(1, 4, 10000, 19);
+  handlers.host(1, 4.2, 14800, 19);
   handlers.frame(1, 0.5, 0.7, 0.35, 4800, 750, 10);
   assert.equal(results.length, 1);
   assert.equal(results[0].status, "completed");

@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const { AudioListenerEngine, VERSION, LIMITS, dbfs, descriptor } = require("./audio_listener_engine.js");
 
 const certificate = { validated: true, algorithmVersion: VERSION, hostVersion: "test-double",
-  maxVersion: "test-double", launchAligned: true, requiredHostFlags: 3,
+  maxVersion: "test-double", launchAligned: true, requiredHostFlags: 19,
   uncertaintySamples: 64, descriptorOffsetSamples: 0, sampleRate: 48000, vectorSize: 64 };
 const owner = { passId: "pass", connectionEpoch: "epoch" };
 function fixture(options = {}) {
@@ -21,7 +21,7 @@ function fixture(options = {}) {
   };
   const host = (overrides = {}) => engine.configureHost({
     sampleRate: 48000, vectorSize: 64, sample: 10000, beat: 4,
-    flags: 3, playing: false, dspOn: true, ...overrides,
+    flags: 19, playing: false, dspOn: true, ...overrides,
   });
   host();
   function start(settings = {}, overrides = {}) {
@@ -40,6 +40,9 @@ test("shipping uncertified engine refuses readiness; no invented flags/clock tim
   assert.throws(() => f.start(), /real_live_timing_validation_required/);
   assert.equal(f.engine.pass, null);
   assert.deepEqual(f.analysis.at(-1), [false, true]);
+  assert.throws(() => fixture({ certificate: {
+    ...certificate, algorithmVersion: "1.0.0",
+  } }).start(), /real_live_timing_validation_required/);
 });
 test("ready/armed waits until verified actual launch, not fire request", () => {
   const f = fixture();
@@ -61,6 +64,44 @@ test("missed quantized launch is failure, never retrospective claim", () => {
   f.host({ playing: true, beat: 4.01 });
   assert.equal(f.events.at(-1).reason, "missed_actual_launch_boundary");
   assert.equal(f.events.at(-1).observation, null);
+});
+test("timing approval must require valid sample, beat and transport metadata", () => {
+  const f = fixture({ certificate: { ...certificate, requiredHostFlags: 3 } });
+  assert.throws(() => f.start(), /real_live_timing_validation_required/);
+  assert.equal(f.engine.pass, null);
+});
+test("losing host validity before actual launch never enables analysis", () => {
+  const f = fixture();
+  f.engine.prepare({ ...owner, startBeat: 4, endBeat: 8 });
+  f.engine.arm(owner);
+  f.host({ playing: true, flags: 0 });
+  assert.equal(f.engine.pass, null);
+  assert.equal(f.events.at(-1).reason, "invalid_host_flags");
+  assert.equal(f.events.at(-1).observation, null);
+  assert.ok(f.analysis.every(([enabled]) => !enabled));
+});
+test("DSP vector changes invalidate an active timing-bound capture", () => {
+  const f = fixture(); f.start();
+  f.host({ playing: true, vectorSize: 128 });
+  assert.equal(f.engine.pass, null);
+  assert.equal(f.events.at(-1).reason, "dsp_changed");
+  assert.equal(f.events.at(-1).status, "failed");
+});
+test("each mandatory host validity bit is fenced before prepare, launch and while capturing", () => {
+  for (const flags of [18, 17, 3]) {
+    const before = fixture(); before.host({ flags });
+    assert.throws(() => before.start(), /invalid_host_timing/);
+    const launching = fixture();
+    launching.engine.prepare({ ...owner, startBeat: 4, endBeat: 8 });
+    launching.engine.arm(owner);
+    launching.host({ playing: true, flags });
+    assert.equal(launching.events.at(-1).reason, "invalid_host_flags");
+    assert.ok(launching.analysis.every(([enabled]) => !enabled));
+    const active = fixture(); active.start();
+    active.host({ playing: true, flags });
+    assert.equal(active.events.at(-1).reason, "invalid_host_flags");
+    assert.equal(active.events.at(-1).status, "partial");
+  }
 });
 test("finite silence is null dBFS/centroid with no false attacks", () => {
   const f = fixture(); f.start();
@@ -93,6 +134,40 @@ test("envelope-rise threshold/minimum spacing, sustained level and weak rise", (
   const zeroThreshold = fixture(); zeroThreshold.start({ attackThresholdDb: 0 });
   for (let i = 1; i <= 3; i++) zeroThreshold.engine.ingest(zeroThreshold.frame(i), owner);
   assert.equal(zeroThreshold.engine.cancel(owner).observation.attacks.length, 1);
+});
+test("one continuous rise produces one estimate, rearming on a plateau or fall", () => {
+  const f = fixture(); f.start();
+  const levels = [.1, .2, .4, .4, .8, .8, .2, .8];
+  levels.forEach((level, i) => f.engine.ingest(f.frame(i + 1,
+    { peak: [level, level], rms: [level, level] }), owner));
+  assert.deepEqual(f.engine.cancel(owner).observation.attacks.map((p) => p.sample),
+    [14800, 34000, 48400]);
+});
+test("recorded split-window native burst envelopes do not double-count attacks", () => {
+  const f = fixture(); f.start();
+  // Actual hosted PCM envelope inputs; host coordinates here are synthetic.
+  // Independent source has four bursts, not eight adjacent-window attacks.
+  const levels = [
+    .08334607275022969, .35355295547947874, .35355295547947874, .2165873145900059, 0,
+    .08534456692400168, .35355295547947874, .35355295547947874, .2165873145900059, 0,
+    .08534456692400168, .35355295547947874, .35355295547947874, .2165873145900059, 0,
+    .08534456692400168, .35355295547947874, .35355295547947874, .2165873145900059, 0,
+  ];
+  levels.forEach((level, i) => f.engine.ingest(f.frame(i + 1,
+    { peak: [level ? .5 : 0, level ? .5 : 0], rms: [level, level] }), owner));
+  const observation = f.engine.cancel(owner).observation;
+  assert.deepEqual(observation.attacks.map((p) => p.sample),
+    [14800, 38800, 62800, 86800]);
+});
+test("a subthreshold rise does not latch, and a new pass starts with a fresh rise episode", () => {
+  const f = fixture(); f.start();
+  [0, 1.2e-6, .01].forEach((level, i) => f.engine.ingest(f.frame(i + 1,
+    { peak: [level, level], rms: [level, level] }), owner));
+  assert.deepEqual(f.engine.cancel(owner).observation.attacks.map((p) => p.sample), [24400]);
+  f.host();
+  f.start();
+  f.engine.ingest(f.frame(1), owner);
+  assert.equal(f.engine.cancel(owner).observation.attacks.length, 1);
 });
 test("exact end completes only with final window coverage; no scheduler receipt coordinates", () => {
   const f = fixture(); f.start({}, { endBeat: 4.4 });

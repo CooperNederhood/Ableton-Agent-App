@@ -1271,3 +1271,30 @@ matched its fresh baseline exactly. Existing Live/Desktop/Max processes and
 Set were preserved, with no audio recording/export, AMXD save or promotion.
 The candidate still retains the engineering quiet-before-arm and at-most-eight
 source-onset guards. It is not arbitrary-music or production acceptance.
+
+Actual stopped generation `18bde6bc-b6f9-4a66-a26f-83569a59868a` then
+delivered 84 clock and 85 envelope/spectrum packets in 905 ms, every ABI 1,
+with zero rejected packets. Thirty-two coherent stopped PPQ-zero/held-phase-zero
+rows yield host offset `1732217428`; the recent complete silent FFT baseline
+ends at native sample `567296`, 1984 samples before the final bracket.
+Recorded-coordinate preflight validation derives host-coordinate FFT grid
+`596` and invalid-frame baseline 0. This is actual stopped IO, not a fresh
+runtime arm, native launch, capture, readiness certificate or publication.
+Evidence is retained in `fixtures/native-stopped-preflight.json`.
+
+The experiment also exposed source-control limitations that remain open:
+Max LiveAPI stop/seek/continue requests require later independent readback,
+not same-stack acknowledgement. After independently confirmed stopped beat
+zero, `continue_playing` resumed near the previous stop position above beat
+12000, not the requested zero. The documented insert-marker `start_playing`
+path must be investigated rather than silently substituting another primitive
+or treating a requested position as audio onset. Max LiveAPI also did not expose
+Track `back_to_arranger`; this does not establish Python API availability or
+permit dropping the production guards.
+
+All six owned roots were removed and the exact 130-box/150-cable baseline was
+restored. Automation Arm was explicitly changed from 1 to 0 for the guarded
+calibration experiment, then restored to 1 and independently read back.
+Transport was independently confirmed running; original processes, Set and
+stereo cords remain preserved. No AMXD was saved/promoted and no audio was
+recorded or exported.

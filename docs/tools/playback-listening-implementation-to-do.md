@@ -546,6 +546,15 @@ checkpoint above. The production timing gate is unchanged.
   Distinguish pre-mutation denial/errors from indeterminate attempted starts;
   regress phase-sensitive setters, revision changes and leave-running failure.
   The actual physical phase effect and fresh-runner acceptance remain open.
+- [x] Observe actual stopped-beat-zero native IO with all three ABI values 1,
+  32 coherent host brackets and a complete recent FFT baseline. Regress
+  recorded-coordinate preflight, freshness denial, source hashes and exact
+  graph/Automation Arm cleanup; do not authorize arm from cached evidence.
+- [ ] Resolve actual source-control semantics: Max `continue_playing` resumed
+  the previous stopped playback position after confirmed stopped PPQ zero.
+  Verify the insert-marker start path and actual native launch before changing
+  the backend or calling the requested beat measured onset. Max LiveAPI Track
+  `back_to_arranger` absence does not establish Python API availability.
 - [ ] Verify the broader native source/host matrix, production reset and
   cancellation/disconnect behavior; the single offset fixture is not a certificate.
 - [ ] Prove real agent playback-and-listen publishes correct atomic context

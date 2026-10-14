@@ -498,6 +498,13 @@ checkpoint above. The production timing gate is unchanged.
   its actual lifecycle/evidence through the implemented App boundary;
   deterministic recorded-coordinate replay with synthetic timely host callbacks
   is not runtime acceptance.
+- [x] Add bounded envelope/latest-FFT assembly with exact owner/epoch/source
+  tags, stable invalid-frame counts, changed-hold/gap/torn/future denial,
+  fixed queue quotas, failure cleanup and idempotent/reentrant cancellation.
+- [x] Compose recorded nonzero/silent coordinates through the actual assembler,
+  engine, independent App validator and strict wire schema, using explicitly
+  synthetic timely host/post callbacks. Keep FFT window metadata distinct from
+  envelope cadence and preserve below-floor centroid weighting.
 - [ ] Verify the broader native source/host matrix, production reset and
   cancellation/disconnect behavior; the single offset fixture is not a certificate.
 - [ ] Prove real agent playback-and-listen publishes correct atomic context

@@ -192,7 +192,7 @@ export function assertNativeCaptureObservation(
     !Number.isInteger(observation.endBeat * 5) ||
     !observation.complete ||
     observation.reduction.truncated ||
-    observation.algorithm.windowSamples !== 4800 ||
+    observation.algorithm.windowSamples !== 2048 ||
     observation.algorithm.hopSamples !== 4800 ||
     observation.algorithm.timingUncertaintySamples > 64 ||
     observation.startSample !== coordinates.startSample ||
@@ -232,8 +232,10 @@ export function assertNativeCaptureObservation(
     )
       throw new Error("native_spectral_coordinates_mismatch");
     grid = window[0] % 2048;
-    centroidSum += window[2] * window[3];
-    energySum += window[3];
+    if (point.centroidHz !== null) {
+      centroidSum += point.centroidHz * window[3];
+      energySum += window[3];
+    }
   }
   if (
     observation.summaries.centroidHz !==

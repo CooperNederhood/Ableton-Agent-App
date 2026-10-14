@@ -1054,6 +1054,9 @@ summary, and requires all 32 post brackets after range
 coverage with the same clock mapping. The last post bracket must be within
 48,000 samples of the range end. Calculate range length in integer 4,800-sample
 windows rather than multiplying fractional beats into an inexact sample count.
+Canonical `algorithm.windowSamples` remains 2,048 (FFT), while `hopSamples`
+is 4,800 and RMS integrates each 4,800-sample envelope window. Only non-null
+spectral points contribute to the energy-weighted summary.
 Changed proof, missing/duplicate launch, missing arm acknowledgment or scope/
 instance/epoch change cannot publish a completed observation. Scope and quota
 denials occur before dispatch; failure/cancellation retains exact-owner cleanup.
@@ -1083,3 +1086,33 @@ The actual capture controller/assembler and per-pass physical evidence are still
 required before activating this scope. The existing Live calibration Set and
 Desktop/Max processes must be preserved; the deterministic Live runner must not
 adopt them.
+
+### Bounded native descriptor assembly (inactive)
+
+`audio_listener_native_assembler.js` pairs processed envelope packets with
+their latest complete tagged stereo FFT window on the original sample grid.
+It waits for a delayed matching FFT instead of using an older or future one,
+and fails when advancing FFT delivery proves that a required interval was
+missed. No fitted timing or scaling is applied. Retain at most eight pending
+envelopes, 128 FFT packets and 100 selected spectral intervals. Release pending
+buffers after coverage; retain only an immutable-copy completion proof until
+terminal cleanup.
+
+Check pass/connection/native epoch ownership before mutation, exact arm/origin
+tags, whole 4,800-sample envelope cadence, unchanged held values, coherent
+2,048-sample FFT tags/grid and a stable invalid-frame counter. Failure rejects
+explicitly and invokes the owning failure callback after clearing buffers.
+Cancellation is idempotent, does not terminate a replacement owner, and
+reentrant consumer cancellation cannot manufacture completion. The owning
+engine supplies traced capture lifecycle; this synchronous bounded assembler
+does not introduce a separate service, timer or persistence path.
+
+Source-backed composition now replays 20 nonzero/silent recorded-coordinate
+envelope windows through the actual assembler, signal engine, independent App
+validator and strict result schema. Timely host callbacks and post brackets
+in this test are explicitly synthetic. This composition regresses the
+distinction between canonical 2,048-sample FFT metadata and the 4,800-sample
+envelope cadence, including below-floor spectral weighting. It is still not
+proof of real Node/Max delivery. The companion is hashed in both bundle resource
+lists and excluded from calibration-only staging; the shipping runtime does
+not instantiate it and remains timing-denied.

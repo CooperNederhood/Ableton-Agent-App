@@ -98,7 +98,7 @@ export function createSyntheticNativeListeningFixture(
     algorithm: {
       name: "native",
       version: options.algorithmVersion ?? "1.0.0",
-      windowSamples: 4800,
+      windowSamples: 2048,
       hopSamples: 4800,
       settings: { attackThresholdDb: 6, minAttackSpacingSamples: 4800 },
       units: { amplitude: "linear", rms: "dBFS", centroid: "Hz" },

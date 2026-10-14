@@ -9,6 +9,7 @@
   "resources": [
     "audio_listener_engine.js",
     "audio_listener_native_coordinates.js",
+    "audio_listener_native_assembler.js",
     "audio_listener_runtime.js",
     "audio_listener_max.js",
     "audio_listener_guard.js",

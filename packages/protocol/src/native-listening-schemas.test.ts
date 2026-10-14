@@ -9,6 +9,25 @@ import {
 } from "./native-listening-schemas.js";
 
 describe("independent native listener evidence", () => {
+  it("keeps FFT metadata distinct from envelope cadence and excludes below-floor energy from centroid weighting", () => {
+    const { proof, observation } = createSyntheticNativeListeningFixture();
+    proof.spectralWindows[0]![3] = 1e-21;
+    proof.spectralWindows[1]![2] = 440;
+    proof.spectralWindows[1]![3] = 1.1e-20;
+    observation.samples[1]!.centroidHz = 440;
+    observation.summaries.centroidHz = (440 * 1.1e-20) / 1.1e-20;
+    expect(observation.algorithm).toMatchObject({
+      windowSamples: 2048,
+      hopSamples: 4800,
+    });
+    expect(() =>
+      assertNativeCaptureObservation(proof, observation),
+    ).not.toThrow();
+    observation.algorithm.windowSamples = 4800;
+    expect(() => assertNativeCaptureObservation(proof, observation)).toThrow(
+      /coverage/,
+    );
+  });
   it.each([0.2, 0.4, 4.6, 10.6, 19.8, 20])(
     "retains exact whole-window coverage at beat %s",
     (endBeat) => {

@@ -1301,6 +1301,32 @@ regressions, and 301 broader protocol/ingress/capture/runtime-host tests.
 The full workspace builds. These checks establish implementation boundaries,
 not fresh authenticated native capture or context/resume acceptance.
 
+### First authenticated candidate load and real capture attempt
+
+After the operator saved `Machine-Listening-Calibration.als`, a fresh owned
+Live 11.3.43 process loaded that Set and the freshly installed Remote Script.
+The operator approved staging and loading the native candidate as one additional
+effect, preserving the original device and the saved Set. Actual browser/load
+and device-inspection results establish track index 2, candidate device index 1
+and an unchanged original at index 0. A typed, journaled `inspect-listeners`
+result independently returns both physical devices: the original remains
+unscoped/blocked; the candidate reports `native_per_pass_validation_required`
+and `ready:false`. This proves actual candidate load and authenticated discovery,
+not native arm, capture or publication.
+
+The first real `play-arrangement-and-listen` request selected only the candidate
+and beats 0-4. Pass `9bcbfc07-9289-4ff0-89fa-f60c57e412f8` failed in validation
+after 396 ms with no context IDs: the runtime passed the entire structurally
+compatible capture request as the bridge's strict `range`, leaking `mode`,
+`listenerIds` and `maximumDurationMs`. The strict protocol correctly rejected it.
+The adapter now projects only `startBeat`/`endBeat` at that boundary; it does not
+weaken the protocol or any recording/readiness guard. The focused regression
+reproduces the exact real error before the fix; all host fixture inspections
+and native source-start calls now parse their actual strict protocol schemas.
+The complete 52-test host suite passes. The running Desktop still needs the
+corrected runtime loaded before a new real attempt; no audio acceptance follows
+from this fix alone.
+
 `NativeCaptureController` composes the actual signal engine and bounded native
 assembler. `prepare` only validates/freezes eligibility with a bounded
 reservation; `arm` gathers fresh generation-owned DSP/FFT/ABI metadata,

@@ -447,7 +447,7 @@ function assemble(
         listeners: selected.map(({ connection }) => ({
           canonicalPath: connection.canonicalPath,
         })),
-        range,
+        range: { startBeat: range.startBeat, endBeat: range.endBeat },
         maxClips: 32,
         maxParameters: 16,
       }),

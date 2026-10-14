@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { currentCorrelationContext } from "@ableton-agent/correlation";
-import { NATIVE_LISTENER_SCOPE } from "@ableton-agent/protocol";
+import {
+  inspectListeningContextParamsSchema,
+  NATIVE_LISTENER_SCOPE,
+  startListeningPlaybackParamsSchema,
+} from "@ableton-agent/protocol";
 import { createSyntheticNativeListeningFixture } from "@ableton-agent/protocol/testing";
 import type {
   AudioObservation,
@@ -223,6 +227,7 @@ function fixture(
   const inspectListeningContext = vi.fn(
     async (input: InspectListeningContextParams) => {
       traces.push(currentCorrelationContext());
+      inspectListeningContextParamsSchema.parse(input);
       return inspection(input);
     },
   );
@@ -408,7 +413,8 @@ function nativeProductionFixture(armProof = true) {
         : {}),
     };
   });
-  f.startListeningPlayback.mockImplementation(async () => {
+  f.startListeningPlayback.mockImplementation(async (input) => {
+    startListeningPlaybackParamsSchema.parse(input);
     const control = armed;
     if (!control) throw new Error("Synthetic source requested before arm");
     const publish = (patch: Partial<ListenerResult>) => {
@@ -470,6 +476,20 @@ async function run(
 }
 
 describe("same-runtime production listening factory", () => {
+  it("projects only beat bounds into every strict bridge inspection range", async () => {
+    const f = nativeProductionFixture();
+    const result = await run(f.host(true));
+    expect(result.stage, result.error).toBe("completed");
+    expect(f.inspectListeningContext.mock.calls.length).toBeGreaterThan(1);
+    for (const [input] of f.inspectListeningContext.mock.calls) {
+      expect(input.range).toEqual({ startBeat: 0, endBeat: 4 });
+      expect(() =>
+        inspectListeningContextParamsSchema.parse(input),
+      ).not.toThrow();
+    }
+    expect(f.publications).toHaveLength(1);
+  });
+
   it("exact native scope admits only fresh per-pass proof, without promoting registration readiness", async () => {
     const f = nativeProductionFixture();
     const result = await run(f.host(true));

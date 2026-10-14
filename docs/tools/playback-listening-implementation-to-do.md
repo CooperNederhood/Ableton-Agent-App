@@ -570,6 +570,17 @@ checkpoint above. The production timing gate is unchanged.
 - [ ] Connect the actual native graph to the Node controller and existing
   authenticated listener channel. ABI-only playing/inactive data does not
   satisfy stopped preflight, full capture or App publication acceptance.
+- [x] Load the approved portable candidate as an additional device in fresh
+  owned Live with corrected Python. Verify exact browser/device identity and
+  authenticated listener discovery through typed tool results, preserving
+  original device and blocked readiness. This is not capture acceptance.
+- [x] Reproduce the first real capture's strict inspection-range failure before
+  native controls or publication. Project only beat bounds into bridge range;
+  require strict request parsing in all host inspection fixtures and native
+  source-start fixtures. Focused regression fails before fix; 52 host tests pass.
+- [ ] Reload the corrected App runtime and repeat the exact candidate-only
+  beats 0-4 capture. Retain the failed 396 ms pass and empty publication as
+  non-acceptance evidence; do not reinterpret it as measured audio.
 - [x] Compose the actual controller/engine/assembler with N4M and native graph;
   observe genuine reset ACK and launch, then independently validate their
   origin in the App protocol without claiming authenticated wire acceptance.

@@ -134,6 +134,12 @@ def validate_stop(params):
     return None
 
 
+def _unmutated_start_failure(error):
+    details = dict(error.details or {})
+    details.update({"mutated": False, "cleanupPolicy": "leave-running"})
+    return ProtocolFailure(error.code, error.message, details=details)
+
+
 def start_listening_playback(context, params, identity_builder=build_live_identity):
     error = validate_start(params)
     if error:
@@ -149,18 +155,24 @@ def start_listening_playback(context, params, identity_builder=build_live_identi
     try:
         _guards(context, params, identity_builder)
     except ProtocolFailure as error:
-        details = dict(error.details or {})
-        details.update({"mutated": False, "cleanupPolicy": "leave-running"})
-        raise ProtocolFailure(error.code, error.message, details=details)
+        raise _unmutated_start_failure(error)
     stage = "seek"
+    mutation_attempted = False
     try:
-        song.current_song_time = params["range"]["startBeat"]
-        # A setter may notify external callbacks/reenter host code. Recheck all
-        # guards/targets, except revision (our own seek may have advanced it).
-        _guards(context, params, identity_builder, check_revision=False)
+        position = _safe_lom_getattr(song, "current_song_time")
+        if not _number(position, 0, 1576800):
+            raise ProtocolFailure("conflict", "Listening position became unknown")
+        # Preserve an already-armed native boundary when no seek is required.
+        if position != params["range"]["startBeat"]:
+            mutation_attempted = True
+            song.current_song_time = params["range"]["startBeat"]
+        # A setter may reenter host code. Only an attempted seek may have
+        # advanced our own revision; a skipped seek must revalidate it.
+        _guards(context, params, identity_builder, check_revision=not mutation_attempted)
         if song.current_song_time != params["range"]["startBeat"]:
             raise ProtocolFailure("conflict", "Requested seek was not observed")
         stage = "start"
+        mutation_attempted = True
         song.continue_playing()
         stage = "verify"
         if _safe_lom_getattr(song, "is_playing") is not True:
@@ -170,7 +182,13 @@ def start_listening_playback(context, params, identity_builder=build_live_identi
             "cleanupPolicy": "leave-running", "startedAtBeat": params["range"]["startBeat"],
             "sourceOnset": "unverified",
         }
-    except Exception:
+    except Exception as error:
+        if not mutation_attempted:
+            if isinstance(error, ProtocolFailure):
+                raise _unmutated_start_failure(error)
+            raise ProtocolFailure("lom_error", "Guarded start failed before a mutation attempt",
+                                  details={"stage": stage, "mutated": False,
+                                           "cleanupPolicy": "leave-running"})
         # Even a setter that throws may already have mutated the host. Never
         # restore position or stop: that could overwrite independent user work.
         playing = _safe_lom_getattr(song, "is_playing")

@@ -2,6 +2,7 @@ import copy
 import json
 import types
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from AbletonAgent.errors import ProtocolFailure
@@ -15,6 +16,7 @@ from simulator import handle
 import test_listening_commands as fixtures
 from AbletonAgent.identity import build_live_identity
 from AbletonAgent.capabilities import build_capability_document
+from AbletonAgent import listening_playback as playback
 
 REFERENCE = "10000000-0000-4000-8000-000000000001"
 TARGET = {
@@ -80,6 +82,85 @@ class ListeningPlaybackTest(unittest.TestCase):
         with self.assertRaises(ProtocolFailure):
             stop_listening_playback(self.context, STOP)
         self.assertTrue(self.song.is_playing)
+
+    def test_already_at_start_does_not_seek_or_retrigger_an_armed_native_phase(self):
+        writes = []
+        class PhaseSensitiveSong(types.SimpleNamespace):
+            def __setattr__(song, field, value):
+                if field == "current_song_time":
+                    writes.append(value)
+                    raise RuntimeError("a redundant seek would reset native phase")
+                super(PhaseSensitiveSong, song).__setattr__(field, value)
+        values = vars(self.song).copy()
+        values["current_song_time"] = 0
+        self.song = PhaseSensitiveSong(**values)
+        self.context.song = self.song
+        result = start_listening_playback(
+            self.context, self.params,
+            identity_builder=lambda _song: {"liveSetId": self.params["expectedLiveSetId"]})
+        self.assertEqual(writes, [])
+        self.assertEqual(self.calls, [("continue", 0)])
+        self.assertTrue(self.song.is_playing)
+        self.assertEqual(result["sourceOnset"], "unverified")
+        self.assertEqual(result["cleanupPolicy"], "leave-running")
+
+    def test_no_seek_does_not_waive_revision_revalidation_or_claim_a_mutation(self):
+        self.song.current_song_time = 0
+        original = playback._guards
+        calls = []
+        def guards(context, params, identity_builder, check_revision=True):
+            calls.append(check_revision)
+            original(context, params, identity_builder, check_revision)
+            if len(calls) == 1:
+                context.project_revision += 1
+        with patch.object(playback, "_guards", guards):
+            with self.assertRaises(ProtocolFailure) as raised:
+                start_listening_playback(self.context, self.params)
+        self.assertEqual(calls, [True, True])
+        self.assertEqual(raised.exception.code, "conflict")
+        self.assertFalse(raised.exception.details["mutated"])
+        self.assertEqual(raised.exception.details["cleanupPolicy"], "leave-running")
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.song.current_song_time, 0)
+        self.assertFalse(self.song.is_playing)
+
+    def test_start_failure_after_skipped_seek_is_still_indeterminate_and_never_restored(self):
+        self.song.current_song_time = 0
+        def broken_start():
+            self.song.is_playing = True
+            raise RuntimeError("start applied then failed")
+        self.song.continue_playing = broken_start
+        with self.assertRaises(ProtocolFailure) as raised:
+            start_listening_playback(self.context, self.params)
+        self.assertEqual(raised.exception.details["stage"], "start")
+        self.assertEqual(raised.exception.details["mutationState"], "indeterminate")
+        self.assertTrue(self.song.is_playing)
+        self.assertEqual(self.song.current_song_time, 0)
+
+    def test_pre_mutation_position_or_guard_failure_never_starts_or_claims_a_mutation(self):
+        original = playback._guards
+        for failure in ("unknown_position", "guard_error"):
+            with self.subTest(failure=failure):
+                self.song.current_song_time = 0
+                calls = []
+                def guards(context, params, identity_builder, check_revision=True):
+                    calls.append(check_revision)
+                    if len(calls) == 1:
+                        original(context, params, identity_builder, check_revision)
+                        if failure == "unknown_position":
+                            self.song.current_song_time = None
+                    else:
+                        raise RuntimeError("internal guard failure")
+                with patch.object(playback, "_guards", guards):
+                    with self.assertRaises(ProtocolFailure) as raised:
+                        start_listening_playback(self.context, self.params)
+                self.assertEqual(raised.exception.code,
+                                 "conflict" if failure == "unknown_position" else "lom_error")
+                self.assertFalse(raised.exception.details["mutated"])
+                self.assertEqual(raised.exception.details["cleanupPolicy"], "leave-running")
+                self.assertNotIn("internal guard failure", raised.exception.message)
+                self.assertEqual(self.calls, [])
+                self.assertFalse(self.song.is_playing)
 
     def test_stop_never_mints_ownership_or_touches_live_for_valid_requests(self):
         context = types.SimpleNamespace(song=ForbiddenLom())

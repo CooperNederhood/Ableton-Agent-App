@@ -278,6 +278,15 @@ quantized source onset remains unproved. Native commissioning and independent
 capture timing evidence are required before enabling successful production
 playback/capture/publication, even when guarded start is available.
 
+Guarded Arrangement start skips the position setter when Live is already at
+the exact requested beat, avoiding an unnecessary retrigger after native arm.
+It still rechecks all transport/listener guards and the observed position.
+Only an attempted real seek may waive the second revision check; a skipped
+seek must retain it. Failures before any mutation attempt report `mutated:
+false`. An attempted seek or continue remains indeterminate on failure and
+never restores position or stops playback. This does not prove the physical
+effect of a redundant setter or upgrade the unverified onset acknowledgement.
+
 The separate `Audio-Listener-Commissioning.maxpat` harness feeds independent PCM
 through the exact production native analysis resources without the production
 client, credentials, context repository or preparation API. Its bounded

@@ -541,6 +541,11 @@ checkpoint above. The production timing gate is unchanged.
 - [ ] Connect the actual native graph to the Node controller and existing
   authenticated listener channel. ABI-only playing/inactive data does not
   satisfy stopped preflight, full capture or App publication acceptance.
+- [x] Skip an exact same-position Arrangement seek after arm, retaining all
+  guards, position readback and revision revalidation when no seek occurred.
+  Distinguish pre-mutation denial/errors from indeterminate attempted starts;
+  regress phase-sensitive setters, revision changes and leave-running failure.
+  The actual physical phase effect and fresh-runner acceptance remain open.
 - [ ] Verify the broader native source/host matrix, production reset and
   cancellation/disconnect behavior; the single offset fixture is not a certificate.
 - [ ] Prove real agent playback-and-listen publishes correct atomic context

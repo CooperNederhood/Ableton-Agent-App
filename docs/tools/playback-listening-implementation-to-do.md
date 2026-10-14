@@ -235,6 +235,38 @@ Arrangement capture/publication, resume and release acceptance remain open.
   Arrangement capture/publication/resume. Manual analyzer enable grants none
   of these capabilities or production readiness.
 
+### Approved bounded native marker proof
+
+- [x] Record user approval for stopped transport, Arrangement beat zero,
+  120 BPM, 48 kHz/vector 64 as an engineering proof, not a product restriction.
+  Verify recording/arm/source guards and empty target Arrangement before
+  copying the exact known Session source to beats 0-4.
+- [x] Add a passive engineering Gen marker with bounded arm/active clocks,
+  monotonic instance-local epochs, source-onset retention while armed,
+  explicit denial/failure/cancellation, and no analysis or readiness authority.
+  Extract the shared test-only numeric GenExpr interpreter without replacing
+  actual native compilation/execution evidence with model results.
+- [x] Correct the native-observed stopped nonzero phase assumption. Observe two
+  regressions failing before the fix; cover held phase, pre-launch source input,
+  normal/anti-phase/silence, invalid/stale epochs, rate, timeout, stop,
+  cancellation and excess-onset guards. Explicit native reload is required
+  after the changed external resource; pre-reload attempts are not passes.
+- [x] Physically verify four source markers 24,000 samples apart. After reload,
+  first input precedes the phase marker by 63 samples, within one vector.
+  Verify actual stop/cancel/playing-arm rejection and bounded normal completion.
+  Do not hard-code this offset or claim global sample-exact host alignment.
+- [x] Disarm both probes, disable/reset analysis, remove all 21 temporary
+  objects, and compare the full native graph exactly with its baseline.
+  Independently read all source clips stopped, restore observed Master 0.85,
+  retain the accounted-for Arrangement source and leave transport running.
+- [x] Pass the full 146-test Max owning suite, scoped lint/format checks,
+  production resource checks and paired documentation validation. Ingest the
+  observed phase/reload/channel-readout gotchas in canonical Max knowledge.
+- [ ] Integrate native launch/reset with the actual analyzer and independently
+  calibrate global host coordinates and envelope/FFT/report offsets. Retain
+  application-owned lifecycle/timing/trace events and instance/epoch fencing.
+  The engineering marker is not shipped or a production timing certificate.
+
 The earlier unfiltered collection retained only silence and is inconclusive;
 the repeated duplicate-filtered collection contains 33 nonzero records and
 12 selected steady spectral frames. Bounded processed engineering evidence is

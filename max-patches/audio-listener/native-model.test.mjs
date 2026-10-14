@@ -4,61 +4,10 @@ import assert from "node:assert/strict";
 import vm from "node:vm";
 import { readFile } from "node:fs/promises";
 import { ENVELOPE_CODE, SPECTRUM_CODE } from "./native-source.mjs";
+import { genModel } from "./gen-model.mjs";
 
 // IMPORTANT: this is a numeric executable model of the authored GenExpr text,
 // NOT a Max compiler/DSP test. It does not validate scheduling or FFT latency.
-function genModel(code, outputs, sampleRate = 48000) {
-  if (/\be\s*=/.test(code))
-    throw new Error("Gen constant e cannot be assigned");
-  const state = {};
-  const histories = [];
-  const params = [];
-  let js = code
-    .replace(/History (\w+)\(([^)]+)\);/g, (_, name, initial) => {
-      histories.push(name);
-      state[name] = Number(initial);
-      return `let ${name} = state.${name};`;
-    })
-    .replace(/Param (\w+)\(([^)]+)\);/g, (_, name, initial) => {
-      params.push(name);
-      return `let ${name} = params.${name} ?? ${initial};`;
-    });
-  js = `let hop, bin, binEnergy; let ${Array.from({ length: outputs }, (_, i) => `out${i + 1}`).join(",")};\n${js}`;
-  js += "\n" + histories.map((name) => `state.${name} = ${name};`).join("\n");
-  js += `\nreturn [${Array.from({ length: outputs }, (_, i) => `out${i + 1}`).join(",")}];`;
-  const fn = new Function(
-    "state",
-    "params",
-    "samplerate",
-    "in1",
-    "in2",
-    "in3",
-    "in4",
-    "in5",
-    "max",
-    "abs",
-    "sqrt",
-    "round",
-    js,
-  );
-  return {
-    step(...values) {
-      return fn(
-        state,
-        { sourceSampleRate: sampleRate },
-        sampleRate,
-        ...Array.from({ length: 5 }, (_, i) => values[i] ?? 0),
-        Math.max,
-        Math.abs,
-        Math.sqrt,
-        Math.round,
-      );
-    },
-    reset() {
-      for (const name of histories) state[name] = 0;
-    },
-  };
-}
 function fft(samples) {
   const n = samples.length;
   const real = [...samples],

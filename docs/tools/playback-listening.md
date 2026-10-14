@@ -668,8 +668,8 @@ The remaining launch-adapter gap is concrete: a 10 ms scheduler poll and a
 Node receipt cannot prove the requested DSP launch boundary or align an
 analyzer reset to it. The current exact-boundary guard must continue rejecting
 missed launches; widening tolerance or writing a generic certificate is not a
-fix. A native signal-rate launch/source marker, paired with independent host
-coordinates and descriptor-offset evidence, is still required.
+fix. The engineering signal-marker proof below does not yet supply the adapter,
+independent host coordinates or descriptor-offset evidence.
 
 Capture boundaries and declared timing uncertainty must remain within one DSP
 vector of independently supplied host coordinates. The verifier must not be
@@ -697,3 +697,81 @@ the generated Session source and Arrangement copy in its runner-owned group Set.
 It is a source-fixture
 scenario, not real listener acceptance; waveform/settings and measured audio
 still need independent verification.
+
+### Controlled native launch/source marker proof
+
+The user approved a narrow engineering proof: stopped transport, Arrangement
+beat zero, 120 BPM, 48 kHz and a 64-sample signal vector. This is not a permanent
+product restriction or permission to stop/rewind during capture cleanup.
+Before fixture setup, native reads verified disabled recording, unarmed tracks,
+empty target Arrangement and the known unwarped, non-looping source. Native
+`Track.duplicate_clip_to_arrangement` copied that exact Session clip to beats
+0-4; the resulting file path, gain and range were independently read back.
+Session override was cleared. Master volume was read as 0.85, then muted for
+the inaudible experiment.
+
+`host_timing_probe.gendsp`, generated from `host-timing-source.mjs`, is a
+temporary passive branch from `plugphasor~` and the actual stereo `plugin~`
+input. It never feeds `plugout~`, enables analysis, authorizes readiness,
+publishes observations or persists audio. Its six held outputs are arm epoch,
+phase-change clock, last source-onset clock, onset count, rejection and active
+state. Clocks are local samples since a valid arm, **not global host samples**.
+Positive integer epochs are monotonic within the probe instance. Arming requires
+a stable phase for at least 64 samples and silent current input, alongside the
+external stopped/beat-zero preflight. Source onsets require 240 prior quiet
+samples and are retained while armed as well as active. Arm and active windows
+are each bounded to 480,000 samples; rate mismatch, stale/invalid epochs, excess
+onsets, moving phase, timeout, phase stall and cancellation fail explicitly.
+
+The actual host invalidated the initial zero-phase assumption: after stopping
+and seeking to zero, `plugphasor~` retained values such as 0.304 and 0.538667.
+Repeated native snapshots corroborated the first held value. The prototype now
+detects phase movement rather than a positive value; a sustained phase stall
+marks stopped playback. Two regressions failed before this correction.
+Numeric GenExpr tests remain models, not evidence of native compilation.
+After editing/recreating the external Gen resource, the earlier native
+rejection/stop behavior persisted until an explicit `reload` with `nocache 1`.
+Disarm before external edits, explicitly reload and verify changed behavior;
+file contents, attributes or a successful object-creation response alone do not
+prove the running compiled routine.
+
+Native collection used `mc.pack~ 6` into `mc.snapshot~`. The latter emits
+`voice N` on its right outlet before each left-outlet value, **not one list**.
+`route voice` selects `gate 6`; the sixth channel triggers the hot inlet of an
+integer `pack` after the first five populate cold inlets. Console order is
+`[active, epoch, launchClock, lastSourceClock, onsetCount, rejected]`.
+`zl.change` bounds output to changed held states. Separate cold-inlet `zl reg`
+taps retain existing DSP/host metadata without 100 Hz console flooding.
+This engineering readout is not the application-owned trace/journal adapter.
+
+After explicit reload, native epoch 9 acknowledged arming before playback.
+It retained four source clocks **431617, 455617, 479617 and 503617**, exactly
+24,000 samples apart. The phase-change clock was **431680**: input preceded it
+by **63 samples**, within the reviewed one-vector bound, not sample-exact global
+alignment. Earlier fresh-phase runs had zero difference; do not hard-code a
+63-sample correction. The native active window ended after ten seconds with
+four onsets and no rejection. Separate runs produced rejection 3 on actual
+transport stop, 4 on explicit cancellation and 1 on arming during playback.
+Pre/post native metadata retained flags 31 and `dsp 1 48000 64`; a separate
+transport read confirmed 120 BPM and disabled looping. Earlier draft,
+pre-reload and timeout attempts are retained as non-acceptance evidence.
+
+The bounded numeric report is
+`.test-artifacts/listener-calibration-native-host-markers.json`; it includes
+source/probe disk hashes, all retained marker states, narrow acceptance,
+failed/cancelled/denied outcomes and cleanup. Both probes were disarmed,
+analysis disabled/reset, and all 21 temporary objects removed. The complete
+native graph matched its baseline exactly: 130 boxes and 150 cables. All three
+Session sources and the Arrangement copy were read as no longer playing before
+Master volume was restored to 0.85. Fixture setup deliberately stopped/seeked;
+cleanup left transport running. The current calibration Set retains the three
+Session sources plus the one Arrangement copy. No authored AMXD, saved original
+Set or User Library asset was replaced.
+
+This passes only the bounded native phase/source-marker experiment. The
+production runtime and its timing gate are unchanged; the running engineering
+bundle was not promoted to algorithm 1.0.1. Native analyzer launch/reset
+integration, independent global host coordinates, envelope/FFT/report offsets,
+application-owned lifecycle/trace propagation, actual capture/publication/resume,
+transparent audio and resource-cost acceptance remain open. The standalone
+marker is intentionally absent from production resource packaging.

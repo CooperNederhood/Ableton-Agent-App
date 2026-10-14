@@ -531,6 +531,16 @@ checkpoint above. The production timing gate is unchanged.
 - [ ] Gather that fresh preflight immediately before actual native arm in the
   Node/Max controller. Wire-prepare eligibility is not native reset proof;
   actual code/ABI observation and real delivery acceptance remain required.
+- [x] Generate an inactive native message graph with three actual DSP ABI
+  outlets and an ES5 generation-fenced IO helper, preserving existing graphs
+  and math. Bound/deduplicate metadata without dropping descriptor changes.
+- [x] Verify real compiled ABI/message delivery with 84 clock and 85
+  envelope/spectrum packets, all ABI values 1, observed DSP/FFT metadata and
+  32 coherent host brackets; correct physical poly~ outlet numbering.
+  Retain initial failures and exact six-root/130-box/150-cable cleanup.
+- [ ] Connect the actual native graph to the Node controller and existing
+  authenticated listener channel. ABI-only playing/inactive data does not
+  satisfy stopped preflight, full capture or App publication acceptance.
 - [ ] Verify the broader native source/host matrix, production reset and
   cancellation/disconnect behavior; the single offset fixture is not a certificate.
 - [ ] Prove real agent playback-and-listen publishes correct atomic context

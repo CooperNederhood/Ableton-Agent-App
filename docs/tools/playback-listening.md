@@ -1218,3 +1218,47 @@ measurements rather than certificate injection. This does not attest executed
 native code or constitute real delivery acceptance. The default host-mode
 shipping denial, blocked registration and production commissioning gate are
 unchanged; the native controller/graph must still supply actual measurements.
+
+### Executed native message graph
+
+The unactivated `native-runtime-source.mjs` candidate derives separate clock,
+envelope and tagged-FFT parents from the measured native math without changing
+any existing default graph or production Gen resource. Each processor appends
+a DSP constant ABI outlet; all three must actually be read as 1. The ES5
+`audio_listener_native_io.js` helper sends only bounded numeric packets stamped
+with the owning UUID generation. It does not read files, register a device,
+start playback or authorize readiness.
+
+An owned begin clears held brackets, cancels the previous envelope request and
+enables polling; exact-generation stop/deletion disables polling and cancels
+the envelope without resetting the independent clock or FFT. Stale arm/stop
+commands cannot control another generation. Malformed data produces one fixed
+owned error marker, without echoing unsafe values. Unchanged DSP, tempo, FFT
+information and ABI metadata are deduplicated per generation; changes and all
+descriptor packets remain visible.
+
+Actual generation `87ad150c-7e5c-491f-81d2-becbc3900218` delivered 84 clock
+and 85 envelope/spectrum packets over 906 ms, all three executed ABI values 1,
+DSP `[1, 48000, 64]` and FFT information `[2048, 2048, 2048, 1]`. Each
+metadata kind arrived once, with zero rejected generation packets. Thirty-two
+unique coherent playing brackets yielded offset `1639726676` and PPQ-zero
+intercept `1428465748`. The actual transport was already running and was never
+changed. These playing/inactive-envelope packets deliberately fail stopped
+preflight; they prove executed code/message delivery, not an audio capture.
+
+Native testing caught separate poly~ signal/message outlet numbering: `out~ 1`
+plus `out 2` placed messages at physical outlet 2, not 1, initially delivering
+no packets to the assumed receiver. The corrected parents use `out~ 1` plus
+`out 1`, with messages at physical outlet 1. A prior run emitted 851 unchanged
+tempo packets against 84 clock packets; per-generation deduplication corrected
+that without hiding changes. Initial invalid-cord loading attempts were
+removed/recreated with the existing global Max port-initialization pattern;
+the exact first-load cause is not separately proven.
+
+Processed evidence and negative acceptance regressions live in
+`fixtures/native-runtime-io.json` and `recorded-native-runtime-io.test.mjs`.
+All six temporary roots were removed; the entire 130-box/150-cable graph
+matched its fresh baseline exactly. Existing Live/Desktop/Max processes and
+Set were preserved, with no audio recording/export, AMXD save or promotion.
+The candidate still retains the engineering quiet-before-arm and at-most-eight
+source-onset guards. It is not arbitrary-music or production acceptance.

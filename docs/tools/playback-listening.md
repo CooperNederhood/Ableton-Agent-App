@@ -1340,6 +1340,21 @@ The installed Live 11.3.43 is not separate qualification of supported 11.3.42.
 
 ### Executed native message graph
 
+The opt-in `appendNativeRuntimeGraph` authored-device composition preserves
+every existing box except the runtime entry filename, keeps direct stereo
+cords and presentation metadata, and adds five private objects: clock/analyzer
+parents, two passive signal sinks and one `route native_control`. It reuses
+the existing SDK Node, forwards every previous outlet-zero destination through
+the unmatched route, and connects only native processed messages back to that
+Node. No transport control or second registration is introduced.
+
+The actual preserved authored source composes from 63 boxes to 62 after the
+existing portable bridge removal, then 67 with native wiring. This was a
+read-only composition check: no AMXD was written/loaded and no device promoted.
+Runtime entry, resource publication, watchdog and fresh host acceptance remain
+required. Ambiguous runtime/input ownership, missing routes, duplicate native
+objects and unsafe entry paths fail without changing the source document.
+
 The unactivated `native-runtime-source.mjs` candidate derives separate clock,
 envelope and tagged-FFT parents from the measured native math without changing
 any existing default graph or production Gen resource. Each processor appends

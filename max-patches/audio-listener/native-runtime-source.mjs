@@ -61,6 +61,87 @@ function replaceResources(document, resource) {
       box.text = box.text?.replace(resource(before), resource(after));
 }
 
+/** Opt-in authored-device composition; never adds a second SDK client or audio output. */
+export function appendNativeRuntimeGraph(document, { runtimeEntry } = {}) {
+  if (
+    typeof runtimeEntry !== "string" ||
+    !/^[A-Za-z][A-Za-z0-9_.-]{0,127}\.js$/.test(runtimeEntry)
+  )
+    throw new Error("native_runtime_entry_required");
+  const result = JSON.parse(JSON.stringify(document));
+  const patcher = result?.patcher;
+  if (!Array.isArray(patcher?.boxes) || !Array.isArray(patcher?.lines))
+    throw new Error("invalid_authored_native_graph");
+  const runtimes = patcher.boxes.filter(
+    ({ box }) =>
+      box.varname === "ml_runtime" && box.text?.startsWith("node.script "),
+  );
+  const inputs = patcher.boxes.filter(({ box }) => box.text === "plugin~");
+  if (runtimes.length !== 1 || inputs.length !== 1)
+    throw new Error("ambiguous_authored_native_runtime_or_input");
+  const runtime = runtimes[0].box;
+  const input = inputs[0].box;
+  const routes = patcher.lines.filter(
+    ({ patchline }) =>
+      patchline.source[0] === runtime.id && patchline.source[1] === 0,
+  );
+  if (routes.length === 0)
+    throw new Error("authored_native_runtime_routes_missing");
+  const bottom = Math.max(
+    ...patcher.boxes.map(({ box }) =>
+      Array.isArray(box.patching_rect)
+        ? box.patching_rect[1] + box.patching_rect[3]
+        : 0,
+    ),
+  );
+  const specs = [
+    ["clock", "poly~ audio_listener_native_clock.maxpat 1 @parallel 0", 1, 2],
+    [
+      "analysis",
+      "poly~ audio_listener_native_analysis.maxpat 1 @parallel 0",
+      4,
+      2,
+    ],
+    ["clock_sink", "snapshot~ 100", 1, 1],
+    ["analysis_sink", "snapshot~ 100", 1, 1],
+    ["control", "route native_control", 1, 2],
+  ];
+  for (const [index, [name, text, inlets, outlets]] of specs.entries()) {
+    const id = `scoped-native-${name}`;
+    const varname = `ml_scoped_native_${name}`;
+    if (patcher.boxes.some(({ box }) => box.varname === varname))
+      throw new Error("duplicate_authored_native_runtime");
+    add(result, id, text, inlets, outlets);
+    const added = box(result, id);
+    added.varname = varname;
+    added.patching_rect[1] = bottom + 50 + index * 45;
+  }
+  patcher.lines = patcher.lines.filter((line) => !routes.includes(line));
+  runtime.text = `node.script ${runtimeEntry} @autostart 1 @watch 0`;
+  for (const route of routes)
+    patcher.lines.push({
+      patchline: {
+        ...route.patchline,
+        source: ["scoped-native-control", 1],
+      },
+    });
+  patcher.lines.push(
+    wire(runtime.id, 0, "scoped-native-control"),
+    wire("scoped-native-control", 0, "scoped-native-clock"),
+    wire("scoped-native-control", 0, "scoped-native-analysis"),
+    wire(input.id, 0, "scoped-native-analysis", 1),
+    wire(input.id, 1, "scoped-native-analysis", 2),
+    wire("scoped-native-clock", 0, "scoped-native-analysis", 3),
+    wire("scoped-native-clock", 0, "scoped-native-clock_sink"),
+    wire("scoped-native-analysis", 0, "scoped-native-analysis_sink"),
+    wire("scoped-native-clock", 1, runtime.id),
+    wire("scoped-native-analysis", 1, runtime.id),
+  );
+  if (Array.isArray(patcher.rect))
+    patcher.rect[3] = Math.max(patcher.rect[3], bottom + 300);
+  return result;
+}
+
 /** Candidate processed-message graph only; does not modify or activate the shipping device. */
 export function nativeRuntimeDocuments({ resourceDirectory = null } = {}) {
   if (resourceDirectory !== null && !isAbsolute(resourceDirectory))

@@ -4,7 +4,11 @@ import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
 import { runInNewContext } from "node:vm";
 import { URL } from "node:url";
-import { nativeRuntimeDocuments } from "./native-runtime-source.mjs";
+import {
+  appendNativeRuntimeGraph,
+  nativeRuntimeDocuments,
+} from "./native-runtime-source.mjs";
+import { sourceDocuments } from "./native-source.mjs";
 import {
   CLOCK_CODE,
   hostClockDocument,
@@ -44,6 +48,78 @@ const connected = (document, source, outlet, destination, inlet = 0) =>
       patchline.destination[0] === destination &&
       patchline.destination[1] === inlet,
   );
+
+test("opt-in authored native composition preserves the existing client, presentation and stereo path", () => {
+  const authored = sourceDocuments()["Audio-Listener.maxpat"];
+  const node = authored.patcher.boxes.find(({ box }) =>
+    box.text?.startsWith("node.script "),
+  ).box;
+  node.varname = "ml_runtime";
+  const original = JSON.stringify(authored);
+  const native = appendNativeRuntimeGraph(authored, {
+    runtimeEntry: "audio_listener_native_max.js",
+  });
+  assert.equal(JSON.stringify(authored), original);
+  assert.equal(native.patcher.boxes.length, authored.patcher.boxes.length + 5);
+  assert.equal(native.patcher.lines.length, authored.patcher.lines.length + 10);
+  for (const { box: before } of authored.patcher.boxes) {
+    const after = boxes(native).get(before.id);
+    assert.deepEqual(
+      after,
+      before.id === node.id
+        ? {
+            ...before,
+            text: "node.script audio_listener_native_max.js @autostart 1 @watch 0",
+          }
+        : before,
+    );
+  }
+  assert.equal(
+    native.patcher.boxes.filter(({ box }) =>
+      box.text?.startsWith("node.script "),
+    ).length,
+    1,
+  );
+  for (const line of authored.patcher.lines) {
+    const [source, outlet] = line.patchline.source;
+    assert.ok(
+      native.patcher.lines.some(
+        (candidate) =>
+          JSON.stringify(candidate) ===
+          JSON.stringify(
+            source === node.id && outlet === 0
+              ? {
+                  patchline: {
+                    ...line.patchline,
+                    source: ["scoped-native-control", 1],
+                  },
+                }
+              : line,
+          ),
+      ),
+    );
+  }
+  assert.ok(connected(native, node.id, 0, "scoped-native-control"));
+  assert.ok(
+    connected(native, "scoped-native-control", 0, "scoped-native-clock"),
+  );
+  assert.ok(
+    connected(native, "scoped-native-control", 0, "scoped-native-analysis"),
+  );
+  assert.ok(
+    connected(native, "scoped-native-clock", 0, "scoped-native-analysis", 3),
+  );
+  assert.ok(connected(native, "scoped-native-clock", 1, node.id));
+  assert.ok(connected(native, "scoped-native-analysis", 1, node.id));
+  assert.throws(
+    () => appendNativeRuntimeGraph(authored),
+    /native_runtime_entry_required/,
+  );
+  assert.throws(
+    () => appendNativeRuntimeGraph(native, { runtimeEntry: "native.js" }),
+    /duplicate_authored_native_runtime/,
+  );
+});
 
 test("candidate native graphs preserve every existing default graph and native math", () => {
   const before = JSON.stringify([
@@ -85,6 +161,52 @@ test("candidate native graphs preserve every existing default graph and native m
     text,
     /print |live\.object|live\.path|hosted_calibration_probe|node\.script|buffer~|index~|plugout~|dac~/,
   );
+});
+
+test("authored native composition denies ambiguous ownership and unsafe entries without mutating its source", () => {
+  for (const entry of [
+    undefined,
+    "../native.js",
+    "/native.js",
+    "native.js extra",
+  ]) {
+    const source = sourceDocuments()["Audio-Listener.maxpat"];
+    const before = JSON.stringify(source);
+    assert.throws(
+      () => appendNativeRuntimeGraph(source, { runtimeEntry: entry }),
+      /native_runtime_entry_required/,
+    );
+    assert.equal(JSON.stringify(source), before);
+  }
+  for (const failure of [
+    "missing-runtime",
+    "duplicate-runtime",
+    "duplicate-input",
+    "missing-routes",
+  ]) {
+    const source = sourceDocuments()["Audio-Listener.maxpat"];
+    const node = source.patcher.boxes.find(({ box }) =>
+      box.text?.startsWith("node.script "),
+    ).box;
+    node.varname = "ml_runtime";
+    if (failure === "missing-runtime") node.varname = "other";
+    if (failure === "duplicate-runtime")
+      source.patcher.boxes.push({ box: { ...node, id: "other-runtime" } });
+    if (failure === "duplicate-input")
+      source.patcher.boxes.push({
+        box: { id: "other-input", text: "plugin~", maxclass: "newobj" },
+      });
+    if (failure === "missing-routes")
+      source.patcher.lines = source.patcher.lines.filter(
+        ({ patchline }) =>
+          patchline.source[0] !== node.id || patchline.source[1] !== 0,
+      );
+    const before = JSON.stringify(source);
+    assert.throws(() =>
+      appendNativeRuntimeGraph(source, { runtimeEntry: "native.js" }),
+    );
+    assert.equal(JSON.stringify(source), before);
+  }
 });
 
 test("native host phase is signal-rate wrapped before strict clock validation without delaying the counter", () => {

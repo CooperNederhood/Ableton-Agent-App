@@ -539,6 +539,12 @@ checkpoint above. The production timing gate is unchanged.
 - [x] Generate an inactive native message graph with three actual DSP ABI
   outlets and an ES5 generation-fenced IO helper, preserving existing graphs
   and math. Bound/deduplicate metadata without dropping descriptor changes.
+- [x] Compose native parents into the authored graph without replacing its
+  presentation, stereo path or SDK client. Preserve all old runtime routes,
+  isolate native control/message wiring and deny ambiguous/unsafe composition.
+  Check the actual preserved authored source without loading/saving it.
+- [ ] Package and exercise the candidate entry/resources with native generation
+  watchdog, real authenticated runtime delivery and fresh host acceptance.
 - [x] Verify real compiled ABI/message delivery with 84 clock and 85
   envelope/spectrum packets, all ABI values 1, observed DSP/FFT metadata and
   32 coherent host brackets; correct physical poly~ outlet numbering.

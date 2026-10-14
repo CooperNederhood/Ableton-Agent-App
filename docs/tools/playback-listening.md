@@ -385,8 +385,39 @@ candidate. Startup console evidence showed preview messages arriving before
 Node readiness. Temporary metadata probes were removed without saving the
 loaded patch or changing audio routing. The subsequent latch candidate still
 reported `editor_preview_blocked` with the editor closed, motivating the
-approved simpler registration policy. Real hosted registration of that
-replacement is pending; these measurements are not timing certification.
+approved simpler registration policy.
+
+After code checkpoint `a0cb4e8`, the actual hosted listener registered with the
+fresh isolated App on `14-Audio`. The checked runtime, path-only profile
+configuration and manifest were published into the already loaded engineering
+bundle with its polling paused and Node adapter stopped. Original
+companions were backed up. The AMXD and Node entry were byte-identical to the
+staged candidate and were not replaced; stereo wiring, presentation and the
+User Library installation were unchanged. An unsuccessful UI loading attempt
+also left an empty temporary `15-Audio` track, which remains explicitly
+accounted for rather than silently deleted.
+
+The App Outputs view showed exactly one connected Audio-Listener. A completed
+agent turn used only `ableton_listening:inspect-listeners`; its expanded
+observed tool result returned one non-truncated listener with exact App track
+and device references. Independent native inspection resolved
+`Machine-Listening-Development` on `14-Audio`, canonical path
+`live_set tracks 13 devices 0`, LOM device ID `2142`. Pausing the 10 ms poll
+before stopping the adapter removed the output. Restarting it and restoring
+polling returned exactly one output. A second single-inspection turn returned
+the same listener/track/device references and a fresh producer instance ID.
+Both observed results retained `ready: false`,
+`real_live_timing_validation_required` and `source_onset_unverified`.
+`inspect-listeners` does not expose sample rate or connection epoch; those
+fields were not inferred from assistant prose.
+
+This passes the narrow hosted connection/reconnect milestone, not native
+timing or audio acceptance. Transport remained stopped, no listening pass or
+stored observation was created, and the Max editor remained closed. The next
+measurement step requires a clean runner-owned known-source Set without armed
+external-hardware tracks. The current unsaved template was not played, saved,
+discarded or replaced; approval to preserve it before changing Sets remains
+outstanding. These connection checks are not timing certification.
 
 `max-patches/audio-listener/Machine-Listening-Development.amxd` checkpoints the
 authored layout and presentation with relative listener references and the

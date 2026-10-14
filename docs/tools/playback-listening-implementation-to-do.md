@@ -4,20 +4,21 @@ Companion specification: [Playback Listening](playback-listening.md).
 
 ## Issue 29 checkpoint - 2026-10-13
 
-Code baseline: `bf61bc3`. Feature work is paused for this checkpoint; no preview
-gate, capture-readiness, transport or storage behavior is changed by it.
-Checked implementation items are not automatically real-Live acceptance.
+Original code baseline: `bf61bc3`. Later registration changes and hosted
+acceptance after `a0cb4e8` are recorded below. This documentation checkpoint
+does not change capture-readiness, transport or storage behavior. Checked
+implementation items are not automatically real-Live acceptance.
 
 | Area | Achieved | Remaining acceptance |
 | --- | --- | --- |
 | Architecture and scope | ADR 0006; bounded playback-first native descriptors and App-session entity context. | Reconcile original issue criteria with the narrow Arrangement prototype; do not silently expand scope to Session onset, transcription or source separation. |
 | Native analyzer | Stereo tap; native peak/RMS, estimated envelope-rise attacks and centroid; Gen/FFT corrections, reset and watchdog; minimal presentation. Limited sine/anti-phase measurements recorded. | Independent audio/timing, attacks, gaps, transparent pass-through and measured resource cost. |
 | Authored packaging | Actual authored layout preserved, adjacent resources, hashes, source/destination guards, explicit profiles, save/reopen evidence and original fallback. | Portable release without the external development MCP bridge; no candidate promotion has occurred. |
-| Connection | Shared authenticated MIDI/audio ingress, bounded listener controls and exact instance/epoch binding. Earlier development device registered on DRUMS. | Current candidate registration is blocked; earlier success does not establish current success. |
+| Connection | Shared authenticated MIDI/audio ingress, bounded listener controls and exact instance/epoch binding. After `a0cb4e8`, actual hosted registration and reconnect passed on `14-Audio` with one output, unchanged track/device references and a fresh producer instance. | Independent audio/timing and capture acceptance; automatic editor-preview isolation remains deferred. |
 | Capture and tools | Guarded Arrangement assembly, bounded jobs, readiness, owner cancellation, cleanup and publication implemented with deterministic coverage. | Successful real-device capture. Session capture remains unsupported. Production still denies uncommissioned timing. |
 | Storage and Desktop | Canonical profile ownership, immutable observations, atomic publication, quota reservation, attribution/freshness, typed queries, resume and synthetic Electron lifecycle/context tests. | A real observation reaching the correct clip/track/range and remaining queryable after resume. |
 
-### Current failure, not a completed capability
+### Historical preview-classification failure, now superseded
 
 The user freshly loaded the latch candidate on `14 Audio` from
 `.test-artifacts/listener-preview-latch-live-2026-10-13/`. The bridge confirmed
@@ -125,18 +126,52 @@ substitute for them.
   registration tests; preserve identity/epoch fencing, partial attribution,
   cancellation, profile/DSP/identity guards and blocked production prepare.
   Installed positive fixtures must not depend on a preview notification.
-- [ ] Verify exactly one actual authenticated hosted listener in the isolated
+- [x] Verify exactly one actual authenticated hosted listener in the isolated
   App, with its inspected track/device identity, editor closed, stopped
   playback and unchanged production readiness.
-- [ ] Verify bounded disconnect/reconnect against the actual owned instance.
+- [x] Verify bounded disconnect/reconnect against the actual owned instance.
 
 The nine registration regressions failed before the policy change and pass
 after it. The full Max suite passes 118 tests; five owning ingress/capture/
-coordinator suites pass 152 tests. This is deterministic evidence only until
-the replacement is loaded and observed. No production timing gate or transport
-policy changed. Native routing/latch objects remain for authored compatibility,
-not as registration authority. Automatic editor isolation is deferred rather
-than replaced by another unverified detector.
+coordinator suites pass 152 tests. Actual hosted registration and reconnect
+were subsequently observed as described below. No production timing gate or
+transport policy changed. Native routing/latch objects remain for authored
+compatibility, not as registration authority. Automatic editor isolation is
+deferred rather than replaced by another unverified detector.
+
+### Hosted connection acceptance after `a0cb4e8`
+
+The fresh isolated App showed exactly one connected Audio-Listener on
+`14-Audio`. Two completed agent turns each used only one read-only
+`inspect-listeners` call, before and after an adapter stop/restart. Their
+expanded observed tool outputs returned one non-truncated listener, unchanged
+track/device references and different producer instances. Readiness stayed
+false with `real_live_timing_validation_required` and
+`source_onset_unverified`. Sample rate and connection epoch are not fields of
+this inspection result and were not claimed as inspected.
+
+Independent native inspection confirmed the hosted Max Audio Effect at
+`live_set tracks 13 devices 0` (LOM ID `2142`), with one device on `14-Audio`.
+Polling was paused before the adapter stopped; Outputs then showed no
+discovered output. After native start success and restored 10 ms polling,
+Outputs again showed exactly one connected listener. The editor remained
+closed and transport stayed stopped. There were no listening passes or stored
+observations. This is connection lifecycle evidence, not real capture cleanup.
+
+Only checked runtime/configuration/manifest companions in the already loaded
+engineering bundle were published, with backups and traced publication events.
+Its AMXD and Node entry were byte-identical to the staged candidate and stayed
+unchanged. The User Library was not replaced. A failed auxiliary UI loading
+attempt left an empty `15-Audio` track; it remains accounted for, not deleted.
+The earlier zero-listener baseline's failed cancel call is retained separately
+and is not classified as a clean inspection workflow.
+
+**Next gate blocked:** the current unsaved runner-owned template contains
+external-hardware tracks and must not be played for calibration. Approval was
+requested to save it under `.test-artifacts/issue-29-preserved-set/` before
+opening a clean known-source Set. The user was unavailable, so no save,
+discard, Set replacement or playback occurred. Real native measurement,
+Arrangement capture/publication, resume and release acceptance remain open.
 
 Desktop discovery now uses canonical profile paths; non-isolated startup
 explicitly preserves the existing global legacy MIDI endpoint, while automation

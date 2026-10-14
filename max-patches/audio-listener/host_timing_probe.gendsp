@@ -20,9 +20,9 @@
         "box": {
           "id": "code",
           "maxclass": "codebox",
-          "code": "Param epoch(0); Param cancel(0);\nHistory seenEpoch(0); History clock(0); History armed(0); History active(0);\nHistory launchClock(-1); History sourceClock(-1); History onsetCount(0);\nHistory rejected(0); History previousPhase(0); History quietSamples(240);\nHistory stablePhaseSamples(0);\nif (epoch != seenEpoch && epoch != 0) {\n  if (epoch > seenEpoch && epoch <= 1000000 && floor(epoch) == epoch) {\n    seenEpoch = epoch; clock = 0; armed = 0; active = 0;\n    launchClock = -1; sourceClock = -1; onsetCount = 0;\n    quietSamples = 240; rejected = 0;\n    if (in1 != previousPhase || stablePhaseSamples < 64) { rejected = 1; }\n    else if (abs(in2) + abs(in3) > 0.000000000001) { rejected = 8; }\n    else { armed = 1; }\n  } else { armed = 0; active = 0; rejected = 6; }\n}\nif (epoch == 0) { armed = 0; active = 0; }\nif (seenEpoch > 0 && samplerate != 48000) {\n  armed = 0; active = 0; rejected = 5;\n}\nif (cancel > 0 && (armed > 0 || active > 0)) {\n  armed = 0; active = 0; rejected = 4;\n}\nif (armed > 0 && clock >= 480000) {\n  armed = 0; rejected = 2;\n}\nif (armed > 0 && in1 != previousPhase) {\n  launchClock = clock; armed = 0; active = 1;\n}\nif (armed > 0 || active > 0) {\n  hasInput = abs(in2) + abs(in3) > 0.000000000001;\n  if (hasInput) {\n    if (quietSamples >= 240) {\n      sourceClock = clock; onsetCount = onsetCount + 1;\n      if (onsetCount > 8) { armed = 0; active = 0; rejected = 7; }\n    }\n    quietSamples = 0;\n  } else { quietSamples = min(240, quietSamples + 1); }\n}\nstablePhaseSamples = in1 == previousPhase ? min(128, stablePhaseSamples + 1) : 0;\nif (active > 0 && stablePhaseSamples >= 64) { active = 0; rejected = 3; }\nif (active > 0 && clock - launchClock >= 480000) { active = 0; }\nout1 = seenEpoch; out2 = launchClock; out3 = sourceClock;\nout4 = onsetCount; out5 = rejected; out6 = active;\npreviousPhase = in1;\nclock = clock + 1;",
+          "code": "Param epoch(0); Param cancel(0);\nHistory seenEpoch(0); History clock(0); History armed(0); History active(0);\nHistory launchClock(-1); History sourceClock(-1); History onsetCount(0);\nHistory launchPhaseSamples(-1); History firstSourceClock(-1);\nHistory rejected(0); History previousPhase(0); History quietSamples(240);\nHistory stablePhaseSamples(0);\nif (epoch != seenEpoch && epoch != 0) {\n  if (epoch > seenEpoch && epoch <= 1000000 && floor(epoch) == epoch) {\n    seenEpoch = epoch; clock = 0; armed = 0; active = 0;\n    launchClock = -1; sourceClock = -1; onsetCount = 0;\n    launchPhaseSamples = -1; firstSourceClock = -1;\n    quietSamples = 240; rejected = 0;\n    if (in1 != previousPhase || stablePhaseSamples < 64) { rejected = 1; }\n    else if (abs(in2) + abs(in3) > 0.000000000001) { rejected = 8; }\n    else { armed = 1; }\n  } else { armed = 0; active = 0; rejected = 6; }\n}\nif (epoch == 0) { armed = 0; active = 0; }\nif (seenEpoch > 0 && samplerate != 48000) {\n  armed = 0; active = 0; rejected = 5;\n}\nif (cancel > 0 && (armed > 0 || active > 0)) {\n  armed = 0; active = 0; rejected = 4;\n}\nif (armed > 0 && clock >= 480000) {\n  armed = 0; rejected = 2;\n}\nif (armed > 0 && in1 != previousPhase) {\n  launchClock = clock; armed = 0; active = 1;\n  launchPhaseSamples = round(in1 * 24000);\n}\nif (armed > 0 || active > 0) {\n  hasInput = abs(in2) + abs(in3) > 0.000000000001;\n  if (hasInput) {\n    if (quietSamples >= 240) {\n      sourceClock = clock;\n      if (onsetCount == 0) { firstSourceClock = clock; }\n      onsetCount = onsetCount + 1;\n      if (onsetCount > 8) { armed = 0; active = 0; rejected = 7; }\n    }\n    quietSamples = 0;\n  } else { quietSamples = min(240, quietSamples + 1); }\n}\nstablePhaseSamples = in1 == previousPhase ? min(128, stablePhaseSamples + 1) : 0;\nif (active > 0 && stablePhaseSamples >= 64) { active = 0; rejected = 3; }\nif (active > 0 && clock - launchClock >= 480000) { active = 0; }\nout1 = seenEpoch; out2 = launchClock; out3 = sourceClock;\nout4 = onsetCount; out5 = rejected; out6 = active;\nout7 = launchPhaseSamples; out8 = firstSourceClock;\npreviousPhase = in1;\nclock = clock + 1;",
           "numinlets": 3,
-          "numoutlets": 6,
+          "numoutlets": 8,
           "patching_rect": [
             100,
             50,
@@ -165,6 +165,36 @@
             22
           ]
         }
+      },
+      {
+        "box": {
+          "id": "out6",
+          "maxclass": "newobj",
+          "text": "out 7",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            230,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out7",
+          "maxclass": "newobj",
+          "text": "out 8",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            265,
+            60,
+            22
+          ]
+        }
       }
     ],
     "lines": [
@@ -272,6 +302,30 @@
           ],
           "destination": [
             "out5",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            6
+          ],
+          "destination": [
+            "out6",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            7
+          ],
+          "destination": [
+            "out7",
             0
           ]
         }

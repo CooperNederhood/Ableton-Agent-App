@@ -267,6 +267,31 @@ Arrangement capture/publication, resume and release acceptance remain open.
   application-owned lifecycle/timing/trace events and instance/epoch fencing.
   The engineering marker is not shipped or a production timing certificate.
 
+### Phase-derived local origin
+
+- [x] Append held launch-phase samples and first-input clock to the engineering
+  marker without changing the original six output fields. Keep the 24,000
+  samples/beat conversion explicitly scoped to 48 kHz/120 BPM/beat-zero.
+  New epochs clear both markers; silence/cancellation cannot invent input.
+- [x] Prove the phase-based origin in the actual hosted device for fresh and
+  previously stopped phase: 513 minus 1 and 576 minus 64 both give local
+  origin 512. All four source offsets match independently read PCM frames
+  1, 24001, 48001 and 72001 with zero sample error. Do not derive the origin
+  from the first-input marker or generalize this to global coordinates.
+- [x] Retain the separate-round-trip arm timeout as failure. Start the fixture
+  only from an exact native acknowledged-arm packet; do not widen the deadline
+  or use an arbitrary sleep. Remove the failed external harness and all
+  temporary native start controls after the experiment.
+- [x] Verify unchanged host conditions, all four sources stopped, restored
+  Master 0.85, exact full graph restoration and continued transport. Retain
+  the existing calibration sources without any new Set/AMXD/library mutation.
+- [x] Observe the three phase/first-input model regressions and updated artifact
+  contract failing before the extension, then pass all 149 owning Max tests,
+  source/resource isolation, scoped lint/format and paired documentation checks.
+- [ ] Use bounded native pre-roll and signal-rate reset to align real envelope
+  windows to the independently verified origin. Reject unhandled phase/rate/
+  vector conditions instead of truncating early input or inventing readiness.
+
 The earlier unfiltered collection retained only silence and is inconclusive;
 the repeated duplicate-filtered collection contains 33 nonzero records and
 12 selected steady spectral frames. Bounded processed engineering evidence is

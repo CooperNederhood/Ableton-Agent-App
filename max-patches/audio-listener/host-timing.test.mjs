@@ -8,8 +8,8 @@ import { validateDocument } from "../../scripts/audio-listener-device.mjs";
 import { createKnownListeningFixture } from "../../packages/test-support/src/listening-fixture.ts";
 
 const phase = (index) => (index % 24000) / 24000;
-const create = (rate = 48000, stoppedPhase = 0) => {
-  const model = genModel(HOST_TIMING_CODE, 6, rate);
+const create = (rate = 48000, stoppedPhase = 0, outputs = 6) => {
+  const model = genModel(HOST_TIMING_CODE, outputs, rate);
   for (let i = 0; i < 128; i++) model.step(stoppedPhase);
   return model;
 };
@@ -31,7 +31,47 @@ test("engineering native timing document is deterministic, bounded and has no au
     /plugout~|dac~|LiveAPI|node.script|certificate|productionReady/,
   );
   assert.equal(expected.patcher.boxes[0].box.numinlets, 3);
-  assert.equal(expected.patcher.boxes[0].box.numoutlets, 6);
+  assert.equal(expected.patcher.boxes[0].box.numoutlets, 8);
+});
+
+for (const held of [false, true]) {
+  test(`model retains launch phase and first input for ${held ? "held" : "fresh"} phase without a constant offset`, () => {
+    const fixture = createKnownListeningFixture("quarter-sine");
+    const pcm = new DataView(fixture.wav.buffer);
+    const stoppedPhase = held ? 0.304 : 0;
+    const model = create(48000, stoppedPhase, 8);
+    model.configure({ epoch: 1 });
+    assert.deepEqual(model.step(stoppedPhase).slice(6), [-1, -1]);
+    let marker;
+    for (let i = 0; i < 96000; i++) {
+      marker = model.step(
+        held && i < 64 ? stoppedPhase : phase(i),
+        pcm.getInt16(44 + i * 4, true) / 32768,
+        pcm.getInt16(46 + i * 4, true) / 32768,
+      );
+    }
+    assert.equal(marker[4], 0);
+    assert.equal(marker[3], 4);
+    assert.equal(marker[6], held ? 64 : 1);
+    assert.equal(marker[7], 2);
+    assert.equal(marker[7] - (marker[1] - marker[6]), 1);
+    assert.equal(marker[2] - marker[7], 72000);
+
+    for (let i = 0; i < 128; i++) model.step(stoppedPhase);
+    model.configure({ epoch: 2 });
+    assert.deepEqual(model.step(stoppedPhase).slice(6), [-1, -1]);
+  });
+}
+
+test("model retains host phase without inventing an onset for silence or cancellation", () => {
+  const silent = create(48000, 0, 8);
+  silent.configure({ epoch: 1 });
+  silent.step(0);
+  assert.deepEqual(silent.step(phase(1)).slice(6), [1, -1]);
+  silent.configure({ cancel: 1 });
+  const marker = silent.step(phase(2));
+  assert.equal(marker[4], 4);
+  assert.deepEqual(marker.slice(6), [1, -1]);
 });
 
 test("model rejects an arm while playing, at a wrap, with prior audio, or with unsupported rate", () => {

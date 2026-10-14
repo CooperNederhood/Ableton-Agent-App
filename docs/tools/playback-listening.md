@@ -713,7 +713,7 @@ the inaudible experiment.
 `host_timing_probe.gendsp`, generated from `host-timing-source.mjs`, is a
 temporary passive branch from `plugphasor~` and the actual stereo `plugin~`
 input. It never feeds `plugout~`, enables analysis, authorizes readiness,
-publishes observations or persists audio. Its six held outputs are arm epoch,
+publishes observations or persists audio. Its original six held outputs are arm epoch,
 phase-change clock, last source-onset clock, onset count, rejection and active
 state. Clocks are local samples since a valid arm, **not global host samples**.
 Positive integer epochs are monotonic within the probe instance. Arming requires
@@ -775,3 +775,58 @@ integration, independent global host coordinates, envelope/FFT/report offsets,
 application-owned lifecycle/trace propagation, actual capture/publication/resume,
 transparent audio and resource-cost acceptance remain open. The standalone
 marker is intentionally absent from production resource packaging.
+
+### Phase-derived local beat-zero origin
+
+The engineering marker now appends two held signals: `launchPhaseSamples`
+and `firstSourceClock`. Both reset to -1 on a new valid epoch. At the first
+phase change, the former records the rounded beat phase times 24,000; the latter
+retains the first actual input onset, including an onset before phase movement.
+This conversion is **only** the approved 48 kHz/120 BPM/beat-zero experiment.
+It is not a general tempo adapter or an independent global sample clock.
+The original six signals retain their order; the temporary eight-channel
+integer readout is
+`[firstSourceClock, epoch, launchClock, lastSourceClock, onsetCount, rejected, active, launchPhaseSamples]`.
+
+Two actual hosted runs established why the captured phase matters:
+
+| Native run | Phase-change clock | Captured phase in samples | Phase-derived local origin | First input |
+| --- | --- | --- | --- | --- |
+| Fresh phase, epoch 2 | 513 | 1 | 512 | 513 |
+| Held stopped phase, epoch 3 | 576 | 64 | 512 | 513 |
+
+Subtract the captured phase samples from the phase-change clock, not a fixed
+63-sample correction. Independently reading the generated PCM bytes finds first
+nonzero frames 1, 24001, 48001 and 72001. In both runs, all four native source
+clocks match those independent offsets from the phase-derived origin with zero
+sample error. The first-input marker is verification evidence, **not an input
+to the origin calculation**. Both native windows completed without rejection.
+This is local-coordinate evidence for the bounded source, not an actual
+analyzer reset or accepted production observation.
+
+The first attempt expired the unchanged ten-second arm deadline across separate
+MCP round trips. The successful fixture instead starts the Song only after the
+changed native readout acknowledges the exact expected epoch, negative launch
+and source markers, zero onsets, zero rejection and inactive state. A temporary
+`trigger b l` sends all eight values through `prepend set` into `if` before
+banging its condition; a matching packet triggers `call start_playing` on the
+independently resolved Song. No arbitrary sleep or wider deadline was used.
+This is an engineering fixture control, not the application's capture adapter
+or trace/journal lifecycle. An attempted external `bpatcher` harness did not
+load through the authoring constructor; it was removed and is not acceptance.
+
+Production resources and readiness remain unchanged. Pre/post metadata retained
+48 kHz/vector 64 and flags 31, with separate 120 BPM transport reads. All
+temporary instrumentation was disarmed/removed, analysis reset/disabled and
+the complete 130-box/150-cable graph restored exactly. All four fixture clips
+were read stopped before restoring Master 0.85; transport was left running
+and no new Set clip, AMXD replacement or User Library update was made.
+Bounded numeric evidence, the timeout and source/probe hashes are retained in
+`.test-artifacts/listener-calibration-native-origin.json`.
+
+Next, implement and independently verify bounded one-vector native pre-roll
+and signal-rate envelope reset using the phase-derived origin. Early audio
+must remain available until phase movement is observed; do not gate it away
+and retroactively relabel truncated descriptors. Global host-coordinate
+anchoring, FFT/report offsets, application-owned capture lifecycle/trace,
+publication/resume and release acceptance still remain open.

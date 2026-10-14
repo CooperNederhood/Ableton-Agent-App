@@ -1358,6 +1358,31 @@ alias and reports actual Arrangement-playing slot semantics. Fresh Python
 requires a new owned Live process. Native arm, capture and context publication
 remain unaccepted until a new actual pass establishes them.
 
+The operator subsequently saved a separate
+`Machine-Listening-Native-SDK-Calibration.als` with both effects, preserving the
+original one-effect Set. Installed guard source hashes match the checkpoint;
+a fresh runner-owned `capability-surface` baseline passes on Live 11.3.43.
+That baseline does not qualify native capture or the exact supported 11.3.42.
+The reopened copy again establishes two authenticated listener instances,
+stopped beat zero, tempo 120 and clear global override.
+
+Fourth pass `1377d418-3ba6-4e39-82f0-66a28e1e71fb` fails after 3814 ms with
+`unsupported_native_capture_scope` and no context IDs. Correlated typed History
+establishes completed inspection and reservation, followed by a failed actual
+device `prepare`; native arm and source start were not reached. The App was
+using its generic 512-window budget, exceeding the real native controller's
+100-window ceiling. The fixed native cohort now receives exactly five
+canonical windows per requested beat (20 for beats 0-4), while non-native
+preparation retains its existing 512-window budget. App capture admission also
+rejects native budgets over 100 before dispatch or subscription; it does not
+widen the device's scope. Regressions reproduce the dispatch and 101/512
+admission failures before the fix and preserve the valid 100-window ceiling.
+All 122 owning capture/host tests, 683 broader TypeScript tests, 320 Max tests
+and 200 Python tests pass; the workspace builds and runtime type-checks.
+Fresh actual preparation must still qualify DSP metadata and subsequent
+native proof; the budget correction
+alone is not audio acceptance.
+
 `NativeCaptureController` composes the actual signal engine and bounded native
 assembler. `prepare` only validates/freezes eligibility with a bounded
 reservation; `arm` gathers fresh generation-owned DSP/FFT/ABI metadata,

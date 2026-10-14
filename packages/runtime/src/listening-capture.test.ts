@@ -271,6 +271,45 @@ describe("per-pass native proof admission", () => {
     return { service, fixture, captureInput };
   }
 
+  it.each([101, 512])(
+    "rejects native budget %s before sending any control",
+    async (maxWindows) => {
+      const { service, captureInput } = nativeService();
+      service.hook = (_id, control, reply) => {
+        if (control.action === "prepare")
+          throw new Error("Invalid native budget reached the device");
+        return reply;
+      };
+      await expect(
+        prepareListenerCapture(service, {
+          ...captureInput,
+          config: { ...captureInput.config, maxWindows },
+        }),
+      ).rejects.toThrow("unsupported-native-capture-scope");
+      expect(service.calls).toHaveLength(0);
+      expect(service.subscribers.size).toBe(0);
+    },
+  );
+
+  it("accepts the native 100-window ceiling without relaxing launch or completion proof", async () => {
+    const { service, fixture, captureInput } = nativeService();
+    const capture = await prepareListenerCapture(service, {
+      ...captureInput,
+      config: { ...captureInput.config, maxWindows: 100 },
+    });
+    service.emit("connection-a", {
+      status: "progress",
+      observation: undefined,
+      nativeLaunch: fixture.proof.launched,
+    });
+    service.emit("connection-a", {
+      observation: fixture.observation,
+      nativeCapture: fixture.proof,
+    });
+    await expect(capture.result).resolves.toEqual([fixture.observation]);
+    expect(service.subscribers.size).toBe(0);
+  });
+
   it("requires actual launch and matching complete evidence; native arm telemetry is not onset", async () => {
     const { service, fixture, captureInput } = nativeService();
     const progress: string[] = [];

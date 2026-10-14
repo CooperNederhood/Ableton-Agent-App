@@ -476,6 +476,23 @@ async function run(
 }
 
 describe("same-runtime production listening factory", () => {
+  it("bounds native preparation to the exact requested canonical window count", async () => {
+    const f = nativeProductionFixture();
+    const result = await run(f.host(true));
+    expect(result.stage, result.error).toBe("completed");
+    const prepare = f.service.requestListenerControl.mock.calls.find(
+      ([, control]) => control.action === "prepare",
+    )?.[1];
+    expect(prepare).toMatchObject({
+      config: {
+        durationMs: 2000,
+        maxWindows: 20,
+        source: { mode: "arrangement", startBeat: 0, endBeat: 4 },
+      },
+    });
+    expect(f.publications).toHaveLength(1);
+  });
+
   it("projects only beat bounds into every strict bridge inspection range", async () => {
     const f = nativeProductionFixture();
     const result = await run(f.host(true));

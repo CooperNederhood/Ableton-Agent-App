@@ -649,7 +649,13 @@ function assemble(
             listeners: snapshot.descriptors,
             config: {
               durationMs,
-              maxWindows: 512,
+              maxWindows: snapshot.descriptors.every(
+                (descriptor) =>
+                  descriptor.registration.nativeStatus?.scope ===
+                  NATIVE_LISTENER_SCOPE,
+              )
+                ? cached.request.endBeat * 5
+                : 512,
               source: {
                 mode: "arrangement",
                 startBeat: cached.request.startBeat,

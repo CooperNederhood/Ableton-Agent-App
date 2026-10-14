@@ -590,6 +590,20 @@ checkpoint above. The production timing gate is unchanged.
   failures before fix; pass 200 Python, 137 protocol/simulator bridge and 679
   broader owning TypeScript tests.
   Actual Python alias absence remains unqualified.
+- [x] Preserve the additional-device state as a separate named calibration Set;
+  verify two saved effects versus one in the untouched original. Match installed
+  Python source hashes, pass fresh runner-owned capability baseline and reopen
+  the copy with authenticated discovery. Baseline is not native acceptance.
+- [x] Retain fourth real pass: inspection and reservation complete, actual
+  device prepare rejects `unsupported_native_capture_scope` after 3814 ms,
+  with no arm, source start or context IDs. Reproduce generic 512-window
+  dispatch against the native 100-window contract; send the exact native
+  window count, reject 101/512 before control/subscription and preserve the
+  valid 100 ceiling and non-native 512 behavior. Pass 122 capture/host, 683
+  broader TypeScript, 320 Max and 200 Python tests; build/type-check pass.
+- [ ] Reload the corrected App budget and repeat one fresh candidate-only
+  pass. Independently qualify actual DSP/preflight/reset, source start and full
+  native/context proof; prepare admission is not measured audio acceptance.
 - [x] Compose the actual controller/engine/assembler with N4M and native graph;
   observe genuine reset ACK and launch, then independently validate their
   origin in the App protocol without claiming authenticated wire acceptance.

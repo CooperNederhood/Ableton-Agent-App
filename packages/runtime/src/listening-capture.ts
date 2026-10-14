@@ -243,6 +243,7 @@ class Capture implements PreparedListeningCapture {
           this.#config.durationMs < Math.round(source.endBeat * 5) * 100 ||
           this.#config.durationMs > 10000 ||
           this.#config.maxWindows < source.endBeat * 5 ||
+          this.#config.maxWindows > 100 ||
           descriptor.registration.sampleRate !== 48000
         )
           throw new ListeningCaptureError("unsupported-native-capture-scope");

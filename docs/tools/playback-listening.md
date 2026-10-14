@@ -902,3 +902,84 @@ source coverage, actual App capture/publication/resume, pass-through/resource
 cost and portable release remain open. The installed host was independently
 read as 11.3.43; this is not a separate 11.3.42 qualification. Production has no
 certificate-file loader, remains timing-denied, and does not package this probe.
+
+### Independent host and tagged FFT experiment
+
+The next engineering experiment binds the existing continuous calibration
+counter to actual `plugsync~` host samples. Each read brackets duplicate
+counter/`plugphasor~` snapshots with before/after host metadata. Retain only
+identical brackets, require actual DSP `[1, 48000, 64]`, and require 32 advancing
+pairs with one exact host-minus-counter offset. Torn reads are discarded,
+never averaged; missing DSP, changed offset/phase/transport, timeout and
+cancellation terminate the bounded collection. While stopped, do not invent
+a PPQ beat-zero intercept from the held phase.
+
+`clock_anchored_envelope_probe.gendsp` adds an independent continuous-counter
+input to the unchanged local-origin envelope experiment. It holds the arm
+counter, requires exact subsequent continuity, and exports both the arm counter
+and absolute inferred origin. Its engineering counter range is below `2^44`,
+reserving 480,000 samples at the upper bound. This is not a general transport
+or sample-rate implementation.
+
+The passive compound probe also sends stereo input and split low/high counter
+words into an actual full-spectrum, rectangular, non-overlapping 2,048-sample
+`pfft~`. `fftin~ 3 nofft` and `fftin~ 4 nofft` imaginary outlets retain the
+unwindowed counter words. Splitting at `2^20` preserves exact integer coordinates
+even through float32 control buffers. The tagged Gen reuses the canonical
+stereo complex-energy math; it publishes centroid, energy and the source
+interval together only after all 2,048 clock samples pass exact continuity.
+The collector fences duplicate end snapshots, rejects changed holds, gaps,
+invalid frames and malformed data, and retains at most 64 frames within five
+seconds. Envelope and FFT chunks include their schema as well as trace/index,
+and FFT event IDs have a distinct namespace.
+
+Native wide-literal and constant-folded-power bounds failed with guard mask
+253, despite contiguous clocks; expressing the same bound using the split
+words passed. Keep this measured limitation separate from an explanation of
+compiler internals. Model arithmetic alone had not exposed it. Native reload
+also produced all-zero snapshots and lost diagnostic cables; the engineering
+`reload_native` command now explicitly denies in-place reload. Recreate only
+the owned passive parent with fresh, explicitly staged resources, then verify
+the graph. Absolute development paths are staging inputs, not portable release
+packaging. A continuous signal output and snapshot sink are needed to keep
+the passive probe's DSP graph active.
+
+Actual stopped/Arrangement-beat-zero, held-phase results on Live 11.3.43,
+48 kHz/vector 64, 120 BPM and the same 12,048-sample silent-edge source offset:
+
+| Independent quantity | Measured result |
+| --- | --- |
+| Before/after host-minus-counter offset | Exactly `842480212` in both 32-pair bindings; each discarded three torn reads. |
+| Native arm / absolute origin | `166446080` / `166446592`; local origin remains 512. |
+| Post-launch host beat-zero intercept | `1008926804`, exactly absolute origin plus independent host offset. |
+| Native FFT metadata | `[2048, 2048, 2048, 1]`. |
+| Envelope | 100 contiguous windows; all stereo peaks/RMS match independent PCM within `1e-12`, maximum difference `5.551115123125783e-17`. |
+| Tagged FFT | 64 contiguous windows, 20 nonzero; every centroid matches the independently transformed exact PCM interval within `1e-9` Hz and every energy within `1e-12` relative. Silent frames are exactly zero. |
+| Observed numerical differences | Maximum centroid difference `1.7053025658242404e-13` Hz; maximum relative energy difference below `6e-16`. No fitted scale or timing offset. |
+
+The pre-launch reference is silence **before** applying the file offset.
+Otherwise negative launch-relative coordinates incorrectly read earlier
+non-silent file samples. The FFT's two real stereo transforms retain their
+separate complex energies; waveform downmixing is not used.
+
+Processed, source/code-bound evidence and failed native attempts are retained
+in `max-patches/audio-listener/fixtures/native-host-spectrum.json`, without
+audio or absolute paths. Regression replay verifies exact bracket identities,
+independent host origin, window order, source onsets, lifecycle attribution and
+timing. Negative cases reject a one-sample origin/tag shift, wrong host binding,
+missing stereo energy, a frame gap and omitted pre-launch gating.
+
+This establishes host/envelope/FFT coordinates for this one engineering
+fixture, not production readiness. The native envelope report still exports
+zero FFT placeholders; the separate tagged report is the spectral evidence.
+Full source/host coverage, production wiring and application journal
+propagation, actual capture/context publication/resume, transparent audio,
+resource cost and portable packaging remain unaccepted. No production
+certificate loader or generic JSON readiness bypass is added.
+
+After this experiment the source marker was read back at zero, Master was read
+back at its original 0.85, all four fixture clips were read stopped and transport
+was read running. All seven owned top-level probes/sinks/metadata objects were
+removed without saving them. The entire 130-box/150-cable graph is exactly equal
+to the pre-experiment baseline. The calibration Set and existing processes were
+preserved; neither the authored AMXD nor User Library was replaced.

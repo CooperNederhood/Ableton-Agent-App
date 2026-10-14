@@ -1,0 +1,119 @@
+{
+  "patcher": {
+    "fileversion": 1,
+    "appversion": {
+      "major": 8,
+      "minor": 5,
+      "revision": 5,
+      "architecture": "x64",
+      "modernui": 1
+    },
+    "classnamespace": "dsp.gen",
+    "rect": [
+      0,
+      0,
+      800,
+      380
+    ],
+    "boxes": [
+      {
+        "box": {
+          "id": "code",
+          "maxclass": "codebox",
+          "code": "high = floor(in1 / 1048576);\nout1 = in1 - high * 1048576; out2 = high;",
+          "numinlets": 1,
+          "numoutlets": 2,
+          "patching_rect": [
+            100,
+            50,
+            580,
+            240
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "in0",
+          "maxclass": "newobj",
+          "text": "in 1",
+          "numinlets": 0,
+          "numoutlets": 1,
+          "patching_rect": [
+            10,
+            20,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out0",
+          "maxclass": "newobj",
+          "text": "out 1",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            20,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out1",
+          "maxclass": "newobj",
+          "text": "out 2",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            55,
+            60,
+            22
+          ]
+        }
+      }
+    ],
+    "lines": [
+      {
+        "patchline": {
+          "source": [
+            "in0",
+            0
+          ],
+          "destination": [
+            "code",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            0
+          ],
+          "destination": [
+            "out0",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            1
+          ],
+          "destination": [
+            "out1",
+            0
+          ]
+        }
+      }
+    ]
+  }
+}

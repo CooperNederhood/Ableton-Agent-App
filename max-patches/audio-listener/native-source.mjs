@@ -164,10 +164,10 @@ export const ENVELOPE_OUTPUT = `out1 = heldL; out2 = heldR; out3 = heldRmsL; out
 out5 = completed;`;
 export const ENVELOPE_CODE = `${ENVELOPE_STATE}\n${ENVELOPE_STEP}\n${ENVELOPE_OUTPUT}`;
 
-export const SPECTRUM_CODE = `Param sourceSampleRate(48000);
+export const SPECTRUM_STATE = `Param sourceSampleRate(48000);
 History energy(0); History weighted(0);
-History heldCentroid(0); History heldEnergy(0);
-bin = in5;
+History heldCentroid(0); History heldEnergy(0);`;
+export const SPECTRUM_STEP = `bin = in5;
 if (bin == 0) { energy = 0; weighted = 0; }
 if (bin <= 1024) {
  binEnergy = in1 * in1 + in2 * in2 + in3 * in3 + in4 * in4;
@@ -177,8 +177,9 @@ if (bin <= 1024) {
   heldEnergy = energy;
   heldCentroid = energy > 0.00000000000000000001 ? weighted / energy : 0;
  }
-}
-out1 = heldCentroid; out2 = heldEnergy;`;
+}`;
+export const SPECTRUM_OUTPUT = `out1 = heldCentroid; out2 = heldEnergy;`;
+export const SPECTRUM_CODE = `${SPECTRUM_STATE}\n${SPECTRUM_STEP}\n${SPECTRUM_OUTPUT}`;
 
 export function genDocument(code, inputs, outputs) {
   const boxes = [

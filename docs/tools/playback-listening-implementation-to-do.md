@@ -455,6 +455,48 @@ pending in that historical checkpoint. A subsequent fresh load retains state
 but reports `editor_preview_blocked` with the editor closed; see the current
 checkpoint above. The production timing gate is unchanged.
 
+## Native host/FFT continuation - 2026-10-14
+
+- [x] Bind 32 coherent native host/counter/phase brackets before and after
+  capture, discarding torn snapshots without averaging or invented stopped PPQ.
+- [x] Add bounded traced host-clock and tagged-FFT engineering collectors with
+  deterministic denial, invalid input, timeout, cancellation and deletion cleanup.
+- [x] Preserve canonical production spectrum/envelope bytes while composing
+  separate clock-anchored envelope and full-frame tagged-FFT experiments.
+- [x] Measure one actual held-phase, beat-zero, 120 BPM/48 kHz/vector 64
+  normal-PCM capture at source offset 12,048. Its absolute inferred origin plus
+  independent host offset equals the independent PPQ intercept exactly.
+- [x] Compare all 100 native stereo envelope windows and all 64 tagged FFT
+  intervals with independently quantized/transformed PCM, including exact
+  silence and both-channel energy. No fitted scale or shifted reference.
+- [x] Retain source/code-bound processed evidence and failed native bound/reload
+  attempts. Regress one-sample origin/tags, wrong host offset, missing stereo
+  energy, gaps, pre-launch gating and native wide-bound hazards.
+- [ ] Generalize the accepted signal-rate launch and coherent FFT coordinates
+  into the actual listener/runtime, preserving instance/epoch/trace fences.
+- [ ] Verify the broader native source/host matrix, production reset and
+  cancellation/disconnect behavior; the single offset fixture is not a certificate.
+- [ ] Prove real agent playback-and-listen publishes correct atomic context
+  entries and typed retrieval survives resume; then run isolated integration
+  and Desktop acceptance.
+
+The measured host offset is `842480212`; arm counter `166446080` and local
+origin 512 give absolute origin `166446592`, exactly matching the post-launch
+PPQ intercept `1008926804` after conversion. Before/after bindings each retained
+32 pairs and discarded three torn reads. All 100 envelope windows match
+independent PCM within `1e-12`; all 64 FFT windows (20 nonzero) match exact
+source intervals within `1e-9` Hz centroid and `1e-12` relative energy, with
+exact zero silence. The fixture is
+`max-patches/audio-listener/fixtures/native-host-spectrum.json`.
+
+Native guard mask 253 rejected wide integer, decimal and constant-folded
+power bounds; split-word bounds passed without widening validity. In-place
+native reload yielded zero snapshots/lost diagnostic cables and is denied by
+the engineering wrapper, not reported as a successful deployment. Recreate
+the owned probe with fresh staged resources instead. Production readiness and
+resources are unchanged; the running host is 11.3.43, not separately qualified
+11.3.42.
+
 ## Application context
 
 - [x] Add App-session-owned repository, canonical resolver, quotas, and pruning.

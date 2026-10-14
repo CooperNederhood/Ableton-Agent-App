@@ -43,6 +43,7 @@ export function genModel(code, outputs, sampleRate = 48000) {
       return `let ${name} = params.${name} ?? ${value};`;
     });
   const outputNames = Array.from({ length: outputs }, (_, i) => `out${i + 1}`);
+  const inputNames = Array.from({ length: 8 }, (_, i) => `in${i + 1}`);
   const declared = new Set([
     ...histories,
     ...params,
@@ -60,11 +61,7 @@ export function genModel(code, outputs, sampleRate = 48000) {
     "params",
     "delays",
     "samplerate",
-    "in1",
-    "in2",
-    "in3",
-    "in4",
-    "in5",
+    ...inputNames,
     "max",
     "min",
     "abs",
@@ -80,7 +77,7 @@ export function genModel(code, outputs, sampleRate = 48000) {
         parameters,
         delays,
         sampleRate,
-        ...Array.from({ length: 5 }, (_, i) => values[i] ?? 0),
+        ...inputNames.map((_, i) => values[i] ?? 0),
         Math.max,
         Math.min,
         Math.abs,

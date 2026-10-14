@@ -567,9 +567,10 @@ checkpoint above. The production timing gate is unchanged.
   envelope/spectrum packets, all ABI values 1, observed DSP/FFT metadata and
   32 coherent host brackets; correct physical poly~ outlet numbering.
   Retain initial failures and exact six-root/130-box/150-cable cleanup.
-- [ ] Connect the actual native graph to the Node controller and existing
-  authenticated listener channel. ABI-only playing/inactive data does not
-  satisfy stopped preflight, full capture or App publication acceptance.
+- [x] Connect the actual native graph, Node controller and authenticated channel.
+  Actual pass `596663d0-0a70-4285-8d95-894df152524e` establishes full fresh
+  preflight/reset/arm/launch/capture proof and App publication. ABI-only data
+  and cached proof remain insufficient for any future pass.
 - [x] Load the approved portable candidate as an additional device in fresh
   owned Live with corrected Python. Verify exact browser/device identity and
   authenticated listener discovery through typed tool results, preserving
@@ -601,9 +602,16 @@ checkpoint above. The production timing gate is unchanged.
   window count, reject 101/512 before control/subscription and preserve the
   valid 100 ceiling and non-native 512 behavior. Pass 122 capture/host, 683
   broader TypeScript, 320 Max and 200 Python tests; build/type-check pass.
-- [ ] Reload the corrected App budget and repeat one fresh candidate-only
-  pass. Independently qualify actual DSP/preflight/reset, source start and full
-  native/context proof; prepare admission is not measured audio acceptance.
+- [x] Reload the corrected App budget and complete one fresh candidate-only
+  pass: 32 before/32 post brackets, 20 envelope/20 FFT windows, 96,000 frames,
+  beats 0-4 and 8199 ms whole workflow. Independently validate actual wire proof
+  and exact typed context `335ff745-4c1c-4d61-b7b6-57a84aec4881`.
+- [x] Preserve bounded authenticated proof and source hashes as a regression
+  fixture. Match all relative descriptors to prior actual controller results
+  and four settled PCM RMS windows within `1e-12`, without fitting. Cover
+  causal phase ordering, native/canonical/context identity, corrupted proof,
+  unknown attribution/readiness and exact leave-running command scope.
+  Pass six new recorded-evidence regressions and all 326 owning Max tests.
 - [x] Compose the actual controller/engine/assembler with N4M and native graph;
   observe genuine reset ACK and launch, then independently validate their
   origin in the App protocol without claiming authenticated wire acceptance.
@@ -647,19 +655,24 @@ checkpoint above. The production timing gate is unchanged.
 - [x] Regress asynchronous seek/start, old-resume denial, marker mismatch/change,
   missing/failed scheduling and post-start recording changes at Python and
   simulator-backed bridge boundaries; preserve all original guards.
-- [ ] Qualify the freshly installed Python path against runner-owned Live.
-  Restart the owned process before retesting the corrected Live 11 guards.
-  Max native onset/source-start evidence does not establish Python API
-  availability or permit weaker guards; preserve the saved calibration Set.
+- [x] Qualify fresh installed Python source start on owned Live 11.3.43:
+  guarded source acknowledgement plus independent measured native launch and
+  complete capture succeed. Preserve all guards and the original saved Set.
+  This is not exact supported 11.3.42 qualification.
 - [x] Contrast actual marker-zero Max `start_playing` with the prior continue
   behavior: observed running beat12.866375 after6.460 seconds, not the old
   stop above13931. Preserve unchanged marker, exact one-helper cleanup and
   restored Automation Arm. This is not native launch or Python acceptance.
 - [ ] Verify the broader native source/host matrix, production reset and
   cancellation/disconnect behavior; the single offset fixture is not a certificate.
-- [ ] Prove real agent playback-and-listen publishes correct atomic context
-  entries and typed retrieval survives resume; then run isolated integration
-  and Desktop acceptance.
+- [x] Prove real agent playback-and-listen publishes one correct track/range
+  context and typed get matches the actual complete canonical observation.
+  Attribution/freshness remain unknown; do not claim exclusive clip audio.
+- [ ] Prove exact typed retrieval after Desktop process restart/resume.
+- [ ] Add reviewed runner-native acceptance using explicit staged-candidate
+  loading and production listening/context composition; current CLI runner
+  lacks both hooks. Do not silently install/promote or add fake/skipped proof.
+- [ ] Complete deterministic integration and visible Desktop acceptance.
 
 The measured host offset is `842480212`; arm counter `166446080` and local
 origin 512 give absolute origin `166446592`, exactly matching the post-launch

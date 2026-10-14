@@ -8,10 +8,19 @@ Architecture decision:
 
 ## Current acceptance checkpoint
 
-The [implementation checkpoint and regression
+At code baseline `b7569dd`, one actual authenticated native Arrangement pass
+completes and publishes a typed, retrievable context entry: beats 0-4,
+96,000 sample frames, 20 envelope windows, 20 FFT records and four estimated
+attacks. Actual native proof independently satisfies the App boundary.
+This establishes the bounded capture-to-context prototype, not production
+readiness or exclusive clip attribution. Desktop restart/resume, runner-native
+acceptance, the broader host/source matrix and supported 11.3.42 remain open.
+The actual host is 11.3.43.
+
+The earlier [implementation checkpoint and regression
 baseline](playback-listening-implementation-to-do.md#issue-29-checkpoint---2026-10-13)
-records achieved code, native measurements, remaining acceptance and rerun
-commands at code baseline `bf61bc3`. The feature is not end-to-end ready.
+retains historical measurements, remaining acceptance and rerun commands from
+`bf61bc3`; later checkpoints below supersede its open implementation gates.
 
 Earlier development registration on DRUMS remains historical evidence. The
 candidate at `bf61bc3` on `14 Audio` retained its initial flag but reported
@@ -23,11 +32,11 @@ reconnect passed; the native envelope follow-up is recorded below. Authenticatio
 duplicate-listener protection, exact identity/epoch ownership, production timing
 denial and safe transport cleanup remain mandatory.
 
-The next acceptance target is one actual, bounded Arrangement capture with
-independently verified measurements and correct durable context publication.
-Session onset support, portable promotion and production enablement remain
-unaccepted. Neither passing synthetic capture/IPC tests nor the successful
-source-fixture scenario is evidence of a successful real audio capture.
+The next acceptance targets are durable retrieval after Desktop restart and
+a reviewed runner-native workflow. Session onset support, portable promotion
+and production enablement remain unaccepted. Synthetic capture/IPC tests and
+the source-fixture scenario alone are not real audio evidence; the recorded
+authenticated pass below is separate actual capture evidence.
 
 ## Ownership and scope
 
@@ -1382,6 +1391,54 @@ and 200 Python tests pass; the workspace builds and runtime type-checks.
 Fresh actual preparation must still qualify DSP metadata and subsequent
 native proof; the budget correction
 alone is not audio acceptance.
+
+### First actual native SDK capture and context publication
+
+After the corrected App reload, candidate-only pass
+`596663d0-0a70-4285-8d95-894df152524e` completes on the preserved calibration
+copy. Actual ingress reports ready, genuine armed/reset proof and measured
+launch, then complete observation plus before/after host proof. Independent
+App parsing/assertion accepts all 32 stopped brackets, 32 playing postchecks,
+20 FFT records and 20 canonical envelope windows. The exact observed span is
+samples 129561486-129657486 at 48 kHz, beats 0-4: 96,000 frames per channel,
+two seconds of audio. The whole guarded workflow takes 8199 ms, including
+inspection, reservation, preparation, source start and publication.
+
+Atomic publication returns context `335ff745-4c1c-4d61-b7b6-57a84aec4881`;
+actual typed `ableton_context get` returns the same canonical observation as
+the authenticated wire result. Its primary association is the correct
+`3-ML-Calibration-quarter-sine` Arrangement range, with unknown attribution
+and freshness. This is not an isolated descriptor of a clip or a current
+mutation-authority reference. Peak is 0.5 on both channels, aggregate RMS
+-12.159430090285273 dBFS and centroid 453.29712384376825 Hz; four estimated
+attacks occur at window ends 0.2, 1.2, 2.2 and 3.2 beats, not exact onsets.
+
+All descriptors match the prior actual controller capture after translating
+only absolute host coordinates. Four independently generated settled PCM
+windows match measured RMS within `1e-12`; no gain or time fitting is used.
+Bare source PCM is not asserted as a whole-stream oracle across Live edge
+processing. Candidate controller/engine/assembler/coordinate/IO and Gen hashes
+match the earlier measured sources; actual SDK wrapper/runtime/watchdog
+hashes also match their checked source. The controller remains pinned.
+
+The retained
+`max-patches/audio-listener/fixtures/native-sdk-capture.json`
+contains bounded actual proof, exact typed result, 74 selected lifecycle
+records, identity/source hashes and no raw audio or credentials.
+Regressions preserve armed-before-diagnostics ordering, shared cross-phase
+causation, complete-capture-before-publication, context/wire identity,
+independent numeric checks, unchanged readiness/unknown attribution and
+leave-running cleanup. Corrupted native coverage or foreign stored context
+cannot pass. Only one `listening.start_playback` command occurs; no ordinary
+transport stop, Session launch or device load is part of the pass.
+All six new evidence regressions and the complete 326-test Max suite pass.
+
+Desktop restart/resume is still pending in this checkpoint. The existing
+deterministic CLI runner currently has neither candidate loading in its fresh
+default Set nor injected listening/context composition; Desktop supplies that
+composition separately. A native scenario needs explicit, narrow runner hooks
+and production-composition reuse, not device installation, process adoption,
+unsupported Set XML editing or a fake/skipped acceptance result.
 
 `NativeCaptureController` composes the actual signal engine and bounded native
 assembler. `prepare` only validates/freezes eligibility with a bounded

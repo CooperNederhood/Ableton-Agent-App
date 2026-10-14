@@ -1446,11 +1446,34 @@ timestamps, process identity, status and exact read-only arguments; a seventh
 regression protects this durable resume result. All seven evidence regressions
 and the complete 327-test Max suite pass.
 
-The existing deterministic CLI runner currently has neither candidate loading in its fresh
-default Set nor injected listening/context composition; Desktop supplies that
-composition separately. A native scenario needs explicit, narrow runner hooks
-and production-composition reuse, not device installation, process adoption,
-unsupported Set XML editing or a fake/skipped acceptance result.
+The next controlled probe requested cancellation during a 0-20 beat capture.
+It genuinely armed native epoch 2, but source start failed the existing
+insert-marker guard before capture. Pass
+`c990a4c2-3126-4d92-9702-afdbc7316ff1` failed in 6277 ms with no context IDs.
+Its exact native generation was cancelled with zero frames, followed by an
+authenticated cancellation acknowledgement. There was no native launch,
+complete capture or publication. This proves **post-arm source-denial cleanup**,
+not cancellation during active audio capture or a successful 100-window pass.
+Stopped `currentSongTime: 0` alone did not establish the required
+`Song.start_time` insert marker; do not weaken that guard or treat public seek
+as proof of the marker.
+
+Three subsequent read-only calls independently found no context for the
+failed pass (including historical entries), retrieved the unchanged original
+context and observed transport stopped at beat 0/120 BPM. The bounded
+`fixtures/native-sdk-source-denial.json` records the actual arm, 17 selected
+lifecycle records and exact context-result digest. Its three regressions
+protect denial-before-generation-cleanup, zero publication and unchanged prior
+context. Active-capture cancellation remains unqualified. The two owned
+Desktop/Live processes were then gracefully closed; the pre-existing Max
+process was preserved. All 330 owning Max tests pass.
+
+The user approved narrow deterministic runner hooks for explicit
+staged-candidate loading and reuse of production listening/context composition.
+Their implementation is in progress; it is not completed native acceptance.
+Desktop currently supplies that composition separately. The hooks must not
+install a device, adopt a process, edit unsupported Set XML or report a
+fake/skipped scenario as success.
 
 `NativeCaptureController` composes the actual signal engine and bounded native
 assembler. `prepare` only validates/freezes eligibility with a bounded

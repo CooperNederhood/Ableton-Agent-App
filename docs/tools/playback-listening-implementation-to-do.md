@@ -674,6 +674,12 @@ checkpoint above. The production timing gate is unchanged.
   Verify only three read calls, still-blocked readiness and continued
   transport; preserve actual restart evidence and a seventh regression.
   All 327 owning Max tests pass.
+- [x] Preserve actual post-arm source-denial cleanup: epoch 2 armed, existing
+  insert-marker guard denied start, exact generation cancelled with zero
+  frames, authenticated cancel acknowledgement and no publication. Three
+  independent reads found no failed-pass context, unchanged original context
+  and stopped transport at beat 0. Three recorded-evidence regressions retain
+  this distinct failure case; active-capture cancellation is not proven.
 - [ ] Add reviewed runner-native acceptance using explicit staged-candidate
   loading and production listening/context composition; current CLI runner
   lacks both hooks. Do not silently install/promote or add fake/skipped proof.

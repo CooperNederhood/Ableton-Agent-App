@@ -524,6 +524,13 @@ checkpoint above. The production timing gate is unchanged.
   invalid proof, capture timeout, cancellation, changed epochs, late receipt,
   failed bounded monitor cleanup, redaction and traced lifecycle timing.
   Preserve shipping commissioning denial; actual native delivery remains open.
+- [x] Replace the signal engine's certificate prerequisite with bounded fresh
+  per-pass stopped brackets, native DSP/FFT information and tagged FFT baseline.
+  Reject stale/moving/torn/sparse measurements, certificate substitution,
+  changed ACK binding and first-frame FFT-grid drift; retain immutable evidence.
+- [ ] Gather that fresh preflight immediately before actual native arm in the
+  Node/Max controller. Wire-prepare eligibility is not native reset proof;
+  actual code/ABI observation and real delivery acceptance remain required.
 - [ ] Verify the broader native source/host matrix, production reset and
   cancellation/disconnect behavior; the single offset fixture is not a certificate.
 - [ ] Prove real agent playback-and-listen publishes correct atomic context

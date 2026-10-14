@@ -1188,3 +1188,33 @@ This is internal integration plumbing, not production activation. The shipping
 runtime's commissioning denial and native device's blocked status remain.
 Actual Node/Max launch delivery, capture publication and isolated Live/Desktop
 acceptance are still required.
+
+### Signal-mode measured preflight
+
+The internal signal engine no longer accepts an injected test certificate as
+preparation authority. Each pass requires 32 coherent stopped native brackets
+at beat zero with a stable held phase, actual `[1, 48000, 64]` DSP metadata,
+native FFT information `[2048, 2048, 2048, 1]`, and a complete six-scalar tagged
+FFT baseline. No supplied `validated` flag, certificate file, source path or
+raw audio field is accepted.
+
+The bracket span and lag behind the latest independently supplied host sample
+must each fit 48,000 samples; the FFT must end no later than the final bracket
+and less than 2,048 samples before it. Tags, finite stereo energy, silent
+centroid convention, safe counters and invalid-frame baseline are checked.
+Sparse arrays fail, including a missing held-phase value in a stopped row.
+The observed FFT grid is translated into host coordinates and binds the first
+descriptor as well as subsequent descriptors.
+
+The engine defensively retains only bounded native evidence. Arm and reset
+acknowledgement must occur within 1,000 ms of preparation; the arm counter is
+at most 48,000 samples beyond the final preflight bracket. A reset ACK cannot
+swap in another binding. The actual controller must therefore gather this
+fresh evidence immediately before native arm, not collect it during an early
+wire prepare and let it expire while other listeners prepare.
+
+Recorded-coordinate composition now uses explicitly synthetic timely preflight
+measurements rather than certificate injection. This does not attest executed
+native code or constitute real delivery acceptance. The default host-mode
+shipping denial, blocked registration and production commissioning gate are
+unchanged; the native controller/graph must still supply actual measurements.

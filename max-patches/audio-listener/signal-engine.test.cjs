@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { AudioListenerEngine, VERSION } = require("./audio_listener_engine.js");
+const { AudioListenerEngine } = require("./audio_listener_engine.js");
+const { syntheticPreflight } = require("./native-preflight-fixture.cjs");
 const { nativeHostBinding } = require("./audio_listener_native_coordinates.js");
 const evidence = require("./fixtures/native-host-spectrum.json");
 
@@ -10,23 +11,11 @@ const context = {
   correlationId: "correlation",
   causationId: "control",
 };
-const certificate = {
-  validated: true,
-  algorithmVersion: VERSION,
-  hostVersion: "test-double",
-  maxVersion: "test-double",
-  launchAligned: true,
-  requiredHostFlags: 19,
-  uncertaintySamples: 64,
-  descriptorOffsetSamples: 0,
-  sampleRate: 48000,
-  vectorSize: 64,
-};
 const origin = evidence.nativeOrigin[2] + evidence.before.clockOffsetSamples;
 const ack = () => ({
   nativeEpoch: 1,
   armCounter: evidence.nativeOrigin[1],
-  hostBinding: evidence.before,
+  hostBinding: syntheticPreflight().before,
   launchClock: -1,
   sourceClock: -1,
   onsetCount: 0,
@@ -51,7 +40,6 @@ function fixture(options = {}) {
     analysis = [];
   const engine = new AudioListenerEngine({
     listenerId: "listener",
-    certificate,
     launchAlignment: "signal",
     now: () => now,
     emit: (event) => events.push(event),
@@ -73,15 +61,18 @@ function fixture(options = {}) {
       ...overrides,
     });
   host();
-  const prepare = (overrides = {}) =>
-    engine.prepare({
-      ...owner,
-      ...context,
-      mode: "arrangement",
-      startBeat: 0,
-      endBeat: 4,
-      ...overrides,
-    });
+  const prepare = (overrides = {}, preflight = syntheticPreflight()) =>
+    engine.prepare(
+      {
+        ...owner,
+        ...context,
+        mode: "arrangement",
+        startBeat: 0,
+        endBeat: 4,
+        ...overrides,
+      },
+      preflight,
+    );
   const arm = () => {
     prepare();
     return engine.arm({ ...owner, nativeEpoch: 1 });
@@ -184,11 +175,8 @@ test("native binding derives offsets only from 32 coherent actual brackets", () 
   assert.throws(() => nativeHostBinding(evidence.after, false), /incoherent/);
 });
 
-test("signal mode preserves production denial and rejects unqualified scope before enabling DSP", () => {
-  assert.throws(
-    () => fixture({ certificate: null }).prepare(),
-    /real_live_timing_validation_required/,
-  );
+test("signal mode requires native per-pass preflight and rejects unqualified scope before enabling DSP", () => {
+  assert.throws(() => fixture().prepare({}, null), /native_preflight_required/);
   for (const changes of [
     { mode: "session" },
     { startBeat: 1 },
@@ -288,7 +276,14 @@ test("missing postcheck, future/gapped spectral windows and changed held values 
   complete.start();
   for (let i = 1; i <= 20; i++) complete.ingest(i);
   assert.equal(complete.engine.finish().reason, "native_post_binding_required");
-  for (const mode of ["missing", "future", "stale", "beat", "hold"]) {
+  for (const mode of [
+    "missing",
+    "future",
+    "stale",
+    "beat",
+    "hold",
+    "first-grid",
+  ]) {
     const f = fixture();
     f.start();
     const frame = f.frame(1);
@@ -306,6 +301,10 @@ test("missing postcheck, future/gapped spectral windows and changed held values 
     if (mode === "stale")
       frame.spectralWindow = { startSample: origin, endSample: origin + 2048 };
     if (mode === "beat") frame.beat += 0.000001;
+    if (mode === "first-grid") {
+      frame.spectralWindow.startSample++;
+      frame.spectralWindow.endSample++;
+    }
     if (mode === "hold") {
       assert.equal(f.engine.ingest(frame, owner), true);
       frame.peak = [1, 1];

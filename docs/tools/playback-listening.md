@@ -1253,6 +1253,14 @@ atomic publication. Legacy and unscoped producer `READY/VERIFIED` claims
 remain denied. No file, flag or injected certified adapter unlocks the
 production path.
 
+The existing authenticated ingress applies the same exact-scope eligibility
+rule to `prepare`; otherwise it would reject honest blocked metadata before
+the controller could gather proof. It preserves the unchanged registration,
+normal ownership/sequence/phase guards, and legacy blocked denial. The real
+authenticated socket regression carries bounded synthetic arm/launch/complete
+geometry and namespaced causal events while registration stays blocked.
+This proves transport behavior, not fresh native hardware or tool acceptance.
+
 Deterministic production-composition tests use explicitly synthetic native
 geometry to exercise admission, missing-arm denial, unsupported scope,
 discovery, cleanup and invalid completion. They do not establish authenticated

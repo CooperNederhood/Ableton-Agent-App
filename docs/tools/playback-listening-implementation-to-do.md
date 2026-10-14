@@ -568,6 +568,10 @@ checkpoint above. The production timing gate is unchanged.
 - [x] Extend deterministic native admission and production composition coverage
   to honest blocked status, missing arm, invalid completion, unsupported scope,
   discovery and unchanged readiness. Synthetic tests are not real SDK acceptance.
+- [x] Apply exact native-scope eligibility at authenticated ingress `prepare`,
+  preserving blocked registration and unscoped denial. Exercise real socket
+  framing, synthetic native proof, causal attribution and unchanged ownership;
+  this is not actual Node/native capture delivery acceptance.
 - [x] Skip an exact same-position Arrangement seek after arm, retaining all
   guards, position readback and revision revalidation when no seek occurred.
   Distinguish pre-mutation denial/errors from indeterminate attempted starts;

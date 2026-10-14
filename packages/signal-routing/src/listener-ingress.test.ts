@@ -263,6 +263,9 @@ describe("shared authenticated listener ingress", () => {
       ...readyModelMetadata,
       nativeStatus: {
         ...readyModelMetadata.nativeStatus,
+        timing: "UNVERIFIED",
+        readiness: "BLOCKED",
+        reason: "native_per_pass_validation_required",
         scope: NATIVE_LISTENER_SCOPE,
       },
     });
@@ -284,6 +287,7 @@ describe("shared authenticated listener ingress", () => {
       client.connectionId,
       context,
     );
+    void preparing.catch(() => {});
     const prepare = (await client.next()) as unknown as ListenerControl;
     client.send(reply(prepare, 0, "ready"));
     await preparing;
@@ -346,6 +350,13 @@ describe("shared authenticated listener ingress", () => {
     const native = events.filter((event) =>
       event.name.startsWith("output.listener.native."),
     );
+    expect(
+      server.inspectListeners()[0]!.registration.nativeStatus,
+    ).toMatchObject({
+      timing: "UNVERIFIED",
+      readiness: "BLOCKED",
+      scope: NATIVE_LISTENER_SCOPE,
+    });
     expect(native.map((event) => event.name)).toEqual([
       "output.listener.native.queued",
       "output.listener.native.started",

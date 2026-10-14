@@ -1,6 +1,7 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
 import { isAbsolute } from "node:path";
+import { NATIVE_LISTENER_SCOPE } from "@ableton-agent/protocol";
 
 import type {
   OutputConnection,
@@ -317,8 +318,9 @@ export class SignalIngressServer implements ListenerService {
       )
         throw denied("listener_metadata_missing");
       if (
-        state.listener.nativeStatus.timing !== "VERIFIED" ||
-        state.listener.nativeStatus.readiness !== "READY"
+        state.listener.nativeStatus.scope !== NATIVE_LISTENER_SCOPE &&
+        (state.listener.nativeStatus.timing !== "VERIFIED" ||
+          state.listener.nativeStatus.readiness !== "READY")
       )
         throw denied(
           state.listener.nativeStatus.reason ??

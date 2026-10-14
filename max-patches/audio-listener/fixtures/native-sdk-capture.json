@@ -762,8 +762,8 @@
     }
   },
   "typedGet": {
-    "id": "50211e2b-2149-4116-8b37-2a9b2b0edaa4",
-    "occurredAt": "2026-10-14T22:24:47.389Z"
+    "id": "0796f4b2-4a4a-4fcc-87de-4615cb55b09f",
+    "occurredAt": "2026-10-14T22:56:07.208Z"
   },
   "lifecycle": [
     {
@@ -2300,6 +2300,73 @@
     "listening.start_playback"
   ],
   "resume": {
-    "verified": false
+    "verified": true,
+    "method": "typed-context-get-after-desktop-process-restart",
+    "desktopPid": 62352,
+    "typedGetId": "0796f4b2-4a4a-4fcc-87de-4615cb55b09f",
+    "occurredAt": "2026-10-14T22:56:07.208Z",
+    "endpointPublishedAt": "2026-10-14T22:54:17.356Z",
+    "listenersAfter": [
+      {
+        "listenerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "353bf226-b2e1-4328-b33d-3d53d7158dfb",
+        "trackReference": "89095848-38d0-4263-8276-8825d531f95e",
+        "deviceReference": "e25a9d7d-7c52-411d-932f-758e73e9893a",
+        "displayName": "Audio-Listener",
+        "ready": false,
+        "limitations": [
+          "real_live_timing_validation_required",
+          "source_onset_unverified"
+        ]
+      },
+      {
+        "listenerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "trackReference": "89095848-38d0-4263-8276-8825d531f95e",
+        "deviceReference": "18c7067c-d52c-486f-ac37-61b5158c41fc",
+        "displayName": "Audio-Listener",
+        "ready": false,
+        "limitations": [
+          "native_per_pass_validation_required",
+          "source_onset_unverified"
+        ]
+      }
+    ],
+    "transportAfter": {
+      "currentSongTime": 4162.531708333333,
+      "isPlaying": true,
+      "tempo": 120,
+      "timeSignature": {
+        "numerator": 4,
+        "denominator": 4
+      },
+      "metronome": false,
+      "launchQuantization": 4,
+      "recordQuantization": 0,
+      "linkEnabled": false,
+      "backToArrangement": false
+    },
+    "toolCalls": [
+      {
+        "toolName": "ableton_listening",
+        "arguments": {
+          "action": "inspect-listeners"
+        }
+      },
+      {
+        "toolName": "ableton_transport",
+        "arguments": {
+          "action": "get"
+        }
+      },
+      {
+        "toolName": "ableton_context",
+        "arguments": {
+          "action": "get",
+          "contextId": "335ff745-4c1c-4d61-b7b6-57a84aec4881",
+          "includeHistorical": false
+        }
+      }
+    ]
   }
 }

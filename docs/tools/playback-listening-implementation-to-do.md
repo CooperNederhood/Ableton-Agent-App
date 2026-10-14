@@ -668,7 +668,12 @@ checkpoint above. The production timing gate is unchanged.
 - [x] Prove real agent playback-and-listen publishes one correct track/range
   context and typed get matches the actual complete canonical observation.
   Attribution/freshness remain unknown; do not claim exclusive clip audio.
-- [ ] Prove exact typed retrieval after Desktop process restart/resume.
+- [x] Prove exact typed retrieval after Desktop process restart/resume:
+  distinct process, new endpoint publication and later typed get return the
+  original context/pass/subject/time and complete observation unchanged.
+  Verify only three read calls, still-blocked readiness and continued
+  transport; preserve actual restart evidence and a seventh regression.
+  All 327 owning Max tests pass.
 - [ ] Add reviewed runner-native acceptance using explicit staged-candidate
   loading and production listening/context composition; current CLI runner
   lacks both hooks. Do not silently install/promote or add fake/skipped proof.

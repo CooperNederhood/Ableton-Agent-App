@@ -13,8 +13,9 @@ completes and publishes a typed, retrievable context entry: beats 0-4,
 96,000 sample frames, 20 envelope windows, 20 FFT records and four estimated
 attacks. Actual native proof independently satisfies the App boundary.
 This establishes the bounded capture-to-context prototype, not production
-readiness or exclusive clip attribution. Desktop restart/resume, runner-native
-acceptance, the broader host/source matrix and supported 11.3.42 remain open.
+readiness or exclusive clip attribution. Exact typed retrieval also survives
+Desktop process restart without another capture. Runner-native acceptance,
+the broader host/source matrix and supported 11.3.42 remain open.
 The actual host is 11.3.43.
 
 The earlier [implementation checkpoint and regression
@@ -32,8 +33,8 @@ reconnect passed; the native envelope follow-up is recorded below. Authenticatio
 duplicate-listener protection, exact identity/epoch ownership, production timing
 denial and safe transport cleanup remain mandatory.
 
-The next acceptance targets are durable retrieval after Desktop restart and
-a reviewed runner-native workflow. Session onset support, portable promotion
+The next acceptance target is a reviewed runner-native workflow.
+Session onset support, portable promotion
 and production enablement remain unaccepted. Synthetic capture/IPC tests and
 the source-fixture scenario alone are not real audio evidence; the recorded
 authenticated pass below is separate actual capture evidence.
@@ -1433,8 +1434,19 @@ cannot pass. Only one `listening.start_playback` command occurs; no ordinary
 transport stop, Session launch or device load is part of the pass.
 All six new evidence regressions and the complete 326-test Max suite pass.
 
-Desktop restart/resume is still pending in this checkpoint. The existing
-deterministic CLI runner currently has neither candidate loading in its fresh
+Desktop process 52905 was then closed and a distinct process 62352 started
+with the same isolated profile. After the new automation endpoint publication,
+an actual typed get returns the unchanged original context, pass, subject,
+creation time and complete canonical measurement. Three read-only calls
+retrieve that entry, inspect listeners and inspect transport: no capture or
+mutation occurs. Both devices still report `ready:false`; the native candidate
+retains per-pass limitations. Transport is independently observed still playing
+past the historical range. The retained fixture records actual restart/get
+timestamps, process identity, status and exact read-only arguments; a seventh
+regression protects this durable resume result. All seven evidence regressions
+and the complete 327-test Max suite pass.
+
+The existing deterministic CLI runner currently has neither candidate loading in its fresh
 default Set nor injected listening/context composition; Desktop supplies that
 composition separately. A native scenario needs explicit, narrow runner hooks
 and production-composition reuse, not device installation, process adoption,

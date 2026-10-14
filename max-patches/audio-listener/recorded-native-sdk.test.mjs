@@ -251,3 +251,53 @@ test("corrupted native coverage or foreign persisted context cannot pass the rec
     assert.throws(() => validate(changed));
   }
 });
+
+test("exact historical context survives a different Desktop process without capture or readiness promotion", () => {
+  validate(evidence);
+  const resume = evidence.resume;
+  assert.equal(resume.verified, true);
+  assert.equal(
+    resume.method,
+    "typed-context-get-after-desktop-process-restart",
+  );
+  assert.notEqual(resume.desktopPid, evidence.captureRuntime.desktopPid);
+  assert.ok(evidence.terminalJob.updatedAt < resume.endpointPublishedAt);
+  assert.ok(resume.occurredAt >= resume.endpointPublishedAt);
+  assert.equal(resume.typedGetId, evidence.typedGet.id);
+  assert.equal(resume.occurredAt, evidence.typedGet.occurredAt);
+  assert.equal(resume.listenersAfter.length, 2);
+  assert.ok(
+    resume.listenersAfter.every((listener) => listener.ready === false),
+  );
+  const native = resume.listenersAfter.find(
+    (listener) =>
+      listener.listenerId === evidence.terminal.observation.listenerId,
+  );
+  assert.ok(native.limitations.includes("native_per_pass_validation_required"));
+  assert.equal(resume.transportAfter.isPlaying, true);
+  assert.ok(
+    resume.transportAfter.currentSongTime >
+      evidence.terminal.observation.endBeat,
+  );
+  assert.deepEqual(
+    [...resume.toolCalls].sort((a, b) => a.toolName.localeCompare(b.toolName)),
+    [
+      {
+        toolName: "ableton_context",
+        arguments: {
+          action: "get",
+          contextId: evidence.contextId,
+          includeHistorical: false,
+        },
+      },
+      {
+        toolName: "ableton_listening",
+        arguments: { action: "inspect-listeners" },
+      },
+      {
+        toolName: "ableton_transport",
+        arguments: { action: "get" },
+      },
+    ],
+  );
+});

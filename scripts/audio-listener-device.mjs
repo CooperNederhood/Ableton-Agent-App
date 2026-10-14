@@ -32,6 +32,7 @@ export const DEVICE_DIRECTORY_PARTS = [
 ];
 export const LOCAL_RESOURCES = [
   "audio_listener_engine.js",
+  "audio_listener_native_coordinates.js",
   "audio_listener_runtime.js",
   "audio_listener_max.js",
   "audio_listener_guard.js",
@@ -508,6 +509,7 @@ const FORBIDDEN_CALIBRATION_FILES = [
   DEVICE_FILE_NAME,
   "audio_listener_runtime.js",
   "audio_listener_engine.js",
+  "audio_listener_native_coordinates.js",
   SHARED_PRODUCER_COMPANION,
   SHARED_PRODUCER_IDENTITY,
   PROFILE_CONFIGURATION,

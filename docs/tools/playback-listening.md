@@ -983,3 +983,46 @@ was read running. All seven owned top-level probes/sinks/metadata objects were
 removed without saving them. The entire 130-box/150-cable graph is exactly equal
 to the pre-experiment baseline. The calibration Set and existing processes were
 preserved; neither the authored AMXD nor User Library was replaced.
+
+### Signal-mode engine integration, not yet activated
+
+The engine now has an explicit internal `launchAlignment: "signal"` path for
+the native adapter under construction. The default runtime path, shipping
+certificate denial and native device graphs remain unchanged. This is not a
+ready listener or a completed real-device integration.
+
+In signal mode, preparation requires Arrangement mode, stopped PPQ zero,
+120 BPM/48 kHz/vector 64, zero descriptor offset, at most one vector declared
+uncertainty, whole 100 ms windows and a range no longer than ten seconds.
+Require the control's trace/correlation/causation IDs. Arming enables/reset
+analysis once with a bounded native epoch and enters `native-arming`; it does
+not acknowledge readiness until the exact zero-state native packet and an
+independently validated 32-row stopped host binding arrive. Reject stale
+bindings and changed native arm counters. An early transport/position change,
+lost validity or tempo/DSP change cannot silently become a launch.
+
+Host playback notifications alone never launch signal capture or reset its
+pre-roll. Native phase/counter markers infer the absolute origin from the held
+arm counter and independently derived offset. Require the current host
+sample/PPQ intercept to match it, valid active/rejection state and a bounded
+launch-notification delay. Each descriptor must have the exact beat derived
+from its source sample and a complete latest 2,048-sample FFT interval on one
+unchanged grid, never a future/stale frame. Duplicate holds are value-based;
+changed held measurements fail explicitly.
+
+Full envelope coverage alone cannot claim completion. Require 32 coherent
+post-capture host brackets with the same offset and origin, beyond the
+requested range and no later than the freshly observed host. Bound capture/
+postcheck waiting separately from arm waiting. Success, partial failure,
+cancellation, reset and timeout disable/reset analysis without transport
+commands. Native stage events carry bounded lifecycle timing, pass/native/
+connection epochs and the control's causal trace chain.
+
+`audio_listener_native_coordinates.js` is an explicit hashed bundle companion,
+not a persisted certificate or a filesystem/configuration reader. Internal FFT
+intervals are validated before conversion; canonical `audio-observation/v1`
+and listener result wire shapes remain unchanged. The deterministic engine
+tests replay actual recorded coordinates with **synthetic timely host callbacks**
+and approved test certificates. They do not prove native runtime delivery,
+application journal forwarding or actual context publication. Node/Max graph
+wiring and independent end-to-end acceptance remain required before activation.

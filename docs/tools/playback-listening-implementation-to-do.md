@@ -474,6 +474,15 @@ checkpoint above. The production timing gate is unchanged.
   energy, gaps, pre-launch gating and native wide-bound hazards.
 - [ ] Generalize the accepted signal-rate launch and coherent FFT coordinates
   into the actual listener/runtime, preserving instance/epoch/trace fences.
+- [x] Add an internal, unactivated signal-mode engine path with native epoch/
+  reset acknowledgement, validated pre/post 32-row bindings, no scheduler
+  launch reset, exact latest FFT grid/interval checks, scoped controls, causal
+  stage events and bounded failure/cancellation/cleanup regression coverage.
+- [x] Include the coordinate validator in both bundle resource declarations
+  and preserve installed-artifact and canonical wire contracts.
+- [ ] Connect that engine path to actual Node/Max native messages and forward
+  its lifecycle into the application journal; deterministic recorded-coordinate
+  replay with synthetic timely host callbacks is not runtime acceptance.
 - [ ] Verify the broader native source/host matrix, production reset and
   cancellation/disconnect behavior; the single offset fixture is not a certificate.
 - [ ] Prove real agent playback-and-listen publishes correct atomic context

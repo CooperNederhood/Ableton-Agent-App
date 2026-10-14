@@ -166,12 +166,45 @@ attempt left an empty `15-Audio` track; it remains accounted for, not deleted.
 The earlier zero-listener baseline's failed cancel call is retained separately
 and is not classified as a clean inspection workflow.
 
-**Next gate blocked:** the current unsaved runner-owned template contains
-external-hardware tracks and must not be played for calibration. Approval was
+**Historical clean-Set blocker:** the earlier unsaved runner-owned template contained
+external-hardware tracks and could not be played for calibration. Approval was
 requested to save it under `.test-artifacts/issue-29-preserved-set/` before
 opening a clean known-source Set. The user was unavailable, so no save,
 discard, Set replacement or playback occurred. Real native measurement,
 Arrangement capture/publication, resume and release acceptance remain open.
+
+### Known-PCM native level subset
+
+- [x] User saved the original Set, approved replacement and explicitly approved
+  declining recovery of the empty test Set. A fresh owned Live process became
+  ready; no pre-existing user process was adopted or terminated.
+- [x] Load the checked authored listener and generated quarter-sine PCM in a
+  clean Set. Verify the actual source path, disabled warping/looping and one
+  hosted device on track index 2. The imported clip renamed the track.
+- [x] Observe actual track audio through the native analyzer: stereo peak 0.5,
+  maximum 100 ms RMS 0.353553, selected steady centroids 441.668179-459.932376 Hz.
+  Check the level subset against independently quantized PCM, not the observed
+  result or a MIDI preset.
+- [x] Disable/reset manual analysis, remove all four temporary probes, verify
+  named cables/direct stereo wiring, and restore the inaudible test's Master
+  fader from zero to its observed 0.85 after the source finished. Leave transport
+  running; do not save probe changes into the authored AMXD or User Library.
+- [ ] Establish full pass coverage and whole-pass RMS. The bridge's 200-message
+  console cap makes retained diagnostic windows insufficient for this claim.
+- [ ] Complete anti-phase/silence PCM, exact attacks, independent sample/beat
+  alignment, offsets/gaps, transparent pass-through and resource-cost checks.
+- [ ] Commission timing through a reviewed bound path, then prove actual agent
+  Arrangement capture/publication/resume. Manual analyzer enable grants none
+  of these capabilities or production readiness.
+
+The first unfiltered collection retained only silence and is inconclusive;
+the repeated duplicate-filtered collection contains 33 nonzero records and
+12 selected steady spectral frames. Bounded processed engineering evidence is
+in `.test-artifacts/listener-calibration-native-quarter-sine-levels.json`.
+The earlier stale-bridge attempt also remains a failed preflight, not a pass.
+Startup recovery exposed the separate coordinated-readiness deadline bug;
+`3d78a19` fixes it with failing-before-fix regressions and 31 passing owning
+runner-helper tests. Production capture remains denied.
 
 Desktop discovery now uses canonical profile paths; non-isolated startup
 explicitly preserves the existing global legacy MIDI endpoint, while automation

@@ -414,10 +414,12 @@ fields were not inferred from assistant prose.
 This passes the narrow hosted connection/reconnect milestone, not native
 timing or audio acceptance. Transport remained stopped, no listening pass or
 stored observation was created, and the Max editor remained closed. The next
-measurement step requires a clean runner-owned known-source Set without armed
-external-hardware tracks. The current unsaved template was not played, saved,
-discarded or replaced; approval to preserve it before changing Sets remains
-outstanding. These connection checks are not timing certification.
+measurement step required a clean runner-owned known-source Set without armed
+external-hardware tracks. The unsaved template was not played or discarded
+during those connection checks. Approval to replace it was subsequently
+granted: the user saved the original Set and approved a clean calibration Set.
+The later known-PCM check below records that continuation.
+These connection checks are not timing certification.
 
 `max-patches/audio-listener/Machine-Listening-Development.amxd` checkpoints the
 authored layout and presentation with relative listener references and the
@@ -487,6 +489,50 @@ The temporary source fed only the analyzer, never `plugout~`, and was removed.
 These limited native measurements are not independent PCM acceptance,
 transparent-pass-through measurement, attack timing, host alignment, or an
 App capture/publication result. Production remains blocked.
+
+The subsequent clean, runner-owned Set now has an actual generated stereo PCM
+clip feeding the hosted device through Live's audio track, not an injected
+`cycle~` source. Native `live.object` inspection confirmed the exact generated
+`ML-Calibration-quarter-sine.wav` path. Its independently checked bytes are
+48 kHz, stereo 16-bit PCM, 96,000 frames, SHA-256
+`f04440ac779afee5aa9352244d03312c9b03b65d5e798fad01c68b47a14e7f21`.
+The listener is on track index 2; importing the clip automatically renamed
+`3-Audio` to `3-ML-Calibration-quarter-sine`. Looping and warping were disabled.
+
+A manual, watchdog-protected analyzer enable and temporary native console
+probe measured per-channel peak **0.5** and maximum 100 ms window RMS
+**0.353553**. Independent quantized PCM samples 4,800-9,599 give plateau-window
+RMS **0.3535529554794787** per channel; the measured peak and window RMS pass
+the 0.001-linear and 0.25 dB subset tolerances. Twelve retained full-level,
+high-energy spectral frames reported centroids **441.668179-459.932376 Hz**,
+within two 2,048-sample FFT bins of 440 Hz. These are selected steady-signal
+frames, not a claim that every transient FFT frame has that centroid.
+
+This is **partial native level/spectral evidence**, not a complete listening
+pass. The Max bridge retains only 200 console messages: the first unfiltered
+collection lost the active region and was inconclusive. A temporary `zl change`
+removed duplicate held frames for the repeat; its retained evidence contains
+33 nonzero records but still does not establish complete pass coverage or
+four verified attacks. Whole-pass RMS, anti-phase PCM, independent timing,
+offsets/gaps, transparent pass-through and actual capture/publication remain
+unaccepted. No certificate or production prepare/arm path was enabled.
+
+The Master fader was temporarily set to zero for inaudible playback and restored
+to its observed 0.85 after the non-looping source finished. Analysis was
+disabled/reset, all four temporary probe objects were removed, the object list
+and named cables were checked, and both direct stereo pass-through cables were
+verified. The inspector populated previously blank nested destination IDs, so
+those initial unnamed endpoints are not a byte-for-byte wiring oracle. The
+authored AMXD on disk and User Library were not replaced. Transport was left
+running; the source clip itself was verified no longer playing.
+
+Engineering evidence is bounded in
+`.test-artifacts/listener-calibration-native-quarter-sine-levels.json`.
+The earlier clean-Set attempt exposed stale bridge reads/timeouts and was
+abandoned, not counted as success. Recovery of the empty test Set was declined
+only after explicit user approval. The coordinated UX readiness deadline fix
+at `3d78a19` preserves the ordinary deadline and prevents the interactive path
+from inheriting its short timeout; see the testing specification.
 
 Capture boundaries and declared timing uncertainty must remain within one DSP
 vector of independently supplied host coordinates. The verifier must not be

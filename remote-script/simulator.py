@@ -171,6 +171,7 @@ class SimulatorState(object):
         self.link_enabled = False
         self.back_to_arrangement = False
         self.current_song_time = 0.0
+        self.arrangement_start_marker = 0.0
         self.routing_snapshots = {}
         self.next_note_id = 1
         self.live_event_subscriptions = {}
@@ -2584,6 +2585,17 @@ def handle(request, token, state):
                 context = build_listening_simulator_context(state)
                 result = start_listening_playback(
                     context, params, identity_builder=lambda _song: {"liveSetId": "simulated-live-set"})
+                settled, errors = [], []
+                result.start(settled.append, errors.append)
+                for _ in range(4):
+                    if settled or errors or not context.pending_callbacks:
+                        break
+                    context.pending_callbacks.pop(0)()
+                if errors:
+                    raise errors[0]
+                if len(settled) != 1:
+                    raise ProtocolFailure("lom_error", "Simulator guarded start did not settle")
+                result = settled[0]
                 return response(request, result)
             return response(request, stop_listening_playback(state, params))
         except ProtocolFailure as error:

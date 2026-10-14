@@ -7,7 +7,7 @@ from pathlib import Path
 
 from AbletonAgent.errors import ProtocolFailure
 from AbletonAgent.listening_playback import (
-    register_playback_commands, start_listening_playback, stop_listening_playback,
+    register_playback_commands, start_listening_playback as deferred_start, stop_listening_playback,
     validate_start, validate_stop,
     guarded_arrangement_start_supported,
 )
@@ -17,6 +17,22 @@ import test_listening_commands as fixtures
 from AbletonAgent.identity import build_live_identity
 from AbletonAgent.capabilities import build_capability_document
 from AbletonAgent import listening_playback as playback
+from AbletonAgent.executor import DeferredResult
+
+
+def start_listening_playback(context, params, **kwargs):
+    result = deferred_start(context, params, **kwargs)
+    if not isinstance(result, DeferredResult):
+        return result
+    success, errors = [], []
+    result.start(success.append, errors.append)
+    while context.pending_callbacks:
+        context.pending_callbacks.pop(0)()
+    if errors:
+        raise errors[0]
+    if len(success) != 1:
+        raise AssertionError("Deferred source start did not settle exactly once")
+    return success[0]
 
 REFERENCE = "10000000-0000-4000-8000-000000000001"
 TARGET = {
@@ -59,13 +75,17 @@ class ListeningPlaybackTest(unittest.TestCase):
         self.song.loop = False
         self.song.back_to_arranger = False
         self.song.arrangement_overdub = False
+        self.song.start_time = 0
         fixture.track.playing_slot_index = -1
         fixture.track.fired_slot_index = -1
         self.calls = []
-        def continue_playing():
-            self.calls.append(("continue", self.song.current_song_time))
+        self.context.pending_callbacks = []
+        self.context.schedule_message = lambda _ticks, callback: self.context.pending_callbacks.append(callback)
+        def start_playing():
+            self.calls.append(("start", self.song.current_song_time))
             self.song.is_playing = True
-        self.song.continue_playing = continue_playing
+        self.song.start_playing = start_playing
+        self.song.continue_playing = lambda: self.song.start_playing()
         self.params = dict(START, expectedProjectRevision=7, listeners=[fixture.target],
                            expectedLiveSetId=build_live_identity(self.song)["liveSetId"])
 
@@ -75,7 +95,7 @@ class ListeningPlaybackTest(unittest.TestCase):
             "schemaVersion": 1, "mode": "arrangement", "cleanupPolicy": "leave-running",
             "startedAtBeat": 0, "sourceOnset": "unverified",
         })
-        self.assertEqual(self.calls, [("continue", 0)])
+        self.assertEqual(self.calls, [("start", 0)])
         self.assertTrue(self.song.is_playing)
         self.assertFalse(self.song.loop)
         self.assertFalse(self.song.back_to_arranger)
@@ -99,7 +119,7 @@ class ListeningPlaybackTest(unittest.TestCase):
             self.context, self.params,
             identity_builder=lambda _song: {"liveSetId": self.params["expectedLiveSetId"]})
         self.assertEqual(writes, [])
-        self.assertEqual(self.calls, [("continue", 0)])
+        self.assertEqual(self.calls, [("start", 0)])
         self.assertTrue(self.song.is_playing)
         self.assertEqual(result["sourceOnset"], "unverified")
         self.assertEqual(result["cleanupPolicy"], "leave-running")
@@ -129,7 +149,7 @@ class ListeningPlaybackTest(unittest.TestCase):
         def broken_start():
             self.song.is_playing = True
             raise RuntimeError("start applied then failed")
-        self.song.continue_playing = broken_start
+        self.song.start_playing = broken_start
         with self.assertRaises(ProtocolFailure) as raised:
             start_listening_playback(self.context, self.params)
         self.assertEqual(raised.exception.details["stage"], "start")
@@ -231,10 +251,10 @@ class ListeningPlaybackTest(unittest.TestCase):
 
     def test_partial_start_failure_reports_indeterminate_and_never_rolls_back_or_stops(self):
         def broken_start():
-            self.calls.append(("continue", self.song.current_song_time))
+            self.calls.append(("start", self.song.current_song_time))
             self.song.is_playing = True
             raise RuntimeError("host applied start then failed")
-        self.song.continue_playing = broken_start
+        self.song.start_playing = broken_start
         with self.assertRaises(ProtocolFailure) as raised:
             start_listening_playback(self.context, self.params)
         self.assertEqual(raised.exception.details["stage"], "start")
@@ -275,19 +295,19 @@ class ListeningPlaybackTest(unittest.TestCase):
 
     def test_unavailable_primitives_and_inactive_listener_deny_without_mutation(self):
         self.assertTrue(guarded_arrangement_start_supported(self.song))
-        self.song.continue_playing = None
+        self.song.start_playing = None
         self.assertFalse(guarded_arrangement_start_supported(self.song))
         with self.assertRaises(ProtocolFailure):
             start_listening_playback(self.context, self.params)
         self.assertEqual(self.song.current_song_time, 4)
-        self.song.continue_playing = lambda: None
+        self.song.start_playing = lambda: None
         self.song.tracks[0].devices[0].is_active = False
         with self.assertRaises(ProtocolFailure):
             start_listening_playback(self.context, self.params)
         self.assertEqual(self.song.current_song_time, 4)
 
     def test_unconfirmed_start_cannot_be_a_success_acknowledgement(self):
-        self.song.continue_playing = lambda: None
+        self.song.start_playing = lambda: None
         with self.assertRaises(ProtocolFailure) as raised:
             start_listening_playback(self.context, self.params)
         self.assertEqual(raised.exception.details["stage"], "verify")
@@ -302,7 +322,7 @@ class ListeningPlaybackTest(unittest.TestCase):
             document = build_capability_document(application, self.song, registry)
             self.assertIs(document["capabilities"]["listening.start_playback"], expected)
             self.assertFalse(document["capabilities"]["listening.stop_playback"])
-        del self.song.continue_playing
+        del self.song.start_playing
         application = types.SimpleNamespace(get_version_string=lambda: "11.3.42")
         document = build_capability_document(application, self.song, registry)
         self.assertFalse(document["capabilities"]["listening.start_playback"])
@@ -330,6 +350,136 @@ class ListeningPlaybackTest(unittest.TestCase):
         commands = json.loads(path.read_text())["commands"]
         self.assertIsNone(validate_start(commands["listening.start_playback"]["request"]["params"]))
         self.assertIsNone(validate_stop(commands["listening.stop_playback"]["request"]["params"]))
+
+
+class DeferredMarkerStartTest(unittest.TestCase):
+    def setUp(self):
+        self.fixture = ListeningPlaybackTest()
+        self.fixture.setUp()
+        self.context = self.fixture.context
+        self.song = self.fixture.song
+        self.song.current_song_time = 0
+        self.params = self.fixture.params
+        self.success, self.failures, self.progress = [], [], []
+
+    def begin(self):
+        result = deferred_start(self.context, self.params)
+        self.assertIsInstance(result, DeferredResult)
+        result.start(self.success.append, self.failures.append, self.progress.append)
+
+    def drain(self):
+        while self.context.pending_callbacks:
+            self.context.pending_callbacks.pop(0)()
+
+    def test_marker_start_never_resumes_old_position_or_uses_same_stack_playing_read(self):
+        def forbidden_continue():
+            raise AssertionError("continue_playing resumes the prior stopped location")
+        self.song.continue_playing = forbidden_continue
+        def delayed_start():
+            self.fixture.calls.append(("start", 0))
+            self.context.pending_callbacks.append(lambda: setattr(self.song, "is_playing", True))
+        self.song.start_playing = delayed_start
+        self.begin()
+        self.assertEqual(self.success, [])
+        self.assertEqual(self.failures, [])
+        self.assertFalse(self.song.is_playing)
+        self.drain()
+        self.assertEqual(len(self.success), 1)
+        self.assertEqual(self.success[0]["sourceOnset"], "unverified")
+        self.assertEqual(self.fixture.calls, [("start", 0)])
+        self.assertEqual(self.failures, [])
+        self.assertIn({"phase": "listening_start_verification"}, self.progress)
+
+    def test_mismatched_unknown_or_nonfinite_marker_denies_before_any_mutation(self):
+        for marker in (8, None, True, float("nan")):
+            self.song.start_time = marker
+            self.song.current_song_time = 4
+            with self.subTest(marker=marker), self.assertRaises(ProtocolFailure) as raised:
+                deferred_start(self.context, self.params)
+            self.assertFalse(raised.exception.details["mutated"])
+            self.assertEqual(self.song.current_song_time, 4)
+            self.assertEqual(self.fixture.calls, [])
+            self.assertEqual(self.context.pending_callbacks, [])
+
+    def test_missing_scheduler_denies_before_start(self):
+        self.context.schedule_message = None
+        with self.assertRaises(ProtocolFailure) as raised:
+            deferred_start(self.context, self.params)
+        self.assertEqual(raised.exception.code, "unsupported_capability")
+        self.assertFalse(raised.exception.details["mutated"])
+        self.assertEqual(self.fixture.calls, [])
+
+    def test_seek_is_independently_read_before_start_and_marker_is_revalidated(self):
+        self.song.current_song_time = 4
+        result = deferred_start(self.context, self.params)
+        self.assertIsInstance(result, DeferredResult)
+        result.start(self.success.append, self.failures.append, self.progress.append)
+        self.assertEqual(self.fixture.calls, [])
+        self.song.start_time = 8
+        self.drain()
+        self.assertEqual(self.success, [])
+        self.assertEqual(len(self.failures), 1)
+        self.assertEqual(self.failures[0].details["mutationState"], "indeterminate")
+        self.assertEqual(self.fixture.calls, [])
+        self.assertEqual(self.song.current_song_time, 0)
+
+    def test_asynchronous_seek_readback_precedes_marker_start_and_later_ack(self):
+        context = self.context
+        class DelayedSeek(types.SimpleNamespace):
+            def __setattr__(song, field, value):
+                if field == "current_song_time":
+                    context.pending_callbacks.append(
+                        lambda: object.__setattr__(song, field, value))
+                else:
+                    super(DelayedSeek, song).__setattr__(field, value)
+        self.song.current_song_time = 4
+        self.song = DelayedSeek(**vars(self.song))
+        self.fixture.song = self.song
+        self.context.song = self.song
+        result = deferred_start(
+            self.context, self.params,
+            identity_builder=lambda _song: {"liveSetId": self.params["expectedLiveSetId"]})
+        result.start(self.success.append, self.failures.append, self.progress.append)
+        self.assertEqual(self.song.current_song_time, 4)
+        self.assertEqual(self.fixture.calls, [])
+        self.context.pending_callbacks.pop(0)()
+        self.assertEqual(self.song.current_song_time, 0)
+        self.assertEqual(self.fixture.calls, [])
+        self.context.pending_callbacks.pop(0)()
+        self.assertEqual(self.fixture.calls, [("start", 0)])
+        self.assertEqual(self.success, [])
+        self.drain()
+        self.assertEqual(len(self.success), 1)
+        self.assertEqual(self.failures, [])
+        self.assertEqual(self.progress, [
+            {"phase": "listening_seek_verification"},
+            {"phase": "listening_start_verification"},
+        ])
+
+    def test_scheduler_failure_after_start_is_indeterminate_without_cleanup_mutation(self):
+        def broken_schedule(_ticks, _callback):
+            raise RuntimeError("private scheduler failure")
+        self.context.schedule_message = broken_schedule
+        self.begin()
+        self.assertEqual(self.success, [])
+        self.assertEqual(len(self.failures), 1)
+        failure = self.failures[0]
+        self.assertEqual(failure.details["stage"], "verify")
+        self.assertEqual(failure.details["mutationState"], "indeterminate")
+        self.assertNotIn("private scheduler", failure.message)
+        self.assertTrue(self.song.is_playing)
+        self.assertEqual(self.song.current_song_time, 0)
+
+    def test_post_start_recording_change_fails_without_stopping_or_rewinding(self):
+        self.begin()
+        self.song.session_automation_record = True
+        self.drain()
+        self.assertEqual(self.success, [])
+        self.assertEqual(len(self.failures), 1)
+        self.assertEqual(self.failures[0].details["stage"], "verify")
+        self.assertEqual(self.failures[0].details["cleanupPolicy"], "leave-running")
+        self.assertTrue(self.song.is_playing)
+        self.assertEqual(self.song.current_song_time, 0)
 
 
 if __name__ == "__main__":

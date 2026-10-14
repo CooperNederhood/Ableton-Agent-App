@@ -129,6 +129,7 @@ describe("AbletonBridgeService", () => {
       const deniedStarts: Array<[Partial<typeof start>, string]> = [
         [{ expectedLiveSetId: "changed-set" }, "conflict"],
         [{ expectedProjectRevision: context.projectRevision + 1 }, "conflict"],
+        [{ range: { startBeat: 4, endBeat: 8 } }, "conflict"],
         [
           {
             listeners: [
@@ -145,6 +146,15 @@ describe("AbletonBridgeService", () => {
         await expect(
           service.startListeningPlayback({ ...start, ...change }),
         ).rejects.toMatchObject({ code });
+      expect(
+        (
+          await service.inspectListeningContext({
+            schemaVersion: 1,
+            listeners: [context.listeners[0]!.binding],
+            range: { startBeat: 0, endBeat: 8 },
+          })
+        ).transport,
+      ).toMatchObject({ playing: false, currentBeat: 0 });
       registerCorrelationContext({
         correlationId: "guarded-start",
         traceId: "11111111-1111-4111-8111-111111111111",

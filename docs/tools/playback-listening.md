@@ -1363,13 +1363,13 @@ Recorded-coordinate preflight validation derives host-coordinate FFT grid
 runtime arm, native launch, capture, readiness certificate or publication.
 Evidence is retained in `fixtures/native-stopped-preflight.json`.
 
-The experiment also exposed source-control limitations that remain open:
+The experiment also exposed source-control limitations:
 Max LiveAPI stop/seek/continue requests require later independent readback,
 not same-stack acknowledgement. After independently confirmed stopped beat
 zero, `continue_playing` resumed near the previous stop position above beat
-12000, not the requested zero. The documented insert-marker `start_playing`
-path must be investigated rather than silently substituting another primitive
-or treating a requested position as audio onset. Max LiveAPI also did not expose
+12000, not the requested zero. That required validating the documented
+insert-marker `start_playing` path rather than treating a requested position
+as audio onset. Max LiveAPI also did not expose
 Track `back_to_arranger`; this does not establish Python API availability or
 permit dropping the production guards.
 
@@ -1381,6 +1381,25 @@ native launch timing or Python backend acceptance. Its one helper was removed,
 the complete graph matched exactly and Automation Arm was restored/read back.
 `fixtures/native-marker-start.json` retains the bounded state trajectory.
 Native arm/launch and a freshly installed Python path still require acceptance.
+
+The Python guarded backend now uses `start_playing` only when the known existing
+`start_time` insert marker equals the requested start; it never changes that
+marker. A necessary seek is independently read on a later scheduled tick before
+revalidating all source/recording/binding guards and starting. No-seek starts
+still revalidate revision and never write the phase-sensitive position setter.
+A separate later tick checks running state, Set identity, marker and transport
+guards before acknowledging, still explicitly `sourceOnset: "unverified"`.
+Native proof, not this acknowledgement, establishes actual onset.
+
+The existing executor owns queued/started/progress/terminal timing and request
+attribution. Deferred progress identifies `listening_seek_verification` and
+`listening_start_verification`. Missing scheduling support or marker mismatch
+denies before mutation; failed attempted seeks/starts or scheduled verification
+remain indeterminate and never stop/rewind. Seven added regressions cover the
+old-resume primitive, asynchronous seek/start, changed marker/recording state
+and scheduler failure. The simulator models bounded scheduled callbacks;
+neither its passing tests nor the Max source-start experiment qualify a freshly
+installed Python path. That runner-owned acceptance remains open.
 
 All six owned roots were removed and the exact 130-box/150-cable baseline was
 restored. Automation Arm was explicitly changed from 1 to 0 for the guarded

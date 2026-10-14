@@ -1,9 +1,10 @@
-"""Guarded Arrangement seek/continue; deliberately never stops playback."""
+"""Guarded Arrangement marker start; deliberately never stops playback."""
 
 from .core_domain_commands import (
     _clip_target, _integer, _name, _number, _strict, _track_target, _uuid,
 )
 from .errors import ProtocolFailure
+from .executor import DeferredResult
 from .identity import build_live_identity
 from .listening_commands import inspect_listening_context, _placement_collection
 from .system_commands import _safe_lom_getattr
@@ -17,30 +18,35 @@ SESSION_LIMITATION = (
 )
 PLAYBACK_CAPABILITIES = ("listening.start_playback", "listening.stop_playback")
 START_LIMITATION = (
-    "Arrangement only; playback continues after completion/cancellation. "
+    "Arrangement only; the existing insert marker must match the requested start. "
+    "Seek/start readbacks are deferred; playback continues after completion/cancellation. "
     "No ownership or verified source-onset/timing claim; Session start and stop are unsupported."
 )
 
 
 def guarded_arrangement_start_supported(song):
     return (
-        callable(_safe_lom_getattr(song, "continue_playing"))
+        callable(_safe_lom_getattr(song, "start_playing"))
         and all(_safe_lom_getattr(song, field) is not None for field in (
-            "current_song_time", "is_playing", "loop", "back_to_arranger",
+            "current_song_time", "start_time", "is_playing", "loop", "back_to_arranger",
             "record_mode", "session_record", "arrangement_overdub",
             "session_automation_record",
         ))
     )
 
 
-def _transport_guards(context, params, identity_builder, check_revision=True):
+def _transport_guards(context, params, identity_builder, check_revision=True,
+                      expected_playing=False):
     song = context.song
     if identity_builder(song)["liveSetId"] != params["expectedLiveSetId"]:
         raise ProtocolFailure("conflict", "Listening Set identity changed")
     if check_revision and context.project_revision != params["expectedProjectRevision"]:
         raise ProtocolFailure("conflict", "Listening project revision changed")
+    if _safe_lom_getattr(song, "is_playing") is not expected_playing:
+        raise ProtocolFailure("conflict", "Listening transport state is unsafe or unknown",
+                              details={"reason": "unsafe_or_unknown_is_playing", "mutated": False})
     for field in (
-        "is_playing", "record_mode", "session_record", "arrangement_overdub",
+        "record_mode", "session_record", "arrangement_overdub",
         "session_automation_record", "loop", "back_to_arranger",
     ):
         value = _safe_lom_getattr(song, field)
@@ -60,8 +66,16 @@ def _transport_guards(context, params, identity_builder, check_revision=True):
             raise ProtocolFailure("conflict", "Session source override or pending launch is unsupported")
 
 
+def _marker_guard(song, params):
+    marker = _safe_lom_getattr(song, "start_time")
+    if not _number(marker, 0, 1576800) or marker != params["range"]["startBeat"]:
+        raise ProtocolFailure("conflict", "Arrangement insert marker does not match the requested start",
+                              details={"reason": "arrangement_start_marker_mismatch", "mutated": False})
+
+
 def _guards(context, params, identity_builder, check_revision=True):
     _transport_guards(context, params, identity_builder, check_revision)
+    _marker_guard(context.song, params)
     evidence = inspect_listening_context(context, {
         "schemaVersion": 1, "listeners": params["listeners"],
         "range": params["range"], "maxClips": 64, "maxParameters": 1,
@@ -72,6 +86,7 @@ def _guards(context, params, identity_builder, check_revision=True):
     ):
         raise ProtocolFailure("conflict", "Listener or clip recording/source evidence is unsafe or unknown")
     _transport_guards(context, params, identity_builder, check_revision)
+    _marker_guard(context.song, params)
 
 
 def _listener(value):
@@ -140,6 +155,25 @@ def _unmutated_start_failure(error):
     return ProtocolFailure(error.code, error.message, details=details)
 
 
+def _start_failure(song, error, stage, mutation_attempted):
+    if not mutation_attempted:
+        if isinstance(error, ProtocolFailure):
+            return _unmutated_start_failure(error)
+        return ProtocolFailure("lom_error", "Guarded start failed before a mutation attempt",
+                               details={"stage": stage, "mutated": False,
+                                        "cleanupPolicy": "leave-running"})
+    playing = _safe_lom_getattr(song, "is_playing")
+    beat = _safe_lom_getattr(song, "current_song_time")
+    return ProtocolFailure(
+        "lom_error", "Guarded start failed after a mutation attempt; playback is left unchanged",
+        details={
+            "stage": stage, "mutationState": "indeterminate",
+            "cleanupPolicy": "leave-running",
+            "playing": playing if isinstance(playing, bool) else None,
+            "currentBeat": beat if _number(beat, 0, 1576800) else None,
+        })
+
+
 def start_listening_playback(context, params, identity_builder=build_live_identity):
     error = validate_start(params)
     if error:
@@ -149,57 +183,86 @@ def start_listening_playback(context, params, identity_builder=build_live_identi
             "reason": "session_source_onset_unverified", "mutated": False,
         })
     song = context.song
-    if not guarded_arrangement_start_supported(song):
+    if (not guarded_arrangement_start_supported(song)
+            or not callable(getattr(context, "schedule_message", None))):
         raise ProtocolFailure("unsupported_capability", "Required Arrangement start primitives are unavailable",
                               details={"mutated": False})
     try:
         _guards(context, params, identity_builder)
-    except ProtocolFailure as error:
-        raise _unmutated_start_failure(error)
-    stage = "seek"
-    mutation_attempted = False
+    except Exception as error:
+        raise _start_failure(song, error, "guard", False)
+    state = {"stage": "seek", "mutation_attempted": False, "settled": False}
+    seek_attempted = False
     try:
         position = _safe_lom_getattr(song, "current_song_time")
         if not _number(position, 0, 1576800):
             raise ProtocolFailure("conflict", "Listening position became unknown")
         # Preserve an already-armed native boundary when no seek is required.
         if position != params["range"]["startBeat"]:
-            mutation_attempted = True
+            seek_attempted = True
+            state["mutation_attempted"] = True
             song.current_song_time = params["range"]["startBeat"]
-        # A setter may reenter host code. Only an attempted seek may have
-        # advanced our own revision; a skipped seek must revalidate it.
-        _guards(context, params, identity_builder, check_revision=not mutation_attempted)
-        if song.current_song_time != params["range"]["startBeat"]:
-            raise ProtocolFailure("conflict", "Requested seek was not observed")
-        stage = "start"
-        mutation_attempted = True
-        song.continue_playing()
-        stage = "verify"
-        if _safe_lom_getattr(song, "is_playing") is not True:
-            raise ProtocolFailure("lom_error", "Start acknowledgement state is unknown or not running")
-        return {
-            "schemaVersion": 1, "mode": "arrangement",
-            "cleanupPolicy": "leave-running", "startedAtBeat": params["range"]["startBeat"],
-            "sourceOnset": "unverified",
-        }
     except Exception as error:
-        if not mutation_attempted:
-            if isinstance(error, ProtocolFailure):
-                raise _unmutated_start_failure(error)
-            raise ProtocolFailure("lom_error", "Guarded start failed before a mutation attempt",
-                                  details={"stage": stage, "mutated": False,
-                                           "cleanupPolicy": "leave-running"})
-        # Even a setter that throws may already have mutated the host. Never
-        # restore position or stop: that could overwrite independent user work.
-        playing = _safe_lom_getattr(song, "is_playing")
-        beat = _safe_lom_getattr(song, "current_song_time")
-        raise ProtocolFailure("lom_error", "Guarded start failed after a mutation attempt; playback is left unchanged",
-                              details={
-                                  "stage": stage, "mutationState": "indeterminate",
-                                  "cleanupPolicy": "leave-running",
-                                  "playing": playing if isinstance(playing, bool) else None,
-                                  "currentBeat": beat if _number(beat, 0, 1576800) else None,
-                              })
+        raise _start_failure(song, error, state["stage"], state["mutation_attempted"])
+
+    def begin(on_success, on_failure, on_progress):
+        def failed(error):
+            if state["settled"]:
+                raise error
+            state["settled"] = True
+            on_failure(_start_failure(
+                song, error, state["stage"], state["mutation_attempted"]))
+
+        def progress(phase):
+            if on_progress is not None:
+                on_progress({"phase": phase})
+
+        def verify():
+            if state["settled"]:
+                return
+            try:
+                _transport_guards(context, params, identity_builder,
+                                  check_revision=False, expected_playing=True)
+                _marker_guard(song, params)
+                result = {
+                    "schemaVersion": 1, "mode": "arrangement",
+                    "cleanupPolicy": "leave-running",
+                    "startedAtBeat": params["range"]["startBeat"],
+                    "sourceOnset": "unverified",
+                }
+            except Exception as error:
+                failed(error)
+                return
+            state["settled"] = True
+            on_success(result)
+
+        def start():
+            if state["settled"]:
+                return
+            try:
+                # Only our attempted seek may waive revision revalidation.
+                _guards(context, params, identity_builder, check_revision=not seek_attempted)
+                if _safe_lom_getattr(song, "current_song_time") != params["range"]["startBeat"]:
+                    raise ProtocolFailure("conflict", "Requested seek was not independently observed")
+                state["stage"] = "start"
+                state["mutation_attempted"] = True
+                song.start_playing()
+                state["stage"] = "verify"
+                progress("listening_start_verification")
+                context.schedule_message(1, verify)
+            except Exception as error:
+                failed(error)
+
+        try:
+            if seek_attempted:
+                progress("listening_seek_verification")
+                context.schedule_message(1, start)
+            else:
+                start()
+        except Exception as error:
+            failed(error)
+
+    return DeferredResult(begin, supports_progress=True)
 
 
 def stop_listening_playback(context, params):

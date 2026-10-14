@@ -568,11 +568,17 @@ checkpoint above. The production timing gate is unchanged.
   32 coherent host brackets and a complete recent FFT baseline. Regress
   recorded-coordinate preflight, freshness denial, source hashes and exact
   graph/Automation Arm cleanup; do not authorize arm from cached evidence.
-- [ ] Resolve actual source-control semantics: Max `continue_playing` resumed
-  the previous stopped playback position after confirmed stopped PPQ zero.
-  Verify the insert-marker start path and actual native launch before changing
-  the backend or calling the requested beat measured onset. Max LiveAPI Track
-  `back_to_arranger` absence does not establish Python API availability.
+- [x] Replace prior-stop resume with guarded `start_playing` only for a matching
+  existing insert marker. Independently read a necessary seek on a later tick,
+  revalidate before source start and verify running/Set/marker/transport later.
+  Preserve skipped-seek revision checks, bounded executor progress, unverified
+  acknowledgement and indeterminate leave-running failures.
+- [x] Regress asynchronous seek/start, old-resume denial, marker mismatch/change,
+  missing/failed scheduling and post-start recording changes at Python and
+  simulator-backed bridge boundaries; preserve all original guards.
+- [ ] Qualify the freshly installed Python path against runner-owned Live.
+  Max native onset/source-start evidence does not establish Python API
+  availability, especially Track `back_to_arranger`, or permit weaker guards.
 - [x] Contrast actual marker-zero Max `start_playing` with the prior continue
   behavior: observed running beat12.866375 after6.460 seconds, not the old
   stop above13931. Preserve unchanged marker, exact one-helper cleanup and

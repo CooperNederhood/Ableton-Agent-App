@@ -11,6 +11,8 @@ def inspect_simulated_listening_context(state, params):
 
 def build_listening_simulator_context(state):
     context = SimpleNamespace(project_revision=0)
+    context.pending_callbacks = []
+    context.schedule_message = lambda _ticks, callback: context.pending_callbacks.append(callback)
     references = {
         "_track_references": [], "_device_references": [],
         "_clip_references": [], "_parameter_references": [],
@@ -84,6 +86,7 @@ def build_listening_simulator_context(state):
         return_tracks=[track(item) for item in state.return_tracks],
         master_track=track(state.master_track),
         is_playing=state.is_playing, current_song_time=state.current_song_time,
+        start_time=state.arrangement_start_marker,
         tempo=state.tempo,
         record_mode=state.recording_state["arrangementRecord"],
         session_record=state.recording_state["sessionRecord"],
@@ -92,11 +95,12 @@ def build_listening_simulator_context(state):
         session_automation_record=state.recording_state["sessionAutomationRecord"],
         loop=state.loop_enabled, back_to_arranger=state.back_to_arrangement,
     )
-    def continue_playing():
-        state.current_song_time = context.song.current_song_time
+    def start_playing():
+        state.current_song_time = context.song.start_time
+        context.song.current_song_time = state.current_song_time
         state.is_playing = True
         context.song.is_playing = True
-    context.song.continue_playing = continue_playing
+    context.song.start_playing = start_playing
     for key, entries in references.items():
         setattr(context, key, entries)
     return context

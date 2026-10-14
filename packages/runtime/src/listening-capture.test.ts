@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRequire } from "node:module";
 import type { AudioObservation } from "@ableton-agent/protocol";
+import { NATIVE_LISTENER_SCOPE } from "@ableton-agent/protocol";
+import { createSyntheticNativeListeningFixture } from "@ableton-agent/protocol/testing";
 import type { TelemetryEventEnvelope } from "@ableton-agent/observability";
 import type {
   ListenerControlInput,
@@ -239,6 +241,201 @@ function input(
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("per-pass native proof admission", () => {
+  function nativeService() {
+    const service = new FakeService(["a"]);
+    service.listeners[0]!.registration.nativeStatus = {
+      version: 1,
+      timing: "VERIFIED",
+      readiness: "READY",
+      scope: NATIVE_LISTENER_SCOPE,
+    };
+    const fixture = createSyntheticNativeListeningFixture({
+      listenerId: "producer-a",
+    });
+    service.hook = (_id, control, reply) =>
+      control.action === "arm"
+        ? { ...reply, nativeArm: fixture.proof.armed }
+        : reply;
+    const captureInput = input(service, new AbortController(), {
+      config: {
+        durationMs: 2000,
+        maxWindows: 20,
+        source: { mode: "arrangement", startBeat: 0, endBeat: 4 },
+      },
+    });
+    return { service, fixture, captureInput };
+  }
+
+  it("requires actual launch and matching complete evidence; native arm telemetry is not onset", async () => {
+    const { service, fixture, captureInput } = nativeService();
+    const progress: string[] = [];
+    const capture = await prepareListenerCapture(service, {
+      ...captureInput,
+      onProgress: (event) => progress.push(event.stage),
+    });
+    service.emit("connection-a", {
+      status: "progress",
+      observation: undefined,
+      nativeLifecycle: {
+        eventId: trace.traceId,
+        causationId: trace.causationId,
+        nativeEpoch: 1,
+        stage: "started",
+        elapsedMs: 0,
+        frames: 0,
+      },
+    });
+    expect(progress).not.toContain("capturing");
+    service.emit("connection-a", {
+      status: "progress",
+      observation: undefined,
+    });
+    expect(progress).not.toContain("capturing");
+    service.emit("connection-a", {
+      status: "progress",
+      observation: undefined,
+      nativeLaunch: fixture.proof.launched,
+    });
+    service.emit("connection-a", {
+      observation: fixture.observation,
+      nativeCapture: fixture.proof,
+    });
+    await expect(capture.result).resolves.toEqual([fixture.observation]);
+    expect(service.subscribers.size).toBe(0);
+  });
+
+  it("consumes native results queued after the armed wire reply but before its promise resolves", async () => {
+    const { service, fixture, captureInput } = nativeService();
+    service.hook = (id, control, reply) => {
+      if (control.action !== "arm") return reply;
+      service.emit(id, {
+        status: "progress",
+        observation: undefined,
+        nativeLaunch: fixture.proof.launched,
+      });
+      service.emit(id, {
+        observation: fixture.observation,
+        nativeCapture: fixture.proof,
+      });
+      return { ...reply, nativeArm: fixture.proof.armed };
+    };
+    const capture = await prepareListenerCapture(service, captureInput);
+    await expect(capture.result).resolves.toEqual([fixture.observation]);
+    expect(service.subscribers.size).toBe(0);
+  });
+
+  it("cancels a scoped launched pass once and releases all subscriptions", async () => {
+    const { service, fixture, captureInput } = nativeService();
+    const abort = new AbortController();
+    const capture = await prepareListenerCapture(service, {
+      ...captureInput,
+      signal: abort.signal,
+    });
+    service.emit("connection-a", {
+      status: "progress",
+      observation: undefined,
+      nativeLaunch: fixture.proof.launched,
+    });
+    abort.abort();
+    await expect(capture.result).rejects.toThrow("cancelled");
+    await capture.disarm();
+    await capture.disarm();
+    expect(
+      service.calls.filter((call) => call.input.action === "cancel"),
+    ).toHaveLength(1);
+    expect(service.subscribers.size).toBe(0);
+  });
+
+  it.each([
+    "missing-launch",
+    "missing-proof",
+    "changed-arm",
+    "fft-future",
+    "post-offset",
+    "duplicate-launch",
+  ])("fails closed and cleans up %s", async (kind) => {
+    const { service, fixture, captureInput } = nativeService();
+    const capture = await prepareListenerCapture(service, captureInput);
+    if (kind !== "missing-launch")
+      service.emit("connection-a", {
+        status: "progress",
+        observation: undefined,
+        nativeLaunch: fixture.proof.launched,
+      });
+    if (kind === "changed-arm") fixture.proof.armed.nativeEpoch++;
+    if (kind === "fft-future") fixture.proof.spectralWindows[0]![1] += 4800;
+    if (kind === "post-offset")
+      for (const row of fixture.proof.after.frames) {
+        row[2]++;
+        row[9]++;
+      }
+    if (kind === "duplicate-launch")
+      service.emit("connection-a", {
+        status: "progress",
+        observation: undefined,
+        nativeLaunch: fixture.proof.launched,
+      });
+    else
+      service.emit("connection-a", {
+        observation: fixture.observation,
+        ...(kind === "missing-proof" ? {} : { nativeCapture: fixture.proof }),
+      });
+    await expect(capture.result).rejects.toThrow(/native[-_]/);
+    expect(service.subscribers.size).toBe(0);
+  });
+
+  it("rejects a ready claim without native arm evidence and compensates the exact instance", async () => {
+    const { service, captureInput } = nativeService();
+    delete service.hook;
+    await expect(prepareListenerCapture(service, captureInput)).rejects.toThrow(
+      "native-arm-proof-required",
+    );
+    expect(service.calls.map((call) => call.input.action)).toEqual([
+      "prepare",
+      "arm",
+      "cancel",
+    ]);
+    expect(service.subscribers.size).toBe(0);
+  });
+
+  it("guards unsupported scope before any controls and fences scope changes after preparation", async () => {
+    const { service, captureInput } = nativeService();
+    const events: TelemetryEventEnvelope[] = [];
+    await expect(
+      prepareListenerCapture(service, {
+        ...captureInput,
+        config,
+        telemetry: {
+          enqueue(event) {
+            events.push(event);
+            return true;
+          },
+        },
+      }),
+    ).rejects.toThrow("unsupported-native-capture-scope");
+    expect(service.calls).toEqual([]);
+    expect(events.map((event) => event.name)).toEqual([
+      "listening.capture.queued",
+      "listening.capture.failed",
+    ]);
+    expect(events[1]).toMatchObject({
+      trace: { traceId: trace.traceId },
+      correlationId: trace.correlationId,
+      causationId: trace.causationId,
+      attributes: { passId: "pass", code: "unsupported-native-capture-scope" },
+    });
+    const capture = await prepareListenerCapture(service, captureInput);
+    delete service.listeners[0]!.registration.nativeStatus!.scope;
+    service.emit("connection-a", {
+      status: "progress",
+      observation: undefined,
+    });
+    await expect(capture.result).rejects.toThrow();
+    expect(service.subscribers.size).toBe(0);
+  });
 });
 
 describe("concrete shared-ingress capture adapter", () => {

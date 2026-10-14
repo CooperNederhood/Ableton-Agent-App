@@ -19,6 +19,7 @@ function entityId(value: string | undefined): string | undefined {
 }
 
 export interface SignalTelemetryInput {
+  readonly id?: TelemetryEventEnvelope["id"];
   readonly name: string;
   readonly source: string;
   readonly level?: TelemetryEventEnvelope["level"];
@@ -63,7 +64,7 @@ export function recordSignalTelemetry(
       : undefined;
   const event: TelemetryEventEnvelope = {
     version: 2,
-    id: randomUUID(),
+    id: input.id ?? randomUUID(),
     occurredAt: input.occurredAt ?? new Date().toISOString(),
     name: input.name,
     source: input.source,

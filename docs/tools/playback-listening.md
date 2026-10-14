@@ -1026,3 +1026,60 @@ tests replay actual recorded coordinates with **synthetic timely host callbacks*
 and approved test certificates. They do not prove native runtime delivery,
 application journal forwarding or actual context publication. Node/Max graph
 wiring and independent end-to-end acceptance remain required before activation.
+
+### Independent App-side native evidence boundary (inactive)
+
+The next integration step extends the existing `listener.reply` and
+`listener.result` messages with bounded optional evidence, not a new registration
+service or certificate loader. The opt-in native status scope is
+`arrangement-beat0-120bpm-48000hz-vector64/v1`; its presence is not proof of
+readiness. Legacy producers retain their existing wire behavior. The shipping
+runtime still reports `UNVERIFIED/BLOCKED` and its measured-readiness denial
+remains in place.
+
+An `armed` reply carries `nativeArm`: the exact epoch/reset acknowledgment,
+absolute arm counter and 32 coherent stopped PPQ-zero host/counter brackets.
+A `progress` result carries `nativeLaunch`: the same epoch/arm, signal-derived
+launch clock/phase and playing host sample/PPQ intercept. A `completed` result
+carries `nativeCapture`: the identical accepted arm/launch evidence, 32 playing
+post-capture brackets and one complete latest 2,048-sample FFT interval for
+each retained envelope point, including its centroid and pooled stereo energy.
+These fields are stage-restricted strict schemas.
+They contain processed numeric evidence only, never PCM or arbitrary objects.
+
+The App independently derives the origin and host offset, verifies all envelope
+sample/beat coordinates and whole-window coverage, rejects future/stale FFT
+intervals or a changed FFT grid, recomputes centroid values/energy-weighted
+summary, and requires all 32 post brackets after range
+coverage with the same clock mapping. The last post bracket must be within
+48,000 samples of the range end. Calculate range length in integer 4,800-sample
+windows rather than multiplying fractional beats into an inexact sample count.
+Changed proof, missing/duplicate launch, missing arm acknowledgment or scope/
+instance/epoch change cannot publish a completed observation. Scope and quota
+denials occur before dispatch; failure/cancellation retains exact-owner cleanup.
+
+Native lifecycle uses existing `progress` results with `nativeLifecycle`.
+Send the armed wire reply before flushing native progress; contiguous sequence
+validation is not relaxed. Arm-only lifecycle progress does not imply measured
+playback onset. Native source event IDs are UUIDs and remain unique across
+repeated pass IDs. Ingress namespaces journal IDs by connection, instance,
+connection epoch, job and pass, preserving native causal edges without allowing
+producer IDs to impersonate unrelated application events. Original SDK trace,
+correlation and root causation remain attached; result causation mismatches are
+rejected before telemetry/result delivery.
+
+The existing application journal retains bounded, recursively sanitized proof
+and native queued/started/progress/completed/failed/cancelled lifecycle records
+through typed Desktop History. No storage layout, SQL renderer access, audio
+retention or upload path is added. Canonical `audio-observation/v1` remains
+unchanged and contains no private FFT proof fields. Shared synthetic contract
+fixtures are isolated under `@ableton-agent/protocol/testing`, not exposed as a
+production readiness API.
+
+This boundary is exercised with explicitly synthetic timely callbacks, including
+authenticated loopback transport. It does not establish actual Node/Max packet
+delivery, a new native graph, native resource cost or real context publication.
+The actual capture controller/assembler and per-pass physical evidence are still
+required before activating this scope. The existing Live calibration Set and
+Desktop/Max processes must be preserved; the deterministic Live runner must not
+adopt them.

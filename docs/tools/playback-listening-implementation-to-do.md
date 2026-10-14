@@ -480,9 +480,24 @@ checkpoint above. The production timing gate is unchanged.
   stage events and bounded failure/cancellation/cleanup regression coverage.
 - [x] Include the coordinate validator in both bundle resource declarations
   and preserve installed-artifact and canonical wire contracts.
+- [x] Define bounded optional native arm/launch/completion evidence on the
+  existing listener reply/result topology, with a narrow opt-in scope and no
+  certificate loader or new registration service.
+- [x] Independently validate native origin/offset, exact envelope/beat coverage,
+  latest FFT intervals/grid/centroid/energy-weighted summary and all 32 timely
+  post-capture brackets at the App
+  capture boundary. Fence missing/changed proof, scope changes and stale owners.
+- [x] Forward source native lifecycle and processed evidence through bounded,
+  recursively redacted existing journal records with namespaced causal event
+  IDs, SDK trace propagation and no renderer/storage/upload expansion.
+- [x] Regress native scope denial before controls, arm/launch/completion evidence,
+  queued-result ordering, fractional-beat integer windows, cancellation, cleanup,
+  authenticated wire transport, causal attribution and credential redaction
+  with explicitly synthetic fixtures; this is not native runtime acceptance.
 - [ ] Connect that engine path to actual Node/Max native messages and forward
-  its lifecycle into the application journal; deterministic recorded-coordinate
-  replay with synthetic timely host callbacks is not runtime acceptance.
+  its actual lifecycle/evidence through the implemented App boundary;
+  deterministic recorded-coordinate replay with synthetic timely host callbacks
+  is not runtime acceptance.
 - [ ] Verify the broader native source/host matrix, production reset and
   cancellation/disconnect behavior; the single offset fixture is not a certificate.
 - [ ] Prove real agent playback-and-listen publishes correct atomic context

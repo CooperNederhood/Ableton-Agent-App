@@ -2,6 +2,8 @@ import { connect, type Socket } from "node:net";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AudioObservation } from "@ableton-agent/protocol";
+import { NATIVE_LISTENER_SCOPE } from "@ableton-agent/protocol";
+import { createSyntheticNativeListeningFixture } from "@ableton-agent/protocol/testing";
 import type { TelemetryEventEnvelope } from "@ableton-agent/observability";
 import { SignalIngressServer } from "./ingress-server.js";
 import { InMemoryConnectionRegistry } from "./registry.js";
@@ -247,6 +249,130 @@ async function prepareAndArm(
 }
 
 describe("shared authenticated listener ingress", () => {
+  it("retains bounded native evidence and namespaced causal lifecycle through the existing authenticated channel", async () => {
+    const events: TelemetryEventEnvelope[] = [];
+    const { server, endpoint } = await start({
+      telemetry: {
+        enqueue(event) {
+          events.push(event);
+          return true;
+        },
+      },
+    });
+    const client = await listener(endpoint, {
+      ...readyModelMetadata,
+      nativeStatus: {
+        ...readyModelMetadata.nativeStatus,
+        scope: NATIVE_LISTENER_SCOPE,
+      },
+    });
+    const fixture = createSyntheticNativeListeningFixture({
+      listenerId: "audio",
+      algorithmVersion: "native/v1",
+    });
+    const context = {
+      ...input,
+      traceId: "11111111-1111-4111-8111-111111111111",
+      causationId: "password=synthetic-value",
+      config: {
+        durationMs: 2000,
+        maxWindows: 20,
+        source: { mode: "arrangement" as const, startBeat: 0, endBeat: 4 },
+      },
+    };
+    const preparing = server.requestListenerControl(
+      client.connectionId,
+      context,
+    );
+    const prepare = (await client.next()) as unknown as ListenerControl;
+    client.send(reply(prepare, 0, "ready"));
+    await preparing;
+    await client.next();
+    const arming = server.requestListenerControl(client.connectionId, {
+      ...context,
+      action: "arm",
+    });
+    const arm = (await client.next()) as unknown as ListenerControl;
+    client.send({ ...reply(arm, 1, "armed"), nativeArm: fixture.proof.armed });
+    await arming;
+    await client.next();
+    const firstId = "44444444-4444-4444-8444-444444444444";
+    const secondId = "55555555-5555-4555-8555-555555555555";
+    client.send(
+      result(arm, 2, {
+        status: "progress",
+        observation: undefined,
+        nativeLifecycle: {
+          eventId: firstId,
+          causationId: context.causationId,
+          stage: "queued",
+          nativeEpoch: 1,
+          elapsedMs: 0,
+          frames: 0,
+        },
+      }),
+    );
+    expect((await client.next()).type).toBe("producer.ack");
+    client.send(
+      result(arm, 3, {
+        status: "progress",
+        observation: undefined,
+        nativeLifecycle: {
+          eventId: secondId,
+          causationId: firstId,
+          stage: "started",
+          nativeEpoch: 1,
+          elapsedMs: 12,
+          frames: 0,
+        },
+      }),
+    );
+    expect((await client.next()).type).toBe("producer.ack");
+    client.send(
+      result(arm, 4, {
+        status: "progress",
+        observation: undefined,
+        nativeLaunch: fixture.proof.launched,
+      }),
+    );
+    expect((await client.next()).type).toBe("producer.ack");
+    client.send(
+      result(arm, 5, {
+        observation: fixture.observation,
+        nativeCapture: fixture.proof,
+      }),
+    );
+    expect((await client.next()).type).toBe("producer.ack");
+    const native = events.filter((event) =>
+      event.name.startsWith("output.listener.native."),
+    );
+    expect(native.map((event) => event.name)).toEqual([
+      "output.listener.native.queued",
+      "output.listener.native.started",
+    ]);
+    expect(native[0]!.id).not.toBe(firstId);
+    expect(native[1]!.causationId).toBe(native[0]!.id);
+    expect(native[1]).toMatchObject({
+      trace: { traceId: context.traceId },
+      durationMs: 12,
+      attributes: {
+        passId: "pass",
+        producerId: "audio",
+        instanceId: "audio-instance",
+        nativeEpoch: 1,
+      },
+    });
+    expect(
+      events.find((event) => event.attributes.nativeArm !== undefined)
+        ?.attributes.nativeArm,
+    ).toEqual(fixture.proof.armed);
+    expect(
+      events.find((event) => event.attributes.nativeCapture !== undefined)
+        ?.attributes.nativeCapture,
+    ).toEqual(fixture.proof);
+    expect(JSON.stringify(events)).not.toContain("synthetic-value");
+    expect(server.inspectListeners()[0]!.phase).toBe("idle");
+  });
   it("accepts legacy registration as connected but denies prepare with no metadata", async () => {
     const events: TelemetryEventEnvelope[] = [];
     const { server, endpoint } = await start({
@@ -431,6 +557,8 @@ describe("shared authenticated listener ingress", () => {
 
   it.each([
     ["stale epoch", { connectionEpoch: "stale" }],
+    ["forged correlation", { correlationId: "another-correlation" }],
+    ["forged causation", { causationId: "another-cause" }],
     ["sequence gap", { sequence: 9 }],
     [
       "forged observation owner",

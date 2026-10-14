@@ -2,6 +2,7 @@
 /* Processed descriptors only. Never accepts, retains or writes raw audio. */
 "use strict";
 const { nativeHostBinding } = require("./audio_listener_native_coordinates.js");
+const { randomUUID } = require("node:crypto");
 
 const ALGORITHM = "native-max-stereo-energy-envelope-rise";
 const VERSION = "1.0.1";
@@ -189,7 +190,7 @@ class AudioListenerEngine {
       originalSamples: 0, originalAttacks: 0, previousLevel: FLOOR_DB, lastAttack: -Infinity,
       riseHasAttack: false,
       certificate: cert,
-      context, nativeEventCount: 0, nativeCausationId: context?.causationId,
+      context, nativeCausationId: context?.causationId,
     };
     this.state = "prepared";
     this.emit({ type: "state", state: "prepared", passId: command.passId });
@@ -222,7 +223,7 @@ class AudioListenerEngine {
   nativeEvent(stage, reason) {
     const p = this.pass;
     if (!p?.context) return;
-    const eventId = `${p.passId}:native:${p.nativeEpoch ?? 0}:${p.nativeEventCount++}`;
+    const eventId = randomUUID();
     this.emit({
       type: "native-capture-stage", stage, eventId,
       ...p.context, causationId: p.nativeCausationId,
@@ -295,6 +296,7 @@ class AudioListenerEngine {
     const checked = nativeHostBinding(binding, true);
     if (checked.hostOffsetSamples !== p.nativeHostOffset ||
         checked.hostBeatZeroSample !== p.startSample ||
+        binding.frames[0][4] < p.startSample - p.nativeHostOffset + Math.round(p.endBeat * 5) * 4800 ||
         checked.lastCounter < p.startSample - p.nativeHostOffset + p.endBeat * 24000 ||
         !this.host || this.now() - this.host.observedAt > 1000 ||
         checked.lastCounter > this.host.sample - p.nativeHostOffset ||

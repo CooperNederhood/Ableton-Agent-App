@@ -22,7 +22,10 @@ import {
 import type { RouteResult } from "./router.js";
 import { recordSignalTelemetry, stableTelemetryId } from "./telemetry.js";
 import type { NonBlockingObservabilityRecorder } from "@ableton-agent/observability";
-import { sanitizePersistedText } from "@ableton-agent/observability";
+import {
+  sanitizePersistedText,
+  sanitizeTelemetryAttributes,
+} from "@ableton-agent/observability";
 import {
   listenerControlInputSchema,
   type ListenerControl,
@@ -435,12 +438,13 @@ export class SignalIngressServer implements ListenerService {
           : stage === "cancelled"
             ? "cancelled"
             : "success",
-      attributes: {
+      attributes: sanitizeTelemetryAttributes({
         connectionId: state.connectionId ?? "",
         ...(state.producer === undefined
           ? {}
           : {
               producerId: state.producer.producerId,
+              instanceId: state.producer.instanceId,
               ...(state.producer.track?.id === undefined
                 ? {}
                 : { trackId: state.producer.track.id }),
@@ -461,8 +465,51 @@ export class SignalIngressServer implements ListenerService {
         ...("observation" in message && message.observation !== undefined
           ? { observation: message.observation }
           : {}),
-      },
+        ...("nativeArm" in message && message.nativeArm !== undefined
+          ? { nativeArm: message.nativeArm }
+          : {}),
+        ...("nativeLaunch" in message && message.nativeLaunch !== undefined
+          ? { nativeLaunch: message.nativeLaunch }
+          : {}),
+        ...("nativeCapture" in message && message.nativeCapture !== undefined
+          ? { nativeCapture: message.nativeCapture }
+          : {}),
+      }),
     });
+    if ("nativeLifecycle" in message && message.nativeLifecycle !== undefined) {
+      const native = message.nativeLifecycle;
+      const key = (id: string): string =>
+        stableTelemetryId(
+          `native-listener:${state.connectionId}:${state.producer?.instanceId}:${message.connectionEpoch}:${message.jobId}:${message.passId}:${id}`,
+        );
+      recordSignalTelemetry(this.#options.telemetry, {
+        id: key(native.eventId),
+        name: `output.listener.native.${native.stage}`,
+        source: "output-ingress",
+        correlationId: message.correlationId,
+        causationId:
+          native.causationId === message.causationId
+            ? message.causationId
+            : key(native.causationId),
+        trace: { traceId: message.traceId, spanId: key(native.eventId) },
+        durationMs: native.elapsedMs,
+        outcome:
+          native.stage === "failed"
+            ? "failure"
+            : native.stage === "cancelled"
+              ? "cancelled"
+              : "success",
+        attributes: sanitizeTelemetryAttributes({
+          connectionId: state.connectionId,
+          producerId: state.producer?.producerId,
+          instanceId: state.producer?.instanceId,
+          connectionEpoch: message.connectionEpoch,
+          jobId: message.jobId,
+          passId: message.passId,
+          ...native,
+        }),
+      });
+    }
   }
 
   #finishListenerControl(
@@ -983,11 +1030,14 @@ export class SignalIngressServer implements ListenerService {
         );
         return;
       }
-      if (message.correlationId !== owner.correlationId) {
+      if (
+        message.correlationId !== owner.correlationId ||
+        message.causationId !== owner.causationId
+      ) {
         await this.#fail(
           state,
           "route-rejected",
-          "Listener result correlation mismatch",
+          "Listener result correlation or causation mismatch",
           true,
           message.requestId,
         );

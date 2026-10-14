@@ -4,6 +4,10 @@ import {
   listenerNativeStatusSchema,
   listeningCanonicalDevicePathSchema,
   listeningCanonicalTrackPathSchema,
+  nativeArmProofSchema,
+  nativeCaptureProofSchema,
+  nativeLaunchProofSchema,
+  nativeListenerLifecycleSchema,
 } from "@ableton-agent/protocol";
 import type { OutputProducer } from "./contracts.js";
 
@@ -92,8 +96,13 @@ export const listenerReplySchema = z
     sequence: safeSequence,
     status: z.enum(["ready", "armed", "cancelled", "failed"]),
     reason: z.string().min(1).max(512).optional(),
+    nativeArm: nativeArmProofSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) => value.nativeArm === undefined || value.status === "armed",
+    "Native arm evidence belongs only to an armed reply",
+  );
 export type ListenerReply = z.infer<typeof listenerReplySchema>;
 
 export const listenerResultSchema = z
@@ -104,11 +113,26 @@ export const listenerResultSchema = z
     status: z.enum(["progress", "completed", "partial", "failed"]),
     observation: audioObservationSchema.optional(),
     reason: z.string().min(1).max(512).optional(),
+    nativeLaunch: nativeLaunchProofSchema.optional(),
+    nativeCapture: nativeCaptureProofSchema.optional(),
+    nativeLifecycle: nativeListenerLifecycleSchema.optional(),
   })
   .strict()
   .refine(
     (value) => value.status !== "completed" || value.observation !== undefined,
     "Completed results require an observation",
+  )
+  .refine(
+    (value) =>
+      (value.nativeLaunch === undefined &&
+        value.nativeLifecycle === undefined) ||
+      value.status === "progress",
+    "Native launch and lifecycle events require progress results",
+  )
+  .refine(
+    (value) =>
+      value.nativeCapture === undefined || value.status === "completed",
+    "Native capture evidence requires a completed result",
   );
 export type ListenerResult = z.infer<typeof listenerResultSchema>;
 /**

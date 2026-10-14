@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { producerHelloSchema } from "./ingress-contracts.js";
-import { listenerRegistrationSchema } from "./listener-contracts.js";
+import {
+  listenerRegistrationSchema,
+  listenerReplySchema,
+  listenerResultSchema,
+} from "./listener-contracts.js";
+import { createSyntheticNativeListeningFixture } from "@ableton-agent/protocol/testing";
 
 const legacy = {
   version: 1,
@@ -21,6 +26,62 @@ const native = {
   },
 };
 describe("native listener registration carrier", () => {
+  it("carries bounded per-pass evidence only on the matching reply/result stage", () => {
+    const { proof, observation } = createSyntheticNativeListeningFixture();
+    const wire = {
+      protocolVersion: 1,
+      listenerVersion: 1,
+      requestId: "request",
+      connectionEpoch: "connection",
+      jobId: "job",
+      passId: "pass",
+      traceId: "trace",
+      correlationId: "correlation",
+      causationId: "cause",
+      sequence: 0,
+    };
+    const armed = {
+      ...wire,
+      type: "listener.reply",
+      status: "armed",
+      nativeArm: proof.armed,
+    };
+    expect(listenerReplySchema.parse(armed).nativeArm).toEqual(proof.armed);
+    expect(
+      listenerReplySchema.safeParse({ ...armed, status: "ready" }).success,
+    ).toBe(false);
+    const launched = {
+      ...wire,
+      type: "listener.result",
+      status: "progress",
+      nativeLaunch: proof.launched,
+    };
+    expect(listenerResultSchema.parse(launched).nativeLaunch).toEqual(
+      proof.launched,
+    );
+    expect(
+      listenerResultSchema.safeParse({
+        ...launched,
+        status: "completed",
+        observation,
+      }).success,
+    ).toBe(false);
+    const completed = {
+      ...wire,
+      type: "listener.result",
+      status: "completed",
+      observation,
+      nativeCapture: proof,
+    };
+    expect(listenerResultSchema.parse(completed).nativeCapture).toEqual(proof);
+    expect(
+      listenerResultSchema.safeParse({ ...completed, status: "progress" })
+        .success,
+    ).toBe(false);
+    expect(
+      listenerResultSchema.safeParse({ ...completed, rawAudio: [1] }).success,
+    ).toBe(false);
+  });
   it("accepts actual producer.hello.listener fields and preserves legacy absence without invented readiness", () => {
     expect(listenerRegistrationSchema.parse(native).nativeStatus).toEqual(
       native.nativeStatus,

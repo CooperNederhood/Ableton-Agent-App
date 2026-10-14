@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import {
   audioObservationSchema,
+  assertNativeCaptureObservation,
+  nativeLaunchCoordinates,
+  NATIVE_LISTENER_SCOPE,
   type AudioObservation,
+  type NativeArmProof,
+  type NativeLaunchProof,
 } from "@ableton-agent/protocol";
 import {
   sanitizePersistedText,
@@ -82,6 +87,8 @@ interface SelectedListener {
   readonly buffered: ListenerResult[];
   progressSeen: boolean;
   observation?: AudioObservation;
+  nativeArm?: NativeArmProof;
+  nativeLaunch?: NativeLaunchProof;
 }
 
 function error(value: unknown, code: string): ListeningCaptureError {
@@ -140,6 +147,8 @@ function sameInstance(
     current.registration.algorithmVersion ===
       selected.registration.algorithmVersion &&
     current.registration.sampleRate === selected.registration.sampleRate &&
+    current.registration.nativeStatus?.scope ===
+      selected.registration.nativeStatus?.scope &&
     current.binding.trackId === selected.binding.trackId &&
     current.binding.deviceId === selected.binding.deviceId
   );
@@ -214,6 +223,22 @@ class Capture implements PreparedListeningCapture {
       outputProducerSchema.parse(descriptor.producer);
       assertNativeReadiness(descriptor.registration);
       listenerRegistrationSchema.parse(descriptor.registration);
+      if (
+        descriptor.registration.nativeStatus?.scope === NATIVE_LISTENER_SCOPE
+      ) {
+        const source = this.#config.source;
+        if (
+          source.mode !== "arrangement" ||
+          source.startBeat !== 0 ||
+          source.endBeat > 20 ||
+          !Number.isInteger(source.endBeat * 5) ||
+          this.#config.durationMs < Math.round(source.endBeat * 5) * 100 ||
+          this.#config.durationMs > 10000 ||
+          this.#config.maxWindows < source.endBeat * 5 ||
+          descriptor.registration.sampleRate !== 48000
+        )
+          throw new ListeningCaptureError("unsupported-native-capture-scope");
+      }
       if (
         !descriptor.connectionId ||
         descriptor.connectionId.length > 128 ||
@@ -380,6 +405,16 @@ class Capture implements PreparedListeningCapture {
     )
       throw new ListeningCaptureError("unexpected-control-reply");
     item.sequence = reply.sequence;
+    if (status === "armed") {
+      const native =
+        item.descriptor.registration.nativeStatus?.scope ===
+        NATIVE_LISTENER_SCOPE;
+      if (native !== (reply.nativeArm !== undefined))
+        throw new ListeningCaptureError("native-arm-proof-required");
+      if (reply.nativeArm !== undefined) {
+        item.nativeArm = reply.nativeArm;
+      }
+    }
     return reply;
   }
 
@@ -441,6 +476,7 @@ class Capture implements PreparedListeningCapture {
   #receive = (event: ListenerResultEvent): void => {
     if (this.#failure || this.#finished) return;
     try {
+      this.#verifyInstances();
       const item = this.#selected.find(
         (candidate) => candidate.descriptor.connectionId === event.connectionId,
       );
@@ -506,6 +542,36 @@ class Capture implements PreparedListeningCapture {
         result.reason ?? result.status,
       );
     }
+    const native =
+      item.descriptor.registration.nativeStatus?.scope ===
+      NATIVE_LISTENER_SCOPE;
+    if (
+      !native &&
+      (result.nativeLaunch !== undefined ||
+        result.nativeCapture !== undefined ||
+        result.nativeLifecycle !== undefined)
+    )
+      throw new ListeningCaptureError("unexpected-native-evidence");
+    if (result.nativeLaunch !== undefined) {
+      if (item.nativeArm === undefined || item.nativeLaunch !== undefined)
+        throw new ListeningCaptureError("unexpected-native-launch");
+      nativeLaunchCoordinates(item.nativeArm, result.nativeLaunch);
+      item.nativeLaunch = result.nativeLaunch;
+    }
+    if (native && result.observation !== undefined) {
+      if (item.nativeLaunch === undefined)
+        throw new ListeningCaptureError("native-launch-proof-required");
+      if (result.status === "completed") {
+        const proof = result.nativeCapture;
+        if (
+          proof === undefined ||
+          JSON.stringify(proof.armed) !== JSON.stringify(item.nativeArm) ||
+          JSON.stringify(proof.launched) !== JSON.stringify(item.nativeLaunch)
+        )
+          throw new ListeningCaptureError("native-capture-proof-mismatch");
+        assertNativeCaptureObservation(proof, result.observation);
+      }
+    }
     if (result.observation !== undefined)
       this.#observation(
         item,
@@ -513,7 +579,7 @@ class Capture implements PreparedListeningCapture {
         result.status === "completed",
       );
     if (result.status === "progress") {
-      if (!item.progressSeen) {
+      if (!item.progressSeen && (!native || item.nativeLaunch !== undefined)) {
         item.progressSeen = true;
         this.#progress("capturing");
       }
@@ -752,10 +818,20 @@ export async function prepareListenerCapture(
         name: `listening.capture.${stage}`,
         source: "listening-capture",
         outcome: "failure",
+        ...(input.trace?.correlationId === undefined
+          ? {}
+          : { correlationId: input.trace.correlationId }),
+        ...(input.trace?.causationId === undefined
+          ? {}
+          : { causationId: input.trace.causationId }),
         ...(trace === undefined ? {} : { trace }),
         attributes: sanitizeTelemetryAttributes({
           code: failure.code,
           detail: failure.message,
+          passId: input.passId,
+          listenerCount: Array.isArray(input.listeners)
+            ? input.listeners.length
+            : 0,
         }),
       });
     throw failure;

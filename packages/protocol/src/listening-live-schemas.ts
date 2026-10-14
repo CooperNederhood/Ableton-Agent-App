@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { NATIVE_LISTENER_SCOPE } from "./native-listening-schemas.js";
 import {
   workflowClipTargetSchema,
   workflowDeviceTargetSchema,
@@ -66,6 +67,7 @@ export const listenerNativeStatusSchema = z
     version: z.literal(1),
     timing: z.enum(["UNVERIFIED", "VERIFIED"]),
     readiness: z.enum(["BLOCKED", "READY"]),
+    scope: z.literal(NATIVE_LISTENER_SCOPE).optional(),
     reason: z.string().min(1).max(128).optional(),
   })
   .strict()

@@ -418,7 +418,62 @@ test("native holds are value-based while FFT grid changes fail even inside the l
     sample: next.sample + 64,
     beat: (next.sample + 64 - origin) / 24000,
   });
+
   assert.equal(f.engine.ingest(next, owner), false);
   assert.equal(f.events.at(-1).reason, "native_descriptor_coordinates");
   assert.deepEqual(f.analysis.at(-1), [false, true]);
+});
+
+test("native lifecycle IDs remain unique across repeated owner IDs and retain their causal chain", () => {
+  const ids = new Set();
+  for (let repeat = 0; repeat < 2; repeat++) {
+    const f = fixture();
+    f.start();
+    f.engine.cancel(owner);
+    let cause = context.causationId;
+    for (const event of f.events.filter(
+      (item) => item.type === "native-capture-stage",
+    )) {
+      assert.match(
+        event.eventId,
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+      assert.equal(ids.has(event.eventId), false);
+      assert.equal(event.causationId, cause);
+      ids.add(event.eventId);
+      cause = event.eventId;
+    }
+  }
+});
+
+test("all 32 post brackets must follow descriptor coverage, not merely the last read", () => {
+  const f = fixture();
+  f.start();
+  for (let i = 1; i <= 20; i++) f.ingest(i);
+  const endCounter = evidence.nativeOrigin[2] + 96000;
+  const frames = Array.from({ length: 32 }, (_, index) => {
+    const counter = endCounter - 30 * 64 + index * 64;
+    const sample = counter + evidence.before.clockOffsetSamples;
+    const beat = (counter - evidence.nativeOrigin[2]) / 24000;
+    return [
+      1,
+      beat,
+      sample,
+      31,
+      counter,
+      beat % 1,
+      counter,
+      1,
+      beat,
+      sample,
+      31,
+    ];
+  });
+  const last = frames.at(-1);
+  f.host({ playing: true, sample: last[2], beat: last[1] });
+  assert.throws(
+    () => f.engine.confirmNativeHost({ dsp: [1, 48000, 64], frames }, owner),
+    /post_binding/,
+  );
+  f.engine.cancel(owner);
 });

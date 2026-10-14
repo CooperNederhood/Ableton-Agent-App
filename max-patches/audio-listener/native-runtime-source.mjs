@@ -83,9 +83,14 @@ export function nativeRuntimeDocuments({ resourceDirectory = null } = {}) {
   add(clock, "nativeMessages", "out 1", 1, 0);
   add(clock, "nativeControl", "route poll", 1, 2);
   add(clock, "nativeTempo", "prepend tempo");
+  add(clock, "nativePhase", "pong~ 1 0. 1.", 3);
   clock.patcher.lines = clock.patcher.lines.filter(
     ({ patchline }) =>
-      !(patchline.source[0] === "collector" && patchline.source[1] === 1),
+      !(patchline.source[0] === "collector" && patchline.source[1] === 1) &&
+      !(
+        patchline.source[0] === "phase" &&
+        patchline.destination[0] === "channels"
+      ),
   );
   for (const { patchline } of clock.patcher.lines) {
     if (patchline.source[0] === "gate" && patchline.source[1] === 2)
@@ -101,6 +106,8 @@ export function nativeRuntimeDocuments({ resourceDirectory = null } = {}) {
     wire("gate", 3, "clockHot"),
     wire("host", 5, "nativeTempo"),
     wire("nativeTempo", 0, "collector"),
+    wire("phase", 0, "nativePhase"),
+    wire("nativePhase", 0, "channels", 1),
   );
 
   const fft = taggedSpectrumDocument({ resourceDirectory });

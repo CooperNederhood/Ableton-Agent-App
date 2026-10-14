@@ -528,9 +528,13 @@ checkpoint above. The production timing gate is unchanged.
   per-pass stopped brackets, native DSP/FFT information and tagged FFT baseline.
   Reject stale/moving/torn/sparse measurements, certificate substitution,
   changed ACK binding and first-frame FFT-grid drift; retain immutable evidence.
-- [ ] Gather that fresh preflight immediately before actual native arm in the
-  Node/Max controller. Wire-prepare eligibility is not native reset proof;
-  actual code/ABI observation and real delivery acceptance remain required.
+- [x] Gather fresh preflight immediately before actual native arm in the
+  bounded Node/Max controller. Keep wire-prepare eligibility separate from
+  reset proof, require all executed ABI markers and enforce reset deadlines.
+  Bound known pre-arm epoch snapshots without accepting them as acknowledgement;
+  deny unknown/future and post-ACK changes. Preserve synchronous reply ordering.
+- [x] Regress Node16.6 compatibility without `Object.hasOwn`; reproduce the
+  original first-metadata failure and verify the fix under Max's exact binary.
 - [x] Generate an inactive native message graph with three actual DSP ABI
   outlets and an ES5 generation-fenced IO helper, preserving existing graphs
   and math. Bound/deduplicate metadata without dropping descriptor changes.
@@ -541,6 +545,20 @@ checkpoint above. The production timing gate is unchanged.
 - [ ] Connect the actual native graph to the Node controller and existing
   authenticated listener channel. ABI-only playing/inactive data does not
   satisfy stopped preflight, full capture or App publication acceptance.
+- [x] Compose the actual controller/engine/assembler with N4M and native graph;
+  observe genuine reset ACK and launch, then independently validate their
+  origin in the App protocol without claiming authenticated wire acceptance.
+- [x] Wrap periodic host phase at signal rate before snapshot, protecting
+  integer-beat floating overshoot without delaying counters or weakening
+  validators. Preserve all original Gen/envelope/FFT bytes and timing bounds.
+- [x] Recover at most 64 torn active/postcheck acquisitions without using their
+  coordinates or refreshing host age. Bound pending envelopes to eight packets
+  awaiting fresh coherent covering host/FFT; never interpolate or widen bounds.
+- [x] Complete a real 20-window/96000-sample/20-FFT pass with 32 coherent
+  before/post brackets, independently accepted by actual App schemas and
+  capture assertion. Preserve source hashes, trace ancestry, four failed trials,
+  corruption guards and exact cleanup. Recorded proof cannot authorize a fresh
+  capture; authenticated channel/context publication remain open.
 - [x] Skip an exact same-position Arrangement seek after arm, retaining all
   guards, position readback and revision revalidation when no seek occurred.
   Distinguish pre-mutation denial/errors from indeterminate attempted starts;

@@ -87,6 +87,18 @@ test("candidate native graphs preserve every existing default graph and native m
   );
 });
 
+test("native host phase is signal-rate wrapped before strict clock validation without delaying the counter", () => {
+  const clock = nativeRuntimeDocuments()["audio_listener_native_clock.maxpat"];
+  assert.equal(boxes(clock).get("nativePhase")?.text, "pong~ 1 0. 1.");
+  assert(connected(clock, "phase", 0, "nativePhase"));
+  assert(connected(clock, "nativePhase", 0, "channels", 1));
+  assert.equal(connected(clock, "phase", 0, "channels", 1), false);
+  assert(connected(clock, "clock", 1, "channels", 0));
+  assert(connected(clock, "clock", 1, "channels", 2));
+  assert(connected(clock, "clock", 1, "clockOutput"));
+  assert.equal(boxes(clock).get("snapshot").text, "mc.snapshot~ @offset 0");
+});
+
 test("native graphs have unique valid cables, request-gated polling and compiled ABI reads", () => {
   const documents = nativeRuntimeDocuments();
   for (const [name, document] of Object.entries(documents)) {

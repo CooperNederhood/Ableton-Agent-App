@@ -1228,6 +1228,76 @@ native code or constitute real delivery acceptance. The default host-mode
 shipping denial, blocked registration and production commissioning gate are
 unchanged; the native controller/graph must still supply actual measurements.
 
+### Inactive native controller
+
+`NativeCaptureController` composes the actual signal engine and bounded native
+assembler. `prepare` only validates/freezes eligibility with a bounded
+reservation; `arm` gathers fresh generation-owned DSP/FFT/ABI metadata,
+32 stopped brackets and a complete recent FFT immediately before engine
+preparation/reset. Preflight has a 2000 ms deadline and reset acknowledgement
+1000 ms. Cached recordings and constructor certificates cannot authorize it.
+
+The controller learns the prior native epoch rather than reusing an epoch after
+a Node restart. During reset waiting, at most 64 snapshots of that explicitly
+observed prior epoch may be discarded under the acknowledgement deadline.
+They cannot resolve arm or publish progress. Unknown/future epochs, invalid
+target-epoch reset fields and post-ACK epoch changes still fail closed.
+The synchronous `onArmed` callback must confirm actual reply publication before
+buffered native lifecycle/progress is released. A promise or queued scheduler
+source request is not that confirmation.
+
+Actual native launch plus a fresh coherent playing clock establishes origin;
+source-control return and ordinary playing state alone cannot. Exact descriptor
+coverage and 32 coherent post brackets remain prerequisites for completion.
+Cancel/reset/disconnect fence the owned generation, reject pending work and
+disable only owned polling/analysis, never transport. Queued/started/progress/
+terminal stages retain bounded timing and trace/correlation/causation IDs.
+Natural 480000-sample Gen completion may have `active: 0`; that is not permission
+to complete without coverage/postcheck or to accept arbitrary inactivity.
+
+Max's bundled Node is `v16.6.0`: `Object.hasOwn` is absent even though
+`Array.prototype.at` and `crypto.randomUUID` exist. The first actual metadata
+packet exposed this incompatibility. The controller uses the compatible
+`Object.prototype.hasOwnProperty.call` pattern; a missing-API regression and
+an execution under the exact bundled binary protect this boundary.
+
+The separate engineering N4M adapter records arm proof locally and starts the
+guarded calibration source only afterward. It does not exercise authenticated
+reply publication or activate the shipping runtime. Actual arm and launch from
+the phase-normalized pass independently parse and bind in the App protocol:
+origin counter `421888`, host offset `1905365588`, start sample `1905787476`.
+That attempt retained thirteen explicitly incomplete windows; missing
+completion proof was rejected. A torn active clock bracket advanced 64 host
+samples during acquisition. The controller now discards at most 64 torn
+active/postcheck reads without updating coordinates or host freshness.
+An eight-packet envelope queue waits for a fresh covering coherent host and
+complete FFT. Neither mechanism interpolates or widens timing uncertainty.
+
+The next actual pass completed the requested beats 0-4 in 2825 ms. The App's
+actual `nativeCaptureProofSchema`, `audioObservationSchema` and
+`assertNativeCaptureObservation` independently accepted all 20 canonical
+windows, 20 FFT records, 96000 samples and 32 coherent brackets before and
+after capture. Native origin `381440` plus host offset `1957279316` equals
+start sample `1957660756`. Stereo peak was `[0.5, 0.5]`, RMS was
+`[-12.159430090285273, -12.159430090285273]` dBFS and weighted centroid
+`453.29712384376825` Hz. These are actual processed measurements, not a
+replayed or synthetic hardware pass.
+
+`fixtures/native-controller-capture.json` preserves the bounded complete
+proof, numeric packets, traced lifecycle, executed-source hashes and four
+honest failed attempts. Its regression independently rejects missing windows,
+shifted origin, torn postchecks and altered FFT data. It checks executable
+source identity while normalizing only the staging-directory prefix; matching
+path length preserves generated box geometry. All five trials removed six
+temporary roots, exited their owned Node process and restored the exact
+130-box/150-cable graph, Automation Arm 1 and running transport without
+recording/export, save or promotion.
+
+This validates only the recorded scoped pass, not cached readiness. The
+engineering adapter still recorded its arm reply locally: authenticated wire
+delivery, real tool/context publication and resume retrieval remain open.
+The installed Live 11.3.43 is not separate qualification of supported 11.3.42.
+
 ### Executed native message graph
 
 The unactivated `native-runtime-source.mjs` candidate derives separate clock,
@@ -1271,6 +1341,17 @@ matched its fresh baseline exactly. Existing Live/Desktop/Max processes and
 Set were preserved, with no audio recording/export, AMXD save or promotion.
 The candidate still retains the engineering quiet-before-arm and at-most-eight
 source-onset guards. It is not arbitrary-music or production acceptance.
+
+Actual native capture exposed `plugphasor~` output
+`1.000000000000003` at an integer-beat boundary. The candidate clock now uses
+signal-rate `pong~ 1 0. 1.` wrapping before its phase snapshot. This represents
+the periodic signal within its declared range; it does not shift samples,
+delay the counter, change Gen/envelope/FFT math or widen validation/timing
+uncertainty. Raw invalid clock packets still fail. The graph regression failed
+before the correction; the next actual pass crossed that boundary and retained
+13 windows before the independent torn-read failure described above. With
+bounded torn-read recovery, the following pass completed all 20 requested
+windows and the independent App postcheck.
 
 Actual stopped generation `18bde6bc-b6f9-4a66-a26f-83569a59868a` then
 delivered 84 clock and 85 envelope/spectrum packets in 905 ms, every ABI 1,

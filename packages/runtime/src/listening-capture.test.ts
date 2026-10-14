@@ -244,14 +244,15 @@ afterEach(() => {
 });
 
 describe("per-pass native proof admission", () => {
-  function nativeService() {
-    const service = new FakeService(["a"]);
-    service.listeners[0]!.registration.nativeStatus = {
-      version: 1,
-      timing: "VERIFIED",
-      readiness: "READY",
-      scope: NATIVE_LISTENER_SCOPE,
-    };
+  function nativeService(ids = ["a"]) {
+    const service = new FakeService(ids);
+    for (const listener of service.listeners)
+      listener.registration.nativeStatus = {
+        version: 1,
+        timing: "VERIFIED",
+        readiness: "READY",
+        scope: NATIVE_LISTENER_SCOPE,
+      };
     const fixture = createSyntheticNativeListeningFixture({
       listenerId: "producer-a",
     });
@@ -276,6 +277,8 @@ describe("per-pass native proof admission", () => {
       ...captureInput,
       onProgress: (event) => progress.push(event.stage),
     });
+    const launched = vi.fn();
+    void capture.nativeLaunch?.then(launched);
     service.emit("connection-a", {
       status: "progress",
       observation: undefined,
@@ -289,6 +292,8 @@ describe("per-pass native proof admission", () => {
       },
     });
     expect(progress).not.toContain("capturing");
+    await Promise.resolve();
+    expect(launched).not.toHaveBeenCalled();
     service.emit("connection-a", {
       status: "progress",
       observation: undefined,
@@ -299,6 +304,8 @@ describe("per-pass native proof admission", () => {
       observation: undefined,
       nativeLaunch: fixture.proof.launched,
     });
+    await expect(capture.nativeLaunch).resolves.toBeUndefined();
+    expect(launched).toHaveBeenCalledOnce();
     service.emit("connection-a", {
       observation: fixture.observation,
       nativeCapture: fixture.proof,
@@ -323,8 +330,120 @@ describe("per-pass native proof admission", () => {
       return { ...reply, nativeArm: fixture.proof.armed };
     };
     const capture = await prepareListenerCapture(service, captureInput);
+    await expect(capture.nativeLaunch).resolves.toBeUndefined();
     await expect(capture.result).resolves.toEqual([fixture.observation]);
     expect(service.subscribers.size).toBe(0);
+  });
+
+  it.each(["cancel", "timeout", "disconnect", "invalid-launch"] as const)(
+    "rejects the pending native onset receipt on %s and releases the owned capture",
+    async (failure) => {
+      vi.useFakeTimers();
+      const { service, fixture, captureInput } = nativeService();
+      const abort = new AbortController();
+      const events: TelemetryEventEnvelope[] = [];
+      const capture = await prepareListenerCapture(service, {
+        ...captureInput,
+        signal: abort.signal,
+        telemetry: {
+          enqueue: (event) => {
+            events.push(event);
+            return true;
+          },
+        },
+      });
+      const onset = expect(capture.nativeLaunch).rejects.toThrow(
+        failure === "cancel"
+          ? "cancelled"
+          : failure === "timeout"
+            ? "capture-timeout"
+            : failure === "disconnect"
+              ? /cancellation could not be confirmed/
+              : /native/,
+      );
+      const result = expect(capture.result).rejects.toThrow();
+      if (failure === "cancel") abort.abort();
+      else if (failure === "timeout") await vi.advanceTimersByTimeAsync(1000);
+      else if (failure === "disconnect") {
+        service.listeners[0]!.registration.connectionEpoch = "new-epoch";
+        await vi.advanceTimersByTimeAsync(100);
+      } else {
+        service.emit("connection-a", {
+          status: "progress",
+          observation: undefined,
+          nativeLaunch: { ...fixture.proof.launched, nativeEpoch: 2 },
+        });
+      }
+      await onset;
+      await result;
+      if (failure === "disconnect")
+        await expect(capture.nativeLaunch).rejects.toMatchObject({
+          errors: [
+            expect.objectContaining({
+              code: "listener-disconnected-or-epoch-changed",
+            }),
+            expect.objectContaining({ code: "cannot-cancel-stale-instance" }),
+          ],
+        });
+      expect(service.subscribers.size).toBe(0);
+      const lifecycle = events.filter(
+        (event) => event.attributes?.action === "native-onset",
+      );
+
+      expect(lifecycle.map((event) => event.name)).toEqual([
+        "listening.capture.queued",
+        "listening.capture.started",
+        failure === "cancel"
+          ? "listening.capture.cancelled"
+          : "listening.capture.failed",
+      ]);
+      expect(
+        lifecycle.every(
+          (event) =>
+            event.trace?.traceId === trace.traceId &&
+            event.correlationId === trace.correlationId &&
+            event.causationId === trace.causationId &&
+            Number.isFinite(event.durationMs),
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it("waits for every scoped listener, not the first proof or an unrelated legacy progress event", async () => {
+    const { service, fixture, captureInput } = nativeService(["a", "b", "c"]);
+    delete service.listeners[2]!.registration.nativeStatus;
+    const hook = service.hook!;
+    service.hook = (id, control, reply) =>
+      id === "connection-c" ? reply : hook(id, control, reply);
+    const capture = await prepareListenerCapture(service, {
+      ...captureInput,
+      listeners: service.inspectListeners(),
+    });
+    const launched = vi.fn();
+    void capture.nativeLaunch?.then(launched);
+    service.emit("connection-c", {
+      status: "progress",
+      observation: undefined,
+    });
+    service.emit("connection-a", {
+      status: "progress",
+      observation: undefined,
+      nativeLaunch: fixture.proof.launched,
+    });
+    await Promise.resolve();
+    expect(launched).not.toHaveBeenCalled();
+    service.emit("connection-b", {
+      status: "progress",
+      observation: undefined,
+      nativeLaunch: fixture.proof.launched,
+    });
+    await expect(capture.nativeLaunch).resolves.toBeUndefined();
+    expect(launched).toHaveBeenCalledOnce();
+    await capture.disarm();
+    expect(service.subscribers.size).toBe(0);
+    expect(
+      service.calls.filter((call) => call.input.action === "cancel"),
+    ).toHaveLength(3);
   });
 
   it("cancels a scoped launched pass once and releases all subscriptions", async () => {

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { currentCorrelationContext } from "@ableton-agent/correlation";
+import { NATIVE_LISTENER_SCOPE } from "@ableton-agent/protocol";
 import type {
   AudioObservation,
   InspectListeningContextParams,
@@ -9,9 +10,10 @@ import type {
   ListenerDescriptor,
   ListenerService,
 } from "@ableton-agent/signal-routing";
-import type {
-  ListeningExecutionContext,
-  ListeningJob,
+import {
+  listeningLimits,
+  type ListeningExecutionContext,
+  type ListeningJob,
 } from "@ableton-agent/application";
 import type { ListeningRuntimeDependencies } from "./composition.js";
 import {
@@ -180,7 +182,11 @@ function observation(
   };
 }
 
-function fixture(count = 1) {
+function fixture(
+  count = 1,
+  nativeLaunch?: Promise<void>,
+  sourceOnset: "measured" | "unverified" = "measured",
+) {
   const log: string[] = [];
   const inventory = Array.from({ length: count }, (_, index) =>
     descriptor(index),
@@ -272,7 +278,13 @@ function fixture(count = 1) {
         expect(_service).toBe(service);
         log.push("prepare");
         prepared = input;
-        return { jobId: uuid(100), passId: input.passId, result, disarm };
+        return {
+          jobId: uuid(100),
+          passId: input.passId,
+          result,
+          disarm,
+          ...(nativeLaunch ? { nativeLaunch } : {}),
+        };
       },
     ),
     start: vi.fn<ListeningRuntimeTestAdapter["start"]>(async (params) => {
@@ -284,7 +296,7 @@ function fixture(count = 1) {
       );
       return {
         cleanupPolicy: "leave-running",
-        sourceOnset: "measured",
+        sourceOnset,
         startedAtBeat: params.range.startBeat,
         release,
       };
@@ -568,6 +580,208 @@ describe("same-runtime production listening factory", () => {
     const result = await run(f.host());
     expect(result.stage).toBe("failed");
     expect(result.error).toContain("source_onset_unverified");
+    expect(f.release).toHaveBeenCalledOnce();
+    expect(f.disarm).toHaveBeenCalledOnce();
+    expect(f.releaseReservation).toHaveBeenCalledOnce();
+    expect(f.appendPass).not.toHaveBeenCalled();
+  });
+
+  it("awaits validated native onset rather than upgrading an unverified bridge acknowledgement", async () => {
+    let launch!: () => void;
+    const nativeLaunch = new Promise<void>((resolve) => {
+      launch = resolve;
+    });
+    const f = fixture(1, nativeLaunch, "unverified");
+    Object.assign(f.inventory[0]!.registration.nativeStatus!, {
+      scope: NATIVE_LISTENER_SCOPE,
+    });
+    const pending = run(f.host());
+    await vi.waitFor(() => expect(f.adapter.start).toHaveBeenCalledOnce());
+    expect(f.appendPass).not.toHaveBeenCalled();
+    expect(f.release).not.toHaveBeenCalled();
+    launch();
+    expect((await pending).stage).toBe("completed");
+    expect(f.appendPass).toHaveBeenCalledOnce();
+    expect(f.release).toHaveBeenCalledOnce();
+    const lifecycle = f.events.filter(
+      (event) =>
+        typeof event === "object" &&
+        event !== null &&
+        "name" in event &&
+        String(event.name).startsWith("listening.runtime.native-onset."),
+    );
+
+    expect(lifecycle).toMatchObject([
+      {
+        name: "listening.runtime.native-onset.queued",
+        sessionId: "session",
+        trace: { traceId: context.trace.traceId },
+      },
+      { name: "listening.runtime.native-onset.started" },
+      { name: "listening.runtime.native-onset.completed", outcome: "success" },
+    ]);
+  });
+
+  it.each(["missing", "mixed"] as const)(
+    "denies unverified playback for a %s native receipt cohort",
+    async (cohort) => {
+      const f = fixture(
+        cohort === "mixed" ? 2 : 1,
+        cohort === "mixed" ? Promise.resolve() : undefined,
+        "unverified",
+      );
+      Object.assign(f.inventory[0]!.registration.nativeStatus!, {
+        scope: NATIVE_LISTENER_SCOPE,
+      });
+      const result = await run(f.host(), {
+        ...request,
+        listenerIds: f.inventory.map((item) => item.producer.producerId),
+      });
+      expect(result.stage).toBe("failed");
+      expect(result.error).toContain("source_onset_unverified");
+      expect(f.release).toHaveBeenCalledOnce();
+      expect(f.disarm).toHaveBeenCalledOnce();
+      expect(f.appendPass).not.toHaveBeenCalled();
+    },
+  );
+
+  it("native-onset rejection releases only the playback monitor and preserves failure without publication", async () => {
+    let rejectLaunch!: (reason: Error) => void;
+    const nativeLaunch = new Promise<void>((_resolve, reject) => {
+      rejectLaunch = reject;
+    });
+    const f = fixture(1, nativeLaunch, "unverified");
+    Object.assign(f.inventory[0]!.registration.nativeStatus!, {
+      scope: NATIVE_LISTENER_SCOPE,
+    });
+    const pending = run(f.host());
+    await vi.waitFor(() => expect(f.adapter.start).toHaveBeenCalledOnce());
+    rejectLaunch(new Error("native binding failed token=super-secret-value"));
+    const result = await pending;
+    expect(result.stage).toBe("failed");
+    expect(result.error).toContain("native binding failed");
+    expect(JSON.stringify([result, f.events])).not.toContain(
+      "super-secret-value",
+    );
+    expect(f.release).toHaveBeenCalledOnce();
+    expect(f.disarm).toHaveBeenCalledOnce();
+    expect(f.releaseReservation).toHaveBeenCalledOnce();
+    expect(f.appendPass).not.toHaveBeenCalled();
+  });
+
+  it.each(["legacy-promise", "measured-without-native-proof"] as const)(
+    "cannot bypass onset proof with %s",
+    async (claim) => {
+      const f = fixture(
+        1,
+        claim === "legacy-promise" ? Promise.resolve() : undefined,
+        claim === "legacy-promise" ? "unverified" : "measured",
+      );
+      if (claim !== "legacy-promise")
+        Object.assign(f.inventory[0]!.registration.nativeStatus!, {
+          scope: NATIVE_LISTENER_SCOPE,
+        });
+      const result = await run(f.host());
+      expect(result.stage).toBe("failed");
+      expect(result.error).toContain("source_onset_unverified");
+      expect(f.release).toHaveBeenCalledOnce();
+      expect(f.disarm).toHaveBeenCalledOnce();
+      expect(f.appendPass).not.toHaveBeenCalled();
+    },
+  );
+
+  it("surfaces failed monitor cleanup after native onset denial without retrying or publishing", async () => {
+    let rejectLaunch!: (reason: Error) => void;
+    const f = fixture(
+      1,
+      new Promise<void>((_resolve, reject) => {
+        rejectLaunch = reject;
+      }),
+      "unverified",
+    );
+    Object.assign(f.inventory[0]!.registration.nativeStatus!, {
+      scope: NATIVE_LISTENER_SCOPE,
+    });
+    f.release.mockRejectedValue(
+      new Error("monitor release failed token=super-secret-value"),
+    );
+    const pending = run(f.host());
+    await vi.waitFor(() => expect(f.adapter.start).toHaveBeenCalledOnce());
+    rejectLaunch(new Error("native binding rejected"));
+    const result = await pending;
+    expect(result.stage).toBe("failed");
+    expect(result.error).toContain(
+      "Native onset failed and playback monitor release failed",
+    );
+    expect(JSON.stringify([result, f.events])).not.toContain(
+      "super-secret-value",
+    );
+    expect(f.release).toHaveBeenCalledOnce();
+    expect(f.disarm).toHaveBeenCalledOnce();
+    expect(f.releaseReservation).toHaveBeenCalledOnce();
+    expect(f.appendPass).not.toHaveBeenCalled();
+  });
+
+  it("bounds hung monitor release after onset denial independently of the caller's cancellation", async () => {
+    const timeout = AbortSignal.timeout.bind(AbortSignal);
+    const deadline = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementationOnce((milliseconds) => {
+        expect(milliseconds).toBe(listeningLimits.cleanupTimeoutMs);
+        return timeout(20);
+      });
+    try {
+      const f = fixture();
+      Object.assign(f.inventory[0]!.registration.nativeStatus!, {
+        scope: NATIVE_LISTENER_SCOPE,
+      });
+      f.release.mockImplementation(() => new Promise<void>(() => {}));
+      const result = await run(f.host());
+      expect(result.stage).toBe("failed");
+      expect(result.error).toContain("playback monitor release failed");
+      expect(deadline).toHaveBeenCalledOnce();
+      expect(f.release).toHaveBeenCalledOnce();
+      expect(f.disarm).toHaveBeenCalledOnce();
+      expect(f.releaseReservation).toHaveBeenCalledOnce();
+      expect(f.appendPass).not.toHaveBeenCalled();
+    } finally {
+      deadline.mockRestore();
+    }
+  });
+
+  it("cancels while waiting for native onset and ignores a late receipt without stopping transport", async () => {
+    let launch!: () => void;
+    const f = fixture(
+      1,
+      new Promise<void>((resolve) => {
+        launch = resolve;
+      }),
+      "unverified",
+    );
+    Object.assign(f.inventory[0]!.registration.nativeStatus!, {
+      scope: NATIVE_LISTENER_SCOPE,
+    });
+    const host = f.host();
+    const started = await host.executeListeningOperation(request, context);
+    if (!("job" in started)) throw new Error("Missing job");
+    await vi.waitFor(() =>
+      expect(f.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "listening.runtime.native-onset.started",
+          }),
+        ]),
+      ),
+    );
+    const cancelled = await host.executeListeningOperation(
+      { action: "cancel", passId: started.job.passId },
+      context,
+    );
+    expect("job" in cancelled && cancelled.job.stage).toBe("cancelled");
+    await vi.waitFor(() => expect(f.release).toHaveBeenCalledOnce());
+    launch();
+    await Promise.resolve();
+    await Promise.resolve();
     expect(f.release).toHaveBeenCalledOnce();
     expect(f.disarm).toHaveBeenCalledOnce();
     expect(f.releaseReservation).toHaveBeenCalledOnce();

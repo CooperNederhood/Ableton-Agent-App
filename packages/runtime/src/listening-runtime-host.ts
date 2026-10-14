@@ -25,6 +25,7 @@ import {
 } from "@ableton-agent/observability";
 import {
   audioObservationSchema,
+  NATIVE_LISTENER_SCOPE,
   inspectListeningContextResultSchema,
   type InspectListeningContextResult,
   type StartListeningPlaybackParams,
@@ -81,6 +82,7 @@ interface CaptureState {
   startedAt?: string;
   endedAt?: string;
   captureFailure?: string;
+  nativeLaunch?: Promise<void>;
 }
 
 interface PlaybackResult {
@@ -655,6 +657,9 @@ function assemble(
                 : "Listener capture failed",
             ).slice(0, 512);
           });
+          if (capture.nativeLaunch !== undefined)
+            cached.nativeLaunch = capture.nativeLaunch;
+          else delete cached.nativeLaunch;
           return {
             observations: capture.result,
             disarm: () => capture.disarm(),
@@ -693,12 +698,38 @@ function assemble(
             },
             input.signal,
           );
-          if (
-            playback.sourceOnset !== "measured" ||
-            playback.startedAtBeat !== cached.request.startBeat
-          ) {
-            await playback.release();
-            deny("source_onset_unverified");
+          try {
+            const scoped = (descriptor: ListenerDescriptor) =>
+              descriptor.registration.nativeStatus?.scope ===
+              NATIVE_LISTENER_SCOPE;
+            const nativeLaunch = cached.nativeLaunch;
+            if (
+              playback.startedAtBeat !== cached.request.startBeat ||
+              (cached.descriptors.some(scoped) && nativeLaunch === undefined) ||
+              (playback.sourceOnset !== "measured" &&
+                (!cached.descriptors.every(scoped) ||
+                  nativeLaunch === undefined))
+            )
+              deny("source_onset_unverified");
+            if (cached.descriptors.some(scoped) && nativeLaunch !== undefined)
+              await stage(
+                "native-onset",
+                execution(input, input.signal),
+                () => nativeLaunch,
+              );
+          } catch (cause) {
+            try {
+              await awaitListeningBoundary(
+                playback.release(),
+                AbortSignal.timeout(listeningLimits.cleanupTimeoutMs),
+              );
+            } catch (cleanupCause) {
+              throw new AggregateError(
+                [cause, cleanupCause],
+                "Native onset failed and playback monitor release failed",
+              );
+            }
+            throw cause;
           }
           cached.startedAt = new Date().toISOString();
           return {

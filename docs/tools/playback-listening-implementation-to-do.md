@@ -516,6 +516,14 @@ checkpoint above. The production timing gate is unchanged.
   fitted corrections or claiming an unproven Live fade. Retain processed
   source/code-bound evidence, global-handler/request-gated-poll regressions,
   exact graph restoration and leave-running cleanup.
+- [x] Expose an abortable pass-owned native-onset receipt resolved only after
+  all scoped proofs validate and all arm replies arrive. Await it after an
+  unverified scheduler start only for an entirely native scoped cohort; deny
+  missing proofs, legacy promises and mixed-cohort upgrades.
+- [x] Regress buffered ordering, multiple listeners, no-onset arm/progress,
+  invalid proof, capture timeout, cancellation, changed epochs, late receipt,
+  failed bounded monitor cleanup, redaction and traced lifecycle timing.
+  Preserve shipping commissioning denial; actual native delivery remains open.
 - [ ] Verify the broader native source/host matrix, production reset and
   cancellation/disconnect behavior; the single offset fixture is not a certificate.
 - [ ] Prove real agent playback-and-listen publishes correct atomic context

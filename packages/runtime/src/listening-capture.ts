@@ -62,6 +62,8 @@ export interface PreparedListeningCapture {
   readonly jobId: string;
   readonly passId: string;
   readonly result: Promise<readonly AudioObservation[]>;
+  /** Present for scoped native listeners; resolves only after every scoped launch proof validates. */
+  readonly nativeLaunch?: Promise<void>;
   /** Idempotent confirmed cancellation; rejects if any exact instance cannot be disarmed. */
   disarm(): Promise<void>;
 }
@@ -170,6 +172,7 @@ class Capture implements PreparedListeningCapture {
   readonly jobId = randomUUID();
   readonly passId: string;
   readonly result: Promise<readonly AudioObservation[]>;
+  readonly nativeLaunch?: Promise<void>;
   readonly #selected: SelectedListener[];
   readonly #startedAt = Date.now();
   readonly #config: NonNullable<ListenerControlInput["config"]>;
@@ -181,6 +184,9 @@ class Capture implements PreparedListeningCapture {
   #rejectGate!: (reason: Error) => void;
   #resolveResult!: (observations: readonly AudioObservation[]) => void;
   #rejectResult!: (reason: Error) => void;
+  #resolveNativeLaunch: (() => void) | undefined;
+  #rejectNativeLaunch: ((reason: Error) => void) | undefined;
+  #nativeLaunched = false;
   #unsubscribe: (() => void) | undefined;
   #poll: ReturnType<typeof setInterval> | undefined;
   #deadline: ReturnType<typeof setTimeout> | undefined;
@@ -274,6 +280,19 @@ class Capture implements PreparedListeningCapture {
       this.#resolveResult = resolve;
       this.#rejectResult = reject;
     });
+    if (
+      this.#selected.some(
+        (item) =>
+          item.descriptor.registration.nativeStatus?.scope ===
+          NATIVE_LISTENER_SCOPE,
+      )
+    ) {
+      this.nativeLaunch = new Promise<void>((resolve, reject) => {
+        this.#resolveNativeLaunch = resolve;
+        this.#rejectNativeLaunch = reject;
+      });
+      void this.nativeLaunch.catch(() => {});
+    }
     this.#failureGate = new Promise<never>((_resolve, reject) => {
       this.#rejectGate = reject;
     });
@@ -583,12 +602,33 @@ class Capture implements PreparedListeningCapture {
         item.progressSeen = true;
         this.#progress("capturing");
       }
+      if (result.nativeLaunch !== undefined)
+        this.#event("progress", "native-onset");
+      this.#confirmNativeLaunch();
       return;
     }
     item.observation = result.observation!;
     item.terminal = true;
     this.#progress("capturing");
     this.#complete();
+  }
+
+  #confirmNativeLaunch(): void {
+    if (
+      !this.nativeLaunch ||
+      this.#nativeLaunched ||
+      !this.#allArmed ||
+      this.#failure ||
+      this.#selected.some(
+        (item) =>
+          item.descriptor.registration.nativeStatus?.scope ===
+            NATIVE_LISTENER_SCOPE && item.nativeLaunch === undefined,
+      )
+    )
+      return;
+    this.#nativeLaunched = true;
+    this.#event("completed", "native-onset");
+    this.#resolveNativeLaunch?.();
   }
 
   #observation(
@@ -743,6 +783,16 @@ class Capture implements PreparedListeningCapture {
         );
       }
       this.#finished = true;
+      if (this.nativeLaunch && !this.#nativeLaunched) {
+        this.#event(
+          cause instanceof ListeningCaptureError && cause.code === "cancelled"
+            ? "cancelled"
+            : "failed",
+          "native-onset",
+          cause.message,
+        );
+        this.#rejectNativeLaunch?.(this.#failure);
+      }
       this.#event(
         cause instanceof ListeningCaptureError && cause.code === "cancelled"
           ? "cancelled"
@@ -759,6 +809,10 @@ class Capture implements PreparedListeningCapture {
   async prepare(): Promise<void> {
     this.#event("queued");
     this.#event("started");
+    if (this.nativeLaunch) {
+      this.#event("queued", "native-onset");
+      this.#event("started", "native-onset");
+    }
     try {
       if (this.input.signal.aborted)
         throw new ListeningCaptureError("cancelled");
@@ -781,6 +835,7 @@ class Capture implements PreparedListeningCapture {
       if (this.#failure) throw this.#failure;
       this.#verifyInstances();
       this.#allArmed = true;
+      this.#confirmNativeLaunch();
       this.#deadline = setTimeout(() => {
         void this.#fail(new ListeningCaptureError("capture-timeout"));
       }, this.#resultTimeout);

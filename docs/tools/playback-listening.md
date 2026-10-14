@@ -1158,3 +1158,33 @@ and the full 130-box/150-cable graph matched the pre-experiment baseline exactly
 Source markers stayed zero, Arrangement clip 14 read stopped, Master read 0.85
 without modification and Song read running. Existing Set/Live/Desktop/Max
 processes and User Library device were preserved.
+
+### Asynchronous native onset receipt
+
+A scoped capture exposes an internal `nativeLaunch` promise. It resolves only
+after every selected scoped listener's launch proof passes the independent
+App validator and all arm replies have been admitted. Arm/progress telemetry,
+legacy progress, a first listener's proof, and the bridge's scheduler start
+acknowledgement cannot resolve it. Buffered proof arriving after the wire arm
+reply but before its promise continuation is handled identically.
+
+The runtime retains that receipt with its exact pass. An honestly `unverified`
+bridge acknowledgement may proceed only for an entirely scoped native cohort
+and only after the receipt resolves. Mixed/legacy cohorts cannot acquire this
+authority from a promise or producer READY metadata. Scoped listeners also
+require the receipt when a test adapter claims a measured start. Exact start
+beat checking remains mandatory.
+
+The existing bounded capture deadline, cancellation, disconnect/epoch and
+invalid-proof paths reject an unresolved receipt. Waiting is abortable; failed
+or cancelled onset releases only the playback monitor, with a separate bounded
+cleanup deadline, and never stops transport. Late receipts cannot publish or
+release a second time. Failed cleanup is explicit rather than a successful
+capture. Capture `native-onset` actions and runtime `native-onset` stages retain
+queued/started/progress/terminal timing, redacted errors and caller trace IDs
+through the existing journal, with no new persisted store or upload surface.
+
+This is internal integration plumbing, not production activation. The shipping
+runtime's commissioning denial and native device's blocked status remain.
+Actual Node/Max launch delivery, capture publication and isolated Live/Desktop
+acceptance are still required.

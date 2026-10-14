@@ -161,6 +161,8 @@ function assertNativeReadiness(
 ): void {
   const status: unknown = Reflect.get(registration, "nativeStatus");
   if (typeof status !== "object" || status === null) return;
+  // Scope permits fresh per-pass validation, not a timing/readiness assertion.
+  if (Reflect.get(status, "scope") === NATIVE_LISTENER_SCOPE) return;
   if (
     Reflect.get(status, "timing") === "UNVERIFIED" ||
     Reflect.get(status, "readiness") === "BLOCKED"

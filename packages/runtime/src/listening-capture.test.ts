@@ -249,9 +249,10 @@ describe("per-pass native proof admission", () => {
     for (const listener of service.listeners)
       listener.registration.nativeStatus = {
         version: 1,
-        timing: "VERIFIED",
-        readiness: "READY",
+        timing: "UNVERIFIED",
+        readiness: "BLOCKED",
         scope: NATIVE_LISTENER_SCOPE,
+        reason: "native_per_pass_validation_required",
       };
     const fixture = createSyntheticNativeListeningFixture({
       listenerId: "producer-a",
@@ -312,6 +313,11 @@ describe("per-pass native proof admission", () => {
     });
     await expect(capture.result).resolves.toEqual([fixture.observation]);
     expect(service.subscribers.size).toBe(0);
+    expect(service.listeners[0]!.registration.nativeStatus).toMatchObject({
+      timing: "UNVERIFIED",
+      readiness: "BLOCKED",
+      scope: NATIVE_LISTENER_SCOPE,
+    });
   });
 
   it("consumes native results queued after the armed wire reply but before its promise resolves", async () => {

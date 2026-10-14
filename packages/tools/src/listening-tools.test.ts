@@ -48,7 +48,15 @@ describe("optional listening tool contracts", () => {
     expect(tool.description).toContain(
       "Session listening is unsupported until quantized source onset is verified",
     );
-    expect(tool.description).toContain("commissioned listener timing");
+    expect(tool.description).toContain("native_per_pass_validation_required");
+    expect(tool.description).toContain("even while ready=false");
+    expect(tool.description).toContain(
+      "genuine per-pass arm proof is required before playback",
+    );
+    expect(tool.description).toContain("complete coverage before publication");
+    expect(tool.description).toContain(
+      "Other uncommissioned listeners remain denied",
+    );
   });
 
   it("requires exact Session identity and defaults bounded capture", () => {

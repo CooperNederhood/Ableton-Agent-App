@@ -262,9 +262,11 @@ wait boundary; host shutdown runs before normal runtime teardown.
 Production Desktop now composes `createListeningRuntimeHost` alongside the
 canonical context manager when profile storage is configured. Invoking-owner
 and repository callbacks preserve exact session attribution. The fixed
-application-owned commissioning gate refuses capture before reservation,
+application-owned gate refuses legacy/unscoped capture before reservation,
 controls, playback, or publication; producer `READY` and synthetic adapter
-evidence do not unlock it.
+evidence do not unlock it. Only the exact native scope may attempt fresh
+per-pass validation as described below; scope metadata never establishes
+timing, source onset or publication authority.
 
 ## Production readiness
 
@@ -1043,8 +1045,10 @@ The next integration step extends the existing `listener.reply` and
 service or certificate loader. The opt-in native status scope is
 `arrangement-beat0-120bpm-48000hz-vector64/v1`; its presence is not proof of
 readiness. Legacy producers retain their existing wire behavior. The shipping
-runtime still reports `UNVERIFIED/BLOCKED` and its measured-readiness denial
-remains in place.
+default runtime still reports `UNVERIFIED/BLOCKED` without the opt-in scope
+and remains denied. A scoped candidate stays honestly unverified/blocked;
+the App allows only its bounded fresh validation attempt, never an upgrade
+from metadata to measured timing.
 
 An `armed` reply carries `nativeArm`: the exact epoch/reset acknowledgment,
 absolute arm counter and 32 coherent stopped PPQ-zero host/counter brackets.
@@ -1193,10 +1197,10 @@ capture. Capture `native-onset` actions and runtime `native-onset` stages retain
 queued/started/progress/terminal timing, redacted errors and caller trace IDs
 through the existing journal, with no new persisted store or upload surface.
 
-This is internal integration plumbing, not production activation. The shipping
-runtime's commissioning denial and native device's blocked status remain.
-Actual Node/Max launch delivery, capture publication and isolated Live/Desktop
-acceptance are still required.
+The default shipping device remains blocked and unscoped. Real Node/Max
+launch delivery has since passed the recorded native-controller milestone
+below; authenticated capture publication and isolated Live/Desktop acceptance
+remain required before a shipping-device promotion.
 
 ### Signal-mode measured preflight
 
@@ -1225,8 +1229,36 @@ wire prepare and let it expire while other listeners prepare.
 Recorded-coordinate composition now uses explicitly synthetic timely preflight
 measurements rather than certificate injection. This does not attest executed
 native code or constitute real delivery acceptance. The default host-mode
-shipping denial, blocked registration and production commissioning gate are
-unchanged; the native controller/graph must still supply actual measurements.
+shipping denial and blocked registration remain. The scoped App admission
+below does not replace the native controller/graph's actual measurements.
+
+### Narrow per-pass native admission
+
+The production App composition accepts only an entirely native cohort with
+scope `arrangement-beat0-120bpm-48000hz-vector64/v1` for a fresh validation
+attempt. Independent inspection must show stopped beat zero, 120 BPM, safe
+recording/source state and registered sample rate 48000. The range starts at
+zero, ends at most at beat 20 and lies on the 0.2-beat envelope grid.
+Unsupported rates, positions, tempo, ranges and mixed cohorts deny before
+reservation or controls. Vector 64, executed ABI, current metadata and timing
+are subsequently established by fresh native preflight/arm proof, not
+registration.
+
+Registration remains `UNVERIFIED/BLOCKED`; discovery still reports `ready: false`
+with `native_per_pass_validation_required`. This identifies eligibility to
+attempt preflight, not readiness or a certificate. All scoped listeners must
+return a valid matching `nativeArm` before guarded playback; native measured
+launch and complete coverage/FFT/postcheck proof remain mandatory before
+atomic publication. Legacy and unscoped producer `READY/VERIFIED` claims
+remain denied. No file, flag or injected certified adapter unlocks the
+production path.
+
+Deterministic production-composition tests use explicitly synthetic native
+geometry to exercise admission, missing-arm denial, unsupported scope,
+discovery, cleanup and invalid completion. They do not establish authenticated
+delivery or real tool/publication acceptance. The native runtime constructor
+and generated graph remain opt-in candidates; the default authored device is
+not promoted by this App-side integration.
 
 ### Inactive native controller
 

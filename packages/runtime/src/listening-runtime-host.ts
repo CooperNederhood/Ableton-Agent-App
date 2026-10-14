@@ -99,12 +99,15 @@ interface PlaybackResult {
  */
 export interface ListeningRuntimeTestAdapter {
   readonly provenance: "test-owned-certified-adapter";
-  assertMeasuredReadiness(input: {
-    readonly context: ListeningPassContext;
-    readonly listeners: readonly ListenerDescriptor[];
-    readonly inspection: InspectListeningContextResult;
-    readonly signal: AbortSignal;
-  }): Promise<void>;
+  assertMeasuredReadiness(
+    this: void,
+    input: {
+      readonly context: ListeningPassContext;
+      readonly listeners: readonly ListenerDescriptor[];
+      readonly inspection: InspectListeningContextResult;
+      readonly signal: AbortSignal;
+    },
+  ): Promise<void>;
   prepare: typeof prepareListenerCapture;
   start(
     this: void,
@@ -114,7 +117,7 @@ export interface ListeningRuntimeTestAdapter {
 }
 
 interface RuntimeAdapter {
-  assertMeasuredReadiness: ListeningRuntimeTestAdapter["assertMeasuredReadiness"];
+  assertReadiness: ListeningRuntimeTestAdapter["assertMeasuredReadiness"];
   prepare: typeof prepareListenerCapture;
   start: ListeningRuntimeTestAdapter["start"];
 }
@@ -503,10 +506,20 @@ function assemble(
       if (!resolution.ok) deny(resolution.reason);
       if (
         !discovery &&
+        connection.nativeStatus.scope !== NATIVE_LISTENER_SCOPE &&
         (connection.nativeStatus.timing !== "VERIFIED" ||
           connection.nativeStatus.readiness !== "READY")
       )
         deny("real_live_timing_validation_required");
+      if (
+        !discovery &&
+        connection.nativeStatus.scope === NATIVE_LISTENER_SCOPE &&
+        (range.startBeat !== 0 ||
+          range.endBeat <= 0 ||
+          range.endBeat > 20 ||
+          !Number.isInteger(range.endBeat * 5))
+      )
+        deny("unsupported_native_capture_scope");
       if (!discovery && previous === undefined && descriptor.phase !== "idle")
         deny("listener_not_idle");
     }
@@ -558,7 +571,7 @@ function assemble(
           previous,
         );
         captureDuration(request, snapshot.inspection);
-        await adapter.assertMeasuredReadiness({
+        await adapter.assertReadiness({
           context: pass,
           listeners: snapshot.descriptors,
           inspection: snapshot.inspection,
@@ -621,7 +634,7 @@ function assemble(
             input.owner,
             cached,
           );
-          await adapter.assertMeasuredReadiness({
+          await adapter.assertReadiness({
             context: input,
             listeners: snapshot.descriptors,
             inspection: snapshot.inspection,
@@ -834,7 +847,9 @@ function assemble(
           }
           // Producer self-report is never independent commissioning evidence.
           limitations.push(
-            "real_live_timing_validation_required",
+            candidate.nativeStatus.scope === NATIVE_LISTENER_SCOPE
+              ? "native_per_pass_validation_required"
+              : "real_live_timing_validation_required",
             "source_onset_unverified",
           );
           views.push({
@@ -919,14 +934,29 @@ function assemble(
   return ports;
 }
 
-/** Safe production composition: no commissioned onset/timing authority exists yet. */
+/** Only exact native scope may attempt fresh proof; metadata never certifies timing. */
 export function createListeningRuntimeHost(
   dependencies: ListeningRuntimeDependencies,
   options: ListeningRuntimeHostOptions,
 ): ConcreteListeningRuntimeHost {
   return assemble(dependencies, options, {
-    assertMeasuredReadiness: async () =>
-      deny("real_live_timing_validation_required"),
+    assertReadiness: async ({ listeners, inspection, signal }) => {
+      signal.throwIfAborted();
+      if (
+        listeners.length === 0 ||
+        listeners.some(
+          (listener) =>
+            listener.registration.nativeStatus?.scope !== NATIVE_LISTENER_SCOPE,
+        )
+      )
+        deny("real_live_timing_validation_required");
+      if (
+        inspection.transport.currentBeat !== 0 ||
+        inspection.transport.tempo !== 120 ||
+        listeners.some((listener) => listener.registration.sampleRate !== 48000)
+      )
+        deny("unsupported_native_preflight");
+    },
     prepare: prepareListenerCapture,
     start: async (params, signal) => {
       signal.throwIfAborted();
@@ -951,5 +981,8 @@ export function assembleListeningRuntimeHostForTests(
 ): ConcreteListeningRuntimeHost {
   if (adapter.provenance !== "test-owned-certified-adapter")
     deny("invalid_test_adapter");
-  return assemble(dependencies, options, adapter);
+  return assemble(dependencies, options, {
+    ...adapter,
+    assertReadiness: adapter.assertMeasuredReadiness,
+  });
 }

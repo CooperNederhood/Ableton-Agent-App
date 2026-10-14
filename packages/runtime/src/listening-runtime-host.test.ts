@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { currentCorrelationContext } from "@ableton-agent/correlation";
 import { NATIVE_LISTENER_SCOPE } from "@ableton-agent/protocol";
+import { createSyntheticNativeListeningFixture } from "@ableton-agent/protocol/testing";
 import type {
   AudioObservation,
   InspectListeningContextParams,
@@ -9,6 +10,9 @@ import type {
 import type {
   ListenerDescriptor,
   ListenerService,
+  ListenerControlInput,
+  ListenerResult,
+  ListenerResultEvent,
 } from "@ableton-agent/signal-routing";
 import {
   listeningLimits,
@@ -222,15 +226,21 @@ function fixture(
       return inspection(input);
     },
   );
-  const startListeningPlayback = vi.fn(async () => {
+  const startListeningPlayback = vi.fn<
+    NonNullable<
+      ListeningRuntimeDependencies["ableton"]["startListeningPlayback"]
+    >
+  >(async () => {
     throw new Error("Production playback must stay gated");
   });
   const service = {
     inspectListeners: () => inventory,
-    requestListenerControl: vi.fn(async () => {
-      throw new Error("Unexpected raw control");
-    }),
-    onListenerResult: vi.fn(() => {
+    requestListenerControl: vi.fn<ListenerService["requestListenerControl"]>(
+      async () => {
+        throw new Error("Unexpected raw control");
+      },
+    ),
+    onListenerResult: vi.fn<ListenerService["onListenerResult"]>(() => {
       throw new Error("Unexpected raw subscription");
     }),
   } satisfies ListenerService;
@@ -334,6 +344,117 @@ function fixture(
   };
 }
 
+function nativeProductionFixture(armProof = true) {
+  const f = fixture();
+  const listener = f.inventory[0]!;
+  const data = createSyntheticNativeListeningFixture({
+    listenerId: listener.producer.producerId,
+  });
+  Object.assign(listener.registration, {
+    algorithmVersion: data.observation.algorithm.version,
+    nativeStatus: {
+      version: 1,
+      timing: "UNVERIFIED",
+      readiness: "BLOCKED",
+      reason: "native_per_pass_validation_required",
+      scope: NATIVE_LISTENER_SCOPE,
+    },
+  });
+  const subscribers = new Set<(event: ListenerResultEvent) => void>();
+  let sequence = 0;
+  let armed: ListenerControlInput | undefined;
+  f.service.onListenerResult.mockImplementation((callback) => {
+    subscribers.add(callback);
+    return () => {
+      subscribers.delete(callback);
+    };
+  });
+  f.service.requestListenerControl.mockImplementation(async (_id, control) => {
+    if (control.action === "arm") armed = control;
+    Object.assign(listener, {
+      phase:
+        control.action === "prepare"
+          ? "ready"
+          : control.action === "arm"
+            ? "armed"
+            : "idle",
+    });
+    if (control.action === "cancel") {
+      Reflect.deleteProperty(listener, "jobId");
+      Reflect.deleteProperty(listener, "passId");
+    } else {
+      Object.assign(listener, { jobId: control.jobId, passId: control.passId });
+    }
+    return {
+      type: "listener.reply",
+      protocolVersion: 1,
+      listenerVersion: 1,
+      requestId: `synthetic-control-${sequence}`,
+      sequence: sequence++,
+      connectionEpoch: listener.registration.connectionEpoch,
+      jobId: control.jobId,
+      passId: control.passId,
+      traceId: control.traceId,
+      correlationId: control.correlationId,
+      causationId: control.causationId,
+      status:
+        control.action === "prepare"
+          ? "ready"
+          : control.action === "arm"
+            ? "armed"
+            : "cancelled",
+      ...(control.action === "arm" && armProof
+        ? { nativeArm: data.proof.armed }
+        : {}),
+    };
+  });
+  f.startListeningPlayback.mockImplementation(async () => {
+    const control = armed;
+    if (!control) throw new Error("Synthetic source requested before arm");
+    const publish = (patch: Partial<ListenerResult>) => {
+      const result: ListenerResult = {
+        type: "listener.result",
+        protocolVersion: 1,
+        listenerVersion: 1,
+        requestId: `synthetic-result-${sequence}`,
+        sequence: sequence++,
+        connectionEpoch: listener.registration.connectionEpoch,
+        jobId: control.jobId,
+        passId: control.passId,
+        traceId: control.traceId,
+        correlationId: control.correlationId,
+        causationId: control.causationId,
+        status: "progress",
+        ...patch,
+      };
+      for (const callback of subscribers)
+        callback({
+          connectionId: listener.connectionId,
+          producer: listener.producer,
+          binding: listener.binding,
+          result,
+        });
+    };
+    publish({ nativeLaunch: data.proof.launched });
+    publish({
+      status: "completed",
+      observation: { ...data.observation, passId: control.passId },
+      nativeCapture: data.proof,
+    });
+    Object.assign(listener, { phase: "idle" });
+    Reflect.deleteProperty(listener, "jobId");
+    Reflect.deleteProperty(listener, "passId");
+    return {
+      schemaVersion: 1,
+      mode: "arrangement",
+      cleanupPolicy: "leave-running",
+      startedAtBeat: 0,
+      sourceOnset: "unverified",
+    };
+  });
+  return { ...f, subscribers, data };
+}
+
 async function run(
   host: ConcreteListeningRuntimeHost,
   input = request,
@@ -349,6 +470,113 @@ async function run(
 }
 
 describe("same-runtime production listening factory", () => {
+  it("exact native scope admits only fresh per-pass proof, without promoting registration readiness", async () => {
+    const f = nativeProductionFixture();
+    const result = await run(f.host(true));
+    expect(result.stage, result.error).toBe("completed");
+    expect(f.startListeningPlayback).toHaveBeenCalledOnce();
+    expect(f.publications).toHaveLength(1);
+    expect(f.subscribers.size).toBe(0);
+    expect(f.inventory[0]!.registration.nativeStatus).toMatchObject({
+      timing: "UNVERIFIED",
+      readiness: "BLOCKED",
+      scope: NATIVE_LISTENER_SCOPE,
+    });
+  });
+
+  it("scope metadata alone cannot start playback without genuine armed proof", async () => {
+    const f = nativeProductionFixture(false);
+    const result = await run(f.host(true));
+    expect(result.stage).toBe("failed");
+    expect(result.error).toContain("native-arm-proof-required");
+    expect(f.startListeningPlayback).not.toHaveBeenCalled();
+    expect(f.publications).toEqual([]);
+    expect(f.subscribers.size).toBe(0);
+  });
+
+  it("invalid native completion after source start cannot publish and releases its reservation", async () => {
+    const f = nativeProductionFixture();
+    f.data.proof.after.frames[0]![9] += 64;
+    const result = await run(f.host(true));
+    expect(result.stage).toBe("failed");
+    expect(f.startListeningPlayback).toHaveBeenCalledOnce();
+    expect(f.publications).toEqual([]);
+    expect(f.releaseReservation).toHaveBeenCalledOnce();
+    expect(f.subscribers.size).toBe(0);
+  });
+
+  it.each([
+    "sample-rate",
+    "range-start",
+    "range-end",
+    "window-grid",
+    "mixed",
+  ] as const)(
+    "denies unsupported native %s before reservation or controls",
+    async (failure) => {
+      const f = nativeProductionFixture();
+      let selected = request;
+      if (failure === "sample-rate")
+        Object.assign(f.inventory[0]!.registration, { sampleRate: 96000 });
+      if (failure === "range-start") selected = { ...request, startBeat: 1 };
+      if (failure === "range-end") selected = { ...request, endBeat: 20.2 };
+      if (failure === "window-grid") selected = { ...request, endBeat: 0.3 };
+      if (failure === "mixed") {
+        f.inventory.push(descriptor(1));
+        selected = { ...request, listenerIds: ["listener-0", "listener-1"] };
+      }
+      const result = await run(f.host(true), selected);
+      expect(result.stage).toBe("failed");
+      expect(f.reservePass).not.toHaveBeenCalled();
+      expect(f.service.requestListenerControl).not.toHaveBeenCalled();
+      expect(f.startListeningPlayback).not.toHaveBeenCalled();
+      expect(f.publications).toEqual([]);
+    },
+  );
+
+  it("discovery exposes native preflight eligibility without claiming ready timing", async () => {
+    const f = nativeProductionFixture();
+    const result = await f
+      .host(true)
+      .executeListeningOperation({ action: "inspect-listeners" }, context);
+    expect(result).toMatchObject({
+      action: "inspect-listeners",
+      listeners: [
+        {
+          ready: false,
+          limitations: [
+            "native_per_pass_validation_required",
+            "source_onset_unverified",
+          ],
+        },
+      ],
+    });
+    expect(f.service.requestListenerControl).not.toHaveBeenCalled();
+    expect(f.startListeningPlayback).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { field: "tempo" as const, value: 121 },
+    { field: "currentBeat" as const, value: 1 },
+  ])(
+    "denies unsupported native preflight $field before reservation",
+    async ({ field, value }) => {
+      const f = nativeProductionFixture();
+      f.inspectListeningContext.mockImplementation(async (input) => {
+        const snapshot = inspection(input);
+        return {
+          ...snapshot,
+          transport: { ...snapshot.transport, [field]: value },
+        };
+      });
+      const result = await run(f.host(true));
+      expect(result.stage).toBe("failed");
+      expect(f.reservePass).not.toHaveBeenCalled();
+      expect(f.service.requestListenerControl).not.toHaveBeenCalled();
+      expect(f.startListeningPlayback).not.toHaveBeenCalled();
+    },
+  );
+
   it("production self-reported READY/VERIFIED is not commissioned evidence and dispatches nothing", async () => {
     const f = fixture();
     const result = await run(f.host(true));

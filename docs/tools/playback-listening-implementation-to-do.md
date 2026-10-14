@@ -73,7 +73,8 @@ not the only durable evidence.
 - Preserve recording/transport guards, readiness-before-playback, bounded
   failure/cancellation/cleanup and `leave-running`; capture cancellation is
   not permission to stop or rewind transport.
-- Preserve the production timing denial. Producer self-reporting, a generic
+- Preserve legacy/unscoped production timing denial and require fresh scoped
+  native arm/launch/completion proof. Producer self-reporting, a generic
   certificate file, assistant prose and screenshots cannot certify native audio.
 - Preserve atomic bounded publication/reservation, canonical profile ownership,
   immutable provenance, honest mixed/unknown attribution and explicit freshness.
@@ -559,6 +560,14 @@ checkpoint above. The production timing gate is unchanged.
   capture assertion. Preserve source hashes, trace ancestry, four failed trials,
   corruption guards and exact cleanup. Recorded proof cannot authorize a fresh
   capture; authenticated channel/context publication remain open.
+- [x] Admit only a fixed-scope native cohort to fresh App-side validation without
+  falsely upgrading `UNVERIFIED/BLOCKED` registration or `ready: false` discovery.
+  Deny unsupported tempo/position/rate/range and mixed cohorts before reservation.
+  Require armed proof before source start and measured launch/full proof before
+  publication; preserve legacy/unscoped denial and traced cleanup.
+- [x] Extend deterministic native admission and production composition coverage
+  to honest blocked status, missing arm, invalid completion, unsupported scope,
+  discovery and unchanged readiness. Synthetic tests are not real SDK acceptance.
 - [x] Skip an exact same-position Arrangement seek after arm, retaining all
   guards, position readback and revision revalidation when no seek occurred.
   Distinguish pre-mutation denial/errors from indeterminate attempted starts;

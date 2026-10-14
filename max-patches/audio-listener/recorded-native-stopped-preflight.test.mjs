@@ -8,6 +8,7 @@ import { nativeRuntimeDocuments } from "./native-runtime-source.mjs";
 
 const require = createRequire(import.meta.url);
 const evidence = require("./fixtures/native-stopped-preflight.json");
+const markerStart = require("./fixtures/native-marker-start.json");
 const {
   nativeHostBinding,
   nativePreflightTiming,
@@ -126,4 +127,51 @@ test("stopped IO retained control uncertainty and restored graph, automation arm
   assert.equal(evidence.cleanup.automationArmRestored, 1);
   assert.equal(evidence.cleanup.audioRecordedOrExported, false);
   assert.equal(evidence.cleanup.deviceSavedOrPromoted, false);
+});
+
+test("actual marker-zero start follows the requested region without certifying native onset or Python", () => {
+  assert.equal(markerStart.schema, "live-marker-start-commissioning/v1");
+  assert.equal(markerStart.method, "Song.start_playing");
+  assert.equal(markerStart.productionReady, false);
+  assert.equal(markerStart.nativeTiming, "UNVERIFIED");
+  assert.ok(markerStart.states[0].currentBeat > 12000);
+  assert.ok(
+    markerStart.states.some(
+      (state) =>
+        state.playing === 0 &&
+        state.currentBeat === 0 &&
+        state.insertMarkerBeat === 0,
+    ),
+  );
+  const running = markerStart.states.find(
+    (state) => state.at > markerStart.requestAt && state.playing === 1,
+  );
+  assert.equal(running.currentBeat, 12.866375);
+  assert.ok(running.currentBeat < 100);
+  for (const state of markerStart.states) {
+    assert.equal(state.insertMarkerBeat, 0);
+    assert.equal(state.tempoBpm, 120);
+    assert.equal(state.loop, 0);
+    assert.equal(state.backToArrangement, 0);
+    assert.deepEqual(state.recording, [0, 0, 0]);
+    assert.deepEqual(
+      state.sessionSources,
+      Array.from({ length: 4 }, () => [-1, -1]),
+    );
+  }
+  assert.deepEqual(markerStart.limits, {
+    nativeLaunchObserved: false,
+    capturePublished: false,
+    pythonBackendQualified: false,
+    markerChanged: false,
+    requestedPositionMayCertifyOnset: false,
+  });
+  assert.equal(markerStart.states.at(-1).automationArm, 1);
+  assert.equal(markerStart.cleanup.temporaryRootObjectsRemoved, 1);
+  assert.equal(markerStart.cleanup.exactGraphRestored, true);
+  assert.deepEqual(markerStart.cleanup.before, markerStart.cleanup.after);
+  assert.equal(markerStart.cleanup.transportLeftRunning, true);
+  assert.equal(markerStart.cleanup.automationArmRestored, 1);
+  assert.equal(markerStart.cleanup.audioRecordedOrExported, false);
+  assert.equal(markerStart.cleanup.deviceSavedOrPromoted, false);
 });

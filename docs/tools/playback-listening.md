@@ -1292,6 +1292,15 @@ or treating a requested position as audio onset. Max LiveAPI also did not expose
 Track `back_to_arranger`; this does not establish Python API availability or
 permit dropping the production guards.
 
+The separate marker-zero probe confirmed `start_time: 0` without changing
+the insert marker. Max `start_playing` then yielded running beat `12.866375`
+6.460 seconds after the request, rather than resuming the old stop above
+beat 13931. This supports the documented marker-start distinction, not exact
+native launch timing or Python backend acceptance. Its one helper was removed,
+the complete graph matched exactly and Automation Arm was restored/read back.
+`fixtures/native-marker-start.json` retains the bounded state trajectory.
+Native arm/launch and a freshly installed Python path still require acceptance.
+
 All six owned roots were removed and the exact 130-box/150-cable baseline was
 restored. Automation Arm was explicitly changed from 1 to 0 for the guarded
 calibration experiment, then restored to 1 and independently read back.

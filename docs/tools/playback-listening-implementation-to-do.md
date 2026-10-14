@@ -555,6 +555,10 @@ checkpoint above. The production timing gate is unchanged.
   Verify the insert-marker start path and actual native launch before changing
   the backend or calling the requested beat measured onset. Max LiveAPI Track
   `back_to_arranger` absence does not establish Python API availability.
+- [x] Contrast actual marker-zero Max `start_playing` with the prior continue
+  behavior: observed running beat12.866375 after6.460 seconds, not the old
+  stop above13931. Preserve unchanged marker, exact one-helper cleanup and
+  restored Automation Arm. This is not native launch or Python acceptance.
 - [ ] Verify the broader native source/host matrix, production reset and
   cancellation/disconnect behavior; the single offset fixture is not a certificate.
 - [ ] Prove real agent playback-and-listen publishes correct atomic context

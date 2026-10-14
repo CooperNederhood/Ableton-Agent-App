@@ -1,0 +1,156 @@
+{
+  "schema": "live-marker-start-commissioning/v1",
+  "calibrationOnly": true,
+  "productionReady": false,
+  "nativeTiming": "UNVERIFIED",
+  "hostVersion": "11.3.43",
+  "purpose": "Max LiveAPI marker-zero start trajectory only; not native arm, source-sample onset or Python-backend acceptance",
+  "method": "Song.start_playing",
+  "requestAt": "2026-10-14T11:18:13.464Z",
+  "states": [
+    {
+      "at": "2026-10-14T11:17:23.141Z",
+      "playing": 1,
+      "currentBeat": 13883.757041593824,
+      "insertMarkerBeat": 0,
+      "tempoBpm": 120,
+      "loop": 0,
+      "backToArrangement": 0,
+      "recording": [0, 0, 0],
+      "automationArm": 1,
+      "sessionSources": [
+        [-1, -1],
+        [-1, -1],
+        [-1, -1],
+        [-1, -1]
+      ]
+    },
+    {
+      "at": "2026-10-14T11:17:46.798Z",
+      "playing": 1,
+      "currentBeat": 13931.097041593823,
+      "insertMarkerBeat": 0,
+      "tempoBpm": 120,
+      "loop": 0,
+      "backToArrangement": 0,
+      "recording": [0, 0, 0],
+      "automationArm": 0,
+      "sessionSources": [
+        [-1, -1],
+        [-1, -1],
+        [-1, -1],
+        [-1, -1]
+      ]
+    },
+    {
+      "at": "2026-10-14T11:17:54.688Z",
+      "playing": 0,
+      "currentBeat": 13931.15733326049,
+      "insertMarkerBeat": 0,
+      "tempoBpm": 120,
+      "loop": 0,
+      "backToArrangement": 0,
+      "recording": [0, 0, 0],
+      "automationArm": 0,
+      "sessionSources": [
+        [-1, -1],
+        [-1, -1],
+        [-1, -1],
+        [-1, -1]
+      ]
+    },
+    {
+      "at": "2026-10-14T11:18:00.405Z",
+      "playing": 0,
+      "currentBeat": 0,
+      "insertMarkerBeat": 0,
+      "tempoBpm": 120,
+      "loop": 0,
+      "backToArrangement": 0,
+      "recording": [0, 0, 0],
+      "automationArm": 0,
+      "sessionSources": [
+        [-1, -1],
+        [-1, -1],
+        [-1, -1],
+        [-1, -1]
+      ]
+    },
+    {
+      "at": "2026-10-14T11:18:13.464Z",
+      "playing": 0,
+      "currentBeat": 0,
+      "insertMarkerBeat": 0,
+      "tempoBpm": 120,
+      "loop": 0,
+      "backToArrangement": 0,
+      "recording": [0, 0, 0],
+      "automationArm": 0,
+      "sessionSources": [
+        [-1, -1],
+        [-1, -1],
+        [-1, -1],
+        [-1, -1]
+      ]
+    },
+    {
+      "at": "2026-10-14T11:18:19.924Z",
+      "playing": 1,
+      "currentBeat": 12.866375,
+      "insertMarkerBeat": 0,
+      "tempoBpm": 120,
+      "loop": 0,
+      "backToArrangement": 0,
+      "recording": [0, 0, 0],
+      "automationArm": 0,
+      "sessionSources": [
+        [-1, -1],
+        [-1, -1],
+        [-1, -1],
+        [-1, -1]
+      ]
+    },
+    {
+      "at": "2026-10-14T11:19:28.507Z",
+      "playing": 1,
+      "currentBeat": 149.98637499999998,
+      "insertMarkerBeat": 0,
+      "tempoBpm": 120,
+      "loop": 0,
+      "backToArrangement": 0,
+      "recording": [0, 0, 0],
+      "automationArm": 1,
+      "sessionSources": [
+        [-1, -1],
+        [-1, -1],
+        [-1, -1],
+        [-1, -1]
+      ]
+    }
+  ],
+  "limits": {
+    "nativeLaunchObserved": false,
+    "capturePublished": false,
+    "pythonBackendQualified": false,
+    "markerChanged": false,
+    "requestedPositionMayCertifyOnset": false
+  },
+  "cleanup": {
+    "before": {
+      "boxes": 130,
+      "lines": 150
+    },
+    "after": {
+      "boxes": 130,
+      "lines": 150
+    },
+    "exactGraphRestored": true,
+    "temporaryRootObjectsRemoved": 1,
+    "transportLeftRunning": true,
+    "automationArmBefore": 1,
+    "automationArmDuring": 0,
+    "automationArmRestored": 1,
+    "audioRecordedOrExported": false,
+    "deviceSavedOrPromoted": false
+  }
+}

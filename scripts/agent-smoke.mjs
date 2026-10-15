@@ -157,7 +157,7 @@ try {
           { mode: 0o600 },
         );
         if (result.ok) await controller.gracefulStop();
-        else await controller.discardAfterFailure();
+        else await controller.discardAfterFailure(20_000);
       } finally {
         // Process shutdown is separate from capture cleanup (which leaves
         // transport running). Never delete resources beneath a surviving Live.

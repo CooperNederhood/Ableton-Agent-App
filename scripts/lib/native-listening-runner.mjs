@@ -20,6 +20,7 @@ export async function loadNativeRunnerServices() {
     desktop,
     context,
     contracts,
+    credentials,
   ] = await Promise.all([
     import("../../packages/runtime/dist/index.js"),
     import("../../packages/application/dist/index.js"),
@@ -29,6 +30,7 @@ export async function loadNativeRunnerServices() {
     import("../../apps/desktop/dist/main/desktop-service.js"),
     import("../../apps/desktop/dist/main/desktop-session-context.js"),
     import("../../apps/desktop/dist/contracts.js"),
+    import("../../apps/desktop/dist/main/signal-credentials.js"),
   ]);
   return {
     ...runtime,
@@ -38,6 +40,7 @@ export async function loadNativeRunnerServices() {
     ...desktop,
     ...context,
     ...contracts,
+    ...credentials,
     protocol,
   };
 }
@@ -154,6 +157,7 @@ export async function createNativeListeningRunner({
   let unsubscribeApplication;
   let actorContext;
   let repository;
+  let removeSignalSecret;
   const jobs = new Map();
   const received = [];
   const binding = {
@@ -249,7 +253,12 @@ export async function createNativeListeningRunner({
           setHistory: journal,
           currentAppSessionId: () => owner.sessionId,
           currentLiveSetId: () => owner.liveSetId,
-          requestToolApproval: approvals.request,
+          requestToolApproval: (request) =>
+            approvals.request({
+              toolName: request.metadata.name,
+              risk: request.metadata.risk,
+              arguments: request.arguments,
+            }),
           askForReadApproval: true,
           listening: (dependencies) => {
             host = d.createListeningRuntimeHost(dependencies, {
@@ -283,8 +292,18 @@ export async function createNativeListeningRunner({
             };
           },
         });
+        removeSignalSecret = await lifecycle.stage("signal-credentials", () =>
+          d.publishSignalSecrets(environment.ABLETON_AGENT_TOKEN, {
+            canonical: {
+              directory: storage.credentialsDirectory,
+              secretPath: storage.signalIngressSecretPath,
+            },
+            telemetry,
+          }),
+        );
+        await lifecycle.stage("signal-start", () => runtime.signals.start());
         await lifecycle.stage("application-start", () =>
-          runtime.application.start({ startAgent: false }),
+          runtime.application.start({ startAgent: true }),
         );
         const deadline = Date.now() + manifest.timeoutMs;
         const boundedStage = (name, operation) =>
@@ -297,11 +316,20 @@ export async function createNativeListeningRunner({
             ),
           );
         await lifecycle.stage("native-preflight", async () => {
+          let lastObserved;
           while (Date.now() < deadline) {
             await validateOwnership();
             const status = await runtime.application.getStatus();
             const listeners =
               runtime.signals.listeners?.inspectListeners() ?? [];
+            lastObserved = {
+              state: status.state,
+              liveSetName: status.liveSetName,
+              saved: status.saved,
+              listenerPaths: listeners
+                .slice(0, 4)
+                .map((item) => item.registration.deviceCanonicalPath),
+            };
             const matches = listeners.filter(
               (item) =>
                 item.registration.deviceCanonicalPath === input.canonicalPath,
@@ -321,7 +349,7 @@ export async function createNativeListeningRunner({
           }
           assert(
             binding.listenerId !== undefined,
-            "Timed out waiting for exact copied native candidate",
+            `Timed out waiting for exact copied native candidate: ${JSON.stringify(lastObserved)}`,
           );
         });
         const listener = runtime.signals.listeners
@@ -380,8 +408,6 @@ export async function createNativeListeningRunner({
             "listening.inspect_listeners",
             "listening.play_arrangement_and_listen",
             "listening.get_pass",
-            "listening.list_passes",
-            "context.list",
             "context.get",
           ],
           editScope: ["session"],
@@ -520,10 +546,8 @@ export async function createNativeListeningRunner({
             actorContext.agentId === owner.agentId &&
             actorContext.actorKind !== "application" &&
             jobs.size === 1 &&
-            approvals.mutationCount === 1 &&
-            approvals.decisions.every((item) => item.approved) &&
-            actorToolCalls <= manifest.maxToolCalls,
-          "A real owned actor call, exact pass and reviewed tool budget are required",
+            approvals.mutationCount === 1,
+          "A real owned actor call and exactly one pass are required",
         );
         const passId = [...jobs.keys()][0];
         // The model may return during arming. Keep the real services alive through
@@ -534,6 +558,11 @@ export async function createNativeListeningRunner({
         assert(
           terminal.passId === passId && terminal.stage === "completed",
           `Listening terminal job did not complete (${terminal.stage})${terminal.error === undefined ? "" : `: ${terminal.error}`}`,
+        );
+        assert(
+          approvals.decisions.every((item) => item.approved) &&
+            actorToolCalls <= manifest.maxToolCalls,
+          "The actor exceeded the reviewed tool policy or budget",
         );
         const jobResult = await host.executeListeningOperation(
           { action: "get-pass", passId },
@@ -655,19 +684,35 @@ export async function createNativeListeningRunner({
       } finally {
         unsubscribeResult?.();
         unsubscribeApplication?.();
-        try {
-          await lifecycle.stage("application-shutdown", async () => {
-            await runtime?.application.stop();
-            await manager?.close();
-          });
-        } catch (error) {
-          result = {
-            ...result,
-            ok: false,
-            cleanupError: d
+        for (const [name, shutdown] of [
+          [
+            "application-shutdown",
+            async () => {
+              try {
+                await runtime?.application.stop();
+              } finally {
+                await manager?.close();
+              }
+            },
+          ],
+          ["signal-shutdown", async () => runtime?.signals.stop()],
+          ["credential-cleanup", async () => removeSignalSecret?.()],
+        ]) {
+          try {
+            await lifecycle.stage(name, shutdown);
+          } catch (error) {
+            const message = d
               .sanitizePersistedText(String(error?.message ?? error))
-              .slice(0, 2048),
-          };
+              .slice(0, 2048);
+            result = {
+              ...result,
+              ok: false,
+              cleanupError: [result?.cleanupError, message]
+                .filter(Boolean)
+                .join("; ")
+                .slice(0, 2048),
+            };
+          }
         }
       }
       return {

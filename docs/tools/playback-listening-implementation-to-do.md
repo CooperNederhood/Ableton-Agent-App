@@ -683,12 +683,30 @@ checkpoint above. The production timing gate is unchanged.
 - [ ] Add reviewed runner-native acceptance using explicit staged-candidate
   loading and production listening/context composition; the narrow hooks,
   reviewed manifest, exact terminal wait and independent verifier are
-  implemented with deterministic coverage. Real acceptance is pending a
-  separate candidate-only saved fixture with every WAV hash-pinned and a fresh
-  owned run. The original two-listener Set is rejected before launch; no
+  implemented with deterministic coverage. The user-approved separate
+  candidate-only fixture is saved, all WAVs pinned, copied native registration
+  and stopped preflight proven. Full real acceptance remains pending:
+  the first actual actor-driven cold capture failed its clock-continuity guard
+  after five windows, with no publication. The original two-listener Set is
+  still rejected before launch; no
   unsupported XML rewriting or dependency execution is used to bypass setup.
   Both formerly missing runner hooks are implemented. Do not silently
   install/promote or add fake/skipped proof.
+- [x] Correct runner signal-ingress lifecycle after the first actual
+  discovery-only timeout: start the existing service before application
+  startup and always attempt its shutdown, including partial startup and
+  failed application stop. Preserve bounded causal stage events and
+  failure/cancellation regressions. This does not qualify real capture.
+- [x] Reuse production credential publication/owned removal and agent-service
+  startup; adapt the production metadata-shaped approval request. Add failing
+  regressions for each actual runner bootstrap omission and preserve private
+  file permissions plus partial-start/application-stop cleanup.
+- [x] Preserve actual cold-runner arm/launch followed by clock-continuity denial:
+  five incomplete windows, no publication and no context-store reference.
+  Retain the separate denied actor context-ID request; no recovered-pass claim.
+- [ ] Capture the offending clock row and distinguish regression, excessive gap
+  or offset change before changing native timing behavior. Pinned native
+  controller/math/IO and existing guards remain unchanged.
 - [ ] Complete deterministic integration and visible Desktop acceptance.
 
 The measured host offset is `842480212`; arm counter `166446080` and local

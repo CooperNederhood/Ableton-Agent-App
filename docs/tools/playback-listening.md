@@ -1484,10 +1484,14 @@ path and track/device names. Staging copies the Set byte-for-byte and changes
 only the copied producer discovery configuration through the shared storage
 resolver. External Max devices, unpinned dependencies, symlinks, hash mismatch
 and promoted candidates fail before launch. Source files remain unchanged.
-The current two-listener calibration Set therefore needs a separate saved
-candidate-only fixture; the old listener cannot silently execute as an
-unprovisioned dependency. Copied-resource resolution remains unqualified until
-the real scenario runs.
+The former two-listener calibration Set required a separate saved candidate-only
+fixture; the old listener cannot silently execute as an unprovisioned dependency.
+With explicit user approval, `Machine-Listening-Native-Runner-Calibration.als`
+was copied and only its older listener removed through Live, then saved.
+The original one-listener and two-listener Sets retain their prior hashes.
+All three generated WAV dependencies are explicitly pinned. The staged fixture
+includes the standard empty `Ableton Project Info` directory for its
+project-relative references.
 
 ```bash
 pnpm build
@@ -1503,6 +1507,41 @@ startup modes. No device installation, process adoption, unsupported Set XML
 editing or fake/skipped acceptance is permitted. Application shutdown, owned
 Live shutdown and deletion of staged resources are separate from capture
 cleanup; resources are retained beneath a surviving process.
+
+The first fresh automated attempt staged the approved candidate-only Set and
+all pinned dependencies but timed out before listener discovery, with no actor
+calls or capture jobs. The harness had instantiated the signal runtime without
+starting its ingress endpoint. It now explicitly starts that production
+service before the application and always attempts signal shutdown, including
+partial startup or application-stop failure, with separate causal lifecycle
+events and deterministic regressions. No native timing or source guard changes
+are part of this correction. Real acceptance requires a fresh rerun.
+
+Further actual startup checks established that the native Node process runs
+from the copied candidate directory. The remaining discovery blocker was the
+missing private credential file, not evidence of an absolute-path fallback.
+The runner now reuses Desktop's `publishSignalSecrets` with canonical profile
+paths before ingress startup and removes only its own credential during
+shutdown. It starts the production agent service before managed-session
+creation and adapts the actual `ToolApprovalRequest.metadata` contract rather
+than a test-only flattened shape. Each omission has a regression reproducing
+the failure before correction; startup/stop/publication failures retain cleanup.
+Reviewed actor actions are narrowed to inspect, play, get-pass and context get,
+with serial requests and explicit pass-ID/context-ID distinction. The original
+mutation, identity, range, risk and timing guards are unchanged.
+
+The first automatic actor-driven capture then genuinely armed epoch 1 and
+observed native launch, but failed `native_clock_discontinuity` after five
+windows (24,000 frames/channel, beats 0-1). No complete proof or context was
+published; the typed persisted session has no context-store reference. A
+secondary model request incorrectly used the pass ID as a context ID and was
+denied, so this is unequivocally a **failed scenario**, not recovered acceptance.
+`fixtures/native-runner-clock-failure.json` retains the real arm/launch,
+incomplete observation, selected lifecycle and zero-publication evidence.
+The rejected raw clock row was not recorded; counter regression, a gap over
+48,000 samples and a changed host/counter offset cannot yet be distinguished.
+Do not infer a cause, weaken those guards or treat earlier successful manual
+passes as qualification of this cold-runner case.
 
 `NativeCaptureController` composes the actual signal engine and bounded native
 assembler. `prepare` only validates/freezes eligibility with a bounded

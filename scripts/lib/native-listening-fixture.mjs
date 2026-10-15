@@ -211,6 +211,7 @@ export async function stageNativeListeningFixture({
       throw new Error("Staging must not traverse symbolic links");
     await mkdir(root, { recursive: false, mode: 0o700 });
     try {
+      await mkdir(join(root, "Ableton Project Info"), { mode: 0o700 });
       const candidate = join(root, basename(directory));
       await mkdir(candidate, { mode: 0o700 });
       for (const [name, bytes] of snapshots) {

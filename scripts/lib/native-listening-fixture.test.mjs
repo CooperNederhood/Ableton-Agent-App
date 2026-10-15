@@ -6,6 +6,7 @@ import {
   readFile,
   readdir,
   rm,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -22,6 +23,7 @@ import { createSyntheticNativeListeningFixture } from "@ableton-agent/protocol/t
 import { JsonSessionStore } from "../../apps/desktop/src/main/desktop-service.ts";
 import { createDesktopSessionContextManager } from "../../apps/desktop/src/main/desktop-session-context.ts";
 import { sessionSchema } from "../../apps/desktop/src/contracts.ts";
+import { publishSignalSecrets } from "../../apps/desktop/src/main/signal-credentials.ts";
 
 import {
   inspectNativeFixtureSet,
@@ -103,6 +105,9 @@ describe("native listening fixture staging", () => {
     const f = await nativeFixtureInput();
     const staged = await stageNativeListeningFixture(f);
     expect(await readFile(staged.setPath)).toEqual(f.source);
+    await expect(
+      access(join(f.destination, "Ableton Project Info")),
+    ).resolves.toBeUndefined();
     expect(await readFile(f.input.sourceSet)).toEqual(f.source);
     expect(
       await readFile(
@@ -146,7 +151,23 @@ describe("native listening fixture staging", () => {
     const close = vi.fn();
     const journalClose = vi.fn();
     const wait = vi.fn();
+    let ingressStarted = false;
+    const startIngress = vi.fn(async () => {
+      expect((await stat(options.signal.secretPath)).mode & 0o777).toBe(0o600);
+      expect((await readFile(options.signal.secretPath, "utf8")).trim()).toBe(
+        "x".repeat(40),
+      );
+      if (failure === "signal-start")
+        throw new Error("test signal start failure");
+      ingressStarted = true;
+    });
+    const stopIngress = vi.fn(async () => {
+      ingressStarted = false;
+      if (failure === "signal-stop")
+        throw new Error("test signal stop failure");
+    });
     let configuration;
+    let agentServiceStarted = false;
     let playing = false;
     let ports;
     let job;
@@ -217,6 +238,11 @@ describe("native listening fixture staging", () => {
         },
       },
       createDesktopSessionContextManager,
+      publishSignalSecrets: vi.fn(async (...args) => {
+        if (failure === "credentials")
+          throw new Error("test credential publication failure");
+        return publishSignalSecrets(...args);
+      }),
       sessionSchema,
       protocol,
       createListeningRuntimeHost: vi.fn((_dependencies, supplied) => {
@@ -268,6 +294,9 @@ describe("native listening fixture staging", () => {
                       error:
                         "Arrangement insert marker does not match the requested start",
                     }
+                  : {}),
+                ...(failure === "clock-and-policy"
+                  ? { error: "native_clock_discontinuity" }
                   : {}),
               };
               supplied.onChange(job);
@@ -387,6 +416,8 @@ describe("native listening fixture staging", () => {
             }),
           },
           signals: {
+            start: startIngress,
+            stop: stopIngress,
             listeners: {
               inspectListeners: () => [globalThis.structuredClone(listener)],
               onListenerResult: (subscriber) => {
@@ -396,11 +427,15 @@ describe("native listening fixture staging", () => {
             },
           },
           application: {
-            start: async () => {
+            start: async ({ startAgent }) => {
+              if (!ingressStarted)
+                throw new Error("Signal ingress must start before application");
               if (failure === "start") throw new Error("test start failure");
+              agentServiceStarted = startAgent === true;
             },
             stop: async () => {
               close();
+              if (failure === "stop") throw new Error("test stop failure");
             },
             getStatus: async () => ({
               state: "connected",
@@ -415,6 +450,8 @@ describe("native listening fixture staging", () => {
               return () => appEvents.delete(subscriber);
             },
             createManagedAgent: async (config) => {
+              if (!agentServiceStarted)
+                throw new Error("Copilot agent service is not started");
               configuration = config;
               return "sdk-session";
             },
@@ -434,28 +471,50 @@ describe("native listening fixture staging", () => {
                   causationId: "invocation",
                 },
               };
-              for (const params of [
-                { action: "inspect-listeners" },
-                {
-                  action: "play-arrangement-and-listen",
-                  listenerIds: ["native"],
-                  startBeat: 0,
-                  endBeat: 4,
-                  maximumDurationMs: 8000,
-                },
+              for (const action of [
+                "inspect-listeners",
+                "play-arrangement-and-listen",
+                "get-pass",
               ]) {
+                const params =
+                  action === "play-arrangement-and-listen"
+                    ? {
+                        action,
+                        listenerIds: ["native"],
+                        startBeat: 0,
+                        endBeat: 4,
+                        maximumDurationMs: 8000,
+                      }
+                    : action === "get-pass"
+                      ? { action, passId: job.passId }
+                      : { action };
                 const allowed = await supplied.requestToolApproval({
-                  toolName: "ableton_listening",
-                  risk: params.action.startsWith("play")
-                    ? "reversible"
-                    : "read",
+                  metadata: {
+                    name: "ableton_listening",
+                    risk: params.action.startsWith("play")
+                      ? "reversible"
+                      : "read",
+                  },
                   arguments: params,
+                  agentInstanceId: configuration.instanceId,
                 });
                 if (!allowed) throw new Error("Test actor approval denied");
                 await ports.executeListeningOperation(params, context);
                 for (const subscriber of appEvents)
                   subscriber({ type: "operation.started" });
               }
+              if (failure === "clock-and-policy")
+                expect(
+                  await supplied.requestToolApproval({
+                    metadata: { name: "ableton_context", risk: "read" },
+                    arguments: {
+                      action: "get",
+                      contextId: job.passId,
+                      includeHistorical: true,
+                    },
+                    agentInstanceId: configuration.instanceId,
+                  }),
+                ).toBe(false);
               expect(job.stage).toBe("arming");
               return "Test model ends its turn while real terminal work remains";
             },
@@ -478,6 +537,8 @@ describe("native listening fixture staging", () => {
       close,
       journalClose,
       wait,
+      startIngress,
+      stopIngress,
       subscribers,
       appEvents,
       get configuration() {
@@ -490,6 +551,41 @@ describe("native listening fixture staging", () => {
   }
 
   describe("native runner orchestration with production typed context services and test-only actor/capture", () => {
+    it("fails credential publication before ingress startup or actor work", async () => {
+      const f = await runnerFixture({ failure: "credentials" });
+      const result = await f.runner.run(async () => {});
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("test credential publication failure");
+      expect(f.startIngress).not.toHaveBeenCalled();
+      expect(f.stopIngress).toHaveBeenCalledOnce();
+      expect(f.wait).not.toHaveBeenCalled();
+      expect(result.jobs).toEqual([]);
+      await expect(
+        access(f.runner.storage.signalIngressSecretPath),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+      await f.runner.close({ processStopped: true });
+    });
+    it.each(["signal-start", "signal-stop"])(
+      "reports %s and always attempts owned ingress shutdown",
+      async (failure) => {
+        const f = await runnerFixture({ failure });
+        const result = await f.runner.run(async () => {});
+        expect(result.ok).toBe(false);
+        expect(result.error ?? result.cleanupError).toContain(
+          failure === "signal-start"
+            ? "test signal start failure"
+            : "test signal stop failure",
+        );
+        expect(f.startIngress).toHaveBeenCalledOnce();
+        expect(f.stopIngress).toHaveBeenCalledOnce();
+        expect(f.services.publishSignalSecrets).toHaveBeenCalledOnce();
+        await expect(
+          access(f.runner.storage.signalIngressSecretPath),
+        ).rejects.toMatchObject({ code: "ENOENT" });
+        expect(f.close).toHaveBeenCalledOnce();
+        await f.runner.close({ processStopped: true });
+      },
+    );
     it("fails a post-arm insert-marker denial without seeking, retrying or publishing context", async () => {
       const f = await runnerFixture({ failure: "marker", terminal: "failed" });
       const result = await f.runner.run(async () => {});
@@ -548,6 +644,26 @@ describe("native listening fixture staging", () => {
       expect(f.journalClose).toHaveBeenCalledOnce();
       await expect(access(f.runner.fixture.setPath)).rejects.toThrow();
     });
+    it("retains a terminal native failure ahead of a secondary denied context request", async () => {
+      const f = await runnerFixture({
+        failure: "clock-and-policy",
+        terminal: "failed",
+      });
+      const result = await f.runner.run(async () => {});
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("native_clock_discontinuity");
+      expect(result.approvals.filter((item) => !item.approved)).toHaveLength(1);
+      expect(result.jobs).toEqual([
+        expect.objectContaining({
+          stage: "failed",
+          error: "native_clock_discontinuity",
+          contextIds: [],
+        }),
+      ]);
+      expect(f.wait).toHaveBeenCalledOnce();
+      expect(f.stopIngress).toHaveBeenCalledOnce();
+      await f.runner.close({ processStopped: true });
+    });
     it("waits after model arming acceptance, verifies one atomic context and actually reopens the production store", async () => {
       const f = await runnerFixture();
       const ownership = vi.fn(async () => {});
@@ -568,12 +684,20 @@ describe("native listening fixture staging", () => {
         f.runner.storage.copilotDirectory,
       );
       expect(f.close).toHaveBeenCalledOnce();
+      expect(f.startIngress).toHaveBeenCalledOnce();
+      expect(f.stopIngress).toHaveBeenCalledOnce();
+      expect(result.lifecycle.map((event) => event.name)).toContain(
+        "integration.native_listening.signal-start.completed",
+      );
+      expect(result.lifecycle.map((event) => event.name)).toContain(
+        "integration.native_listening.signal-shutdown.completed",
+      );
       expect(f.subscribers.size).toBe(0);
       expect(f.appEvents.size).toBe(0);
       await f.runner.close({ processStopped: true });
       await expect(access(f.runner.fixture.setPath)).rejects.toThrow();
     });
-    it.each(["start", "proof", "cancelled"])(
+    it.each(["start", "proof", "cancelled", "stop"])(
       "fails %s without inferring success and closes only its own services",
       async (failure) => {
         const f = await runnerFixture({ failure });
@@ -584,7 +708,10 @@ describe("native listening fixture staging", () => {
         if (failure === "cancelled")
           expect(result.error).toContain("test cancellation");
         if (failure === "proof") expect(result.error).toContain("expected");
+        if (failure === "stop")
+          expect(result.cleanupError).toContain("test stop failure");
         expect(f.close).toHaveBeenCalledOnce();
+        expect(f.stopIngress).toHaveBeenCalledOnce();
         expect(f.subscribers.size).toBe(0);
         await f.runner.close({ processStopped: true });
       },

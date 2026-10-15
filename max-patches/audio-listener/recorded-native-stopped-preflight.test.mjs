@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { URL } from "node:url";
 import { nativeRuntimeDocuments } from "./native-runtime-source.mjs";
+import { historicalNativeSourceURL } from "./native-assembler-archive.mjs";
 
 const require = createRequire(import.meta.url);
 const evidence = require("./fixtures/native-stopped-preflight.json");
@@ -83,7 +83,7 @@ test("recorded stopped measurements remain bound to the executed native source b
       );
   assert.equal(
     sha(
-      await readFile(new URL("./audio_listener_native_io.js", import.meta.url)),
+      await readFile(historicalNativeSourceURL("audio_listener_native_io.js")),
     ),
     evidence.codeSha256["audio_listener_native_io.js"],
   );

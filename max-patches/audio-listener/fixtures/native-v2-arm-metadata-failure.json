@@ -1,0 +1,74 @@
+{
+  "formatVersion": 1,
+  "evidenceKind": "actual-runner-owned-live-failure",
+  "nativeVersion": 2,
+  "scope": "arrangement-descriptive/v2",
+  "runId": "df5c9e05-1ce2-4c3b-9723-b865095623f3",
+  "scenarioRunId": "6363a182-d391-487c-95f5-f64d7f4246dc",
+  "passId": "ab386704-b446-4ac2-964a-1a073bd2862c",
+  "jobId": "470cf6a1-369f-4230-968d-ec3ebfb1f605",
+  "listenerVersion": 2,
+  "requestId": "979fbd1a-de75-4a3f-98c0-181763f900d9",
+  "attemptStartedAt": "2026-10-15T21:38:26.800Z",
+  "controlAction": "arm",
+  "controlStatus": "failed",
+  "failureReason": "native_metadata_changed_abi_spectrum_0",
+  "rejectedMetadata": {
+    "type": "abi-spectrum",
+    "observedValues": [0],
+    "requiredValues": [2],
+    "source": "actual typed failed reply",
+    "physicalCause": "unresolved"
+  },
+  "relatedCompilerEvidence": {
+    "source": "Live 11.3.43 Log.txt",
+    "loadedFixtureName": "AA_SMOKE_NV2_FRAC_6363a182-d391-487c-95f5-f64d7f4246dc.als",
+    "fixtureLoadedAtLocalTime": "2026-10-15T17:38:31.658692",
+    "messages": [
+      {
+        "atLocalTime": "2026-10-15T17:38:33.481669",
+        "message": "Message from Max: codebox: declarations must come before any expressions"
+      },
+      {
+        "atLocalTime": "2026-10-15T17:38:33.487039",
+        "message": "Message from Max: codebox: declarations must come before any expressions"
+      }
+    ],
+    "attribution": "Compiler errors follow the exact owned fixture load; the log does not name the offending codeboxes."
+  },
+  "applicationConfiguration": {
+    "timingPolicy": {
+      "mode": "descriptive",
+      "maxClockDisagreementSamples": 64
+    },
+    "geometry": {
+      "sampleRate": 48000,
+      "vectorSize": 64,
+      "tempoBpm": 120,
+      "startBeat": 0.25,
+      "endBeat": 3.75,
+      "hopSamples": 4800,
+      "totalSamples": 84000
+    }
+  },
+  "pins": {
+    "sourceSetSha256": "13f3db01eb6d63eafb5aeda6c280ac0ca7811db21a2e0a27e9ad76f7ee66056e",
+    "candidateManifestSha256": "40b1d33358269611c7b845fb7224f49a2654422336927782a641edaf847a63c2",
+    "deviceSha256": "8e45ecf31aee11fc5acbc7de95d504197d303e306a34710b25c83c20d8f3511a"
+  },
+  "outcome": {
+    "completed": false,
+    "contextIds": [],
+    "cancellationConfirmed": false,
+    "terminalError": "Capture failed and cancellation could not be confirmed",
+    "processStopped": true,
+    "fixtureCleaned": true,
+    "transportCleanup": "leave-running",
+    "realLiveValidated": false
+  },
+  "limitations": [
+    "The rejected zero does not establish why the spectrum signal was zero.",
+    "This failed run is not a native capture or physical timing qualification.",
+    "Earlier generic metadata failures are not retroactively attributed to this packet."
+  ]
+}

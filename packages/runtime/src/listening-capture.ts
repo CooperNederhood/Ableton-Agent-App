@@ -512,8 +512,12 @@ class Capture implements PreparedListeningCapture {
       reply.causationId !== this.#trace.causationId
     )
       throw new ListeningCaptureError("stale-control-reply");
+    if (reply.sequence <= item.sequence)
+      throw new ListeningCaptureError("unexpected-control-reply");
     if (reply.status === "failed") {
-      if (item.stage === "preparing") item.terminal = true;
+      // V2 has released wire ownership; its reason retains native stop failures.
+      if (item.stage === "preparing" || reply.listenerVersion === 2)
+        item.terminal = true;
       throw new ListeningCaptureError(
         "listener-control-denied",
         reply.reason ?? "Listener denied control",
@@ -521,7 +525,6 @@ class Capture implements PreparedListeningCapture {
     }
     if (
       reply.status !== status ||
-      reply.sequence <= item.sequence ||
       (status === "armed" && reply.sequence !== item.sequence + 1)
     )
       throw new ListeningCaptureError("unexpected-control-reply");

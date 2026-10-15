@@ -52,3 +52,41 @@ out1 = in1 - high * 1048576; out2 = high;`;
 export function clockSplitDocument() {
   return genDocument(CLOCK_SPLIT_CODE, 1, 2);
 }
+
+// Same full-frame/native split-counter layout; rate comes from DSP, not the
+// calibration default. Publication still names the actual complete 2048 frame.
+export function descriptiveSpectrumCode() {
+  return (
+    TAGGED_SPECTRUM_CODE.replace(
+      "Param sourceSampleRate(48000);",
+      "History previousBin(-1); History previousFrameEnd(-1);",
+    )
+      // Keep the DSP-rate expression after ALL inherited History declarations.
+      // Max rejects declarations following expressions, unlike the Gen model.
+      .replace(
+        "sourceClock = in6",
+        "sourceSampleRate = samplerate;\nsourceClock = in6",
+      )
+      .replace(
+        "if (in5 > 0 && sourceClock",
+        `if (in5 == 0 && previousFrameEnd >= 0 && sourceClock != previousFrameEnd) { frameValid = 0; }
+if (in5 > 0 && sourceClock`,
+      )
+      .replace(
+        SPECTRUM_STEP,
+        `if (!(samplerate == 44100 || samplerate == 48000) ||
+    !(in5 >= 0 && in5 <= 2047 && floor(in5) == in5) ||
+    (in5 != 0 && in5 != previousBin + 1) ||
+    !(abs(in1) <= 1000000000000 && abs(in2) <= 1000000000000 &&
+      abs(in3) <= 1000000000000 && abs(in4) <= 1000000000000) ||
+    !(in6 >= 0 && in6 < 1048576 && floor(in6) == in6 &&
+      in7 >= 0 && in7 < 16777216 && floor(in7) == in7)) { frameValid = 0; }
+${SPECTRUM_STEP}
+previousBin = in5;`,
+      )
+      .replace(
+        "out1 = publishedCentroid;",
+        "if (in5 == 2047) { previousFrameEnd = frameStart + 2048; frameValid = 0; }\nout1 = publishedCentroid;",
+      )
+  );
+}

@@ -1,4 +1,4 @@
-/* global require, module, process, setInterval, clearInterval */
+/* global require, module, process, Buffer, setInterval, clearInterval */
 "use strict";
 const { AudioListenerEngine, VERSION } = require("./audio_listener_engine.js");
 const NATIVE_DIAGNOSTIC_LIMIT = 200;
@@ -73,17 +73,39 @@ function createRuntime({
   clear = clearInterval,
   certificate = null,
   nativeMode = false,
+  nativeVersion = 1,
 } = {}) {
   if (typeof nativeMode !== "boolean") throw new Error("invalid_native_mode");
+  if (![1, 2].includes(nativeVersion) || (nativeVersion === 2 && !nativeMode))
+    throw new Error("invalid_native_version");
   const common = sharedClient();
-  const nativeStatus = nativeMode
-    ? Object.freeze({
-        ...NATIVE_STATUS,
-        scope: require("./audio_listener_native_controller.js")
-          .NATIVE_CAPTURE_SCOPE,
-        reason: "fresh_per_pass_native_validation_required",
-      })
-    : NATIVE_STATUS;
+  const nativeStatus =
+    nativeVersion === 2
+      ? Object.freeze({
+          version: 2,
+          scope: "arrangement-descriptive/v2",
+          readiness: "BLOCKED",
+          alignment: "approximate",
+          verifiedAbsoluteErrorBoundSamples: null,
+          acceptedSampleRates: Object.freeze([44100, 48000]),
+          acceptedVectorSizes: Object.freeze([
+            1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024,
+          ]),
+          timingModes: Object.freeze(["descriptive", "strict"]),
+          maxClockDisagreementSamples: 480,
+          maxAudioDurationMs: 30000,
+          maxWindows: 300,
+          abiVersion: 2,
+          reason: "fresh_per_pass_native_validation_required",
+        })
+      : nativeMode
+        ? Object.freeze({
+            ...NATIVE_STATUS,
+            scope: require("./audio_listener_native_controller.js")
+              .NATIVE_CAPTURE_SCOPE,
+            reason: "fresh_per_pass_native_validation_required",
+          })
+        : NATIVE_STATUS;
   Client = Client ?? common.AgentSignalClient;
   let client = null;
   let engine = null;
@@ -110,11 +132,62 @@ function createRuntime({
   let drainingControls = false;
   const nativeControls = [];
   let nativeDiagnostics = null;
+  let pendingQuotaFailure = null;
+  let pendingNativeReply = null;
+  let lastNativeDisarm = null;
+  let deferredNativeFailure = null;
   const timers = [];
   const output = (...args) => maxApi.outlet(...args);
   const fail = (reason) => {
     nativeZero = null;
     if (nativeMode) {
+      if (
+        nativeVersion === 2 &&
+        ((pendingArm && !pendingArm.published) ||
+          pendingNativeReply ||
+          reason === "disconnected" ||
+          stopped)
+      ) {
+        const operation = pendingArm;
+        const job = client?.listenerJob;
+        const invalid =
+          stopped ||
+          reason === "disconnected" ||
+          (operation && !operation.current()) ||
+          (pendingNativeReply && !pendingNativeReply.current());
+        if (operation) operation.cancelled = true;
+        pendingArm = null;
+        if (invalid) {
+          pendingNativeReply = null;
+          lastNativeDisarm = null;
+        } else if (operation && !pendingQuotaFailure) {
+          queueNativeReply(
+            operation.message,
+            {
+              status: "failed",
+              reason: operation.failureReason ?? nativeReason(reason),
+            },
+            operation.pass,
+            nativeController,
+            operation.current,
+          );
+        }
+        control = null;
+        nativePublished = false;
+        discardNativeDiagnostics();
+        for (const item of nativeControls.splice(0))
+          controlDiagnostic(item, "cancelled");
+        nativeController?.reset(nativeReason(reason));
+        settleNativeReply();
+        if (
+          !pendingNativeReply &&
+          !pendingQuotaFailure &&
+          client &&
+          client.listenerJob === job
+        )
+          client.listenerJob = null;
+        return;
+      }
       const operation = pendingArm;
       const selected = control;
       if (pendingArm) pendingArm.cancelled = true;
@@ -164,6 +237,10 @@ function createRuntime({
       "causationId",
     ];
     if (
+      (nativeVersion === 2 &&
+        (message.protocolVersion !== 1 ||
+          message.listenerVersion !== 2 ||
+          (message.action === "prepare") !== (message.config !== undefined))) ||
       !keys.every(
         (key) =>
           typeof message[key] === "string" &&
@@ -172,9 +249,14 @@ function createRuntime({
       !["prepare", "arm", "cancel"].includes(message.action)
     )
       throw new Error("invalid_native_wire_context");
-    return Object.freeze(
-      Object.fromEntries([...keys, "action"].map((key) => [key, message[key]])),
-    );
+    return Object.freeze({
+      ...Object.fromEntries(
+        [...keys, "action"].map((key) => [key, message[key]]),
+      ),
+      ...(nativeVersion === 2
+        ? { protocolVersion: 1, listenerVersion: 2 }
+        : {}),
+    });
   }
   function canPublishNative(message) {
     return (
@@ -183,6 +265,63 @@ function createRuntime({
       client.authenticated === true &&
       !!message &&
       message.connectionEpoch === client.listener?.connectionEpoch
+    );
+  }
+  function queueNativeReply(message, value, pass, adapter, current) {
+    const previous = pendingNativeReply;
+    pendingNativeReply = {
+      message,
+      value:
+        previous?.pass === pass && previous.value.status === "failed"
+          ? previous.value
+          : value,
+      pass,
+      adapter,
+      current,
+      job: client?.listenerJob,
+    };
+  }
+  function settleNativeReply() {
+    const pending = pendingNativeReply;
+    if (!pending) return;
+    if (
+      !pending.current() ||
+      pending.adapter !== nativeController ||
+      !canPublishNative(pending.message) ||
+      client.listenerJob !== pending.job
+    ) {
+      pendingNativeReply = null;
+      return;
+    }
+    const receipt =
+      lastNativeDisarm?.generation === pending.pass.generation
+        ? lastNativeDisarm
+        : null;
+    if (
+      pending.pass.beginAttempted
+        ? !receipt
+        : pending.adapter.pass === pending.pass
+    )
+      return;
+    pendingNativeReply = null;
+    if (
+      control?.passId === pending.message.passId &&
+      control.connectionEpoch === pending.message.connectionEpoch
+    ) {
+      control = null;
+      nativePublished = false;
+    }
+    if (nativeDiagnostics?.generation === pending.pass.generation)
+      discardNativeDiagnostics();
+    publishNative(
+      "reply",
+      pending.message,
+      receipt && !receipt.confirmed
+        ? {
+            status: "failed",
+            reason: `${pending.value.reason}_native_stop_ack_timeout_unconfirmed`,
+          }
+        : pending.value,
     );
   }
   function discardNativeDiagnostics() {
@@ -204,6 +343,7 @@ function createRuntime({
     elapsedMs = event.elapsedMs,
   ) {
     return {
+      ...(nativeVersion === 2 ? { scope: nativeStatus.scope } : {}),
       eventId: event.eventId,
       causationId: event.causationId,
       phase,
@@ -242,7 +382,19 @@ function createRuntime({
     queueNativeDiagnostic(scope, lifecycle);
   }
   function observeNative(event, current) {
+    if (event.type === "native-disarm-stage") {
+      output("native_diagnostic", JSON.stringify({ ...event, phase: "reset" }));
+      return;
+    }
     if (!current()) return;
+    if (
+      nativeVersion === 2 &&
+      event.type === "native-preflight-stage" &&
+      event.stage === "failed" &&
+      pendingArm?.generation === event.generation &&
+      !pendingArm.published
+    )
+      pendingArm.failureReason ??= nativeReason(event.reason);
     const scope = nativeDiagnostics;
     let phase = "capture";
     if (scope && !nativePublished) {
@@ -250,6 +402,7 @@ function createRuntime({
       else phase = "reset";
     }
     output("native_diagnostic", JSON.stringify({ ...event, phase }));
+    if (event.type === "native-tempo-observation") return;
     if (
       scope &&
       nativePublished &&
@@ -341,6 +494,7 @@ function createRuntime({
         "native_diagnostic",
         JSON.stringify({
           type: "native-runtime-control-stage",
+          ...(nativeVersion === 2 ? { scope: nativeStatus.scope } : {}),
           eventId,
           stage,
           traceId: message.traceId,
@@ -361,6 +515,40 @@ function createRuntime({
   function publishNative(kind, message, value, confirm = () => {}) {
     nativePublishing++;
     try {
+      if (nativeVersion === 2) {
+        const projected = {
+          ...value,
+          type: kind === "reply" ? "listener.reply" : "listener.result",
+          protocolVersion: 1,
+          listenerVersion: 2,
+          requestId: "x".repeat(128),
+          sequence: Number.MAX_SAFE_INTEGER,
+          ...Object.fromEntries(
+            [
+              "connectionEpoch",
+              "jobId",
+              "passId",
+              "traceId",
+              "correlationId",
+              "causationId",
+            ].map((key) => [key, message[key]]),
+          ),
+        };
+        if (Buffer.byteLength(JSON.stringify(projected), "utf8") > 128 * 1024) {
+          output("diagnostic", "native_result_frame_quota_exceeded");
+          const owner =
+            nativeController?.pass?.generation ??
+            nativeController?.pendingDisarm?.generation;
+          if (owner) pendingQuotaFailure = { generation: owner, message };
+          fail("native_result_frame_quota_exceeded");
+          if (!owner && canPublishNative(message))
+            publishNative("result", message, {
+              status: "failed",
+              reason: "native_disarm_receipt_missing",
+            });
+          return false;
+        }
+      }
       const sent =
         (kind === "reply"
           ? client.sendListenerReply(message, value)
@@ -375,6 +563,16 @@ function createRuntime({
       if (nativePublishing === 0 && !drainingControls) {
         drainingControls = true;
         try {
+          const failure = deferredNativeFailure;
+          deferredNativeFailure = null;
+          if (failure?.current()) {
+            fail(
+              pendingArm && !pendingArm.published
+                ? "native_armed_publication_failed"
+                : failure.reason,
+            );
+            if (!nativeController?.pass) deferredNativeFailure = null;
+          }
           let processed = 0;
           while (nativeControls.length) {
             if (processed++ >= 32) {
@@ -405,7 +603,11 @@ function createRuntime({
   const restartRegistration = (reason) => {
     // Fence queued callbacks before touching the old client/engine.
     registrationGeneration++;
+    pendingNativeReply = null;
+    lastNativeDisarm = null;
     fail(reason);
+    if (nativeVersion === 2)
+      nativeController?.disarmed(false, "native_stop_unconfirmed");
     client?.stop();
     client = null;
     engine = null;
@@ -499,6 +701,7 @@ function createRuntime({
         ].map((key) => [key, event[key]]),
       );
       nativeLifecycle.phase = "capture";
+      if (nativeVersion === 2) nativeLifecycle.scope = nativeStatus.scope;
       nativeLifecycle.generation = nativeDiagnostics?.generation;
       return publishNative("result", selected, {
         status: "progress",
@@ -507,11 +710,20 @@ function createRuntime({
       });
     }
     if (event.type !== "terminal") return true;
+    if (
+      nativeVersion === 2 &&
+      selected.action === "cancel" &&
+      pendingNativeReply
+    )
+      return true;
     control = null;
     nativePublished = false;
     discardNativeDiagnostics();
     if (event.status === "cancelled" && selected.action === "cancel")
-      return publishNative("reply", selected, { status: "cancelled" });
+      return publishNative("reply", selected, {
+        status: "cancelled",
+        ...(nativeVersion === 2 ? { reason: "cancelled" } : {}),
+      });
     return publishNative("result", selected, {
       status:
         event.status === "complete"
@@ -538,15 +750,20 @@ function createRuntime({
       }
       const config =
         message.action === "prepare" && message.config
-          ? Object.freeze({
-              durationMs: message.config.durationMs,
-              maxWindows: message.config.maxWindows,
-              source: Object.freeze({
-                mode: message.config.source?.mode,
-                startBeat: message.config.source?.startBeat,
-                endBeat: message.config.source?.endBeat,
-              }),
-            })
+          ? nativeVersion === 2
+            ? Object.freeze({
+                geometry: Object.freeze({ ...message.config.geometry }),
+                timingPolicy: Object.freeze({ ...message.config.timingPolicy }),
+              })
+            : Object.freeze({
+                durationMs: message.config.durationMs,
+                maxWindows: message.config.maxWindows,
+                source: Object.freeze({
+                  mode: message.config.source?.mode,
+                  startBeat: message.config.source?.startBeat,
+                  endBeat: message.config.source?.endBeat,
+                }),
+              })
           : undefined;
       const item = {
         message: Object.freeze({ ...selected, ...(config ? { config } : {}) }),
@@ -559,14 +776,15 @@ function createRuntime({
       return;
     }
     const adapter = nativeController;
+    const owner = control ?? pendingNativeReply?.message;
     if (
       message.action !== "prepare" &&
-      (!control ||
-        control.passId !== selected.passId ||
-        control.jobId !== selected.jobId ||
-        control.connectionEpoch !== selected.connectionEpoch ||
-        control.traceId !== selected.traceId ||
-        control.correlationId !== selected.correlationId)
+      (!owner ||
+        owner.passId !== selected.passId ||
+        owner.jobId !== selected.jobId ||
+        owner.connectionEpoch !== selected.connectionEpoch ||
+        owner.traceId !== selected.traceId ||
+        owner.correlationId !== selected.correlationId)
     ) {
       publishNative("reply", selected, {
         status: "failed",
@@ -578,23 +796,47 @@ function createRuntime({
       if (message.action === "prepare") {
         if (adapter.pass) throw new Error("listener_busy");
         const config = message.config;
-        if (
-          !config?.source ||
-          dsp?.sampleRate !== 48000 ||
-          dsp?.vectorSize !== 64 ||
-          !dsp?.dspOn
-        )
-          throw new Error("unsupported_native_capture_scope");
-        adapter.prepare({
-          ...selected,
-          ...config.source,
-          durationMs: config.durationMs,
-          maxWindows: config.maxWindows,
-          settings: {
-            attackThresholdDb,
-            minAttackSpacingSamples: Math.round(attackSpacingMs * 48),
-          },
-        });
+        if (nativeVersion === 2) {
+          const {
+            nativeV2Configuration,
+          } = require("./audio_listener_native_coordinates.js");
+          const checked = nativeV2Configuration(
+            config?.geometry,
+            config?.timingPolicy,
+          );
+          if (
+            !dsp?.dspOn ||
+            dsp.sampleRate !== checked.geometry.sampleRate ||
+            dsp.vectorSize !== checked.geometry.vectorSize ||
+            Object.keys(config).some(
+              (key) => !["geometry", "timingPolicy"].includes(key),
+            )
+          )
+            throw new Error("unsupported_native_capture_scope");
+          adapter.prepare({
+            ...selected,
+            geometry: checked.geometry,
+            timingPolicy: checked.policy,
+          });
+        } else {
+          if (
+            !config?.source ||
+            dsp?.sampleRate !== 48000 ||
+            dsp?.vectorSize !== 64 ||
+            !dsp?.dspOn
+          )
+            throw new Error("unsupported_native_capture_scope");
+          adapter.prepare({
+            ...selected,
+            ...config.source,
+            durationMs: config.durationMs,
+            maxWindows: config.maxWindows,
+            settings: {
+              attackThresholdDb,
+              minAttackSpacingSamples: Math.round(attackSpacingMs * 48),
+            },
+          });
+        }
         nativeDiagnostics = {
           generation: adapter.pass.generation,
           command: adapter.pass.command,
@@ -618,6 +860,7 @@ function createRuntime({
         const operation = {
           message: selected,
           generation: adapter.pass.generation,
+          pass: adapter.pass,
           published: false,
           cancelled: false,
           current,
@@ -637,27 +880,63 @@ function createRuntime({
             ) {
               control = null;
               pendingArm = null;
-              publishNative("reply", selected, {
+              const value = {
                 status: "failed",
                 reason:
+                  operation.failureReason ??
                   nativeDiagnostics?.failureReason ??
                   nativeReason(error.message),
-              });
+              };
+              if (nativeVersion === 2) {
+                queueNativeReply(
+                  selected,
+                  value,
+                  operation.pass,
+                  adapter,
+                  current,
+                );
+                settleNativeReply();
+              } else publishNative("reply", selected, value);
             }
             if (nativeDiagnostics?.generation === operation.generation)
               discardNativeDiagnostics();
           },
         );
       } else if (message.action === "cancel") {
+        const operation = pendingArm;
         if (pendingArm) pendingArm.cancelled = true;
         pendingArm = null;
         control = selected;
+        if (nativeVersion === 2) {
+          const pass =
+            pendingNativeReply?.pass ??
+            (adapter.pass
+              ? adapter.checkOwner(selected)
+              : operation && !operation.published
+                ? operation.pass
+                : adapter.checkOwner(selected));
+          queueNativeReply(
+            selected,
+            operation?.failureReason
+              ? { status: "failed", reason: operation.failureReason }
+              : { status: "cancelled", reason: "cancelled" },
+            pass,
+            adapter,
+            current,
+          );
+          if (adapter.pass === pass) adapter.cancel(selected);
+          settleNativeReply();
+          return;
+        }
         adapter.cancel(selected);
         // Before armed publication the controller deliberately emits no results.
         if (control === selected) {
           control = null;
           nativePublished = false;
-          publishNative("reply", selected, { status: "cancelled" });
+          publishNative("reply", selected, {
+            status: "cancelled",
+            ...(nativeVersion === 2 ? { reason: "cancelled" } : {}),
+          });
         }
         discardNativeDiagnostics();
       }
@@ -728,6 +1007,35 @@ function createRuntime({
       const adapter = new NativeCaptureController({
         listenerId,
         now: clock,
+        nativeVersion,
+        onDisarmed: (receipt) => {
+          if (receipt.reason === "native_disarm_observer_failed")
+            output("diagnostic", receipt.reason);
+          if (
+            nativeVersion === 2 &&
+            current() &&
+            nativeController === adapter
+          ) {
+            if (
+              lastNativeDisarm?.generation !== receipt.generation ||
+              (!lastNativeDisarm.confirmed && receipt.confirmed)
+            )
+              lastNativeDisarm = receipt;
+            settleNativeReply();
+          }
+          const pending = pendingQuotaFailure;
+          if (!pending || pending.generation !== receipt.generation) return;
+          pendingQuotaFailure = null;
+          if (!receipt.confirmed)
+            output("diagnostic", "native_stop_ack_timeout");
+          if (current() && canPublishNative(pending.message))
+            publishNative("result", pending.message, {
+              status: "failed",
+              reason: receipt.confirmed
+                ? "native_result_frame_quota_exceeded"
+                : "native_stop_ack_timeout",
+            });
+        },
         // Max ABI: native <UUID> <type> <numeric atoms...> enters the handler;
         // native_control <begin|arm|stop> <UUID> [epoch] routes to the IO helpers.
         // Before begin: native_watchdog_context <UUID> <trace> <correlation> <cause>.
@@ -735,7 +1043,7 @@ function createRuntime({
         send: (value) => {
           if (
             nativeController !== adapter ||
-            (value.action !== "stop" &&
+            (!["stop", "release"].includes(value.action) &&
               (!current() || !canPublishNative(control)))
           )
             return false;
@@ -766,7 +1074,11 @@ function createRuntime({
               "native_control",
               value.action,
               value.generation,
-              ...(value.action === "arm" ? [value.nativeEpoch] : []),
+              ...(value.action === "arm"
+                ? [value.nativeEpoch]
+                : value.action === "configure_v2"
+                  ? value.parameters
+                  : []),
             ) !== false
           );
         },
@@ -829,19 +1141,31 @@ function createRuntime({
       secretPath,
       instanceId,
       signalKind: "audio",
-      schemaVersion: "audio-observation/v1",
+      schemaVersion:
+        nativeVersion === 2 ? "audio-observation/v2" : "audio-observation/v1",
       displayName: "Audio-Listener",
       producerIdPrefix: "ableton-audio-listener",
       listener: {
-        version: 1,
+        version: nativeVersion,
         ...identityPaths,
         nativeStatus,
-        capabilities: ["audio-listener/v1"],
+        capabilities: [
+          nativeVersion === 2 ? "audio-listener/v2" : "audio-listener/v1",
+        ],
         sampleRate: dsp.sampleRate,
-        algorithmVersion: VERSION,
+        algorithmVersion: nativeVersion === 2 ? "2.0.0" : VERSION,
+        ...(nativeVersion === 2 ? { vectorSize: dsp.vectorSize } : {}),
       },
       onListenerFailure: (reason) => {
-        if (current()) fail(reason);
+        if (!current()) return;
+        if (nativeVersion === 2 && nativePublishing > 0) {
+          deferredNativeFailure = deferredNativeFailure ?? {
+            reason: nativeReason(reason),
+            current,
+          };
+          return;
+        }
+        fail(reason);
       },
       onStatus: (_sink, state) => {
         if (!current()) return;
@@ -1016,6 +1340,10 @@ function createRuntime({
   maxApi.addHandler("reset", () => fail("reset"));
   maxApi.addHandler("native", (packetGeneration, type, ...values) => {
     if (!nativeMode || stopped || !nativeController) return;
+    if (nativeVersion === 2 && type === "stopped") {
+      nativeController.ingest({ generation: packetGeneration, type, values });
+      return;
+    }
     refreshRegistration();
     if (!stopped && nativeController && canPublishNative(control))
       nativeController.ingest({ generation: packetGeneration, type, values });
@@ -1078,6 +1406,8 @@ function createRuntime({
       stopped = true;
       registrationGeneration++;
       fail("runtime_stopped");
+      if (nativeVersion === 2)
+        nativeController?.disarmed(false, "native_stop_unconfirmed");
       timers.forEach(clear);
       client?.stop();
     },

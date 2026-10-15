@@ -181,7 +181,12 @@ if (bin <= 1024) {
 export const SPECTRUM_OUTPUT = `out1 = heldCentroid; out2 = heldEnergy;`;
 export const SPECTRUM_CODE = `${SPECTRUM_STATE}\n${SPECTRUM_STEP}\n${SPECTRUM_OUTPUT}`;
 
-export function genDocument(code, inputs, outputs) {
+export function genDocument(
+  code,
+  inputs,
+  outputs,
+  { outputSpacing = 35 } = {},
+) {
   const boxes = [
     {
       box: {
@@ -200,7 +205,9 @@ export function genDocument(code, inputs, outputs) {
     lines.push(wire(`in${i}`, 0, "code", i));
   }
   for (let i = 0; i < outputs; i++) {
-    boxes.push(box(`out${i}`, `out ${i + 1}`, 690, 20 + i * 35, 1, 0));
+    boxes.push(
+      box(`out${i}`, `out ${i + 1}`, 690, 20 + i * outputSpacing, 1, 0),
+    );
     lines.push(wire("code", i, `out${i}`));
   }
   return patch(boxes, lines, { classnamespace: "dsp.gen" });

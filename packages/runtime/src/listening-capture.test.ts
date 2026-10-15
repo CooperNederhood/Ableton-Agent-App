@@ -380,6 +380,99 @@ function nativeV2Service() {
 }
 
 describe("independent native v2 capture", () => {
+  it.each([
+    "native_metadata_changed_abi_spectrum_0",
+    "native_metadata_changed_abi_spectrum_0_native_stop_ack_timeout_unconfirmed",
+  ])(
+    "retains terminal arm failure %s without cancelling released ownership",
+    async (reason) => {
+      const f = nativeV2Service();
+      const original = f.service.requestListenerControl.bind(f.service);
+      const request = vi
+        .spyOn(f.service, "requestListenerControl")
+        .mockImplementation(async (id, control, options) => {
+          if (control.action === "cancel")
+            throw new Error("Listener ownership mismatch");
+          const reply = await original(id, control, options);
+          if (control.action !== "arm") return reply;
+          const listener = f.base.listeners[0]!;
+          listener.phase = "idle";
+          delete listener.jobId;
+          delete listener.passId;
+          return listenerReplyV2Schema.parse({
+            ...reply,
+            nativeArm: undefined,
+            status: "failed",
+            reason,
+          });
+        });
+      const events: TelemetryEventEnvelope[] = [];
+      await expect(
+        prepareListenerCapture(f.service, {
+          ...f.input,
+          telemetry: {
+            enqueue(event) {
+              events.push(event);
+              return true;
+            },
+          },
+        }),
+      ).rejects.toThrow(reason);
+      expect(request.mock.calls.map(([, control]) => control.action)).toEqual([
+        "prepare",
+        "arm",
+      ]);
+      expect(f.base.subscribers.size).toBe(0);
+      expect(events.at(-1)?.name).toBe("listening.capture.failed");
+      expect(
+        events.every(
+          (event) =>
+            event.trace?.traceId === trace.traceId &&
+            event.correlationId === trace.correlationId &&
+            event.causationId === trace.causationId &&
+            (event.durationMs ?? -1) >= 0,
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it.each([
+    { sequence: 0 },
+    { passId: "stale-pass" },
+    { connectionEpoch: "stale-epoch" },
+  ])(
+    "does not release App cleanup responsibility for an invalid terminal arm reply %j",
+    async (patch) => {
+      const f = nativeV2Service();
+      const original = f.service.requestListenerControl.bind(f.service);
+      vi.spyOn(f.service, "requestListenerControl").mockImplementation(
+        async (id, control, options) => {
+          const reply = await original(id, control, options);
+          return control.action === "arm"
+            ? listenerReplyV2Schema.parse({
+                ...reply,
+                nativeArm: undefined,
+                status: "failed",
+                reason: "native_metadata_changed_abi_spectrum_0",
+                ...patch,
+              })
+            : reply;
+        },
+      );
+      await expect(prepareListenerCapture(f.service, f.input)).rejects.toThrow(
+        "sequence" in patch
+          ? "unexpected-control-reply"
+          : "stale-control-reply",
+      );
+      expect(f.calls.map((control) => control.action)).toEqual([
+        "prepare",
+        "arm",
+        "cancel",
+      ]);
+      expect(f.base.subscribers.size).toBe(0);
+    },
+  );
+
   it("freezes v2 policy and geometry and publishes only independently verified approximate data", async () => {
     const f = nativeV2Service();
     const events: TelemetryEventEnvelope[] = [];
@@ -484,6 +577,50 @@ describe("independent native v2 capture", () => {
     expect(f.calls.at(-1)).toMatchObject({ action: "cancel" });
     expect(f.calls.at(-1)?.config).toBeUndefined();
     expect(f.base.subscribers.size).toBe(0);
+  });
+
+  it("does not report confirmed v2 cancellation when the producer times out waiting for native stop", async () => {
+    const f = nativeV2Service();
+    const original = f.service.requestListenerControl.bind(f.service);
+    vi.spyOn(f.service, "requestListenerControl").mockImplementation(
+      async (id, control, options) => {
+        const reply = await original(id, control, options);
+        return control.action === "cancel"
+          ? listenerReplyV2Schema.parse({
+              ...reply,
+              status: "failed",
+              reason: "native_stop_ack_timeout",
+            })
+          : reply;
+      },
+    );
+    const events: TelemetryEventEnvelope[] = [];
+    const capture = await prepareListenerCapture(f.service, {
+      ...f.input,
+      telemetry: {
+        enqueue(event) {
+          events.push(event);
+          return true;
+        },
+      },
+    });
+    const rejected = expect(capture.result).rejects.toThrow(
+      "Capture failed and cancellation could not be confirmed",
+    );
+    await expect(capture.disarm()).rejects.toThrow(
+      "Listener cancellation could not be confirmed",
+    );
+    await rejected;
+    expect(f.calls.map((control) => control.action)).toEqual([
+      "prepare",
+      "arm",
+      "cancel",
+    ]);
+    expect(f.base.subscribers.size).toBe(0);
+    expect(
+      events.filter((event) => event.attributes.action === "cancel").at(-1)
+        ?.name,
+    ).toBe("listening.capture.failed");
   });
 });
 

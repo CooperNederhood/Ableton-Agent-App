@@ -256,6 +256,7 @@ function fixture(options = {}) {
 
 test("explicit native option reserves fixed scope through one SDK; shipping default remains blocked and ignores numeric native packets", () => {
   const f = fixture();
+  assert.equal(f.runtime.client.listener.vectorSize, undefined);
   assert.equal(f.clients.length, 1);
   assert.equal(
     f.runtime.client.producer.instanceId,
@@ -282,6 +283,7 @@ test("explicit native option reserves fixed scope through one SDK; shipping defa
   f.runtime.stop();
 
   const legacy = fixture({ nativeMode: false });
+  assert.equal(legacy.runtime.client.listener.vectorSize, undefined);
   legacy.dispatch("prepare");
   assert.equal(legacy.wire.at(-1).status, "failed");
   assert.equal(
@@ -858,7 +860,7 @@ test("identity replacement fences the old SDK callbacks/generation and new nativ
   f.runtime.stop();
 });
 
-test("Node16-compatible runtime native composition works without Object.hasOwn and leaves the physically executed controller SHA unchanged", async () => {
+test("Node16-compatible current runtime works without Object.hasOwn; archived physical controller provenance stays historical", async () => {
   const exported = { exports: {} };
   const compatibleObject = new Proxy(Object, {
     get: (target, key) =>
@@ -884,7 +886,9 @@ test("Node16-compatible runtime native composition works without Object.hasOwn a
   assert.equal(
     createHash("sha256")
       .update(
-        readFileSync(require.resolve("./audio_listener_native_controller.js")),
+        readFileSync(
+          require.resolve("./fixtures/native-v1-6cceef6/audio_listener_native_controller.js"),
+        ),
       )
       .digest("hex"),
     require("./fixtures/native-acquisition-recovery.json")

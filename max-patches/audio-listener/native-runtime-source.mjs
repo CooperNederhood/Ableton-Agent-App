@@ -6,10 +6,15 @@ import {
   synchronizedAnalysisDocument,
   taggedSpectrumDocument,
 } from "./calibration-source.mjs";
-import { CLOCK_ANCHORED_ENVELOPE_CODE } from "./synchronized-envelope-source.mjs";
+import {
+  CLOCK_ANCHORED_ENVELOPE_CODE,
+  descriptiveEnvelopeCode,
+} from "./synchronized-envelope-source.mjs";
+import { DESCRIPTIVE_CLOCK_CODE } from "./host-timing-source.mjs";
 import {
   CLOCK_SPLIT_CODE,
   TAGGED_SPECTRUM_CODE,
+  descriptiveSpectrumCode,
 } from "./synchronized-spectrum-source.mjs";
 
 const wire = (source, outlet, destination, inlet = 0) => ({
@@ -61,8 +66,82 @@ function replaceResources(document, resource) {
       box.text = box.text?.replace(resource(before), resource(after));
 }
 
-/** Opt-in authored-device composition; never adds a second SDK client or audio output. */
-export function appendNativeRuntimeGraph(document, { runtimeEntry } = {}) {
+// A separate message cohort. The v2 analysis graph routes it through its own
+// generation-owned envelope IO, never through the root broadcast. Both bookend
+// epochs come from the SAME capture Gen evaluation.
+function configurationReadbackPatcher() {
+  const document = {
+    patcher: {
+      fileversion: 1,
+      classnamespace: "box",
+      rect: [0, 0, 800, 380],
+      boxes: [],
+      lines: [],
+    },
+  };
+  const specs = [
+    ["channels", "mc.pack~ 7", 7, 1, 10, 65],
+    ["snapshot", "mc.snapshot~ @offset 0", 1, 2, 10, 110],
+    ["voice", "route voice", 1, 2, 450, 110],
+    ["gate", "gate 7", 2, 7, 450, 155],
+    [
+      "pack",
+      `pack configuration_frame ${Array(7).fill("0.125").join(" ")}`,
+      8,
+      1,
+      10,
+      220,
+    ],
+    ["hot", "trigger b f", 1, 2, 650, 190],
+    ["output", "", 1, 0, 10, 285],
+  ];
+  for (const [id, text, inputs, outputs, x, y] of specs) {
+    add(document, id, text, inputs, outputs);
+    box(document, id).patching_rect = [
+      x,
+      y,
+      Math.min(780 - x, Math.max(60, text.length * 6)),
+      22,
+    ];
+  }
+  box(document, "output").maxclass = "outlet";
+  for (let index = 0; index < 8; index++) {
+    const id = `input${index}`;
+    add(document, id, "", 0, 1);
+    box(document, id).maxclass = "inlet";
+    box(document, id).patching_rect = [10 + index * 100, 10, 25, 25];
+    document.patcher.lines.push(
+      index === 7 ? wire(id, 0, "snapshot") : wire(id, 0, "channels", index),
+    );
+    if (index < 7)
+      document.patcher.lines.push(
+        index === 6
+          ? wire("gate", index, "hot")
+          : wire("gate", index, "pack", index + 1),
+      );
+  }
+  document.patcher.lines.push(
+    wire("channels", 0, "snapshot"),
+    wire("snapshot", 1, "voice"),
+    wire("voice", 0, "gate"),
+    wire("snapshot", 0, "gate", 1),
+    wire("hot", 1, "pack", 7),
+    wire("hot", 0, "pack"),
+    wire("pack", 0, "output"),
+  );
+  return document.patcher;
+}
+
+/** Pair with nativeRuntimeDocuments using the same explicitly selected version.
+ * Resource filenames stay shared; the selected document set carries the ABI.
+ * Never adds a second SDK client or audio output.
+ */
+export function appendNativeRuntimeGraph(
+  document,
+  { runtimeEntry, nativeVersion = 1 } = {},
+) {
+  if (nativeVersion !== 1 && nativeVersion !== 2)
+    throw new Error("unsupported_native_version");
   if (
     typeof runtimeEntry !== "string" ||
     !/^[A-Za-z][A-Za-z0-9_.-]{0,127}\.js$/.test(runtimeEntry)
@@ -89,6 +168,9 @@ export function appendNativeRuntimeGraph(document, { runtimeEntry } = {}) {
   const guard = guards[0].box;
   if (guard.numoutlets !== undefined && guard.numoutlets < 3)
     throw new Error("authored_native_watchdog_outlet_missing");
+  // Select the parent's independently bounded v2 watchdog explicitly; its v1
+  // default otherwise truncates a full 30-second capture plus lifecycle time.
+  if (nativeVersion === 2) guard.text = "js audio_listener_guard.js 2";
   const routes = patcher.lines.filter(
     ({ patchline }) =>
       patchline.source[0] === runtime.id && patchline.source[1] === 0,
@@ -108,7 +190,7 @@ export function appendNativeRuntimeGraph(document, { runtimeEntry } = {}) {
       "analysis",
       "poly~ audio_listener_native_analysis.maxpat 1 @parallel 0",
       4,
-      2,
+      nativeVersion === 2 ? 3 : 2,
     ],
     ["clock_sink", "snapshot~ 100", 1, 1],
     ["analysis_sink", "snapshot~ 100", 1, 1],
@@ -166,7 +248,12 @@ export function appendNativeRuntimeGraph(document, { runtimeEntry } = {}) {
 }
 
 /** Candidate processed-message graph only; does not modify or activate the shipping device. */
-export function nativeRuntimeDocuments({ resourceDirectory = null } = {}) {
+export function nativeRuntimeDocuments({
+  resourceDirectory = null,
+  nativeVersion = 1,
+} = {}) {
+  if (nativeVersion !== 1 && nativeVersion !== 2)
+    throw new Error("unsupported_native_version");
   if (resourceDirectory !== null && !isAbsolute(resourceDirectory))
     throw new Error("native_resource_directory_must_be_absolute");
   const resource = (name) =>
@@ -328,7 +415,103 @@ export function nativeRuntimeDocuments({ resourceDirectory = null } = {}) {
     );
   }
 
-  return {
+  if (nativeVersion === 2) {
+    // Version selection is part of the opt-in graph, not a change to IO code or
+    // shipping/default resources.
+    for (const [document, id] of [
+      [clock, "collector"],
+      [analysis, "collector"],
+      [fft, "nativeIO"],
+    ])
+      box(document, id).text += " 2";
+    box(analysis, "gen").numoutlets = 23;
+    add(
+      analysis,
+      "configurationReadback",
+      "p native-configuration-readback",
+      8,
+    );
+    box(analysis, "configurationReadback").patcher =
+      configurationReadbackPatcher();
+    box(analysis, "configurationReadback").patching_rect = [540, 300, 250, 22];
+    add(analysis, "configurationMessages", "out 2", 1, 0);
+    box(analysis, "configurationMessages").patching_rect = [430, 300, 80, 22];
+    box(analysis, "pollOrder").text = "trigger b b b";
+    box(analysis, "pollOrder").numoutlets = 3;
+    for (const { patchline } of analysis.patcher.lines)
+      if (
+        patchline.source[0] === "pollOrder" &&
+        patchline.destination[0] === "fft"
+      )
+        patchline.source[1] = 2;
+    const ownedReceipt = wire("configurationReadback", 0, "collector");
+    ownedReceipt.patchline.order = 0;
+    const diagnosticReceipt = wire(
+      "configurationReadback",
+      0,
+      "configurationMessages",
+    );
+    diagnosticReceipt.patchline.order = 1;
+    analysis.patcher.lines.push(
+      wire("pollOrder", 1, "configurationReadback", 7),
+      ownedReceipt,
+      diagnosticReceipt,
+    );
+    for (let index = 0; index < 7; index++)
+      analysis.patcher.lines.push(
+        wire("gen", 16 + index, "configurationReadback", index),
+      );
+
+    // Explicit graph-level routing only: no IO/Node/controller activation.
+    // Old IO deliberately cannot configure or grant eligibility to these ABIs.
+    for (const [document, target] of [
+      [clock, "clock"],
+      [analysis, "gen"],
+    ]) {
+      const selectors = [
+        "epoch",
+        "cancel",
+        "totalSamples",
+        "hopSamples",
+        "tempoBpm",
+        "startBeatFraction",
+        "captureVector",
+      ];
+      const routes = document.patcher.lines.filter(
+        ({ patchline }) => patchline.source[0] === "command",
+      );
+      document.patcher.lines = document.patcher.lines.filter(
+        (line) => !routes.includes(line),
+      );
+      add(
+        document,
+        "descriptiveConfig",
+        `route ${selectors.join(" ")}`,
+        1,
+        selectors.length + 1,
+      );
+      box(document, "descriptiveConfig").patching_rect = [10, 335, 780, 22];
+      document.patcher.lines.push(wire("command", 0, "descriptiveConfig"));
+      for (const route of routes)
+        document.patcher.lines.push({
+          patchline: {
+            ...route.patchline,
+            source: ["descriptiveConfig", selectors.length],
+          },
+        });
+      for (const [index, selector] of selectors.entries()) {
+        const id = `descriptive-${selector}`;
+        add(document, id, `prepend ${selector}`);
+        box(document, id).patching_rect = [10 + index * 110, 358, 105, 22];
+        document.patcher.lines.push(
+          wire("descriptiveConfig", index, id),
+          wire(id, 0, target),
+        );
+      }
+    }
+  }
+
+  const documents = {
     "audio_listener_native_clock.gendsp": genDocument(
       `${CLOCK_CODE}\nout8 = 1;`,
       0,
@@ -349,4 +532,24 @@ export function nativeRuntimeDocuments({ resourceDirectory = null } = {}) {
     "audio_listener_native_fft.maxpat": fft,
     "audio_listener_native_analysis.maxpat": analysis,
   };
+  if (nativeVersion === 2) {
+    documents["audio_listener_native_clock.gendsp"] = genDocument(
+      DESCRIPTIVE_CLOCK_CODE,
+      0,
+      8,
+    );
+    documents["audio_listener_native_envelope.gendsp"] = genDocument(
+      descriptiveEnvelopeCode({ configurationReadback: true }),
+      4,
+      23,
+      { outputSpacing: 15 },
+    );
+    documents["audio_listener_native_spectrum.gendsp"] = genDocument(
+      `${descriptiveSpectrumCode()}\nout11 = 2;`,
+      7,
+      11,
+      { outputSpacing: 22 },
+    );
+  }
+  return documents;
 }

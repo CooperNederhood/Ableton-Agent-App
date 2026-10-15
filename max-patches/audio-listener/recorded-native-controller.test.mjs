@@ -12,7 +12,7 @@ import {
   NATIVE_LISTENER_SCOPE,
 } from "../../packages/protocol/src/native-listening-schemas.ts";
 import { nativeRuntimeDocuments } from "./native-runtime-source.mjs";
-import { ARCHIVED_NATIVE_ASSEMBLER } from "./native-assembler-archive.mjs";
+import { historicalNativeSourceURL } from "./native-assembler-archive.mjs";
 
 const { audioObservationSchema } =
   await import("../../packages/protocol/src/audio-observation-schemas.ts");
@@ -146,10 +146,7 @@ test("recorded native math and graphs remain pinned to their source, with the as
     const revision = revisions.currentSourceSnapshot[name];
     if (revision)
       assert.equal(revision.baselineSha256, evidence.codeSha256[name]);
-    const source =
-      name === "audio_listener_native_assembler.js"
-        ? ARCHIVED_NATIVE_ASSEMBLER.fixtureURL
-        : new URL(`./${name}`, import.meta.url);
+    const source = historicalNativeSourceURL(name);
     assert.equal(
       sha(await readFile(new URL(source))),
       revision?.sha256 ?? evidence.codeSha256[name],

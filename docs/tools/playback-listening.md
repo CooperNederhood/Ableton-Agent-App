@@ -269,6 +269,48 @@ publication. Cancellation was unconfirmed after an ownership-mismatch denial.
 The runner closed only its owned Live process and cleaned its copied fixture.
 This remains an open native integration failure; neither attempt is a successful
 v2 capture or justification for a wider timing budget.
+The separately rebuilt and normally saved diagnostic fixture retains the
+previous candidate unchanged. Its next owned attempt records
+`native_metadata_changed_abi_spectrum_0`: the actual spectrum ABI snapshot was
+zero, not the required two. The bounded typed failure attribution identifies
+the rejected packet without accepting it or establishing why it was zero.
+`fixtures/native-v2-arm-metadata-failure.json` preserves that negative evidence;
+its replay remains a denial, not physical capture authority. Earlier generic
+failures are not retroactively assigned this cause.
+The canonical Live log also records two Max codebox compiler errors immediately
+after loading that exact runner-owned fixture: declarations must precede
+expressions. These are actual compilation diagnostics, not inferred initialization
+behavior; the log does not identify the offending codeboxes. The source correction
+still requires a fresh native load and capture before physical acceptance.
+The emitted v2 spectrum codebox did contain a matching declaration-order defect:
+`sourceSampleRate = samplerate;` preceded inherited `History` declarations.
+The v2 generator now emits that assignment after all declarations. A recursive
+regression on the actual emitted codeboxes failed specifically on spectrum
+before the fix and passes afterward; existing v1 byte hashes are unchanged.
+This source finding does not establish which instances produced the two log
+messages or replace real compiler, ABI and capture confirmation.
+
+V2 producer observations also retain the constant-tempo assumption and
+unsupported-automation warning for completed, failed and cancelled results.
+The warning is durable producer data, not an App rewrite of historical payloads.
+
+V2 failed-arm and cancellation settlement must distinguish terminal wire
+ownership from confirmed native cleanup. After native begin, terminal control
+publication waits for the exact generation's actual stopped receipt or its
+bounded stop deadline. A missing receipt is an explicit failed/unconfirmed
+outcome, never a successful cancellation. A prepare-only reservation can cancel
+without native stop because native acquisition never began. The App validates
+reply attribution and increasing sequence before accepting a v2 failed reply
+as terminal wire ownership; it preserves the primary/stop-failure reason rather
+than sending an impossible second cancellation to an already released owner.
+V1 compensation behavior is retained. This does not promote a failed reply,
+an absent owner or a synthetic replay into native stop evidence.
+The producer enforces this ordering for failed arm before armed publication and
+for cancellation, including reentrant receipts and registration/disconnect/stop
+fencing. Its one-second stop timeout retains the primary failure followed by
+`_native_stop_ack_timeout_unconfirmed`; it returns failed, never cancelled.
+Prepared-only cancellation, v1 behavior, normal v2 completion and frame-quota
+failure settlement retain their existing paths.
 
 ### Reviewed descriptive native runner scenarios
 

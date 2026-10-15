@@ -111,6 +111,31 @@ detected-tempo and timing/integrity guards stay in place.
   reports `native_metadata_changed`, followed by unconfirmed cancellation.
   Retain both failed runs and exact-owned process/fixture cleanup evidence;
   do not retry without a narrow regression-backed correction.
+- [x] Preserve bounded v2 metadata-failure kind/actual-value attribution and the
+  separately rebuilt diagnostic fixture. Record/replay the actual
+  `abi-spectrum [0]` denial without weakening ABI validation or attributing the
+  earlier generic failures retroactively. The underlying zero remains unresolved.
+- [x] Read the canonical Live log for the exact owned diagnostic fixture: two
+  `codebox: declarations must come before any expressions` errors follow its
+  load. Preserve bounded compiler evidence with the negative fixture; do not
+  infer an unnamed codebox or a successful corrected native load.
+- [x] Correct the v2 spectrum codebox's sample-rate assignment before inherited
+  `History` declarations. The actual emitted-codebox regression fails before
+  the correction and passes afterward, including same-line declaration checks;
+  preserve v1 graph/root byte hashes. Fresh native acceptance remains required.
+- [x] Retain the constant-tempo/unsupported-automation producer limitation in
+  every v2 terminal observation; preserve v1 and historical payloads unchanged.
+- [x] Reproduce App re-cancellation of terminal v2 arm failure before the fix.
+  Accept only attributed, increasing-sequence terminal failures as released wire
+  ownership; preserve primary/unconfirmed-stop reasons and v1 compensation.
+  Invalid/stale failures still require cleanup; native cancel timeout still
+  rejects capture/disarm and removes subscriptions.
+- [x] Verify v2 producer failed-arm/cancel settlement waits for actual exact-
+  generation stop acknowledgement or explicitly fails its bounded deadline.
+  Do not infer native cleanup from the App's terminal wire-ownership flag.
+  Cover stale/wrong receipts, reentrancy, duplicate settlement, registration/
+  disconnect/stop fencing and pass-ID reuse. Fresh real-Live acceptance remains
+  open.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

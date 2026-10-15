@@ -4,6 +4,10 @@
 const {
   nativeHostBinding,
   nativePreflightTiming,
+  nativeV2Configuration,
+  nativeV2HostBinding,
+  nativeV2PreflightTiming,
+  NATIVE_V2_SCOPE,
 } = require("./audio_listener_native_coordinates.js");
 const { randomUUID } = require("node:crypto");
 
@@ -118,7 +122,14 @@ class AudioListenerEngine {
     analysis = () => {},
     certificate = null,
     launchAlignment = "host",
+    nativeVersion = 1,
   } = {}) {
+    if (
+      ![1, 2].includes(nativeVersion) ||
+      (nativeVersion === 2 && launchAlignment !== "signal")
+    )
+      throw new Error("invalid_native_version");
+    this.nativeVersion = nativeVersion;
     if (!["host", "signal"].includes(launchAlignment))
       throw new Error("invalid launch alignment");
     this.listenerId = identifier(listenerId, "listenerId");
@@ -145,7 +156,8 @@ class AudioListenerEngine {
     if (
       this.pass &&
       this.launchAlignment === "signal" &&
-      host.tempoBpm !== 120
+      host.tempoBpm !==
+        (this.nativeVersion === 2 ? this.pass.geometry.tempoBpm : 120)
     ) {
       return this.terminate(
         this.state === "capturing" ? "partial" : "failed",
@@ -168,7 +180,10 @@ class AudioListenerEngine {
       ((this.state === "native-arming" && host.playing) ||
         (["prepared", "native-arming", "armed"].includes(this.state) &&
           !host.playing &&
-          host.beat !== 0))
+          host.beat !==
+            (this.nativeVersion === 2
+              ? (this.pass?.startBeat ?? host.beat)
+              : 0)))
     ) {
       return this.terminate("failed", "native_transport_changed_before_launch");
     }
@@ -212,7 +227,17 @@ class AudioListenerEngine {
       }
       if (
         this.launchAlignment === "signal" &&
-        host.sample - Math.round(host.beat * 24000) !== this.pass.startSample
+        (this.nativeVersion === 2
+          ? Math.abs(
+              host.sample -
+                Math.round(
+                  (host.beat - this.pass.startBeat) *
+                    ((this.pass.sampleRate * 60) / this.pass.geometry.tempoBpm),
+                ) -
+                this.pass.startSample,
+            ) > this.pass.policy.maxClockDisagreementSamples
+          : host.sample - Math.round(host.beat * 24000) !==
+            this.pass.startSample)
       ) {
         return this.terminate("partial", "native_host_binding_changed");
       }
@@ -230,7 +255,12 @@ class AudioListenerEngine {
     if (command.endBeat <= command.startBeat)
       throw new Error("invalid capture range");
     const host = this.host;
+    const configuration =
+      this.nativeVersion === 2
+        ? nativeV2Configuration(command.geometry, command.timingPolicy)
+        : null;
     if (
+      this.nativeVersion === 1 &&
       this.launchAlignment === "signal" &&
       (!host ||
         host.sampleRate !== 48000 ||
@@ -243,9 +273,23 @@ class AudioListenerEngine {
         !Number.isInteger(command.endBeat * 5))
     )
       throw new Error("unsupported_native_capture_scope");
+    if (
+      configuration &&
+      (command.startBeat !== configuration.geometry.startBeat ||
+        command.endBeat !== configuration.geometry.endBeat ||
+        command.mode !== "arrangement")
+    )
+      throw new Error("unsupported_native_capture_scope");
     const cert =
       this.launchAlignment === "signal"
-        ? nativePreflightTiming(nativePreflight, host)
+        ? configuration
+          ? nativeV2PreflightTiming(
+              nativePreflight,
+              host,
+              configuration.geometry,
+              configuration.policy,
+            )
+          : nativePreflightTiming(nativePreflight, host)
         : timingCertificate(this.certificate);
     if (
       !host ||
@@ -275,11 +319,17 @@ class AudioListenerEngine {
       LIMITS.watchdogMs,
     );
     if (
+      this.nativeVersion === 1 &&
       this.launchAlignment === "signal" &&
       (durationMs < command.endBeat * 500 || durationMs > 10000)
     )
       throw new Error("unsupported_native_capture_duration");
-    const settings = command.settings ?? {};
+    const settings = configuration
+      ? {
+          attackThresholdDb: 6,
+          minAttackSpacingSamples: configuration.geometry.hopSamples,
+        }
+      : (command.settings ?? {});
     const threshold = finite(
       settings.attackThresholdDb ?? 6,
       "attack threshold",
@@ -336,6 +386,9 @@ class AudioListenerEngine {
         : {}),
       context,
       nativeCausationId: context?.causationId,
+      ...(configuration
+        ? { geometry: configuration.geometry, policy: configuration.policy }
+        : {}),
     };
     this.state = "prepared";
     this.emit({ type: "state", state: "prepared", passId: command.passId });
@@ -360,7 +413,7 @@ class AudioListenerEngine {
       if (
         this.now() - this.pass.preparedAt > 1000 ||
         this.host.sample < last[2] ||
-        this.host.sample - last[2] > 48000
+        this.host.sample - last[2] > this.pass.sampleRate
       ) {
         throw new Error("stale_native_preflight_before_arm");
       }
@@ -384,6 +437,7 @@ class AudioListenerEngine {
     const eventId = randomUUID();
     this.emit({
       type: "native-capture-stage",
+      ...(this.nativeVersion === 2 ? { scope: NATIVE_V2_SCOPE } : {}),
       stage,
       eventId,
       ...p.context,
@@ -405,7 +459,14 @@ class AudioListenerEngine {
     const p = this.pass;
     if (!marker || marker.nativeEpoch !== p.nativeEpoch)
       throw new Error("native_epoch_mismatch");
-    integer(marker.armCounter, "native arm counter", 0, 2 ** 44 - 480001);
+    integer(
+      marker.armCounter,
+      "native arm counter",
+      0,
+      this.nativeVersion === 2
+        ? 2 ** 44 - this.pass.geometry.totalSamples - 1
+        : 2 ** 44 - 480001,
+    );
     if (
       !marker.hostBinding ||
       Object.keys(marker.hostBinding).some(
@@ -418,10 +479,13 @@ class AudioListenerEngine {
     ) {
       throw new Error("native_preflight_binding_changed");
     }
-    const binding = nativeHostBinding(p.certificate.before, false);
+    const binding =
+      this.nativeVersion === 2
+        ? nativeV2HostBinding(p.certificate.before, false, p.geometry, p.policy)
+        : nativeHostBinding(p.certificate.before, false);
     if (
       marker.armCounter < binding.lastCounter ||
-      marker.armCounter - binding.lastCounter > 48000 ||
+      marker.armCounter - binding.lastCounter > p.sampleRate ||
       this.now() - p.preparedAt > 1000
     )
       throw new Error("stale_native_host_binding");
@@ -462,8 +526,13 @@ class AudioListenerEngine {
       throw new Error("native_epoch_mismatch");
     if (marker.armCounter !== p.nativeArmCounter)
       throw new Error("native_arm_counter_changed");
-    integer(marker.launchClock, "native launch clock", 0, 480000);
-    integer(marker.launchPhaseSamples, "native launch phase", 0, 64);
+    integer(marker.launchClock, "native launch clock", 0, 10 * p.sampleRate);
+    integer(
+      marker.launchPhaseSamples,
+      "native launch phase",
+      0,
+      p.certificate.vectorSize,
+    );
     const localOrigin = marker.launchClock - marker.launchPhaseSamples;
     if (localOrigin < 0 || marker.rejected !== 0 || marker.active !== 1)
       throw new Error("invalid_native_launch");
@@ -483,9 +552,25 @@ class AudioListenerEngine {
     }
     if (!host.playing) return false;
     if (
-      host.sample - Math.round(host.beat * 24000) !== sample ||
-      host.sample < sample ||
-      host.sample - sample > p.hop + p.certificate.uncertaintySamples
+      (this.nativeVersion === 2
+        ? Math.abs(
+            host.sample -
+              Math.round(
+                (host.beat - p.startBeat) *
+                  ((p.sampleRate * 60) / p.geometry.tempoBpm),
+              ) -
+              sample,
+          ) > p.policy.maxClockDisagreementSamples
+        : host.sample - Math.round(host.beat * 24000) !== sample) ||
+      host.sample <
+        sample -
+          (this.nativeVersion === 2
+            ? p.policy.maxClockDisagreementSamples
+            : 0) ||
+      host.sample - sample >
+        p.hop +
+          p.certificate.uncertaintySamples +
+          (this.nativeVersion === 2 ? p.certificate.vectorSize : 0)
     ) {
       return this.terminate("failed", "native_launch_binding_mismatch");
     }
@@ -503,8 +588,28 @@ class AudioListenerEngine {
     if (this.launchAlignment !== "signal" || this.state !== "capturing")
       throw new Error("not_native_capturing");
     const p = this.pass;
-    if (!p.previousFrame || p.previousFrame.beat < p.endBeat)
+    if (
+      !p.previousFrame ||
+      (this.nativeVersion === 2
+        ? p.totalSamples !== p.geometry.totalSamples
+        : p.previousFrame.beat < p.endBeat)
+    )
       throw new Error("native_capture_not_covered");
+    if (this.nativeVersion === 2) {
+      const checked = nativeV2HostBinding(binding, true, p.geometry, p.policy);
+      const end = p.startSample - p.nativeHostOffset + p.geometry.totalSamples;
+      if (
+        binding.frames[0][4] < end ||
+        checked.lastCounter - end > p.sampleRate ||
+        !p.alignment ||
+        !this.host ||
+        this.now() - this.host.observedAt > 1000
+      )
+        throw new Error("invalid_native_post_binding");
+      p.nativePostConfirmed = true;
+      this.nativeEvent("progress", "native_host_postcheck_complete");
+      return true;
+    }
     const checked = nativeHostBinding(binding, true);
     if (
       checked.hostOffsetSamples !== p.nativeHostOffset ||
@@ -564,7 +669,12 @@ class AudioListenerEngine {
         f.sample - window.endSample >= FFT_SIZE ||
         (p.nativeFFTGrid !== undefined &&
           window.startSample % FFT_SIZE !== p.nativeFFTGrid) ||
-        f.beat !== (f.sample - p.startSample) / 24000
+        f.beat !==
+          (this.nativeVersion === 2
+            ? p.startBeat +
+              (f.sample - p.startSample) /
+                ((p.sampleRate * 60) / p.geometry.tempoBpm)
+            : (f.sample - p.startSample) / 24000)
       ) {
         this.terminate("partial", "native_descriptor_coordinates");
         return false;
@@ -592,13 +702,23 @@ class AudioListenerEngine {
       p.previousNativeFrame = fingerprint;
     }
     if (prev && f.sample === prev.sample) return false; // duplicate held native block
+    const expectedCount =
+      this.nativeVersion === 2
+        ? Math.min(p.hop, p.geometry.totalSamples - p.totalSamples)
+        : p.hop;
     if (
-      (prev && (f.sample - prev.sample !== p.hop || f.beat < prev.beat)) ||
+      (prev &&
+        (f.sample - prev.sample !== expectedCount || f.beat < prev.beat)) ||
       (!prev && f.sample !== p.startSample + p.hop) ||
-      f.windowSamples !== p.hop ||
-      f.sample - p.hop < p.startSample ||
+      f.windowSamples !== expectedCount ||
+      f.sample - expectedCount < p.startSample ||
       f.beat < p.startBeat ||
-      f.beat > p.endBeat
+      f.beat >
+        (this.nativeVersion === 2
+          ? p.startBeat +
+            p.geometry.totalSamples /
+              ((p.sampleRate * 60) / p.geometry.tempoBpm)
+          : p.endBeat)
     ) {
       this.terminate("partial", "descriptor_gap_or_coordinates");
       return false;
@@ -623,8 +743,12 @@ class AudioListenerEngine {
     }
     p.totalSamples += f.windowSamples;
     if (point.centroidHz !== null) {
-      p.centroidSum += point.centroidHz * f.spectralEnergy;
-      p.energySum += f.spectralEnergy;
+      const energy =
+        this.nativeVersion === 2
+          ? (f.spectralEnergy * f.windowSamples) / p.hop
+          : f.spectralEnergy;
+      p.centroidSum += point.centroidHz * energy;
+      p.energySum += energy;
     }
     const level = Math.max(...point.rmsDbfs.map((x) => x ?? FLOOR_DB));
     const rise = level - p.previousLevel;
@@ -684,7 +808,9 @@ class AudioListenerEngine {
     }
     if (
       this.launchAlignment === "signal" &&
-      p.previousFrame?.beat >= p.endBeat &&
+      (this.nativeVersion === 2
+        ? p.totalSamples === p.geometry.totalSamples
+        : p.previousFrame?.beat >= p.endBeat) &&
       !p.nativePostConfirmed
     ) {
       return this.terminate("partial", "native_post_binding_required");
@@ -692,13 +818,17 @@ class AudioListenerEngine {
     // No missing final windows may silently become complete.
     const covered =
       p.previousFrame &&
-      p.previousFrame.beat >= p.endBeat &&
+      (this.nativeVersion === 2
+        ? p.totalSamples === p.geometry.totalSamples
+        : p.previousFrame.beat >= p.endBeat) &&
       (this.launchAlignment === "signal"
         ? p.nativePostConfirmed &&
           this.host.playing &&
           this.now() - this.host.observedAt <= 1000 &&
-          this.host.sample - Math.round(this.host.beat * 24000) ===
-            p.startSample
+          (this.nativeVersion === 2
+            ? !!p.alignment
+            : this.host.sample - Math.round(this.host.beat * 24000) ===
+              p.startSample)
         : Math.abs(this.host.sample - p.previousFrame.sample) <=
           p.certificate.uncertaintySamples);
     return this.terminate(
@@ -734,10 +864,13 @@ class AudioListenerEngine {
     this.analysis(false, true); // mutes native DSP and clears FFT/Gen histories
     const last = p.previousFrame;
     const observation =
-      p.startSample === null
+      p.startSample === null || (this.nativeVersion === 2 && !p.alignment)
         ? null
         : {
-            schema: "audio-observation/v1",
+            schema:
+              this.nativeVersion === 2
+                ? "audio-observation/v2"
+                : "audio-observation/v1",
             listenerId: this.listenerId,
             passId: p.passId,
             sampleRate: p.sampleRate,
@@ -752,11 +885,16 @@ class AudioListenerEngine {
               "Each continuous rise emits at most one attack estimate; a plateau or fall rearms it.",
               "FFT is rectangular 2048-sample non-overlap; stereo complex-bin energies are pooled, never waveforms downmixed.",
               "Spectral points are latest complete FFT frames, not full 100ms spectral averages.",
+              ...(this.nativeVersion === 2
+                ? [
+                    "Constant tempo is assumed; stability is not independently verified; tempo automation is unsupported.",
+                  ]
+                : []),
               `Termination: ${reason}`,
             ],
             algorithm: {
               name: ALGORITHM,
-              version: VERSION,
+              version: this.nativeVersion === 2 ? "2.0.0" : VERSION,
               windowSamples: FFT_SIZE,
               hopSamples: p.hop,
               settings: {
@@ -764,7 +902,11 @@ class AudioListenerEngine {
                 minAttackSpacingSamples: p.spacing,
               },
               units: { amplitude: "linear", rms: "dBFS", centroid: "Hz" },
-              timingUncertaintySamples: p.certificate.uncertaintySamples,
+              ...(this.nativeVersion === 2
+                ? {}
+                : {
+                    timingUncertaintySamples: p.certificate.uncertaintySamples,
+                  }),
             },
             summaries: {
               peak: p.peak,
@@ -782,6 +924,9 @@ class AudioListenerEngine {
                 p.originalSamples !== p.points.length ||
                 p.originalAttacks !== p.attacks.length,
             },
+            ...(this.nativeVersion === 2 && p.alignment
+              ? { alignment: p.alignment }
+              : {}),
           };
     this.pass = null;
     this.state = status;

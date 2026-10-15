@@ -456,6 +456,9 @@ Store non-secret preferences separately from credentials. Important settings:
   remain approximate and descriptive-only, even in strict mode at zero
   disagreement. Estimated absolute timing error and verified absolute error
   bound remain unknown; observed disagreement is not physical uncertainty.
+  V2 detail also states that constant tempo is assumed and stability is not
+  independently verified; tempo automation remains unsupported. Completion is
+  not evidence that tempo stayed constant.
   Historical v1 timing uncertainty retains its legacy label and is not
   relabelled as v2 alignment.
 - Desktop session context declarations accept one or both unique

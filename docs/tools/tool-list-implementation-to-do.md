@@ -9,6 +9,8 @@ Companion reference: [Ableton Tool List](tool-list.md)
 - [x] Document ordinary descriptive Arrangement policy/geometry, guarded
   positioning, truthful approximate output, strict legacy compatibility and
   leave-running cleanup without claiming native v2 qualification.
+- [x] Document assumed constant tempo, unsupported automation and deferred
+  guaranteed change detection without weakening existing guards.
 - [ ] Enable optional listening/context services only after the device, timing,
   attribution, persistence/resume, and isolated workflow validation gates.
 - [x] Explain identity-bound targeting and custom-agent wildcard selection.

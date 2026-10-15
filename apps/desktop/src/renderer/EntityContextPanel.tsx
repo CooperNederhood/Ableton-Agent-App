@@ -315,6 +315,11 @@ function ObservationAlignment({ value }: { value: StoredAudioObservation }) {
       <dd>Unknown (not estimated)</dd>
       <dt>Verified absolute error bound</dt>
       <dd>Unknown (not verified)</dd>
+      <dt>Tempo scope</dt>
+      <dd>
+        Constant tempo assumed; stability not independently verified. Tempo
+        automation is unsupported.
+      </dd>
       <dt>Timing interpretation</dt>
       <dd>
         Observed disagreement is not physical timing uncertainty or an absolute

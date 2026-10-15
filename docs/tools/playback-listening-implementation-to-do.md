@@ -4,6 +4,10 @@ Companion specification: [Playback Listening](playback-listening.md).
 
 ## Approved descriptive-listening finish-up
 
+The first milestone assumes constant tempo; it does not promise independently
+verified stability. Tempo automation remains unsupported. Existing useful
+detected-tempo and timing/integrity guards stay in place.
+
 - [x] Add shared descriptive/strict policy validation: default 64 samples,
   advanced 0..480 samples, immutable evaluation and explicit over-budget denial.
 - [x] Define approximate `audio-observation/v2` and typed protocol reading of
@@ -61,10 +65,20 @@ Companion specification: [Playback Listening](playback-listening.md).
   deny exclusive descriptive attribution and reconcile legacy kind declarations.
 - [x] Add canonical profile preferences, per-pass snapshots, Settings and visible
   quality/warnings with component, IPC and Electron regression coverage.
+- [x] Expose the constant-tempo assumption and unsupported automation in the
+  agent tool, discovery and v2 historical Desktop detail. Do not label completion
+  as proof that tempo stayed constant.
 - [ ] Cover new lifecycle/trace/redaction/failure/cancellation boundaries, then
   qualify reviewed real-Live scenarios and Desktop UX using owned processes.
 - [ ] Package/reopen the portable device, measure resource cost and pass-through,
   and reconcile the original issue criteria and actual supported host versions.
+
+### Deferred follow-up, not a first-milestone release gate
+
+- [ ] Independently detect brief/small tempo changes across a pass using genuine
+  observed evidence, including within-budget changes and change-and-return.
+  Track in [#55](https://github.com/CooperNederhood/Ableton-Agent-App/issues/55).
+  Detection/rejection is separate from future support for tempo automation.
 
 The completed contract/geometry and App/Desktop integration items are
 prerequisites, not actual descriptive capture. The production factory selects

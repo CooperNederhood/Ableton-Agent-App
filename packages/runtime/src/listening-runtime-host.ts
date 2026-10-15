@@ -1028,6 +1028,8 @@ function assemble(
             limitations.push(
               "approximate_descriptive_only",
               "absolute_timing_accuracy_unknown",
+              "constant_tempo_assumed_not_independently_verified",
+              "tempo_automation_unsupported",
             );
           views.push({
             listenerId: candidate.producerId,

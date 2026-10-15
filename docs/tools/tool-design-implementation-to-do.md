@@ -8,6 +8,8 @@
 - [x] Distinguish immutable trusted timing policy, exact native completeness
   and approximate/descriptive-only context; retain strict/no-fallback and
   legacy history without treating deterministic integration as qualification.
+- [x] State the constant-tempo assumption and unsupported automation without
+  promising guaranteed change detection or weakening existing failures.
 - [ ] Complete optional listening/context tool and shared MIDI transport work
   tracked in [Playback Listening](playback-listening-implementation-to-do.md).
 

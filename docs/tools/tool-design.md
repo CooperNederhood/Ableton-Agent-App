@@ -47,6 +47,9 @@ absolute error never authorize sample-exact or real-time actions. Preserve v1
 history without relabelling it; a legacy device cannot silently satisfy a
 descriptive request. Actual native/visible qualification remains separate from
 the implemented App configuration, validation and typed context surfaces.
+Constant tempo is an explicit assumption, not independently verified stability.
+Completion cannot certify unchanged tempo; tempo automation is unsupported.
+Existing detected-tempo and timing/integrity failures remain hard rejections.
 
 ## Three levels
 

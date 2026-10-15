@@ -723,6 +723,27 @@ async function run(
 }
 
 describe("same-runtime production listening factory", () => {
+  it("discloses assumed rather than proven tempo stability before v2 playback", async () => {
+    const f = descriptiveProductionFixture();
+    const result = await f
+      .host()
+      .executeListeningOperation({ action: "inspect-listeners" }, context);
+    expect(result).toMatchObject({
+      action: "inspect-listeners",
+      listeners: [{ ready: false }],
+    });
+    if (!("listeners" in result))
+      throw new Error("Expected listener inventory");
+    expect(result.listeners[0]?.limitations).toContain(
+      "constant_tempo_assumed_not_independently_verified",
+    );
+    expect(result.listeners[0]?.limitations).toContain(
+      "tempo_automation_unsupported",
+    );
+    expect(f.position).not.toHaveBeenCalled();
+    expect(f.startListeningPlayback).not.toHaveBeenCalled();
+  });
+
   it("defaults to descriptive v2, positions before arm, and preserves fractional requested versus measured ranges", async () => {
     const f = descriptiveProductionFixture();
     const result = await run(f.host(), f.request);

@@ -52,6 +52,12 @@ qualification are still required; deterministic integration is not a readiness
 certificate.
 Recording/source safety, native integrity,
 ownership and cleanup are never softened by the timing policy.
+The first descriptive milestone assumes constant tempo without independently
+proving stability. Keep existing detected-tempo/timing failures, but defer
+guaranteed brief/small-change detection to
+[#55](https://github.com/CooperNederhood/Ableton-Agent-App/issues/55).
+Tempo automation remains unsupported; completion does not certify unchanged
+tempo or valid beat association outside that assumption.
 
 Persist immutable observations and typed entity links in an App-session-owned
 context repository. Register `audio-observation/v1` and

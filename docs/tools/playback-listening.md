@@ -44,6 +44,9 @@ authenticated pass below is separate actual capture evidence.
 The approved next release uses descriptive timing by default, with a 64-sample
 observed-disagreement limit adjustable from 0 through 480 samples. Explicit
 strict mode accepts zero observed disagreement; it never silently falls back.
+The first milestone assumes constant tempo rather than independently proving
+stability. Tempo automation is unsupported: do not change tempo during a pass,
+and do not interpret completion as proof that no change occurred.
 The App capture path and Desktop preferences/Settings are wired and covered
 deterministically. Actual native v2 capture and physical/visible qualification
 remain open; this is not a readiness promotion.
@@ -181,7 +184,15 @@ App-owned geometry/policy expectation, preserves requested versus quantized
 ranges, and revalidates proof, attribution and reopened quality. Synthetic
 verifier tests are not real-Live acceptance. The legacy native scenario pins
 strict/zero policy explicitly; it is not silently upgraded by the new default.
-Tempo changes within a pass must fail explicitly. Native corruption, missing
+Existing detected tempo changes and timing/integrity violations still fail
+explicitly. Guaranteed detection of brief/small tempo changes, including changes
+that return to the initial tempo or fit within the disagreement budget, is
+deferred to [#55](https://github.com/CooperNederhood/Ableton-Agent-App/issues/55)
+and is not a first-milestone release gate. This does not add tempo-automation
+support or certify beat/range mapping outside the constant-tempo assumption.
+The agent tool/discovery and v2 Desktop detail expose that limitation even
+when an older observation omitted a producer-declared warning.
+Native corruption, missing
 frames, unsafe recording/source state, stale ownership, timeout and unconfirmed
 cleanup remain hard failures regardless of the timing limit.
 

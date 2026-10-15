@@ -164,6 +164,12 @@ describe("stored listening context presentation", () => {
       await render("session", source);
       await click("View observation context");
       expect(container.textContent).toContain("Approximate; descriptive-only");
+      expect(container.textContent).toContain(
+        "Constant tempo assumed; stability not independently verified",
+      );
+      expect(container.textContent).toContain(
+        "Tempo automation is unsupported",
+      );
       const row = (label: string) =>
         [...container.querySelectorAll("dt")].find(
           (item) => item.textContent === label,

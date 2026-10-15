@@ -51,6 +51,10 @@ describe("optional listening tool contracts", () => {
     expect(tool.description).toContain("native_per_pass_validation_required");
     expect(tool.description).toContain("nonzero/fractional Arrangement starts");
     expect(tool.description).toContain("through 30 seconds");
+    expect(tool.description).toContain(
+      "Tempo stability is assumed, not independently verified",
+    );
+    expect(tool.description).toContain("tempo automation is unsupported");
     expect(tool.description).toContain("not absolute accuracy");
     expect(tool.description).toContain("There is no automatic legacy fallback");
     expect(tool.description).toContain("trusted Settings once per pass");

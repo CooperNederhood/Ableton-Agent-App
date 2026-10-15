@@ -56,6 +56,10 @@ running. Results retain approximate/descriptive-only alignment and unknown
 absolute timing error. A v1-only listener requires explicitly selected
 restricted strict mode; there is no automatic fallback. Native v2 and visible
 acceptance are not implied by this implemented App contract.
+Tempo stability is assumed rather than independently verified. Do not change
+tempo during a pass; tempo automation is unsupported, and completion is not
+proof that tempo stayed constant. Existing detected-tempo/timing failures remain
+active; guaranteed change detection is a deferred follow-up, not a release gate.
 
 | Tool | Purpose | Risk | Scope | Duration | Key inputs |
 | --- | --- | --- | --- | --- | --- |

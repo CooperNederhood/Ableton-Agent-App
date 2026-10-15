@@ -141,6 +141,8 @@ presentation state and say so; they are not applied to Live.
   passes through an application-owned immutable policy provider.
 - [x] Add Settings controls and truthful v2 quality detail at actual sample
   rates, unknown absolute error/bound, and separate historical v1 labelling.
+- [x] Show constant-tempo assumption/not independently verified and unsupported
+  automation for v2 context, including historical producers with no warning.
 - [x] Bind Settings save feedback to the submitted draft revision; retain edits
   made during persistence without falsely labelling them saved. Component
   regressions reproduce both stale-success cases before the fix.

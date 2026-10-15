@@ -250,6 +250,30 @@ function createRuntime({
       else phase = "reset";
     }
     output("native_diagnostic", JSON.stringify({ ...event, phase }));
+    if (
+      scope &&
+      nativePublished &&
+      phase === "capture" &&
+      event.stage === "progress" &&
+      ["phase_torn_native_clock", "torn_native_spectrum"].includes(event.reason)
+    ) {
+      const startedAt = engine.pass?.startedAt;
+      if (!Number.isFinite(startedAt))
+        throw new Error("native_capture_timing_missing");
+      if (
+        !nativeEvent(
+          {
+            ...event,
+            type: "native-capture-stage",
+            frames: engine.pass.points.length,
+            elapsedMs: Math.min(120000, Math.max(0, clock() - startedAt)),
+          },
+          current,
+        )
+      )
+        throw new Error("native_wire_publication_failed");
+      return;
+    }
     if (!scope || nativePublished || scope.failureReason) return;
     if (phase === "preflight") {
       if (event.stage === "completed")

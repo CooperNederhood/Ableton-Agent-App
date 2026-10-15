@@ -1,0 +1,1224 @@
+{
+  "formatVersion": 1,
+  "classification": "actual_diagnostic_recovery_not_runner_acceptance",
+  "productionReady": false,
+  "acceptancePassed": false,
+  "runId": "7877e12d-d9d6-45da-8997-fa902ca378d9",
+  "liveVersion": "11.3.43",
+  "sourceOverridesAtCapture": [
+    {
+      "name": "audio_listener_native_controller.js",
+      "previousSha256": "29df0521293af0f354e85648d624c51c72916c08a322bd6a20fe7db2ea7b9908",
+      "sha256": "60528dca51c38b9be7a8de6b68bb7bd7776c566ac358b7f3b8b40fbeeb702815",
+      "bytes": 26340
+    },
+    {
+      "name": "audio_listener_runtime.js",
+      "previousSha256": "3006d0674d38460044312b5eb086b04bc4fb5fe179bfea31ce0762f6c2b40594",
+      "sha256": "50d763e859c8bf3c811c144b54ec15a0f7e9b0f189edf11be356a8d5f5f75fa9",
+      "bytes": 36136
+    }
+  ],
+  "currentSourceSnapshot": {
+    "audio_listener_native_controller.js": {
+      "baselineSha256": "29df0521293af0f354e85648d624c51c72916c08a322bd6a20fe7db2ea7b9908",
+      "sha256": "5c00dede0ccc55aaabd49d5da2e4442e272bb56f0e3191b5ae14b7ddf19309ba"
+    },
+    "audio_listener_runtime.js": {
+      "baselineSha256": "3006d0674d38460044312b5eb086b04bc4fb5fe179bfea31ce0762f6c2b40594",
+      "sha256": "dcb953aca5191e0f3decde836aced22475d7ee6c0f44605b0c05151479315ae2"
+    }
+  },
+  "currentSourceQualification": {
+    "completeActualCapture": false,
+    "latestDiagnosticRunId": "8d9ce6fd-9f40-44ba-b90a-80e08f186c8c",
+    "latestDiagnosticError": "Listening terminal job did not complete (failed): native_clock_discontinuity",
+    "limitation": "The complete recovery used the explicitly overridden source hashes above. Subsequent formatting and bounded preflight-cohort work have not completed real requalification; do not transfer byte-level qualification."
+  },
+  "evidence": {
+    "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+    "contextId": "ccfa4237-fbe7-4a71-9795-0368298424d9",
+    "listenerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+    "startBeat": 0,
+    "endBeat": 4,
+    "sampleRate": 48000,
+    "stereoFrames": 96000,
+    "envelopeWindows": 20,
+    "spectralWindows": 20,
+    "beforeFrames": 32,
+    "afterFrames": 32,
+    "estimatedAttacks": 4,
+    "attribution": "unknown",
+    "freshness": "unknown",
+    "cleanupPolicy": "leave-running",
+    "independentlyAcceptedNativeProof": true
+  },
+  "nativeCapture": {
+    "armed": {
+      "scope": "arrangement-beat0-120bpm-48000hz-vector64/v1",
+      "nativeEpoch": 1,
+      "armCounter": 1409536,
+      "before": {
+        "dsp": [1, 48000, 64],
+        "frames": [
+          [0, 0, 1393088, 31, 1393088, 0, 1393088, 0, 0, 1393088, 31],
+          [0, 0, 1393600, 31, 1393600, 0, 1393600, 0, 0, 1393600, 31],
+          [0, 0, 1394112, 31, 1394112, 0, 1394112, 0, 0, 1394112, 31],
+          [0, 0, 1394624, 31, 1394624, 0, 1394624, 0, 0, 1394624, 31],
+          [0, 0, 1395136, 31, 1395136, 0, 1395136, 0, 0, 1395136, 31],
+          [0, 0, 1395648, 31, 1395648, 0, 1395648, 0, 0, 1395648, 31],
+          [0, 0, 1396160, 31, 1396160, 0, 1396160, 0, 0, 1396160, 31],
+          [0, 0, 1396672, 31, 1396672, 0, 1396672, 0, 0, 1396672, 31],
+          [0, 0, 1397184, 31, 1397184, 0, 1397184, 0, 0, 1397184, 31],
+          [0, 0, 1397696, 31, 1397696, 0, 1397696, 0, 0, 1397696, 31],
+          [0, 0, 1398208, 31, 1398208, 0, 1398208, 0, 0, 1398208, 31],
+          [0, 0, 1398720, 31, 1398720, 0, 1398720, 0, 0, 1398720, 31],
+          [0, 0, 1399232, 31, 1399232, 0, 1399232, 0, 0, 1399232, 31],
+          [0, 0, 1399744, 31, 1399744, 0, 1399744, 0, 0, 1399744, 31],
+          [0, 0, 1400256, 31, 1400256, 0, 1400256, 0, 0, 1400256, 31],
+          [0, 0, 1400768, 31, 1400768, 0, 1400768, 0, 0, 1400768, 31],
+          [0, 0, 1401280, 31, 1401280, 0, 1401280, 0, 0, 1401280, 31],
+          [0, 0, 1401792, 31, 1401792, 0, 1401792, 0, 0, 1401792, 31],
+          [0, 0, 1402304, 31, 1402304, 0, 1402304, 0, 0, 1402304, 31],
+          [0, 0, 1402816, 31, 1402816, 0, 1402816, 0, 0, 1402816, 31],
+          [0, 0, 1403328, 31, 1403328, 0, 1403328, 0, 0, 1403328, 31],
+          [0, 0, 1403840, 31, 1403840, 0, 1403840, 0, 0, 1403840, 31],
+          [0, 0, 1404352, 31, 1404352, 0, 1404352, 0, 0, 1404352, 31],
+          [0, 0, 1404864, 31, 1404864, 0, 1404864, 0, 0, 1404864, 31],
+          [0, 0, 1405376, 31, 1405376, 0, 1405376, 0, 0, 1405376, 31],
+          [0, 0, 1405888, 31, 1405888, 0, 1405888, 0, 0, 1405888, 31],
+          [0, 0, 1406400, 31, 1406400, 0, 1406400, 0, 0, 1406400, 31],
+          [0, 0, 1406912, 31, 1406912, 0, 1406912, 0, 0, 1406912, 31],
+          [0, 0, 1407424, 31, 1407424, 0, 1407424, 0, 0, 1407424, 31],
+          [0, 0, 1407936, 31, 1407936, 0, 1407936, 0, 0, 1407936, 31],
+          [0, 0, 1408448, 31, 1408448, 0, 1408448, 0, 0, 1408448, 31],
+          [0, 0, 1408960, 31, 1408960, 0, 1408960, 0, 0, 1408960, 31]
+        ]
+      },
+      "reset": {
+        "launchClock": -1,
+        "sourceClock": -1,
+        "onsetCount": 0,
+        "rejected": 0,
+        "active": 0,
+        "launchPhaseSamples": -1,
+        "firstSourceClock": -1,
+        "completedSamples": 0
+      }
+    },
+    "launched": {
+      "nativeEpoch": 1,
+      "armCounter": 1409536,
+      "launchClock": 97281,
+      "launchPhaseSamples": 1,
+      "rejected": 0,
+      "active": 1,
+      "host": {
+        "sample": 1507264,
+        "beat": 0.018666666666667,
+        "flags": 31,
+        "playing": true
+      }
+    },
+    "after": {
+      "dsp": [1, 48000, 64],
+      "frames": [
+        [
+          1, 4.029333333333331, 1603520, 31, 1603520, 0.029333333333331,
+          1603520, 1, 4.029333333333331, 1603520, 31
+        ],
+        [
+          1, 4.050666666666665, 1604032, 31, 1604032, 0.050666666666665,
+          1604032, 1, 4.050666666666665, 1604032, 31
+        ],
+        [
+          1, 4.071999999999997, 1604544, 31, 1604544, 0.071999999999997,
+          1604544, 1, 4.071999999999997, 1604544, 31
+        ],
+        [
+          1, 4.093333333333331, 1605056, 31, 1605056, 0.093333333333331,
+          1605056, 1, 4.093333333333331, 1605056, 31
+        ],
+        [
+          1, 4.114666666666665, 1605568, 31, 1605568, 0.114666666666665,
+          1605568, 1, 4.114666666666665, 1605568, 31
+        ],
+        [
+          1, 4.135999999999997, 1606080, 31, 1606080, 0.135999999999997,
+          1606080, 1, 4.135999999999997, 1606080, 31
+        ],
+        [
+          1, 4.157333333333331, 1606592, 31, 1606592, 0.157333333333331,
+          1606592, 1, 4.157333333333331, 1606592, 31
+        ],
+        [
+          1, 4.178666666666665, 1607104, 31, 1607104, 0.178666666666665,
+          1607104, 1, 4.178666666666665, 1607104, 31
+        ],
+        [
+          1, 4.199999999999998, 1607616, 31, 1607616, 0.199999999999998,
+          1607616, 1, 4.199999999999998, 1607616, 31
+        ],
+        [
+          1, 4.221333333333331, 1608128, 31, 1608128, 0.221333333333331,
+          1608128, 1, 4.221333333333331, 1608128, 31
+        ],
+        [
+          1, 4.242666666666665, 1608640, 31, 1608640, 0.242666666666665,
+          1608640, 1, 4.242666666666665, 1608640, 31
+        ],
+        [
+          1, 4.263999999999998, 1609152, 31, 1609152, 0.263999999999998,
+          1609152, 1, 4.263999999999998, 1609152, 31
+        ],
+        [
+          1, 4.285333333333331, 1609664, 31, 1609664, 0.285333333333331,
+          1609664, 1, 4.285333333333331, 1609664, 31
+        ],
+        [
+          1, 4.306666666666665, 1610176, 31, 1610176, 0.306666666666665,
+          1610176, 1, 4.306666666666665, 1610176, 31
+        ],
+        [
+          1, 4.327999999999998, 1610688, 31, 1610688, 0.327999999999998,
+          1610688, 1, 4.327999999999998, 1610688, 31
+        ],
+        [
+          1, 4.349333333333331, 1611200, 31, 1611200, 0.349333333333331,
+          1611200, 1, 4.349333333333331, 1611200, 31
+        ],
+        [
+          1, 4.370666666666664, 1611712, 31, 1611712, 0.370666666666664,
+          1611712, 1, 4.370666666666664, 1611712, 31
+        ],
+        [
+          1, 4.391999999999998, 1612224, 31, 1612224, 0.391999999999998,
+          1612224, 1, 4.391999999999998, 1612224, 31
+        ],
+        [
+          1, 4.413333333333331, 1612736, 31, 1612736, 0.413333333333331,
+          1612736, 1, 4.413333333333331, 1612736, 31
+        ],
+        [
+          1, 4.434666666666664, 1613248, 31, 1613248, 0.434666666666664,
+          1613248, 1, 4.434666666666664, 1613248, 31
+        ],
+        [
+          1, 4.455999999999998, 1613760, 31, 1613760, 0.455999999999998,
+          1613760, 1, 4.455999999999998, 1613760, 31
+        ],
+        [
+          1, 4.477333333333331, 1614272, 31, 1614272, 0.477333333333331,
+          1614272, 1, 4.477333333333331, 1614272, 31
+        ],
+        [
+          1, 4.498666666666664, 1614784, 31, 1614784, 0.498666666666664,
+          1614784, 1, 4.498666666666664, 1614784, 31
+        ],
+        [
+          1, 4.519999999999998, 1615296, 31, 1615296, 0.520000000000001,
+          1615296, 1, 4.519999999999998, 1615296, 31
+        ],
+        [
+          1, 4.541333333333331, 1615808, 31, 1615808, 0.541333333333335,
+          1615808, 1, 4.541333333333331, 1615808, 31
+        ],
+        [
+          1, 4.562666666666664, 1616320, 31, 1616320, 0.562666666666668,
+          1616320, 1, 4.562666666666664, 1616320, 31
+        ],
+        [
+          1, 4.583999999999998, 1616832, 31, 1616832, 0.584000000000001,
+          1616832, 1, 4.583999999999998, 1616832, 31
+        ],
+        [
+          1, 4.605333333333332, 1617344, 31, 1617344, 0.605333333333335,
+          1617344, 1, 4.605333333333332, 1617344, 31
+        ],
+        [
+          1, 4.626666666666664, 1617856, 31, 1617856, 0.626666666666668,
+          1617856, 1, 4.626666666666664, 1617856, 31
+        ],
+        [
+          1, 4.647999999999998, 1618368, 31, 1618368, 0.648000000000001,
+          1618368, 1, 4.647999999999998, 1618368, 31
+        ],
+        [
+          1, 4.669333333333332, 1618880, 31, 1618880, 0.669333333333335,
+          1618880, 1, 4.669333333333332, 1618880, 31
+        ],
+        [
+          1, 4.690666666666664, 1619392, 31, 1619392, 0.690666666666668,
+          1619392, 1, 4.690666666666664, 1619392, 31
+        ]
+      ]
+    },
+    "spectralWindows": [
+      [1509376, 1511424, 447.8440982561969, 522946.8503094925],
+      [1513472, 1515520, 453.1574981231822, 525451.2711278888],
+      [1517568, 1519616, 440.0042455093402, 280292.1630951161],
+      [1523712, 1525760, 0, 0],
+      [1527808, 1529856, 0, 0],
+      [1531904, 1533952, 448.585554587816, 523295.02982957],
+      [1538048, 1540096, 445.36078929639535, 521784.7160815096],
+      [1542144, 1544192, 467.46747096135516, 129394.06622226533],
+      [1546240, 1548288, 0, 0],
+      [1552384, 1554432, 0, 0],
+      [1556480, 1558528, 449.62815394532964, 523785.2699766831],
+      [1560576, 1562624, 444.75383029567865, 521501.2795877528],
+      [1566720, 1568768, 611.2629437859305, 1683.7815519515439],
+      [1570816, 1572864, 0, 0],
+      [1574912, 1576960, 0, 0],
+      [1581056, 1583104, 455.2825086347306, 526459.4589007029],
+      [1585152, 1587200, 458.9387292403871, 528203.5472993858],
+      [1589248, 1591296, 445.7416676001909, 362977.97051644424],
+      [1595392, 1597440, 0, 0],
+      [1599488, 1601536, 0, 0]
+    ]
+  },
+  "observation": {
+    "schema": "audio-observation/v1",
+    "listenerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+    "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+    "sampleRate": 48000,
+    "startSample": 1506816,
+    "endSample": 1602816,
+    "startBeat": 0,
+    "endBeat": 4,
+    "complete": true,
+    "limitations": [
+      "RMS dBFS is not perceptual LUFS.",
+      "Attacks are 100ms envelope-rise estimates, not exact onsets.",
+      "Each continuous rise emits at most one attack estimate; a plateau or fall rearms it.",
+      "FFT is rectangular 2048-sample non-overlap; stereo complex-bin energies are pooled, never waveforms downmixed.",
+      "Spectral points are latest complete FFT frames, not full 100ms spectral averages.",
+      "Termination: range_complete"
+    ],
+    "algorithm": {
+      "name": "native-max-stereo-energy-envelope-rise",
+      "version": "1.0.1",
+      "windowSamples": 2048,
+      "hopSamples": 4800,
+      "settings": {
+        "attackThresholdDb": 6,
+        "minAttackSpacingSamples": 4800
+      },
+      "units": {
+        "amplitude": "linear",
+        "rms": "dBFS",
+        "centroid": "Hz"
+      },
+      "timingUncertaintySamples": 64
+    },
+    "summaries": {
+      "peak": [0.5, 0.5],
+      "rmsDbfs": [-12.159430090285273, -12.159430090285273],
+      "centroidHz": 450.0255642548547
+    },
+    "samples": [
+      {
+        "sample": 1511616,
+        "beat": 0.2,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-9.189996513620962, -9.189996513620962],
+        "centroidHz": 447.8440982561969
+      },
+      {
+        "sample": 1516416,
+        "beat": 0.4,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+        "centroidHz": 453.1574981231822
+      },
+      {
+        "sample": 1521216,
+        "beat": 0.6,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-12.339829348859507, -12.339829348859507],
+        "centroidHz": 440.0042455093402
+      },
+      {
+        "sample": 1526016,
+        "beat": 0.8,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1530816,
+        "beat": 1,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1535616,
+        "beat": 1.2,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-9.177653870110186, -9.177653870110186],
+        "centroidHz": 448.585554587816
+      },
+      {
+        "sample": 1540416,
+        "beat": 1.4,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+        "centroidHz": 445.36078929639535
+      },
+      {
+        "sample": 1545216,
+        "beat": 1.6,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-12.339829348859507, -12.339829348859507],
+        "centroidHz": 467.46747096135516
+      },
+      {
+        "sample": 1550016,
+        "beat": 1.8,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1554816,
+        "beat": 2,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1559616,
+        "beat": 2.2,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-9.177653870110186, -9.177653870110186],
+        "centroidHz": 449.62815394532964
+      },
+      {
+        "sample": 1564416,
+        "beat": 2.4,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+        "centroidHz": 444.75383029567865
+      },
+      {
+        "sample": 1569216,
+        "beat": 2.6,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-12.339829348859507, -12.339829348859507],
+        "centroidHz": 611.2629437859305
+      },
+      {
+        "sample": 1574016,
+        "beat": 2.8,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1578816,
+        "beat": 3,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1583616,
+        "beat": 3.2,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-9.177653870110186, -9.177653870110186],
+        "centroidHz": 455.2825086347306
+      },
+      {
+        "sample": 1588416,
+        "beat": 3.4,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+        "centroidHz": 458.9387292403871
+      },
+      {
+        "sample": 1593216,
+        "beat": 3.6,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-12.339829348859507, -12.339829348859507],
+        "centroidHz": 445.7416676001909
+      },
+      {
+        "sample": 1598016,
+        "beat": 3.8,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1602816,
+        "beat": 4,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      }
+    ],
+    "attacks": [
+      {
+        "sample": 1511616,
+        "beat": 0.2,
+        "strength": 110.81000348637903
+      },
+      {
+        "sample": 1535616,
+        "beat": 1.2,
+        "strength": 110.82234612988981
+      },
+      {
+        "sample": 1559616,
+        "beat": 2.2,
+        "strength": 110.82234612988981
+      },
+      {
+        "sample": 1583616,
+        "beat": 3.2,
+        "strength": 110.82234612988981
+      }
+    ],
+    "reduction": {
+      "originalSamples": 20,
+      "originalAttacks": 4,
+      "truncated": false
+    }
+  },
+  "typedContext": {
+    "action": "get",
+    "entry": {
+      "contextId": "ccfa4237-fbe7-4a71-9795-0368298424d9",
+      "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+      "listenerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+      "subjectId": "213eedb5215a659999bbad905aead8ae63f184e6f753853fc128ce3d4792be53",
+      "kind": "audio-observation/v1",
+      "createdAt": "2026-10-15T01:34:49.916Z",
+      "freshness": "unknown",
+      "summary": "arrangement-range: 3-ML-Calibration-quarter-sine. Observed beats 0-4. Attribution unknown; primary association. Peak 0.5000, 0.5000 linear. RMS -12.16 dBFS, -12.16 dBFS; not LUFS. Centroid 450.0 Hz. Freshness unknown; historical bindings are not current bridge references"
+    },
+    "observation": {
+      "schema": "audio-observation/v1",
+      "listenerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+      "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+      "sampleRate": 48000,
+      "startSample": 1506816,
+      "endSample": 1602816,
+      "startBeat": 0,
+      "endBeat": 4,
+      "complete": true,
+      "limitations": [
+        "RMS dBFS is not perceptual LUFS.",
+        "Attacks are 100ms envelope-rise estimates, not exact onsets.",
+        "Each continuous rise emits at most one attack estimate; a plateau or fall rearms it.",
+        "FFT is rectangular 2048-sample non-overlap; stereo complex-bin energies are pooled, never waveforms downmixed.",
+        "Spectral points are latest complete FFT frames, not full 100ms spectral averages.",
+        "Termination: range_complete"
+      ],
+      "algorithm": {
+        "name": "native-max-stereo-energy-envelope-rise",
+        "version": "1.0.1",
+        "windowSamples": 2048,
+        "hopSamples": 4800,
+        "settings": {
+          "attackThresholdDb": 6,
+          "minAttackSpacingSamples": 4800
+        },
+        "units": {
+          "amplitude": "linear",
+          "rms": "dBFS",
+          "centroid": "Hz"
+        },
+        "timingUncertaintySamples": 64
+      },
+      "summaries": {
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-12.159430090285273, -12.159430090285273],
+        "centroidHz": 450.0255642548547
+      },
+      "samples": [
+        {
+          "sample": 1511616,
+          "beat": 0.2,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.189996513620962, -9.189996513620962],
+          "centroidHz": 447.8440982561969
+        },
+        {
+          "sample": 1516416,
+          "beat": 0.4,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+          "centroidHz": 453.1574981231822
+        },
+        {
+          "sample": 1521216,
+          "beat": 0.6,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-12.339829348859507, -12.339829348859507],
+          "centroidHz": 440.0042455093402
+        },
+        {
+          "sample": 1526016,
+          "beat": 0.8,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 1530816,
+          "beat": 1,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 1535616,
+          "beat": 1.2,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.177653870110186, -9.177653870110186],
+          "centroidHz": 448.585554587816
+        },
+        {
+          "sample": 1540416,
+          "beat": 1.4,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+          "centroidHz": 445.36078929639535
+        },
+        {
+          "sample": 1545216,
+          "beat": 1.6,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-12.339829348859507, -12.339829348859507],
+          "centroidHz": 467.46747096135516
+        },
+        {
+          "sample": 1550016,
+          "beat": 1.8,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 1554816,
+          "beat": 2,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 1559616,
+          "beat": 2.2,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.177653870110186, -9.177653870110186],
+          "centroidHz": 449.62815394532964
+        },
+        {
+          "sample": 1564416,
+          "beat": 2.4,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+          "centroidHz": 444.75383029567865
+        },
+        {
+          "sample": 1569216,
+          "beat": 2.6,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-12.339829348859507, -12.339829348859507],
+          "centroidHz": 611.2629437859305
+        },
+        {
+          "sample": 1574016,
+          "beat": 2.8,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 1578816,
+          "beat": 3,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 1583616,
+          "beat": 3.2,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.177653870110186, -9.177653870110186],
+          "centroidHz": 455.2825086347306
+        },
+        {
+          "sample": 1588416,
+          "beat": 3.4,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+          "centroidHz": 458.9387292403871
+        },
+        {
+          "sample": 1593216,
+          "beat": 3.6,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-12.339829348859507, -12.339829348859507],
+          "centroidHz": 445.7416676001909
+        },
+        {
+          "sample": 1598016,
+          "beat": 3.8,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 1602816,
+          "beat": 4,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        }
+      ],
+      "attacks": [
+        {
+          "sample": 1511616,
+          "beat": 0.2,
+          "strength": 110.81000348637903
+        },
+        {
+          "sample": 1535616,
+          "beat": 1.2,
+          "strength": 110.82234612988981
+        },
+        {
+          "sample": 1559616,
+          "beat": 2.2,
+          "strength": 110.82234612988981
+        },
+        {
+          "sample": 1583616,
+          "beat": 3.2,
+          "strength": 110.82234612988981
+        }
+      ],
+      "reduction": {
+        "originalSamples": 20,
+        "originalAttacks": 4,
+        "truncated": false
+      }
+    }
+  },
+  "typedReopenInNewProcessMatches": true,
+  "lifecycle": [
+    {
+      "sequence": 615,
+      "occurredAt": "2026-10-15T01:34:45.544Z",
+      "name": "output.listener.native.preflight.queued",
+      "durationMs": 1,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "52da6ade-8f10-411a-82cb-238152aac68d"
+      },
+      "attributes": {
+        "connectionId": "e5df4e0d-fc2c-4e30-b52c-87e9ad97a2b7",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "b45f36bb-298e-4e80-aa37-28457c2876e8",
+        "connectionEpoch": "862f94e6-d25f-4612-b5b3-35de54adfce3",
+        "jobId": "9cd6bec2-ad78-48fe-9726-4ea48c5ca04b",
+        "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+        "eventId": "355ddde6-5433-4821-b91a-281fa8952cfc",
+        "causationId": "toolu_014hjAAKib1JYQSmDGqFrr2i",
+        "phase": "preflight",
+        "generation": "aeb4b8f2-3972-4836-9115-813d25249038",
+        "stage": "queued",
+        "nativeEpoch": 1,
+        "elapsedMs": 1,
+        "frames": 0
+      }
+    },
+    {
+      "sequence": 619,
+      "occurredAt": "2026-10-15T01:34:45.547Z",
+      "name": "output.listener.native.preflight.started",
+      "durationMs": 1,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "aa0a8dbc-bf5a-49ad-88d2-6d7cf3531287"
+      },
+      "attributes": {
+        "connectionId": "e5df4e0d-fc2c-4e30-b52c-87e9ad97a2b7",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "b45f36bb-298e-4e80-aa37-28457c2876e8",
+        "connectionEpoch": "862f94e6-d25f-4612-b5b3-35de54adfce3",
+        "jobId": "9cd6bec2-ad78-48fe-9726-4ea48c5ca04b",
+        "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+        "eventId": "cda2ed98-517a-44e9-8ba8-ec49d58222b1",
+        "causationId": "355ddde6-5433-4821-b91a-281fa8952cfc",
+        "phase": "preflight",
+        "generation": "aeb4b8f2-3972-4836-9115-813d25249038",
+        "stage": "started",
+        "nativeEpoch": 1,
+        "elapsedMs": 1,
+        "frames": 0
+      }
+    },
+    {
+      "sequence": 623,
+      "occurredAt": "2026-10-15T01:34:45.548Z",
+      "name": "output.listener.native.preflight.completed",
+      "durationMs": 349,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "adbce1f6-86c4-4f1b-8cfc-f5b205b94428"
+      },
+      "attributes": {
+        "connectionId": "e5df4e0d-fc2c-4e30-b52c-87e9ad97a2b7",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "b45f36bb-298e-4e80-aa37-28457c2876e8",
+        "connectionEpoch": "862f94e6-d25f-4612-b5b3-35de54adfce3",
+        "jobId": "9cd6bec2-ad78-48fe-9726-4ea48c5ca04b",
+        "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+        "eventId": "df337da7-c3cf-4c28-add0-a774b9129fa6",
+        "causationId": "cda2ed98-517a-44e9-8ba8-ec49d58222b1",
+        "phase": "preflight",
+        "generation": "aeb4b8f2-3972-4836-9115-813d25249038",
+        "stage": "completed",
+        "nativeEpoch": 1,
+        "elapsedMs": 349,
+        "frames": 0
+      }
+    },
+    {
+      "sequence": 627,
+      "occurredAt": "2026-10-15T01:34:45.550Z",
+      "name": "output.listener.native.reset.queued",
+      "durationMs": 0,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "f8dc8614-9352-4768-8585-133cb55e8b88"
+      },
+      "attributes": {
+        "connectionId": "e5df4e0d-fc2c-4e30-b52c-87e9ad97a2b7",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "b45f36bb-298e-4e80-aa37-28457c2876e8",
+        "connectionEpoch": "862f94e6-d25f-4612-b5b3-35de54adfce3",
+        "jobId": "9cd6bec2-ad78-48fe-9726-4ea48c5ca04b",
+        "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+        "eventId": "e1cd1199-31e2-46ab-9fbc-317d341de40c",
+        "causationId": "df337da7-c3cf-4c28-add0-a774b9129fa6",
+        "phase": "reset",
+        "generation": "aeb4b8f2-3972-4836-9115-813d25249038",
+        "stage": "queued",
+        "nativeEpoch": 1,
+        "elapsedMs": 0,
+        "frames": 0
+      }
+    },
+    {
+      "sequence": 631,
+      "occurredAt": "2026-10-15T01:34:45.551Z",
+      "name": "output.listener.native.reset.started",
+      "durationMs": 1,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "89e8e5f6-c0a2-4481-81ef-c8173a5cc168"
+      },
+      "attributes": {
+        "connectionId": "e5df4e0d-fc2c-4e30-b52c-87e9ad97a2b7",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "b45f36bb-298e-4e80-aa37-28457c2876e8",
+        "connectionEpoch": "862f94e6-d25f-4612-b5b3-35de54adfce3",
+        "jobId": "9cd6bec2-ad78-48fe-9726-4ea48c5ca04b",
+        "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+        "eventId": "cb79385e-e82a-4189-825a-a857bfcab014",
+        "causationId": "e1cd1199-31e2-46ab-9fbc-317d341de40c",
+        "phase": "reset",
+        "generation": "aeb4b8f2-3972-4836-9115-813d25249038",
+        "stage": "started",
+        "nativeEpoch": 1,
+        "elapsedMs": 1,
+        "frames": 0
+      }
+    },
+    {
+      "sequence": 635,
+      "occurredAt": "2026-10-15T01:34:45.552Z",
+      "name": "output.listener.native.reset.progress",
+      "durationMs": 6,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "6532efc7-eb9f-461d-8e26-ee7d92db5987"
+      },
+      "attributes": {
+        "connectionId": "e5df4e0d-fc2c-4e30-b52c-87e9ad97a2b7",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "b45f36bb-298e-4e80-aa37-28457c2876e8",
+        "connectionEpoch": "862f94e6-d25f-4612-b5b3-35de54adfce3",
+        "jobId": "9cd6bec2-ad78-48fe-9726-4ea48c5ca04b",
+        "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+        "eventId": "197b265e-7408-491f-919c-37a4ce037c8b",
+        "causationId": "df337da7-c3cf-4c28-add0-a774b9129fa6",
+        "phase": "reset",
+        "generation": "aeb4b8f2-3972-4836-9115-813d25249038",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 6,
+        "frames": 0,
+        "reason": "waiting_native_reset"
+      }
+    },
+    {
+      "sequence": 639,
+      "occurredAt": "2026-10-15T01:34:45.554Z",
+      "name": "output.listener.native.reset.completed",
+      "durationMs": 19,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "a0b485fe-0f47-400f-8e08-5e90cf4ea8b5"
+      },
+      "attributes": {
+        "connectionId": "e5df4e0d-fc2c-4e30-b52c-87e9ad97a2b7",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "b45f36bb-298e-4e80-aa37-28457c2876e8",
+        "connectionEpoch": "862f94e6-d25f-4612-b5b3-35de54adfce3",
+        "jobId": "9cd6bec2-ad78-48fe-9726-4ea48c5ca04b",
+        "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+        "eventId": "aa8836e2-737b-4683-9756-0a20709471cf",
+        "causationId": "197b265e-7408-491f-919c-37a4ce037c8b",
+        "phase": "reset",
+        "generation": "aeb4b8f2-3972-4836-9115-813d25249038",
+        "stage": "completed",
+        "nativeEpoch": 1,
+        "elapsedMs": 19,
+        "frames": 0,
+        "reason": "native_arm_acknowledged"
+      }
+    },
+    {
+      "sequence": 643,
+      "occurredAt": "2026-10-15T01:34:45.555Z",
+      "name": "output.listener.native.queued",
+      "durationMs": 0,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "4c39ceaf-aca4-4d23-8c74-b10db7dc5a5c"
+      },
+      "attributes": {
+        "connectionId": "e5df4e0d-fc2c-4e30-b52c-87e9ad97a2b7",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "b45f36bb-298e-4e80-aa37-28457c2876e8",
+        "connectionEpoch": "862f94e6-d25f-4612-b5b3-35de54adfce3",
+        "jobId": "9cd6bec2-ad78-48fe-9726-4ea48c5ca04b",
+        "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+        "eventId": "ca5f6dca-de30-4d98-aedc-95f952b20622",
+        "causationId": "df337da7-c3cf-4c28-add0-a774b9129fa6",
+        "phase": "capture",
+        "generation": "aeb4b8f2-3972-4836-9115-813d25249038",
+        "stage": "queued",
+        "nativeEpoch": 1,
+        "elapsedMs": 0,
+        "frames": 0
+      }
+    },
+    {
+      "sequence": 647,
+      "occurredAt": "2026-10-15T01:34:45.556Z",
+      "name": "output.listener.native.started",
+      "durationMs": 0,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "65c74ca8-2c11-43dc-84b8-50091771c7f1"
+      },
+      "attributes": {
+        "connectionId": "e5df4e0d-fc2c-4e30-b52c-87e9ad97a2b7",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "b45f36bb-298e-4e80-aa37-28457c2876e8",
+        "connectionEpoch": "862f94e6-d25f-4612-b5b3-35de54adfce3",
+        "jobId": "9cd6bec2-ad78-48fe-9726-4ea48c5ca04b",
+        "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+        "eventId": "f1ca5aa1-2e19-4a2c-82cd-0bb45433c8ba",
+        "causationId": "ca5f6dca-de30-4d98-aedc-95f952b20622",
+        "phase": "capture",
+        "generation": "aeb4b8f2-3972-4836-9115-813d25249038",
+        "stage": "started",
+        "nativeEpoch": 1,
+        "elapsedMs": 0,
+        "frames": 0
+      }
+    },
+    {
+      "sequence": 651,
+      "occurredAt": "2026-10-15T01:34:45.557Z",
+      "name": "output.listener.native.progress",
+      "durationMs": 18,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "372d9bba-909c-4fb4-8838-22176a7974d4"
+      },
+      "attributes": {
+        "connectionId": "e5df4e0d-fc2c-4e30-b52c-87e9ad97a2b7",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "b45f36bb-298e-4e80-aa37-28457c2876e8",
+        "connectionEpoch": "862f94e6-d25f-4612-b5b3-35de54adfce3",
+        "jobId": "9cd6bec2-ad78-48fe-9726-4ea48c5ca04b",
+        "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+        "eventId": "fb79a322-815f-4fd6-8033-ebd546c54408",
+        "causationId": "f1ca5aa1-2e19-4a2c-82cd-0bb45433c8ba",
+        "phase": "capture",
+        "generation": "aeb4b8f2-3972-4836-9115-813d25249038",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 18,
+        "frames": 0,
+        "reason": "native_arm_acknowledged"
+      }
+    },
+    {
+      "sequence": 674,
+      "occurredAt": "2026-10-15T01:34:47.559Z",
+      "name": "output.listener.native.progress",
+      "durationMs": 2044,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "69a33ab7-0894-4d9b-8b4d-51fa5b675465"
+      },
+      "attributes": {
+        "connectionId": "e5df4e0d-fc2c-4e30-b52c-87e9ad97a2b7",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "b45f36bb-298e-4e80-aa37-28457c2876e8",
+        "connectionEpoch": "862f94e6-d25f-4612-b5b3-35de54adfce3",
+        "jobId": "9cd6bec2-ad78-48fe-9726-4ea48c5ca04b",
+        "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+        "eventId": "b41d2fa4-0779-4d3f-9140-baae66e4a853",
+        "causationId": "fb79a322-815f-4fd6-8033-ebd546c54408",
+        "phase": "capture",
+        "generation": "aeb4b8f2-3972-4836-9115-813d25249038",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 2044,
+        "frames": 0,
+        "reason": "native_launch_observed"
+      }
+    },
+    {
+      "sequence": 698,
+      "occurredAt": "2026-10-15T01:34:48.495Z",
+      "name": "output.listener.native.progress",
+      "durationMs": 2981,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "ce38375d-6209-4c53-840f-513623e279d2"
+      },
+      "attributes": {
+        "connectionId": "e5df4e0d-fc2c-4e30-b52c-87e9ad97a2b7",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "b45f36bb-298e-4e80-aa37-28457c2876e8",
+        "connectionEpoch": "862f94e6-d25f-4612-b5b3-35de54adfce3",
+        "jobId": "9cd6bec2-ad78-48fe-9726-4ea48c5ca04b",
+        "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+        "eventId": "c44719ae-3f51-4b4b-8fad-2fd64fe6ed97",
+        "causationId": "197b265e-7408-491f-919c-37a4ce037c8b",
+        "phase": "capture",
+        "generation": "aeb4b8f2-3972-4836-9115-813d25249038",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 2981,
+        "frames": 9,
+        "reason": "torn_native_spectrum"
+      }
+    },
+    {
+      "sequence": 702,
+      "occurredAt": "2026-10-15T01:34:48.583Z",
+      "name": "output.listener.native.progress",
+      "durationMs": 3069,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "aa8b81c1-2ffb-44fe-85d3-12ef7e7e2610"
+      },
+      "attributes": {
+        "connectionId": "e5df4e0d-fc2c-4e30-b52c-87e9ad97a2b7",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "b45f36bb-298e-4e80-aa37-28457c2876e8",
+        "connectionEpoch": "862f94e6-d25f-4612-b5b3-35de54adfce3",
+        "jobId": "9cd6bec2-ad78-48fe-9726-4ea48c5ca04b",
+        "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+        "eventId": "c668b81c-0333-4811-b58a-413934f9f000",
+        "causationId": "b41d2fa4-0779-4d3f-9140-baae66e4a853",
+        "phase": "capture",
+        "generation": "aeb4b8f2-3972-4836-9115-813d25249038",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 3069,
+        "frames": 10
+      }
+    },
+    {
+      "sequence": 717,
+      "occurredAt": "2026-10-15T01:34:49.475Z",
+      "name": "output.listener.native.progress",
+      "durationMs": 3962,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "26f2fae4-16db-4baf-8eeb-5b57aafb1528"
+      },
+      "attributes": {
+        "connectionId": "e5df4e0d-fc2c-4e30-b52c-87e9ad97a2b7",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "b45f36bb-298e-4e80-aa37-28457c2876e8",
+        "connectionEpoch": "862f94e6-d25f-4612-b5b3-35de54adfce3",
+        "jobId": "9cd6bec2-ad78-48fe-9726-4ea48c5ca04b",
+        "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+        "eventId": "10729fe8-594a-44ba-9b04-ab38f7000ff6",
+        "causationId": "c44719ae-3f51-4b4b-8fad-2fd64fe6ed97",
+        "phase": "capture",
+        "generation": "aeb4b8f2-3972-4836-9115-813d25249038",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 3962,
+        "frames": 18,
+        "reason": "phase_torn_native_clock"
+      }
+    },
+    {
+      "sequence": 721,
+      "occurredAt": "2026-10-15T01:34:49.563Z",
+      "name": "output.listener.native.progress",
+      "durationMs": 4048,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "65fb87e1-ee5d-492c-8293-b01269541642"
+      },
+      "attributes": {
+        "connectionId": "e5df4e0d-fc2c-4e30-b52c-87e9ad97a2b7",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "b45f36bb-298e-4e80-aa37-28457c2876e8",
+        "connectionEpoch": "862f94e6-d25f-4612-b5b3-35de54adfce3",
+        "jobId": "9cd6bec2-ad78-48fe-9726-4ea48c5ca04b",
+        "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+        "eventId": "14d1912a-88e5-42cf-9914-86f896014ade",
+        "causationId": "c668b81c-0333-4811-b58a-413934f9f000",
+        "phase": "capture",
+        "generation": "aeb4b8f2-3972-4836-9115-813d25249038",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 4048,
+        "frames": 20
+      }
+    },
+    {
+      "sequence": 727,
+      "occurredAt": "2026-10-15T01:34:49.896Z",
+      "name": "output.listener.native.progress",
+      "durationMs": 4381,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "72f6672d-b175-45f5-8abd-43a226faca81"
+      },
+      "attributes": {
+        "connectionId": "e5df4e0d-fc2c-4e30-b52c-87e9ad97a2b7",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "b45f36bb-298e-4e80-aa37-28457c2876e8",
+        "connectionEpoch": "862f94e6-d25f-4612-b5b3-35de54adfce3",
+        "jobId": "9cd6bec2-ad78-48fe-9726-4ea48c5ca04b",
+        "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+        "eventId": "9f354fba-7931-4a22-b432-cd83f9960421",
+        "causationId": "14d1912a-88e5-42cf-9914-86f896014ade",
+        "phase": "capture",
+        "generation": "aeb4b8f2-3972-4836-9115-813d25249038",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 4381,
+        "frames": 20,
+        "reason": "native_host_postcheck_complete"
+      }
+    },
+    {
+      "sequence": 731,
+      "occurredAt": "2026-10-15T01:34:49.898Z",
+      "name": "output.listener.native.completed",
+      "durationMs": 4382,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "c7d53561-4e66-4e62-89dc-6151cfb35d3b"
+      },
+      "attributes": {
+        "connectionId": "e5df4e0d-fc2c-4e30-b52c-87e9ad97a2b7",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "b45f36bb-298e-4e80-aa37-28457c2876e8",
+        "connectionEpoch": "862f94e6-d25f-4612-b5b3-35de54adfce3",
+        "jobId": "9cd6bec2-ad78-48fe-9726-4ea48c5ca04b",
+        "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+        "eventId": "ad730c2d-200f-4256-b79b-7556ccb728bc",
+        "causationId": "9f354fba-7931-4a22-b432-cd83f9960421",
+        "phase": "capture",
+        "generation": "aeb4b8f2-3972-4836-9115-813d25249038",
+        "stage": "completed",
+        "nativeEpoch": 1,
+        "elapsedMs": 4382,
+        "frames": 20,
+        "reason": "range_complete"
+      }
+    },
+    {
+      "sequence": 742,
+      "occurredAt": "2026-10-15T01:34:49.918Z",
+      "name": "listening.runtime.publication.queued",
+      "durationMs": 0,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "43aa70e0-2722-482d-ba8e-172e97cc343b"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "sequence": 743,
+      "occurredAt": "2026-10-15T01:34:49.918Z",
+      "name": "listening.runtime.publication.started",
+      "durationMs": 0,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "f0c630cc-bd1b-4f07-b505-43eefb7f95cb"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "sequence": 756,
+      "occurredAt": "2026-10-15T01:34:49.946Z",
+      "name": "listening.runtime.publication.completed",
+      "durationMs": 28,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "c52944f3-fd51-47c3-8f3e-8d2a8debb5db"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "sequence": 761,
+      "occurredAt": "2026-10-15T01:34:49.946Z",
+      "name": "listening.completed",
+      "durationMs": 8239,
+      "trace": {
+        "traceId": "42d1380a-a98f-4794-8994-2c00133afa5d",
+        "spanId": "d3a22976-e11e-423a-88a0-f122eee5015b"
+      },
+      "attributes": {
+        "passId": "4c1944a6-ed18-4eef-bbfa-899558525216",
+        "stage": "completed",
+        "contextIds": ["ccfa4237-fbe7-4a71-9795-0368298424d9"],
+        "cleanupPolicy": "leave-running"
+      }
+    }
+  ],
+  "limitations": [
+    "Owned diagnostic source overrides, not the immutable saved candidate or standard scenario.",
+    "Both observed incoherent reads were rejected; no interpolated clock or spectrum values were admitted.",
+    "Current-source cold-run qualification is incomplete and failures remain preserved.",
+    "Unknown track/range attribution and freshness; no exclusive clip-audio claim."
+  ]
+}

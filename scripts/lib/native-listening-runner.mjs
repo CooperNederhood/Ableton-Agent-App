@@ -534,7 +534,7 @@ export async function createNativeListeningRunner({
           Promise.race([
             runtime.application.sendToManagedAgent(
               owner.agentId,
-              `${manifest.prompt}\nExact runner-owned listener ID: ${binding.listenerId}. No other ID is approved. Historical context queries must set includeHistorical=true.`,
+              `${manifest.prompt}\nExact runner-owned listener ID: ${binding.listenerId}. Use it only in the playback call's listenerIds. The inspect-listeners arguments are exactly {"action":"inspect-listeners"}. The get-pass arguments are only action and the passId returned by playback; never supply listenerIds to it. A returned contextId is a different identity. Historical context queries must set includeHistorical=true.`,
               "interactive",
             ),
             humanGatePromise,

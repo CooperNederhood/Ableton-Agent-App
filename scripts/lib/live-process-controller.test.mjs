@@ -252,6 +252,56 @@ describe("LiveProcessController", () => {
     expect(kill).not.toHaveBeenCalled();
   });
 
+  it.each(["already-exited", "exit-during-signal", "replacement"])(
+    "handles a failed quit with %s without unsafe fallback process control",
+    async (mode) => {
+      const lists = [[], [], [owned]];
+      let exited = false;
+      let replaced = false;
+      const kill = vi.fn((_pid, signal) => {
+        if (signal !== 0 && replaced)
+          throw new Error("Replacement must never be signalled");
+        if (signal !== 0 && mode === "exit-during-signal") exited = true;
+        if (exited) {
+          const error = new Error("gone");
+          error.code = "ESRCH";
+          throw error;
+        }
+      });
+      const controller = new LiveProcessController({
+        listProcesses: async () =>
+          lists.shift() ?? [
+            replaced
+              ? { ...owned, startedAt: "a different birth time" }
+              : owned,
+          ],
+        run: async () => ({ status: 0, stdout: "", stderr: "" }),
+        kill,
+        requestQuit: async () => {
+          if (mode === "already-exited") exited = true;
+          if (mode === "replacement") replaced = true;
+          throw new Error("Quit helper returned after process state changed");
+        },
+      });
+      await controller.launch("/Applications/Ableton Live 11 Suite.app", 1000);
+      if (mode === "replacement") {
+        await expect(controller.discardAfterFailure(0)).rejects.toThrow(
+          "identity no longer matches",
+        );
+        expect(kill.mock.calls.every(([, signal]) => signal === 0)).toBe(true);
+        expect(controller.publicRecord().pid).toBe(owned.pid);
+      } else {
+        await expect(
+          controller.discardAfterFailure(0),
+        ).resolves.toBeUndefined();
+        expect(controller.publicRecord()).toBeUndefined();
+        expect(
+          kill.mock.calls.filter(([, signal]) => signal !== 0),
+        ).toHaveLength(mode === "already-exited" ? 0 : 1);
+      }
+    },
+  );
+
   it("dismisses only through the injected known-dialog handler", async () => {
     const handleStartupDialogs = vi.fn(async () => "audio-disabled");
     const lists = [[], [], [owned], [owned]];

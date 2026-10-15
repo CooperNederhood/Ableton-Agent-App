@@ -887,9 +887,94 @@ test("Node16-compatible runtime native composition works without Object.hasOwn a
         readFileSync(require.resolve("./audio_listener_native_controller.js")),
       )
       .digest("hex"),
-    "29df0521293af0f354e85648d624c51c72916c08a322bd6a20fe7db2ea7b9908",
+    require("./fixtures/native-acquisition-recovery.json")
+      .currentSourceSnapshot["audio_listener_native_controller.js"].sha256,
   );
   f.runtime.stop();
+});
+
+test("phase-incoherent acquisition publishes causal bounded progress and preserves full native proof", async () => {
+  const f = fixture();
+  await f.armed();
+  const spectrum = f.runtime.nativeController.pass.spectrum;
+  f.packet("spectrum", [
+    spectrum[0],
+    spectrum[1],
+    spectrum[2],
+    spectrum[0],
+    spectrum[0] + 2048,
+    spectrum[5],
+  ]);
+  assert.equal(f.runtime.nativeController.pass.spectrum, spectrum);
+  f.launch();
+  f.time(30);
+  const previous = f.runtime.nativeController.pass.clock;
+  const row = f.clock(origin + 1000);
+  row[1] = row[8] = row[1] + 64 / 24000;
+  row[2] = row[9] = row[2] + 64;
+  f.packet("clock", row);
+  assert.equal(f.runtime.nativeController.pass.clock, previous);
+  const diagnostic = f.outputs
+    .filter((item) => item[0] === "native_diagnostic")
+    .map((item) => JSON.parse(item[1]))
+    .find((item) => item.reason === "phase_torn_native_clock");
+  assert.equal(diagnostic.stage, "progress");
+  assert.equal(diagnostic.rejected, 2);
+  assert(
+    f.wire.some(
+      (frame) =>
+        frame.nativeLifecycle?.eventId === diagnostic.eventId &&
+        frame.nativeLifecycle.causationId === diagnostic.causationId &&
+        frame.nativeLifecycle.stage === "progress",
+    ),
+  );
+  const spectralDiagnostic = f.outputs
+    .filter((item) => item[0] === "native_diagnostic")
+    .map((item) => JSON.parse(item[1]))
+    .find((item) => item.reason === "torn_native_spectrum");
+  assert(
+    f.wire.some(
+      (frame) =>
+        frame.nativeLifecycle?.eventId === spectralDiagnostic.eventId &&
+        frame.nativeLifecycle.stage === "progress",
+    ),
+  );
+  f.capture();
+  f.post();
+  assert.equal(f.wire.at(-1).status, "completed");
+  assert.equal(f.wire.at(-1).nativeCapture.after.frames.length, 32);
+  f.runtime.stop();
+});
+
+test("acquisition progress publication failure or reentrant cancellation cannot retain or complete a native pass", async () => {
+  for (const mode of ["failed-write", "cancel"]) {
+    const f = fixture({
+      rejectWrite: (message) =>
+        mode === "failed-write" &&
+        message.nativeLifecycle?.reason === "phase_torn_native_clock",
+      onWrite: (message, owner) => {
+        if (
+          mode === "cancel" &&
+          message.nativeLifecycle?.reason === "phase_torn_native_clock"
+        )
+          owner.dispatch("cancel");
+      },
+    });
+    await f.armed();
+    f.launch();
+    const row = f.clock(origin + 1000);
+    row[1] = row[8] = row[1] + 64 / 24000;
+    row[2] = row[9] = row[2] + 64;
+    f.packet("clock", row);
+    assert.equal(f.runtime.nativeController.pass, null, mode);
+    assert(!f.wire.some((message) => message.status === "completed"), mode);
+    assert(
+      f.outputs.some(
+        (item) => item[0] === "native_control" && item[1] === "stop",
+      ),
+    );
+    f.runtime.stop();
+  }
 });
 
 test("preflight/waiting-reset timestamps and UUIDs survive post-armed phase publication without restarting preflight after completion", async () => {

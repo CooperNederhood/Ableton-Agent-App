@@ -1543,6 +1543,54 @@ The rejected raw clock row was not recorded; counter regression, a gap over
 Do not infer a cause, weaken those guards or treat earlier successful manual
 passes as qualification of this cold-runner case.
 
+Subsequent exact-owned-Node inspector diagnostics retained numeric inputs
+without changing the saved candidate or native DSP. One rejected clock row
+has agreeing host brackets but a native counter/phase one 64-sample vector
+behind; an FFT row holds the previous first end tag while its start and second
+end tags describe the next 2,048-sample frame. The physical scheduler mechanism
+is still unproven. These are separate recorded diagnostics, not proof of the
+unrecorded row in the first five-window failure.
+
+The opt-in controller now rejects only those precisely identified acquisition
+cohorts without admitting their values, refreshing accepted capture clocks or
+changing the established offset. The clock case requires capture already
+started, a playing predecessor, exactly +64 offset and exactly 64 samples of
+independent phase lag. The FFT case requires a known held first end tag and
+exactly the next-frame start/end pair with unchanged ABI. Arbitrary mismatches,
+missing subsequent FFT frames, regression, long gaps, changed holds and actual
+coherent offset changes still fail. Both use the existing shared 64-rejection
+budget; cancellation, freshness and complete coverage remain mandatory.
+Acquisition progress is forwarded through the existing authenticated native
+lifecycle with original event/causation IDs, capture-relative time and measured
+frame count; failed writes and reentrant cancellation cannot retain a pass.
+
+Before native arming, no clock binding exists until 32 fresh stopped rows
+agree exactly. A changing candidate offset clears that uncommitted cohort,
+records `native_preflight_binding_restart` and starts a new exact cohort within
+the same two-second deadline and rejection budget. It does not average offsets
+or alter an armed binding. Host/counter regression still fails immediately;
+after preflight, the established offset cannot be replaced.
+
+A declared private source-override diagnostic genuinely recovered both observed
+acquisition cohorts at frames 9 and 18, completed all 20 envelope/FFT windows and
+32/32 clock rows, and published one 96,000-frame observation. An independent
+typed read in a new process reopened the same context unchanged.
+`fixtures/native-acquisition-recovery.json` pins that capture's actual source
+hashes separately from the current source snapshot. Later formatted/current
+source qualification remains incomplete: subsequent cold trials failed closed,
+including clock continuity and pre-arm failure with unconfirmed cancellation.
+No saved candidate, installed device or readiness was promoted. Historical DSP,
+engine/assembler/coordinate and unchanged SDK/watchdog pins remain exact;
+revised acquisition/diagnostic JavaScript has explicit separate provenance,
+not inherited historical byte-level qualification.
+
+Real runs also exposed a quit/exit race. Failed-quit fallback now first checks
+for an already exited exact owned PID, revalidates birth/executable identity
+before each signal and tolerates only an `ESRCH` exit during that signal.
+A replacement PID is never signalled; surviving-process staging remains retained.
+The actor prompt now scopes `listenerIds` to playback instead of ambiguously
+forbidding all other ID types; malformed calls are still rejected, not repaired.
+
 `NativeCaptureController` composes the actual signal engine and bounded native
 assembler. `prepare` only validates/freezes eligibility with a bounded
 reservation; `arm` gathers fresh generation-owned DSP/FFT/ABI metadata,

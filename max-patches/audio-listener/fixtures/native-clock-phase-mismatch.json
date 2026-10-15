@@ -1,0 +1,51 @@
+{
+  "formatVersion": 1,
+  "classification": "instrumented_diagnostic_failure",
+  "runId": "c423f162-c7f2-415c-b52b-b67c471fb749",
+  "passId": "105d3521-cfed-4173-8cae-39bfecf374af",
+  "controllerSha256": "29df0521293af0f354e85648d624c51c72916c08a322bd6a20fe7db2ea7b9908",
+  "liveVersion": "11.3.43",
+  "sampleRate": 48000,
+  "vectorSize": 64,
+  "tempoBpm": 120,
+  "instrumentation": {
+    "method": "owned_node_loopback_inspector",
+    "sourceModified": false,
+    "pausedBeforeThrow": true,
+    "resumedImmediately": true,
+    "snapshotFields": ["row", "previous", "state"],
+    "acceptanceEvidence": false
+  },
+  "clock": {
+    "row": [
+      1, 0.165333333333333, 1300864, 31, 1300800, 0.162666666666667, 1300800, 1,
+      0.165333333333333, 1300864, 31
+    ],
+    "previous": [
+      1, 0.125333333333333, 1299904, 31, 1299904, 0.125333333333333, 1299904, 1,
+      0.125333333333333, 1299904, 31
+    ],
+    "state": "capturing",
+    "throwLineNumberZeroBased": 363
+  },
+  "terminal": {
+    "stage": "failed",
+    "reason": "native_clock_discontinuity",
+    "contextIds": [],
+    "approvedActorCalls": 3,
+    "deniedActorCalls": 0,
+    "cleanupPolicy": "leave-running"
+  },
+  "cleanup": {
+    "debuggerClosed": true,
+    "ownedLiveExited": true,
+    "ownedFixtureRemoved": true,
+    "preexistingMaxPreserved": true
+  },
+  "limitations": [
+    "The native counter and phase lag the agreeing host reads by one vector.",
+    "The physical scheduler mechanism remains unproven.",
+    "This does not identify the unrecorded offending row in the earlier five-window failure.",
+    "Instrumented diagnostic, not acceptance or a readiness promotion."
+  ]
+}

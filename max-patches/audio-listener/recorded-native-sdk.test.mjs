@@ -17,6 +17,7 @@ import { nativeRuntimeDocuments } from "./native-runtime-source.mjs";
 const require = createRequire(import.meta.url);
 const evidence = require("./fixtures/native-sdk-capture.json");
 const prior = require("./fixtures/native-controller-capture.json");
+const revisions = require("./fixtures/native-acquisition-recovery.json");
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 
@@ -165,15 +166,17 @@ test("actual armed reply precedes causal native phases and atomic publication fo
   assert.equal(native.at(-1).attributes.frames, 20);
 });
 
-test("the recorded candidate used the pinned native math and exact SDK/watchdog sources", async () => {
+test("historical native math and SDK provenance stay pinned separately from unqualified acquisition revisions", async () => {
   for (const [name, expected] of Object.entries({
     ...evidence.codeSha256,
     ...evidence.sdkCodeSha256,
   })) {
     if (!name.endsWith(".js")) continue;
+    const revision = revisions.currentSourceSnapshot[name];
+    if (revision) assert.equal(revision.baselineSha256, expected);
     assert.equal(
       sha(await readFile(new URL(`./${name}`, import.meta.url))),
-      expected,
+      revision?.sha256 ?? expected,
     );
   }
   const documents = nativeRuntimeDocuments({

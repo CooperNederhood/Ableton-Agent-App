@@ -358,19 +358,34 @@ class NativeCaptureController {
     if (
       previous &&
       (row[4] < previous[4] ||
-        row[4] - previous[4] > 48000 ||
-        row[2] - row[4] !== previous[2] - previous[4])
+        row[2] < previous[2] ||
+        row[4] - previous[4] > 48000)
     )
       throw new Error("native_clock_discontinuity");
+    const phaseOffset =
+      (Math.round(row[1] * 24000) - Math.round(row[5] * 24000)) % 24000;
+    if (
+      this.state === "capturing" &&
+      previous &&
+      previous[0] === 1 &&
+      row[0] === 1 &&
+      row[2] - row[4] - (previous[2] - previous[4]) === 64 &&
+      phaseOffset === 64
+    )
+      return this.rejectBracket(p, "phase_torn_native_clock");
+    if (previous && row[2] - row[4] !== previous[2] - previous[4]) {
+      if (this.state !== "preflight")
+        throw new Error("native_clock_discontinuity");
+      p.frames.length = 0;
+      this.rejectBracket(p, "native_preflight_binding_restart");
+      if (this.pass !== p) return;
+    }
     if (
       this.state === "preflight" &&
       (row[0] !== 0 || row[1] !== 0 || (previous && row[5] !== previous[5]))
     )
       throw new Error("native_transport_changed_before_launch");
-    if (
-      row[0] === 1 &&
-      (Math.round(row[1] * 24000) - Math.round(row[5] * 24000)) % 24000 !== 0
-    )
+    if (row[0] === 1 && phaseOffset !== 0)
       throw new Error("native_host_phase_changed");
     p.clock = row;
     p.clockAt = this.now();
@@ -425,8 +440,7 @@ class NativeCaptureController {
     if (
       !integer(v[0], 2048, 2 ** 44 - 1) ||
       !integer(v[3], 0, 2 ** 44 - 1) ||
-      v[0] !== v[4] ||
-      v[0] - v[3] !== 2048 ||
+      !integer(v[4], 2048, 2 ** 44 - 1) ||
       v[1] < 0 ||
       v[1] > 24000 ||
       v[2] < 0 ||
@@ -436,6 +450,20 @@ class NativeCaptureController {
     )
       throw new Error("invalid_native_spectrum_packet");
     const previous = p.spectrum;
+    if (v[0] !== v[4] || v[0] - v[3] !== 2048) {
+      if (
+        ["preflight", "native-arming", "armed", "capturing"].includes(
+          this.state,
+        ) &&
+        previous &&
+        v[0] === previous[0] &&
+        v[3] === previous[0] &&
+        v[4] === previous[0] + 2048 &&
+        v[5] === previous[5]
+      )
+        return this.rejectBracket(p, "torn_native_spectrum");
+      throw new Error("invalid_native_spectrum_packet");
+    }
     if (
       previous &&
       (v[5] !== previous[5] ||

@@ -204,15 +204,13 @@ export class LiveProcessController {
     try {
       await this.#requestQuit(owned);
     } catch {
-      this.#kill(owned.pid, "SIGTERM");
+      await this.#signalOwnedIfRunning(owned.pid, "SIGTERM");
     }
     if (!(await this.#waitForExit(owned.pid, timeoutMs))) {
-      await this.validateOwnership();
-      this.#kill(owned.pid, "SIGTERM");
+      await this.#signalOwnedIfRunning(owned.pid, "SIGTERM");
     }
     if (!(await this.#waitForExit(owned.pid, timeoutMs))) {
-      await this.validateOwnership();
-      this.#kill(owned.pid, "SIGKILL");
+      await this.#signalOwnedIfRunning(owned.pid, "SIGKILL");
       if (!(await this.#waitForExit(owned.pid, 5_000))) {
         throw new Error(
           `Unable to terminate runner-owned Live PID ${owned.pid}`,
@@ -220,6 +218,16 @@ export class LiveProcessController {
       }
     }
     this.#owned = undefined;
+  }
+
+  async #signalOwnedIfRunning(pid, signal) {
+    if (this.#processHasExited(pid)) return;
+    await this.validateOwnership();
+    try {
+      this.#kill(pid, signal);
+    } catch (error) {
+      if (error?.code !== "ESRCH") throw error;
+    }
   }
 
   async #waitForExit(pid, timeoutMs) {

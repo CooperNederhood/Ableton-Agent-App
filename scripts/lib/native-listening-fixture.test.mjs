@@ -455,7 +455,10 @@ describe("native listening fixture staging", () => {
               configuration = config;
               return "sdk-session";
             },
-            sendToManagedAgent: async () => {
+            sendToManagedAgent: async (_agentId, prompt) => {
+              expect(prompt).toContain('{"action":"inspect-listeners"}');
+              expect(prompt).toContain("never supply listenerIds to it");
+              expect(prompt).not.toContain("No other ID is approved");
               if (humanGate) {
                 for (const subscriber of appEvents)
                   subscriber({ type: "agent.elicitation_requested" });

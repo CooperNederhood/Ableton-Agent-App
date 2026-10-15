@@ -12,6 +12,8 @@ const {
 } = require("./audio_listener_native_assembler.js");
 const { syntheticPreflight } = require("./native-preflight-fixture.cjs");
 const recorded = require("./fixtures/native-host-spectrum.json");
+const phaseMismatch = require("./fixtures/native-clock-phase-mismatch.json");
+const spectrumMismatch = require("./fixtures/native-spectrum-torn-read.json");
 const { AgentSignalClient } = require("../shared/agent_signal_client.js");
 
 const owner = { passId: "native-pass", connectionEpoch: "native-connection" };
@@ -490,14 +492,13 @@ test("stopped torn/held reads are bounded and observable; changed holds and cloc
     f.observed.filter((event) => event.reason === "torn_native_clock").length,
     64,
   );
-  for (const kind of ["hold", "offset", "backwards", "gap", "playing"]) {
+  for (const kind of ["hold", "backwards", "gap", "playing"]) {
     const g = fixture();
     g.prepare();
     const task = g.controller.arm(owner);
     g.ingest("clock", row);
     const next = [...(kind === "hold" ? row : before.before.frames[1])];
     if (kind === "hold") next[5] = 0.5;
-    if (kind === "offset") next[2] = next[9] = next[2] + 1;
     if (kind === "backwards") next[4] = next[6] = row[4] - 64;
     if (kind === "gap") {
       next[4] = next[6] = row[4] + 48064;
@@ -507,6 +508,71 @@ test("stopped torn/held reads are bounded and observable; changed holds and cloc
     g.ingest("clock", next);
     await assert.rejects(task, /native/);
     assert.equal(g.controller.pass, null);
+  }
+});
+
+test("unbound stopped preflight requires 32 fresh exact-offset rows after any candidate restart, then freezes that binding", async () => {
+  const f = fixture();
+  f.prepare();
+  const pending = f.controller.arm(owner);
+  f.metadata();
+  f.epoch();
+  f.ingest("spectrum", before.spectrum);
+  for (const sample of before.before.frames.slice(0, 4)) {
+    const row = [...sample];
+    for (const index of [2, 4, 6, 9]) row[index] -= 512;
+    f.ingest("clock", row);
+  }
+  for (const sample of before.before.frames.slice(0, 31)) {
+    const row = [...sample];
+    row[2] += 64;
+    row[9] += 64;
+    f.ingest("clock", row);
+  }
+  assert.equal(f.controller.state, "preflight");
+  assert.equal(f.controller.pass.frames.length, 31);
+  assert.equal(f.controller.pass.rejected, 1);
+  assert.equal(f.armed.length, 0);
+  const last = [...before.before.frames[31]];
+  last[2] += 64;
+  last[9] += 64;
+  f.ingest("clock", last);
+  assert.equal(f.controller.state, "native-arming");
+  f.ack();
+  await pending;
+  assert.equal(f.armed[0].before.frames.length, 32);
+  for (const row of f.armed[0].before.frames)
+    assert.equal(row[2] - row[4], offset + 64);
+  f.launch();
+  assert.equal(f.controller.pass, null);
+  assert.equal(f.events.at(-1).reason, "native_clock_discontinuity");
+});
+
+test("unbound preflight restart retains quota, deadline and monotonic host-clock guards", async () => {
+  for (const ending of ["quota", "timeout", "backwards"]) {
+    const f = fixture();
+    f.prepare();
+    const pending = f.controller.arm(owner);
+    for (let index = 0; index < (ending === "quota" ? 66 : 2); index++) {
+      const row = [...before.before.frames[0]];
+      for (const field of [2, 4, 6, 9]) row[field] += index * 64;
+      row[2] += index % 2 ? 64 : 0;
+      row[9] = row[2];
+      f.ingest("clock", row);
+    }
+    if (ending === "timeout") {
+      f.time(2001);
+      f.controller.tick();
+    }
+    if (ending === "backwards") {
+      const row = [...before.before.frames[2]];
+      row[2] -= 1024;
+      row[9] = row[2];
+      f.ingest("clock", row);
+    }
+    await assert.rejects(pending, /native/);
+    assert.equal(f.controller.pass, null);
+    assert.equal(f.armed.length, 0);
   }
 });
 
@@ -1202,6 +1268,203 @@ test("active torn reads share the fixed rejection budget and never refresh host 
     assert.equal(retained.envelopes.length, 0);
     assert.equal(retained.assembler.pending.length, 0);
     assert.equal(retained.assembler.spectra.length, 0);
+    assert.equal(f.sent.at(-1).action, "stop");
+  }
+});
+
+test("actual one-vector phase/counter mismatch is bounded acquisition rejection, never a new clock binding", async () => {
+  const f = fixture();
+  await f.start();
+  const p = f.controller.pass;
+  const previous = p.clock;
+  const at = p.clockAt;
+  const observed = phaseMismatch.clock;
+  assert.equal(observed.row[2] - observed.row[4], 64);
+  assert.equal(observed.previous[2] - observed.previous[4], 0);
+  assert.equal(observed.row[4] - observed.previous[4], 896);
+  assert.equal(observed.row[2] - observed.previous[2], 960);
+  assert.equal(
+    (Math.round(observed.row[1] * 24000) -
+      Math.round(observed.row[5] * 24000)) %
+      24000,
+    64,
+  );
+  const livePass = f.controller.pass;
+  const replay = { ...livePass, clock: observed.previous };
+  f.controller.clock(replay, observed.row);
+  assert.equal(replay.clock, observed.previous);
+  assert.equal(replay.rejected, 1);
+
+  const torn = f.clock(origin + 1000);
+  torn[1] = torn[8] = torn[1] + 64 / 24000;
+  torn[2] = torn[9] = torn[2] + 64;
+  f.ingest("clock", torn);
+  assert.equal(f.controller.pass, p);
+  assert.equal(p.clock, previous);
+  assert.equal(p.clockAt, at);
+  assert.equal(p.rejected, 1);
+  assert.equal(f.observed.at(-1).reason, "phase_torn_native_clock");
+  f.capture();
+  const tornPost = f.clock(origin + 96128);
+  tornPost[1] = tornPost[8] = tornPost[1] + 64 / 24000;
+  tornPost[2] = tornPost[9] = tornPost[2] + 64;
+  f.ingest("clock", tornPost);
+  assert.equal(p.post.length, 0);
+  f.post();
+  const result = f.events.at(-1);
+  assert.equal(result.status, "complete");
+  assert.equal(result.nativeCapture.after.frames.length, 32);
+  const schemas =
+    await import("../../packages/protocol/src/native-listening-schemas.ts");
+  schemas.assertNativeCaptureObservation(
+    schemas.nativeCaptureProofSchema.parse(result.nativeCapture),
+    result.observation,
+  );
+});
+
+test("phase-torn acquisition keeps quota, freshness, cancellation and exact offset guards", async () => {
+  for (const ending of ["quota", "stale", "cancel", "offset"]) {
+    const f = fixture();
+    await f.start();
+    const p = f.controller.pass;
+    const clock = p.clock;
+    const at = p.clockAt;
+    const torn = f.clock(origin + 1000);
+    torn[1] = torn[8] = torn[1] + 64 / 24000;
+    torn[2] = torn[9] = torn[2] + 64;
+    for (let index = 0; index < (ending === "quota" ? 64 : 1); index++)
+      f.ingest("clock", torn);
+    assert.equal(p.clock, clock);
+    assert.equal(p.clockAt, at);
+    if (ending === "quota") f.ingest("clock", torn);
+    if (ending === "stale") {
+      f.time(1001);
+      f.controller.tick();
+    }
+    if (ending === "cancel") f.controller.cancel(owner);
+    if (ending === "offset") {
+      const changed = f.clock(origin + 1200);
+      changed[2] = changed[9] = changed[2] + 64;
+      f.ingest("clock", changed);
+    }
+    assert.equal(f.controller.pass, null, ending);
+    assert.notEqual(f.events.at(-1).status, "complete", ending);
+    assert.equal(p.envelopes.length, 0);
+    assert.equal(p.assembler.pending.length, 0);
+    assert.equal(f.sent.at(-1).action, "stop");
+    if (ending === "offset")
+      assert.equal(f.events.at(-1).reason, "native_clock_discontinuity");
+    f.ingest("clock", torn);
+    assert.equal(f.controller.pass, null);
+  }
+});
+
+test("phase-torn classification never covers regressions, long gaps, changed holds or different mismatches", async () => {
+  for (const kind of [
+    "regression",
+    "gap",
+    "hold",
+    "phase",
+    "offset",
+    "onset",
+  ]) {
+    const f = fixture();
+    await f.start();
+    const previous = f.controller.pass.clock;
+    const counter =
+      kind === "regression"
+        ? previous[4] - 64
+        : kind === "gap"
+          ? previous[4] + 48064
+          : kind === "hold"
+            ? previous[4]
+            : origin + 1000;
+    const row = f.clock(counter);
+    row[1] = row[8] = row[1] + (kind === "phase" ? 128 : 64) / 24000;
+    row[2] = row[9] = row[2] + (kind === "offset" ? 128 : 64);
+    if (kind === "onset") f.controller.state = "armed";
+    f.ingest("clock", row);
+    assert.equal(f.controller.pass, null, kind);
+    assert.notEqual(f.events.at(-1).status, "complete", kind);
+    assert.equal(f.sent.at(-1).action, "stop");
+  }
+});
+
+test("observed held-to-next FFT boundary is discarded without accepting data or losing required sequential coverage", async () => {
+  const f = fixture();
+  await f.start();
+  const p = f.controller.pass;
+  const observed = spectrumMismatch.spectrum;
+  const replay = { ...p, spectrum: observed.previous };
+  f.controller.spectrum(replay, observed.row);
+  assert.equal(replay.spectrum, observed.previous);
+  assert.equal(replay.rejected, 1);
+  const previous = p.spectrum;
+  const at = p.spectrumAt;
+  const torn = [
+    previous[0],
+    previous[1],
+    previous[2],
+    previous[0],
+    previous[0] + 2048,
+    previous[5],
+  ];
+  f.ingest("spectrum", torn);
+  assert.equal(p.spectrum, previous);
+  assert.equal(p.spectrumAt, at);
+  assert.equal(p.rejected, 1);
+  f.capture();
+  f.post();
+  const result = f.events.at(-1);
+  assert.equal(result.status, "complete");
+  const schemas =
+    await import("../../packages/protocol/src/native-listening-schemas.ts");
+  schemas.assertNativeCaptureObservation(
+    schemas.nativeCaptureProofSchema.parse(result.nativeCapture),
+    result.observation,
+  );
+});
+
+test("FFT acquisition rejection shares the fixed quota and never accepts missing or arbitrary torn frames", async () => {
+  for (const ending of ["quota", "gap", "arbitrary", "cancel"]) {
+    const f = fixture();
+    await f.start();
+    const p = f.controller.pass;
+    const previous = p.spectrum;
+    const torn = [
+      previous[0],
+      previous[1],
+      previous[2],
+      previous[0],
+      previous[0] + 2048,
+      previous[5],
+    ];
+    for (let index = 0; index < (ending === "quota" ? 64 : 1); index++)
+      f.ingest("spectrum", torn);
+    assert.equal(p.spectrum, previous);
+    if (ending === "quota") f.ingest("spectrum", torn);
+    if (ending === "gap")
+      f.ingest("spectrum", [
+        previous[0] + 4096,
+        previous[1],
+        previous[2],
+        previous[0] + 2048,
+        previous[0] + 4096,
+        previous[5],
+      ]);
+    if (ending === "arbitrary")
+      f.ingest("spectrum", [
+        torn[0],
+        torn[1],
+        torn[2],
+        torn[3],
+        torn[4] + 1,
+        torn[5],
+      ]);
+    if (ending === "cancel") f.controller.cancel(owner);
+    assert.equal(f.controller.pass, null, ending);
+    assert.notEqual(f.events.at(-1).status, "complete");
+    assert.equal(p.assembler.spectra.length, 0);
     assert.equal(f.sent.at(-1).action, "stop");
   }
 });

@@ -15,6 +15,7 @@ import { nativeRuntimeDocuments } from "./native-runtime-source.mjs";
 
 const require = createRequire(import.meta.url);
 const evidence = require("./fixtures/native-controller-capture.json");
+const revisions = require("./fixtures/native-acquisition-recovery.json");
 const { terminal } = evidence.report;
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const sha = (value) => createHash("sha256").update(value).digest("hex");
@@ -114,7 +115,7 @@ test("actual capture lifecycle preserves trace ancestry and completion after pos
   assert.equal(events.at(-1).status, "complete");
 });
 
-test("recorded native math and message graphs retain the actual executed source identity", async () => {
+test("recorded native math and graphs remain pinned; acquisition revisions have separate explicit provenance", async () => {
   const directory = "/".padEnd(evidence.resourceDirectoryCharacters, "n");
   for (const [name, document] of Object.entries(
     nativeRuntimeDocuments({
@@ -138,9 +139,12 @@ test("recorded native math and message graphs retain the actual executed source 
     "audio_listener_native_coordinates.js",
     "audio_listener_native_io.js",
   ]) {
+    const revision = revisions.currentSourceSnapshot[name];
+    if (revision)
+      assert.equal(revision.baselineSha256, evidence.codeSha256[name]);
     assert.equal(
       sha(await readFile(new URL(`./${name}`, import.meta.url))),
-      evidence.codeSha256[name],
+      revision?.sha256 ?? evidence.codeSha256[name],
     );
   }
 });

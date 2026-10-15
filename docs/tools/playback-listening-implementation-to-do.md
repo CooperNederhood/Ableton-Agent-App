@@ -704,9 +704,22 @@ checkpoint above. The production timing gate is unchanged.
 - [x] Preserve actual cold-runner arm/launch followed by clock-continuity denial:
   five incomplete windows, no publication and no context-store reference.
   Retain the separate denied actor context-ID request; no recovered-pass claim.
-- [ ] Capture the offending clock row and distinguish regression, excessive gap
-  or offset change before changing native timing behavior. Pinned native
-  controller/math/IO and existing guards remain unchanged.
+- [x] Collect exact numeric clock and FFT inputs with an owned loopback Node
+  inspector, immediate resume/closure and no saved candidate/DSP changes.
+  Preserve the one-vector phase/counter mismatch and held-to-next FFT tag tear.
+- [x] Add exact-cohort bounded acquisition rejection and causal typed progress,
+  retaining unchanged accepted offsets, timing/freshness/coverage, quotas and
+  cleanup. Require 32 fresh exact stopped rows before committing any initial
+  clock binding; candidate restarts never extend the preflight deadline.
+- [x] Preserve actual diagnostic recovery of both cohorts, full native proof,
+  publication and unchanged typed reopening in a new process. Keep capture
+  source hashes distinct from later unqualified current source revisions.
+- [x] Protect failed-quit fallback against an already exited process, exit
+  during signalling and replacement PID; reproduce all three regressions first.
+- [ ] Finish current-source and immutable-candidate cold-run qualification.
+  Later clock-continuity/pre-arm failures remain unresolved and safely publish
+  nothing. Do not turn a successful source-override diagnostic into standard
+  scenario acceptance or weaken source/clock guards to hide remaining failures.
 - [ ] Complete deterministic integration and visible Desktop acceptance.
 
 The measured host offset is `842480212`; arm counter `166446080` and local

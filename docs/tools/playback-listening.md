@@ -1588,6 +1588,31 @@ engine/assembler/coordinate and unchanged SDK/watchdog pins remain exact;
 revised acquisition/diagnostic JavaScript has explicit separate provenance and
 its own measured pass, not inherited historical byte-level qualification.
 
+The separately rebuilt `Machine-Listening-Native-Hardened-Runner-Calibration.als`
+was subsequently saved normally in Live with operator assistance. Its new
+absolute/project-relative native references pass the unchanged strict fixture
+inspector; the new native Node ran from that rebuilt bundle. All three original
+Sets and the original candidate manifest retain their hashes. The first ordinary
+immutable-candidate run still failed `native_clock_discontinuity` after genuine
+arming, before measured launch, with zero context publication. A distinct
+unchanged-source owned-inspector run captured a stopped, armed row whose host
+brackets agree but whose host/counter offset changes from 0 to 64: host delta
+512, native delta 448, held phase 0. Unlike the earlier playing mismatch, this
+row has no independent advancing phase that corroborates an acquisition tear.
+It remains denied; the ordinary run's unrecorded row is not presumed identical.
+
+A single explicitly overridden copied-clock experiment changed only its
+10 ms poller from low-priority `qmetro` to scheduler `metro`. It exhausted the
+unchanged preflight rejection quota before arming and is rejected as a fix;
+the actual terminal cancellation uncertainty remains recorded. No source
+change or scheduler experiment was promoted into the candidate.
+`fixtures/native-hardened-fixture-failure.json` preserves these three failed
+attempts, actual arm proofs, typed zero-publication evidence, numeric diagnostic
+and separate source provenance. Regression coverage protects continued denial
+and exact-generation cleanup, not a claimed recovery. Native clock acquisition
+and ordinary repeatability remain unresolved; no further group/suite acceptance
+is inferred from the earlier successful diagnostics.
+
 Real runs also exposed a quit/exit race. Failed-quit fallback now first checks
 for an already exited exact owned PID, revalidates birth/executable identity
 before each signal and tolerates only an `ESRCH` exit during that signal.

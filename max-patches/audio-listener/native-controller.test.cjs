@@ -14,6 +14,7 @@ const { syntheticPreflight } = require("./native-preflight-fixture.cjs");
 const recorded = require("./fixtures/native-host-spectrum.json");
 const phaseMismatch = require("./fixtures/native-clock-phase-mismatch.json");
 const spectrumMismatch = require("./fixtures/native-spectrum-torn-read.json");
+const hardenedFailure = require("./fixtures/native-hardened-fixture-failure.json");
 const { AgentSignalClient } = require("../shared/agent_signal_client.js");
 
 const owner = { passId: "native-pass", connectionEpoch: "native-connection" };
@@ -1270,6 +1271,49 @@ test("active torn reads share the fixed rejection budget and never refresh host 
     assert.equal(retained.assembler.spectra.length, 0);
     assert.equal(f.sent.at(-1).action, "stop");
   }
+});
+
+test("actual stopped armed offset mismatch stays denied without independent playing phase evidence", async () => {
+  const f = fixture();
+  f.prepare();
+  const armed = f.controller.arm(owner);
+  f.preflight();
+  f.ack();
+  await armed;
+  assert.equal(f.controller.state, "armed");
+  const p = f.controller.pass;
+  const observed = hardenedFailure.diagnostic.clock;
+  const replay = { ...p, clock: observed.previous };
+  assert.throws(
+    () => f.controller.clock(replay, observed.row),
+    /native_clock_discontinuity/,
+  );
+  assert.equal(replay.clock, observed.previous);
+  assert.equal(replay.rejected, 0);
+
+  const previous = p.clock;
+  const at = p.clockAt;
+  const shifted = [...previous];
+  shifted[2] = shifted[9] = previous[2] + 512;
+  shifted[4] = shifted[6] = previous[4] + 448;
+  const generation = p.generation;
+  f.ingest("clock", shifted);
+  assert.equal(f.events.at(-1).reason, "native_clock_discontinuity");
+  assert.equal(f.events.at(-1).status, "failed");
+  assert.equal(f.controller.pass, null);
+  assert.equal(p.clock, null);
+  assert.equal(p.clockAt, at);
+  assert.equal(p.envelopes.length, 0);
+  assert.equal(f.controller.engine.pass, null);
+  assert.deepEqual(f.sent.at(-1), { action: "stop", generation });
+  assert.equal(
+    f.observed.some((event) => event.reason === "phase_torn_native_clock"),
+    false,
+  );
+  assert.equal(
+    f.events.some((event) => event.status === "complete"),
+    false,
+  );
 });
 
 test("actual one-vector phase/counter mismatch is bounded acquisition rejection, never a new clock binding", async () => {

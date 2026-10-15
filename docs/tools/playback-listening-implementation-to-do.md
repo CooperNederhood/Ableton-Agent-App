@@ -719,6 +719,14 @@ checkpoint above. The production timing gate is unchanged.
   not grant immutable-candidate or ordinary scenario acceptance.
 - [x] Protect failed-quit fallback against an already exited process, exit
   during signalling and replacement PID; reproduce all three regressions first.
+- [x] Provision a separately rebuilt calibration project and normally Live-save
+  its runner Set with operator assistance. Verify strict saved references and
+  preserve all three original Set hashes plus the original candidate manifest.
+- [x] Preserve the new ordinary pre-launch clock denial and a separate actual
+  stopped/armed +64 offset diagnostic. Held phase cannot establish the earlier
+  playing acquisition cohort; retain denial, exact-generation cleanup and zero
+  publication. Record the failed copied `qmetro` -> `metro` experiment without
+  promoting it or claiming its cancellation uncertainty is resolved.
 - [ ] Finish current-source and immutable-candidate cold-run qualification.
   Later clock-continuity/pre-arm failures remain unresolved and safely publish
   nothing. Do not turn a successful source-override diagnostic into standard

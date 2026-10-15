@@ -197,14 +197,20 @@ def _start_failure(song, error, stage, mutation_attempted, operation="start"):
                                         "cleanupPolicy": "leave-running"})
     playing = _safe_lom_getattr(song, "is_playing")
     beat = _safe_lom_getattr(song, "current_song_time")
+    details = {
+        "stage": stage, "mutationState": "indeterminate",
+        "cleanupPolicy": "leave-running",
+        "playing": playing if isinstance(playing, bool) else None,
+        "currentBeat": beat if _number(beat, 0, 1576800) else None,
+    }
+    uncertainty = ""
+    if operation == "position":
+        marker = _safe_lom_getattr(song, "start_time")
+        details["insertMarkerBeat"] = marker if _number(marker, 0, 1576800) else None
+        uncertainty = "position may have changed; "
     return ProtocolFailure(
-        "lom_error", "Guarded " + operation + " failed after a mutation attempt; playback is left unchanged",
-        details={
-            "stage": stage, "mutationState": "indeterminate",
-            "cleanupPolicy": "leave-running",
-            "playing": playing if isinstance(playing, bool) else None,
-            "currentBeat": beat if _number(beat, 0, 1576800) else None,
-        })
+        "lom_error", "Guarded " + operation + " failed after a mutation attempt; "
+        + uncertainty + "playback is left unchanged", details=details)
 
 
 def position_listening_playback(context, params, identity_builder=build_live_identity):

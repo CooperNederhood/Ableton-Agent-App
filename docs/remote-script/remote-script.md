@@ -285,7 +285,9 @@ Live tick, writes the stopped position only if needed, then independently reads
 that position on another tick. Source fingerprints and safety/identity are
 revalidated between stages, including after our own revision-changing writes.
 It never starts or stops transport. Partial failures remain explicitly
-indeterminate; it does not restore a marker/position over user activity.
+indeterminate and report the observed marker/current position; the surfaced
+message warns that position may have changed. It does not restore a
+marker/position over user activity.
 
 `listening.start_playback` retains its matching-insert-marker guard, skips
 redundant seeks that could reset an armed native phase, independently verifies

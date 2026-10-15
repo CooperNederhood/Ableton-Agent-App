@@ -172,6 +172,8 @@ class ListeningPositioningTest(unittest.TestCase):
         self.assertEqual(self.success, [])
         self.assertEqual(self.failures[0].details["mutationState"], "indeterminate")
         self.assertNotIn("private setter", self.failures[0].message)
+        self.assertIn("position may have changed", self.failures[0].message)
+        self.assertEqual(self.failures[0].details["insertMarkerBeat"], 5.25)
         self.assertEqual(self.song.start_time, 5.25)
         self.assertEqual(self.song.current_song_time, 9)
 

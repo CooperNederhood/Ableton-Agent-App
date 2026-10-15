@@ -120,7 +120,15 @@ describe("separate native v2 wire negotiation", () => {
     observation.reduction.originalSamples = 300;
     observation.reduction.originalAttacks = 1;
     observation.summaries = { peak, rmsDbfs: [db, db], centroidHz: centroid };
-    proof.envelopeRms = Array.from({ length: 300 }, () => [rms, rms]);
+    const origin =
+      proof.armed.armCounter +
+      proof.launched.launchClock -
+      proof.launched.launchPhaseSamples;
+    proof.envelopeWindows = Array.from({ length: 300 }, (_, index) => [
+      origin + (index + 1) * expanded.hopSamples,
+      rms,
+      rms,
+    ]);
     proof.spectralWindows = observation.samples.map((point) => {
       const end =
         Math.floor((point.sample - 899_456) / 2_048) * 2_048 + 899_456;

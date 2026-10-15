@@ -16,6 +16,7 @@ import {
   ListeningFailure,
   awaitListeningBoundary,
 } from "./listening-coordinator.js";
+import { listeningDisagreementMilliseconds } from "@ableton-agent/protocol";
 
 export interface SessionContextHostOptions {
   /** The host resolves the invoking session, never the globally selected one. */
@@ -92,6 +93,15 @@ async function summarize(
     includeHistorical && link.freshness.status === "fresh"
       ? "historical"
       : link.freshness.status;
+  const quality =
+    entry.payload.schema === "audio-observation/v2"
+      ? entry.payload.alignment
+      : undefined;
+  const observed = (samples: number) =>
+    `${samples} samples (${listeningDisagreementMilliseconds(
+      samples,
+      entry.payload.sampleRate,
+    ).toFixed(3)} ms)`;
   return {
     contextId: entry.id,
     passId: entry.passId,
@@ -103,6 +113,13 @@ async function summarize(
     summary: [
       `${subject.kind}: ${subject.binding.semanticLocator.name}`,
       `Observed beats ${link.coverage.startBeat}-${link.coverage.endBeat}`,
+      ...(quality
+        ? [
+            `Approximate descriptive-only timing; absolute error unknown`,
+            `Policy ${quality.policy.mode}; configured disagreement limit ${observed(quality.policy.maxClockDisagreementSamples)}`,
+            `Observed clock disagreement ${observed(quality.observedClockDisagreementSamples)}; beat disagreement ${observed(quality.observedBeatDisagreementSamples)}`,
+          ]
+        : []),
       `Attribution ${link.attribution}; ${link.relationship} association`,
       `Peak ${measured.peak.map((value) => value.toFixed(4)).join(", ")} linear`,
       `RMS ${rms}; not LUFS`,

@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { audioObservationSchema } from "@ableton-agent/protocol";
+import {
+  audioObservationKindSchema,
+  storedAudioObservationSchema,
+} from "@ableton-agent/protocol";
 
 export const CONTEXT_LIMITS = Object.freeze({
   listenersPerPass: 8,
@@ -15,7 +18,12 @@ export const sessionContextStoreReferenceSchema = z
   .strictObject({
     schemaVersion: z.literal(2),
     relativePath: z.literal("context/entity-context.sqlite"),
-    kinds: z.array(z.literal("audio-observation/v1")).min(1).max(1).readonly(),
+    kinds: z
+      .array(audioObservationKindSchema)
+      .min(1)
+      .max(2)
+      .refine((values) => new Set(values).size === values.length)
+      .readonly(),
   })
   .readonly();
 
@@ -23,7 +31,7 @@ export const SESSION_CONTEXT_STORE_REFERENCE =
   sessionContextStoreReferenceSchema.parse({
     schemaVersion: 2,
     relativePath: "context/entity-context.sqlite",
-    kinds: ["audio-observation/v1"],
+    kinds: ["audio-observation/v1", "audio-observation/v2"],
   });
 
 export type SessionContextStoreReference = z.infer<
@@ -165,7 +173,7 @@ export const listeningPassSchema = z
       ctx.addIssue({
         code: "custom",
         message:
-          "Completed passes require verified actual playback coverage and timing",
+          "Completed passes require measured playback coverage and capture timestamps",
       });
     }
     if (
@@ -181,28 +189,30 @@ export const listeningPassSchema = z
   });
 
 // New kinds extend this discriminated union with a reviewed, bounded schema.
-export const contextPayloadSchema = z.discriminatedUnion("schema", [
-  audioObservationSchema,
-]);
+export const contextPayloadSchema = storedAudioObservationSchema;
 
-export const contextEntrySchema = z.strictObject({
-  id,
-  sessionId: id,
-  liveSetId: id,
-  passId: id,
-  kind: z.literal("audio-observation/v1"),
-  producer: z.strictObject({
-    listenerId: id,
-    deviceId: id,
-    agentId: id,
-    connectionEpoch: id,
-    version: z.string().min(1).max(100),
-  }),
-  createdAt: timestamp,
-  capturedAt: timestamp,
-  trace: contextTraceSchema,
-  payload: contextPayloadSchema,
-});
+export const contextEntrySchema = z
+  .strictObject({
+    id,
+    sessionId: id,
+    liveSetId: id,
+    passId: id,
+    kind: audioObservationKindSchema,
+    producer: z.strictObject({
+      listenerId: id,
+      deviceId: id,
+      agentId: id,
+      connectionEpoch: id,
+      version: z.string().min(1).max(100),
+    }),
+    createdAt: timestamp,
+    capturedAt: timestamp,
+    trace: contextTraceSchema,
+    payload: contextPayloadSchema,
+  })
+  .refine((entry) => entry.kind === entry.payload.schema, {
+    message: "Context kind must match its registered payload schema",
+  });
 
 export const contextLinkSchema = z.strictObject({
   id,
@@ -226,7 +236,7 @@ export const appendContextPassSchema = z.strictObject({
 });
 
 export const contextQuerySchema = z.strictObject({
-  kind: z.literal("audio-observation/v1").optional(),
+  kind: audioObservationKindSchema.optional(),
   subjectId: id.optional(),
   entryId: id.optional(),
   listenerId: id.optional(),

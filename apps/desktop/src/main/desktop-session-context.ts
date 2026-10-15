@@ -533,20 +533,21 @@ export function createDesktopSessionContextManager(
               : { revalidate: options.revalidate }),
             publishSessionContext: async (request) => {
               let current = await requireSession(request.sessionId);
+              const declaresKinds = (value: DesktopSession) =>
+                request.contextStore.kinds.every((kind) =>
+                  value.contextStore?.kinds.some((known) => known === kind),
+                );
               if (!sameOwner(session, current))
                 throw new Error(
                   "Session context publication no longer matches its invoking owner",
                 );
-              if (current.contextStore === undefined) {
+              if (!declaresKinds(current)) {
                 publishing.add(session.id);
                 try {
                   current = sessionSchema.parse(
                     await options.publishSessionContext(request),
                   );
-                  if (
-                    !sameOwner(session, current) ||
-                    current.contextStore === undefined
-                  )
+                  if (!sameOwner(session, current) || !declaresKinds(current))
                     throw new Error(
                       "Session publisher returned an invalid ownership declaration",
                     );

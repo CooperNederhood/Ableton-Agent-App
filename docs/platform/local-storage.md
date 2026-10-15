@@ -163,8 +163,11 @@ alone remains Copilot SDK-owned and does not promote the Desktop session.
 
 `resolveNestedSessionStorage` returns `contextDirectory` and `entityContextPath`
 from the required Set/Project/App-session ownership tuple. Store processed,
-credential-redacted `audio-observation/v1` payloads only; raw audio and arbitrary
-JSON are not accepted. The default limits are 256 KiB per entry, 2 MiB per pass
+credential-redacted `audio-observation/v1` and `audio-observation/v2` payloads
+only, with exact entry-kind/payload-version agreement. V2 retains approximate,
+descriptive-only quality and unknown absolute timing error in both detail and
+bounded summaries; it cannot certify exclusive attribution. Raw audio and
+arbitrary JSON are not accepted. The default limits are 256 KiB per entry, 2 MiB per pass
 and 32 MiB per App-session store. Full-store failure is visible and does not
 silently evict observations.
 
@@ -199,6 +202,12 @@ publication, to commit the registry record and strict, credential-redacted
 schema version, `context/entity-context.sqlite`, and registered kinds; it
 never duplicates measurements. A declared missing/corrupt store or ownership
 manifest is an explicit recovery failure, not an empty replacement.
+Old v1-only kind declarations remain readable. On the next append, additive
+supported-kind registration is reconciled through the same invoking-session
+registry/manifest publication hook before accepting observations; failure
+preserves the old history and declaration. The database remains schema version
+2 at the same owned path; this adds registered payload kinds, not a file-layout
+or SQLite-format migration.
 
 Composition registers the manager's `prepareSessionTransition` through
 `JsonSessionStore.setSessionContextTransitionHandler`. Preparation drains and

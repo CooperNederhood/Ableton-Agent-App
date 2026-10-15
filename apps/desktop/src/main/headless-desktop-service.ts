@@ -257,6 +257,9 @@ export interface HeadlessDesktopServiceOptions {
     policy: DesktopPreferences["approvalPolicy"],
   ) => void;
   onAgentTurnTimeoutChange?: (minutes: number) => void;
+  onListeningTimingPolicyChange?: (
+    policy: DesktopPreferences["listening"],
+  ) => void;
   onAgentReasoningVisibilityChange?: (
     visibility: DesktopPreferences["agentReasoningVisibility"],
   ) => void;
@@ -899,7 +902,15 @@ export class HeadlessDesktopService implements DesktopService {
         emit("progress");
         const next = {
           ...session,
-          contextStore: reference,
+          contextStore: desktopSessionContextStoreReferenceSchema.parse({
+            ...reference,
+            kinds: [
+              ...new Set([
+                ...(session.contextStore?.kinds ?? []),
+                ...reference.kinds,
+              ]),
+            ],
+          }),
           updatedAt: new Date().toISOString(),
         };
         const sessions = this.#sessions.map((candidate) =>
@@ -3549,6 +3560,15 @@ export class HeadlessDesktopService implements DesktopService {
         }
       }
       this.#preferences = preferences;
+      if (
+        previous.listening.mode !== preferences.listening.mode ||
+        previous.listening.maxClockDisagreementSamples !==
+          preferences.listening.maxClockDisagreementSamples
+      ) {
+        this.options.onListeningTimingPolicyChange?.(
+          Object.freeze({ ...preferences.listening }),
+        );
+      }
       this.emit({
         type: "preferences.changed",
         preferences: this.#preferences,

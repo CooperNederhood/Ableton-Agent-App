@@ -133,6 +133,31 @@ presentation state and say so; they are not applied to Live.
 - [x] Persist per-active-agent automatic approval with a safe default, atomic
   selected/all updates, session-switch revalidation, and shutdown draining.
 - [x] Implement validated preferences and migration support.
+- [x] Default older preferences to descriptive listening with a 64-sample
+  observed clock/beat disagreement acceptance limit; validate whole-sample
+  0–480 advanced limits and strict zero/no-fallback consistency through the
+  existing profile preferences store and typed IPC.
+- [x] Apply successfully persisted listening policy changes only to future
+  passes through an application-owned immutable policy provider.
+- [x] Add Settings controls and truthful v2 quality detail at actual sample
+  rates, unknown absolute error/bound, and separate historical v1 labelling.
+- [x] Bind Settings save feedback to the submitted draft revision; retain edits
+  made during persistence without falsely labelling them saved. Component
+  regressions reproduce both stale-success cases before the fix.
+- [x] Verify listening preferences and mixed v1/v2 typed historical context
+  through isolated Electron IPC/profile restarts (11-test owning suite).
+  One earlier intermittent 128-to-64 Settings result remains unexplained;
+  17 targeted repetitions and subsequent complete-suite runs did not reproduce
+  it. Do not treat revision-feedback hardening as its established root cause.
+- [x] Accept unique nonempty v1/v2 context-kind declarations at the Desktop
+  session boundary while preserving v1-only references and the existing
+  schema-version-2 context database path.
+- [x] Reconcile supported kinds additively through the existing atomic
+  registry/ownership-manifest publisher, retaining declarations on stale
+  requests and leaving observation bytes/ownership unchanged.
+- [ ] Qualify descriptive listening Settings and quality display in the
+  integrated runner-owned Live/Desktop UX loop after deterministic integration
+  validation (synthetic component/IPC tests alone do not qualify real UX).
 - [x] Persist one canonical App-session association per saved `liveSetId` in
   `live-set-sessions.json`, while retaining historical App sessions.
 - [x] Adopt Desktop session schema v4 with required Live Set identity and

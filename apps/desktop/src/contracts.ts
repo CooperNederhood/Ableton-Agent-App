@@ -13,7 +13,12 @@ import {
   type AgentEventListener,
   type LiveEventDefinition,
 } from "@ableton-agent/agent-config/schemas";
-import { inspectEventSelectionResultSchema } from "@ableton-agent/protocol";
+import {
+  DEFAULT_LISTENING_TIMING_POLICY,
+  audioObservationKindSchema,
+  inspectEventSelectionResultSchema,
+  listeningTimingPolicySchema,
+} from "@ableton-agent/protocol";
 import type {
   ConfigurationSnapshotPage,
   ConfigurationSnapshotQuery,
@@ -1036,7 +1041,12 @@ export const desktopSessionContextStoreReferenceSchema = z
   .object({
     schemaVersion: z.literal(2),
     relativePath: z.literal("context/entity-context.sqlite"),
-    kinds: z.array(z.literal("audio-observation/v1")).min(1).max(1).readonly(),
+    kinds: z
+      .array(audioObservationKindSchema)
+      .min(1)
+      .max(2)
+      .refine((values) => new Set(values).size === values.length)
+      .readonly(),
   })
   .strict()
   .readonly();
@@ -1168,6 +1178,9 @@ export type DesktopAutoApprovalUpdate = z.infer<
 
 export const preferencesSchema = z.object({
   version: z.literal(1).default(1),
+  listening: listeningTimingPolicySchema.default(
+    DEFAULT_LISTENING_TIMING_POLICY,
+  ),
   approvalPolicy: z
     .enum(["always", "risky", "never", "approve-all"])
     .default("risky"),

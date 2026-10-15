@@ -439,6 +439,34 @@ Store non-secret preferences separately from credentials. Important settings:
 - Remote Script location.
 - Diagnostic logging level.
 - Whether the application window stays above other applications.
+- Listening alignment acceptance: defaults to descriptive mode with a
+  64-sample observed clock/beat disagreement limit. Advanced limits are whole
+  samples from 0 through 480; strict mode explicitly requires zero with no
+  fallback. This policy is persisted in the existing profile-owned
+  `config/preferences.json` via `JsonPreferencesStore` and typed preferences
+  IPC. A successful save updates only the policy used by future passes;
+  each pass freezes its starting policy. A failed persistence operation
+  leaves the active policy unchanged. Save feedback belongs to the submitted
+  draft revision: editing after a save clears the success message, and edits
+  made during persistence remain unsaved when the older request completes.
+  The pending save still disables duplicate submission.
+- Stored v2 listening detail distinguishes the pass's configured acceptance
+  limit from measured clock and beat disagreement, converting each to
+  milliseconds at the observation's actual sample rate. All v2 observations
+  remain approximate and descriptive-only, even in strict mode at zero
+  disagreement. Estimated absolute timing error and verified absolute error
+  bound remain unknown; observed disagreement is not physical uncertainty.
+  Historical v1 timing uncertainty retains its legacy label and is not
+  relabelled as v2 alignment.
+- Desktop session context declarations accept one or both unique
+  `audio-observation/v1` and `audio-observation/v2` kinds. Existing v1-only
+  declarations remain readable; the canonical schema version 2 and
+  `context/entity-context.sqlite` path do not change.
+  Context publication reconciles supported kinds additively through the
+  existing atomic registry/ownership-manifest save. Repeated or stale v1-only
+  publication cannot remove an existing v2 declaration, change ownership, or
+  rewrite observation content; persistence failure/cancellation leaves the
+  in-memory declaration unchanged.
 - Whether anonymous operational telemetry is enabled.
 - Local detailed-history capture (default on), retention status, clear, and
   per-session deletion controls.

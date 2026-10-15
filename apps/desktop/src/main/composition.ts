@@ -673,6 +673,7 @@ export async function createDesktopComposition(
     });
   }
   const preferences = await loadPreferences(preferencesStore, notices);
+  let listeningTimingPolicy = Object.freeze({ ...preferences.listening });
   const eventJournalPath =
     options.eventJournalPath ??
     join(dirname(options.preferencesPath), "agent-set-event-history.sqlite");
@@ -976,6 +977,7 @@ export async function createDesktopComposition(
           ) => {
             const host = createListeningRuntimeHost(dependencies, {
               contextPorts: contextHost,
+              resolveTimingPolicy: () => listeningTimingPolicy,
               onChange: (job) => {
                 if (serviceRef.current === undefined) {
                   throw new Error("Desktop listening lifecycle is not ready");
@@ -1073,6 +1075,9 @@ export async function createDesktopComposition(
       ? {}
       : { onLoggingLevelChange: options.onLoggingLevelChange }),
     onApprovalPolicyChange: (policy) => approvalPolicy.setPolicy(policy),
+    onListeningTimingPolicyChange: (policy) => {
+      listeningTimingPolicy = Object.freeze({ ...policy });
+    },
     onAgentTurnTimeoutChange: (minutes) => {
       agentTurnTimeoutMs = minutes * 60_000;
     },

@@ -142,16 +142,58 @@ export function createSyntheticNativeListeningFixtureV2(
     passId?: string;
     endBeat?: number;
     timingPolicy?: ListeningTimingPolicy;
+    geometry?: Parameters<typeof createNativeListeningGeometry>[0];
   } = {},
 ) {
-  const old = createSyntheticNativeListeningFixture(options);
-  const geometry = createNativeListeningGeometry({
-    sampleRate: 48_000,
-    vectorSize: 64,
-    tempoBpm: 120,
-    startBeat: 0,
-    endBeat: old.observation.endBeat,
+  const old = createSyntheticNativeListeningFixture();
+  const geometry = createNativeListeningGeometry(
+    options.geometry ?? {
+      sampleRate: 48_000,
+      vectorSize: 64,
+      tempoBpm: 120,
+      startBeat: 0,
+      endBeat: options.endBeat ?? 4,
+    },
+  );
+  const armCounter = old.proof.armed.armCounter;
+  const originCounter = armCounter + 512;
+  const hostOffset = 1_000_000 - originCounter;
+  const samplesPerBeat = (geometry.sampleRate * 60) / geometry.tempoBpm;
+  const windows = Math.ceil(geometry.totalSamples / geometry.hopSamples);
+  const endCounter = (index: number) =>
+    originCounter +
+    Math.min((index + 1) * geometry.hopSamples, geometry.totalSamples);
+  const binding = (playing: boolean) => ({
+    dsp: [1, geometry.sampleRate, geometry.vectorSize],
+    frames: Array.from({ length: 32 }, (_, index) => {
+      const counter = playing
+        ? originCounter +
+          geometry.totalSamples +
+          geometry.vectorSize +
+          index * 512
+        : armCounter - 32768 + index * 512;
+      const sample = counter + hostOffset;
+      const beat =
+        geometry.startBeat +
+        (playing ? (counter - originCounter) / samplesPerBeat : 0);
+      const phase = beat - Math.floor(beat);
+      return [
+        Number(playing),
+        beat,
+        sample,
+        31,
+        counter,
+        phase,
+        counter,
+        Number(playing),
+        beat,
+        sample,
+        31,
+      ];
+    }),
   });
+  const before = binding(false);
+  const after = binding(true);
   const policy = options.timingPolicy ?? DEFAULT_LISTENING_TIMING_POLICY;
   const proof = nativeCaptureProofV2Schema.parse({
     ...old.proof,
@@ -160,25 +202,70 @@ export function createSyntheticNativeListeningFixtureV2(
       scope: NATIVE_LISTENER_SCOPE_V2,
       geometry,
       policy,
+      before,
     },
+    launched: {
+      ...old.proof.launched,
+      launchClock: 512 + geometry.vectorSize,
+      launchPhaseSamples: geometry.vectorSize,
+      host: {
+        sample: 1_000_640,
+        beat: geometry.startBeat + 640 / samplesPerBeat,
+        flags: 31,
+        playing: true,
+      },
+    },
+    after,
     timingWitnesses: {
-      minHostOffset: old.proof.armed.before.frames[0],
-      maxHostOffset: old.proof.armed.before.frames[0],
-      minBeatOrigin: old.proof.after.frames[0],
-      maxBeatOrigin: old.proof.after.frames[0],
+      minHostOffset: before.frames[0],
+      maxHostOffset: before.frames[0],
+      minBeatOrigin: after.frames[0],
+      maxBeatOrigin: after.frames[0],
+      maxPhaseDisagreement: after.frames[0],
     },
-    envelopeRms: old.observation.samples.map(() => [0, 0]),
+    envelopeWindows: Array.from({ length: windows }, (_, index) => [
+      endCounter(index),
+      0,
+      0,
+    ]),
+    spectralWindows: Array.from({ length: windows }, (_, index) => {
+      const end = Math.floor(endCounter(index) / 2048) * 2048 + hostOffset;
+      return [end - 2048, end, 0, 0];
+    }),
   });
   const algorithm = old.observation.algorithm;
   const observation = audioObservationV2Schema.parse({
     ...old.observation,
     schema: "audio-observation/v2",
+    listenerId: options.listenerId ?? "native-listener",
+    passId: options.passId ?? "pass",
+    sampleRate: geometry.sampleRate,
+    startBeat: geometry.startBeat,
+    endBeat: geometry.startBeat + geometry.totalSamples / samplesPerBeat,
+    endSample: 1_000_000 + geometry.totalSamples,
+    samples: Array.from({ length: windows }, (_, index) => ({
+      sample: endCounter(index) + hostOffset,
+      beat:
+        geometry.startBeat +
+        (endCounter(index) - originCounter) / samplesPerBeat,
+      peak: [0, 0],
+      rmsDbfs: [null, null],
+      centroidHz: null,
+    })),
+    reduction: {
+      originalSamples: windows,
+      originalAttacks: 0,
+      truncated: false,
+    },
     algorithm: {
       name: "native-max-stereo-energy-envelope-rise",
       version: "2.0.0",
       windowSamples: algorithm.windowSamples,
-      hopSamples: algorithm.hopSamples,
-      settings: algorithm.settings,
+      hopSamples: geometry.hopSamples,
+      settings: {
+        attackThresholdDb: 6,
+        minAttackSpacingSamples: geometry.hopSamples,
+      },
       units: algorithm.units,
     },
     alignment: evaluateListeningAlignment(policy, {

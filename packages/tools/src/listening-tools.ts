@@ -4,7 +4,8 @@ import {
   type ToolInvocation,
 } from "@github/copilot-sdk";
 import {
-  audioObservationSchema,
+  audioObservationKindSchema,
+  storedAudioObservationSchema,
   clipLocationSchema,
 } from "@ableton-agent/protocol";
 import { z } from "zod";
@@ -153,7 +154,7 @@ const contextSummarySchema = z
     passId: id,
     listenerId: id,
     subjectId: id,
-    kind: z.literal("audio-observation/v1"),
+    kind: audioObservationKindSchema,
     createdAt: z.string().datetime(),
     freshness: z.enum([
       "fresh",
@@ -178,9 +179,13 @@ export const contextOperationResultSchema = z.discriminatedUnion("action", [
     .object({
       action: z.literal("get"),
       entry: contextSummarySchema,
-      observation: audioObservationSchema,
+      observation: storedAudioObservationSchema,
     })
-    .strict(),
+    .strict()
+    .refine(
+      (value) => value.entry.kind === value.observation.schema,
+      "Context detail kind must match its observation schema",
+    ),
   z
     .object({
       action: z.literal("prune"),
@@ -219,7 +224,7 @@ export function createListeningTools(
   return [
     defineTool("ableton_listening", {
       description:
-        "Discover exact audio listeners and explicitly play an Arrangement range while capturing bounded measurements. Requires stopped transport and verified recording off; never solos/mutes tracks or changes effects. A listener with limitation native_per_pass_validation_required may attempt fresh native validation even while ready=false: only Arrangement beat 0, matching existing insert marker, 120 BPM, 48 kHz, and an end beat from 0.2 to 20 in 0.2-beat steps are eligible. Scope metadata is not readiness or timing proof: genuine per-pass arm proof is required before playback, measured launch and complete coverage before publication. Other uncommissioned listeners remain denied. Playback continues after completion, cancellation, failure, or timeout: cancel stops capture, not transport. Session listening is unsupported until quantized source onset is verified. Passes are owned by the active App session/agent; cancel only owned passes. Master/return measurements are mixes, not isolated clip facts. Read status and cleanupPolicy before treating a pass as completed; results persist only after verified context publication.",
+        "Discover exact audio listeners and explicitly play an Arrangement range while capturing bounded measurements. Requires stopped transport and verified recording off; never solos/mutes tracks or changes effects. A listener with limitation native_per_pass_validation_required may attempt fresh native validation even while ready=false. Descriptive v2 supports nonzero/fractional Arrangement starts, constant tempo, 44.1/48 kHz and one approximately 100 ms reporting hop through 30 seconds, using supported actual DSP metadata. The App positions and independently reads back the stopped insert marker/position before native arm. Timing policy is frozen from trusted Settings once per pass, not selected by this tool; the configured budget bounds observed disagreement, not absolute accuracy. Approximate results are descriptive-only, with unknown absolute timing error and no exclusive clip attribution. There is no automatic legacy fallback: the old beat-zero/120 BPM/48 kHz prototype requires explicitly configured strict mode and its matching existing marker/0.2-beat grid through beat 20. Scope metadata is not readiness or timing proof: genuine per-pass arm proof is required before playback, measured launch and complete coverage before publication. Other uncommissioned listeners remain denied. Playback continues after completion, cancellation, failure, or timeout: cancel stops capture, not transport. Session listening is unsupported until quantized source onset is verified. Passes are owned by the active App session/agent; cancel only owned passes. Master/return measurements are mixes, not isolated clip facts. Read status and cleanupPolicy before treating a pass as completed; results persist only after verified context publication.",
       parameters: listeningOperationParamsSchema,
       handler: async (params, invocation) => {
         const result = listeningOperationResultSchema.parse(

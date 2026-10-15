@@ -4,8 +4,60 @@ import type { DesktopService } from "./desktop-service.js";
 import type { DiagnosticsActions, ProfileManagerActions } from "./ipc.js";
 import { createIpcHandlers, registerIpc } from "./ipc.js";
 import type { DesktopEntityContextApi } from "../context-contracts.js";
+import { preferencesSchema } from "../contracts.js";
 
 describe("desktop IPC", () => {
+  it("guards listening preferences and round-trips policy through existing typed handlers", async () => {
+    const registered = new Map<
+      string,
+      (event: never, payload: unknown) => Promise<unknown>
+    >();
+    const preferences = preferencesSchema.parse({
+      listening: { mode: "strict", maxClockDisagreementSamples: 0 },
+    });
+    const setPreferences = vi.fn(async () => preferences);
+    const getPreferences = vi.fn(async () => preferences);
+    let trusted = false;
+    const ipcMain = {
+      handle: (
+        channel: string,
+        handler: (event: never, payload: unknown) => Promise<unknown>,
+      ) => {
+        registered.set(channel, handler);
+      },
+      removeHandler: vi.fn(),
+    };
+    const unregister = registerIpc(
+      ipcMain,
+      { setPreferences, getPreferences } as unknown as DesktopService,
+      {} as DiagnosticsActions,
+      () => trusted,
+    );
+    const set = registered.get("preferences:set")!;
+    await expect(set({} as never, preferences)).rejects.toThrow("Untrusted");
+    trusted = true;
+    await expect(
+      set({} as never, {
+        ...preferences,
+        listening: { mode: "strict", maxClockDisagreementSamples: 1 },
+      }),
+    ).rejects.toThrow();
+    expect(setPreferences).not.toHaveBeenCalled();
+    await expect(set({} as never, preferences)).resolves.toEqual(preferences);
+    expect(setPreferences).toHaveBeenCalledWith(preferences);
+    await expect(
+      registered.get("preferences:get")!({} as never, {}),
+    ).resolves.toEqual(preferences);
+    setPreferences.mockRejectedValueOnce(
+      new Error("owned persistence failure"),
+    );
+    await expect(set({} as never, preferences)).rejects.toThrow(
+      "persistence failure",
+    );
+    unregister();
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith("preferences:set");
+  });
+
   it("guards bounded listening inventory and carries expected session ownership into existing cancellation", async () => {
     const registered = new Map<
       string,

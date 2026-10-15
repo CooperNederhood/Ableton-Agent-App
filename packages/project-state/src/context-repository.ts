@@ -62,8 +62,11 @@ export interface ContextOperationOptions {
   readonly activeAgentId?: string;
 }
 
+type ObservationSummary<T> = T extends unknown
+  ? Omit<T, "samples" | "attacks">
+  : never;
 export type ContextEntrySummary = Omit<ContextEntry, "payload"> & {
-  readonly payload: Omit<ContextEntry["payload"], "samples" | "attacks">;
+  readonly payload: ObservationSummary<ContextEntry["payload"]>;
 };
 
 export interface ContextPage<T> {
@@ -740,24 +743,36 @@ export class SessionContextStore implements EntityContextRepository {
           }
           if (!applicable) continue;
         }
-        const payload = entry.payload;
+        const observation = entry.payload;
+        const common = {
+          listenerId: observation.listenerId,
+          passId: observation.passId,
+          sampleRate: observation.sampleRate,
+          startSample: observation.startSample,
+          endSample: observation.endSample,
+          startBeat: observation.startBeat,
+          endBeat: observation.endBeat,
+          complete: observation.complete,
+          limitations: observation.limitations,
+          summaries: observation.summaries,
+          reduction: observation.reduction,
+        };
+        const payload =
+          observation.schema === "audio-observation/v2"
+            ? {
+                ...common,
+                schema: observation.schema,
+                algorithm: observation.algorithm,
+                alignment: observation.alignment,
+              }
+            : {
+                ...common,
+                schema: observation.schema,
+                algorithm: observation.algorithm,
+              };
         items.push({
           ...entry,
-          payload: {
-            schema: payload.schema,
-            listenerId: payload.listenerId,
-            passId: payload.passId,
-            sampleRate: payload.sampleRate,
-            startSample: payload.startSample,
-            endSample: payload.endSample,
-            startBeat: payload.startBeat,
-            endBeat: payload.endBeat,
-            complete: payload.complete,
-            limitations: payload.limitations,
-            algorithm: payload.algorithm,
-            summaries: payload.summaries,
-            reduction: payload.reduction,
-          },
+          payload,
         });
       }
       return { ...page, items };
@@ -1086,6 +1101,14 @@ export class SessionContextStore implements EntityContextRepository {
       if (entry === undefined) {
         throw new TypeError(
           "Context link must reference an entry in the same publication",
+        );
+      }
+      if (
+        entry.payload.schema === "audio-observation/v2" &&
+        link.attribution === "exclusive"
+      ) {
+        throw new TypeError(
+          "Approximate descriptive observations cannot certify exclusive attribution",
         );
       }
       if (

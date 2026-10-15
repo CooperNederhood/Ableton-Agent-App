@@ -3,7 +3,11 @@ import {
   createInMemorySessionContextStore,
   type EntityContextRepository,
 } from "@ableton-agent/project-state";
-import { audioObservationSchema } from "@ableton-agent/protocol";
+import {
+  audioObservationSchema,
+  type StoredAudioObservation,
+} from "@ableton-agent/protocol";
+import { createSyntheticNativeListeningFixtureV2 } from "@ableton-agent/protocol/testing";
 import { contextOperationResultSchema } from "@ableton-agent/tools";
 import { createSessionContextHost } from "./session-context-host.js";
 
@@ -20,7 +24,7 @@ afterEach(async () => {
   await Promise.all(stores.splice(0).map((store) => store.close()));
 });
 
-async function fixture(name = "Known sine") {
+async function fixture(name = "Known sine", supplied?: StoredAudioObservation) {
   const store = await createInMemorySessionContextStore({
     sessionId: context.sessionId,
     liveSetId: "set-a",
@@ -40,35 +44,39 @@ async function fixture(name = "Known sine") {
     dependencyScope: "unknown" as const,
     previousRuntimeBindings: ["old-bridge-reference"],
   };
-  const payload = audioObservationSchema.parse({
-    schema: "audio-observation/v1",
-    listenerId: "listener",
-    passId: "pass",
-    sampleRate: 48_000,
-    startSample: 0,
-    endSample: 96_000,
-    startBeat: 0,
-    endBeat: 4,
-    complete: true,
-    limitations: ["Stored synthetic query fixture; not real-device validation"],
-    algorithm: {
-      name: "fixture",
-      version: "fixture-v1",
-      windowSamples: 4800,
-      hopSamples: 4800,
-      settings: { attackThresholdDb: 6, minAttackSpacingSamples: 480 },
-      units: { amplitude: "linear", rms: "dBFS", centroid: "Hz" },
-      timingUncertaintySamples: 0,
-    },
-    summaries: {
-      peak: [0.5, 0.5],
-      rmsDbfs: [-12.158, -12.158],
-      centroidHz: 440,
-    },
-    samples: [],
-    attacks: [],
-    reduction: { originalSamples: 0, originalAttacks: 0, truncated: false },
-  });
+  const payload =
+    supplied ??
+    audioObservationSchema.parse({
+      schema: "audio-observation/v1",
+      listenerId: "listener",
+      passId: "pass",
+      sampleRate: 48_000,
+      startSample: 0,
+      endSample: 96_000,
+      startBeat: 0,
+      endBeat: 4,
+      complete: true,
+      limitations: [
+        "Stored synthetic query fixture; not real-device validation",
+      ],
+      algorithm: {
+        name: "fixture",
+        version: "fixture-v1",
+        windowSamples: 4800,
+        hopSamples: 4800,
+        settings: { attackThresholdDb: 6, minAttackSpacingSamples: 480 },
+        units: { amplitude: "linear", rms: "dBFS", centroid: "Hz" },
+        timingUncertaintySamples: 0,
+      },
+      summaries: {
+        peak: [0.5, 0.5],
+        rmsDbfs: [-12.158, -12.158],
+        centroidHz: 440,
+      },
+      samples: [],
+      attacks: [],
+      reduction: { originalSamples: 0, originalAttacks: 0, truncated: false },
+    });
   await store.appendPass({
     pass: {
       id: "pass",
@@ -105,7 +113,7 @@ async function fixture(name = "Known sine") {
         sessionId: context.sessionId,
         liveSetId: "set-a",
         passId: "pass",
-        kind: "audio-observation/v1",
+        kind: payload.schema,
         producer: {
           listenerId: "listener",
           deviceId: "device",
@@ -146,6 +154,54 @@ async function fixture(name = "Known sine") {
 }
 
 describe("typed App-session context host", () => {
+  it("returns v2 inventory and detail with approximate quality and actual-rate milliseconds", async () => {
+    const { observation } = createSyntheticNativeListeningFixtureV2({
+      listenerId: "listener",
+    });
+    observation.sampleRate = observation.alignment.sampleRate = 44_100;
+    observation.alignment.observedClockDisagreementSamples = 64;
+    const { host } = await fixture("Descriptive query fixture", observation);
+    const listed = contextOperationResultSchema.parse(
+      await host.executeContextOperation(
+        {
+          action: "list",
+          limit: 20,
+          includeHistorical: false,
+        },
+        context,
+      ),
+    );
+    expect(listed).toMatchObject({
+      action: "list",
+      entries: [{ kind: "audio-observation/v2" }],
+    });
+    if (listed.action !== "list") throw new Error("Unexpected context result");
+    expect(listed.entries[0]?.summary).toContain(
+      "Approximate descriptive-only timing; absolute error unknown",
+    );
+    expect(listed.entries[0]?.summary).toContain("64 samples (1.451 ms)");
+    const detail = contextOperationResultSchema.parse(
+      await host.executeContextOperation(
+        {
+          action: "get",
+          contextId: "entry",
+          includeHistorical: false,
+        },
+        context,
+      ),
+    );
+    expect(detail).toMatchObject({
+      action: "get",
+      observation: {
+        schema: "audio-observation/v2",
+        alignment: { verifiedAbsoluteErrorBoundSamples: null },
+      },
+    });
+    expect(
+      await host.getSessionContextInventory(context.sessionId, context),
+    ).toContain("Approximate descriptive-only timing");
+  });
+
   it("propagates caller cancellation and prevents cancelled pruning", async () => {
     const { host, store } = await fixture();
     const controller = new AbortController();

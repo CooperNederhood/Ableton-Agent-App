@@ -1,12 +1,19 @@
 import { randomUUID } from "node:crypto";
 import {
-  audioObservationSchema,
   assertNativeCaptureObservation,
   nativeLaunchCoordinates,
   NATIVE_LISTENER_SCOPE,
-  type AudioObservation,
+  assertNativeArmProofV2,
+  assertNativeCaptureObservationV2,
+  nativeLaunchCoordinatesV2,
+  snapshotNativeListeningExpectationV2,
+  storedAudioObservationSchema,
   type NativeArmProof,
   type NativeLaunchProof,
+  type NativeArmProofV2,
+  type NativeLaunchProofV2,
+  type NativeListeningExpectationV2,
+  type StoredAudioObservation,
 } from "@ableton-agent/protocol";
 import {
   sanitizePersistedText,
@@ -17,19 +24,25 @@ import {
 import {
   DEFAULT_MAX_INGRESS_FRAME_BYTES,
   listenerConfigSchema,
-  listenerControlInputSchema,
   listenerRegistrationSchema,
   listenerReplySchema,
   listenerResultSchema,
+  listenerConfigV2Schema,
+  listenerRegistrationV2Schema,
+  listenerReplyV2Schema,
+  listenerResultV2Schema,
+  versionedListenerControlInputSchema,
   outputProducerSchema,
   recordSignalTelemetry,
   stableTelemetryId,
   type ListenerControlInput,
   type ListenerDescriptor,
   type ListenerReply,
-  type ListenerResult,
   type ListenerResultEvent,
   type ListenerService,
+  type VersionedListenerControlInput,
+  type VersionedListenerReply,
+  type VersionedListenerResult,
 } from "@ableton-agent/signal-routing";
 
 export interface ListeningCaptureProgress {
@@ -43,7 +56,7 @@ export interface ListeningCaptureProgress {
 
 export interface PrepareListenerCaptureInput {
   readonly listeners: readonly ListenerDescriptor[];
-  readonly config: NonNullable<ListenerControlInput["config"]>;
+  readonly config: NonNullable<VersionedListenerControlInput["config"]>;
   readonly passId: string;
   readonly trace: {
     readonly traceId: string;
@@ -61,7 +74,7 @@ export interface PrepareListenerCaptureInput {
 export interface PreparedListeningCapture {
   readonly jobId: string;
   readonly passId: string;
-  readonly result: Promise<readonly AudioObservation[]>;
+  readonly result: Promise<readonly StoredAudioObservation[]>;
   /** Present for scoped native listeners; resolves only after every scoped launch proof validates. */
   readonly nativeLaunch?: Promise<void>;
   /** Idempotent confirmed cancellation; rejects if any exact instance cannot be disarmed. */
@@ -86,11 +99,14 @@ interface SelectedListener {
   sequence: number;
   resultCount: number;
   bufferedBytes: number;
-  readonly buffered: ListenerResult[];
+  readonly buffered: VersionedListenerResult[];
   progressSeen: boolean;
-  observation?: AudioObservation;
+  observation?: StoredAudioObservation;
   nativeArm?: NativeArmProof;
   nativeLaunch?: NativeLaunchProof;
+  nativeArmV2?: NativeArmProofV2;
+  nativeLaunchV2?: NativeLaunchProofV2;
+  expectedV2?: Readonly<NativeListeningExpectationV2>;
 }
 
 function error(value: unknown, code: string): ListeningCaptureError {
@@ -143,7 +159,12 @@ function sameInstance(
     current.producer.producerId === selected.producer.producerId &&
     current.producer.instanceId === selected.producer.instanceId &&
     current.producer.signalKind === "audio" &&
-    current.producer.schemaVersion === "audio-observation/v1" &&
+    current.producer.schemaVersion === selected.producer.schemaVersion &&
+    current.registration.version === selected.registration.version &&
+    (current.registration.version !== 2 ||
+      (selected.registration.version === 2 &&
+        current.registration.vectorSize ===
+          selected.registration.vectorSize)) &&
     current.registration.connectionEpoch ===
       selected.registration.connectionEpoch &&
     current.registration.algorithmVersion ===
@@ -160,6 +181,19 @@ function assertNativeReadiness(
   registration: ListenerDescriptor["registration"],
 ): void {
   const status: unknown = Reflect.get(registration, "nativeStatus");
+  if (registration.version === 2) {
+    listenerRegistrationV2Schema.parse(registration);
+    if (
+      registration.nativeStatus.readiness !== "READY" &&
+      registration.nativeStatus.reason !==
+        "fresh_per_pass_native_validation_required"
+    )
+      throw new ListeningCaptureError(
+        "listener-not-ready",
+        registration.nativeStatus.reason,
+      );
+    return;
+  }
   if (typeof status !== "object" || status === null) return;
   // Scope permits fresh per-pass validation, not a timing/readiness assertion.
   if (Reflect.get(status, "scope") === NATIVE_LISTENER_SCOPE) return;
@@ -173,18 +207,18 @@ function assertNativeReadiness(
 class Capture implements PreparedListeningCapture {
   readonly jobId = randomUUID();
   readonly passId: string;
-  readonly result: Promise<readonly AudioObservation[]>;
+  readonly result: Promise<readonly StoredAudioObservation[]>;
   readonly nativeLaunch?: Promise<void>;
   readonly #selected: SelectedListener[];
   readonly #startedAt = Date.now();
-  readonly #config: NonNullable<ListenerControlInput["config"]>;
+  readonly #config: NonNullable<VersionedListenerControlInput["config"]>;
   readonly #trace: PrepareListenerCaptureInput["trace"];
   readonly #controlTimeout: number;
   readonly #cleanupTimeout: number;
   readonly #resultTimeout: number;
   readonly #failureGate: Promise<never>;
   #rejectGate!: (reason: Error) => void;
-  #resolveResult!: (observations: readonly AudioObservation[]) => void;
+  #resolveResult!: (observations: readonly StoredAudioObservation[]) => void;
   #rejectResult!: (reason: Error) => void;
   #resolveNativeLaunch: (() => void) | undefined;
   #rejectNativeLaunch: ((reason: Error) => void) | undefined;
@@ -205,16 +239,27 @@ class Capture implements PreparedListeningCapture {
   ) {
     this.passId = input.passId;
     this.#trace = { ...input.trace };
-    this.#config = listenerConfigSchema.parse(input.config);
+    this.#config =
+      "geometry" in input.config
+        ? listenerConfigV2Schema.parse(input.config)
+        : listenerConfigSchema.parse(input.config);
+    const duration =
+      "geometry" in this.#config
+        ? Math.ceil(
+            (this.#config.geometry.totalSamples * 1000) /
+              this.#config.geometry.sampleRate,
+          )
+        : this.#config.durationMs;
     this.#controlTimeout = this.#timeout(input.controlTimeoutMs ?? 5000, 10000);
     this.#cleanupTimeout = this.#timeout(input.cleanupTimeoutMs ?? 2000, 5000);
     this.#resultTimeout = this.#timeout(
-      input.resultTimeoutMs ?? this.#config.durationMs + 5000,
+      input.resultTimeoutMs ??
+        duration + ("geometry" in this.#config ? 15_000 : 5_000),
       125000,
     );
     if (!telemetryIdSchema.safeParse(input.trace.traceId).success)
       throw new ListeningCaptureError("invalid-trace");
-    listenerControlInputSchema.parse({
+    versionedListenerControlInputSchema.parse({
       ...input.trace,
       jobId: this.jobId,
       passId: this.passId,
@@ -230,10 +275,39 @@ class Capture implements PreparedListeningCapture {
       const descriptor = structuredClone(original);
       outputProducerSchema.parse(descriptor.producer);
       assertNativeReadiness(descriptor.registration);
-      listenerRegistrationSchema.parse(descriptor.registration);
+      let expectedV2: Readonly<NativeListeningExpectationV2> | undefined;
+      if (descriptor.registration.version === 2) {
+        listenerRegistrationV2Schema.parse(descriptor.registration);
+        if (
+          !("geometry" in this.#config) ||
+          this.#config.geometry.sampleRate !==
+            descriptor.registration.sampleRate ||
+          this.#config.geometry.vectorSize !==
+            descriptor.registration.vectorSize ||
+          !descriptor.registration.nativeStatus.acceptedVectorSizes.includes(
+            this.#config.geometry.vectorSize,
+          )
+        )
+          throw new ListeningCaptureError(
+            "unsupported-native-capture-geometry",
+          );
+        expectedV2 = snapshotNativeListeningExpectationV2({
+          policy: this.#config.timingPolicy,
+          geometry: this.#config.geometry,
+          listenerId: descriptor.producer.producerId,
+          passId: this.passId,
+        });
+      } else {
+        listenerRegistrationSchema.parse(descriptor.registration);
+        if ("geometry" in this.#config)
+          throw new ListeningCaptureError("listener-version-mismatch");
+      }
       if (
+        descriptor.registration.version === 1 &&
         descriptor.registration.nativeStatus?.scope === NATIVE_LISTENER_SCOPE
       ) {
+        if ("geometry" in this.#config)
+          throw new ListeningCaptureError("listener-version-mismatch");
         const source = this.#config.source;
         if (
           source.mode !== "arrangement" ||
@@ -255,7 +329,8 @@ class Capture implements PreparedListeningCapture {
         descriptor.jobId !== undefined ||
         descriptor.passId !== undefined ||
         descriptor.producer.signalKind !== "audio" ||
-        descriptor.producer.schemaVersion !== "audio-observation/v1" ||
+        descriptor.producer.schemaVersion !==
+          `audio-observation/v${descriptor.registration.version}` ||
         descriptor.binding.trackId !== descriptor.producer.track?.id ||
         descriptor.binding.deviceId !== descriptor.producer.device?.id ||
         connections.has(descriptor.connectionId) ||
@@ -276,6 +351,7 @@ class Capture implements PreparedListeningCapture {
         bufferedBytes: 0,
         buffered: [],
         progressSeen: false,
+        ...(expectedV2 ? { expectedV2 } : {}),
       };
     });
     this.#verifyInstances(true);
@@ -286,8 +362,9 @@ class Capture implements PreparedListeningCapture {
     if (
       this.#selected.some(
         (item) =>
+          item.descriptor.registration.version === 2 ||
           item.descriptor.registration.nativeStatus?.scope ===
-          NATIVE_LISTENER_SCOPE,
+            NATIVE_LISTENER_SCOPE,
       )
     ) {
       this.nativeLaunch = new Promise<void>((resolve, reject) => {
@@ -310,7 +387,13 @@ class Capture implements PreparedListeningCapture {
     return value;
   }
 
-  #event(stage: string, action?: string, detail?: string): void {
+  #event(
+    stage: string,
+    action?: string,
+    detail?: string,
+    durationMs?: number,
+    attributes?: Readonly<Record<string, unknown> & { listenerId?: string }>,
+  ): void {
     recordSignalTelemetry(this.input.telemetry, {
       name: `listening.capture.${stage}`,
       source: "listening-capture",
@@ -319,10 +402,12 @@ class Capture implements PreparedListeningCapture {
       trace: {
         traceId: this.#trace.traceId,
         spanId: stableTelemetryId(
-          `${this.jobId}:${stage}:${action ?? "capture"}`,
+          `${this.jobId}:${stage}:${action ?? "capture"}${
+            attributes?.listenerId ? `:${attributes.listenerId}` : ""
+          }`,
         ),
       },
-      durationMs: Date.now() - this.#startedAt,
+      durationMs: durationMs ?? Date.now() - this.#startedAt,
       outcome:
         stage === "failed"
           ? "failure"
@@ -335,6 +420,13 @@ class Capture implements PreparedListeningCapture {
         listenerCount: this.#selected.length,
         action,
         detail,
+        ...("geometry" in this.#config
+          ? {
+              timingPolicy: this.#config.timingPolicy,
+              geometry: this.#config.geometry,
+            }
+          : {}),
+        ...attributes,
       }),
     });
   }
@@ -385,13 +477,17 @@ class Capture implements PreparedListeningCapture {
     }
   }
 
-  #controlInput(action: ListenerControlInput["action"]): ListenerControlInput {
+  #controlInput(
+    action: ListenerControlInput["action"],
+  ): VersionedListenerControlInput {
     return {
       ...this.#trace,
       jobId: this.jobId,
       passId: this.passId,
       action,
-      ...(action === "prepare" ? { config: this.#config } : {}),
+      ...(action === "prepare"
+        ? { config: structuredClone(this.#config) }
+        : {}),
     };
   }
 
@@ -399,8 +495,11 @@ class Capture implements PreparedListeningCapture {
     item: SelectedListener,
     raw: unknown,
     status: ListenerReply["status"],
-  ): ListenerReply {
-    const parsed = listenerReplySchema.safeParse(raw);
+  ): VersionedListenerReply {
+    const parsed =
+      item.descriptor.registration.version === 2
+        ? listenerReplyV2Schema.safeParse(raw)
+        : listenerReplySchema.safeParse(raw);
     if (!parsed.success)
       throw new ListeningCaptureError("malformed-control-reply");
     const reply = parsed.data;
@@ -428,6 +527,13 @@ class Capture implements PreparedListeningCapture {
       throw new ListeningCaptureError("unexpected-control-reply");
     item.sequence = reply.sequence;
     if (status === "armed") {
+      if (reply.listenerVersion === 2) {
+        if (!reply.nativeArm || !item.expectedV2)
+          throw new ListeningCaptureError("native-arm-proof-required");
+        assertNativeArmProofV2(reply.nativeArm, item.expectedV2);
+        item.nativeArmV2 = reply.nativeArm;
+        return reply;
+      }
       const native =
         item.descriptor.registration.nativeStatus?.scope ===
         NATIVE_LISTENER_SCOPE;
@@ -519,7 +625,8 @@ class Capture implements PreparedListeningCapture {
         event.producer.producerId !== item.descriptor.producer.producerId ||
         event.producer.instanceId !== item.descriptor.producer.instanceId ||
         event.producer.signalKind !== "audio" ||
-        event.producer.schemaVersion !== "audio-observation/v1" ||
+        event.producer.schemaVersion !==
+          item.descriptor.producer.schemaVersion ||
         event.binding.trackId !== item.descriptor.binding.trackId ||
         event.binding.deviceId !== item.descriptor.binding.deviceId
       )
@@ -527,7 +634,10 @@ class Capture implements PreparedListeningCapture {
       const bytes = Buffer.byteLength(JSON.stringify(event.result), "utf8");
       if (bytes > DEFAULT_MAX_INGRESS_FRAME_BYTES || ++item.resultCount > 1024)
         throw new ListeningCaptureError("result-overflow");
-      const parsed = listenerResultSchema.safeParse(event.result);
+      const parsed =
+        item.descriptor.registration.version === 2
+          ? listenerResultV2Schema.safeParse(event.result)
+          : listenerResultSchema.safeParse(event.result);
       if (!parsed.success) throw new ListeningCaptureError("malformed-result");
       const result = parsed.data;
       if (
@@ -553,7 +663,7 @@ class Capture implements PreparedListeningCapture {
     }
   };
 
-  #consume(item: SelectedListener, result: ListenerResult): void {
+  #consume(item: SelectedListener, result: VersionedListenerResult): void {
     if (item.terminal || result.sequence !== item.sequence + 1)
       throw new ListeningCaptureError("result-sequence-gap-or-replay");
     item.sequence = result.sequence;
@@ -565,8 +675,9 @@ class Capture implements PreparedListeningCapture {
       );
     }
     const native =
+      result.listenerVersion === 2 ||
       item.descriptor.registration.nativeStatus?.scope ===
-      NATIVE_LISTENER_SCOPE;
+        NATIVE_LISTENER_SCOPE;
     if (
       !native &&
       (result.nativeLaunch !== undefined ||
@@ -574,24 +685,87 @@ class Capture implements PreparedListeningCapture {
         result.nativeLifecycle !== undefined)
     )
       throw new ListeningCaptureError("unexpected-native-evidence");
-    if (result.nativeLaunch !== undefined) {
-      if (item.nativeArm === undefined || item.nativeLaunch !== undefined)
-        throw new ListeningCaptureError("unexpected-native-launch");
-      nativeLaunchCoordinates(item.nativeArm, result.nativeLaunch);
-      item.nativeLaunch = result.nativeLaunch;
-    }
-    if (native && result.observation !== undefined) {
-      if (item.nativeLaunch === undefined)
-        throw new ListeningCaptureError("native-launch-proof-required");
-      if (result.status === "completed") {
-        const proof = result.nativeCapture;
-        if (
-          proof === undefined ||
-          JSON.stringify(proof.armed) !== JSON.stringify(item.nativeArm) ||
-          JSON.stringify(proof.launched) !== JSON.stringify(item.nativeLaunch)
-        )
-          throw new ListeningCaptureError("native-capture-proof-mismatch");
-        assertNativeCaptureObservation(proof, result.observation);
+    if (result.listenerVersion === 2) {
+      if (!item.expectedV2 || !item.nativeArmV2)
+        throw new ListeningCaptureError("native-arm-proof-required");
+      if (result.nativeLaunch) {
+        if (item.nativeLaunchV2)
+          throw new ListeningCaptureError("unexpected-native-launch");
+        nativeLaunchCoordinatesV2(
+          item.nativeArmV2,
+          result.nativeLaunch,
+          item.expectedV2,
+        );
+        item.nativeLaunchV2 = result.nativeLaunch;
+      }
+      if (result.observation) {
+        if (!item.nativeLaunchV2)
+          throw new ListeningCaptureError("native-launch-proof-required");
+        if (result.status === "completed") {
+          if (
+            !result.nativeCapture ||
+            JSON.stringify(result.nativeCapture.armed) !==
+              JSON.stringify(item.nativeArmV2) ||
+            JSON.stringify(result.nativeCapture.launched) !==
+              JSON.stringify(item.nativeLaunchV2)
+          )
+            throw new ListeningCaptureError("native-capture-proof-mismatch");
+          const started = Date.now();
+          const attribution = {
+            listenerId: item.descriptor.producer.producerId,
+          };
+          this.#event("queued", "alignment", undefined, 0, attribution);
+          this.#event("started", "alignment", undefined, 0, attribution);
+          try {
+            assertNativeCaptureObservationV2(
+              result.nativeCapture,
+              result.observation,
+              item.expectedV2,
+            );
+            this.#event(
+              "completed",
+              "alignment",
+              undefined,
+              Date.now() - started,
+              {
+                ...attribution,
+                alignment: result.observation.alignment,
+              },
+            );
+          } catch (cause) {
+            this.#event(
+              "failed",
+              "alignment",
+              cause instanceof Error
+                ? cause.message
+                : "native-alignment-failed",
+              Date.now() - started,
+              attribution,
+            );
+            throw cause;
+          }
+        }
+      }
+    } else {
+      if (result.nativeLaunch !== undefined) {
+        if (item.nativeArm === undefined || item.nativeLaunch !== undefined)
+          throw new ListeningCaptureError("unexpected-native-launch");
+        nativeLaunchCoordinates(item.nativeArm, result.nativeLaunch);
+        item.nativeLaunch = result.nativeLaunch;
+      }
+      if (native && result.observation !== undefined) {
+        if (item.nativeLaunch === undefined)
+          throw new ListeningCaptureError("native-launch-proof-required");
+        if (result.status === "completed") {
+          const proof = result.nativeCapture;
+          if (
+            proof === undefined ||
+            JSON.stringify(proof.armed) !== JSON.stringify(item.nativeArm) ||
+            JSON.stringify(proof.launched) !== JSON.stringify(item.nativeLaunch)
+          )
+            throw new ListeningCaptureError("native-capture-proof-mismatch");
+          assertNativeCaptureObservation(proof, result.observation);
+        }
       }
     }
     if (result.observation !== undefined)
@@ -601,7 +775,12 @@ class Capture implements PreparedListeningCapture {
         result.status === "completed",
       );
     if (result.status === "progress") {
-      if (!item.progressSeen && (!native || item.nativeLaunch !== undefined)) {
+      if (
+        !item.progressSeen &&
+        (!native ||
+          item.nativeLaunch !== undefined ||
+          item.nativeLaunchV2 !== undefined)
+      ) {
         item.progressSeen = true;
         this.#progress("capturing");
       }
@@ -622,10 +801,11 @@ class Capture implements PreparedListeningCapture {
       this.#nativeLaunched ||
       !this.#allArmed ||
       this.#failure ||
-      this.#selected.some(
-        (item) =>
-          item.descriptor.registration.nativeStatus?.scope ===
-            NATIVE_LISTENER_SCOPE && item.nativeLaunch === undefined,
+      this.#selected.some((item) =>
+        item.descriptor.registration.version === 2
+          ? item.nativeLaunchV2 === undefined
+          : item.descriptor.registration.nativeStatus?.scope ===
+              NATIVE_LISTENER_SCOPE && item.nativeLaunch === undefined,
       )
     )
       return;
@@ -636,10 +816,10 @@ class Capture implements PreparedListeningCapture {
 
   #observation(
     item: SelectedListener,
-    raw: AudioObservation,
+    raw: StoredAudioObservation,
     complete: boolean,
   ): void {
-    const observation = audioObservationSchema.parse(raw);
+    const observation = storedAudioObservationSchema.parse(raw);
     const rate = item.descriptor.registration.sampleRate;
     if (
       observation.listenerId !== item.descriptor.producer.producerId ||
@@ -647,7 +827,36 @@ class Capture implements PreparedListeningCapture {
       observation.sampleRate !== rate ||
       observation.algorithm.version !==
         item.descriptor.registration.algorithmVersion ||
-      observation.complete !== complete ||
+      observation.complete !== complete
+    )
+      throw new ListeningCaptureError("observation-attribution-or-quota");
+    if (observation.schema === "audio-observation/v2") {
+      if (!item.expectedV2 || !("geometry" in this.#config))
+        throw new ListeningCaptureError("listener-version-mismatch");
+      const geometry = item.expectedV2.geometry;
+      const endBeat =
+        geometry.startBeat +
+        geometry.totalSamples /
+          ((geometry.sampleRate * 60) / geometry.tempoBpm);
+      if (
+        observation.samples.length >
+          Math.ceil(geometry.totalSamples / geometry.hopSamples) ||
+        observation.startBeat !== geometry.startBeat ||
+        observation.endBeat > endBeat ||
+        observation.endSample - observation.startSample >
+          geometry.totalSamples ||
+        observation.alignment.vectorSize !== geometry.vectorSize ||
+        observation.alignment.policy.mode !== item.expectedV2.policy.mode ||
+        observation.alignment.policy.maxClockDisagreementSamples !==
+          item.expectedV2.policy.maxClockDisagreementSamples ||
+        (complete && observation.endBeat !== endBeat)
+      )
+        throw new ListeningCaptureError("observation-attribution-or-quota");
+      return;
+    }
+    if ("geometry" in this.#config)
+      throw new ListeningCaptureError("listener-version-mismatch");
+    if (
       observation.samples.length > this.#config.maxWindows ||
       observation.startBeat < this.#config.source.startBeat ||
       observation.endBeat > this.#config.source.endBeat ||

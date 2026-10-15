@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import * as protocol from "@ableton-agent/protocol";
-import { createSyntheticNativeListeningFixture } from "@ableton-agent/protocol/testing";
+import {
+  createSyntheticNativeListeningFixture,
+  createSyntheticNativeListeningFixtureV2,
+} from "@ableton-agent/protocol/testing";
 import { readFile } from "node:fs/promises";
 
 import {
@@ -134,6 +137,175 @@ function evidence() {
     final: { trackCount: 1 },
   };
 }
+
+function descriptiveEvidence(
+  geometry = {
+    sampleRate: 44_100,
+    vectorSize: 128,
+    tempoBpm: 127.5,
+    startBeat: 5.25,
+    endBeat: 9.50001,
+  },
+) {
+  const e = evidence();
+  const policy = { mode: "descriptive", maxClockDisagreementSamples: 64 };
+  const native = createSyntheticNativeListeningFixtureV2({
+    geometry,
+    timingPolicy: policy,
+    passId: e.pass.id,
+    listenerId: e.listener.producer.producerId,
+  });
+  e.expected = {
+    policy,
+    geometry: protocol.createNativeListeningGeometry(geometry),
+    passId: e.pass.id,
+    listenerId: e.listener.producer.producerId,
+  };
+  e.listener.registration.version = 2;
+  e.listener.producer.schemaVersion = "audio-observation/v2";
+  e.entries[0].kind = "audio-observation/v2";
+  e.entries[0].payload = native.observation;
+  e.pass.requestedRange = {
+    startBeat: geometry.startBeat,
+    endBeat: geometry.endBeat,
+  };
+  e.pass.actualRange = {
+    startBeat: native.observation.startBeat,
+    endBeat: native.observation.endBeat,
+  };
+  for (const link of e.links) link.coverage = { ...e.pass.actualRange };
+  e.subjects[0].binding.semanticLocator.arrangementRange = {
+    ...e.pass.requestedRange,
+  };
+  e.received[0].result.listenerVersion = 2;
+  e.received[0].result.observation = native.observation;
+  e.received[0].result.nativeCapture = native.proof;
+  e.typed.observation = native.observation;
+  e.resumed.observation = globalThis.structuredClone(native.observation);
+  return e;
+}
+
+describe("native v2 verification with independent App expectations (synthetic only)", () => {
+  it("verifies fractional 44.1k/127.5BPM coverage and truthful reopened quality", () => {
+    const result = verifyNativeListeningEvidence(
+      descriptiveEvidence(),
+      protocol,
+    );
+    expect(result).toMatchObject({
+      sampleRate: 44_100,
+      startBeat: 5.25,
+      endBeat: 9.5,
+      requestedRange: { startBeat: 5.25, endBeat: 9.50001 },
+      observationSchema: "audio-observation/v2",
+      alignment: {
+        alignment: "approximate",
+        intendedUse: "descriptive-only",
+        estimatedAbsoluteErrorSamples: null,
+        verifiedAbsoluteErrorBoundSamples: null,
+      },
+    });
+  });
+  it.each([
+    [0.1, 1],
+    [0.1 + 1 / 48_000, 2],
+    [30, 300],
+  ])(
+    "verifies %s native seconds and %s exact windows without calibration attacks",
+    (seconds, windows) => {
+      const result = verifyNativeListeningEvidence(
+        descriptiveEvidence({
+          sampleRate: 48_000,
+          vectorSize: 64,
+          tempoBpm: 100,
+          startBeat: 3.125,
+          endBeat: 3.125 + (seconds * 100) / 60,
+        }),
+        protocol,
+      );
+      expect(result.envelopeWindows).toBe(windows);
+      expect(result.stereoFrames).toBe(Math.round(seconds * 48_000));
+      expect(result.estimatedAttacks).toBe(0);
+    },
+  );
+  it.each([
+    [
+      "missing App expectation",
+      (e) => {
+        delete e.expected;
+      },
+    ],
+    [
+      "changed requested policy",
+      (e) => {
+        e.expected.policy.maxClockDisagreementSamples = 480;
+      },
+    ],
+    [
+      "wrong App listener",
+      (e) => {
+        e.expected.listenerId = "other-listener";
+      },
+    ],
+    [
+      "wrong App pass",
+      (e) => {
+        e.expected.passId = "other-pass";
+      },
+    ],
+    [
+      "relabelled native count",
+      (e) => {
+        e.received[0].result.nativeCapture.envelopeWindows[0][0]++;
+      },
+    ],
+    [
+      "legacy entry kind",
+      (e) => {
+        e.entries[0].kind = "audio-observation/v1";
+      },
+    ],
+    [
+      "legacy result version",
+      (e) => {
+        e.received[0].result.listenerVersion = 1;
+      },
+    ],
+    [
+      "unquantized actual range",
+      (e) => {
+        e.pass.actualRange = { ...e.pass.requestedRange };
+      },
+    ],
+    [
+      "rewritten requested range",
+      (e) => {
+        e.pass.requestedRange = { ...e.pass.actualRange };
+      },
+    ],
+    [
+      "fabricated absolute bound",
+      (e) => {
+        e.entries[0].payload.alignment.verifiedAbsoluteErrorBoundSamples = 64;
+      },
+    ],
+    [
+      "lost reopened alignment",
+      (e) => {
+        delete e.resumed.observation.alignment;
+      },
+    ],
+    [
+      "mutated Set",
+      (e) => {
+        e.final.trackCount = 2;
+      },
+    ],
+  ])("rejects %s", (_label, mutate) => {
+    const e = descriptiveEvidence();
+    mutate(e);
+    expect(() => verifyNativeListeningEvidence(e, protocol)).toThrow();
+  });
+});
 
 describe("native listening independent verification (synthetic unit evidence only)", () => {
   it("accepts exact proof plus one typed atomic historical track/range context", () => {

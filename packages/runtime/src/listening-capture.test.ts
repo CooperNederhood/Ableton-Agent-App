@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRequire } from "node:module";
 import type { AudioObservation } from "@ableton-agent/protocol";
 import { NATIVE_LISTENER_SCOPE } from "@ableton-agent/protocol";
-import { createSyntheticNativeListeningFixture } from "@ableton-agent/protocol/testing";
+import {
+  createSyntheticNativeListeningFixture,
+  createSyntheticNativeListeningFixtureV2,
+} from "@ableton-agent/protocol/testing";
 import type { TelemetryEventEnvelope } from "@ableton-agent/observability";
 import type {
   ListenerControlInput,
@@ -18,6 +21,10 @@ import {
   InMemoryConnectionRegistry,
   SignalRouter,
   type ListenerControl,
+  listenerRegistrationV2Schema,
+  listenerReplyV2Schema,
+  type ListenerResultV2,
+  type VersionedListenerControlInput,
 } from "@ableton-agent/signal-routing";
 import {
   prepareListenerCapture,
@@ -241,6 +248,243 @@ function input(
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+function nativeV2Service() {
+  const base = new FakeService(["a"]);
+  const listener = base.listeners[0]!;
+  listener.producer.schemaVersion = "audio-observation/v2";
+  listener.registration = listenerRegistrationV2Schema.parse({
+    ...listener.registration,
+    version: 2,
+    capabilities: ["audio-listener/v2"],
+    algorithmVersion: "2.0.0",
+    vectorSize: 64,
+    deviceCanonicalPath: "live_set tracks 0 devices 0",
+    trackCanonicalPath: "live_set tracks 0",
+    nativeStatus: {
+      version: 2,
+      scope: "arrangement-descriptive/v2",
+      readiness: "READY",
+      alignment: "approximate",
+      verifiedAbsoluteErrorBoundSamples: null,
+      acceptedSampleRates: [44_100, 48_000],
+      acceptedVectorSizes: [64],
+      timingModes: ["descriptive", "strict"],
+      maxClockDisagreementSamples: 480,
+      maxAudioDurationMs: 30_000,
+      maxWindows: 300,
+      abiVersion: 2,
+    },
+  });
+  const data = createSyntheticNativeListeningFixtureV2({
+    listenerId: listener.producer.producerId,
+  });
+  const calls: VersionedListenerControlInput[] = [];
+  const service: ListenerService = {
+    inspectListeners: () => base.inspectListeners(),
+    onListenerResult: (callback) => base.onListenerResult(callback),
+    requestListenerControl: async (_id, control) => {
+      calls.push(structuredClone(control));
+      listener.phase =
+        control.action === "prepare"
+          ? "ready"
+          : control.action === "arm"
+            ? "armed"
+            : "idle";
+      if (control.action === "cancel") {
+        delete listener.jobId;
+        delete listener.passId;
+      } else {
+        listener.jobId = control.jobId;
+        listener.passId = control.passId;
+      }
+      return listenerReplyV2Schema.parse({
+        jobId: control.jobId,
+        passId: control.passId,
+        traceId: control.traceId,
+        correlationId: control.correlationId,
+        causationId: control.causationId,
+        type: "listener.reply",
+        protocolVersion: 1,
+        listenerVersion: 2,
+        requestId: `control-${calls.length}`,
+        connectionEpoch: listener.registration.connectionEpoch,
+        sequence: base.next(listener.connectionId),
+        status:
+          control.action === "prepare"
+            ? "ready"
+            : control.action === "arm"
+              ? "armed"
+              : "cancelled",
+        ...(control.action === "arm" ? { nativeArm: data.proof.armed } : {}),
+      });
+    },
+  };
+  const emit = (patch: Partial<ListenerResultV2>) => {
+    const control = calls
+      .slice()
+      .reverse()
+      .find((call) => call.action === "arm");
+    if (!control) throw new Error("Synthetic result requested before arm");
+    const result: ListenerResultV2 = {
+      type: "listener.result",
+      protocolVersion: 1,
+      listenerVersion: 2,
+      requestId: "result",
+      connectionEpoch: listener.registration.connectionEpoch,
+      sequence: base.next(listener.connectionId),
+      jobId: control.jobId,
+      passId: control.passId,
+      traceId: control.traceId,
+      correlationId: control.correlationId,
+      causationId: control.causationId,
+      status: "completed",
+      observation: data.observation,
+      nativeCapture: data.proof,
+      ...patch,
+    };
+    for (const subscriber of base.subscribers)
+      subscriber({
+        connectionId: listener.connectionId,
+        binding: listener.binding,
+        producer: listener.producer,
+        result,
+      });
+    if (result.status !== "progress") {
+      listener.phase = "idle";
+      delete listener.jobId;
+      delete listener.passId;
+    }
+  };
+  return {
+    base,
+    service,
+    calls,
+    data,
+    input: input(base, undefined, {
+      config: structuredClone({
+        geometry: data.proof.armed.geometry,
+        timingPolicy: data.proof.armed.policy,
+      }),
+    }),
+    launch: () =>
+      emit({
+        status: "progress",
+        observation: undefined,
+        nativeCapture: undefined,
+        nativeLaunch: data.proof.launched,
+      }),
+    complete: () => emit({}),
+  };
+}
+
+describe("independent native v2 capture", () => {
+  it("freezes v2 policy and geometry and publishes only independently verified approximate data", async () => {
+    const f = nativeV2Service();
+    const events: TelemetryEventEnvelope[] = [];
+    const capture = await prepareListenerCapture(f.service, {
+      ...f.input,
+      telemetry: {
+        enqueue(event) {
+          events.push(event);
+          return true;
+        },
+      },
+    });
+    if (!("geometry" in f.input.config)) throw new Error("Expected v2 input");
+    f.input.config.timingPolicy = {
+      mode: "descriptive",
+      maxClockDisagreementSamples: 480,
+    };
+    f.input.config.geometry.endBeat = 100;
+    f.launch();
+    await capture.nativeLaunch;
+    f.complete();
+    const observations = await capture.result;
+    expect(observations[0]).toMatchObject({
+      schema: "audio-observation/v2",
+      endBeat: 4,
+      alignment: {
+        policy: { maxClockDisagreementSamples: 64 },
+        verifiedAbsoluteErrorBoundSamples: null,
+      },
+    });
+    const alignment = events.filter(
+      (event) => event.attributes.action === "alignment",
+    );
+    expect(alignment.map((event) => event.name)).toEqual([
+      "listening.capture.queued",
+      "listening.capture.started",
+      "listening.capture.completed",
+    ]);
+    expect(
+      alignment.every(
+        (event) =>
+          event.trace?.traceId === trace.traceId &&
+          event.attributes.listenerId === "producer-a" &&
+          event.durationMs !== undefined &&
+          event.durationMs >= 0,
+      ),
+    ).toBe(true);
+    expect(f.base.subscribers.size).toBe(0);
+    await capture.disarm();
+    expect(f.calls.map((call) => call.action)).toEqual(["prepare", "arm"]);
+  });
+
+  it.each(["counter", "missing-window", "summary"] as const)(
+    "fails %s corruption and confirms cleanup without complete data",
+    async (failure) => {
+      const f = nativeV2Service();
+      const capture = await prepareListenerCapture(f.service, f.input);
+      f.launch();
+      if (failure === "counter") f.data.proof.envelopeWindows[0]![0] += 1;
+      if (failure === "missing-window") f.data.proof.envelopeWindows.pop();
+      if (failure === "summary") f.data.observation.summaries.peak = [0.5, 0.5];
+      const rejected = expect(capture.result).rejects.toThrow("native_v2_");
+      f.complete();
+      await rejected;
+      await capture.disarm();
+      expect(f.calls.at(-1)?.action).toBe("cancel");
+      expect(f.base.subscribers.size).toBe(0);
+    },
+  );
+
+  it("rejects producer-selected policy before playback and confirms disarm", async () => {
+    const f = nativeV2Service();
+    const policy = {
+      mode: "descriptive" as const,
+      maxClockDisagreementSamples: 64,
+    };
+    f.data.proof.armed.policy = {
+      mode: "descriptive",
+      maxClockDisagreementSamples: 480,
+    };
+    await expect(
+      prepareListenerCapture(f.service, {
+        ...f.input,
+        config: { geometry: f.data.proof.armed.geometry, timingPolicy: policy },
+      }),
+    ).rejects.toThrow("native_v2_policy_or_geometry_mismatch");
+    expect(f.calls.at(-1)?.action).toBe("cancel");
+    expect(f.base.subscribers.size).toBe(0);
+  });
+
+  it("cancels active v2 capture without transport permission or a leaked subscriber", async () => {
+    const f = nativeV2Service();
+    const controller = new AbortController();
+    const capture = await prepareListenerCapture(f.service, {
+      ...f.input,
+      signal: controller.signal,
+    });
+    const rejected = expect(capture.result).rejects.toThrow("cancelled");
+    controller.abort();
+    await rejected;
+    await capture.disarm();
+    expect(f.calls.at(-1)).toMatchObject({ action: "cancel" });
+    expect(f.calls.at(-1)?.config).toBeUndefined();
+    expect(f.base.subscribers.size).toBe(0);
+  });
 });
 
 describe("per-pass native proof admission", () => {
@@ -1114,13 +1358,14 @@ describe("concrete shared-ingress capture adapter", () => {
   it("caller descriptor/config/trace mutations cannot change captured ownership", async () => {
     const service = new FakeService(["a"]);
     const mutableTrace = { ...trace };
+    const mutableConfig = structuredClone(config);
     const supplied = input(service, undefined, {
       trace: mutableTrace,
-      config: structuredClone(config),
+      config: mutableConfig,
     });
     const capture = await prepareListenerCapture(service, supplied);
     mutableTrace.traceId = "changed";
-    supplied.config.source.endBeat = 100;
+    mutableConfig.source.endBeat = 100;
     supplied.listeners[0]!.registration.connectionEpoch = "changed";
     service.emit("connection-a");
     expect(await capture.result).toHaveLength(1);

@@ -16,8 +16,10 @@ Companion specification: [Playback Listening](playback-listening.md).
   marker/position/playing reads and complete owned-probe restoration. Preserve
   the earlier empty-unsaved-name denial separately.
 - [x] Define versioned native arm/launch/coverage proof, immutable App
-  expectations, fixed-baseline/four-extrema timing and independent descriptor
+  expectations, fixed-baseline/linear-and-phase extrema and independent descriptor
   checks. Keep held-clock/FFT corruption and transport regression hard failures.
+- [x] Retain actual native envelope-window counters alongside processed RMS;
+  verify native completeness independently of approximate host alignment.
 - [x] Define isolated v2 capability/control/result schemas, actual DSP metadata
   and unchanged 128 KiB complete-result quota, including 30-second wire coverage.
 - [x] Activate explicit authenticated v2 channel negotiation and independent
@@ -28,8 +30,25 @@ Companion specification: [Playback Listening](playback-listening.md).
   the separately validated playback/context integration is implemented.
 - [ ] Generalize controller, engine and native graphs for ordinary music/silence,
   constant tempo, arbitrary ranges and supported DSP metadata.
-- [ ] Wire guarded source positioning before arm and independently validate
+- [x] Wire guarded source positioning before arm and independently validate
   approximate results through capture, atomic context publication and typed resume.
+- [x] Snapshot trusted policy once per pass; derive actual v2 rate/vector/tempo
+  geometry, reject mixed/unsupported configurations before reservation, preserve
+  requested/quantized ranges and require fresh source/binding reads after positioning.
+- [x] Cover exact default64 acceptance/65 rejection, fractional44.1k/127.5BPM,
+  one-hop/one-sample-tail/30s geometry, policy immutability, redacted failure and
+  cancellation without transport rollback in the production factory.
+- [ ] Finish Desktop supported-kind declaration compatibility and qualify actual
+  v2 native capture through the ordinary production factory, not a synthetic producer.
+- [x] Extend the independent integration verifier with explicit v2 App expectations,
+  exact native coverage, truthful quantized ranges and reopened alignment; retain
+  an explicitly strict/zero legacy scenario without promoting old fixture evidence.
+- [x] Generalize the internal capture state machine for explicit v2 geometry,
+  immutable expected policy, native proof, alignment lifecycle and confirmed
+  cancellation while preserving v1.
+- [x] Register typed v2 publication/storage/query/IPC/resume payloads, preserve
+  quality in summaries and history, keep requested/measured ranges separate,
+  deny exclusive descriptive attribution and reconcile legacy kind declarations.
 - [ ] Add canonical profile preferences, per-pass snapshots, Settings and visible
   quality/warnings with component, IPC and Electron regression coverage.
 - [ ] Cover new lifecycle/trace/redaction/failure/cancellation boundaries, then

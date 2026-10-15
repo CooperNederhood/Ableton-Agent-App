@@ -746,15 +746,16 @@ describe("explicit native v2 authenticated ingress", () => {
     const { server, endpoint } = await start({
       now: () => now,
       idleCheckIntervalMs: 5,
+      idleTimeoutMs: 100_000,
     });
     const received: ListenerResultEvent[] = [];
     server.onListenerResult((event) => received.push(event));
     const client = await listener(endpoint, nativeV2Metadata, 2);
     await armedV2(server, client);
-    now = 6_000;
+    now = 16_000;
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(server.inspectListeners()[0]?.phase).toBe("armed");
-    now = 7_001;
+    now = 17_001;
     await vi.waitFor(() =>
       expect(received.at(-1)?.result).toMatchObject({
         listenerVersion: 2,

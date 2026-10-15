@@ -1118,7 +1118,9 @@ export class SignalIngressServer implements ListenerService {
           delete state.nativeLaunchV2;
         } else if (message.status === "armed") {
           state.listenerDeadline =
-            this.#now() + this.#captureDuration(owner) + 5000;
+            this.#now() +
+            this.#captureDuration(owner) +
+            (owner.listenerVersion === 2 ? 15_000 : 5_000);
         }
       }
       this.#finishListenerControl(message.requestId, message);

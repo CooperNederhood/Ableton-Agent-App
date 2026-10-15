@@ -161,6 +161,10 @@ export const audioObservationV2Schema = audioObservationBodySchema
 export type AudioObservationV2 = z.infer<typeof audioObservationV2Schema>;
 
 /** Typed historical reading; neither version grants capture/publication authority. */
+export const audioObservationKindSchema = z.enum([
+  "audio-observation/v1",
+  "audio-observation/v2",
+]);
 export const storedAudioObservationSchema = z.union([
   audioObservationSchema,
   audioObservationV2Schema,

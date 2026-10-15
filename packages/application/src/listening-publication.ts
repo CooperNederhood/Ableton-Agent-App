@@ -8,7 +8,7 @@ import {
   type ContextSubject,
   type EntityContextRepository,
 } from "@ableton-agent/project-state";
-import type { AudioObservation } from "@ableton-agent/protocol";
+import type { StoredAudioObservation } from "@ableton-agent/protocol";
 import {
   ListeningFailure,
   type ListeningOwner,
@@ -71,7 +71,7 @@ export interface ListeningPublicationInput {
   readonly createdAt: string;
   readonly startedAt: string;
   readonly endedAt: string;
-  readonly observations: readonly AudioObservation[];
+  readonly observations: readonly StoredAudioObservation[];
   /** Privileged, inspected subject bindings, never model-supplied JSON. */
   readonly bindings: readonly ListeningPublicationBinding[];
 }
@@ -116,6 +116,15 @@ export function buildListeningPublication(
     const associated = [binding.primary, ...binding.contributors].map(
       (subject) => contextSubjectSchema.parse(subject),
     );
+    if (
+      observation.schema === "audio-observation/v2" &&
+      binding.attribution === "exclusive"
+    ) {
+      throw new ListeningFailure(
+        "invalid_publication",
+        "Approximate descriptive observations cannot certify exclusive attribution",
+      );
+    }
     if (new Set(associated.map(({ id }) => id)).size !== associated.length) {
       throw new ListeningFailure(
         "invalid_publication",
@@ -128,7 +137,7 @@ export function buildListeningPublication(
       sessionId: input.owner.sessionId,
       liveSetId: input.owner.liveSetId,
       passId: input.passId,
-      kind: "audio-observation/v1",
+      kind: observation.schema,
       producer: {
         listenerId: observation.listenerId,
         deviceId: binding.deviceReference,

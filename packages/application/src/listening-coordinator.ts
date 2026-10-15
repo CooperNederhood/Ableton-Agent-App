@@ -5,8 +5,8 @@ import {
   type NonBlockingObservabilityRecorder,
 } from "@ableton-agent/observability";
 import {
-  audioObservationSchema,
-  type AudioObservation,
+  storedAudioObservationSchema,
+  type StoredAudioObservation,
 } from "@ableton-agent/protocol";
 
 export const listeningLimits = {
@@ -68,7 +68,7 @@ export type OwnedListeningPlayback =
     };
 
 export interface PreparedListeningCapture {
-  readonly observations: Promise<readonly AudioObservation[]>;
+  readonly observations: Promise<readonly StoredAudioObservation[]>;
   disarm(): Promise<void>;
 }
 
@@ -126,13 +126,13 @@ export interface ListeningCoordinatorServices {
       readonly owner: ListeningOwner;
       readonly trace: ListeningTrace;
       readonly request: ListeningRequest;
-      readonly observations: readonly AudioObservation[];
+      readonly observations: readonly StoredAudioObservation[];
       readonly signal: AbortSignal;
     },
   ): Promise<readonly string[]>;
   validateObservations(
     this: void,
-    observations: readonly AudioObservation[],
+    observations: readonly StoredAudioObservation[],
     request: ListeningRequest,
     passId: string,
   ): void;
@@ -562,7 +562,7 @@ export class ListeningCoordinator {
       };
       checkAbort(signal);
       this.#transition(job, "capturing");
-      const observations = audioObservationSchema
+      const observations = storedAudioObservationSchema
         .array()
         .max(8)
         .parse(await bounded(capture.observations, signal));

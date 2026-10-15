@@ -65,7 +65,11 @@ export async function createNativeListeningRunner({
       manifest.execution === "native-listening-runtime" &&
       manifest.timeoutMs === 60000 &&
       manifest.maxToolCalls === 8 &&
-      manifest.maxMutations === 1,
+      manifest.maxMutations === 1 &&
+      isDeepStrictEqual(manifest.setupContract?.timingPolicy, {
+        mode: "strict",
+        maxClockDisagreementSamples: 0,
+      }),
     "Unreviewed native scenario contract",
   );
   assert(
@@ -262,6 +266,10 @@ export async function createNativeListeningRunner({
           askForReadApproval: true,
           listening: (dependencies) => {
             host = d.createListeningRuntimeHost(dependencies, {
+              resolveTimingPolicy: () => ({
+                mode: "strict",
+                maxClockDisagreementSamples: 0,
+              }),
               contextPorts: contextHost,
               resolveOwner: async (context) => {
                 assert(

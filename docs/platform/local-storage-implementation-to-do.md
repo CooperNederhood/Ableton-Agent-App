@@ -54,6 +54,11 @@ Companion specification: [Local Storage Layout](local-storage.md)
   Set/Project/session ownership, separate from profile-wide history.
 - [x] Add typed, redacted observations, subject/freshness links, atomic pass
   publication, quota reservations and explicit context pruning.
+- [x] Register v1/v2 observation kinds with exact payload-version agreement,
+  preserve approximate v2 quality in typed summaries/detail/resume, and reject
+  exclusive descriptive attribution. Retain old kind declarations and reconcile
+  additive supported kinds through atomic registry/manifest publication without
+  changing the owned path or database format.
 - [x] Expose canonical profile signal-discovery and local authentication-key
   paths for portable producer companions.
 - [x] Implement invoking-session first-publication registry/manifest API and

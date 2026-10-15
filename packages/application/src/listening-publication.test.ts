@@ -6,6 +6,7 @@ import {
   type EntityContextRepository,
 } from "@ableton-agent/project-state";
 import type { AudioObservation } from "@ableton-agent/protocol";
+import { createSyntheticNativeListeningFixtureV2 } from "@ableton-agent/protocol/testing";
 import {
   buildListeningPublication,
   persistListeningObservations,
@@ -118,6 +119,76 @@ async function repository(sessionId = owner.sessionId) {
 }
 
 describe("atomic listening context publication", () => {
+  it("publishes v2 without relabelling its kind, range or unknown accuracy", async () => {
+    const base = fixture();
+    const { observation } = createSyntheticNativeListeningFixtureV2({
+      listenerId: "listener",
+    });
+    observation.endSample += 1;
+    observation.endBeat += 1 / 24_000;
+    observation.samples.push({
+      ...observation.samples.at(-1)!,
+      sample: observation.endSample,
+      beat: observation.endBeat,
+    });
+    observation.reduction.originalSamples += 1;
+    const input = {
+      ...base,
+      requestedRange: { startBeat: 0, endBeat: 4 + 0.6 / 24_000 },
+      observations: [observation],
+    };
+    const value = buildListeningPublication(input);
+    expect(value.entries[0]).toMatchObject({
+      kind: "audio-observation/v2",
+      payload: {
+        schema: "audio-observation/v2",
+        alignment: {
+          alignment: "approximate",
+          verifiedAbsoluteErrorBoundSamples: null,
+        },
+      },
+    });
+    expect(value.pass.requestedRange).toEqual(input.requestedRange);
+    expect(value.pass.actualRange?.endBeat).toBe(observation.endBeat);
+    expect(value.pass.actualRange?.endBeat).not.toBe(
+      input.requestedRange.endBeat,
+    );
+    const store = await repository();
+    await persistListeningObservations(
+      store,
+      input,
+      new AbortController().signal,
+    );
+    const entries = await store.listEntries({
+      kind: "audio-observation/v2",
+      includeHistorical: true,
+    });
+    expect(entries.items).toHaveLength(1);
+    expect(entries.items[0]?.payload).toMatchObject({
+      schema: "audio-observation/v2",
+      alignment: observation.alignment,
+    });
+  });
+
+  it("refuses exclusive attribution for v2 rather than silently downgrading it", () => {
+    const base = fixture();
+    const input = {
+      ...base,
+      observations: [
+        createSyntheticNativeListeningFixtureV2({
+          listenerId: "listener",
+        }).observation,
+      ],
+      bindings: base.bindings.map((binding) => ({
+        ...binding,
+        attribution: "exclusive" as const,
+      })),
+    };
+    expect(() => buildListeningPublication(input)).toThrow(
+      "Approximate descriptive observations cannot certify exclusive attribution",
+    );
+  });
+
   it("reserves the bounded pass ceiling with caller attribution and releases once", async () => {
     const store = await repository();
     const reserve = vi.spyOn(store, "reservePass");

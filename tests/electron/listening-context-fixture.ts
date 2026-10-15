@@ -11,12 +11,17 @@ import {
   resolveNestedSessionStorage,
 } from "../../packages/storage/src/index.js";
 import { createKnownListeningFixture } from "../../packages/test-support/src/listening-fixture.js";
+import { createSyntheticNativeListeningFixtureV2 } from "../../packages/protocol/src/testing.js";
 
 export const listeningFixtureSessionId = "electron-listening-context";
 export const listeningFixturePassId = "electron-listening-pass";
+export const descriptiveFixturePassId = "electron-descriptive-pass";
 
 /** Synthetic persistence/IPC fixture; never evidence of measured Max DSP. */
-export async function seedListeningContext(profile: string): Promise<void> {
+export async function seedListeningContext(
+  profile: string,
+  includeDescriptive = false,
+): Promise<void> {
   const layout = resolveLiveAgentStorage({
     environment: {
       LIVE_AGENT_HOME: join(profile, "live-agent"),
@@ -139,7 +144,77 @@ export async function seedListeningContext(profile: string): Promise<void> {
       }),
       { trace, activeAgentId: "fixture-agent" },
     );
+    if (includeDescriptive) {
+      const { observation } = createSyntheticNativeListeningFixtureV2({
+        listenerId: "fixture-descriptive-listener",
+        passId: descriptiveFixturePassId,
+        geometry: {
+          sampleRate: 44_100,
+          vectorSize: 128,
+          tempoBpm: 127.5,
+          startBeat: 5.25,
+          endBeat: 9.50001,
+        },
+      });
+      observation.alignment.observedClockDisagreementSamples = 64;
+      observation.alignment.observedBeatDisagreementSamples = 32;
+      observation.limitations = [
+        "Synthetic persistence/quality-format fixture; not measured native DSP",
+      ];
+      await repository.appendPass(
+        buildListeningPublication({
+          passId: descriptiveFixturePassId,
+          owner: { ...ownership, agentId: "fixture-agent" },
+          trace,
+          requestedMode: "arrangement",
+          actualMode: "arrangement",
+          requestedRange: { startBeat: 5.25, endBeat: 9.50001 },
+          createdAt: timestamp,
+          startedAt: timestamp,
+          endedAt: "2026-10-12T00:00:02.000Z",
+          observations: [observation],
+          bindings: [
+            {
+              listenerId: observation.listenerId,
+              deviceReference: "fixture-descriptive-device",
+              connectionEpoch: "fixture-descriptive-epoch",
+              version: observation.algorithm.version,
+              attribution: "unknown",
+              contributors: [],
+              primary: {
+                id: "fixture-descriptive-subject",
+                ...ownership,
+                kind: "arrangement-range",
+                trackId: "fixture-track",
+                location: "arrangement",
+                binding: {
+                  version: 1,
+                  semanticLocator: {
+                    name: "Descriptive persistence fixture",
+                    trackId: "fixture-track",
+                    arrangementRange: { startBeat: 5.25, endBeat: 9.50001 },
+                  },
+                  sourceIdentity: "synthetic-fixture",
+                  playbackSettingsHash: "fixture-settings",
+                  upstreamProcessingHash: "fixture-chain",
+                  routingHash: "fixture-routing",
+                  dependencyScope: "unknown",
+                  previousRuntimeBindings: [],
+                },
+              },
+            },
+          ],
+        }),
+        { trace, activeAgentId: "fixture-agent" },
+      );
+    }
   } finally {
     await repository.close();
   }
+}
+
+export async function seedMixedListeningContext(
+  profile: string,
+): Promise<void> {
+  await seedListeningContext(profile, true);
 }

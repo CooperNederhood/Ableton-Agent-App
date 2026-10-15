@@ -173,8 +173,9 @@ function fixture(
       maxHostOffset: extremum(clockRows, hostOffset, true),
       minBeatOrigin: extremum(playingRows, beatOrigin, false),
       maxBeatOrigin: extremum(playingRows, beatOrigin, true),
+      maxPhaseDisagreement: playingRows[0],
     },
-    envelopeRms: envelopes.map((value) => value.slice(3)),
+    envelopeWindows: envelopes.map((value) => [value[0], ...value.slice(3)]),
     spectralWindows: spectra,
   });
   const observation: AudioObservationV2 = audioObservationV2Schema.parse({
@@ -243,6 +244,45 @@ function fixture(
 }
 
 describe("versioned native geometry and independent descriptive validation", () => {
+  it("retains a phase-only discrepancy without confusing it with missing native samples", () => {
+    const value = fixture();
+    const row = structuredClone(value.proof.after.frames[0]!);
+    const samplesPerBeat =
+      (value.expected.geometry.sampleRate * 60) /
+      value.expected.geometry.tempoBpm;
+    for (const index of [2, 4, 6, 9] as const) row[index] += 1;
+    row[1] += 1 / samplesPerBeat;
+    row[8] = row[1];
+    row[5] = (Math.round((row[1] % 1) * samplesPerBeat) + 64) / samplesPerBeat;
+    value.proof.timingWitnesses.maxPhaseDisagreement = row;
+    value.observation.alignment.observedBeatDisagreementSamples = 64;
+    expect(() =>
+      assertNativeCaptureObservationV2(
+        value.proof,
+        value.observation,
+        value.expected,
+      ),
+    ).not.toThrow();
+    value.observation.alignment.observedBeatDisagreementSamples = 0;
+    expect(() =>
+      assertNativeCaptureObservationV2(
+        value.proof,
+        value.observation,
+        value.expected,
+      ),
+    ).toThrow("native_v2_alignment_quality_mismatch");
+  });
+  it("rejects a relabelled native envelope even within the maximum timing budget", () => {
+    const value = fixture({ limit: 480 });
+    value.proof.envelopeWindows[0]![0] += 1;
+    expect(() =>
+      assertNativeCaptureObservationV2(
+        value.proof,
+        value.observation,
+        value.expected,
+      ),
+    ).toThrow("native_v2_envelope_coordinates_mismatch");
+  });
   it.each(["sample", "flags", "phase"] as const)(
     "rejects changed-held %s clocks even when alignment fits the budget",
     (field) => {
@@ -574,7 +614,7 @@ describe("versioned native geometry and independent descriptive validation", () 
     if (kind === "phase") proof.launched.launchPhaseSamples = 65;
     if (kind === "counter") proof.launched.armCounter--;
     if (kind === "gap") observation.samples[1]!.sample++;
-    if (kind === "rms") proof.envelopeRms[0]![0] = 0.6;
+    if (kind === "rms") proof.envelopeWindows[0]![1] = 0.6;
     if (kind === "summary") observation.summaries.rmsDbfs[0] = -3;
     if (kind === "fft") proof.spectralWindows[0]![1]++;
     if (kind === "centroid") observation.samples[0]!.centroidHz = 999;

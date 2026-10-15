@@ -54,22 +54,27 @@ descriptive-only alignment. Estimated absolute error and independently verified
 absolute error bound are both null: neither a chosen limit nor a zero observed
 disagreement establishes physical accuracy. The protocol's typed historical
 reader accepts both versions without changing v1 validation. Authenticated
-ingress now negotiates either version explicitly; publication, storage
-registration and tools still accept v1 only. Transport negotiation does not
-grant a producer context-publication authority.
+ingress and independent capture validation now support either version explicitly.
+Typed publication, storage and context queries preserve each version without
+relabeling it. The production playback host now selects explicit v2 geometry
+and immutable trusted timing policy, positions before arm, and independently
+validates its capture path. This is deterministic integration, not a claim that
+the new native device has completed physical qualification.
 
 The separately versioned native v2 arm, launch and completed-capture contracts
 are implemented. The App freezes its expected policy, musical range, actual DSP
 geometry, listener and pass identities rather than accepting producer-selected
 limits. Independent validation fixes the host/native offset at the first
-coherent preflight row; four retained extrema expose observed offset and
-beat-origin disagreement across capture. The budget cannot excuse changed data
+coherent preflight row; four linear extrema plus a circular-phase maximum
+witness expose observed offset, beat-origin and phase disagreement across
+capture. The budget cannot excuse changed data
 at a held native counter, backwards retained clocks, stopped-after-playing
 evidence, malformed brackets, missing native coverage or invalid FFT data.
 Exact native counts and final partial-window duration remain distinct from
 approximate beat/host attribution.
 
-Compact proof retains raw processed stereo RMS per envelope window, recomputes
+Compact proof retains each reported native window-end counter and processed
+stereo RMS, independently verifies exact window coverage, and recomputes
 duration-weighted RMS and spectral summaries, and independently checks the fixed
 attack estimator. A reused final-window FFT must retain identical values.
 A complete synthetic 30-second/300-window result fits the unchanged 128 KiB
@@ -86,10 +91,37 @@ evidence on that connection. Watchdogs derive duration from native counts;
 failure, cancellation, sequencing, trace ownership and redaction use the same
 existing lifecycle rather than a parallel transport stack.
 
-The current v1-only App capture adapter explicitly excludes negotiated v2
-listeners from its discovery and rejects a direct v2 request before reservation
-or playback. It cannot silently reinterpret a v2 producer as v1. This guard
-remains until the separately validated v2 playback/context adapter is wired.
+The production playback host exposes negotiated v2 listeners with approximate,
+descriptive-only and unknown-absolute-accuracy limitations; metadata alone never
+sets `ready:true`. It snapshots Settings policy once per pass, derives geometry
+from actual registered rate/vector and inspected constant tempo, and rejects
+mixed versions/DSP geometries or unsupported duration before reservation.
+Descriptive mode never falls back to v1. Explicit strict mode can retain the
+old restricted v1 prototype or request v2 with a zero observed-disagreement
+budget; even strict v2 does not acquire a physical accuracy certificate.
+
+After reserving context and before native arm, v2 calls the explicit guarded
+Arrangement positioning command, then freshly resolves binding/source/revision.
+Only this authorized positioning may reconcile its own transport revision;
+source fingerprint, tempo, instance/rate/vector changes still fail. Native
+capture independently validates policy, geometry, launch and complete proof,
+with attributed/timed alignment lifecycle and confirmed cancellation. Accepted
+host offset disagreement of 64 samples can publish under default policy;
+65 samples cannot, even if a producer underreports its own quality.
+Native window coverage/count errors remain hard failures. Cancellation while
+positioning cannot arm/start afterward or undo a late admitted position.
+Both v2 ingress and internal capture watchdogs allow native audio duration plus
+15 seconds for the bounded launch/post-processing stages; legacy ingress keeps
+its original five-second slack. The caller's overall wall-clock budget remains
+an independent, potentially earlier deadline.
+
+The context repository registers both bounded payload kinds at the same owned
+SQLite path/schema version. Entry kind must match payload version. V2 quality
+survives compact summaries, detail, close/reopen, typed tools/IPC and resume;
+v1 history retains its original fields. Requested and measured/quantized beat
+ranges remain separate, and descriptive observations cannot certify exclusive
+attribution. Legacy v1-only kind declarations reconcile through the existing
+atomic registry/manifest hook before a new append, not an independent store.
 
 The native descriptor assembler now accepts explicit 44.1/48 kHz geometry with
 approximately 100 ms hops, at most 30 seconds/300 windows and an honest partial
@@ -126,9 +158,15 @@ The probe source, numeric readbacks and exact process record are preserved in
 `max-patches/audio-listener/fixtures/arrangement-start-marker-probe*` with
 regression coverage. The production insert-marker guard remains unchanged.
 
-Ordinary starts/constant tempos, generalized native transport capture,
-per-pass runtime configuration, v2 playback/context integration, Settings,
-visible approximate quality and fresh end-to-end qualification remain required.
+Generalized native device/controller capture, Desktop declaration compatibility,
+Settings/visible-quality acceptance and fresh end-to-end qualification remain
+required. Ordinary App positioning/configuration/capture/context wiring is
+covered deterministically, not yet by an actual v2 native capture.
+The independent integration verifier now accepts v2 only with an explicit
+App-owned geometry/policy expectation, preserves requested versus quantized
+ranges, and revalidates proof, attribution and reopened quality. Synthetic
+verifier tests are not real-Live acceptance. The legacy native scenario pins
+strict/zero policy explicitly; it is not silently upgraded by the new default.
 Tempo changes within a pass must fail explicitly. Native corruption, missing
 frames, unsafe recording/source state, stale ownership, timeout and unconfirmed
 cleanup remain hard failures regardless of the timing limit.

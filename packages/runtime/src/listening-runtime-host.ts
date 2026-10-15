@@ -24,11 +24,19 @@ import {
   sanitizeTelemetryAttributes,
 } from "@ableton-agent/observability";
 import {
-  audioObservationSchema,
+  storedAudioObservationSchema,
+  createNativeListeningGeometry,
+  DEFAULT_LISTENING_TIMING_POLICY,
+  listeningTimingPolicySchema,
   NATIVE_LISTENER_SCOPE,
+  NATIVE_LISTENER_SCOPE_V2,
   inspectListeningContextResultSchema,
+  positionListeningPlaybackResultSchema,
   type InspectListeningContextResult,
+  type NativeListeningGeometry,
+  type PositionListeningPlaybackParams,
   type StartListeningPlaybackParams,
+  type ListeningTimingPolicy,
 } from "@ableton-agent/protocol";
 import {
   recordSignalTelemetry,
@@ -49,6 +57,7 @@ type ContextPorts = Pick<
 >;
 
 export interface ListeningRuntimeHostOptions {
+  readonly resolveTimingPolicy?: () => ListeningTimingPolicy;
   readonly resolveOwner: (
     context: ListeningExecutionContext,
   ) => Promise<ListeningOwner>;
@@ -75,7 +84,10 @@ interface CaptureState {
   readonly request: ListeningRequest & { mode: "arrangement" };
   readonly descriptors: readonly ListenerDescriptor[];
   readonly connections: readonly ConnectedListenerBinding[];
-  readonly inspection: InspectListeningContextResult;
+  inspection: InspectListeningContextResult;
+  readonly timingPolicy: Readonly<ListeningTimingPolicy>;
+  readonly geometry?: Readonly<NativeListeningGeometry>;
+  positioned: boolean;
   readonly createdAt: string;
   repository?: Repository;
   reserved: boolean;
@@ -106,6 +118,9 @@ export interface ListeningRuntimeTestAdapter {
       readonly listeners: readonly ListenerDescriptor[];
       readonly inspection: InspectListeningContextResult;
       readonly signal: AbortSignal;
+      readonly request: ListeningRequest & { mode: "arrangement" };
+      readonly timingPolicy: Readonly<ListeningTimingPolicy>;
+      readonly positioned: boolean;
     },
   ): Promise<void>;
   prepare: typeof prepareListenerCapture;
@@ -122,8 +137,8 @@ interface RuntimeAdapter {
   start: ListeningRuntimeTestAdapter["start"];
 }
 
-function deny(code: string): never {
-  throw new ListeningFailure(code, code);
+function deny(code: string, detail?: string): never {
+  throw new ListeningFailure(code, detail ? `${code}: ${detail}` : code);
 }
 
 function execution(
@@ -165,7 +180,6 @@ function bindingDescriptor(
   descriptor: ListenerDescriptor,
 ): Parameters<typeof readConnectedListenerBinding>[0] {
   const registration = descriptor.registration;
-  if (registration.version !== 1) deny("unsupported_listener_version");
   return {
     connectionId: descriptor.connectionId,
     producer: {
@@ -185,6 +199,66 @@ function bindingDescriptor(
       ...(registration.nativeStatus === undefined
         ? {}
         : { nativeStatus: registration.nativeStatus }),
+    },
+  };
+}
+
+function nativeGeometry(
+  descriptors: readonly ListenerDescriptor[],
+  request: ListeningRequest & { mode: "arrangement" },
+  inspection: InspectListeningContextResult,
+  policy: ListeningTimingPolicy,
+): Readonly<NativeListeningGeometry> | undefined {
+  const first = descriptors[0]!.registration;
+  if (descriptors.some((item) => item.registration.version !== first.version))
+    deny("mixed_listener_versions_unsupported");
+  if (first.version === 1) {
+    if (policy.mode !== "strict")
+      deny(
+        "descriptive_requires_v2_listener",
+        "Descriptive listening requires a v2 listener device. Update the listener, or explicitly choose Strict mode to use the restricted legacy prototype. No automatic fallback was attempted.",
+      );
+    return undefined;
+  }
+  const rate = first.sampleRate;
+  if (rate !== 44_100 && rate !== 48_000)
+    deny("unsupported_native_sample_rate");
+  if (
+    descriptors.some(
+      (item) =>
+        item.registration.version !== 2 ||
+        item.registration.sampleRate !== rate ||
+        item.registration.vectorSize !== first.vectorSize,
+    )
+  )
+    deny("listener_dsp_geometry_mismatch");
+  if (inspection.transport.tempo === null) deny("tempo_unknown");
+  return createNativeListeningGeometry({
+    sampleRate: rate,
+    vectorSize: first.vectorSize,
+    tempoBpm: inspection.transport.tempo,
+    startBeat: request.startBeat,
+    endBeat: request.endBeat,
+  });
+}
+
+function playbackParameters(
+  cached: CaptureState,
+  pass: ListeningPassContext,
+): PositionListeningPlaybackParams {
+  return {
+    schemaVersion: 1,
+    mode: "arrangement",
+    ownerId: createHash("sha256")
+      .update(JSON.stringify(pass.owner))
+      .digest("hex"),
+    passId: pass.passId,
+    expectedLiveSetId: pass.owner.liveSetId,
+    expectedProjectRevision: cached.inspection.projectRevision,
+    listeners: cached.inspection.listeners.map((item) => item.binding),
+    range: {
+      startBeat: cached.request.startBeat,
+      endBeat: cached.request.endBeat,
     },
   };
 }
@@ -401,7 +475,6 @@ function assemble(
   function connected(descriptors: readonly ListenerDescriptor[]) {
     if (descriptors.length > 128) deny("listener_inventory_quota");
     return descriptors.flatMap((descriptor) => {
-      if (descriptor.registration.version !== 1) return [];
       const result = readConnectedListenerBinding(
         bindingDescriptor(descriptor),
       );
@@ -416,7 +489,10 @@ function assemble(
     expectedOwner: ListeningOwner,
     previous?: CaptureState,
     discovery = false,
-  ): Promise<Omit<CaptureState, "request" | "createdAt" | "reserved">> {
+    allowPositionRevision = false,
+  ): Promise<
+    Pick<CaptureState, "owner" | "descriptors" | "connections" | "inspection">
+  > {
     if (!dependencies.ableton.inspectListeningContext)
       deny("listening_inspection_unavailable");
     if (!sameOwner(await owner(context), expectedOwner))
@@ -490,7 +566,13 @@ function assemble(
         (oldDescriptor.registration.sampleRate !==
           descriptor.registration.sampleRate ||
           oldDescriptor.registration.algorithmVersion !==
-            descriptor.registration.algorithmVersion)
+            descriptor.registration.algorithmVersion ||
+          oldDescriptor.registration.version !==
+            descriptor.registration.version ||
+          (oldDescriptor.registration.version === 2 &&
+            descriptor.registration.version === 2 &&
+            oldDescriptor.registration.vectorSize !==
+              descriptor.registration.vectorSize))
       )
         deny("listener_algorithm_or_sample_rate_changed");
       const expectedTarget = previous?.inspection.listeners.find(
@@ -509,7 +591,9 @@ function assemble(
       if (
         !discovery &&
         connection.nativeStatus.scope !== NATIVE_LISTENER_SCOPE &&
-        (connection.nativeStatus.timing !== "VERIFIED" ||
+        connection.nativeStatus.scope !== NATIVE_LISTENER_SCOPE_V2 &&
+        (connection.nativeStatus.version !== 1 ||
+          connection.nativeStatus.timing !== "VERIFIED" ||
           connection.nativeStatus.readiness !== "READY")
       )
         deny("real_live_timing_validation_required");
@@ -527,9 +611,21 @@ function assemble(
     }
     if (
       previous &&
-      previous.inspection.projectRevision !== inspection.projectRevision
+      previous.inspection.projectRevision !== inspection.projectRevision &&
+      !allowPositionRevision
     )
       deny("project_revision_changed");
+    if (
+      previous &&
+      (previous.inspection.transport.tempo !== inspection.transport.tempo ||
+        previous.inspection.listeners.some(
+          (before) =>
+            inspection.listeners.find(
+              (after) => after.canonicalPath === before.canonicalPath,
+            )?.fingerprint.digest !== before.fingerprint.digest,
+        ))
+    )
+      deny("listening_source_changed");
     return {
       owner: expectedOwner,
       descriptors: selected.map((item) => item.descriptor),
@@ -565,6 +661,14 @@ function assemble(
         if (request.mode !== "arrangement")
           deny("session_quantized_onset_unverified");
         const previous = states.get(pass.passId);
+        const timingPolicy =
+          previous?.timingPolicy ??
+          Object.freeze(
+            listeningTimingPolicySchema.parse(
+              options.resolveTimingPolicy?.() ??
+                DEFAULT_LISTENING_TIMING_POLICY,
+            ),
+          );
         const snapshot = await inspect(
           request.listenerIds,
           request,
@@ -573,11 +677,20 @@ function assemble(
           previous,
         );
         captureDuration(request, snapshot.inspection);
+        const geometry = nativeGeometry(
+          snapshot.descriptors,
+          request,
+          snapshot.inspection,
+          timingPolicy,
+        );
         await adapter.assertReadiness({
           context: pass,
           listeners: snapshot.descriptors,
           inspection: snapshot.inspection,
           signal,
+          request,
+          timingPolicy,
+          positioned: previous?.positioned ?? false,
         });
         signal.throwIfAborted();
         if (!previous)
@@ -587,6 +700,9 @@ function assemble(
             request: structuredClone(request),
             createdAt: new Date().toISOString(),
             reserved: false,
+            timingPolicy,
+            ...(geometry ? { geometry } : {}),
+            positioned: false,
           });
         const recording = Object.values(
           snapshot.inspection.transport.recording,
@@ -629,18 +745,58 @@ function assemble(
           const cached = state(input);
           if (!cached.reserved) deny("context_reservation_required");
           await repository(input);
-          const snapshot = await inspect(
+          let snapshot = await inspect(
             input.request.listenerIds,
             cached.request,
             execution(input, input.signal),
             input.owner,
             cached,
           );
+          if (cached.geometry) {
+            const params = playbackParameters(cached, input);
+            await stage(
+              "source-positioning",
+              execution(input, input.signal),
+              async () => {
+                if (!dependencies.ableton.positionListeningPlayback)
+                  deny("listening_positioning_unavailable");
+                const result = positionListeningPlaybackResultSchema.parse(
+                  await dependencies.ableton.positionListeningPlayback(params),
+                );
+                if (result.requestedStartBeat !== cached.request.startBeat)
+                  deny("invalid_source_position_readback");
+              },
+            );
+            snapshot = await stage(
+              "positioned-inspection",
+              execution(input, input.signal),
+              () =>
+                inspect(
+                  input.request.listenerIds,
+                  cached.request,
+                  execution(input, input.signal),
+                  input.owner,
+                  cached,
+                  false,
+                  true,
+                ),
+            );
+            if (
+              snapshot.inspection.transport.currentBeat !==
+              cached.request.startBeat
+            )
+              deny("source_position_changed");
+            cached.inspection = snapshot.inspection;
+            cached.positioned = true;
+          }
           await adapter.assertReadiness({
             context: input,
             listeners: snapshot.descriptors,
             inspection: snapshot.inspection,
             signal: input.signal,
+            request: cached.request,
+            timingPolicy: cached.timingPolicy,
+            positioned: cached.positioned,
           });
           input.signal.throwIfAborted();
           const durationMs = captureDuration(
@@ -649,21 +805,26 @@ function assemble(
           );
           const capture = await adapter.prepare(listeners(), {
             listeners: snapshot.descriptors,
-            config: {
-              durationMs,
-              maxWindows: snapshot.descriptors.every(
-                (descriptor) =>
-                  descriptor.registration.nativeStatus?.scope ===
-                  NATIVE_LISTENER_SCOPE,
-              )
-                ? cached.request.endBeat * 5
-                : 512,
-              source: {
-                mode: "arrangement",
-                startBeat: cached.request.startBeat,
-                endBeat: cached.request.endBeat,
-              },
-            },
+            config: cached.geometry
+              ? {
+                  geometry: cached.geometry,
+                  timingPolicy: cached.timingPolicy,
+                }
+              : {
+                  durationMs,
+                  maxWindows: snapshot.descriptors.every(
+                    (descriptor) =>
+                      descriptor.registration.nativeStatus?.scope ===
+                      NATIVE_LISTENER_SCOPE,
+                  )
+                    ? cached.request.endBeat * 5
+                    : 512,
+                  source: {
+                    mode: "arrangement",
+                    startBeat: cached.request.startBeat,
+                    endBeat: cached.request.endBeat,
+                  },
+                },
             passId: input.passId,
             trace: input.trace,
             signal: input.signal,
@@ -700,29 +861,15 @@ function assemble(
           if (cached.captureFailure !== undefined)
             throw new ListeningFailure("capture_failed", cached.captureFailure);
           const playback = await adapter.start(
-            {
-              schemaVersion: 1,
-              mode: "arrangement",
-              ownerId: createHash("sha256")
-                .update(JSON.stringify(input.owner))
-                .digest("hex"),
-              passId: input.passId,
-              expectedLiveSetId: input.owner.liveSetId,
-              expectedProjectRevision: cached.inspection.projectRevision,
-              listeners: cached.inspection.listeners.map(
-                (item) => item.binding,
-              ),
-              range: {
-                startBeat: cached.request.startBeat,
-                endBeat: cached.request.endBeat,
-              },
-            },
+            playbackParameters(cached, input),
             input.signal,
           );
           try {
             const scoped = (descriptor: ListenerDescriptor) =>
               descriptor.registration.nativeStatus?.scope ===
-              NATIVE_LISTENER_SCOPE;
+                NATIVE_LISTENER_SCOPE ||
+              descriptor.registration.nativeStatus?.scope ===
+                NATIVE_LISTENER_SCOPE_V2;
             const nativeLaunch = cached.nativeLaunch;
             if (
               playback.startedAtBeat !== cached.request.startBeat ||
@@ -765,7 +912,7 @@ function assemble(
       if (!cached || request.mode !== "arrangement" || !cached.startedAt)
         deny("stale_listening_pass");
       for (const raw of observations) {
-        const item = audioObservationSchema.parse(raw);
+        const item = storedAudioObservationSchema.parse(raw);
         const descriptor = cached.descriptors.find(
           (entry) => entry.producer.producerId === item.listenerId,
         );
@@ -774,13 +921,29 @@ function assemble(
           !item.complete ||
           item.passId !== passId ||
           item.startBeat !== request.startBeat ||
-          item.endBeat !== request.endBeat ||
+          item.endBeat !==
+            (cached.geometry
+              ? cached.geometry.startBeat +
+                cached.geometry.totalSamples /
+                  ((cached.geometry.sampleRate * 60) / cached.geometry.tempoBpm)
+              : request.endBeat) ||
+          (item.schema === "audio-observation/v2") !==
+            (descriptor?.registration.version === 2) ||
           item.endSample <= item.startSample ||
           item.samples.length > 512 ||
           item.sampleRate !== descriptor.registration.sampleRate ||
           item.algorithm.version !== descriptor.registration.algorithmVersion
         )
           deny("invalid_capture_observation");
+        if (
+          item.schema === "audio-observation/v2" &&
+          (item.alignment.policy.mode !== cached.timingPolicy.mode ||
+            item.alignment.policy.maxClockDisagreementSamples !==
+              cached.timingPolicy.maxClockDisagreementSamples ||
+            item.alignment.vectorSize !== cached.geometry?.vectorSize ||
+            item.endSample - item.startSample !== cached.geometry.totalSamples)
+        )
+          deny("invalid_capture_alignment");
       }
       cached.endedAt = new Date().toISOString();
     },
@@ -855,11 +1018,17 @@ function assemble(
           }
           // Producer self-report is never independent commissioning evidence.
           limitations.push(
-            candidate.nativeStatus.scope === NATIVE_LISTENER_SCOPE
+            candidate.nativeStatus.scope === NATIVE_LISTENER_SCOPE ||
+              candidate.nativeStatus.scope === NATIVE_LISTENER_SCOPE_V2
               ? "native_per_pass_validation_required"
               : "real_live_timing_validation_required",
             "source_onset_unverified",
           );
+          if (candidate.nativeStatus.version === 2)
+            limitations.push(
+              "approximate_descriptive_only",
+              "absolute_timing_accuracy_unknown",
+            );
           views.push({
             listenerId: candidate.producerId,
             instanceId: candidate.instanceId,
@@ -948,8 +1117,33 @@ export function createListeningRuntimeHost(
   options: ListeningRuntimeHostOptions,
 ): ConcreteListeningRuntimeHost {
   return assemble(dependencies, options, {
-    assertReadiness: async ({ listeners, inspection, signal }) => {
+    assertReadiness: async ({
+      listeners,
+      inspection,
+      signal,
+      request,
+      positioned,
+    }) => {
       signal.throwIfAborted();
+      if (
+        listeners.length > 0 &&
+        listeners.every(
+          (listener) =>
+            listener.registration.version === 2 &&
+            listener.registration.nativeStatus.scope ===
+              NATIVE_LISTENER_SCOPE_V2 &&
+            listener.registration.nativeStatus.readiness === "READY",
+        )
+      ) {
+        if (!dependencies.ableton.positionListeningPlayback)
+          deny("listening_positioning_unavailable");
+        if (
+          positioned &&
+          inspection.transport.currentBeat !== request.startBeat
+        )
+          deny("unsupported_native_preflight");
+        return;
+      }
       if (
         listeners.length === 0 ||
         listeners.some(

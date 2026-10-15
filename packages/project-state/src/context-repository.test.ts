@@ -14,6 +14,7 @@ import {
   type TelemetryEventEnvelope,
 } from "@ableton-agent/observability";
 import { type Database } from "sql.js";
+import { createSyntheticNativeListeningFixtureV2 } from "@ableton-agent/protocol/testing";
 import { loadSqlJs, SqliteProjectStateStore } from "./sqlite.js";
 import { appSessionSchema } from "./schemas.js";
 import { InMemoryProjectStateStore } from "./repository.js";
@@ -21,6 +22,7 @@ import {
   assessContextFreshness,
   CONTEXT_LIMITS,
   SESSION_CONTEXT_STORE_REFERENCE,
+  sessionContextStoreReferenceSchema,
   type AppendContextPass,
   type ContextBindingEvidence,
   type ContextFreshnessAssessment,
@@ -175,6 +177,127 @@ afterEach(async () => {
   await Promise.all(stores.splice(0).map((store) => store.close()));
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+  );
+});
+
+function descriptivePublication(id = "descriptive") {
+  const legacy = publication(id);
+  return {
+    ...legacy,
+    pass: {
+      ...legacy.pass,
+      requestedMode: "arrangement" as const,
+      actualMode: "arrangement" as const,
+    },
+    entries: legacy.entries.map((entry) => ({
+      ...entry,
+      kind: "audio-observation/v2" as const,
+      payload: createSyntheticNativeListeningFixtureV2({
+        listenerId: entry.producer.listenerId,
+        passId: entry.passId,
+        endBeat: 2,
+      }).observation,
+    })),
+    links: legacy.links.map((link) => ({
+      ...link,
+      attribution: "unknown" as const,
+    })),
+  };
+}
+
+describe("typed descriptive context history", () => {
+  it("retains old store references and registers both bounded observation kinds", () => {
+    expect(
+      sessionContextStoreReferenceSchema.parse({
+        ...SESSION_CONTEXT_STORE_REFERENCE,
+        kinds: ["audio-observation/v1"],
+      }).kinds,
+    ).toEqual(["audio-observation/v1"]);
+    expect(SESSION_CONTEXT_STORE_REFERENCE.kinds).toEqual([
+      "audio-observation/v1",
+      "audio-observation/v2",
+    ]);
+    expect(
+      sessionContextStoreReferenceSchema.safeParse({
+        ...SESSION_CONTEXT_STORE_REFERENCE,
+        kinds: ["audio-observation/v2", "audio-observation/v2"],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("persists v1/v2 together and preserves approximate quality in typed summaries and reopened detail", async () => {
+    const path = await diskPath();
+    const store = await openSessionContextStore({ ...ownership, path });
+    stores.push(store);
+    await store.appendPass(publication("legacy"));
+    const value = descriptivePublication();
+    await store.appendPass(value);
+    const page = await store.listEntries({
+      kind: "audio-observation/v2",
+      includeHistorical: true,
+    });
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]?.payload).toMatchObject({
+      schema: "audio-observation/v2",
+      alignment: {
+        alignment: "approximate",
+        intendedUse: "descriptive-only",
+        estimatedAbsoluteErrorSamples: null,
+        verifiedAbsoluteErrorBoundSamples: null,
+        policy: { mode: "descriptive", maxClockDisagreementSamples: 64 },
+      },
+    });
+    expect(page.items[0]?.payload).not.toHaveProperty("samples");
+    expect(page.items[0]?.payload).not.toHaveProperty("attacks");
+    expect(page.items[0]?.payload.algorithm).not.toHaveProperty(
+      "timingUncertaintySamples",
+    );
+    await store.close();
+    const reopened = await openSessionContextStore({ ...ownership, path });
+    stores.push(reopened);
+    expect(await reopened.getEntry(value.entries[0]!.id)).toEqual(
+      value.entries[0],
+    );
+    expect((await reopened.getEntry("entry:legacy:0"))?.payload).toMatchObject({
+      schema: "audio-observation/v1",
+      algorithm: { timingUncertaintySamples: 64 },
+    });
+  });
+
+  it.each(["kind", "exclusive", "incomplete", "cancelled"] as const)(
+    "does not publish a descriptive %s violation",
+    async (failure) => {
+      const store = await memory();
+      const value = descriptivePublication();
+      const input =
+        failure === "kind"
+          ? {
+              ...value,
+              entries: value.entries.map((entry) => ({
+                ...entry,
+                kind: "audio-observation/v1" as const,
+              })),
+            }
+          : failure === "exclusive"
+            ? {
+                ...value,
+                links: value.links.map((link) => ({
+                  ...link,
+                  attribution: "exclusive" as const,
+                })),
+              }
+            : value;
+      if (failure === "incomplete") input.entries[0]!.payload.complete = false;
+      const controller = new AbortController();
+      if (failure === "cancelled") controller.abort(new Error("cancelled"));
+      await expect(
+        store.appendPass(input, {
+          signal: controller.signal,
+        }),
+      ).rejects.toThrow();
+      expect(await store.getPass(value.pass.id)).toBeUndefined();
+      expect(await store.getEntry(value.entries[0]!.id)).toBeUndefined();
+    },
   );
 });
 

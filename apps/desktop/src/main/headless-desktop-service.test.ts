@@ -46,12 +46,14 @@ import { randomUUID } from "node:crypto";
 
 import {
   desktopAgentCatalogSchema,
+  desktopSessionContextStoreReferenceSchema,
   preferencesSchema,
   sessionSchema,
   type DesktopAppEvent,
   type DesktopActiveAgent,
   type DesktopAgentCatalog,
   type DesktopAgentModel,
+  type DesktopPreferences,
   type DesktopSession,
 } from "../contracts.js";
 import { ApprovalCoordinator, ApprovalPolicyController } from "./approvals.js";
@@ -273,6 +275,9 @@ async function harness(
       policy: ReturnType<typeof preferencesSchema.parse>["approvalPolicy"],
     ) => void;
     onAgentTurnTimeoutChange?: (minutes: number) => void;
+    onListeningTimingPolicyChange?: (
+      policy: ReturnType<typeof preferencesSchema.parse>["listening"],
+    ) => void;
     onAgentReasoningVisibilityChange?: (
       visibility: ReturnType<
         typeof preferencesSchema.parse
@@ -865,6 +870,88 @@ describe("desktop persistence stores", () => {
 });
 
 describe("desktop adapter over the shared application", () => {
+  it("publishes listening policy only after persistence, preserves failed saves, and drains queued changes", async () => {
+    const onListeningTimingPolicyChange =
+      vi.fn<(policy: DesktopPreferences["listening"]) => void>();
+    const { service, preferencesStore, events } = await harness(
+      {},
+      {
+        onListeningTimingPolicyChange,
+      },
+    );
+    await service.start();
+    events.length = 0;
+    const original = await service.getPreferences();
+    expect(original.listening).toEqual({
+      mode: "descriptive",
+      maxClockDisagreementSamples: 64,
+    });
+    await service.setPreferences({ ...original, loggingLevel: "debug" });
+    expect(onListeningTimingPolicyChange).not.toHaveBeenCalled();
+    events.length = 0;
+    const save = vi.spyOn(preferencesStore, "save");
+    save.mockRejectedValueOnce(new Error("disk unavailable"));
+    await expect(
+      service.setPreferences({
+        ...original,
+        listening: { mode: "strict", maxClockDisagreementSamples: 0 },
+      }),
+    ).rejects.toThrow("disk unavailable");
+    expect(onListeningTimingPolicyChange).not.toHaveBeenCalled();
+    expect((await service.getPreferences()).listening).toEqual(
+      original.listening,
+    );
+
+    let release: (() => void) | undefined;
+    save.mockRestore();
+    const persist = preferencesStore.save.bind(preferencesStore);
+    const delayed = vi
+      .spyOn(preferencesStore, "save")
+      .mockImplementationOnce(async (value) => {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        await persist(value);
+      });
+    const strict = service.setPreferences({
+      ...original,
+      listening: { mode: "strict", maxClockDisagreementSamples: 0 },
+    });
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    expect(onListeningTimingPolicyChange).not.toHaveBeenCalled();
+    const descriptive = service.setPreferences({
+      ...original,
+      listening: { mode: "descriptive", maxClockDisagreementSamples: 480 },
+    });
+    release?.();
+    await Promise.all([strict, descriptive]);
+    expect(
+      onListeningTimingPolicyChange.mock.calls.map(([policy]) => policy),
+    ).toEqual([
+      { mode: "strict", maxClockDisagreementSamples: 0 },
+      { mode: "descriptive", maxClockDisagreementSamples: 480 },
+    ]);
+    const firstPolicy = onListeningTimingPolicyChange.mock.calls[0]?.[0];
+    expect(Object.isFrozen(firstPolicy)).toBe(true);
+    expect(firstPolicy).toEqual({
+      mode: "strict",
+      maxClockDisagreementSamples: 0,
+    });
+    expect((await preferencesStore.load()).listening).toEqual({
+      mode: "descriptive",
+      maxClockDisagreementSamples: 480,
+    });
+    expect(
+      events.filter((event) => event.type === "preferences.changed"),
+    ).toHaveLength(2);
+    delayed.mockRestore();
+    await service.stop();
+    await expect(service.setPreferences(original)).rejects.toThrow(
+      "not accepting actions",
+    );
+    expect(onListeningTimingPolicyChange).toHaveBeenCalledTimes(2);
+  });
+
   it("publishes bounded redacted owned listening lifecycle and traced read-only inventory without model-agent query attribution", async () => {
     const records: Parameters<DesktopEventJournal["enqueue"]>[0][] = [];
     const eventJournal = {
@@ -4416,7 +4503,10 @@ describe("desktop adapter over the shared application", () => {
         sessionId: invoking.id,
         liveSetId: invoking.liveSetId,
         activeAgentId: invoking.activeAgents[0]!.id,
-        contextStore: SESSION_CONTEXT_STORE_REFERENCE,
+        contextStore: desktopSessionContextStoreReferenceSchema.parse({
+          ...SESSION_CONTEXT_STORE_REFERENCE,
+          kinds: ["audio-observation/v1"],
+        }),
         trace: {
           traceId: randomUUID(),
           correlationId: "tool:context",
@@ -4437,7 +4527,7 @@ describe("desktop adapter over the shared application", () => {
         }),
       ).rejects.toThrow("invoking");
       const published = await service.publishSessionContext(request);
-      expect(published.contextStore).toEqual(SESSION_CONTEXT_STORE_REFERENCE);
+      expect(published.contextStore).toEqual(request.contextStore);
       expect((await sessionStore.load()).map(({ id }) => id)).toEqual([
         invoking.id,
       ]);
@@ -4457,7 +4547,86 @@ describe("desktop adapter over the shared application", () => {
           "utf8",
         ),
       ) as Record<string, unknown>;
-      expect(manifest.contextStore).toEqual(SESSION_CONTEXT_STORE_REFERENCE);
+      expect(manifest.contextStore).toEqual(request.contextStore);
+      const ownedPaths = resolveNestedSessionStorage(storage, {
+        sessionId: invoking.id,
+        liveSetId: invoking.liveSetId,
+      });
+      await mkdir(ownedPaths.contextDirectory, { recursive: true });
+      const retainedObservationBytes = "synthetic-existing-observation-content";
+      await writeFile(ownedPaths.entityContextPath, retainedObservationBytes);
+      const upgradeRequest = {
+        ...request,
+        contextStore: SESSION_CONTEXT_STORE_REFERENCE,
+      };
+      const save = vi.spyOn(sessionStore, "save");
+      save.mockRejectedValueOnce(
+        new Error("registration upgrade persistence failed"),
+      );
+      await expect(
+        service.publishSessionContext(upgradeRequest),
+      ).rejects.toThrow("registration upgrade persistence failed");
+      expect(
+        (await service.getSessionForContext(invoking.id))?.contextStore,
+      ).toEqual(request.contextStore);
+      expect((await sessionStore.load())[0]?.contextStore).toEqual(
+        request.contextStore,
+      );
+      const cancelledUpgrade = new AbortController();
+      cancelledUpgrade.abort();
+      await expect(
+        service.publishSessionContext({
+          ...upgradeRequest,
+          signal: cancelledUpgrade.signal,
+        }),
+      ).rejects.toThrow();
+      const unchangedManifest: unknown = JSON.parse(
+        await readFile(ownedPaths.manifestPath, "utf8"),
+      );
+      expect(unchangedManifest).toMatchObject({
+        contextStore: request.contextStore,
+      });
+      expect(
+        (await service.getSessionForContext(invoking.id))?.contextStore,
+      ).toEqual(request.contextStore);
+      expect(await readFile(ownedPaths.entityContextPath, "utf8")).toBe(
+        retainedObservationBytes,
+      );
+      const upgraded = await service.publishSessionContext(upgradeRequest);
+      expect(upgraded).toMatchObject({
+        id: invoking.id,
+        liveSetId: invoking.liveSetId,
+        createdAt: invoking.createdAt,
+        contextStore: SESSION_CONTEXT_STORE_REFERENCE,
+      });
+      expect(upgraded.activeAgents).toEqual(invoking.activeAgents);
+      expect(save).toHaveBeenLastCalledWith(
+        expect.arrayContaining([expect.objectContaining({ id: invoking.id })]),
+        expect.objectContaining({
+          trace: request.trace,
+          activeAgentId: request.activeAgentId,
+        }),
+      );
+      for (const repeated of [upgradeRequest, request]) {
+        expect(
+          (await service.publishSessionContext(repeated)).contextStore,
+        ).toEqual(SESSION_CONTEXT_STORE_REFERENCE);
+        const persisted = await sessionStore.load();
+        expect(persisted.map(({ id }) => id)).toEqual([invoking.id]);
+        expect(persisted[0]?.contextStore).toEqual(
+          SESSION_CONTEXT_STORE_REFERENCE,
+        );
+        const manifestValue: unknown = JSON.parse(
+          await readFile(ownedPaths.manifestPath, "utf8"),
+        );
+        expect(manifestValue).toMatchObject({
+          contextStore: SESSION_CONTEXT_STORE_REFERENCE,
+        });
+        expect(await readFile(ownedPaths.entityContextPath, "utf8")).toBe(
+          retainedObservationBytes,
+        );
+      }
+      save.mockRestore();
       const selectedRequest = {
         ...request,
         sessionId: selected.id,

@@ -8,6 +8,7 @@ import type {
   DesktopEntityContextApi,
 } from "../context-contracts.js";
 import { EntityContextPanel } from "./EntityContextPanel.js";
+import { audioObservationV2Schema } from "@ableton-agent/protocol";
 
 const entry: DesktopContextPage["entries"][number] = {
   contextId: "context",
@@ -107,6 +108,88 @@ async function click(text: string) {
 }
 
 describe("stored listening context presentation", () => {
+  it.each([
+    [44_100, 64, "1.451", 128, "2.902", "0.726"],
+    [48_000, 64, "1.333", 128, "2.667", "0.667"],
+    [44_100, 0, "0.000", 0, "0.000", "0.000"],
+    [48_000, 0, "0.000", 0, "0.000", "0.000"],
+  ])(
+    "shows v2 approximate descriptive quality at actual %i Hz and %i observed samples",
+    async (
+      sampleRate,
+      samples,
+      milliseconds,
+      configured,
+      configuredMs,
+      beatMs,
+    ) => {
+      const source = api();
+      const legacy = detail();
+      if (legacy.observation.schema !== "audio-observation/v1") {
+        throw new Error("Expected legacy observation fixture");
+      }
+      const { timingUncertaintySamples, ...algorithm } =
+        legacy.observation.algorithm;
+      expect(timingUncertaintySamples).toBe(64);
+      const observation = audioObservationV2Schema.parse({
+        ...legacy.observation,
+        schema: "audio-observation/v2",
+        sampleRate,
+        algorithm,
+        alignment: {
+          schema: "listening-alignment/v2",
+          policy: {
+            mode: samples === 0 ? "strict" : "descriptive",
+            maxClockDisagreementSamples: configured,
+          },
+          sampleRate,
+          vectorSize: 64,
+          observedClockDisagreementSamples: samples,
+          observedBeatDisagreementSamples: samples / 2,
+          alignment: "approximate",
+          intendedUse: "descriptive-only",
+          estimatedAbsoluteErrorSamples: null,
+          verifiedAbsoluteErrorBoundSamples: null,
+        },
+      });
+      source.list.mockResolvedValueOnce({
+        ...page,
+        entries: [{ ...entry, kind: "audio-observation/v2" }],
+      });
+      source.get.mockResolvedValueOnce({
+        ...legacy,
+        entry: { ...entry, kind: "audio-observation/v2" },
+        observation,
+      });
+      await render("session", source);
+      await click("View observation context");
+      expect(container.textContent).toContain("Approximate; descriptive-only");
+      const row = (label: string) =>
+        [...container.querySelectorAll("dt")].find(
+          (item) => item.textContent === label,
+        )?.nextElementSibling?.textContent;
+      expect(row("Configured acceptance limit")).toContain(
+        `${configured} samples (${configuredMs} ms at ${sampleRate} Hz)`,
+      );
+      expect(row("Observed clock disagreement")).toBe(
+        `${samples} samples (${milliseconds} ms at ${sampleRate} Hz)`,
+      );
+      expect(row("Observed beat disagreement")).toBe(
+        `${samples / 2} samples (${beatMs} ms at ${sampleRate} Hz)`,
+      );
+      expect(container.textContent).toContain(
+        "Estimated absolute timing errorUnknown (not estimated)",
+      );
+      expect(container.textContent).toContain(
+        "Verified absolute error boundUnknown (not verified)",
+      );
+      expect(container.textContent).not.toContain(
+        "Timing uncertainty (legacy v1)",
+      );
+      if (samples === 0) expect(container.textContent).toContain("no fallback");
+    },
+  );
+
   it("distinguishes unavailable storage and no App session without fabricating results", async () => {
     await render(undefined, undefined);
     expect(container.textContent).toContain("No active App session");
@@ -157,6 +240,13 @@ describe("stored listening context presentation", () => {
     expect(container.textContent).toContain("440.0 Hz");
     expect(container.textContent).toContain("not LUFS");
     expect(container.textContent).toContain("Synthetic UI fixture");
+    expect(container.textContent).toContain("Timing uncertainty (legacy v1)");
+    expect(container.textContent).toContain(
+      "64 samples (legacy reported value)",
+    );
+    expect(container.textContent).not.toContain(
+      "Approximate; descriptive-only",
+    );
   });
 
   it("exposes failed queries and recovery without presenting an empty successful inventory", async () => {

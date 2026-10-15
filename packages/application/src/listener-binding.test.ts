@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { InspectListeningContextResult } from "@ableton-agent/protocol";
+import {
+  listenerNativeStatusV2Schema,
+  type InspectListeningContextResult,
+} from "@ableton-agent/protocol";
 import {
   resolveListenerBinding,
   readConnectedListenerBinding,
@@ -134,6 +137,60 @@ function descriptor(
 }
 
 describe("independent canonical listener binding", () => {
+  it("joins explicit v2 capabilities without upgrading approximate timing or accepting mixed versions", () => {
+    const nativeStatus = listenerNativeStatusV2Schema.parse({
+      version: 2,
+      scope: "arrangement-descriptive/v2",
+      readiness: "READY",
+      alignment: "approximate",
+      verifiedAbsoluteErrorBoundSamples: null,
+      acceptedSampleRates: [44_100, 48_000],
+      acceptedVectorSizes: [64],
+      timingModes: ["descriptive", "strict"],
+      maxClockDisagreementSamples: 480,
+      maxAudioDurationMs: 30_000,
+      maxWindows: 300,
+      abiVersion: 2,
+    });
+    const v2 = {
+      ...connected,
+      schemaVersion: "audio-observation/v2",
+      nativeStatus,
+    };
+    const report: ListenerBindingDescriptor = {
+      ...descriptor(),
+      producer: {
+        ...descriptor().producer,
+        schemaVersion: "audio-observation/v2",
+      },
+      registration: {
+        connectionEpoch: connected.connectionEpoch,
+        deviceCanonicalPath: connected.canonicalPath,
+        trackCanonicalPath: connected.canonicalTrackPath,
+        nativeStatus,
+      },
+    };
+    expect(readConnectedListenerBinding(report)).toEqual({
+      ok: true,
+      connection: v2,
+    });
+    const joined = resolve({ connected: [v2] });
+    expect(joined.ok).toBe(true);
+    if (!joined.ok) throw new Error(joined.reason);
+    expect(joined.connection.nativeStatus).toEqual(nativeStatus);
+    expect(resolve({ connected: [{ ...v2, nativeStatus: blocked }] })).toEqual({
+      ok: false,
+      reason: "invalid-input",
+    });
+    expect(
+      resolve({
+        connected: [{ ...v2, schemaVersion: "audio-observation/v1" }],
+      }),
+    ).toEqual({
+      ok: false,
+      reason: "invalid-input",
+    });
+  });
   it("requires explicit registration keys rather than inherited path values", () => {
     const report = descriptor();
     Object.setPrototypeOf(report.registration, {

@@ -19,6 +19,7 @@
   "maxMutations": 1,
   "timeoutMs": 60000,
   "setupContract": {
+    "timingPolicy": { "mode": "strict", "maxClockDisagreementSamples": 0 },
     "inputOption": "--native-fixture-input",
     "inputFormatVersion": 1,
     "requiredInputFields": [

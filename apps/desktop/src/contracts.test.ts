@@ -5,13 +5,150 @@ import {
   desktopActiveAgentSchema,
   desktopAgentEventListenerSchema,
   desktopAgentModelSchema,
+  desktopSessionContextStoreReferenceSchema,
   ipcSchemas,
   MAX_AGENT_TRIGGER_HISTORY,
   preferencesSchema,
   sessionSchema,
 } from "./contracts";
 
+describe("Desktop session context reference", () => {
+  const reference = {
+    schemaVersion: 2,
+    relativePath: "context/entity-context.sqlite",
+  };
+
+  it.each([
+    { kinds: ["audio-observation/v1"] },
+    { kinds: ["audio-observation/v2"] },
+    { kinds: ["audio-observation/v1", "audio-observation/v2"] },
+    { kinds: ["audio-observation/v2", "audio-observation/v1"] },
+  ])(
+    "preserves registered kinds $kinds without migrating the layout",
+    ({ kinds }) => {
+      const value = { ...reference, kinds };
+      const parsed = desktopSessionContextStoreReferenceSchema.parse(value);
+      expect(parsed).toEqual(value);
+      expect(Object.isFrozen(parsed)).toBe(true);
+      expect(Object.isFrozen(parsed.kinds)).toBe(true);
+      const session = sessionSchema.parse({
+        version: 4,
+        id: "session",
+        title: "App session",
+        createdAt: "2026-10-15T00:00:00.000Z",
+        updatedAt: "2026-10-15T00:00:00.000Z",
+        liveSetId: "set",
+        liveSetName: "Set",
+        contextStore: value,
+      });
+      expect(
+        sessionSchema.parse(JSON.parse(JSON.stringify(session))).contextStore,
+      ).toEqual(value);
+    },
+  );
+
+  it.each([
+    { kinds: [] },
+    { kinds: ["audio-observation/v1", "audio-observation/v1"] },
+    { kinds: ["audio-observation/v2", "audio-observation/v2"] },
+    {
+      kinds: [
+        "audio-observation/v1",
+        "audio-observation/v2",
+        "audio-observation/v1",
+      ],
+    },
+    { kinds: ["audio-observation/v3"] },
+  ])("denies invalid registered kinds $kinds", ({ kinds }) => {
+    expect(
+      desktopSessionContextStoreReferenceSchema.safeParse({
+        ...reference,
+        kinds,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("retains the canonical version, path and strict renderer boundary", () => {
+    const value = { ...reference, kinds: ["audio-observation/v1"] };
+    for (const invalid of [
+      { ...value, schemaVersion: 3 },
+      { ...value, relativePath: "../foreign.sqlite" },
+      { ...value, sql: "SELECT * FROM entries" },
+    ]) {
+      expect(
+        desktopSessionContextStoreReferenceSchema.safeParse(invalid).success,
+      ).toBe(false);
+    }
+  });
+});
+
 describe("desktop IPC contracts", () => {
+  it("defaults old preferences to descriptive listening without changing version", () => {
+    for (const input of [{}, { version: 1, alwaysOnTop: true }]) {
+      const parsed = preferencesSchema.parse(input);
+      expect(parsed.version).toBe(1);
+      expect(parsed.listening).toEqual({
+        mode: "descriptive",
+        maxClockDisagreementSamples: 64,
+      });
+    }
+  });
+
+  it.each([0, 64, 480])(
+    "round-trips listening budget %i through typed IPC",
+    (limit) => {
+      const preferences = preferencesSchema.parse({
+        listening: { mode: "descriptive", maxClockDisagreementSamples: limit },
+      });
+      const request = ipcSchemas["preferences:set"].request.parse(
+        JSON.parse(JSON.stringify(preferences)),
+      );
+      expect(ipcSchemas["preferences:set"].response.parse(request)).toEqual(
+        preferences,
+      );
+      expect(ipcSchemas["preferences:get"].response.parse(request)).toEqual(
+        preferences,
+      );
+      expect(
+        appEventSchema.parse({
+          type: "preferences.changed",
+          preferences,
+        }),
+      ).toEqual({ type: "preferences.changed", preferences });
+    },
+  );
+
+  it.each([-1, 481, 0.5, Number.NaN, Number.POSITIVE_INFINITY, "64", null])(
+    "rejects invalid listening budget %s",
+    (limit) => {
+      expect(
+        preferencesSchema.safeParse({
+          listening: {
+            mode: "descriptive",
+            maxClockDisagreementSamples: limit,
+          },
+        }).success,
+      ).toBe(false);
+    },
+  );
+
+  it("requires an explicit consistent strict policy with no fallback", () => {
+    expect(
+      preferencesSchema.parse({
+        listening: { mode: "strict", maxClockDisagreementSamples: 0 },
+      }).listening,
+    ).toEqual({ mode: "strict", maxClockDisagreementSamples: 0 });
+    for (const listening of [
+      { mode: "strict", maxClockDisagreementSamples: 64 },
+      { mode: "strict" },
+      { mode: "descriptive" },
+      { mode: "automatic", maxClockDisagreementSamples: 0 },
+      { mode: "strict", maxClockDisagreementSamples: 0, fallback: true },
+    ]) {
+      expect(preferencesSchema.safeParse({ listening }).success).toBe(false);
+    }
+  });
+
   it("uses Live Set identity for prepared context status", () => {
     const listener = {
       agentLabel: "Default",

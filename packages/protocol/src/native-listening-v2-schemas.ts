@@ -147,9 +147,10 @@ export const nativeCaptureProofV2Schema = z.strictObject({
     maxHostOffset: nativeHostClockRowSchema,
     minBeatOrigin: nativeHostClockRowSchema,
     maxBeatOrigin: nativeHostClockRowSchema,
+    maxPhaseDisagreement: nativeHostClockRowSchema,
   }),
-  envelopeRms: z
-    .array(z.tuple([amplitude, amplitude]))
+  envelopeWindows: z
+    .array(z.tuple([counter, amplitude, amplitude]))
     .min(1)
     .max(300),
   spectralWindows: z
@@ -286,6 +287,16 @@ function dbfs(amplitude: number): number | null {
   return amplitude <= 1e-6 ? null : 20 * Math.log10(amplitude);
 }
 
+function phaseDisagreement(row: ClockRow, samplesPerBeat: number): number {
+  const phaseSamples = Math.round(row[5] * samplesPerBeat);
+  const beatPhaseSamples = Math.round((row[1] % 1) * samplesPerBeat);
+  const difference = Math.abs(phaseSamples - beatPhaseSamples);
+  return Math.min(
+    difference,
+    Math.abs(Math.round(samplesPerBeat) - difference),
+  );
+}
+
 /** Independent native completeness and observed alignment checks; no absolute accuracy claim. */
 export function assertNativeCaptureObservationV2(
   rawProof: NativeCaptureProofV2,
@@ -325,7 +336,7 @@ export function assertNativeCaptureObservationV2(
     proof.after.dsp[2] !== geometry.vectorSize ||
     observation.samples.length !== windows ||
     proof.spectralWindows.length !== windows ||
-    proof.envelopeRms.length !== windows ||
+    proof.envelopeWindows.length !== windows ||
     !last ||
     last[4] < endCounter ||
     last[4] - endCounter > geometry.sampleRate
@@ -345,6 +356,7 @@ export function assertNativeCaptureObservationV2(
   const firstCounter = firstBefore[4];
   const witnessRows = Object.values(proof.timingWitnesses);
   const offsets: number[] = [];
+  const phases: number[] = [];
   const beatOrigins: number[] = [
     proof.launched.host.sample -
       Math.round(
@@ -393,13 +405,8 @@ export function assertNativeCaptureObservationV2(
         row[2] - Math.round((row[1] - geometry.startBeat) * samplesPerBeat);
       beatOrigins.push(beatOrigin);
       const residual = beatOrigin - startSample;
-      const phaseSamples = Math.round(row[5] * samplesPerBeat);
-      const beatPhaseSamples = Math.round((row[1] % 1) * samplesPerBeat);
-      const phaseDifference = Math.abs(phaseSamples - beatPhaseSamples);
-      const circularDifference = Math.min(
-        phaseDifference,
-        Math.abs(Math.round(samplesPerBeat) - phaseDifference),
-      );
+      const circularDifference = phaseDisagreement(row, samplesPerBeat);
+      phases.push(circularDifference);
       beatDisagreement = Math.max(
         beatDisagreement,
         Math.abs(residual),
@@ -417,8 +424,11 @@ export function assertNativeCaptureObservationV2(
       Math.max(...offsets) ||
     witnesses.minBeatOrigin[0] !== 1 ||
     witnesses.maxBeatOrigin[0] !== 1 ||
+    witnesses.maxPhaseDisagreement[0] !== 1 ||
     beatOriginOf(witnesses.minBeatOrigin) !== Math.min(...beatOrigins) ||
-    beatOriginOf(witnesses.maxBeatOrigin) !== Math.max(...beatOrigins)
+    beatOriginOf(witnesses.maxBeatOrigin) !== Math.max(...beatOrigins) ||
+    phaseDisagreement(witnesses.maxPhaseDisagreement, samplesPerBeat) !==
+      Math.max(...phases)
   )
     throw new Error("native_v2_timing_extrema_mismatch");
   for (const row of proof.after.frames) {
@@ -456,7 +466,7 @@ export function assertNativeCaptureObservationV2(
   }
   for (let index = 0; index < windows; index++) {
     const point = observation.samples[index];
-    const envelope = proof.envelopeRms[index];
+    const envelope = proof.envelopeWindows[index];
     const spectrum = proof.spectralWindows[index];
     if (!point || !envelope || !spectrum)
       throw new Error("native_v2_missing_window");
@@ -465,6 +475,8 @@ export function assertNativeCaptureObservationV2(
       endCounter,
     );
     const count = expectedCounter - previousCounter;
+    if (envelope[0] !== expectedCounter)
+      throw new Error("native_v2_envelope_coordinates_mismatch");
     if (
       point.sample !== expectedCounter + hostOffsetSamples ||
       point.beat !==
@@ -492,7 +504,7 @@ export function assertNativeCaptureObservationV2(
     grid = spectrum[0] % FFT;
     for (const channel of [0, 1] as const) {
       const rawPeak = point.peak[channel];
-      const rawRms = envelope[channel];
+      const rawRms = envelope[channel + 1];
       if (
         rawPeak === undefined ||
         rawRms === undefined ||

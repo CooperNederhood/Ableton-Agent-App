@@ -15,9 +15,11 @@ import {
 } from "@ableton-agent/application";
 import {
   SESSION_CONTEXT_STORE_REFERENCE,
+  openSessionContextStore,
   type AppendContextPass,
   type SessionContextPublicationRequest,
 } from "@ableton-agent/project-state";
+import { createSyntheticNativeListeningFixtureV2 } from "@ableton-agent/protocol/testing";
 import {
   telemetryEventEnvelopeSchema,
   type TelemetryEventEnvelope,
@@ -274,6 +276,87 @@ async function harness(initial = [session(), session("set:other")]) {
 }
 
 describe("Desktop session context manager", () => {
+  it.each(["completed", "failed"] as const)(
+    "reconciles legacy supported kinds atomically on %s v2 publication",
+    async (outcome) => {
+      const owner = session();
+      const legacyOwner: DesktopSession = {
+        ...owner,
+        contextStore: {
+          ...SESSION_CONTEXT_STORE_REFERENCE,
+          kinds: ["audio-observation/v1"],
+        },
+      };
+      const h = await harness([legacyOwner]);
+      const context = invocation(owner);
+      const paths = resolveNestedSessionStorage(h.storage, {
+        sessionId: owner.id,
+        liveSetId: owner.liveSetId,
+      });
+      const initial = await openSessionContextStore({
+        path: paths.entityContextPath,
+        sessionId: owner.id,
+        liveSetId: owner.liveSetId,
+      });
+      const old = pass(owner, context);
+      await initial.appendPass(old);
+      await initial.close();
+      await h.save([legacyOwner]);
+      const repository = await h.manager.resolveRepository(context);
+      expect(h.publishSessionContext).not.toHaveBeenCalled();
+      const base = pass(owner, context);
+      const value = {
+        ...base,
+        pass: {
+          ...base.pass,
+          requestedMode: "arrangement" as const,
+          actualMode: "arrangement" as const,
+        },
+        entries: base.entries.map((entry) => ({
+          ...entry,
+          kind: "audio-observation/v2" as const,
+          payload: createSyntheticNativeListeningFixtureV2({
+            listenerId: entry.producer.listenerId,
+            passId: entry.passId,
+            endBeat: 2,
+          }).observation,
+        })),
+      };
+      if (outcome === "failed")
+        h.publishSessionContext.mockRejectedValueOnce(
+          new Error("kind registration failed"),
+        );
+      const writing = repository.appendPass(value, {
+        trace: context.trace,
+        activeAgentId: context.agentId,
+      });
+      if (outcome === "failed") {
+        await expect(writing).rejects.toThrow("kind registration failed");
+        expect(await repository.getEntry(value.entries[0]!.id)).toBeUndefined();
+      } else {
+        await writing;
+        expect(await repository.getEntry(value.entries[0]!.id)).toEqual(
+          value.entries[0],
+        );
+      }
+      expect(h.publishSessionContext).toHaveBeenCalledOnce();
+      const expectedReference =
+        outcome === "completed"
+          ? SESSION_CONTEXT_STORE_REFERENCE
+          : legacyOwner.contextStore;
+      expect(h.sessions[0]?.contextStore).toEqual(expectedReference);
+      const manifest = JSON.parse(
+        await readFile(paths.manifestPath, "utf8"),
+      ) as {
+        contextStore: unknown;
+      };
+      expect(manifest.contextStore).toEqual(expectedReference);
+      expect(await repository.getEntry(old.entries[0]!.id)).toEqual(
+        old.entries[0],
+      );
+    },
+  );
+
   it("honors caller-context cancellation while resolution is queued without publishing or opening a store", async () => {
     const h = await harness();
     let release!: () => void;

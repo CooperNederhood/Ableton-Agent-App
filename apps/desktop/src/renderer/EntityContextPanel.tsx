@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  listeningDisagreementMilliseconds,
+  type StoredAudioObservation,
+} from "@ableton-agent/protocol";
+import {
   desktopContextDetailSchema,
   desktopContextPageSchema,
   type DesktopContextDetail,
@@ -257,8 +261,7 @@ function ObservationDetail({ detail }: { detail: DesktopContextDetail }) {
       <dd>
         {value.algorithm.name} {value.algorithm.version}
       </dd>
-      <dt>Timing uncertainty</dt>
-      <dd>{value.algorithm.timingUncertaintySamples} samples</dd>
+      <ObservationAlignment value={value} />
       <dt>Retained detail</dt>
       <dd>
         {value.samples.length} descriptor points; {value.attacks.length}{" "}
@@ -276,5 +279,48 @@ function ObservationDetail({ detail }: { detail: DesktopContextDetail }) {
           : value.limitations.join("; ")}
       </dd>
     </dl>
+  );
+}
+
+function ObservationAlignment({ value }: { value: StoredAudioObservation }) {
+  if (value.schema === "audio-observation/v1") {
+    return (
+      <>
+        <dt>Timing uncertainty (legacy v1)</dt>
+        <dd>
+          {value.algorithm.timingUncertaintySamples} samples (legacy reported
+          value)
+        </dd>
+      </>
+    );
+  }
+  const quality = value.alignment;
+  const measurement = (samples: number) =>
+    `${samples} samples (${listeningDisagreementMilliseconds(samples, value.sampleRate).toFixed(3)} ms at ${value.sampleRate} Hz)`;
+  return (
+    <>
+      <dt>Alignment / intended use</dt>
+      <dd>Approximate; descriptive-only</dd>
+      <dt>Configured acceptance limit</dt>
+      <dd>
+        {quality.policy.mode};{" "}
+        {measurement(quality.policy.maxClockDisagreementSamples)}
+        {quality.policy.mode === "strict" ? "; no fallback" : ""}
+      </dd>
+      <dt>Observed clock disagreement</dt>
+      <dd>{measurement(quality.observedClockDisagreementSamples)}</dd>
+      <dt>Observed beat disagreement</dt>
+      <dd>{measurement(quality.observedBeatDisagreementSamples)}</dd>
+      <dt>Estimated absolute timing error</dt>
+      <dd>Unknown (not estimated)</dd>
+      <dt>Verified absolute error bound</dt>
+      <dd>Unknown (not verified)</dd>
+      <dt>Timing interpretation</dt>
+      <dd>
+        Observed disagreement is not physical timing uncertainty or an absolute
+        accuracy bound, even when zero. This observation retains its pass&apos;s
+        starting policy, not the current Settings value.
+      </dd>
+    </>
   );
 }

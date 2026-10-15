@@ -48,6 +48,42 @@ afterEach(async () => {
 });
 
 describe("desktop composition", () => {
+  it("loads the persisted listening policy into the runtime provider before any pass", async () => {
+    const location = await paths();
+    await writeFile(
+      location.preferencesPath,
+      JSON.stringify(
+        preferencesSchema.parse({
+          listening: { mode: "descriptive", maxClockDisagreementSamples: 128 },
+        }),
+      ),
+    );
+    const storage = resolveLiveAgentStorage({
+      environment: {
+        LIVE_AGENT_HOME: join(location.directory, "owned-storage"),
+      },
+    });
+    const factory = vi.spyOn(runtimeModule, "createListeningRuntimeHost");
+    let composition:
+      Awaited<ReturnType<typeof createDesktopComposition>> | undefined;
+    try {
+      composition = await createDesktopComposition({
+        ...location,
+        storage,
+        environment: {},
+      });
+      const policy = factory.mock.calls[0]?.[1].resolveTimingPolicy?.();
+      expect(policy).toEqual({
+        mode: "descriptive",
+        maxClockDisagreementSamples: 128,
+      });
+      expect(Object.isFrozen(policy)).toBe(true);
+    } finally {
+      await composition?.service.stop();
+      factory.mockRestore();
+    }
+  });
+
   it("composes listening with the existing runtime and resolves the invoking owner", async () => {
     const location = await paths();
     const storage = resolveLiveAgentStorage({
@@ -72,12 +108,36 @@ describe("desktop composition", () => {
     try {
       composition = await createDesktopComposition({
         ...location,
+        agentsDirectory: resolve("agents"),
+        skillsDirectory: resolve("skills"),
         environment: {},
         storage,
       });
       expect(factory).toHaveBeenCalledOnce();
       const invocation = factory.mock.calls[0];
       expect(invocation?.[0].signals).toBe(composition.runtime.signals);
+      const resolvePolicy = invocation?.[1].resolveTimingPolicy;
+      expect(resolvePolicy).toBeTypeOf("function");
+      const startingPolicy = resolvePolicy?.();
+      expect(startingPolicy).toEqual({
+        mode: "descriptive",
+        maxClockDisagreementSamples: 64,
+      });
+      expect(Object.isFrozen(startingPolicy)).toBe(true);
+      await composition.service.start();
+      await composition.service.setPreferences(
+        preferencesSchema.parse({
+          listening: { mode: "strict", maxClockDisagreementSamples: 0 },
+        }),
+      );
+      expect(resolvePolicy?.()).toEqual({
+        mode: "strict",
+        maxClockDisagreementSamples: 0,
+      });
+      expect(startingPolicy).toEqual({
+        mode: "descriptive",
+        maxClockDisagreementSamples: 64,
+      });
       const host = created.host;
       if (host === undefined)
         throw new Error("Listening factory did not return a host");

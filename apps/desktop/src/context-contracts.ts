@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { audioObservationSchema } from "@ableton-agent/protocol";
+import {
+  audioObservationKindSchema,
+  storedAudioObservationSchema,
+} from "@ableton-agent/protocol";
 import type { ContextOperationResult } from "@ableton-agent/tools";
 
 const id = z.string().min(1).max(200);
@@ -35,7 +38,7 @@ export const desktopContextSummarySchema: z.ZodType<ContextSummary> =
     passId: id,
     listenerId: id,
     subjectId: id,
-    kind: z.literal("audio-observation/v1"),
+    kind: audioObservationKindSchema,
     createdAt: z.string().datetime(),
     freshness: z.enum([
       "fresh",
@@ -55,11 +58,16 @@ export const desktopContextPageSchema: z.ZodType<
 });
 export const desktopContextDetailSchema: z.ZodType<
   Extract<ContextOperationResult, { action: "get" }>
-> = z.strictObject({
-  action: z.literal("get"),
-  entry: desktopContextSummarySchema,
-  observation: audioObservationSchema,
-});
+> = z
+  .strictObject({
+    action: z.literal("get"),
+    entry: desktopContextSummarySchema,
+    observation: storedAudioObservationSchema,
+  })
+  .refine(
+    (value) => value.entry.kind === value.observation.schema,
+    "Context detail kind must match its observation schema",
+  );
 
 export type DesktopContextListRequest = z.input<
   typeof desktopContextListRequestSchema

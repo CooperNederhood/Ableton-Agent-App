@@ -5,7 +5,9 @@ import {
   listeningCanonicalTrackPathSchema,
   listeningPathSelectorSchema,
   listenerNativeStatusSchema,
+  listenerNativeStatusV2Schema,
   type ListenerNativeStatus,
+  type ListenerNativeStatusV2,
   type InspectListeningContextResult,
   type ListeningPathAttestation,
 } from "@ableton-agent/protocol";
@@ -14,7 +16,11 @@ export type ListenerBridgeTarget =
   InspectListeningContextResult["listeners"][number]["binding"];
 
 const id = z.string().min(1).max(128);
-const connectionSchema = z
+const nativeStatusSchema = z.union([
+  listenerNativeStatusSchema,
+  listenerNativeStatusV2Schema,
+]);
+const rawConnectionSchema = z
   .object({
     connectionId: id,
     producerId: id,
@@ -22,12 +28,17 @@ const connectionSchema = z
     connectionEpoch: id,
     canonicalPath: listeningPathSelectorSchema.shape.canonicalPath,
     canonicalTrackPath: listeningCanonicalTrackPathSchema,
-    nativeStatus: listenerNativeStatusSchema,
+    nativeStatus: nativeStatusSchema,
     signalKind: z.enum(["audio", "midi"]),
     schemaVersion: id,
     status: z.enum(["connected", "stale", "disconnected"]),
   })
   .strict();
+const connectionSchema = rawConnectionSchema.refine(
+  (value) =>
+    (value.nativeStatus.version === 2) ===
+    (value.schemaVersion === "audio-observation/v2"),
+);
 
 /** Canonical path comes from authenticated producer metadata, never its ID hash. */
 export type ConnectedListenerBinding = z.infer<typeof connectionSchema>;
@@ -69,7 +80,7 @@ export interface ListenerBindingDescriptor {
     readonly connectionEpoch: string;
     readonly deviceCanonicalPath?: string;
     readonly trackCanonicalPath?: string;
-    readonly nativeStatus?: ListenerNativeStatus;
+    readonly nativeStatus?: ListenerNativeStatus | ListenerNativeStatusV2;
   };
   readonly status?: "connected" | "stale" | "disconnected";
 }
@@ -93,7 +104,7 @@ const descriptorHeaderSchema = z
         connectionEpoch: id,
         deviceCanonicalPath: listeningCanonicalDevicePathSchema.optional(),
         trackCanonicalPath: listeningCanonicalTrackPathSchema.optional(),
-        nativeStatus: listenerNativeStatusSchema.optional(),
+        nativeStatus: nativeStatusSchema.optional(),
       })
       .strip(),
     status: z.enum(["connected", "stale", "disconnected"]).optional(),
@@ -152,7 +163,7 @@ export type ListenerBindingResolution =
     }
   | { readonly ok: false; readonly reason: ListenerBindingFailure };
 
-const selectionSchema = connectionSchema
+const selectionSchema = rawConnectionSchema
   .pick({
     connectionId: true,
     producerId: true,
@@ -241,7 +252,9 @@ export function resolveListenerBinding(input: {
   }
   if (
     connection.signalKind !== "audio" ||
-    connection.schemaVersion !== "audio-observation/v1"
+    !["audio-observation/v1", "audio-observation/v2"].includes(
+      connection.schemaVersion,
+    )
   ) {
     return { ok: false, reason: "non-audio-producer" };
   }

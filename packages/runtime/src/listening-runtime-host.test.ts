@@ -2,13 +2,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { currentCorrelationContext } from "@ableton-agent/correlation";
 import {
   inspectListeningContextParamsSchema,
+  type createNativeListeningGeometry,
   NATIVE_LISTENER_SCOPE,
+  positionListeningPlaybackParamsSchema,
   startListeningPlaybackParamsSchema,
 } from "@ableton-agent/protocol";
-import { createSyntheticNativeListeningFixture } from "@ableton-agent/protocol/testing";
+import {
+  createSyntheticNativeListeningFixture,
+  createSyntheticNativeListeningFixtureV2,
+} from "@ableton-agent/protocol/testing";
 import {
   listenerControlInputSchema,
+  listenerConfigSchema,
   listenerRegistrationV2Schema,
+  listenerConfigV2Schema,
 } from "@ableton-agent/signal-routing";
 import type {
   AudioObservation,
@@ -21,6 +28,8 @@ import type {
   ListenerControlInput,
   ListenerResult,
   ListenerResultEvent,
+  ListenerResultV2,
+  VersionedListenerControlInput,
 } from "@ableton-agent/signal-routing";
 import {
   listeningLimits,
@@ -165,6 +174,7 @@ function observation(
   input: PrepareListenerCaptureInput,
   listenerId: string,
 ): AudioObservation {
+  const configuration = listenerConfigSchema.parse(input.config);
   return {
     schema: "audio-observation/v1",
     listenerId,
@@ -172,8 +182,8 @@ function observation(
     sampleRate: 48000,
     startSample: 0,
     endSample: 96000,
-    startBeat: input.config.source.startBeat,
-    endBeat: input.config.source.endBeat,
+    startBeat: configuration.source.startBeat,
+    endBeat: configuration.source.endBeat,
     complete: true,
     limitations: [
       "Explicitly synthetic certified test-owned capture; not production evidence",
@@ -270,6 +280,10 @@ function fixture(
   } as unknown as ListeningRuntimeDependencies;
   const jobs: ListeningJob[] = [];
   const options: ListeningRuntimeHostOptions = {
+    resolveTimingPolicy: () => ({
+      mode: "strict",
+      maxClockDisagreementSamples: 0,
+    }),
     resolveOwner: vi.fn(async () => owner),
     resolveRepository: vi.fn(async () => repository),
     onChange: (job) => {
@@ -466,6 +480,234 @@ function nativeProductionFixture(armProof = true) {
   return { ...f, subscribers, data };
 }
 
+function descriptiveProductionFixture(
+  geometry: Parameters<typeof createNativeListeningGeometry>[0] = {
+    sampleRate: 44_100,
+    vectorSize: 128,
+    tempoBpm: 127.5,
+    startBeat: 5.25,
+    endBeat: 9.50001,
+  },
+) {
+  const f = fixture();
+  const old = f.inventory[0]!;
+  const listener: ListenerDescriptor = {
+    ...old,
+    producer: { ...old.producer, schemaVersion: "audio-observation/v2" },
+    registration: listenerRegistrationV2Schema.parse({
+      ...old.registration,
+      version: 2,
+      capabilities: ["audio-listener/v2"],
+      algorithmVersion: "2.0.0",
+      sampleRate: geometry.sampleRate,
+      vectorSize: geometry.vectorSize,
+      nativeStatus: {
+        version: 2,
+        scope: "arrangement-descriptive/v2",
+        readiness: "READY",
+        alignment: "approximate",
+        verifiedAbsoluteErrorBoundSamples: null,
+        acceptedSampleRates: [44_100, 48_000],
+        acceptedVectorSizes: [geometry.vectorSize],
+        timingModes: ["descriptive", "strict"],
+        maxClockDisagreementSamples: 480,
+        maxAudioDurationMs: 30_000,
+        maxWindows: 300,
+        abiVersion: 2,
+      },
+    }),
+  };
+  f.inventory[0] = listener;
+  const nativeState: {
+    currentBeat: number;
+    revision: number;
+    tempo: number;
+    fingerprint: string;
+    playing: boolean;
+    onPosition?: () => void;
+  } = {
+    currentBeat: 9,
+    revision: 1,
+    tempo: geometry.tempoBpm,
+    fingerprint: "a".repeat(64),
+    playing: false,
+  };
+  f.inspectListeningContext.mockImplementation(async (input) => {
+    const result = inspection(input);
+    return {
+      ...result,
+      projectRevision: nativeState.revision,
+      transport: {
+        ...result.transport,
+        currentBeat: nativeState.currentBeat,
+        tempo: nativeState.tempo,
+        playing: nativeState.playing,
+        safeToStart: !nativeState.playing,
+      },
+      listeners: result.listeners.map((item) => ({
+        ...item,
+        fingerprint: { ...item.fingerprint, digest: nativeState.fingerprint },
+      })),
+    };
+  });
+  const position = vi.fn<
+    NonNullable<
+      ListeningRuntimeDependencies["ableton"]["positionListeningPlayback"]
+    >
+  >(async (input) => {
+    positionListeningPlaybackParamsSchema.parse(input);
+    expect(input.expectedProjectRevision).toBe(nativeState.revision);
+    f.log.push("position");
+    nativeState.currentBeat = input.range.startBeat;
+    nativeState.revision += 1;
+    nativeState.onPosition?.();
+    return {
+      schemaVersion: 1,
+      mode: "arrangement",
+      cleanupPolicy: "leave-running",
+      sourceOnset: "unverified",
+      requestedStartBeat: input.range.startBeat,
+      insertMarkerBeat: input.range.startBeat,
+      currentBeat: nativeState.currentBeat,
+      playing: false,
+      changed: { insertMarker: true, currentPosition: true },
+    };
+  });
+  Object.assign(f.dependencies.ableton, {
+    positionListeningPlayback: position,
+  });
+  const subscribers = new Set<(event: ListenerResultEvent) => void>();
+  f.service.onListenerResult.mockImplementation((callback) => {
+    subscribers.add(callback);
+    return () => {
+      subscribers.delete(callback);
+    };
+  });
+  let sequence = 0;
+  let armed: VersionedListenerControlInput | undefined;
+  let data:
+    ReturnType<typeof createSyntheticNativeListeningFixtureV2> | undefined;
+  f.service.requestListenerControl.mockImplementation(async (_id, control) => {
+    f.log.push(control.action);
+    if (control.action === "prepare") {
+      const config = listenerConfigV2Schema.parse(control.config);
+      const value = config.geometry;
+      data = createSyntheticNativeListeningFixtureV2({
+        listenerId: listener.producer.producerId,
+        passId: control.passId,
+        timingPolicy: config.timingPolicy,
+        geometry: {
+          sampleRate: value.sampleRate,
+          vectorSize: value.vectorSize,
+          tempoBpm: value.tempoBpm,
+          startBeat: value.startBeat,
+          endBeat: value.endBeat,
+        },
+      });
+    }
+    if (control.action === "arm") armed = control;
+    Object.assign(listener, {
+      phase:
+        control.action === "prepare"
+          ? "ready"
+          : control.action === "arm"
+            ? "armed"
+            : "idle",
+      jobId: control.jobId,
+      passId: control.passId,
+    });
+    return {
+      type: "listener.reply",
+      protocolVersion: 1,
+      listenerVersion: 2,
+      requestId: `synthetic-v2-control-${sequence}`,
+      sequence: sequence++,
+      connectionEpoch: listener.registration.connectionEpoch,
+      jobId: control.jobId,
+      passId: control.passId,
+      traceId: control.traceId,
+      correlationId: control.correlationId,
+      causationId: control.causationId,
+      status:
+        control.action === "prepare"
+          ? "ready"
+          : control.action === "arm"
+            ? "armed"
+            : "cancelled",
+      ...(control.action === "arm" && data
+        ? { nativeArm: data.proof.armed }
+        : {}),
+    };
+  });
+  f.startListeningPlayback.mockImplementation(async (input) => {
+    const control = armed;
+    const captured = data;
+    if (!control || !captured)
+      throw new Error("Synthetic playback before native arm");
+    expect(input.expectedProjectRevision).toBe(nativeState.revision);
+    f.log.push("start");
+    nativeState.playing = true;
+    const publish = (patch: Partial<ListenerResultV2>) => {
+      const result: ListenerResultV2 = {
+        type: "listener.result",
+        protocolVersion: 1,
+        listenerVersion: 2,
+        requestId: `synthetic-v2-result-${sequence}`,
+        sequence: sequence++,
+        connectionEpoch: listener.registration.connectionEpoch,
+        jobId: control.jobId,
+        passId: control.passId,
+        traceId: control.traceId,
+        correlationId: control.correlationId,
+        causationId: control.causationId,
+        status: "progress",
+        ...patch,
+      };
+      for (const callback of subscribers)
+        callback({
+          connectionId: listener.connectionId,
+          producer: listener.producer,
+          binding: listener.binding,
+          result,
+        });
+    };
+    publish({ nativeLaunch: captured.proof.launched });
+    publish({
+      status: "completed",
+      nativeCapture: captured.proof,
+      observation: captured.observation,
+    });
+    Object.assign(listener, { phase: "idle" });
+    return {
+      schemaVersion: 1,
+      mode: "arrangement",
+      cleanupPolicy: "leave-running",
+      startedAtBeat: input.range.startBeat,
+      sourceOnset: "unverified",
+    };
+  });
+  const options: ListeningRuntimeHostOptions = {
+    resolveOwner: f.options.resolveOwner,
+    resolveRepository: f.options.resolveRepository,
+    onChange: f.options.onChange!,
+  };
+  return {
+    ...f,
+    position,
+    nativeState,
+    subscribers,
+    options,
+    request: {
+      ...request,
+      startBeat: geometry.startBeat,
+      endBeat: geometry.endBeat,
+      maximumDurationMs: 60_000,
+    },
+    host: (override = options) => f.host(true, override),
+    data: () => data,
+  };
+}
+
 async function run(
   host: ConcreteListeningRuntimeHost,
   input = request,
@@ -481,6 +723,345 @@ async function run(
 }
 
 describe("same-runtime production listening factory", () => {
+  it("defaults to descriptive v2, positions before arm, and preserves fractional requested versus measured ranges", async () => {
+    const f = descriptiveProductionFixture();
+    const result = await run(f.host(), f.request);
+    expect(result.stage, result.error).toBe("completed");
+    expect(f.position).toHaveBeenCalledOnce();
+    expect(f.log.indexOf("reserve")).toBeLessThan(f.log.indexOf("position"));
+    expect(f.log.indexOf("position")).toBeLessThan(f.log.indexOf("prepare"));
+    expect(f.log.indexOf("arm")).toBeLessThan(f.log.indexOf("start"));
+    expect(f.subscribers.size).toBe(0);
+    expect(f.nativeState.playing).toBe(true);
+    expect(f.publications[0]!.entries[0]).toMatchObject({
+      kind: "audio-observation/v2",
+      payload: {
+        startBeat: 5.25,
+        endBeat: 9.5,
+        sampleRate: 44_100,
+        alignment: {
+          policy: { mode: "descriptive", maxClockDisagreementSamples: 64 },
+          vectorSize: 128,
+          alignment: "approximate",
+          intendedUse: "descriptive-only",
+          estimatedAbsoluteErrorSamples: null,
+          verifiedAbsoluteErrorBoundSamples: null,
+        },
+      },
+    });
+    expect(f.data()!.proof.armed.geometry.endBeat).toBe(9.50001);
+    for (const stage of ["source-positioning", "positioned-inspection"]) {
+      const lifecycle = f.events.filter(
+        (event) =>
+          typeof event === "object" &&
+          event !== null &&
+          "name" in event &&
+          typeof event.name === "string" &&
+          event.name.startsWith(`listening.runtime.${stage}.`),
+      );
+      expect(lifecycle).toMatchObject([
+        {
+          name: `listening.runtime.${stage}.queued`,
+          sessionId: "session",
+          trace: { traceId: context.trace.traceId },
+          correlationId: context.trace.correlationId,
+        },
+        { name: `listening.runtime.${stage}.started` },
+        {
+          name: `listening.runtime.${stage}.completed`,
+          outcome: "success",
+        },
+      ]);
+      expect(lifecycle.at(-1)).toHaveProperty("durationMs", expect.any(Number));
+    }
+  });
+
+  it.each([
+    [0.1, 1],
+    [0.1 + 1 / 48_000, 2],
+    [30, 300],
+  ])(
+    "accepts %s native seconds with exactly %s windows, including a one-sample tail",
+    async (seconds, windows) => {
+      const f = descriptiveProductionFixture({
+        sampleRate: 48_000,
+        vectorSize: 64,
+        tempoBpm: 100,
+        startBeat: 3.125,
+        endBeat: 3.125 + (seconds * 100) / 60,
+      });
+      const result = await run(f.host(), f.request);
+      expect(result.stage, result.error).toBe("completed");
+      expect(f.data()!.observation.samples).toHaveLength(windows);
+      expect(f.data()!.proof.envelopeWindows.at(-1)?.[0]).toBe(
+        f.data()!.proof.armed.armCounter + 512 + Math.round(seconds * 48_000),
+      );
+    },
+  );
+
+  it.each([9.50001, 9.50003])(
+    "preserves requested end %s separately from either direction of sample quantization",
+    async (endBeat) => {
+      const f = descriptiveProductionFixture({
+        sampleRate: 44_100,
+        vectorSize: 128,
+        tempoBpm: 127.5,
+        startBeat: 5.25,
+        endBeat,
+      });
+      const result = await run(f.host(), f.request);
+      expect(result.stage, result.error).toBe("completed");
+      const pass = f.publications[0]!.pass;
+      if (pass.actualRange === null)
+        throw new Error("Expected actual capture range");
+      expect(pass.requestedRange).toEqual({ startBeat: 5.25, endBeat });
+      expect(pass.actualRange).toEqual({
+        startBeat: 5.25,
+        endBeat: f.data()!.observation.endBeat,
+      });
+      expect(pass.actualRange.endBeat).not.toBe(endBeat);
+      const signedDifference =
+        ((pass.actualRange.endBeat - endBeat) * 44_100 * 60) / 127.5;
+      expect(Math.abs(signedDifference)).toBeLessThanOrEqual(0.5);
+      expect(signedDifference > 0).toBe(endBeat === 9.50003);
+    },
+  );
+
+  it("freezes the live preference once per pass and retains the accepted policy through publication", async () => {
+    const f = descriptiveProductionFixture();
+    const preference = {
+      mode: "descriptive" as const,
+      maxClockDisagreementSamples: 64,
+    };
+    const resolveTimingPolicy = vi.fn(() => preference);
+    f.nativeState.onPosition = () => {
+      preference.maxClockDisagreementSamples = 0;
+    };
+    const result = await run(
+      f.host({ ...f.options, resolveTimingPolicy }),
+      f.request,
+    );
+    expect(result.stage, result.error).toBe("completed");
+    expect(resolveTimingPolicy).toHaveBeenCalledOnce();
+    expect(
+      f.data()!.observation.alignment.policy.maxClockDisagreementSamples,
+    ).toBe(64);
+    expect(preference.maxClockDisagreementSamples).toBe(0);
+  });
+
+  it.each([64, 65])(
+    "independently accepts only observed clock disagreement within the frozen 64-sample budget (%s)",
+    async (disagreement) => {
+      const f = descriptiveProductionFixture();
+      const original = f.startListeningPlayback.getMockImplementation()!;
+      f.startListeningPlayback.mockImplementation(async (input) => {
+        const data = f.data()!;
+        for (const row of data.proof.after.frames) {
+          row[2] += disagreement;
+          row[9] += disagreement;
+        }
+        const launch = data.proof.launched.host;
+        const counter = data.proof.armed.armCounter + 512 + 640;
+        data.proof.timingWitnesses.minBeatOrigin = [
+          1,
+          launch.beat,
+          launch.sample,
+          launch.flags,
+          counter,
+          launch.beat - Math.floor(launch.beat),
+          counter,
+          1,
+          launch.beat,
+          launch.sample,
+          launch.flags,
+        ];
+        data.proof.timingWitnesses.maxHostOffset = [
+          ...data.proof.after.frames[0]!,
+        ];
+        data.proof.timingWitnesses.maxBeatOrigin = [
+          ...data.proof.after.frames[0]!,
+        ];
+        data.proof.timingWitnesses.maxPhaseDisagreement = [
+          ...data.proof.after.frames[0]!,
+        ];
+        data.observation.alignment.observedClockDisagreementSamples = Math.min(
+          disagreement,
+          64,
+        );
+        data.observation.alignment.observedBeatDisagreementSamples = Math.min(
+          disagreement,
+          64,
+        );
+        return original(input);
+      });
+      const result = await run(f.host(), f.request);
+      expect(result.stage, result.error).toBe(
+        disagreement === 64 ? "completed" : "failed",
+      );
+      expect(f.publications).toHaveLength(disagreement === 64 ? 1 : 0);
+      expect(f.nativeState.playing).toBe(true);
+      expect(f.subscribers.size).toBe(0);
+      expect(f.releaseReservation).toHaveBeenCalledOnce();
+      if (disagreement === 64)
+        expect(f.publications[0]!.entries[0]!.payload).toMatchObject({
+          alignment: {
+            observedClockDisagreementSamples: 64,
+            observedBeatDisagreementSamples: 64,
+            verifiedAbsoluteErrorBoundSamples: null,
+          },
+        });
+    },
+  );
+
+  it("keeps explicit strict v2 descriptive-only rather than fabricating absolute accuracy", async () => {
+    const f = descriptiveProductionFixture();
+    const result = await run(
+      f.host({
+        ...f.options,
+        resolveTimingPolicy: () => ({
+          mode: "strict",
+          maxClockDisagreementSamples: 0,
+        }),
+      }),
+      f.request,
+    );
+    expect(result.stage, result.error).toBe("completed");
+    expect(f.data()!.observation.alignment).toMatchObject({
+      policy: { mode: "strict", maxClockDisagreementSamples: 0 },
+      alignment: "approximate",
+      verifiedAbsoluteErrorBoundSamples: null,
+    });
+  });
+
+  it("does not silently fall back from default descriptive policy to legacy v1", async () => {
+    const f = nativeProductionFixture();
+    const result = await run(
+      f.host(true, {
+        resolveOwner: f.options.resolveOwner,
+        resolveRepository: f.options.resolveRepository,
+      }),
+    );
+    expect(result.stage).toBe("failed");
+    expect(result.error).toContain("descriptive_requires_v2_listener");
+    expect(result.error).toContain("Update the listener");
+    expect(result.error).toContain("explicitly choose Strict mode");
+    expect(f.reservePass).not.toHaveBeenCalled();
+    expect(f.service.requestListenerControl).not.toHaveBeenCalled();
+    expect(f.startListeningPlayback).not.toHaveBeenCalled();
+  });
+
+  it.each(["tempo", "fingerprint", "vector"] as const)(
+    "re-inspects and denies changed %s after positioning without arming or rewinding",
+    async (changed) => {
+      const f = descriptiveProductionFixture();
+      f.nativeState.onPosition = () => {
+        if (changed === "tempo") f.nativeState.tempo += 1;
+        if (changed === "fingerprint")
+          f.nativeState.fingerprint = "b".repeat(64);
+        if (changed === "vector") {
+          const registration = f.inventory[0]!.registration;
+          if (registration.version !== 2)
+            throw new Error("Expected v2 fixture");
+          registration.vectorSize = 64;
+        }
+      };
+      const result = await run(f.host(), f.request);
+      expect(result.stage).toBe("failed");
+      expect(f.position).toHaveBeenCalledOnce();
+      expect(f.service.requestListenerControl).not.toHaveBeenCalled();
+      expect(f.startListeningPlayback).not.toHaveBeenCalled();
+      expect(f.appendPass).not.toHaveBeenCalled();
+      expect(f.releaseReservation).toHaveBeenCalledOnce();
+      expect(f.nativeState.currentBeat).toBe(5.25);
+      expect(f.nativeState.playing).toBe(false);
+    },
+  );
+
+  it("denies audio longer than 30 seconds before reserving or positioning", async () => {
+    const f = descriptiveProductionFixture({
+      sampleRate: 48_000,
+      vectorSize: 64,
+      tempoBpm: 120,
+      startBeat: 5.25,
+      endBeat: 67.25,
+    });
+    const result = await run(f.host(), f.request);
+    expect(result.stage).toBe("failed");
+    expect(f.reservePass).not.toHaveBeenCalled();
+    expect(f.position).not.toHaveBeenCalled();
+    expect(f.service.requestListenerControl).not.toHaveBeenCalled();
+  });
+
+  it("redacts a positioning failure, releases reservation, and never starts or arms", async () => {
+    const f = descriptiveProductionFixture();
+    f.position.mockRejectedValue(
+      new Error("position failed token=private-position-secret"),
+    );
+    const result = await run(f.host(), f.request);
+    expect(result.stage).toBe("failed");
+    expect(JSON.stringify([result, f.events])).not.toContain(
+      "private-position-secret",
+    );
+    expect(f.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "listening.runtime.source-positioning.failed",
+          outcome: "failure",
+        }),
+      ]),
+    );
+    expect(
+      f.events.find(
+        (event) =>
+          typeof event === "object" &&
+          event !== null &&
+          "name" in event &&
+          event.name === "listening.runtime.source-positioning.failed",
+      ),
+    ).toHaveProperty("durationMs", expect.any(Number));
+    expect(f.releaseReservation).toHaveBeenCalledOnce();
+    expect(f.service.requestListenerControl).not.toHaveBeenCalled();
+    expect(f.startListeningPlayback).not.toHaveBeenCalled();
+    expect(f.appendPass).not.toHaveBeenCalled();
+  });
+
+  it("cancels during admitted positioning without arming, starting, or undoing a late position", async () => {
+    const f = descriptiveProductionFixture();
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const original = f.position.getMockImplementation()!;
+    f.position.mockImplementation(async (input) => {
+      await pending;
+      return original(input);
+    });
+    const host = f.host();
+    const started = await host.executeListeningOperation(f.request, context);
+    if (!("job" in started)) throw new Error("Expected pass");
+    await vi.waitFor(() => expect(f.position).toHaveBeenCalledOnce());
+    await host.executeListeningOperation(
+      { action: "cancel", passId: started.job.passId },
+      context,
+    );
+    expect(
+      (await host.waitForListeningPass(started.job.passId, context)).stage,
+    ).toBe("cancelled");
+    finish();
+    await vi.waitFor(() => expect(f.nativeState.currentBeat).toBe(5.25));
+    expect(f.releaseReservation).toHaveBeenCalledOnce();
+    expect(f.service.requestListenerControl).not.toHaveBeenCalled();
+    expect(f.startListeningPlayback).not.toHaveBeenCalled();
+    expect(f.appendPass).not.toHaveBeenCalled();
+    expect(f.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "listening.runtime.source-positioning.cancelled",
+          outcome: "cancelled",
+        }),
+      ]),
+    );
+  });
   it("does not route a negotiated v2 listener through the legacy capture adapter", async () => {
     const f = fixture(2);
     const candidate = f.inventory[1]!;
@@ -512,17 +1093,17 @@ describe("same-runtime production listening factory", () => {
       .executeListeningOperation({ action: "inspect-listeners" }, context);
     expect(discovered).toMatchObject({
       action: "inspect-listeners",
-      listeners: [{ listenerId: "listener-0" }],
+      listeners: [{ listenerId: "listener-0" }, { listenerId: "listener-1" }],
     });
     if (discovered.action !== "inspect-listeners")
       throw new Error("Unexpected discovery result");
-    expect(discovered.listeners).toHaveLength(1);
+    expect(discovered.listeners).toHaveLength(2);
     const result = await run(f.host(true), {
       ...request,
       listenerIds: ["listener-1"],
     });
     expect(result.stage).toBe("failed");
-    expect(result.error).toContain("unsupported_listener_version");
+    expect(result.error).toContain("listening_positioning_unavailable");
     expect(f.reservePass).not.toHaveBeenCalled();
     expect(f.service.requestListenerControl).not.toHaveBeenCalled();
     expect(f.startListeningPlayback).not.toHaveBeenCalled();

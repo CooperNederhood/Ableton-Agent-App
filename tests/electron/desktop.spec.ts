@@ -7,10 +7,13 @@ import { sendAutomationMessage } from "../../packages/debug-control/src/client.j
 import { resolveLiveAgentStorage } from "../../packages/storage/src/index.js";
 import type { DesktopEntityContextApi } from "../../apps/desktop/src/context-contracts.js";
 import type { DesktopListeningPage } from "../../apps/desktop/src/listening-contracts.js";
+import { preferencesSchema } from "../../apps/desktop/src/contracts.js";
 import {
   listeningFixturePassId,
   listeningFixtureSessionId,
   seedListeningContext,
+  seedMixedListeningContext,
+  descriptiveFixturePassId,
 } from "./listening-context-fixture.js";
 import {
   createDesktopTestEnvironment,
@@ -126,6 +129,98 @@ async function launchAutomationDesktop() {
   });
   return { application, profile };
 }
+
+test("round-trips listening Settings through typed preload and the isolated profile across restart without Live", async () => {
+  const launched = await launchIsolatedDesktop();
+  let application = launched.application;
+  try {
+    let window = await application.firstWindow();
+    await window.getByRole("button", { name: "Settings", exact: true }).click();
+    const mode = window.getByRole("combobox", {
+      name: "Listening timing mode",
+    });
+    const limit = window.getByRole("spinbutton", {
+      name: "Configured acceptance limit (samples)",
+    });
+    await expect(mode).toHaveValue("descriptive");
+    await expect(limit).toHaveValue("64");
+    await limit.fill("128");
+    await expect(limit).toHaveValue("128");
+    await window
+      .getByRole("button", { name: "Save settings", exact: true })
+      .click();
+    await expect(
+      window.getByText("Settings saved.", { exact: true }),
+    ).toBeVisible();
+    await expect(limit).toHaveValue("128");
+    expect(
+      (await window.evaluate(() => globalThis.window.desktop.preferences.get()))
+        .listening,
+    ).toEqual({
+      mode: "descriptive",
+      maxClockDisagreementSamples: 128,
+    });
+    await mode.selectOption("strict");
+    await expect(limit).toBeDisabled();
+    await expect(limit).toHaveValue("0");
+    await expect(
+      window.getByText("Settings saved.", { exact: true }),
+    ).not.toBeVisible();
+    await window
+      .getByRole("button", { name: "Save settings", exact: true })
+      .click();
+    await expect
+      .poll(
+        async () =>
+          (
+            await window.evaluate(() =>
+              globalThis.window.desktop.preferences.get(),
+            )
+          ).listening,
+      )
+      .toEqual({
+        mode: "strict",
+        maxClockDisagreementSamples: 0,
+      });
+    const storage = resolveLiveAgentStorage({
+      environment: launched.environment,
+    });
+    const persisted = preferencesSchema.parse(
+      JSON.parse(await readFile(storage.preferencesPath, "utf8")),
+    );
+    expect(persisted.listening).toEqual({
+      mode: "strict",
+      maxClockDisagreementSamples: 0,
+    });
+    await application.close();
+    application = await electron.launch({
+      args: [
+        desktopPath,
+        `--user-data-dir=${join(launched.profile, "electron")}`,
+      ],
+      cwd: process.cwd(),
+      env: launched.environment,
+    });
+    window = await application.firstWindow();
+    await window.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(
+      window.getByRole("combobox", { name: "Listening timing mode" }),
+    ).toHaveValue("strict");
+    await expect(
+      window.getByRole("spinbutton", {
+        name: "Configured acceptance limit (samples)",
+      }),
+    ).toBeDisabled();
+    await expect(
+      window.getByText(
+        /All new observations remain approximate and descriptive-only/,
+      ),
+    ).toBeVisible();
+  } finally {
+    await application.close();
+    await rm(launched.profile, { recursive: true, force: true });
+  }
+});
 
 test("shows synthetic listening lifecycle through real preload events and read-only IPC without starting Live", async () => {
   const bridge = createServer((socket) => socket.destroy());
@@ -300,7 +395,7 @@ test("shows synthetic listening lifecycle through real preload events and read-o
   }
 });
 
-test("restores typed listening context across Electron restarts without renderer filesystem access", async () => {
+test("restores typed v1/v2 listening context and approximate quality across Electron restarts without renderer filesystem access", async () => {
   const bridge = createServer((socket) => socket.destroy());
   const reservation = createServer();
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined;
@@ -328,11 +423,12 @@ test("restores typed listening context across Electron restarts without renderer
     const launched = await launchIsolatedDesktop(
       environment,
       signalAddress.port,
-      seedListeningContext,
+      seedMixedListeningContext,
     );
     application = launched.application;
     profile = launched.profile;
     let firstContextId: string | undefined;
+    let firstDescriptiveId: string | undefined;
     for (let cycle = 0; cycle < 2; cycle += 1) {
       if (application === undefined) {
         application = await electron.launch({
@@ -356,16 +452,20 @@ test("restores typed listening context across Electron restarts without renderer
           limit: 20,
         });
       }, listeningFixtureSessionId);
-      expect(page.entries).toHaveLength(1);
-      expect(page.entries[0]).toMatchObject({
+      expect(page.entries).toHaveLength(2);
+      const legacy = page.entries.find(
+        (entry) => entry.kind === "audio-observation/v1",
+      );
+      const descriptive = page.entries.find(
+        (entry) => entry.kind === "audio-observation/v2",
+      );
+      expect(legacy).toMatchObject({
         passId: listeningFixturePassId,
         listenerId: "fixture-listener",
         freshness: "unknown",
       });
-      expect(page.entries[0]?.summary).toContain(
-        "Known sine persistence fixture",
-      );
-      const contextId = page.entries[0]?.contextId;
+      expect(legacy?.summary).toContain("Known sine persistence fixture");
+      const contextId = legacy?.contextId;
       if (contextId === undefined)
         throw new Error("Missing restored context ID");
       if (cycle === 0) firstContextId = contextId;
@@ -386,6 +486,38 @@ test("restores typed listening context across Electron restarts without renderer
       expect(detail.observation.limitations).toContain(
         "Synthetic persistence fixture, not measured listener output",
       );
+      const descriptiveId = descriptive?.contextId;
+      if (descriptiveId === undefined)
+        throw new Error("Missing descriptive context");
+      if (cycle === 0) firstDescriptiveId = descriptiveId;
+      else expect(descriptiveId).toBe(firstDescriptiveId);
+      const approximate = await pageWindow.evaluate(
+        async ({ sessionId, contextId }) =>
+          globalThis.window.desktop.entityContext.get({
+            sessionId,
+            contextId,
+            includeHistorical: true,
+          }),
+        { sessionId: listeningFixtureSessionId, contextId: descriptiveId },
+      );
+      expect(approximate.entry.passId).toBe(descriptiveFixturePassId);
+      expect(approximate.observation).toMatchObject({
+        schema: "audio-observation/v2",
+        sampleRate: 44_100,
+        startBeat: 5.25,
+        endBeat: 9.5,
+        alignment: {
+          alignment: "approximate",
+          intendedUse: "descriptive-only",
+          policy: { mode: "descriptive", maxClockDisagreementSamples: 64 },
+          observedClockDisagreementSamples: 64,
+          observedBeatDisagreementSamples: 32,
+          estimatedAbsoluteErrorSamples: null,
+          verifiedAbsoluteErrorBoundSamples: null,
+        },
+      });
+      expect(descriptive?.summary).toContain("1.451");
+      expect(descriptive?.summary).toContain("absolute");
       await expect(
         pageWindow.evaluate(async () => {
           const desktop = globalThis.window.desktop;
@@ -489,7 +621,7 @@ test("publishes producer discovery and credential references only inside the iso
     expect(descriptor).toMatchObject({
       secretPath: storage.signalIngressSecretPath,
       port: signalAddress.port,
-      listenerVersions: [1],
+      listenerVersions: [1, 2],
     });
     expect(JSON.stringify(descriptor)).not.toContain(token);
     await expect(window.locator("body")).not.toContainText(token);

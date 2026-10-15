@@ -20,6 +20,30 @@ export function verifyNativeListeningEvidence(input, protocol) {
     resumed,
     target,
   } = input;
+  const expected =
+    input.expected === undefined
+      ? undefined
+      : protocol.snapshotNativeListeningExpectationV2(input.expected);
+  const requestedRange = expected
+    ? {
+        startBeat: expected.geometry.startBeat,
+        endBeat: expected.geometry.endBeat,
+      }
+    : { startBeat: 0, endBeat: 4 };
+  const actualRange = expected
+    ? {
+        startBeat: expected.geometry.startBeat,
+        endBeat:
+          expected.geometry.startBeat +
+          expected.geometry.totalSamples /
+            ((expected.geometry.sampleRate * 60) / expected.geometry.tempoBpm),
+      }
+    : requestedRange;
+  const expectedSamples = expected?.geometry.totalSamples ?? 96000;
+  const expectedWindows = expected
+    ? Math.ceil(expectedSamples / expected.geometry.hopSamples)
+    : 20;
+  const expectedRate = expected?.geometry.sampleRate ?? 48000;
   requireValue(
     job.stage === "completed" &&
       job.cleanupPolicy === "leave-running" &&
@@ -34,8 +58,8 @@ export function verifyNativeListeningEvidence(input, protocol) {
       pass.liveSetId === owner.liveSetId &&
       pass.initiatorAgentId === owner.agentId &&
       isDeepStrictEqual(pass.listenerIds, [listener.producer.producerId]) &&
-      isDeepStrictEqual(pass.requestedRange, { startBeat: 0, endBeat: 4 }) &&
-      isDeepStrictEqual(pass.actualRange, { startBeat: 0, endBeat: 4 }) &&
+      isDeepStrictEqual(pass.requestedRange, requestedRange) &&
+      isDeepStrictEqual(pass.actualRange, actualRange) &&
       pass.requestedMode === "arrangement" &&
       pass.actualMode === "arrangement",
     "Persisted pass ownership or exact Arrangement coverage mismatch",
@@ -45,7 +69,20 @@ export function verifyNativeListeningEvidence(input, protocol) {
     "Expected exactly one atomic context entry",
   );
   const entry = entries[0];
-  const observation = protocol.audioObservationSchema.parse(entry.payload);
+  const observation = (
+    expected
+      ? protocol.audioObservationV2Schema
+      : protocol.audioObservationSchema
+  ).parse(entry.payload);
+  if (expected)
+    requireValue(
+      entry.kind === "audio-observation/v2" &&
+        listener.registration.version === 2 &&
+        listener.producer.schemaVersion === "audio-observation/v2" &&
+        expected.listenerId === listener.producer.producerId &&
+        expected.passId === pass.id,
+      "Descriptive verification requires explicit matching App expectation and version",
+    );
   requireValue(
     entry.passId === pass.id &&
       entry.producer.deviceId === target.binding.expectedDeviceReference &&
@@ -78,22 +115,30 @@ export function verifyNativeListeningEvidence(input, protocol) {
       isDeepStrictEqual(event.result.observation, observation),
     "Native result connection/causation mismatch",
   );
-  const proof = protocol.nativeCaptureProofSchema.parse(
-    event.result.nativeCapture,
-  );
-  protocol.assertNativeCaptureObservation(proof, observation);
+  const proof = (
+    expected
+      ? protocol.nativeCaptureProofV2Schema
+      : protocol.nativeCaptureProofSchema
+  ).parse(event.result.nativeCapture);
+  if (expected) {
+    requireValue(
+      event.result.listenerVersion === 2,
+      "Native result version mismatch",
+    );
+    protocol.assertNativeCaptureObservationV2(proof, observation, expected);
+  } else protocol.assertNativeCaptureObservation(proof, observation);
   requireValue(
     proof.armed.before.frames.length === 32 &&
       proof.after.frames.length === 32 &&
-      proof.spectralWindows.length === 20 &&
-      observation.samples.length === 20 &&
-      observation.sampleRate === 48000 &&
-      observation.endSample - observation.startSample === 96000 &&
-      observation.startBeat === 0 &&
-      observation.endBeat === 4 &&
+      proof.spectralWindows.length === expectedWindows &&
+      observation.samples.length === expectedWindows &&
+      observation.sampleRate === expectedRate &&
+      observation.endSample - observation.startSample === expectedSamples &&
+      observation.startBeat === actualRange.startBeat &&
+      observation.endBeat === actualRange.endBeat &&
       observation.complete &&
       !observation.reduction.truncated &&
-      observation.attacks.length === 4,
+      (expected !== undefined || observation.attacks.length === 4),
     "Incomplete native sample/window/attack coverage",
   );
   requireValue(
@@ -112,15 +157,15 @@ export function verifyNativeListeningEvidence(input, protocol) {
         subject.trackId === target.binding.track.expectedReference &&
         subject.binding.semanticLocator.trackId ===
           target.binding.track.expectedReference &&
-        isDeepStrictEqual(link.coverage, { startBeat: 0, endBeat: 4 }) &&
+        isDeepStrictEqual(link.coverage, actualRange) &&
         link.attribution === "unknown" &&
         link.freshness.status === "unknown" &&
         ((link.relationship === "primary" &&
           subject.kind === "arrangement-range" &&
-          isDeepStrictEqual(subject.binding.semanticLocator.arrangementRange, {
-            startBeat: 0,
-            endBeat: 4,
-          })) ||
+          isDeepStrictEqual(
+            subject.binding.semanticLocator.arrangementRange,
+            requestedRange,
+          )) ||
           (link.relationship === "contributor" && subject.kind === "track")),
       "Context association promoted unknown attribution/freshness or claimed exclusive clip audio",
     );
@@ -153,15 +198,22 @@ export function verifyNativeListeningEvidence(input, protocol) {
     passId: pass.id,
     contextId: entry.id,
     listenerId: observation.listenerId,
-    startBeat: 0,
-    endBeat: 4,
-    sampleRate: 48000,
-    stereoFrames: 96000,
-    envelopeWindows: 20,
-    spectralWindows: 20,
+    startBeat: actualRange.startBeat,
+    endBeat: actualRange.endBeat,
+    sampleRate: expectedRate,
+    stereoFrames: expectedSamples,
+    envelopeWindows: expectedWindows,
+    spectralWindows: expectedWindows,
     beforeFrames: 32,
     afterFrames: 32,
-    estimatedAttacks: 4,
+    estimatedAttacks: observation.attacks.length,
+    ...(expected
+      ? {
+          alignment: observation.alignment,
+          requestedRange,
+          observationSchema: observation.schema,
+        }
+      : {}),
     attribution: "unknown",
     freshness: "unknown",
     cleanupPolicy: "leave-running",

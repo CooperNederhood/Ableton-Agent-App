@@ -165,6 +165,7 @@ function bindingDescriptor(
   descriptor: ListenerDescriptor,
 ): Parameters<typeof readConnectedListenerBinding>[0] {
   const registration = descriptor.registration;
+  if (registration.version !== 1) deny("unsupported_listener_version");
   return {
     connectionId: descriptor.connectionId,
     producer: {
@@ -400,6 +401,7 @@ function assemble(
   function connected(descriptors: readonly ListenerDescriptor[]) {
     if (descriptors.length > 128) deny("listener_inventory_quota");
     return descriptors.flatMap((descriptor) => {
+      if (descriptor.registration.version !== 1) return [];
       const result = readConnectedListenerBinding(
         bindingDescriptor(descriptor),
       );

@@ -217,6 +217,13 @@ function assertExpectation(
     throw new Error("native_v2_policy_or_geometry_mismatch");
 }
 
+export function assertNativeArmProofV2(
+  rawArm: NativeArmProofV2,
+  expected: NativeListeningExpectationV2,
+): void {
+  assertExpectation(nativeArmProofV2Schema.parse(rawArm), expected);
+}
+
 export function nativeLaunchCoordinatesV2(
   rawArm: NativeArmProofV2,
   rawLaunch: NativeLaunchProofV2,

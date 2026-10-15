@@ -53,9 +53,10 @@ millisecond conversion. `audio-observation/v2` removes the v1 algorithm's
 descriptive-only alignment. Estimated absolute error and independently verified
 absolute error bound are both null: neither a chosen limit nor a zero observed
 disagreement establishes physical accuracy. The protocol's typed historical
-reader accepts both versions without changing v1 validation. Ingress,
-publication, storage registration and tools still accept v1 only; defining v2
-does not grant a producer publication authority.
+reader accepts both versions without changing v1 validation. Authenticated
+ingress now negotiates either version explicitly; publication, storage
+registration and tools still accept v1 only. Transport negotiation does not
+grant a producer context-publication authority.
 
 The separately versioned native v2 arm, launch and completed-capture contracts
 are implemented. The App freezes its expected policy, musical range, actual DSP
@@ -75,7 +76,20 @@ A complete synthetic 30-second/300-window result fits the unchanged 128 KiB
 ingress limit; this is a wire-budget regression, not actual capture evidence.
 Separate v2 registration/control/reply/result schemas require explicit ABI and
 capabilities, actual DSP rate/vector metadata and a prepare-only configuration.
-They are not yet active ingress negotiation or publication support.
+Authenticated ingress advertises both versions while retaining the legacy v1
+schemas. Producer schema, registration, controls, replies and results must agree
+on version. The channel clones the App prepare configuration, verifies actual
+registered DSP geometry and independently checks arm, launch and completed
+capture against it. Completion must retain the exact previously accepted arm
+and launch evidence. Subsequent arm counters must advance beyond retained
+evidence on that connection. Watchdogs derive duration from native counts;
+failure, cancellation, sequencing, trace ownership and redaction use the same
+existing lifecycle rather than a parallel transport stack.
+
+The current v1-only App capture adapter explicitly excludes negotiated v2
+listeners from its discovery and rejects a direct v2 request before reservation
+or playback. It cannot silently reinterpret a v2 producer as v1. This guard
+remains until the separately validated v2 playback/context adapter is wired.
 
 The native descriptor assembler now accepts explicit 44.1/48 kHz geometry with
 approximately 100 ms hops, at most 30 seconds/300 windows and an honest partial
@@ -113,7 +127,7 @@ The probe source, numeric readbacks and exact process record are preserved in
 regression coverage. The production insert-marker guard remains unchanged.
 
 Ordinary starts/constant tempos, generalized native transport capture,
-per-pass runtime configuration, active v2 capability negotiation, Settings,
+per-pass runtime configuration, v2 playback/context integration, Settings,
 visible approximate quality and fresh end-to-end qualification remain required.
 Tempo changes within a pass must fail explicitly. Native corruption, missing
 frames, unsafe recording/source state, stale ownership, timeout and unconfirmed

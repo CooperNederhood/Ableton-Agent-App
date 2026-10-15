@@ -41,11 +41,12 @@ completeness from host/beat alignment quality. Its default observed-disagreement
 budget is 64 samples, configurable from 0 through 480; explicit strict mode
 accepts zero observed disagreement without claiming sample-exact physical
 accuracy. Versioned v2 observations retain approximate/descriptive-only
-alignment and unknown absolute error. This extension's protocol and internal
-assembler prerequisites and independent v2 proof/wire contracts are implemented,
-but production still uses v1 until active capability negotiation, native
-production, playback, App validation, context and UI integration
-are independently qualified. Recording/source safety, native integrity,
+alignment and unknown absolute error. The shared contracts, internal assembler
+prerequisites, independent v2 proof checks and explicit authenticated v2 channel
+negotiation are implemented. Production
+listening tools still use v1 until native production, playback, runtime
+validation, context and UI integration are independently qualified.
+Recording/source safety, native integrity,
 ownership and cleanup are never softened by the timing policy.
 
 Persist immutable observations and typed entity links in an App-session-owned

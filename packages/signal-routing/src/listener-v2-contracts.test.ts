@@ -1,13 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  audioObservationV2Schema,
   assertNativeCaptureObservationV2,
   createNativeListeningGeometry,
-  evaluateListeningAlignment,
-  nativeCaptureProofV2Schema,
   NATIVE_LISTENER_SCOPE_V2,
 } from "@ableton-agent/protocol";
-import { createSyntheticNativeListeningFixture } from "@ableton-agent/protocol/testing";
+import { createSyntheticNativeListeningFixtureV2 } from "@ableton-agent/protocol/testing";
 import {
   listenerControlSchema,
   listenerRegistrationSchema,
@@ -71,42 +68,7 @@ const wire = {
 };
 
 function fixture() {
-  const old = createSyntheticNativeListeningFixture();
-  const first = old.proof.armed.before.frames[0]!;
-  const after = old.proof.after.frames[0]!;
-  const proof = nativeCaptureProofV2Schema.parse({
-    ...old.proof,
-    armed: {
-      ...old.proof.armed,
-      scope: NATIVE_LISTENER_SCOPE_V2,
-      geometry,
-      policy,
-    },
-    timingWitnesses: {
-      minHostOffset: first,
-      maxHostOffset: first,
-      minBeatOrigin: after,
-      maxBeatOrigin: after,
-    },
-    envelopeRms: old.observation.samples.map(() => [0, 0]),
-  });
-  const { timingUncertaintySamples, ...algorithm } = old.observation.algorithm;
-  expect(timingUncertaintySamples).toBe(64);
-  const observation = audioObservationV2Schema.parse({
-    ...old.observation,
-    schema: "audio-observation/v2",
-    algorithm: {
-      ...algorithm,
-      name: "native-max-stereo-energy-envelope-rise",
-      version: "2.0.0",
-    },
-    alignment: evaluateListeningAlignment(policy, {
-      sampleRate: 48_000,
-      vectorSize: 64,
-      observedClockDisagreementSamples: 0,
-      observedBeatDisagreementSamples: 0,
-    }),
-  });
+  const { proof, observation } = createSyntheticNativeListeningFixtureV2();
   return {
     reply: {
       ...wire,

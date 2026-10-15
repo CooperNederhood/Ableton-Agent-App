@@ -6,6 +6,10 @@ import {
   startListeningPlaybackParamsSchema,
 } from "@ableton-agent/protocol";
 import { createSyntheticNativeListeningFixture } from "@ableton-agent/protocol/testing";
+import {
+  listenerControlInputSchema,
+  listenerRegistrationV2Schema,
+} from "@ableton-agent/signal-routing";
 import type {
   AudioObservation,
   InspectListeningContextParams,
@@ -375,7 +379,8 @@ function nativeProductionFixture(armProof = true) {
     };
   });
   f.service.requestListenerControl.mockImplementation(async (_id, control) => {
-    if (control.action === "arm") armed = control;
+    if (control.action === "arm")
+      armed = listenerControlInputSchema.parse(control);
     Object.assign(listener, {
       phase:
         control.action === "prepare"
@@ -476,6 +481,53 @@ async function run(
 }
 
 describe("same-runtime production listening factory", () => {
+  it("does not route a negotiated v2 listener through the legacy capture adapter", async () => {
+    const f = fixture(2);
+    const candidate = f.inventory[1]!;
+    candidate.producer.schemaVersion = "audio-observation/v2";
+    const registration = listenerRegistrationV2Schema.parse({
+      ...candidate.registration,
+      version: 2,
+      capabilities: ["audio-listener/v2"],
+      algorithmVersion: "2.0.0",
+      vectorSize: 64,
+      nativeStatus: {
+        version: 2,
+        scope: "arrangement-descriptive/v2",
+        readiness: "READY",
+        alignment: "approximate",
+        verifiedAbsoluteErrorBoundSamples: null,
+        acceptedSampleRates: [44_100, 48_000],
+        acceptedVectorSizes: [64],
+        timingModes: ["descriptive", "strict"],
+        maxClockDisagreementSamples: 480,
+        maxAudioDurationMs: 30_000,
+        maxWindows: 300,
+        abiVersion: 2,
+      },
+    });
+    f.inventory[1] = { ...candidate, registration };
+    const discovered = await f
+      .host(true)
+      .executeListeningOperation({ action: "inspect-listeners" }, context);
+    expect(discovered).toMatchObject({
+      action: "inspect-listeners",
+      listeners: [{ listenerId: "listener-0" }],
+    });
+    if (discovered.action !== "inspect-listeners")
+      throw new Error("Unexpected discovery result");
+    expect(discovered.listeners).toHaveLength(1);
+    const result = await run(f.host(true), {
+      ...request,
+      listenerIds: ["listener-1"],
+    });
+    expect(result.stage).toBe("failed");
+    expect(result.error).toContain("unsupported_listener_version");
+    expect(f.reservePass).not.toHaveBeenCalled();
+    expect(f.service.requestListenerControl).not.toHaveBeenCalled();
+    expect(f.startListeningPlayback).not.toHaveBeenCalled();
+  });
+
   it("bounds native preparation to the exact requested canonical window count", async () => {
     const f = nativeProductionFixture();
     const result = await run(f.host(true));

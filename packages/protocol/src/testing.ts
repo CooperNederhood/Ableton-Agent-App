@@ -1,4 +1,17 @@
-import { audioObservationSchema } from "./audio-observation-schemas.js";
+import {
+  audioObservationSchema,
+  audioObservationV2Schema,
+} from "./audio-observation-schemas.js";
+import { createNativeListeningGeometry } from "./native-listening-geometry.js";
+import {
+  DEFAULT_LISTENING_TIMING_POLICY,
+  evaluateListeningAlignment,
+  type ListeningTimingPolicy,
+} from "./listening-timing-schemas.js";
+import {
+  nativeCaptureProofV2Schema,
+  NATIVE_LISTENER_SCOPE_V2,
+} from "./native-listening-v2-schemas.js";
 import {
   nativeCaptureProofSchema,
   NATIVE_LISTENER_SCOPE,
@@ -118,6 +131,62 @@ export function createSyntheticNativeListeningFixture(
       originalAttacks: 0,
       truncated: false,
     },
+  });
+  return { proof, observation };
+}
+
+/** Synthetic silent v2 fixture; never native execution or physical accuracy evidence. */
+export function createSyntheticNativeListeningFixtureV2(
+  options: {
+    listenerId?: string;
+    passId?: string;
+    endBeat?: number;
+    timingPolicy?: ListeningTimingPolicy;
+  } = {},
+) {
+  const old = createSyntheticNativeListeningFixture(options);
+  const geometry = createNativeListeningGeometry({
+    sampleRate: 48_000,
+    vectorSize: 64,
+    tempoBpm: 120,
+    startBeat: 0,
+    endBeat: old.observation.endBeat,
+  });
+  const policy = options.timingPolicy ?? DEFAULT_LISTENING_TIMING_POLICY;
+  const proof = nativeCaptureProofV2Schema.parse({
+    ...old.proof,
+    armed: {
+      ...old.proof.armed,
+      scope: NATIVE_LISTENER_SCOPE_V2,
+      geometry,
+      policy,
+    },
+    timingWitnesses: {
+      minHostOffset: old.proof.armed.before.frames[0],
+      maxHostOffset: old.proof.armed.before.frames[0],
+      minBeatOrigin: old.proof.after.frames[0],
+      maxBeatOrigin: old.proof.after.frames[0],
+    },
+    envelopeRms: old.observation.samples.map(() => [0, 0]),
+  });
+  const algorithm = old.observation.algorithm;
+  const observation = audioObservationV2Schema.parse({
+    ...old.observation,
+    schema: "audio-observation/v2",
+    algorithm: {
+      name: "native-max-stereo-energy-envelope-rise",
+      version: "2.0.0",
+      windowSamples: algorithm.windowSamples,
+      hopSamples: algorithm.hopSamples,
+      settings: algorithm.settings,
+      units: algorithm.units,
+    },
+    alignment: evaluateListeningAlignment(policy, {
+      sampleRate: geometry.sampleRate,
+      vectorSize: geometry.vectorSize,
+      observedClockDisagreementSamples: 0,
+      observedBeatDisagreementSamples: 0,
+    }),
   });
   return { proof, observation };
 }

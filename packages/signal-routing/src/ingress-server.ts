@@ -1,7 +1,15 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
 import { isAbsolute } from "node:path";
-import { NATIVE_LISTENER_SCOPE } from "@ableton-agent/protocol";
+import {
+  NATIVE_LISTENER_SCOPE,
+  assertNativeArmProofV2,
+  assertNativeCaptureObservationV2,
+  nativeLaunchCoordinatesV2,
+  snapshotNativeListeningExpectationV2,
+  type NativeArmProofV2,
+  type NativeLaunchProofV2,
+} from "@ableton-agent/protocol";
 
 import type {
   OutputConnection,
@@ -28,16 +36,21 @@ import {
   sanitizeTelemetryAttributes,
 } from "@ableton-agent/observability";
 import {
-  listenerControlInputSchema,
-  type ListenerControl,
-  type ListenerControlInput,
+  listenerControlSchema,
   type ListenerControlOptions,
   type ListenerDescriptor,
-  type ListenerReply,
-  type ListenerResult,
   type ListenerResultEvent,
   type ListenerService,
 } from "./listener-contracts.js";
+import {
+  listenerControlV2Schema,
+  versionedListenerControlInputSchema as listenerControlInputSchema,
+  type VersionedListenerControl as ListenerControl,
+  type VersionedListenerControlInput as ListenerControlInput,
+  type VersionedListenerReply as ListenerReply,
+  type VersionedListenerResult as ListenerResult,
+  type ListenerControlV2,
+} from "./listener-v2-contracts.js";
 
 export interface SignalIngressRegistry {
   register(connectionId: string, producer: OutputProducer): OutputConnection;
@@ -110,6 +123,9 @@ interface ClientState {
   listenerDeadline?: number;
   listenerResults: number;
   listenerStartedAt?: number;
+  nativeArmV2?: NativeArmProofV2;
+  nativeLaunchV2?: NativeLaunchProofV2;
+  lastNativeCounterV2?: number;
 }
 
 interface PendingListenerControl {
@@ -318,6 +334,7 @@ export class SignalIngressServer implements ListenerService {
       )
         throw denied("listener_metadata_missing");
       if (
+        state.listener.version === 1 &&
         state.listener.nativeStatus.scope !== NATIVE_LISTENER_SCOPE &&
         (state.listener.nativeStatus.timing !== "VERIFIED" ||
           state.listener.nativeStatus.readiness !== "READY")
@@ -325,6 +342,15 @@ export class SignalIngressServer implements ListenerService {
         throw denied(
           state.listener.nativeStatus.reason ??
             "real_live_timing_validation_required",
+        );
+      if (
+        state.listener.version === 2 &&
+        state.listener.nativeStatus.readiness !== "READY" &&
+        state.listener.nativeStatus.reason !==
+          "fresh_per_pass_native_validation_required"
+      )
+        throw denied(
+          state.listener.nativeStatus.reason ?? "listener_not_ready",
         );
     } else {
       if (
@@ -339,18 +365,41 @@ export class SignalIngressServer implements ListenerService {
       if (value.action === "cancel" && state.listenerPhase === "cancelling")
         throw denied("Listener cancellation already pending");
     }
-    const control: ListenerControl = {
+    const rawControl = {
       ...value,
       type: "listener.control",
       protocolVersion: 1,
-      listenerVersion: 1,
+      listenerVersion: state.listener.version,
       requestId: randomUUID(),
       connectionEpoch: state.listener.connectionEpoch,
     };
+    const parsedControl =
+      state.listener.version === 2
+        ? listenerControlV2Schema.safeParse(rawControl)
+        : listenerControlSchema.safeParse(rawControl);
+    if (!parsedControl.success)
+      throw denied("listener_configuration_version_mismatch");
+    const control = parsedControl.data;
+    if (
+      control.listenerVersion === 2 &&
+      control.config &&
+      state.listener.version === 2 &&
+      (control.config.geometry.sampleRate !== state.listener.sampleRate ||
+        control.config.geometry.vectorSize !== state.listener.vectorSize ||
+        !state.listener.nativeStatus.acceptedSampleRates.includes(
+          control.config.geometry.sampleRate,
+        ) ||
+        !state.listener.nativeStatus.acceptedVectorSizes.includes(
+          control.config.geometry.vectorSize,
+        ))
+    )
+      throw denied("listener_dsp_geometry_mismatch");
     if (value.action === "prepare") {
+      delete state.nativeArmV2;
+      delete state.nativeLaunchV2;
       state.listenerOwner = control;
       state.listenerDeadline =
-        this.#now() + (value.config?.durationMs ?? 0) + 20000;
+        this.#now() + this.#captureDuration(control) + 20000;
       state.listenerResults = 0;
       state.listenerStartedAt = this.#now();
     }
@@ -412,6 +461,27 @@ export class SignalIngressServer implements ListenerService {
     });
   }
 
+  #captureDuration(control: ListenerControl): number {
+    if (!control.config) return 0;
+    return control.listenerVersion === 2
+      ? Math.ceil(
+          (control.config.geometry.totalSamples * 1000) /
+            control.config.geometry.sampleRate,
+        )
+      : control.config.durationMs;
+  }
+
+  #nativeExpectation(control: ListenerControlV2, state: ClientState) {
+    if (!control.config || !state.producer)
+      throw new Error("native_v2_prepare_configuration_missing");
+    return snapshotNativeListeningExpectationV2({
+      policy: control.config.timingPolicy,
+      geometry: control.config.geometry,
+      listenerId: state.producer.producerId,
+      passId: control.passId,
+    });
+  }
+
   #listenerTelemetry(
     stage: string,
     state: ClientState,
@@ -458,6 +528,10 @@ export class SignalIngressServer implements ListenerService {
         jobId: message.jobId,
         passId: message.passId,
         requestId: message.requestId,
+        listenerVersion: message.listenerVersion,
+        ...("config" in message && message.config !== undefined
+          ? { config: message.config }
+          : {}),
         ...("action" in message
           ? { action: message.action }
           : { status: message.status }),
@@ -572,8 +646,8 @@ export class SignalIngressServer implements ListenerService {
       ...(this.#options.secretPath === undefined
         ? {}
         : { secretPath: this.#options.secretPath }),
-      listenerVersions: [1],
-      listenerCapabilities: ["audio-listener/v1"],
+      listenerVersions: [1, 2],
+      listenerCapabilities: ["audio-listener/v1", "audio-listener/v2"],
     };
     const descriptorStartedAt = this.#now();
     if (this.#legacyDescriptor) {
@@ -865,10 +939,13 @@ export class SignalIngressServer implements ListenerService {
     if (
       (message.listener !== undefined &&
         (message.producer.signalKind !== "audio" ||
-          message.producer.schemaVersion !== "audio-observation/v1" ||
+          message.producer.schemaVersion !==
+            `audio-observation/v${message.listener.version}` ||
           message.producer.track?.id === undefined ||
           message.producer.device?.id === undefined)) ||
-      (message.producer.schemaVersion === "audio-observation/v1" &&
+      (["audio-observation/v1", "audio-observation/v2"].includes(
+        message.producer.schemaVersion,
+      ) &&
         message.listener === undefined)
     ) {
       await this.#fail(
@@ -941,6 +1018,8 @@ export class SignalIngressServer implements ListenerService {
     if (
       !state.listener ||
       !owner ||
+      message.listenerVersion !== state.listener.version ||
+      message.listenerVersion !== owner.listenerVersion ||
       message.connectionEpoch !== state.listener.connectionEpoch ||
       message.jobId !== owner.jobId ||
       message.passId !== owner.passId ||
@@ -993,6 +1072,36 @@ export class SignalIngressServer implements ListenerService {
         return;
       }
       if (
+        message.listenerVersion === 2 &&
+        owner.listenerVersion === 2 &&
+        message.status === "armed"
+      ) {
+        try {
+          if (!message.nativeArm)
+            throw new Error("native_v2_arm_proof_missing");
+          assertNativeArmProofV2(
+            message.nativeArm,
+            this.#nativeExpectation(owner, state),
+          );
+          if (
+            state.lastNativeCounterV2 !== undefined &&
+            message.nativeArm.armCounter <= state.lastNativeCounterV2
+          )
+            throw new Error("native_v2_arm_counter_replay");
+          state.nativeArmV2 = structuredClone(message.nativeArm);
+          state.lastNativeCounterV2 = message.nativeArm.armCounter;
+        } catch (cause) {
+          await this.#fail(
+            state,
+            "route-rejected",
+            cause instanceof Error ? cause.message : "Invalid native v2 arm",
+            true,
+            message.requestId,
+          );
+          return;
+        }
+      }
+      if (
         state.listenerPhase !== "cancelling" ||
         pending.control.action === "cancel"
       ) {
@@ -1005,9 +1114,11 @@ export class SignalIngressServer implements ListenerService {
         if (state.listenerPhase === "idle") {
           delete state.listenerOwner;
           delete state.listenerDeadline;
+          delete state.nativeArmV2;
+          delete state.nativeLaunchV2;
         } else if (message.status === "armed") {
           state.listenerDeadline =
-            this.#now() + (owner.config?.durationMs ?? 0) + 5000;
+            this.#now() + this.#captureDuration(owner) + 5000;
         }
       }
       this.#finishListenerControl(message.requestId, message);
@@ -1050,32 +1161,15 @@ export class SignalIngressServer implements ListenerService {
         return;
       }
       state.listenerResults += 1;
-      const observation = message.observation;
-      if (
-        state.listenerResults > 1024 ||
-        (observation !== undefined &&
-          (observation.listenerId !== state.producer?.producerId ||
-            observation.passId !== owner.passId ||
-            observation.sampleRate !== state.listener.sampleRate ||
-            observation.algorithm.version !== state.listener.algorithmVersion ||
-            observation.samples.length > (owner.config?.maxWindows ?? 0) ||
-            observation.startBeat < (owner.config?.source.startBeat ?? 0) ||
-            observation.endBeat > (owner.config?.source.endBeat ?? 0) ||
-            (message.status === "completed" &&
-              (!observation.complete ||
-                observation.endSample <= observation.startSample ||
-                observation.startBeat !== owner.config?.source.startBeat ||
-                observation.endBeat !== owner.config?.source.endBeat)) ||
-            (message.status !== "completed" && observation.complete) ||
-            observation.endSample - observation.startSample >
-              ((owner.config?.durationMs ?? 0) * observation.sampleRate) /
-                1000 +
-                observation.algorithm.timingUncertaintySamples))
-      ) {
+      try {
+        this.#assertListenerResult(state, owner, message);
+      } catch (cause) {
         await this.#fail(
           state,
           "route-rejected",
-          "Listener observation attribution or capture bounds mismatch",
+          cause instanceof Error
+            ? cause.message
+            : "Listener observation attribution or capture bounds mismatch",
           true,
           message.requestId,
         );
@@ -1097,10 +1191,108 @@ export class SignalIngressServer implements ListenerService {
       ) {
         delete state.listenerOwner;
         delete state.listenerDeadline;
+        delete state.nativeArmV2;
+        delete state.nativeLaunchV2;
         state.listenerPhase = "idle";
       }
     }
     await this.#ack(state, message.requestId, "listener");
+  }
+
+  #assertListenerResult(
+    state: ClientState,
+    owner: ListenerControl,
+    message: ListenerResult,
+  ): void {
+    const observation = message.observation;
+    if (
+      state.listenerResults > 1024 ||
+      !state.listener ||
+      (observation &&
+        (observation.listenerId !== state.producer?.producerId ||
+          observation.passId !== owner.passId ||
+          observation.sampleRate !== state.listener.sampleRate ||
+          observation.algorithm.version !== state.listener.algorithmVersion))
+    )
+      throw new Error(
+        "Listener observation attribution or capture bounds mismatch",
+      );
+    if (owner.listenerVersion === 1 && message.listenerVersion === 1) {
+      const config = owner.config;
+      if (
+        observation &&
+        message.observation &&
+        (message.observation.samples.length > (config?.maxWindows ?? 0) ||
+          message.observation.startBeat < (config?.source.startBeat ?? 0) ||
+          message.observation.endBeat > (config?.source.endBeat ?? 0) ||
+          (message.status === "completed" &&
+            (!message.observation.complete ||
+              message.observation.endSample <=
+                message.observation.startSample ||
+              message.observation.startBeat !== config?.source.startBeat ||
+              message.observation.endBeat !== config?.source.endBeat)) ||
+          (message.status !== "completed" && message.observation.complete) ||
+          message.observation.endSample - message.observation.startSample >
+            ((config?.durationMs ?? 0) * message.observation.sampleRate) /
+              1000 +
+              message.observation.algorithm.timingUncertaintySamples)
+      )
+        throw new Error(
+          "Listener observation attribution or capture bounds mismatch",
+        );
+      return;
+    }
+    if (owner.listenerVersion !== 2 || message.listenerVersion !== 2)
+      throw new Error("listener_version_mismatch");
+    const expected = this.#nativeExpectation(owner, state);
+    const geometry = expected.geometry;
+    const measuredEndBeat =
+      geometry.startBeat +
+      geometry.totalSamples / ((geometry.sampleRate * 60) / geometry.tempoBpm);
+    const current = message.observation;
+    if (
+      current &&
+      (current.samples.length >
+        Math.ceil(geometry.totalSamples / geometry.hopSamples) ||
+        current.startBeat !== geometry.startBeat ||
+        current.endBeat > measuredEndBeat ||
+        current.endSample - current.startSample > geometry.totalSamples ||
+        current.alignment.sampleRate !== geometry.sampleRate ||
+        current.alignment.vectorSize !== geometry.vectorSize ||
+        current.alignment.policy.mode !== expected.policy.mode ||
+        current.alignment.policy.maxClockDisagreementSamples !==
+          expected.policy.maxClockDisagreementSamples)
+    )
+      throw new Error("native_v2_observation_bounds_mismatch");
+    if (message.nativeLaunch) {
+      if (!state.nativeArmV2 || state.nativeLaunchV2)
+        throw new Error("native_v2_unexpected_launch");
+      nativeLaunchCoordinatesV2(
+        state.nativeArmV2,
+        message.nativeLaunch,
+        expected,
+      );
+      state.nativeLaunchV2 = structuredClone(message.nativeLaunch);
+    }
+    if (message.status === "completed") {
+      if (
+        !current ||
+        !message.nativeCapture ||
+        !state.nativeArmV2 ||
+        !state.nativeLaunchV2 ||
+        JSON.stringify(message.nativeCapture.armed) !==
+          JSON.stringify(state.nativeArmV2) ||
+        JSON.stringify(message.nativeCapture.launched) !==
+          JSON.stringify(state.nativeLaunchV2)
+      )
+        throw new Error("native_v2_capture_proof_binding_mismatch");
+      assertNativeCaptureObservationV2(
+        message.nativeCapture,
+        current,
+        expected,
+      );
+      state.lastNativeCounterV2 = message.nativeCapture.after.frames.at(-1)![4];
+    }
   }
 
   #emitListenerResult(state: ClientState, result: ListenerResult): void {
@@ -1138,7 +1330,7 @@ export class SignalIngressServer implements ListenerService {
     const result: ListenerResult = {
       type: "listener.result",
       protocolVersion: 1,
-      listenerVersion: 1,
+      listenerVersion: owner.listenerVersion,
       requestId: randomUUID(),
       connectionEpoch: owner.connectionEpoch,
       jobId: owner.jobId,
@@ -1154,6 +1346,8 @@ export class SignalIngressServer implements ListenerService {
     this.#emitListenerResult(state, result);
     delete state.listenerOwner;
     delete state.listenerDeadline;
+    delete state.nativeArmV2;
+    delete state.nativeLaunchV2;
     state.listenerPhase = "idle";
   }
 

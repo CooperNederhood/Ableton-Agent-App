@@ -477,7 +477,7 @@ class Capture implements PreparedListeningCapture {
       ),
       this.#controlTimeout,
     );
-    let raw: ListenerReply;
+    let raw: unknown;
     try {
       raw = await Promise.race([pending.promise, this.#failureGate]);
     } finally {
@@ -736,7 +736,7 @@ class Capture implements PreparedListeningCapture {
             ),
             this.#cleanupTimeout,
           );
-          let reply: ListenerReply;
+          let reply: unknown;
           try {
             reply = await pending.promise;
           } finally {

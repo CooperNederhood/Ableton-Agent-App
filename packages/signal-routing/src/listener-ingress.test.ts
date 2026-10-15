@@ -1,9 +1,15 @@
 import { connect, type Socket } from "node:net";
 import { createRequire } from "node:module";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AudioObservation } from "@ableton-agent/protocol";
-import { NATIVE_LISTENER_SCOPE } from "@ableton-agent/protocol";
-import { createSyntheticNativeListeningFixture } from "@ableton-agent/protocol/testing";
+import {
+  NATIVE_LISTENER_SCOPE,
+  NATIVE_LISTENER_SCOPE_V2,
+} from "@ableton-agent/protocol";
+import {
+  createSyntheticNativeListeningFixture,
+  createSyntheticNativeListeningFixtureV2,
+} from "@ableton-agent/protocol/testing";
 import type { TelemetryEventEnvelope } from "@ableton-agent/observability";
 import { SignalIngressServer } from "./ingress-server.js";
 import { InMemoryConnectionRegistry } from "./registry.js";
@@ -15,6 +21,10 @@ import type {
   ListenerResult,
   ListenerResultEvent,
 } from "./listener-contracts.js";
+import {
+  listenerControlV2Schema,
+  type VersionedListenerControl,
+} from "./listener-v2-contracts.js";
 import { midiSample } from "./test-fixtures.js";
 
 const require = createRequire(import.meta.url);
@@ -164,12 +174,11 @@ const readyModelMetadata = {
   // Transport model only: this report is not a native timing certificate.
   nativeStatus: { version: 1, timing: "VERIFIED", readiness: "READY" },
 };
-async function listener(
-  endpoint: { host: string; port: number },
+function listenerHello(
   metadata: object = readyModelMetadata,
+  version: 1 | 2 = 1,
 ) {
-  const client = await raw(endpoint);
-  client.send({
+  return {
     type: "producer.hello",
     protocolVersion: 1,
     requestId: "hello",
@@ -179,29 +188,41 @@ async function listener(
       instanceId: "audio-instance",
       displayName: "Listener",
       signalKind: "audio",
-      schemaVersion: "audio-observation/v1",
+      schemaVersion: `audio-observation/v${version}`,
       track: { id: "17", name: "Audio" },
       device: { id: "29", name: "Listener" },
     },
     listener: {
-      version: 1,
+      version,
       connectionEpoch: "epoch",
-      capabilities: ["audio-listener/v1"],
+      capabilities: [`audio-listener/v${version}`],
       sampleRate: 48000,
-      algorithmVersion: "native/v1",
+      algorithmVersion: version === 2 ? "2.0.0" : "native/v1",
       ...metadata,
     },
-  });
+  };
+}
+async function listener(
+  endpoint: { host: string; port: number },
+  metadata: object = readyModelMetadata,
+  version: 1 | 2 = 1,
+) {
+  const client = await raw(endpoint);
+  client.send(listenerHello(metadata, version));
   const ack = await client.next();
   expect(ack.type).toBe("producer.ack");
   return { ...client, connectionId: ack.connectionId as string };
 }
 
-function reply(control: ListenerControl, sequence: number, status: string) {
+function reply(
+  control: VersionedListenerControl,
+  sequence: number,
+  status: string,
+) {
   return {
     type: "listener.reply",
     protocolVersion: 1,
-    listenerVersion: 1,
+    listenerVersion: control.listenerVersion,
     requestId: control.requestId,
     connectionEpoch: control.connectionEpoch,
     jobId: control.jobId,
@@ -214,7 +235,7 @@ function reply(control: ListenerControl, sequence: number, status: string) {
   };
 }
 function result(
-  control: ListenerControl,
+  control: VersionedListenerControl,
   sequence: number,
   overrides: object = {},
 ) {
@@ -247,6 +268,503 @@ async function prepareAndArm(
   await client.next();
   return arm;
 }
+
+const nativeV2Metadata = {
+  ...readyModelMetadata,
+  vectorSize: 64,
+  nativeStatus: {
+    version: 2,
+    scope: NATIVE_LISTENER_SCOPE_V2,
+    readiness: "READY",
+    alignment: "approximate",
+    verifiedAbsoluteErrorBoundSamples: null,
+    acceptedSampleRates: [44_100, 48_000],
+    acceptedVectorSizes: [64],
+    timingModes: ["descriptive", "strict"],
+    maxClockDisagreementSamples: 480,
+    maxAudioDurationMs: 30_000,
+    maxWindows: 300,
+    abiVersion: 2,
+  },
+};
+function v2Context() {
+  const { armed } = createSyntheticNativeListeningFixtureV2().proof;
+  return {
+    ...input,
+    traceId: "11111111-1111-4111-8111-111111111111",
+    causationId: "v2-capture-parent",
+    config: { geometry: armed.geometry, timingPolicy: armed.policy },
+  };
+}
+async function prepareV2(
+  server: SignalIngressServer,
+  client: Awaited<ReturnType<typeof listener>>,
+  sequence = 0,
+  context = v2Context(),
+) {
+  const pending = server.requestListenerControl(client.connectionId, context);
+  void pending.catch(() => {});
+  const control = listenerControlV2Schema.parse(await client.next());
+  client.send(reply(control, sequence, "ready"));
+  expect((await pending).status).toBe("ready");
+  expect((await client.next()).type).toBe("producer.ack");
+  return control;
+}
+async function beginArmV2(
+  server: SignalIngressServer,
+  client: Awaited<ReturnType<typeof listener>>,
+) {
+  const { config, ...context } = v2Context();
+  expect(config.geometry.totalSamples).toBe(96_000);
+  const pending = server.requestListenerControl(client.connectionId, {
+    ...context,
+    action: "arm",
+  });
+  void pending.catch(() => {});
+  return {
+    pending,
+    control: listenerControlV2Schema.parse(await client.next()),
+  };
+}
+async function armedV2(
+  server: SignalIngressServer,
+  client: Awaited<ReturnType<typeof listener>>,
+) {
+  await prepareV2(server, client);
+  const fixture = createSyntheticNativeListeningFixtureV2({
+    listenerId: "audio",
+  });
+  const { control, pending } = await beginArmV2(server, client);
+  client.send({
+    ...reply(control, 1, "armed"),
+    nativeArm: fixture.proof.armed,
+  });
+  await pending;
+  expect((await client.next()).type).toBe("producer.ack");
+  return { control, fixture };
+}
+
+describe("explicit native v2 authenticated ingress", () => {
+  it.each(["wrong-secret", "missing-capability", "mixed-version"] as const)(
+    "denies %s before registration",
+    async (failure) => {
+      const { server, endpoint } = await start();
+      const client = await raw(endpoint);
+      const hello = listenerHello(nativeV2Metadata, 2);
+      if (failure === "wrong-secret") hello.secret = "x".repeat(32);
+      if (failure === "mixed-version")
+        hello.producer.schemaVersion = "audio-observation/v1";
+      client.send(
+        failure === "missing-capability"
+          ? { ...hello, listener: undefined }
+          : hello,
+      );
+      expect(await client.next()).toMatchObject({
+        type: "producer.error",
+        fatal: true,
+        code:
+          failure === "wrong-secret"
+            ? "authentication-failed"
+            : "invalid-message",
+      });
+      expect(server.inspectListeners()).toEqual([]);
+    },
+  );
+
+  it("freezes caller configuration and independently verifies capture with causal lifecycle", async () => {
+    const events: TelemetryEventEnvelope[] = [];
+    const { server, endpoint } = await start({
+      telemetry: {
+        enqueue(event) {
+          events.push(event);
+          return true;
+        },
+      },
+    });
+    const received: ListenerResultEvent[] = [];
+    server.onListenerResult((event) => received.push(event));
+    const client = await listener(endpoint, nativeV2Metadata, 2);
+    const context = v2Context();
+    await prepareV2(server, client, 0, context);
+    context.config.timingPolicy = {
+      mode: "descriptive",
+      maxClockDisagreementSamples: 480,
+    };
+    const fixture = createSyntheticNativeListeningFixtureV2({
+      listenerId: "audio",
+    });
+    const { control, pending } = await beginArmV2(server, client);
+    client.send({
+      ...reply(control, 1, "armed"),
+      nativeArm: fixture.proof.armed,
+    });
+    await pending;
+    await client.next();
+    let previous = control.causationId;
+    for (const [index, stage] of [
+      "queued",
+      "started",
+      "progress",
+      "completed",
+    ].entries()) {
+      const eventId = `44444444-4444-4444-8444-44444444444${index}`;
+      client.send(
+        result(control, index + 2, {
+          status: "progress",
+          observation: undefined,
+          nativeLifecycle: {
+            scope: NATIVE_LISTENER_SCOPE_V2,
+            eventId,
+            causationId: previous,
+            phase: "alignment",
+            stage,
+            nativeEpoch: 1,
+            elapsedMs: index * 12,
+            frames: index === 3 ? 20 : 0,
+          },
+        }),
+      );
+      expect((await client.next()).type).toBe("producer.ack");
+      previous = eventId;
+    }
+    client.send(
+      result(control, 6, {
+        status: "progress",
+        observation: undefined,
+        nativeLaunch: fixture.proof.launched,
+      }),
+    );
+    expect((await client.next()).type).toBe("producer.ack");
+    client.send(
+      result(control, 7, {
+        observation: fixture.observation,
+        nativeCapture: fixture.proof,
+      }),
+    );
+    expect((await client.next()).type).toBe("producer.ack");
+    expect(received.at(-1)?.result).toMatchObject({
+      listenerVersion: 2,
+      status: "completed",
+      observation: {
+        schema: "audio-observation/v2",
+        alignment: {
+          policy: { maxClockDisagreementSamples: 64 },
+          verifiedAbsoluteErrorBoundSamples: null,
+        },
+      },
+    });
+    const native = events.filter((event) =>
+      event.name.startsWith("output.listener.native.alignment."),
+    );
+    expect(native.map((event) => event.name.split(".").at(-1))).toEqual([
+      "queued",
+      "started",
+      "progress",
+      "completed",
+    ]);
+    expect(native.map((event) => event.durationMs)).toEqual([0, 12, 24, 36]);
+    expect(native[1]?.causationId).toBe(native[0]?.id);
+    expect(
+      native.every(
+        (event) =>
+          event.trace?.traceId === context.traceId &&
+          event.correlationId === context.correlationId,
+      ),
+    ).toBe(true);
+    expect(server.inspectListeners()[0]?.phase).toBe("idle");
+
+    await prepareV2(server, client, 8);
+    const replay = await beginArmV2(server, client);
+    client.send({
+      ...reply(replay.control, 9, "armed"),
+      nativeArm: fixture.proof.armed,
+    });
+    expect(await client.next()).toMatchObject({
+      code: "route-rejected",
+      message: "native_v2_arm_counter_replay",
+    });
+    await expect(replay.pending).rejects.toThrow();
+  });
+
+  it.each(["version", "geometry"] as const)(
+    "denies mismatched prepare %s without taking ownership",
+    async (failure) => {
+      const { server, endpoint } = await start();
+      const client = await listener(endpoint, nativeV2Metadata, 2);
+      const context = v2Context();
+      context.config.geometry.vectorSize = 128;
+      await expect(
+        server.requestListenerControl(
+          client.connectionId,
+          failure === "version" ? input : context,
+        ),
+      ).rejects.toThrow(
+        failure === "version"
+          ? "listener_configuration_version_mismatch"
+          : "listener_dsp_geometry_mismatch",
+      );
+      expect(server.inspectListeners()[0]?.phase).toBe("idle");
+      expect(server.inspectListeners()[0]?.jobId).toBeUndefined();
+    },
+  );
+
+  it("denies a producer-selected larger policy at arm", async () => {
+    const { server, endpoint } = await start();
+    const client = await listener(endpoint, nativeV2Metadata, 2);
+    await prepareV2(server, client);
+    const arm = await beginArmV2(server, client);
+    const fixture = createSyntheticNativeListeningFixtureV2();
+    fixture.proof.armed.policy = {
+      mode: "descriptive",
+      maxClockDisagreementSamples: 480,
+    };
+    client.send({
+      ...reply(arm.control, 1, "armed"),
+      nativeArm: fixture.proof.armed,
+    });
+    expect(await client.next()).toMatchObject({
+      code: "route-rejected",
+      message: "native_v2_policy_or_geometry_mismatch",
+    });
+    await expect(arm.pending).rejects.toThrow();
+  });
+
+  it.each(["descriptor", "missing-launch", "mixed-version"] as const)(
+    "rejects %s results before subscriber completion",
+    async (failure) => {
+      const { server, endpoint } = await start();
+      const received: ListenerResultEvent[] = [];
+      server.onListenerResult((event) => received.push(event));
+      const client = await listener(endpoint, nativeV2Metadata, 2);
+      const { control, fixture } = await armedV2(server, client);
+      let sequence = 2;
+      if (failure !== "missing-launch") {
+        client.send(
+          result(control, sequence++, {
+            status: "progress",
+            observation: undefined,
+            nativeLaunch: fixture.proof.launched,
+          }),
+        );
+        await client.next();
+      }
+      if (failure === "descriptor")
+        fixture.observation.summaries.peak = [0.5, 0.5];
+      client.send(
+        failure === "mixed-version"
+          ? result(control, sequence, { listenerVersion: 1 })
+          : result(control, sequence, {
+              observation: fixture.observation,
+              nativeCapture: fixture.proof,
+            }),
+      );
+      expect(await client.next()).toMatchObject({
+        type: "producer.error",
+        code: "route-rejected",
+        fatal: true,
+      });
+      expect(
+        received.some((event) => event.result.status === "completed"),
+      ).toBe(false);
+      expect(received.at(-1)?.result).toMatchObject({
+        listenerVersion: 2,
+        status: "partial",
+      });
+    },
+  );
+
+  it("keeps cancellation versioned, confirmed, attributed and redacted", async () => {
+    const events: TelemetryEventEnvelope[] = [];
+    const { server, endpoint } = await start({
+      telemetry: {
+        enqueue(event) {
+          events.push(event);
+          return true;
+        },
+      },
+    });
+    const client = await listener(endpoint, nativeV2Metadata, 2);
+    const { control } = await armedV2(server, client);
+    client.send(
+      result(control, 2, {
+        status: "progress",
+        observation: undefined,
+        nativeLifecycle: {
+          scope: NATIVE_LISTENER_SCOPE_V2,
+          eventId: "44444444-4444-4444-8444-444444444444",
+          causationId: control.causationId,
+          stage: "cancelled",
+          phase: "capture",
+          nativeEpoch: 1,
+          elapsedMs: 25,
+          frames: 0,
+          reason: "user_cancelled",
+        },
+      }),
+    );
+    await client.next();
+    const { config, ...context } = v2Context();
+    expect(config.geometry.sampleRate).toBe(48_000);
+    const pending = server.requestListenerControl(client.connectionId, {
+      ...context,
+      action: "cancel",
+    });
+    const cancel = listenerControlV2Schema.parse(await client.next());
+    expect(cancel.config).toBeUndefined();
+    client.send({
+      ...reply(cancel, 3, "cancelled"),
+      reason: "token=super-secret-value",
+    });
+    expect((await pending).reason).not.toContain("super-secret-value");
+    await client.next();
+    expect(server.inspectListeners()[0]?.phase).toBe("idle");
+    expect(server.inspectListeners()[0]?.jobId).toBeUndefined();
+    expect(
+      events.some(
+        (event) =>
+          event.name === "output.listener.native.cancelled" &&
+          event.outcome === "cancelled" &&
+          event.durationMs === 25,
+      ),
+    ).toBe(true);
+    expect(JSON.stringify(events)).not.toContain("super-secret-value");
+  });
+
+  it("publishes versioned failure and disconnects when prepare is aborted", async () => {
+    const { server, endpoint } = await start();
+    const received: ListenerResultEvent[] = [];
+    server.onListenerResult((event) => received.push(event));
+    const client = await listener(endpoint, nativeV2Metadata, 2);
+    const controller = new AbortController();
+    const pending = server.requestListenerControl(
+      client.connectionId,
+      v2Context(),
+      { signal: controller.signal },
+    );
+    void pending.catch(() => {});
+    await client.next();
+    controller.abort();
+    await expect(pending).rejects.toThrow("cancelled");
+    expect(received.at(-1)?.result).toMatchObject({
+      listenerVersion: 2,
+      status: "partial",
+      reason: "control_cancelled",
+    });
+  });
+
+  it.each(["sequence", "epoch", "trace", "correlation"] as const)(
+    "rejects v2 %s tampering and releases the owned capture",
+    async (failure) => {
+      const { server, endpoint } = await start();
+      const received: ListenerResultEvent[] = [];
+      server.onListenerResult((event) => received.push(event));
+      const client = await listener(endpoint, nativeV2Metadata, 2);
+      const { control } = await armedV2(server, client);
+      client.send(
+        result(control, failure === "sequence" ? 3 : 2, {
+          status: "progress",
+          observation: undefined,
+          ...(failure === "epoch" ? { connectionEpoch: "stale-epoch" } : {}),
+          ...(failure === "trace" ? { traceId: "stale-trace" } : {}),
+          ...(failure === "correlation"
+            ? { correlationId: "wrong-owner" }
+            : {}),
+        }),
+      );
+      expect(await client.next()).toMatchObject({
+        code: failure === "sequence" ? "sequence-replay" : "route-rejected",
+        fatal: true,
+      });
+      expect(received.at(-1)?.result).toMatchObject({
+        listenerVersion: 2,
+        status: "partial",
+      });
+      await vi.waitFor(() => expect(server.inspectListeners()).toEqual([]));
+    },
+  );
+
+  it("retains explicit native failure without publishing complete audio", async () => {
+    const events: TelemetryEventEnvelope[] = [];
+    const { server, endpoint } = await start({
+      telemetry: {
+        enqueue(event) {
+          events.push(event);
+          return true;
+        },
+      },
+    });
+    const received: ListenerResultEvent[] = [];
+    server.onListenerResult((event) => received.push(event));
+    const client = await listener(endpoint, nativeV2Metadata, 2);
+    const { control } = await armedV2(server, client);
+    client.send(
+      result(control, 2, {
+        status: "progress",
+        observation: undefined,
+        nativeLifecycle: {
+          scope: NATIVE_LISTENER_SCOPE_V2,
+          eventId: "44444444-4444-4444-8444-444444444444",
+          causationId: control.causationId,
+          stage: "failed",
+          phase: "capture",
+          nativeEpoch: 1,
+          elapsedMs: 125,
+          frames: 1,
+          reason: "tempo_changed",
+        },
+      }),
+    );
+    await client.next();
+    client.send(
+      result(control, 3, {
+        status: "failed",
+        observation: undefined,
+        reason: "tempo_changed token=super-secret-value",
+      }),
+    );
+    expect((await client.next()).type).toBe("producer.ack");
+    expect(received.at(-1)?.result).toMatchObject({
+      listenerVersion: 2,
+      status: "failed",
+    });
+    expect(
+      events.some(
+        (event) =>
+          event.name === "output.listener.native.failed" &&
+          event.outcome === "failure" &&
+          event.durationMs === 125,
+      ),
+    ).toBe(true);
+    expect(JSON.stringify({ events, received })).not.toContain(
+      "super-secret-value",
+    );
+    expect(server.inspectListeners()[0]?.phase).toBe("idle");
+  });
+
+  it("derives the capture watchdog from native sample duration and cleans up expiry", async () => {
+    let now = 0;
+    const { server, endpoint } = await start({
+      now: () => now,
+      idleCheckIntervalMs: 5,
+    });
+    const received: ListenerResultEvent[] = [];
+    server.onListenerResult((event) => received.push(event));
+    const client = await listener(endpoint, nativeV2Metadata, 2);
+    await armedV2(server, client);
+    now = 6_000;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(server.inspectListeners()[0]?.phase).toBe("armed");
+    now = 7_001;
+    await vi.waitFor(() =>
+      expect(received.at(-1)?.result).toMatchObject({
+        listenerVersion: 2,
+        status: "partial",
+        reason: "capture_watchdog_timeout",
+      }),
+    );
+    await vi.waitFor(() => expect(server.inspectListeners()).toEqual([]));
+  });
+});
 
 describe("shared authenticated listener ingress", () => {
   it("retains bounded native evidence and namespaced causal lifecycle through the existing authenticated channel", async () => {

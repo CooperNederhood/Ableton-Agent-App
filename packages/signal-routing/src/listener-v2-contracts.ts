@@ -11,8 +11,12 @@ import {
 } from "@ableton-agent/protocol";
 import {
   listenerControlSchema,
+  listenerControlInputSchema,
+  listenerConfigSchema,
   listenerPathsHaveSameOwner,
   listenerRegistrationSchema,
+  type ListenerReply,
+  type ListenerResult,
 } from "./listener-contracts.js";
 import { DEFAULT_MAX_INGRESS_FRAME_BYTES } from "./contracts.js";
 
@@ -86,6 +90,15 @@ export const listenerConfigV2Schema = z.strictObject({
   geometry: nativeListeningGeometrySchema,
   timingPolicy: listeningTimingPolicySchema,
 });
+export const versionedListenerControlInputSchema = z
+  .strictObject({
+    ...listenerControlInputSchema.shape,
+    config: z.union([listenerConfigSchema, listenerConfigV2Schema]).optional(),
+  })
+  .refine(
+    (value) => value.action !== "prepare" || value.config !== undefined,
+    "Prepare requires capture bounds",
+  );
 
 const wire = listenerControlSchema
   .omit({
@@ -166,6 +179,16 @@ export const listenerResultV2Schema = wire
   });
 
 export type ListenerConfigV2 = z.infer<typeof listenerConfigV2Schema>;
+export type ListenerRegistrationV2 = z.infer<
+  typeof listenerRegistrationV2Schema
+>;
+export type VersionedListenerControlInput = z.infer<
+  typeof versionedListenerControlInputSchema
+>;
 export type ListenerControlV2 = z.infer<typeof listenerControlV2Schema>;
 export type ListenerReplyV2 = z.infer<typeof listenerReplyV2Schema>;
 export type ListenerResultV2 = z.infer<typeof listenerResultV2Schema>;
+export type VersionedListenerControl =
+  z.infer<typeof listenerControlSchema> | ListenerControlV2;
+export type VersionedListenerReply = ListenerReply | ListenerReplyV2;
+export type VersionedListenerResult = ListenerResult | ListenerResultV2;

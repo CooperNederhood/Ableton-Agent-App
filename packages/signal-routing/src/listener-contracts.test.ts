@@ -31,7 +31,7 @@ const native = {
   },
 };
 describe("native listener registration carrier", () => {
-  it("does not grant v2 eligibility merely because its observation schema exists", () => {
+  it("keeps v2 out of legacy registration and proof despite versioned producer support", () => {
     expect(
       outputProducerSchema.safeParse({
         producerId: "listener",
@@ -40,7 +40,7 @@ describe("native listener registration carrier", () => {
         signalKind: "audio",
         schemaVersion: "audio-observation/v2",
       }).success,
-    ).toBe(false);
+    ).toBe(true);
     expect(
       listenerRegistrationSchema.safeParse({
         ...native,

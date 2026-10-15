@@ -20,8 +20,12 @@ Companion specification: [Playback Listening](playback-listening.md).
   checks. Keep held-clock/FFT corruption and transport regression hard failures.
 - [x] Define isolated v2 capability/control/result schemas, actual DSP metadata
   and unchanged 128 KiB complete-result quota, including 30-second wire coverage.
-- [ ] Activate explicit v2 capability negotiation; do not authorize v2 through
-  the legacy proof or registration.
+- [x] Activate explicit authenticated v2 channel negotiation and independent
+  App-configured arm/launch/result checks, without changing legacy validators.
+  Cover version pairing, immutable policy, exact prior-proof binding, counter
+  replay, causal/timed lifecycle, failure, cancellation, redaction and watchdogs.
+- [x] Keep the v1 App capture adapter from discovering or executing v2 until
+  the separately validated playback/context integration is implemented.
 - [ ] Generalize controller, engine and native graphs for ordinary music/silence,
   constant tempo, arbitrary ranges and supported DSP metadata.
 - [ ] Wire guarded source positioning before arm and independently validate
@@ -34,7 +38,8 @@ Companion specification: [Playback Listening](playback-listening.md).
   and reconcile the original issue criteria and actual supported host versions.
 
 The completed contract/geometry items are prerequisites, not descriptive capture.
-Production still uses the existing strict v1 path.
+The production listening tools still use the existing strict v1 capture path;
+new channel negotiation alone does not enable descriptive capture.
 
 ## Issue 29 checkpoint - 2026-10-13
 

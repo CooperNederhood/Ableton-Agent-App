@@ -10,6 +10,12 @@ import {
   nativeListenerLifecycleSchema,
 } from "@ableton-agent/protocol";
 import type { OutputProducer } from "./contracts.js";
+import type {
+  ListenerRegistrationV2,
+  VersionedListenerControlInput,
+  VersionedListenerReply,
+  VersionedListenerResult,
+} from "./listener-v2-contracts.js";
 
 export const LISTENER_VERSION = 1 as const;
 export const LISTENER_CAPABILITY = "audio-listener/v1" as const;
@@ -154,7 +160,8 @@ export interface ListenerDescriptor {
   readonly connectionId: string;
   readonly binding: ReportedMaxLiveApiBinding;
   readonly producer: OutputProducer;
-  readonly registration: z.infer<typeof listenerRegistrationSchema>;
+  readonly registration:
+    z.infer<typeof listenerRegistrationSchema> | ListenerRegistrationV2;
   readonly phase:
     "idle" | "preparing" | "ready" | "arming" | "armed" | "cancelling";
   readonly jobId?: string;
@@ -164,7 +171,7 @@ export interface ListenerResultEvent {
   readonly connectionId: string;
   readonly binding: ListenerDescriptor["binding"];
   readonly producer: OutputProducer;
-  readonly result: ListenerResult;
+  readonly result: VersionedListenerResult;
 }
 export interface ListenerControlOptions {
   readonly timeoutMs?: number;
@@ -174,8 +181,8 @@ export interface ListenerService {
   inspectListeners(): readonly ListenerDescriptor[];
   requestListenerControl(
     connectionId: string,
-    input: ListenerControlInput,
+    input: VersionedListenerControlInput,
     options?: ListenerControlOptions,
-  ): Promise<ListenerReply>;
+  ): Promise<VersionedListenerReply>;
   onListenerResult(listener: (event: ListenerResultEvent) => void): () => void;
 }

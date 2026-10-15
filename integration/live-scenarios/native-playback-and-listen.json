@@ -1,0 +1,62 @@
+{
+  "formatVersion": 1,
+  "id": "native-playback-and-listen",
+  "group": "native-listening",
+  "execution": "native-listening-runtime",
+  "prompt": "Inspect the exact provisioned native listener, then make exactly one play-arrangement-and-listen call for Arrangement beats 0 through 4 with maximumDurationMs 8000 and only the bound listener ID. The staged developer candidate legitimately remains ready=false with native_per_pass_validation_required; attempt fresh per-pass validation, never promote it or use any other listener. Query the resulting pass and historical typed context if available. Queued or arming acceptance is not completion. Leave playback running: do not stop, rewind, record, launch Session clips, change the Set, install devices, or claim exclusive clip audio. Unknown attribution and freshness are valid historical track/range results.",
+  "artifactPrefix": "AA_SMOKE_NATIVE_",
+  "allowedTools": ["ableton_listening", "ableton_context"],
+  "allowedActions": {
+    "ableton_listening": [
+      "inspect-listeners",
+      "play-arrangement-and-listen",
+      "get-pass",
+      "list-passes"
+    ],
+    "ableton_context": ["list", "get"]
+  },
+  "allowedRisks": ["read", "reversible"],
+  "maxToolCalls": 8,
+  "maxMutations": 1,
+  "timeoutMs": 60000,
+  "setupContract": {
+    "inputOption": "--native-fixture-input",
+    "inputFormatVersion": 1,
+    "requiredInputFields": [
+      "sourceSet",
+      "sourceSetSha256",
+      "candidateDirectory",
+      "candidateManifestSha256",
+      "deviceFile",
+      "deviceSha256",
+      "audioFiles",
+      "canonicalPath",
+      "trackName",
+      "deviceName"
+    ],
+    "audioFileFields": ["path", "sha256"],
+    "sourcePolicy": "Immutable explicitly provisioned Set with project-relative native candidate references. Every referenced WAV must be explicitly hash-pinned. External Max devices, unprovisioned audio, symlinks and mismatched resources fail before launch; no XML rewriting or installation.",
+    "stagingPolicy": "Fresh .test-artifacts/native-listening-{runId}/fixture; byte-identical copied Set and candidate code/device, only copied discovery configuration regenerated with the shared storage resolver for the isolated automation profile.",
+    "processPolicy": "No pre-existing Live permitted. Launch the copied Set only through the runner's newly recorded exact PID. Never adopt another process.",
+    "insertMarkerPolicy": "Fresh-load the approved saved zero-marker fixture. currentSongTime/currentBeat zero plus stopped transport does not prove Song.start_time zero. The public inspection schemas do not expose the insert marker; Python must independently enforce it after genuine arming and before source mutation. A mismatch is a failed pass with no published contexts, never repaired by transport stop/seek, retry, or guard weakening.",
+    "cleanupPolicy": "Capture completion/cancellation/failure leaves transport running. Application shutdown, exact-PID Live shutdown and owned fixture deletion are separate stages. Retain fixtures beneath surviving processes.",
+    "productionComposition": "createAgentRuntime + createListeningRuntimeHost + createSessionContextHost + createDesktopSessionContextManager + JsonSessionStore. No test capture adapter, new product API, Desktop window or readiness promotion.",
+    "reviewStatus": "Deterministic harness implemented. Real runner-owned native acceptance and copied-resource resolution remain unqualified until explicitly run with a safe provisioned fixture; existing operator-owned SDK passes are not runner evidence."
+  },
+  "ordering": [
+    {
+      "before": "ableton_listening",
+      "beforeAction": "inspect-listeners",
+      "after": "ableton_listening",
+      "afterAction": "play-arrangement-and-listen"
+    }
+  ],
+  "assertions": [
+    "stopped-native-preflight",
+    "owned-terminal-job",
+    "independent-native-proof",
+    "one-atomic-track-range-context",
+    "typed-historical-retrieval-and-reopen",
+    "unchanged-set-leave-running-idle-capture"
+  ]
+}

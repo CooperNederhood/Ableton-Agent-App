@@ -42,6 +42,10 @@
     {
       "id": "listening-fixtures",
       "scenarios": ["operator-quarter-note-fixture"]
+    },
+    {
+      "id": "native-listening",
+      "scenarios": ["native-playback-and-listen"]
     }
   ]
 }

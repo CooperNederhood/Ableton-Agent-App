@@ -1,9 +1,9 @@
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { open, readdir, stat } from "node:fs/promises";
+import { lstat, open, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { clearTimeout } from "node:timers";
 
 const LIVE_EXECUTABLE_SUFFIX = ".app/Contents/MacOS/Live";
@@ -84,18 +84,46 @@ export class LiveProcessController {
   async launch(
     applicationPath,
     timeoutMs = this.#requestLaunch === undefined ? 90_000 : 600_000,
+    { fixturePath } = {},
   ) {
     if (this.#owned !== undefined) {
       throw new Error("This controller already owns a Live process");
     }
     await this.assertNoPreExistingLive();
+    if (fixturePath !== undefined) {
+      const path = resolve(fixturePath);
+      const suffix = relative(resolve(".test-artifacts"), path);
+      const info = await lstat(path);
+      if (
+        !path.endsWith(".als") ||
+        suffix.startsWith(`..${sep}`) ||
+        suffix === ".." ||
+        !info.isFile() ||
+        info.isSymbolicLink() ||
+        info.size === 0 ||
+        info.size > 8 * 1024 * 1024 ||
+        (await realpath(path)) !== path
+      )
+        throw new Error("Startup fixture must be a bounded runner-owned Set");
+      fixturePath = path;
+    }
     const before = new Set((await this.#listProcesses()).map(({ pid }) => pid));
     if (this.#requestLaunch !== undefined) {
-      await this.#requestLaunch(applicationPath);
+      if (fixturePath === undefined) await this.#requestLaunch(applicationPath);
+      else await this.#requestLaunch(applicationPath, { fixturePath });
     } else {
-      const launched = await this.#run("open", ["-n", "-a", applicationPath], {
-        timeoutMs: 15_000,
-      });
+      const launched = await this.#run(
+        "open",
+        [
+          "-n",
+          "-a",
+          applicationPath,
+          ...(fixturePath === undefined ? [] : [fixturePath]),
+        ],
+        {
+          timeoutMs: 15_000,
+        },
+      );
       if (launched.status !== 0) {
         throw new Error(`Unable to launch Live: ${launched.stderr.trim()}`);
       }

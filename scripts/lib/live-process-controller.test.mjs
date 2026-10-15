@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { randomUUID } from "node:crypto";
+import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LiveProcessController } from "./live-process-controller.mjs";
 
@@ -7,8 +10,72 @@ const owned = {
   startedAt: "Mon Jan 1 00:00:00 2026",
   command: "/Applications/Ableton Live 11 Suite.app/Contents/MacOS/Live",
 };
+const roots = [];
+afterEach(async () => {
+  await Promise.all(
+    roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+  );
+});
 
 describe("LiveProcessController", () => {
+  it("opens only a bounded copied Set during a fresh exact-PID startup", async () => {
+    const root = resolve(".test-artifacts", `startup-unit-${randomUUID()}`);
+    roots.push(root);
+    await mkdir(root, { recursive: true });
+    const fixturePath = join(root, "copied.als");
+    await writeFile(fixturePath, "test-only Set, never launched");
+    const lists = [[], [], [owned]];
+    const run = vi.fn(async () => ({ status: 0 }));
+    const controller = new LiveProcessController({
+      listProcesses: async () => lists.shift() ?? [owned],
+      run,
+    });
+    await controller.launch("/Applications/Ableton Live 11 Suite.app", 1000, {
+      fixturePath,
+    });
+    expect(run).toHaveBeenCalledWith(
+      "open",
+      ["-n", "-a", "/Applications/Ableton Live 11 Suite.app", fixturePath],
+      { timeoutMs: 15000 },
+    );
+    expect(controller.publicRecord().pid).toBe(owned.pid);
+  });
+
+  it("refuses unsafe startup files without launching or adopting Live", async () => {
+    const root = resolve(".test-artifacts", `startup-denial-${randomUUID()}`);
+    roots.push(root);
+    await mkdir(root, { recursive: true });
+    const target = join(root, "copied.als");
+    const linked = join(root, "linked.als");
+    await writeFile(target, "test");
+    await symlink(target, linked);
+    const run = vi.fn();
+    const controller = new LiveProcessController({
+      listProcesses: async () => [],
+      run,
+    });
+    await expect(
+      controller.launch("/Applications/Ableton Live 11 Suite.app", 1000, {
+        fixturePath: linked,
+      }),
+    ).rejects.toThrow("runner-owned");
+    expect(run).not.toHaveBeenCalled();
+    expect(controller.publicRecord()).toBeUndefined();
+  });
+
+  it("never opens a copied fixture while a pre-existing process exists", async () => {
+    const run = vi.fn();
+    const controller = new LiveProcessController({
+      listProcesses: async () => [owned],
+      run,
+    });
+    await expect(
+      controller.launch("/Applications/Ableton Live 11 Suite.app", 1000, {
+        fixturePath: "not-read.als",
+      }),
+    ).rejects.toThrow("already running");
+    expect(run).not.toHaveBeenCalled();
+  });
   it("allows an externally coordinated launch beyond the ordinary 90-second startup deadline", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {

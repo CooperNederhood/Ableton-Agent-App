@@ -1470,10 +1470,39 @@ process was preserved. All 330 owning Max tests pass.
 
 The user approved narrow deterministic runner hooks for explicit
 staged-candidate loading and reuse of production listening/context composition.
-Their implementation is in progress; it is not completed native acceptance.
-Desktop currently supplies that composition separately. The hooks must not
-install a device, adopt a process, edit unsupported Set XML or report a
-fake/skipped scenario as success.
+The reviewed `native-playback-and-listen` scenario now uses the existing
+production runtime, listening host, Desktop context manager and session store,
+without a Desktop window or alternate capture adapter. It waits for the actual
+terminal job even if the model ends its turn during arming, then independently
+validates native proof, exact actor/connection ownership, one atomic range/track
+context, typed retrieval/reopen, unchanged Set and leave-running idle cleanup.
+Deterministic implementation is not completed real-Live acceptance.
+
+The explicit `--native-fixture-input` JSON pins the source Set, candidate
+manifest/device and every referenced WAV, plus the exact canonical device
+path and track/device names. Staging copies the Set byte-for-byte and changes
+only the copied producer discovery configuration through the shared storage
+resolver. External Max devices, unpinned dependencies, symlinks, hash mismatch
+and promoted candidates fail before launch. Source files remain unchanged.
+The current two-listener calibration Set therefore needs a separate saved
+candidate-only fixture; the old listener cannot silently execute as an
+unprovisioned dependency. Copied-resource resolution remains unqualified until
+the real scenario runs.
+
+```bash
+pnpm build
+pnpm live:agent-smoke --scenario native-playback-and-listen \
+  --native-fixture-input .test-artifacts/native-fixture-input.json \
+  --skip-build --skip-install
+```
+
+The native group requires that explicit fixture and `--skip-install`, including
+when selected as part of the complete suite. Its exact-PID startup hook does
+not accept `--computer-use`; existing non-native groups retain their normal
+startup modes. No device installation, process adoption, unsupported Set XML
+editing or fake/skipped acceptance is permitted. Application shutdown, owned
+Live shutdown and deletion of staged resources are separate from capture
+cleanup; resources are retained beneath a surviving process.
 
 `NativeCaptureController` composes the actual signal engine and bounded native
 assembler. `prepare` only validates/freezes eligibility with a bounded

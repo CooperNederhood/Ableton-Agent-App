@@ -681,8 +681,14 @@ checkpoint above. The production timing gate is unchanged.
   and stopped transport at beat 0. Three recorded-evidence regressions retain
   this distinct failure case; active-capture cancellation is not proven.
 - [ ] Add reviewed runner-native acceptance using explicit staged-candidate
-  loading and production listening/context composition; current CLI runner
-  lacks both hooks. Do not silently install/promote or add fake/skipped proof.
+  loading and production listening/context composition; the narrow hooks,
+  reviewed manifest, exact terminal wait and independent verifier are
+  implemented with deterministic coverage. Real acceptance is pending a
+  separate candidate-only saved fixture with every WAV hash-pinned and a fresh
+  owned run. The original two-listener Set is rejected before launch; no
+  unsupported XML rewriting or dependency execution is used to bypass setup.
+  Both formerly missing runner hooks are implemented. Do not silently
+  install/promote or add fake/skipped proof.
 - [ ] Complete deterministic integration and visible Desktop acceptance.
 
 The measured host offset is `842480212`; arm counter `166446080` and local

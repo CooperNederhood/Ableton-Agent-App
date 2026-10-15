@@ -42,8 +42,9 @@ budget is 64 samples, configurable from 0 through 480; explicit strict mode
 accepts zero observed disagreement without claiming sample-exact physical
 accuracy. Versioned v2 observations retain approximate/descriptive-only
 alignment and unknown absolute error. This extension's protocol and internal
-assembler prerequisites are implemented, but production still uses v1 until
-native proof/capability, playback, App validation, context and UI integration
+assembler prerequisites and independent v2 proof/wire contracts are implemented,
+but production still uses v1 until active capability negotiation, native
+production, playback, App validation, context and UI integration
 are independently qualified. Recording/source safety, native integrity,
 ownership and cleanup are never softened by the timing policy.
 

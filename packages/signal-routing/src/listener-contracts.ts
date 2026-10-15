@@ -16,6 +16,17 @@ export const LISTENER_CAPABILITY = "audio-listener/v1" as const;
 const id = z.string().min(1).max(128);
 const safeSequence = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 
+export function listenerPathsHaveSameOwner(value: {
+  readonly deviceCanonicalPath?: string | undefined;
+  readonly trackCanonicalPath?: string | undefined;
+}): boolean {
+  return (
+    value.deviceCanonicalPath === undefined ||
+    value.trackCanonicalPath === undefined ||
+    value.deviceCanonicalPath.split(" devices ")[0] === value.trackCanonicalPath
+  );
+}
+
 export const listenerRegistrationSchema = z
   .object({
     version: z.literal(LISTENER_VERSION),
@@ -28,14 +39,9 @@ export const listenerRegistrationSchema = z
     nativeStatus: listenerNativeStatusSchema.optional(),
   })
   .strict()
-  .refine(
-    (value) =>
-      value.deviceCanonicalPath === undefined ||
-      value.trackCanonicalPath === undefined ||
-      value.deviceCanonicalPath.split(" devices ")[0] ===
-        value.trackCanonicalPath,
-    { message: "Reported listener paths must have the same owning track" },
-  );
+  .refine(listenerPathsHaveSameOwner, {
+    message: "Reported listener paths must have the same owning track",
+  });
 
 export const listenerConfigSchema = z
   .object({

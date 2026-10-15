@@ -8,7 +8,7 @@ const counterLimit = 2 ** 44;
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const counter = integer.max(counterLimit - 1);
 const epoch = integer.min(1).max(1_000_000);
-const hostRow = z.tuple([
+export const nativeHostClockRowSchema = z.tuple([
   z.union([z.literal(0), z.literal(1)]),
   z.number().finite().min(0).max(1_000_000_000),
   integer,
@@ -26,7 +26,7 @@ function clockBinding(playing: boolean) {
   return z
     .strictObject({
       dsp: z.tuple([z.literal(1), z.literal(48000), z.literal(64)]),
-      frames: z.array(hostRow).length(32),
+      frames: z.array(nativeHostClockRowSchema).length(32),
     })
     .superRefine((binding, ctx) => {
       let previous = -1;

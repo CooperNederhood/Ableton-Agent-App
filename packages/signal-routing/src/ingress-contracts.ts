@@ -10,7 +10,7 @@ import {
 export const PRODUCER_PROTOCOL_VERSION = 1 as const;
 export const DEFAULT_SIGNAL_INGRESS_HOST = "127.0.0.1";
 export const DEFAULT_SIGNAL_INGRESS_PORT = 45_832;
-export const DEFAULT_MAX_INGRESS_FRAME_BYTES = 128 * 1024;
+export { DEFAULT_MAX_INGRESS_FRAME_BYTES } from "./contracts.js";
 
 const requestIdSchema = z.string().min(1).max(128);
 

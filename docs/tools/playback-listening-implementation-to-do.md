@@ -15,8 +15,13 @@ Companion specification: [Playback Listening](playback-listening.md).
 - [x] Establish one real Live 11.3.43 fractional-start primitive with deferred
   marker/position/playing reads and complete owned-probe restoration. Preserve
   the earlier empty-unsaved-name denial separately.
-- [ ] Finish versioned native arm/launch/coverage proof and explicit capability
-  negotiation; do not authorize v2 through the legacy proof or registration.
+- [x] Define versioned native arm/launch/coverage proof, immutable App
+  expectations, fixed-baseline/four-extrema timing and independent descriptor
+  checks. Keep held-clock/FFT corruption and transport regression hard failures.
+- [x] Define isolated v2 capability/control/result schemas, actual DSP metadata
+  and unchanged 128 KiB complete-result quota, including 30-second wire coverage.
+- [ ] Activate explicit v2 capability negotiation; do not authorize v2 through
+  the legacy proof or registration.
 - [ ] Generalize controller, engine and native graphs for ordinary music/silence,
   constant tempo, arbitrary ranges and supported DSP metadata.
 - [ ] Wire guarded source positioning before arm and independently validate
@@ -28,7 +33,7 @@ Companion specification: [Playback Listening](playback-listening.md).
 - [ ] Package/reopen the portable device, measure resource cost and pass-through,
   and reconcile the original issue criteria and actual supported host versions.
 
-The first four items are prerequisites, not completed descriptive capture.
+The completed contract/geometry items are prerequisites, not descriptive capture.
 Production still uses the existing strict v1 path.
 
 ## Issue 29 checkpoint - 2026-10-13

@@ -57,6 +57,26 @@ reader accepts both versions without changing v1 validation. Ingress,
 publication, storage registration and tools still accept v1 only; defining v2
 does not grant a producer publication authority.
 
+The separately versioned native v2 arm, launch and completed-capture contracts
+are implemented. The App freezes its expected policy, musical range, actual DSP
+geometry, listener and pass identities rather than accepting producer-selected
+limits. Independent validation fixes the host/native offset at the first
+coherent preflight row; four retained extrema expose observed offset and
+beat-origin disagreement across capture. The budget cannot excuse changed data
+at a held native counter, backwards retained clocks, stopped-after-playing
+evidence, malformed brackets, missing native coverage or invalid FFT data.
+Exact native counts and final partial-window duration remain distinct from
+approximate beat/host attribution.
+
+Compact proof retains raw processed stereo RMS per envelope window, recomputes
+duration-weighted RMS and spectral summaries, and independently checks the fixed
+attack estimator. A reused final-window FFT must retain identical values.
+A complete synthetic 30-second/300-window result fits the unchanged 128 KiB
+ingress limit; this is a wire-budget regression, not actual capture evidence.
+Separate v2 registration/control/reply/result schemas require explicit ABI and
+capabilities, actual DSP rate/vector metadata and a prepare-only configuration.
+They are not yet active ingress negotiation or publication support.
+
 The native descriptor assembler now accepts explicit 44.1/48 kHz geometry with
 approximately 100 ms hops, at most 30 seconds/300 windows and an honest partial
 final interval. Separate explicit constant-tempo/start coordinates map those
@@ -93,7 +113,7 @@ The probe source, numeric readbacks and exact process record are preserved in
 regression coverage. The production insert-marker guard remains unchanged.
 
 Ordinary starts/constant tempos, generalized native transport capture,
-per-pass trusted configuration, v2 proof/capability negotiation, Settings,
+per-pass runtime configuration, active v2 capability negotiation, Settings,
 visible approximate quality and fresh end-to-end qualification remain required.
 Tempo changes within a pass must fail explicitly. Native corruption, missing
 frames, unsafe recording/source state, stale ownership, timeout and unconfirmed

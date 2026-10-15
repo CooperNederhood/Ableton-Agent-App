@@ -39,6 +39,66 @@ and production enablement remain unaccepted. Synthetic capture/IPC tests and
 the source-fixture scenario alone are not real audio evidence; the recorded
 authenticated pass below is separate actual capture evidence.
 
+## Descriptive-listening implementation in progress
+
+The approved next release uses descriptive timing by default, with a 64-sample
+observed-disagreement limit adjustable from 0 through 480 samples. Explicit
+strict mode accepts zero observed disagreement; it never silently falls back.
+These settings are **not yet wired into production capture or Desktop**.
+
+The shared `listening-timing-schemas.ts` contract defines immutable per-evaluation
+policy snapshots, separate observed clock/beat disagreement and actual-rate
+millisecond conversion. `audio-observation/v2` removes the v1 algorithm's
+`timingUncertaintySamples` field in favor of explicit approximate,
+descriptive-only alignment. Estimated absolute error and independently verified
+absolute error bound are both null: neither a chosen limit nor a zero observed
+disagreement establishes physical accuracy. The protocol's typed historical
+reader accepts both versions without changing v1 validation. Ingress,
+publication, storage registration and tools still accept v1 only; defining v2
+does not grant a producer publication authority.
+
+The native descriptor assembler now accepts explicit 44.1/48 kHz geometry with
+approximately 100 ms hops, at most 30 seconds/300 windows and an honest partial
+final interval. Separate explicit constant-tempo/start coordinates map those
+native samples to nonzero beats without changing default beat-zero/120 BPM
+arithmetic. Its default remains byte-compatible with the v1 assembler.
+This is an internal assembler prerequisite, **not yet support in the native
+producer**: controller, engine, Gen source/onset model and resource composition
+still need the separately versioned generalization.
+
+Historical controller/SDK executions retain their original assembler hash,
+verified against the exact bounded source archive from commit
+`0a0159882589333640144769e502ecc135803279`. A separate recorded-packet replay
+checks current default and explicit-default descriptor output against that
+archive. Neither source preservation nor deterministic compatibility is
+fresh execution evidence for the changed assembler. The unchanged recorded
+manifests are not rewritten to claim it was measured.
+
+An instrumented fresh-process probe established one supported ordinary-start
+primitive on installed Live 11.3.43: assign `Song.start_time = 5.25`, independently
+read the marker, assign/read stopped `current_song_time = 5.25`, then call
+`start_playing`. The later playing read was beat 5.642222222222222, rather than
+the previous stopped position above beat 827. The probe restored marker 128,
+the exact previous stopped position and stopped transport before closing owned
+PID 85822; installed Remote Script source was restored byte-for-byte. This is
+capability evidence, not independently measured source onset or native capture
+acceptance, and does not qualify 11.3.42.
+
+The first probe guard incorrectly required the display name `Untitled`; Live's
+native name for this unsaved Set was empty. The denied, non-mutating inventory
+is retained separately from the successful probe. Unsaved identity must check
+the actual file-path/identity contract, not infer a saved Set from an empty name.
+The probe source, numeric readbacks and exact process record are preserved in
+`max-patches/audio-listener/fixtures/arrangement-start-marker-probe*` with
+regression coverage. The production insert-marker guard remains unchanged.
+
+Ordinary starts/constant tempos, generalized native transport capture,
+per-pass trusted configuration, v2 proof/capability negotiation, Settings,
+visible approximate quality and fresh end-to-end qualification remain required.
+Tempo changes within a pass must fail explicitly. Native corruption, missing
+frames, unsafe recording/source state, stale ownership, timeout and unconfirmed
+cleanup remain hard failures regardless of the timing limit.
+
 ## Ownership and scope
 
 A listener is a transparent Max Audio Effect measuring the signal at its

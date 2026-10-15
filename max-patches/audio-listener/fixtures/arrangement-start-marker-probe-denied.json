@@ -1,0 +1,71 @@
+{
+  "formatVersion": 1,
+  "classification": "instrumented-capability-probe",
+  "productionAcceptance": false,
+  "sourceOnset": "unverified",
+  "requestedStartBeat": 5.25,
+  "events": [
+    {
+      "eventId": "3239017c-49c7-4492-be55-f2921bec1c67",
+      "traceId": "f39d49f2-482f-4b58-8ea3-4742491147f9",
+      "stage": "queued",
+      "elapsedMs": 0.054916000001625775,
+      "values": {}
+    },
+    {
+      "eventId": "af2345d5-7836-4df2-a8b4-b593a2282a83",
+      "traceId": "f39d49f2-482f-4b58-8ea3-4742491147f9",
+      "stage": "progress",
+      "elapsedMs": 0.37883300000096654,
+      "values": {
+        "stage": "property_inventory",
+        "properties": {
+          "name": {
+            "untitled": false,
+            "empty": true
+          },
+          "file_path": {
+            "saved": false
+          },
+          "start_time": {
+            "value": 128.0
+          },
+          "current_song_time": {
+            "value": 827.3726500062437
+          },
+          "is_playing": {
+            "value": false
+          },
+          "loop": {
+            "value": false
+          },
+          "back_to_arranger": {
+            "value": false
+          },
+          "record_mode": {
+            "value": false
+          },
+          "session_record": {
+            "value": false
+          },
+          "session_automation_record": {
+            "value": false
+          },
+          "overdub": {
+            "value": false
+          }
+        }
+      }
+    },
+    {
+      "eventId": "9f5a5955-a58d-4bf6-b08e-ec4f60e4a1b1",
+      "traceId": "f39d49f2-482f-4b58-8ea3-4742491147f9",
+      "stage": "failed",
+      "elapsedMs": 0.5596660000009024,
+      "values": {
+        "reason": "RuntimeError",
+        "stage": "initial"
+      }
+    }
+  ]
+}

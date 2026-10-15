@@ -1,3 +1,4 @@
+import "./native-protocol-test-loader.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -10,10 +11,12 @@ import {
   nativeLaunchCoordinates,
   NATIVE_LISTENER_SCOPE,
 } from "../../packages/protocol/src/native-listening-schemas.ts";
-import { audioObservationSchema } from "../../packages/protocol/src/audio-observation-schemas.ts";
 import { createKnownListeningFixture } from "../../packages/test-support/src/listening-fixture.ts";
 import { nativeRuntimeDocuments } from "./native-runtime-source.mjs";
+import { ARCHIVED_NATIVE_ASSEMBLER } from "./native-assembler-archive.mjs";
 
+const { audioObservationSchema } =
+  await import("../../packages/protocol/src/audio-observation-schemas.ts");
 const require = createRequire(import.meta.url);
 const evidence = require("./fixtures/native-sdk-capture.json");
 const prior = require("./fixtures/native-controller-capture.json");
@@ -174,8 +177,12 @@ test("historical native math and SDK provenance stay pinned separately from unqu
     if (!name.endsWith(".js")) continue;
     const revision = revisions.currentSourceSnapshot[name];
     if (revision) assert.equal(revision.baselineSha256, expected);
+    const source =
+      name === "audio_listener_native_assembler.js"
+        ? ARCHIVED_NATIVE_ASSEMBLER.fixtureURL
+        : new URL(`./${name}`, import.meta.url);
     assert.equal(
-      sha(await readFile(new URL(`./${name}`, import.meta.url))),
+      sha(await readFile(new URL(source))),
       revision?.sha256 ?? expected,
     );
   }

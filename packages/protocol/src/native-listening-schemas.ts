@@ -187,6 +187,7 @@ export function assertNativeCaptureObservation(
   const duration = Math.round(observation.endBeat * 5) * 4800;
   const last = proof.after.frames.at(-1);
   if (
+    observation.schema !== "audio-observation/v1" ||
     observation.sampleRate !== 48000 ||
     observation.startBeat !== 0 ||
     observation.endBeat <= 0 ||

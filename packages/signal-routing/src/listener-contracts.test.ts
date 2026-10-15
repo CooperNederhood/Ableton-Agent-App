@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest";
+import {
+  DEFAULT_LISTENING_TIMING_POLICY,
+  evaluateListeningAlignment,
+} from "@ableton-agent/protocol";
+import { outputProducerSchema } from "./contracts.js";
 import { producerHelloSchema } from "./ingress-contracts.js";
 import {
   listenerRegistrationSchema,
@@ -26,6 +31,59 @@ const native = {
   },
 };
 describe("native listener registration carrier", () => {
+  it("does not grant v2 eligibility merely because its observation schema exists", () => {
+    expect(
+      outputProducerSchema.safeParse({
+        producerId: "listener",
+        instanceId: "instance",
+        displayName: "Listener",
+        signalKind: "audio",
+        schemaVersion: "audio-observation/v2",
+      }).success,
+    ).toBe(false);
+    expect(
+      listenerRegistrationSchema.safeParse({
+        ...native,
+        version: 2,
+        capabilities: ["audio-listener/v2"],
+      }).success,
+    ).toBe(false);
+    const { proof, observation } = createSyntheticNativeListeningFixture();
+    const { timingUncertaintySamples, ...algorithm } = observation.algorithm;
+    expect(timingUncertaintySamples).toBe(64);
+    expect(
+      listenerResultSchema.safeParse({
+        protocolVersion: 1,
+        listenerVersion: 1,
+        requestId: "request",
+        connectionEpoch: "connection",
+        jobId: "job",
+        passId: "pass",
+        traceId: "trace",
+        correlationId: "correlation",
+        causationId: "cause",
+        sequence: 0,
+        type: "listener.result",
+        status: "completed",
+        nativeCapture: proof,
+        observation: {
+          ...observation,
+          schema: "audio-observation/v2",
+          algorithm,
+          alignment: evaluateListeningAlignment(
+            DEFAULT_LISTENING_TIMING_POLICY,
+            {
+              sampleRate: 48_000,
+              vectorSize: 64,
+              observedClockDisagreementSamples: 1,
+              observedBeatDisagreementSamples: 0,
+            },
+          ),
+        },
+      }).success,
+    ).toBe(false);
+  });
+
   it("carries bounded per-pass evidence only on the matching reply/result stage", () => {
     const { proof, observation } = createSyntheticNativeListeningFixture();
     const wire = {

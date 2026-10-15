@@ -3,6 +3,9 @@ const assert = require("node:assert/strict");
 const {
   NativeDescriptorAssembler,
 } = require("./audio_listener_native_assembler.js");
+const {
+  NativeDescriptorAssembler: ArchivedNativeDescriptorAssembler,
+} = require("./fixtures/native-assembler-0a01598.js");
 const evidence = require("./fixtures/native-host-spectrum.json");
 
 const owner = { passId: "pass", connectionEpoch: "connection", nativeEpoch: 1 };
@@ -20,10 +23,10 @@ const envelope = (index) => {
   };
 };
 
-function fixture(overrides = {}) {
+function fixture(overrides = {}, Assembler = NativeDescriptorAssembler) {
   const frames = [],
     failures = [];
-  const assembler = new NativeDescriptorAssembler({
+  const assembler = new Assembler({
     owner,
     armCounter: evidence.nativeOrigin[1],
     originCounter: origin,
@@ -86,6 +89,27 @@ test("bounded assembly pairs recorded envelope coordinates with the actual lates
   assert.equal(f.assembler.pending.length, 0);
   assert.equal(f.assembler.spectra.length, 0);
   assert.deepEqual(f.failures, []);
+});
+
+test("current default and explicit-default assembly are byte-compatible with archived v1 recorded-packet replay, not new host execution", () => {
+  const archived = fixture({}, ArchivedNativeDescriptorAssembler);
+  const current = fixture();
+  const explicit = fixture({
+    geometry: { sampleRate: 48000, hopSamples: 4800, totalSamples: 96000 },
+    coordinates: { startBeat: 0, tempoBpm: 120 },
+  });
+  archived.stream();
+  for (const f of [current, explicit]) {
+    f.stream();
+    assert.equal(f.assembler.state, "covered");
+    assert.equal(archived.assembler.state, "covered");
+    assert.equal(JSON.stringify(f.frames), JSON.stringify(archived.frames));
+    assert.equal(
+      JSON.stringify(f.assembler.spectralWindows(owner)),
+      JSON.stringify(archived.assembler.spectralWindows(owner)),
+    );
+    assert.deepEqual(f.failures, archived.failures);
+  }
 });
 
 test("an envelope waits for its tagged FFT rather than using an old or future window", () => {

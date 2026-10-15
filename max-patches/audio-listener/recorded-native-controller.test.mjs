@@ -1,3 +1,4 @@
+import "./native-protocol-test-loader.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -10,8 +11,11 @@ import {
   nativeLaunchCoordinates,
   NATIVE_LISTENER_SCOPE,
 } from "../../packages/protocol/src/native-listening-schemas.ts";
-import { audioObservationSchema } from "../../packages/protocol/src/audio-observation-schemas.ts";
 import { nativeRuntimeDocuments } from "./native-runtime-source.mjs";
+import { ARCHIVED_NATIVE_ASSEMBLER } from "./native-assembler-archive.mjs";
+
+const { audioObservationSchema } =
+  await import("../../packages/protocol/src/audio-observation-schemas.ts");
 
 const require = createRequire(import.meta.url);
 const evidence = require("./fixtures/native-controller-capture.json");
@@ -115,7 +119,7 @@ test("actual capture lifecycle preserves trace ancestry and completion after pos
   assert.equal(events.at(-1).status, "complete");
 });
 
-test("recorded native math and graphs remain pinned; acquisition revisions have separate explicit provenance", async () => {
+test("recorded native math and graphs remain pinned to their source, with the assembler archived separately from current compatibility", async () => {
   const directory = "/".padEnd(evidence.resourceDirectoryCharacters, "n");
   for (const [name, document] of Object.entries(
     nativeRuntimeDocuments({
@@ -142,8 +146,12 @@ test("recorded native math and graphs remain pinned; acquisition revisions have 
     const revision = revisions.currentSourceSnapshot[name];
     if (revision)
       assert.equal(revision.baselineSha256, evidence.codeSha256[name]);
+    const source =
+      name === "audio_listener_native_assembler.js"
+        ? ARCHIVED_NATIVE_ASSEMBLER.fixtureURL
+        : new URL(`./${name}`, import.meta.url);
     assert.equal(
-      sha(await readFile(new URL(`./${name}`, import.meta.url))),
+      sha(await readFile(new URL(source))),
       revision?.sha256 ?? evidence.codeSha256[name],
     );
   }

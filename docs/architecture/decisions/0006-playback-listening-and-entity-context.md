@@ -36,6 +36,17 @@ spectral brightness. RMS dBFS is not LUFS. Attack boundaries are estimates, not
 guaranteed musical sections. Pitch, key, transcription, similarity search,
 source separation, and FluCoMa dependencies are deferred.
 
+The approved descriptive-listening extension separates native measurement
+completeness from host/beat alignment quality. Its default observed-disagreement
+budget is 64 samples, configurable from 0 through 480; explicit strict mode
+accepts zero observed disagreement without claiming sample-exact physical
+accuracy. Versioned v2 observations retain approximate/descriptive-only
+alignment and unknown absolute error. This extension's protocol and internal
+assembler prerequisites are implemented, but production still uses v1 until
+native proof/capability, playback, App validation, context and UI integration
+are independently qualified. Recording/source safety, native integrity,
+ownership and cleanup are never softened by the timing policy.
+
 Persist immutable observations and typed entity links in an App-session-owned
 context repository. Register payload kinds explicitly; initially only
 `audio-observation/v1` is accepted. This is not a generic JSON dump or an agent

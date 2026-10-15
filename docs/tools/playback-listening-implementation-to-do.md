@@ -2,6 +2,35 @@
 
 Companion specification: [Playback Listening](playback-listening.md).
 
+## Approved descriptive-listening finish-up
+
+- [x] Add shared descriptive/strict policy validation: default 64 samples,
+  advanced 0..480 samples, immutable evaluation and explicit over-budget denial.
+- [x] Define approximate `audio-observation/v2` and typed protocol reading of
+  both versions without converting configured tolerance into absolute accuracy.
+- [x] Generalize the internal native assembler for 44.1/48 kHz, 30 seconds,
+  300 windows, explicit constant-tempo/nonzero coordinates and an exact partial
+  final interval; preserve default v1 output. Verify historical source hashes
+  against an exact bounded archive and current compatibility separately.
+- [x] Establish one real Live 11.3.43 fractional-start primitive with deferred
+  marker/position/playing reads and complete owned-probe restoration. Preserve
+  the earlier empty-unsaved-name denial separately.
+- [ ] Finish versioned native arm/launch/coverage proof and explicit capability
+  negotiation; do not authorize v2 through the legacy proof or registration.
+- [ ] Generalize controller, engine and native graphs for ordinary music/silence,
+  constant tempo, arbitrary ranges and supported DSP metadata.
+- [ ] Wire guarded source positioning before arm and independently validate
+  approximate results through capture, atomic context publication and typed resume.
+- [ ] Add canonical profile preferences, per-pass snapshots, Settings and visible
+  quality/warnings with component, IPC and Electron regression coverage.
+- [ ] Cover new lifecycle/trace/redaction/failure/cancellation boundaries, then
+  qualify reviewed real-Live scenarios and Desktop UX using owned processes.
+- [ ] Package/reopen the portable device, measure resource cost and pass-through,
+  and reconcile the original issue criteria and actual supported host versions.
+
+The first four items are prerequisites, not completed descriptive capture.
+Production still uses the existing strict v1 path.
+
 ## Issue 29 checkpoint - 2026-10-13
 
 Original code baseline: `bf61bc3`. Later registration changes and hosted

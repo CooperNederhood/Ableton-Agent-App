@@ -1,3 +1,4 @@
+import "./native-protocol-test-loader.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -6,7 +7,8 @@ import {
   nativeLaunchProofSchema,
   nativeCaptureProofSchema,
 } from "../../packages/protocol/src/native-listening-schemas.ts";
-import { audioObservationSchema } from "../../packages/protocol/src/audio-observation-schemas.ts";
+const { audioObservationSchema } =
+  await import("../../packages/protocol/src/audio-observation-schemas.ts");
 
 const require = createRequire(import.meta.url);
 const evidence = require("./fixtures/native-runner-clock-failure.json");

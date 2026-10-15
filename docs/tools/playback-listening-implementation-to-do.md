@@ -136,6 +136,15 @@ detected-tempo and timing/integrity guards stay in place.
   Cover stale/wrong receipts, reentrancy, duplicate settlement, registration/
   disconnect/stop fencing and pass-ID reuse. Fresh real-Live acceptance remains
   open.
+- [x] Normally save and strictly stage the separate compiler-fix fixture, then
+  attempt the reviewed fractional scenario. Preserve the actual arm failure
+  `invalid_native_spectrum_packet`, no context, no codebox compiler errors and
+  successful exact-owned process/fixture cleanup. Do not invent missing raw
+  spectrum values or claim capture acceptance.
+- [x] Add bounded v2 spectrum rejection check/counter diagnostics with
+  fail-before coverage; retain all validation and v1 failure reasons.
+- [ ] Identify the actual rejected native spectrum snapshot/cause and complete
+  fractional capture before escalating to the descriptive scenario group.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

@@ -111,6 +111,55 @@ test("v2 arm metadata failures identify the rejected packet and bounded actual v
   }
 });
 
+test("v2 rejected spectrum snapshots retain bounded counter diagnostics without accepting malformed frames", async () => {
+  for (const [values, expected] of [
+    [[0, 0, 0, 0, 0, 37], "end_e0_s0_f0_b37"],
+    [[8192, 1000, 1, -1, 8192, 0], "start_e8192_sinvalid_f8192_b0"],
+    [[8192, 1000, 1, 6144, 0, 0], "frame_e8192_s6144_f0_b0"],
+    [[8192, 1000, 1, 6000, 8192, 0], "bracket_e8192_s6000_f8192_b0"],
+    [[8192, 24001, 1, 6144, 8192, 0], "centroid_e8192_s6144_f8192_b0"],
+    [[8192, 1000, -1, 6144, 8192, 0], "energy_e8192_s6144_f8192_b0"],
+    [[8192, 1, 0, 6144, 8192, 0], "silence_centroid_e8192_s6144_f8192_b0"],
+    [
+      [8192, 1000, 1, 6144, 8192, 0.5],
+      "invalid_frames_e8192_s6144_f8192_binvalid",
+    ],
+    [[2 ** 53, 0, 0, 0, 2048, 0], "end_einvalid_s0_f2048_b0"],
+  ]) {
+    const f = v2Fixture();
+    f.controller.prepare(f.command);
+    const p = f.controller.pass;
+    const pending = f.controller.arm(V2_OWNER);
+    f.packet("spectrum", values);
+    const reason = `invalid_native_spectrum_packet_${expected}`;
+    await assert.rejects(pending, { message: reason });
+    assert.equal(f.controller.pass, null);
+    assert.equal(f.armed.length, 0);
+    assert.equal(
+      f.events.some((event) => event.status === "complete"),
+      false,
+    );
+    const failure = f.observed.find(
+      (event) =>
+        event.type === "native-preflight-stage" && event.stage === "failed",
+    );
+    assert.equal(failure.reason, reason);
+    assert.match(reason, /^[a-z][a-z0-9_]{0,127}$/);
+    assert.equal(failure.traceId, f.command.traceId);
+    assert.equal(failure.generation, p.generation);
+    f.packet("stopped", [0, 0, 2], p.generation);
+    assert.equal(f.controller.pendingDisarm, null);
+  }
+  const maximum = Number.MAX_SAFE_INTEGER;
+  assert.match(
+    v2Fixture().controller.spectrumPacketReason(
+      [maximum, 0, 0, maximum, maximum, maximum],
+      "silence_centroid",
+    ),
+    /^[a-z][a-z0-9_]{0,127}$/,
+  );
+});
+
 test("v2 completed, failed and cancelled observations durably disclose the constant-tempo assumption", async () => {
   for (const rate of [44100, 48000])
     for (const outcome of ["complete", "failed", "cancelled"]) {

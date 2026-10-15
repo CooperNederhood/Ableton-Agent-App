@@ -1,0 +1,40 @@
+{
+  "formatVersion": 1,
+  "evidenceKind": "actual-runner-owned-live-failure",
+  "nativeVersion": 2,
+  "scope": "arrangement-descriptive/v2",
+  "runId": "c7977517-be6d-4cc9-8a22-7d665872af90",
+  "scenarioRunId": "cbec32ea-42f5-4f44-83a7-ade7d3c07f7c",
+  "passId": "094c12cf-f8e4-4978-892e-7daf5b35cb0c",
+  "jobId": "aca3a2f7-1d20-427c-ae67-73228d10bc35",
+  "requestId": "27efe45a-7825-4508-ab51-d0773586843a",
+  "attemptStartedAt": "2026-10-15T22:29:40.498Z",
+  "controlAction": "arm",
+  "controlStatus": "failed",
+  "failureReason": "invalid_native_spectrum_packet",
+  "rejectedMetadata": {
+    "rawSpectrumSnapshot": null,
+    "physicalCause": "unresolved",
+    "limitation": "The typed failure did not retain the rejected spectrum numbers; do not manufacture them for replay."
+  },
+  "pins": {
+    "sourceSetSha256": "da220e4524a816086d618d8c1aa1a34718d40c3201f359a263f04e0e3d9fbaa6",
+    "candidateManifestSha256": "240984a264236ba43c7e53901424d3c1f014f7c90a72dba8edccecbb0243745b",
+    "deviceSha256": "8e45ecf31aee11fc5acbc7de95d504197d303e306a34710b25c83c20d8f3511a",
+    "implementationCommit": "72cd9aa"
+  },
+  "compilerEvidence": {
+    "source": "Live 11.3.43 Log.txt",
+    "codeboxErrorsAfterOwnedFixtureLoad": 0
+  },
+  "outcome": {
+    "completed": false,
+    "contextIds": [],
+    "terminalError": "invalid_native_spectrum_packet",
+    "nativeStopReceipt": null,
+    "processStopped": true,
+    "fixtureCleaned": true,
+    "transportCleanup": "leave-running",
+    "realLiveValidated": false
+  }
+}

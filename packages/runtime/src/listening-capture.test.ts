@@ -383,6 +383,7 @@ describe("independent native v2 capture", () => {
   it.each([
     "native_metadata_changed_abi_spectrum_0",
     "native_metadata_changed_abi_spectrum_0_native_stop_ack_timeout_unconfirmed",
+    "invalid_native_spectrum_packet",
   ])(
     "retains terminal arm failure %s without cancelling released ownership",
     async (reason) => {

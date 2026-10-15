@@ -66,6 +66,9 @@ function reasonCode(cause) {
     ? cause.message
     : "native_controller_callback_failed";
 }
+function diagnosticInteger(value) {
+  return Number.isSafeInteger(value) && value >= 0 ? String(value) : "invalid";
+}
 function callback(call, reason) {
   try {
     const result = call();
@@ -397,13 +400,7 @@ class NativeCaptureController {
     if (v.some((value, index) => value !== expected[index])) {
       if (this.nativeVersion === 2) {
         const kind = type === "fftInfo" ? "fft_info" : type.replace(/-/g, "_");
-        const actual = v
-          .map((value) =>
-            Number.isSafeInteger(value) && value >= 0
-              ? String(value)
-              : "invalid",
-          )
-          .join("_");
+        const actual = v.map(diagnosticInteger).join("_");
         throw new Error(`native_metadata_changed_${kind}_${actual}`);
       }
       throw new Error("native_metadata_changed");
@@ -635,19 +632,29 @@ class NativeCaptureController {
     });
   }
 
+  spectrumPacketReason(v, field) {
+    if (this.nativeVersion !== 2) return "invalid_native_spectrum_packet";
+    const [end, start, frame, bad] = [0, 3, 4, 5].map((index) =>
+      diagnosticInteger(v[index]),
+    );
+    return `invalid_native_spectrum_packet_${field}_e${end}_s${start}_f${frame}_b${bad}`;
+  }
+
   spectrum(p, v) {
-    if (
-      !integer(v[0], 2048, 2 ** 44 - 1) ||
-      !integer(v[3], 0, 2 ** 44 - 1) ||
-      !integer(v[4], 2048, 2 ** 44 - 1) ||
-      v[1] < 0 ||
-      v[1] > (p.command.geometry?.sampleRate ?? 48000) / 2 ||
-      v[2] < 0 ||
-      v[2] > Number.MAX_SAFE_INTEGER ||
-      (v[2] <= 1e-20 && v[1] !== 0) ||
-      !integer(v[5])
-    )
-      throw new Error("invalid_native_spectrum_packet");
+    const invalidField = [
+      ["end", !integer(v[0], 2048, 2 ** 44 - 1)],
+      ["start", !integer(v[3], 0, 2 ** 44 - 1)],
+      ["frame", !integer(v[4], 2048, 2 ** 44 - 1)],
+      [
+        "centroid",
+        v[1] < 0 || v[1] > (p.command.geometry?.sampleRate ?? 48000) / 2,
+      ],
+      ["energy", v[2] < 0 || v[2] > Number.MAX_SAFE_INTEGER],
+      ["silence_centroid", v[2] <= 1e-20 && v[1] !== 0],
+      ["invalid_frames", !integer(v[5])],
+    ].find(([, invalid]) => invalid)?.[0];
+    if (invalidField)
+      throw new Error(this.spectrumPacketReason(v, invalidField));
     const previous = p.spectrum;
     if (v[0] !== v[4] || v[0] - v[3] !== 2048) {
       if (
@@ -661,7 +668,7 @@ class NativeCaptureController {
         v[5] === previous[5]
       )
         return this.rejectBracket(p, "torn_native_spectrum");
-      throw new Error("invalid_native_spectrum_packet");
+      throw new Error(this.spectrumPacketReason(v, "bracket"));
     }
     if (
       previous &&

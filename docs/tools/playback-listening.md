@@ -312,6 +312,19 @@ fencing. Its one-second stop timeout retains the primary failure followed by
 Prepared-only cancellation, v1 behavior, normal v2 completion and frame-quota
 failure settlement retain their existing paths.
 
+The next fresh corrected fixture (implementation `72cd9aa`) loaded without
+codebox compiler errors but still failed arm with
+`invalid_native_spectrum_packet`. No launch or context was published; the primary
+failure was preserved instead of the earlier redundant-cancel ownership error,
+and exact-owned process/fixture cleanup succeeded. Its bounded evidence is
+`fixtures/native-v2-spectrum-preflight-failure.json`. That run did not retain the
+rejected spectrum numbers, so no actual packet or physical cause is invented.
+V2 rejection diagnostics now identify the failed check and safe integer
+end/start/frame-end/invalid-frame counters, bounded to the existing reason
+format. Fractional, negative or unsafe counter values are visibly marked invalid.
+These diagnostics do not relax counter, energy, Nyquist, silence, interval or
+torn-snapshot validation; v1 reasons remain unchanged.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

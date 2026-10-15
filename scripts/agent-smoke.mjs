@@ -18,7 +18,12 @@ import {
   shouldRetryAgentScenario,
 } from "./lib/scenario-evidence.mjs";
 import { createIsolatedScenarioSession } from "./lib/scenario-session.mjs";
-import { createNativeListeningRunner } from "./lib/native-listening-runner.mjs";
+import {
+  admitNativeScenarios,
+  createNativeListeningRunner,
+  reviewNativeScenario,
+  runNativeScenarioGroup,
+} from "./lib/native-listening-runner.mjs";
 
 function option(name) {
   const index = process.argv.indexOf(`--${name}`);
@@ -66,16 +71,25 @@ let failed = false;
 try {
   const suite = await loadScenarioSuite();
   const selectedGroups = selectScenarioGroups(suite, evidence.selection);
-  if (
-    selectedGroups.some((group) => group.id === "native-listening") &&
-    (!hasFlag("skip-install") ||
-      hasFlag("computer-use") ||
-      option("native-fixture-input") === undefined)
-  ) {
-    throw new Error(
-      "Native listening requires --skip-install, --native-fixture-input and exact-PID shell startup before any setup",
-    );
+  const nativeGroups = new Map();
+  for (const group of selectedGroups.filter((entry) =>
+    ["native-listening", "native-listening-descriptive"].includes(entry.id),
+  )) {
+    const manifests = await Promise.all(group.scenarios.map(loadManifest));
+    if (manifests.some((manifest) => manifest.group !== group.id))
+      throw new Error(
+        "Native selection group does not match its reviewed manifest",
+      );
+    nativeGroups.set(group.id, manifests);
   }
+  await admitNativeScenarios({
+    manifests: [...nativeGroups.values()].flat(),
+    skipInstall: hasFlag("skip-install"),
+    computerUse: hasFlag("computer-use"),
+    approveAll: hasFlag("approve-all"),
+    inputV1: option("native-fixture-input"),
+    inputV2: option("native-v2-fixture-input"),
+  });
   await controller.assertNoPreExistingLive();
   if (!hasFlag("skip-build")) {
     const build = await runProcess("pnpm", ["build"], { timeoutMs: 600_000 });
@@ -95,9 +109,9 @@ try {
   const environment = { ...process.env, ABLETON_AGENT_TOKEN: token };
   for (const selectedGroup of selectedGroups) {
     const group = selectedGroup.id;
-    const scenarios = await Promise.all(
-      selectedGroup.scenarios.map(loadManifest),
-    );
+    const scenarios =
+      nativeGroups.get(group) ??
+      (await Promise.all(selectedGroup.scenarios.map(loadManifest)));
     for (const manifest of scenarios) {
       if (manifest.group !== group) {
         throw new Error(
@@ -117,76 +131,74 @@ try {
         (manifest) => manifest.execution === "native-listening-runtime",
       )
     ) {
-      if (
-        scenarios.length !== 1 ||
-        !hasFlag("skip-install") ||
-        hasFlag("computer-use")
-      ) {
-        throw new Error(
-          "Native listening requires one isolated fixture group, --skip-install, and exact-PID shell startup",
-        );
-      }
-      const manifest = scenarios[0];
-      const tracePath = resolve(
-        dirname(output),
-        "traces",
-        evidence.runId,
-        `${manifest.id}.json`,
-      );
-      const runner = await createNativeListeningRunner({
-        manifest,
-        inputPath: option("native-fixture-input"),
-        directory: resolve(
-          ".test-artifacts",
-          `native-listening-${evidence.runId}`,
-        ),
-        environment,
-        runId: evidence.runId,
+      const results = await runNativeScenarioGroup({
+        manifests: scenarios,
+        controller,
+        applicationPath,
+        createRunner: (manifest, scenarioRunId) =>
+          createNativeListeningRunner({
+            manifest,
+            inputPath: option(
+              reviewNativeScenario(manifest).nativeVersion === 2
+                ? "native-v2-fixture-input"
+                : "native-fixture-input",
+            ),
+            directory: resolve(
+              ".test-artifacts",
+              `native-listening-${scenarioRunId}`,
+            ),
+            environment,
+            runId: scenarioRunId,
+          }),
+        onResult: async (manifest, result, scenarioRunId, liveProcess) => {
+          const tracePath = resolve(
+            dirname(output),
+            "traces",
+            evidence.runId,
+            `${manifest.id}.json`,
+          );
+          evidence.liveProcess = liveProcess;
+          await mkdir(dirname(tracePath), { recursive: true });
+          await writeFile(
+            tracePath,
+            `${JSON.stringify(result, undefined, 2)}\n`,
+            { mode: 0o600 },
+          );
+          evidence.scenarios.push({
+            id: manifest.id,
+            group,
+            scenarioRunId,
+            liveProcess,
+            status: result.ok ? 0 : 5,
+            classification: result.ok ? "pass" : "fail",
+            passed: result.ok,
+            toolNames: manifest.allowedTools,
+            tracePath,
+            result,
+            stderr: "",
+          });
+        },
       });
-      let result;
-      try {
-        await controller.launch(applicationPath, 90_000, {
-          fixturePath: runner.fixture.setPath,
-        });
-        evidence.liveProcess = controller.publicRecord();
-        result = await runner.run(() => controller.validateOwnership());
-        await mkdir(dirname(tracePath), { recursive: true });
+      for (const { manifest, result } of results) {
+        const scenario = evidence.scenarios.find(
+          (item) => item.id === manifest.id && item.group === group,
+        );
         await writeFile(
-          tracePath,
+          scenario.tracePath,
           `${JSON.stringify(result, undefined, 2)}\n`,
           { mode: 0o600 },
         );
-        if (result.ok) await controller.gracefulStop();
-        else await controller.discardAfterFailure(20_000);
-      } finally {
-        // Process shutdown is separate from capture cleanup (which leaves
-        // transport running). Never delete resources beneath a surviving Live.
-        await runner.close({
-          processStopped: controller.publicRecord() === undefined,
-        });
       }
-      await mkdir(dirname(tracePath), { recursive: true });
-      await writeFile(tracePath, `${JSON.stringify(result, undefined, 2)}\n`, {
-        mode: 0o600,
-      });
-      evidence.scenarios.push({
-        id: manifest.id,
-        group,
-        status: result.ok ? 0 : 5,
-        classification: result.ok ? "pass" : "fail",
-        passed: result.ok,
-        toolNames: manifest.allowedTools,
-        tracePath,
-        result,
-        stderr: "",
-      });
-      groupEvidence.passed = result.ok;
+      groupEvidence.passed =
+        results.length === scenarios.length &&
+        results.every(({ result }) => result.ok);
       groupEvidence.finishedAt = new Date().toISOString();
-      if (!result.ok) {
+      if (!groupEvidence.passed) {
         failed = true;
         break;
       }
-      for (const tool of manifest.allowedTools) coveredTools.add(tool);
+      for (const manifest of scenarios)
+        for (const tool of manifest.allowedTools) coveredTools.add(tool);
       continue;
     }
     await controller.launch(applicationPath);
@@ -418,15 +430,8 @@ async function loadManifest(id) {
   ) {
     throw new Error(`Invalid scenario execution mode: ${manifest.execution}`);
   }
-  if (
-    manifest.execution === "native-listening-runtime" &&
-    (manifest.id !== "native-playback-and-listen" ||
-      manifest.group !== "native-listening")
-  ) {
-    throw new Error(
-      "Native execution requires its exact reviewed fixture scenario",
-    );
-  }
+  if (manifest.execution === "native-listening-runtime")
+    reviewNativeScenario(manifest);
   if (
     (manifest.execution === "live-event-runtime" ||
       manifest.execution === "capability-surface" ||

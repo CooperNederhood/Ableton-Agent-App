@@ -2,10 +2,23 @@
 import { registerHooks } from "node:module";
 
 const protocolSource = new URL("../../packages/protocol/src/", import.meta.url);
+const signalSource = new URL(
+  "../../packages/signal-routing/src/",
+  import.meta.url,
+);
 
 export function resolveNativeProtocolSource(specifier, context, nextResolve) {
   if (
-    !context.parentURL?.startsWith(protocolSource.href) ||
+    specifier === "@ableton-agent/protocol" &&
+    context.parentURL?.startsWith(signalSource.href) &&
+    context.parentURL.endsWith(".ts")
+  )
+    return nextResolve(new URL("index.ts", protocolSource).href, context);
+  const source = [protocolSource, signalSource].find((root) =>
+    context.parentURL?.startsWith(root.href),
+  );
+  if (
+    !source ||
     !context.parentURL.endsWith(".ts") ||
     !(specifier.startsWith("./") || specifier.startsWith("../")) ||
     !specifier.endsWith(".js")
@@ -13,7 +26,7 @@ export function resolveNativeProtocolSource(specifier, context, nextResolve) {
     return nextResolve(specifier, context);
 
   const requested = new URL(specifier, context.parentURL);
-  if (!requested.href.startsWith(protocolSource.href))
+  if (!requested.href.startsWith(source.href))
     return nextResolve(specifier, context);
 
   try {

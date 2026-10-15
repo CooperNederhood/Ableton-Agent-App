@@ -88,6 +88,19 @@ detected-tempo and timing/integrity guards stay in place.
   ownership and traced/redacted lifecycle, and archive exact old guard bytes.
   Generated v2 constructor wiring and physical long-pass cleanup must also be
   qualified; offline watchdog arithmetic alone does not prove device behavior.
+- [x] Wire reviewed descriptive fractional and 30-second runner scenarios with
+  explicit v2 input, immutable pre-capture App expectations/approval bounds,
+  actual accepted DSP geometry, sequential fresh owned processes, terminal/
+  atomic-context/reopen verification and cleanup receipts. Preserve the old
+  strict v1 scenario and deny missing/wrong/null versions before setup.
+- [ ] Provision a separately saved/pinned v2 fixture; execute fractional first,
+  then its owning group and remaining suite, followed by isolated Desktop UX.
+  Do not mark actual capture or physical qualification complete from synthetic
+  runner tests.
+- [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
+  guards, reservation ownership and redacted failures without changing MIDI/v1.
+  Cover optional cancellation reasons through the real authenticated TS ingress,
+  rather than treating synthetic runtime-only cleanup as that boundary's proof.
 
 ### Deferred follow-up, not a first-milestone release gate
 

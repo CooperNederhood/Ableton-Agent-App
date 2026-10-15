@@ -234,6 +234,175 @@ function validDescriptiveConfig(config) {
   );
 }
 
+function sameListenerOwner(control, job) {
+  return (
+    !!job &&
+    ["connectionEpoch", "jobId", "passId", "traceId", "correlationId"].every(
+      (key) => control[key] === job[key]
+    )
+  );
+}
+
+function snapshotDescriptiveControl(control) {
+  return Object.freeze({
+    ...control,
+    ...(control.config
+      ? {
+          config: Object.freeze({
+            geometry: Object.freeze({ ...control.config.geometry }),
+            timingPolicy: Object.freeze({ ...control.config.timingPolicy })
+          })
+        }
+      : {})
+  });
+}
+
+function matchingDescriptiveArm(arm, job) {
+  const config = { geometry: arm?.geometry, timingPolicy: arm?.policy };
+  return (
+    arm?.scope === "arrangement-descriptive/v2" &&
+    !!job?.config &&
+    validDescriptiveConfig(config) &&
+    ["geometry", "timingPolicy"].every((part) =>
+      Object.keys(config[part]).every(
+        (key) => config[part][key] === job.config[part][key]
+      )
+    )
+  );
+}
+
+function matchingDescriptiveLaunch(launch, job) {
+  const geometry = job?.config?.geometry;
+  return (
+    !!geometry &&
+    hasExactKeys(launch, [
+      "nativeEpoch",
+      "armCounter",
+      "launchClock",
+      "launchPhaseSamples",
+      "rejected",
+      "active",
+      "host"
+    ]) &&
+    Number.isInteger(launch.nativeEpoch) &&
+    launch.nativeEpoch >= 1 &&
+    launch.nativeEpoch <= 1000000 &&
+    Number.isSafeInteger(launch.armCounter) &&
+    launch.armCounter >= 0 &&
+    launch.armCounter + geometry.totalSamples < 2 ** 44 &&
+    Number.isInteger(launch.launchPhaseSamples) &&
+    launch.launchPhaseSamples >= 0 &&
+    launch.launchPhaseSamples <= geometry.vectorSize &&
+    Number.isInteger(launch.launchClock) &&
+    launch.launchClock >= launch.launchPhaseSamples &&
+    launch.launchClock <= geometry.sampleRate * 10 &&
+    launch.rejected === 0 &&
+    launch.active === 1 &&
+    hasExactKeys(launch.host, ["sample", "beat", "flags", "playing"]) &&
+    Number.isSafeInteger(launch.host.sample) &&
+    launch.host.sample >= 0 &&
+    Number.isFinite(launch.host.beat) &&
+    launch.host.beat >= 0 &&
+    launch.host.beat <= 1576800 &&
+    Number.isInteger(launch.host.flags) &&
+    launch.host.flags >= 0 &&
+    launch.host.flags <= 0x7fffffff &&
+    (launch.host.flags & 19) === 19 &&
+    launch.host.playing === true
+  );
+}
+
+// Wire pairing/stage guards; ingress independently validates complete native proof.
+function validDescriptivePayload(type, payload, job, producerId) {
+  if (
+    !["listener.reply", "listener.result"].includes(type) ||
+    !payload ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  )
+    return false;
+  const reply = type === "listener.reply";
+  const keys = reply
+    ? ["status", "reason", "nativeArm"]
+    : [
+        "status",
+        "reason",
+        "observation",
+        "nativeLaunch",
+        "nativeCapture",
+        "nativeLifecycle"
+      ];
+  if (
+    Object.keys(payload).some((key) => !keys.includes(key)) ||
+    (payload.reason !== undefined &&
+      (typeof payload.reason !== "string" ||
+        !payload.reason.length ||
+        payload.reason.length > 512))
+  )
+    return false;
+  if (reply)
+    return (
+      ["ready", "armed", "cancelled", "failed"].includes(payload.status) &&
+      (payload.status === "armed") === (payload.nativeArm !== undefined) &&
+      (!payload.nativeArm || matchingDescriptiveArm(payload.nativeArm, job)) &&
+      (payload.status !== "failed" || payload.reason !== undefined)
+    );
+  if (
+    !["progress", "completed", "partial", "failed"].includes(payload.status) ||
+    (["partial", "failed"].includes(payload.status) &&
+      payload.reason === undefined) ||
+    (payload.status === "completed"
+      ? !payload.observation ||
+        !matchingDescriptiveArm(payload.nativeCapture?.armed, job) ||
+        !matchingDescriptiveLaunch(payload.nativeCapture?.launched, job) ||
+        payload.nativeCapture.launched.nativeEpoch !==
+          payload.nativeCapture.armed.nativeEpoch ||
+        payload.nativeCapture.launched.armCounter !==
+          payload.nativeCapture.armed.armCounter
+      : payload.nativeCapture !== undefined) ||
+    (payload.status !== "progress" &&
+      (payload.nativeLaunch || payload.nativeLifecycle))
+  )
+    return false;
+  const observation = payload.observation;
+  if (
+    observation &&
+    (observation.schema !== "audio-observation/v2" ||
+      observation.algorithm?.version !== "2.0.0" ||
+      observation.listenerId !== producerId ||
+      observation.passId !== job?.passId ||
+      observation.complete !== (payload.status === "completed"))
+  )
+    return false;
+  if (
+    payload.nativeLaunch &&
+    !matchingDescriptiveLaunch(payload.nativeLaunch, job)
+  )
+    return false;
+  const event = payload.nativeLifecycle;
+  return (
+    !event ||
+    (event.scope === "arrangement-descriptive/v2" &&
+      Number.isInteger(event.frames) &&
+      event.frames >= 0 &&
+      event.frames <= 300 &&
+      [
+        "queued",
+        "started",
+        "progress",
+        "completed",
+        "failed",
+        "cancelled"
+      ].includes(event.stage) &&
+      (!event.phase ||
+        ["preflight", "reset", "capture", "alignment"].includes(event.phase)) &&
+      (!["failed", "cancelled"].includes(event.stage) ||
+        (typeof event.reason === "string" &&
+          event.reason.length > 0 &&
+          event.reason.length <= 512)))
+  );
+}
+
 class AgentSignalClient {
   constructor(options = {}) {
     const discovery = installedDiscoveryPaths();
@@ -295,20 +464,61 @@ class AgentSignalClient {
     this.listenerSequence = 0;
     this.listenerJob = null;
     this.listenerControlIds = new Set();
+    this.listenerJobControlIds = new Set();
     this.notifyingListenerFailure = false;
     if (
-      this.listener &&
-      (this.signalKind !== "audio" ||
-        ![1, 2].includes(this.listenerVersion) ||
-        this.schemaVersion !== `audio-observation/v${this.listenerVersion}` ||
-        !Array.isArray(this.listener.capabilities) ||
-        this.listener.capabilities.length !== 1 ||
-        this.listener.capabilities[0] !==
-          `audio-listener/v${this.listenerVersion}`)
+      (!this.listener && this.schemaVersion === "audio-observation/v2") ||
+      (this.listener &&
+        (this.signalKind !== "audio" ||
+          ![1, 2].includes(this.listenerVersion) ||
+          this.schemaVersion !== `audio-observation/v${this.listenerVersion}` ||
+          !Array.isArray(this.listener.capabilities) ||
+          this.listener.capabilities.length !== 1 ||
+          this.listener.capabilities[0] !==
+            `audio-listener/v${this.listenerVersion}`))
     ) {
       throw new Error(
         "listener capability requires matching audio-observation version"
       );
+    }
+    if (this.listenerVersion === 2) {
+      const listener = this.listener;
+      const status = listener.nativeStatus;
+      if (
+        !Number.isInteger(listener.sampleRate) ||
+        listener.sampleRate < 8000 ||
+        listener.sampleRate > 384000 ||
+        !Number.isInteger(listener.vectorSize) ||
+        listener.vectorSize < 1 ||
+        listener.vectorSize > 65536 ||
+        listener.algorithmVersion !== "2.0.0" ||
+        !status ||
+        status.version !== 2 ||
+        status.scope !== "arrangement-descriptive/v2" ||
+        !["READY", "BLOCKED"].includes(status.readiness) ||
+        (status?.readiness === "READY" &&
+          (!Array.isArray(status.acceptedSampleRates) ||
+            !status.acceptedSampleRates.includes(listener.sampleRate) ||
+            !Array.isArray(status.acceptedVectorSizes) ||
+            !status.acceptedVectorSizes.includes(listener.vectorSize)))
+      )
+        throw new Error("invalid native v2 listener registration");
+      this.listener = Object.freeze({
+        ...listener,
+        capabilities: Object.freeze([...listener.capabilities]),
+        ...(status
+          ? {
+              nativeStatus: Object.freeze(
+                Object.fromEntries(
+                  Object.entries(status).map(([key, value]) => [
+                    key,
+                    Array.isArray(value) ? Object.freeze([...value]) : value
+                  ])
+                )
+              )
+            }
+          : {})
+      });
     }
     this.producer = null;
     this.maxOfflineSamples = options.maxOfflineSamples || 32;
@@ -376,6 +586,10 @@ class AgentSignalClient {
     if (this.stopping) {
       return false;
     }
+    if (this.listenerVersion === 2 && this.authenticated) {
+      this.listenerFailure("listener_result_required");
+      return false;
+    }
     const queued = { sample, capturedAt: Math.max(0, Math.floor(capturedAt)) };
     if (!this.authenticated || !this.socket) {
       this.enqueue(queued);
@@ -429,9 +643,12 @@ class AgentSignalClient {
     this.socket = socket;
     if (this.listener) {
       this.listener = { ...this.listener, connectionEpoch: this.randomUUID() };
+      if (this.listenerVersion === 2)
+        this.listener = Object.freeze(this.listener);
       this.listenerSequence = 0;
       this.listenerJob = null;
       this.listenerControlIds.clear();
+      this.listenerJobControlIds.clear();
     }
     this.descriptor = descriptor;
     this.buffer = "";
@@ -470,7 +687,10 @@ class AgentSignalClient {
     const descriptor = validateDescriptor(JSON.parse(text));
     if (
       this.listener &&
-      (!descriptor.listenerVersions?.includes(this.listenerVersion) ||
+      ((this.listenerVersion === 2 &&
+        (!Array.isArray(descriptor.listenerVersions) ||
+          !Array.isArray(descriptor.listenerCapabilities))) ||
+        !descriptor.listenerVersions?.includes(this.listenerVersion) ||
         !descriptor.listenerCapabilities?.includes(
           `audio-listener/v${this.listenerVersion}`
         ))
@@ -700,6 +920,7 @@ class AgentSignalClient {
 
   maxFrameBytes() {
     return Math.min(
+      this.listenerVersion === 2 ? DEFAULT_MAX_FRAME_BYTES : Infinity,
       this.descriptor?.maxFrameBytes || DEFAULT_MAX_FRAME_BYTES,
       this.configuredMaxFrameBytes
     );
@@ -723,6 +944,7 @@ class AgentSignalClient {
     this.stopHeartbeat();
     if (this.listenerJob) this.listenerFailure("disconnected");
     this.listenerJob = null;
+    this.listenerJobControlIds.clear();
     if (!this.stopping) {
       this.emitStatus("live", "disconnected");
       this.scheduleReconnect();
@@ -767,7 +989,10 @@ class AgentSignalClient {
     if (this.notifyingListenerFailure) return;
     this.notifyingListenerFailure = true;
     try {
-      this.onListenerFailure(boundedMessage(reason), this.listenerJob);
+      this.onListenerFailure(
+        this.listenerErrorReason({ message: reason }),
+        this.listenerJob
+      );
     } catch {
       this.emitStatus("live", "listener_failure_handler_error");
     } finally {
@@ -776,6 +1001,14 @@ class AgentSignalClient {
   }
 
   handleListenerControl(control) {
+    if (
+      this.listenerVersion === 2 &&
+      (!control || typeof control !== "object" || Array.isArray(control))
+    ) {
+      this.listenerFailure("invalid_control");
+      this.socket?.destroy();
+      return;
+    }
     const keys = [
       "requestId",
       "connectionEpoch",
@@ -788,6 +1021,7 @@ class AgentSignalClient {
     if (
       !this.authenticated ||
       !this.listener ||
+      (this.listenerVersion === 2 && this.stopping) ||
       control.protocolVersion !== PROTOCOL_VERSION ||
       control.listenerVersion !== this.listenerVersion ||
       control.connectionEpoch !== this.listener.connectionEpoch ||
@@ -806,9 +1040,20 @@ class AgentSignalClient {
     if (
       this.listenerControlIds.has(control.requestId) ||
       (this.listenerVersion === 2 &&
-        (control.action === "prepare"
-          ? !validDescriptiveConfig(control.config)
-          : control.config !== undefined)) ||
+        (!hasExactKeys(control, [
+          "type",
+          "protocolVersion",
+          "listenerVersion",
+          "action",
+          ...keys,
+          ...(control.action === "prepare" ? ["config"] : [])
+        ]) ||
+          control.type !== "listener.control" ||
+          (control.action === "prepare"
+            ? !validDescriptiveConfig(control.config) ||
+              control.config.geometry.sampleRate !== this.listener.sampleRate ||
+              control.config.geometry.vectorSize !== this.listener.vectorSize
+            : control.config !== undefined))) ||
       (control.action === "prepare" &&
         this.listenerVersion === 1 &&
         (!control.config ||
@@ -836,23 +1081,49 @@ class AgentSignalClient {
     this.listenerControlIds.add(control.requestId);
     if (control.action === "prepare") {
       if (this.listenerJob) {
-        this.sendListenerReply(control, {
-          status: "failed",
-          reason: "listener_busy"
-        });
+        this.sendListenerMessage(
+          "listener.reply",
+          control,
+          {
+            status: "failed",
+            reason: "listener_busy"
+          },
+          this.listenerVersion !== 2
+        );
         return;
+      }
+      if (this.listenerVersion === 2) {
+        control = snapshotDescriptiveControl(control);
+        this.listenerJobControlIds.clear();
       }
       this.listenerJob = control;
     } else if (
       !this.listenerJob ||
       control.jobId !== this.listenerJob.jobId ||
-      control.passId !== this.listenerJob.passId
+      control.passId !== this.listenerJob.passId ||
+      (this.listenerVersion === 2 &&
+        !sameListenerOwner(control, this.listenerJob))
     ) {
-      this.sendListenerReply(control, {
-        status: "failed",
-        reason: "ownership_mismatch"
-      });
+      this.sendListenerMessage(
+        "listener.reply",
+        control,
+        {
+          status: "failed",
+          reason: "ownership_mismatch"
+        },
+        this.listenerVersion !== 2
+      );
       return;
+    }
+    if (this.listenerVersion === 2) {
+      if (this.listenerJobControlIds.size >= 64) {
+        this.listenerFailure("listener_control_quota_exceeded");
+        this.socket?.destroy();
+        return;
+      }
+      this.listenerJobControlIds.add(control.requestId);
+      if (control.action !== "prepare")
+        control = snapshotDescriptiveControl(control);
     }
     try {
       const result = this.onListenerControl(control);
@@ -860,14 +1131,14 @@ class AgentSignalClient {
         result.catch((error) =>
           this.sendListenerReply(control, {
             status: "failed",
-            reason: boundedMessage(error.message)
+            reason: this.listenerErrorReason(error)
           })
         );
       }
     } catch (error) {
       this.sendListenerReply(control, {
         status: "failed",
-        reason: boundedMessage(error.message)
+        reason: this.listenerErrorReason(error)
       });
     }
   }
@@ -880,15 +1151,51 @@ class AgentSignalClient {
     return this.sendListenerMessage("listener.result", control, result);
   }
 
-  sendListenerMessage(type, control, payload) {
+  listenerErrorReason(error) {
+    const secret =
+      this.loadedSecret || this.secret || this.env[DEFAULT_SECRET_ENV];
+    const text = String(error?.message ?? "listener_callback_failed");
+    return (
+      boundedMessage(
+        this.listenerVersion === 2 && secret
+          ? text.split(secret).join("[REDACTED]")
+          : text
+      ) || "listener_callback_failed"
+    );
+  }
+
+  sendListenerMessage(type, control, payload, releaseJob = true) {
     if (
       !this.authenticated ||
       !this.listener ||
       !this.socket ||
-      control.connectionEpoch !== this.listener.connectionEpoch ||
+      control?.connectionEpoch !== this.listener.connectionEpoch ||
       this.listenerSequence >= Number.MAX_SAFE_INTEGER
     ) {
       this.listenerFailure("listener_not_connected");
+      return false;
+    }
+    const job = this.listenerJob;
+    if (
+      this.listenerVersion === 2 &&
+      (control.protocolVersion !== PROTOCOL_VERSION ||
+        control.listenerVersion !== 2 ||
+        (releaseJob &&
+          (!sameListenerOwner(control, job) ||
+            !this.listenerJobControlIds.has(control.requestId))))
+    ) {
+      this.emitStatus(
+        "live",
+        "listener_message_rejected",
+        "invalid_listener_context"
+      );
+      return false;
+    }
+    if (
+      this.listenerVersion === 2 &&
+      !validDescriptivePayload(type, payload, job, this.producer?.producerId)
+    ) {
+      this.listenerFailure("invalid_listener_payload");
       return false;
     }
     const message = {
@@ -908,15 +1215,33 @@ class AgentSignalClient {
       causationId: control.causationId,
       sequence: this.listenerSequence
     };
+    if (this.listenerVersion === 2) {
+      let encoded;
+      try {
+        encoded = JSON.stringify(message);
+      } catch {
+        this.listenerFailure("listener_encoding_failed");
+        return false;
+      }
+      if (Buffer.byteLength(encoded, "utf8") > this.maxFrameBytes()) {
+        this.listenerFailure("listener_frame_too_large");
+        return false;
+      }
+    }
     const sent = this.writeMessage(message);
     if (sent) this.listenerSequence += 1;
     else this.listenerFailure("listener_delivery_failed");
     if (
-      (type === "listener.reply" &&
+      (this.listenerVersion !== 2 ||
+        (releaseJob &&
+          this.listenerJob === job &&
+          sameListenerOwner(control, job))) &&
+      ((type === "listener.reply" &&
         ["cancelled", "failed"].includes(payload.status)) ||
-      (type === "listener.result" && payload.status !== "progress")
+        (type === "listener.result" && payload.status !== "progress"))
     ) {
       this.listenerJob = null;
+      if (this.listenerVersion === 2) this.listenerJobControlIds.clear();
     }
     return sent;
   }
@@ -934,6 +1259,7 @@ class AgentSignalClient {
     this.stopHeartbeat();
     if (this.listenerJob) this.listenerFailure("stopped");
     this.listenerJob = null;
+    this.listenerJobControlIds.clear();
     const socket = this.socket;
     if (socket && this.authenticated && !socket.destroyed) {
       this.writeMessage({

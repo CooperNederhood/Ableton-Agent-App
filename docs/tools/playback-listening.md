@@ -106,6 +106,15 @@ shared-client-to-ingress tests cover completed synthetic proof, confirmed
 cancellation and disconnect without complete publication; these do not
 establish physical native execution.
 
+V2 SDK registration and prepare inputs are copied/frozen, exact-version/stage
+guards reject mixed or unsupported frames, and busy/foreign/late callbacks
+cannot orphan another reservation. Cyclic/oversized local output fails
+explicitly without an offline audio queue or sequence advance; the encoded
+frame ceiling remains 128 KiB and callback failures are bounded/redacted.
+Generic `signal.frame` cannot bypass native result proof. Cancelled replies
+retain the protocol's optional reason, while failed replies still require one;
+the SDK does not replace a valid cancellation with an ingress timeout.
+
 The production playback host exposes negotiated v2 listeners with approximate,
 descriptive-only and unknown-absolute-accuracy limitations; metadata alone never
 sets `ready:true`. It snapshots Settings policy once per pass, derives geometry
@@ -225,8 +234,9 @@ v2 manifest scope/schema/algorithm/limits/tempo disclosures before copying
 anything, preserves the Set and all device/code/manifest bytes, and regenerates
 only the copied profile discovery configuration through the shared storage
 resolver. Cancellation removes only its new owned copy. The existing strict
-v1 runner does not opt into v2 or accept v2 inputs; a separately reviewed v2
-scenario and newly saved/pinned fixture are still required.
+v1 scenario does not opt into v2 or accept v2 inputs. Separately reviewed
+descriptive v2 scenarios are wired below, but still require a newly saved/pinned
+v2 fixture and real execution.
 
 The v2 graph must construct the independent Max-JS guard as
 `js audio_listener_guard.js 2`: its fixed 60-second begin-to-stop budget covers
@@ -239,6 +249,31 @@ fail closed. V2 watchdog lifecycle records retain redacted trace identity and
 the selected version/ceiling; monitor completion still leaves capture outcome
 unknown. Historical guard bytes are archived with their original source/hash,
 not substituted into old physical evidence.
+
+### Reviewed descriptive native runner scenarios
+
+The `native-listening-descriptive` group contains
+`native-descriptive-fractional` (beats 0.25–3.75, 8-second request budget) and
+`native-descriptive-30-seconds` (beats 0.25–60.25 at 120 BPM, 45-second request
+budget). Both freeze descriptive/64 policy and derive geometry from independent
+tempo inspection plus the actual accepted 44.1/48 kHz registration/vector
+metadata before the actor starts capture. Expected proof is bound to the
+App-owned queued pass, never reconstructed from producer output. Approval
+retains a snapshot of the reviewed range, not a mutable manifest reference.
+
+After a coordinated workspace build and verifying the installed Remote Script,
+run the fractional scenario alone with
+`pnpm live:agent-smoke --scenario native-descriptive-fractional
+--native-v2-fixture-input <pinned-v2-input.json> --skip-build --skip-install`.
+Only after that passes run the owning group, then the remaining suite.
+Native selection checks version-specific inputs and unsafe flags before setup;
+v1 and v2 fixture inputs are never substituted. Every scenario uses a fresh
+owned process/artifact namespace and finishes shutdown/cleanup before the next.
+Source positioning stays in the guarded production host, never runner repair,
+retry, or stop/rewind cleanup. The verifier requires a real terminal pass,
+independent proof, one atomic track/range context, typed reopening and unchanged
+Set content. These are implemented deterministic contracts, not actual native
+or physical qualification.
 
 ## Ownership and scope
 

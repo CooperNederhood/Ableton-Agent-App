@@ -49,6 +49,198 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+const v2Scenarios = Object.freeze({
+  "native-descriptive-fractional": Object.freeze({
+    startBeat: 0.25,
+    endBeat: 3.75,
+    maximumDurationMs: 8000,
+    timeoutMs: 60000,
+    artifactPrefix: "AA_SMOKE_NV2_FRAC_",
+  }),
+  "native-descriptive-30-seconds": Object.freeze({
+    startBeat: 0.25,
+    endBeat: 60.25,
+    maximumDurationMs: 45000,
+    timeoutMs: 90000,
+    artifactPrefix: "AA_SMOKE_NV2_30S_",
+  }),
+});
+
+export function nativeDescriptivePrompt(capture) {
+  return `Make these calls sequentially, never in parallel: inspect-listeners, exactly one play-arrangement-and-listen for Arrangement beats ${capture.startBeat} through ${capture.endBeat} with maximumDurationMs ${capture.maximumDurationMs} and only the bound listener ID, then get-pass once using the returned passId. This is explicit native v2 with the App-owned descriptive timing policy capped at 64 samples, not strict v1 or physical timing qualification. Constant 120 BPM is assumed; tempo automation is unsupported. The candidate remains ready=false with native_per_pass_validation_required: never promote it or use another listener. Existing production guarded positioning owns the nonzero start before arming; do not seek, stop, repair positioning, or retry. If the pass failed or was cancelled, report the reason and end. If still nonterminal, report pending and end without polling; the harness waits for the real terminal job. Only if completed may you get typed context using its contextId and includeHistorical=true. Do not list passes or context. Queued acceptance is not completion. Leave transport running; do not record, launch Session clips, change the Set, install devices, or claim exclusive clip audio. Unknown attribution and freshness are valid historical track/range results.`;
+}
+
+export function reviewNativeScenario(manifest) {
+  const v2 = v2Scenarios[manifest.id];
+  const version = v2 ? 2 : 1;
+  const range = v2 ?? { startBeat: 0, endBeat: 4, maximumDurationMs: 8000 };
+  const policy = Object.freeze(
+    version === 2
+      ? { mode: "descriptive", maxClockDisagreementSamples: 64 }
+      : { mode: "strict", maxClockDisagreementSamples: 0 },
+  );
+  assert(
+    manifest.execution === "native-listening-runtime" &&
+      manifest.maxToolCalls === 8 &&
+      manifest.maxMutations === 1 &&
+      manifest.timeoutMs === (v2?.timeoutMs ?? 60000) &&
+      isDeepStrictEqual(manifest.setupContract?.timingPolicy, policy) &&
+      (v2
+        ? manifest.group === "native-listening-descriptive" &&
+          manifest.nativeVersion === 2 &&
+          manifest.setupContract.nativeVersion === 2 &&
+          manifest.setupContract.inputOption === "--native-v2-fixture-input" &&
+          manifest.artifactPrefix === v2.artifactPrefix &&
+          manifest.prompt === nativeDescriptivePrompt(v2) &&
+          isDeepStrictEqual(manifest.capture, {
+            startBeat: v2.startBeat,
+            endBeat: v2.endBeat,
+            maximumDurationMs: v2.maximumDurationMs,
+          }) &&
+          manifest.setupContract.tempoPolicy === "constant-tempo-assumed" &&
+          manifest.setupContract.tempoAutomationSupported === false &&
+          isDeepStrictEqual(manifest.allowedTools, [
+            "ableton_listening",
+            "ableton_context",
+          ]) &&
+          isDeepStrictEqual(manifest.allowedActions, {
+            ableton_listening: [
+              "inspect-listeners",
+              "play-arrangement-and-listen",
+              "get-pass",
+            ],
+            ableton_context: ["get"],
+          }) &&
+          isDeepStrictEqual(manifest.allowedRisks, ["read", "reversible"]) &&
+          isDeepStrictEqual(manifest.ordering, [
+            {
+              before: "ableton_listening",
+              beforeAction: "inspect-listeners",
+              after: "ableton_listening",
+              afterAction: "play-arrangement-and-listen",
+            },
+          ])
+        : manifest.id === "native-playback-and-listen" &&
+          manifest.group === "native-listening" &&
+          manifest.nativeVersion === undefined),
+    "Unreviewed native scenario contract",
+  );
+  return Object.freeze({
+    nativeVersion: version,
+    timingPolicy: policy,
+    capture: Object.freeze({
+      startBeat: range.startBeat,
+      endBeat: range.endBeat,
+      maximumDurationMs: range.maximumDurationMs,
+    }),
+  });
+}
+
+async function readNativeFixtureInput(path, nativeVersion) {
+  assert(
+    path !== undefined,
+    `Explicit native-v${nativeVersion} fixture input required; no fallback`,
+  );
+  const info = await lstat(path);
+  assert(
+    info.isFile() && !info.isSymbolicLink() && info.size <= 64 * 1024,
+    "Native fixture input must be a bounded regular JSON file",
+  );
+  const input = JSON.parse(await readFile(path, "utf8"));
+  assert(
+    (input.nativeVersion === undefined ? 1 : input.nativeVersion) ===
+      nativeVersion,
+    "Native fixture input version does not match the reviewed scenario",
+  );
+  return input;
+}
+
+export async function admitNativeScenarios({
+  manifests,
+  skipInstall,
+  computerUse,
+  approveAll,
+  inputV1,
+  inputV2,
+}) {
+  if (manifests.length === 0) return;
+  assert(
+    skipInstall && !computerUse && !approveAll,
+    "Native listening requires --skip-install and exact-PID shell startup; unsafe flags denied",
+  );
+  const versions = new Set(
+    manifests.map((manifest) => reviewNativeScenario(manifest).nativeVersion),
+  );
+  for (const version of versions)
+    await readNativeFixtureInput(version === 2 ? inputV2 : inputV1, version);
+}
+
+/** One fresh owned process and namespace per scenario, never concurrent Live. */
+export async function runNativeScenarioGroup({
+  manifests,
+  controller,
+  applicationPath,
+  createRunner,
+  onResult = async () => {},
+}) {
+  assert(
+    manifests.length > 0 &&
+      new Set(manifests.map((item) => item.id)).size === manifests.length,
+    "Native group requires unique reviewed scenarios",
+  );
+  manifests.forEach(reviewNativeScenario);
+  assert(
+    new Set(manifests.map((item) => item.group)).size === 1 &&
+      (manifests[0].group !== "native-listening" || manifests.length === 1),
+    "Native groups cannot mix versions or duplicate the strict-v1 scenario",
+  );
+  const results = [];
+  for (const manifest of manifests) {
+    assert(
+      controller.publicRecord() === undefined,
+      "Previous native process is still owned",
+    );
+    await controller.assertNoPreExistingLive();
+    const scenarioRunId = randomUUID();
+    const runner = await createRunner(manifest, scenarioRunId);
+    let result;
+    try {
+      await runner.stage("process-launch", () =>
+        controller.launch(applicationPath, 90000, {
+          fixturePath: runner.fixture.setPath,
+        }),
+      );
+      result = await runner.run(() => controller.validateOwnership());
+      await onResult(
+        manifest,
+        result,
+        scenarioRunId,
+        controller.publicRecord(),
+      );
+      await runner.stage("process-shutdown", async () => {
+        if (result.ok) await controller.gracefulStop();
+        else await controller.discardAfterFailure(20000);
+        assert(
+          controller.publicRecord() === undefined,
+          "Native process shutdown did not release ownership",
+        );
+      });
+    } finally {
+      await runner.close({
+        processStopped: controller.publicRecord() === undefined,
+      });
+    }
+    result.processCleanup = {
+      processStopped: true,
+      fixtureCleaned: true,
+      transportCleanup: "leave-running",
+    };
+    results.push({ manifest, result, scenarioRunId });
+    if (!result.ok) break;
+  }
+  return results;
+}
+
 /** Integration-only composition. The runtime, host, context manager and registry
  * are the production factories; no Desktop window or alternate capture adapter. */
 export async function createNativeListeningRunner({
@@ -60,28 +252,8 @@ export async function createNativeListeningRunner({
   services = undefined,
 }) {
   const d = services ?? (await loadNativeRunnerServices());
-  assert(
-    manifest.id === "native-playback-and-listen" &&
-      manifest.execution === "native-listening-runtime" &&
-      manifest.timeoutMs === 60000 &&
-      manifest.maxToolCalls === 8 &&
-      manifest.maxMutations === 1 &&
-      isDeepStrictEqual(manifest.setupContract?.timingPolicy, {
-        mode: "strict",
-        maxClockDisagreementSamples: 0,
-      }),
-    "Unreviewed native scenario contract",
-  );
-  assert(
-    inputPath !== undefined,
-    "--native-fixture-input is required; no user-file fallback",
-  );
-  const info = await lstat(inputPath);
-  assert(
-    info.isFile() && !info.isSymbolicLink() && info.size <= 64 * 1024,
-    "Native fixture input must be a bounded regular JSON file",
-  );
-  const input = JSON.parse(await readFile(inputPath, "utf8"));
+  const reviewed = reviewNativeScenario(manifest);
+  const input = await readNativeFixtureInput(inputPath, reviewed.nativeVersion);
   assert(
     input.formatVersion === 1 &&
       /^live_set tracks (?:0|[1-9][0-9]?) devices (?:0|[1-9][0-9]?)$/.test(
@@ -145,6 +317,7 @@ export async function createNativeListeningRunner({
   let fixture;
   try {
     fixture = await stageNativeListeningFixture({
+      nativeVersion: reviewed.nativeVersion,
       input: { ...input, artifactPrefix: `${manifest.artifactPrefix}${runId}` },
       destination: join(root, "fixture"),
       storage,
@@ -162,6 +335,8 @@ export async function createNativeListeningRunner({
   let actorContext;
   let repository;
   let removeSignalSecret;
+  let geometry;
+  let expected;
   const jobs = new Map();
   const received = [];
   const binding = {
@@ -231,6 +406,7 @@ export async function createNativeListeningRunner({
   return {
     fixture,
     storage,
+    stage: lifecycle.stage,
     async run(validateOwnership) {
       let result;
       try {
@@ -266,10 +442,7 @@ export async function createNativeListeningRunner({
           askForReadApproval: true,
           listening: (dependencies) => {
             host = d.createListeningRuntimeHost(dependencies, {
-              resolveTimingPolicy: () => ({
-                mode: "strict",
-                maxClockDisagreementSamples: 0,
-              }),
+              resolveTimingPolicy: () => reviewed.timingPolicy,
               contextPorts: contextHost,
               resolveOwner: async (context) => {
                 assert(
@@ -282,6 +455,23 @@ export async function createNativeListeningRunner({
               resolveRepository: (_owner, context) =>
                 manager.resolveRepository(context),
               onChange: (job) => {
+                if (reviewed.nativeVersion === 2 && expected === undefined) {
+                  assert(
+                    geometry !== undefined &&
+                      binding.listenerId !== undefined &&
+                      job.stage === "queued" &&
+                      job.owner.sessionId === owner.sessionId &&
+                      job.owner.agentId === owner.agentId &&
+                      job.owner.liveSetId === owner.liveSetId,
+                    "App native expectation must be bound to an owned queued pass before capture",
+                  );
+                  expected = d.protocol.snapshotNativeListeningExpectationV2({
+                    listenerId: binding.listenerId,
+                    passId: job.passId,
+                    policy: reviewed.timingPolicy,
+                    geometry,
+                  });
+                }
                 assert(
                   jobs.has(job.passId) || jobs.size < 1,
                   "Native scenario pass quota exceeded",
@@ -365,8 +555,14 @@ export async function createNativeListeningRunner({
           .find((item) => item.producer.producerId === binding.listenerId);
         assert(
           listener.registration.nativeStatus?.scope ===
-            d.protocol.NATIVE_LISTENER_SCOPE &&
-            listener.registration.sampleRate === 48000 &&
+            (reviewed.nativeVersion === 2
+              ? d.protocol.NATIVE_LISTENER_SCOPE_V2
+              : d.protocol.NATIVE_LISTENER_SCOPE) &&
+            (reviewed.nativeVersion === 2
+              ? listener.registration.version === 2 &&
+                listener.producer.schemaVersion === "audio-observation/v2" &&
+                [44100, 48000].includes(listener.registration.sampleRate)
+              : listener.registration.sampleRate === 48000) &&
             listener.phase === "idle",
           "Native candidate scope/sample rate/idle state mismatch",
         );
@@ -374,7 +570,10 @@ export async function createNativeListeningRunner({
           schemaVersion: 1,
           bindingQueryId: randomUUID(),
           listeners: [{ canonicalPath: input.canonicalPath }],
-          range: { startBeat: 0, endBeat: 4 },
+          range: {
+            startBeat: reviewed.capture.startBeat,
+            endBeat: reviewed.capture.endBeat,
+          },
           maxClips: 32,
           maxParameters: 16,
         };
@@ -383,7 +582,8 @@ export async function createNativeListeningRunner({
         const target = inspected.listeners[0];
         assert(
           inspected.transport.playing === false &&
-            inspected.transport.currentBeat === 0 &&
+            (reviewed.nativeVersion === 2 ||
+              inspected.transport.currentBeat === 0) &&
             inspected.transport.tempo === 120 &&
             inspected.transport.safeToStart === true &&
             Object.values(inspected.transport.recording).every(
@@ -400,6 +600,15 @@ export async function createNativeListeningRunner({
             !target.dependenciesTruncated,
           "Unsafe or mismatched stopped native preflight",
         );
+        if (reviewed.nativeVersion === 2) {
+          geometry = d.protocol.createNativeListeningGeometry({
+            sampleRate: listener.registration.sampleRate,
+            vectorSize: listener.registration.vectorSize,
+            tempoBpm: inspected.transport.tempo,
+            startBeat: reviewed.capture.startBeat,
+            endBeat: reviewed.capture.endBeat,
+          });
+        }
         const baseline = normalizeSnapshot(
           await runtime.application.inspectSession(),
         );
@@ -660,6 +869,7 @@ export async function createNativeListeningRunner({
                 typed,
                 resumed,
                 target,
+                ...(reviewed.nativeVersion === 2 ? { expected } : {}),
               },
               d.protocol,
             ),
@@ -676,6 +886,7 @@ export async function createNativeListeningRunner({
             deviceSha256: fixture.deviceSha256,
             discoverySha256: fixture.discoverySha256,
             resourceCount: fixture.resourceCount,
+            nativeVersion: fixture.nativeVersion,
           },
           observedLiveVersion: (await runtime.application.getStatus())
             .liveVersion,

@@ -42,11 +42,34 @@ test("native protocol tests resolve emitted .js imports to actual TS source depe
   );
 });
 
-test("existing JS modules and imports outside protocol TS sources retain normal resolution", () => {
+test("native v2 wire tests resolve only the owned protocol/signal TS source graph without stale dist artifacts", async () => {
+  const signalParent = new URL(
+    "../../packages/signal-routing/src/listener-v2-contracts.ts",
+    import.meta.url,
+  ).href;
+  const calls = [];
+  resolveNativeProtocolSource(
+    "@ableton-agent/protocol",
+    { parentURL: signalParent },
+    (id) => {
+      calls.push(id);
+      return { url: id };
+    },
+  );
+  assert.deepEqual(calls, [
+    new URL("../../packages/protocol/src/index.ts", import.meta.url).href,
+  ]);
+  const { listenerResultV2Schema } =
+    await import("../../packages/signal-routing/src/listener-v2-contracts.ts");
+  assert.equal(typeof listenerResultV2Schema.safeParse, "function");
+});
+
+test("existing JS modules and imports outside the two TS source roots retain normal resolution", () => {
   for (const [id, actualContext] of [
     [specifier, context],
     ["zod", context],
     ["node:fs", context],
+    ["@ableton-agent/protocol", context],
     ["./listening-timing-schemas.ts", context],
     ["./listening-timing-schemas.js?query", context],
     ["../../shared/src/missing.js", context],

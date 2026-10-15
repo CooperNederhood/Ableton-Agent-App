@@ -46,6 +46,13 @@
     {
       "id": "native-listening",
       "scenarios": ["native-playback-and-listen"]
+    },
+    {
+      "id": "native-listening-descriptive",
+      "scenarios": [
+        "native-descriptive-fractional",
+        "native-descriptive-30-seconds"
+      ]
     }
   ]
 }

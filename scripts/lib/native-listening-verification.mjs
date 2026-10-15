@@ -222,6 +222,11 @@ export function verifyNativeListeningEvidence(input, protocol) {
 }
 
 export function createNativeScenarioApproval(manifest, binding) {
+  const capture = Object.freeze(
+    manifest.nativeVersion === 2
+      ? { ...manifest.capture }
+      : { startBeat: 0, endBeat: 4, maximumDurationMs: 8000 },
+  );
   const decisions = [];
   let mutationCount = 0;
   const request = async (approval) => {
@@ -247,9 +252,9 @@ export function createNativeScenarioApproval(manifest, binding) {
         reason = "inspection-required-before-playback";
       else if (
         mutationCount !== 0 ||
-        args.startBeat !== 0 ||
-        args.endBeat !== 4 ||
-        args.maximumDurationMs !== 8000 ||
+        args.startBeat !== capture.startBeat ||
+        args.endBeat !== capture.endBeat ||
+        args.maximumDurationMs !== capture.maximumDurationMs ||
         !isDeepStrictEqual(args.listenerIds, [binding.listenerId])
       )
         reason = "exact-listener-range-budget";

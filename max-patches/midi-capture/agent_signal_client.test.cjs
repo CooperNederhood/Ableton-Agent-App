@@ -453,6 +453,7 @@ function audioClient(descriptor, overrides = {}) {
 }
 
 function descriptiveClient(descriptor, overrides = {}) {
+  const { sampleRate = 44100, ...clientOptions } = overrides;
   return createClient(
     {
       ...descriptor,
@@ -465,11 +466,26 @@ function descriptiveClient(descriptor, overrides = {}) {
       listener: {
         version: 2,
         capabilities: ["audio-listener/v2"],
-        sampleRate: 44100,
+        sampleRate,
         vectorSize: 64,
         algorithmVersion: "2.0.0",
+        nativeStatus: {
+          version: 2,
+          scope: "arrangement-descriptive/v2",
+          readiness: "BLOCKED",
+          alignment: "approximate",
+          verifiedAbsoluteErrorBoundSamples: null,
+          acceptedSampleRates: [44100, 48000],
+          acceptedVectorSizes: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024],
+          timingModes: ["descriptive", "strict"],
+          maxClockDisagreementSamples: 480,
+          maxAudioDurationMs: 30000,
+          maxWindows: 300,
+          abiVersion: 2,
+          reason: "fresh_per_pass_native_validation_required",
+        },
       },
-      ...overrides,
+      ...clientOptions,
     },
   );
 }
@@ -610,7 +626,7 @@ test("v2 cannot fall back to v1 descriptor advertisement or mismatched schema", 
 
 test("v2 admits only bounded coherent prepare geometry and no configuration on arm or cancel", () => {
   const client = descriptiveClient({});
-  client.listener.connectionEpoch = "epoch";
+  client.listener = { ...client.listener, connectionEpoch: "epoch" };
   const failures = [];
   const admitted = [];
   client.authenticated = true;
@@ -659,7 +675,8 @@ test("v2 admits only bounded coherent prepare geometry and no configuration on a
   assert.equal(client.listenerJob, null);
   client.handleListenerControl(valid);
   assert.equal(admitted.length, 1);
-  assert.equal(client.listenerJob, valid);
+  assert.deepEqual(client.listenerJob, valid);
+  assert(Object.isFrozen(client.listenerJob.config.geometry));
   client.handleListenerControl(descriptiveControl(client, "arm"));
   assert.equal(admitted.length, 2);
 });
@@ -669,8 +686,8 @@ test("v2 transport admits both actual-rate geometries, exact tails, maximum dura
     const hop = rate / 10;
     for (const count of [hop, hop + 1, rate * 30]) {
       for (const budget of [0, 1, 64, 128, 480]) {
-        const client = descriptiveClient({});
-        client.listener.connectionEpoch = "epoch";
+        const client = descriptiveClient({}, { sampleRate: rate });
+        client.listener = { ...client.listener, connectionEpoch: "epoch" };
         client.authenticated = true;
         const admitted = [];
         client.onListenerControl = (control) => admitted.push(control);
@@ -686,8 +703,8 @@ test("v2 transport admits both actual-rate geometries, exact tails, maximum dura
         client.handleListenerControl(control);
         assert.equal(admitted.length, 1);
         if (budget === 0) {
-          const strict = descriptiveClient({});
-          strict.listener.connectionEpoch = "epoch";
+          const strict = descriptiveClient({}, { sampleRate: rate });
+          strict.listener = { ...strict.listener, connectionEpoch: "epoch" };
           strict.authenticated = true;
           strict.onListenerControl = (value) => admitted.push(value);
           strict.handleListenerControl({
@@ -704,77 +721,84 @@ test("v2 transport admits both actual-rate geometries, exact tails, maximum dura
   }
 });
 
-test("audio controls preserve trace context, rotate reconnect epochs, and reject stale controls", async () => {
-  const messages = [];
-  const failures = [];
-  let serverSocket;
-  const ingress = await createIngress((message, socket) => {
-    serverSocket = socket;
-    messages.push(message);
-    socket.write(
-      `${JSON.stringify({
-        type: "producer.ack",
-        protocolVersion: 1,
-        requestId: message.requestId,
-        action: message.type === "producer.hello" ? "hello" : "listener",
-        ...(message.type === "producer.hello"
-          ? { connectionId: "audio-connection" }
-          : {}),
-      })}\n`,
+for (const listenerVersion of [1, 2])
+  test(`audio v${listenerVersion} controls preserve trace context, rotate reconnect epochs, and reject stale controls`, async () => {
+    const messages = [];
+    const failures = [];
+    let serverSocket;
+    const ingress = await createIngress((message, socket) => {
+      serverSocket = socket;
+      messages.push(message);
+      socket.write(
+        `${JSON.stringify({
+          type: "producer.ack",
+          protocolVersion: 1,
+          requestId: message.requestId,
+          action: message.type === "producer.hello" ? "hello" : "listener",
+          ...(message.type === "producer.hello"
+            ? { connectionId: "audio-connection" }
+            : {}),
+        })}\n`,
+      );
+    });
+    let client;
+    client = (listenerVersion === 2 ? descriptiveClient : audioClient)(
+      ingress.descriptor,
+      {
+        onListenerFailure: (reason) => failures.push(reason),
+        onListenerControl: (control) =>
+          client.sendListenerReply(control, { status: "ready" }),
+      },
     );
+    client.sendSample({ schema: `audio-observation/v${listenerVersion}` });
+    assert.equal(client.offlineQueue.length, 0);
+    assert.ok(failures.includes("offline_audio_not_replayed"));
+    client.start();
+    await waitFor(() => client.isConnected());
+    const firstEpoch = client.listener.connectionEpoch;
+    const control = {
+      type: "listener.control",
+      protocolVersion: 1,
+      listenerVersion,
+      requestId: "prepare",
+      connectionEpoch: firstEpoch,
+      jobId: "job",
+      passId: "pass",
+      traceId: "trace",
+      correlationId: "correlation",
+      causationId: "causation",
+      action: "prepare",
+      config:
+        listenerVersion === 2
+          ? descriptiveConfig()
+          : {
+              durationMs: 1000,
+              maxWindows: 8,
+              source: { mode: "session", startBeat: 0, endBeat: 2 },
+            },
+    };
+    serverSocket.write(`${JSON.stringify(control)}\n`);
+    const reply = await waitFor(() =>
+      messages.find((message) => message.type === "listener.reply"),
+    );
+    assert.equal(reply.traceId, control.traceId);
+    assert.equal(reply.correlationId, control.correlationId);
+    assert.equal(reply.causationId, control.causationId);
+    assert.equal(reply.sequence, 0);
+    serverSocket.destroy();
+    await waitFor(
+      () =>
+        messages.filter((message) => message.type === "producer.hello")
+          .length === 2 && client.isConnected(),
+    );
+    assert.notEqual(client.listener.connectionEpoch, firstEpoch);
+    assert.equal(client.listenerSequence, 0);
+    assert.equal(client.listenerJob, null);
+    serverSocket.write(`${JSON.stringify(control)}\n`);
+    await waitFor(() => failures.includes("invalid_control"));
+    client.stop();
+    await ingress.close();
   });
-  let client;
-  client = audioClient(ingress.descriptor, {
-    onListenerFailure: (reason) => failures.push(reason),
-    onListenerControl: (control) =>
-      client.sendListenerReply(control, { status: "ready" }),
-  });
-  client.sendSample({ schema: "audio-observation/v1" });
-  assert.equal(client.offlineQueue.length, 0);
-  assert.ok(failures.includes("offline_audio_not_replayed"));
-  client.start();
-  await waitFor(() => client.isConnected());
-  const firstEpoch = client.listener.connectionEpoch;
-  const control = {
-    type: "listener.control",
-    protocolVersion: 1,
-    listenerVersion: 1,
-    requestId: "prepare",
-    connectionEpoch: firstEpoch,
-    jobId: "job",
-    passId: "pass",
-    traceId: "trace",
-    correlationId: "correlation",
-    causationId: "causation",
-    action: "prepare",
-    config: {
-      durationMs: 1000,
-      maxWindows: 8,
-      source: { mode: "session", startBeat: 0, endBeat: 2 },
-    },
-  };
-  serverSocket.write(`${JSON.stringify(control)}\n`);
-  const reply = await waitFor(() =>
-    messages.find((message) => message.type === "listener.reply"),
-  );
-  assert.equal(reply.traceId, control.traceId);
-  assert.equal(reply.correlationId, control.correlationId);
-  assert.equal(reply.causationId, control.causationId);
-  assert.equal(reply.sequence, 0);
-  serverSocket.destroy();
-  await waitFor(
-    () =>
-      messages.filter((message) => message.type === "producer.hello").length ===
-        2 && client.isConnected(),
-  );
-  assert.notEqual(client.listener.connectionEpoch, firstEpoch);
-  assert.equal(client.listenerSequence, 0);
-  assert.equal(client.listenerJob, null);
-  serverSocket.write(`${JSON.stringify(control)}\n`);
-  await waitFor(() => failures.includes("invalid_control"));
-  client.stop();
-  await ingress.close();
-});
 
 test("audio backpressure is an explicit failure rather than lossy offline coalescing", () => {
   const failures = [];

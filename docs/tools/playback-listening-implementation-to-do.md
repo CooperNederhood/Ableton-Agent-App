@@ -731,6 +731,14 @@ checkpoint above. The production timing gate is unchanged.
   offsets -1/0/0 across prior/rejected/following rows. No data is admitted after
   the fault; failure is forced within 100 ms. Preserve this separate unknown
   exact-binding case without changing production tolerance or acceptance.
+- [x] Obtain explicit approval for an uncertainty-aware proof prototype with
+  publication still gated. Add an unpackaged conditional interval analyzer,
+  explicit assumed acquisition bounds, one shared 64-sample error budget and
+  regressions proving it cannot become a current arm proof or capture authority.
+- [ ] Independently measure physical acquisition bounds and compose host,
+  native-onset and FFT uncertainty before designing the versioned replacement
+  proof. Add traced lifecycle, protocol/runtime and real-Live failure coverage
+  before any activation; never promote a conditional arithmetic result.
 - [ ] Finish current-source and immutable-candidate cold-run qualification.
   Later clock-continuity/pre-arm failures remain unresolved and safely publish
   nothing. Do not turn a successful source-override diagnostic into standard

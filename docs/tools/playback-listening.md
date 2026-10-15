@@ -1623,6 +1623,30 @@ published nothing. This shows another unresolved exact-binding case, not its
 physical cause or a tolerance decision. The same failure fixture preserves the
 runtime instrumentation separately; no production offset guard is loosened.
 
+The operator then explicitly approved prototyping a bounded timing proof while
+keeping publication gated. The first development-only implementation,
+`native-clock-interval-prototype.mjs`, intersects conditional offset intervals
+from structurally coherent stopped observations. Acquisition error is an
+explicit **assumption**, not a measured guarantee or certificate. Independent
+timing error and offset uncertainty share one total 64-sample budget; they do
+not receive 64 samples each. Inconsistent intervals, malformed/torn/moving
+rows, regressions, changed holds, stale observations and invalid scope fail.
+
+This analyzer accepts bounded pairs/sets for research, not a runtime binding:
+every result is frozen, `authority: none`, `physicallyValidated: false` and
+`captureEligible: false`; the current arm-proof schema rejects it. It is absent
+from shipping and candidate resource lists and does not alter ingress, tools,
+SDK capture, stored observations or the existing exact-clock verifier.
+Recorded fault pairs exercise the arithmetic. Combining their much older
+preflight rows with those faults is correctly rejected as stale rather than
+pretending to have a fresh 32-row cohort.
+
+Before any proposed replacement can authorize capture, independently establish
+the physical acquisition-error bounds, define the composed host/onset/FFT timing
+budget, review a versioned wire/proof contract, and validate complete actual
+captures plus failure/cancellation and trace coverage. Historical v1 failures
+remain failures, with no retroactive conversion to bounded-proof acceptance.
+
 Real runs also exposed a quit/exit race. Failed-quit fallback now first checks
 for an already exited exact owned PID, revalidates birth/executable identity
 before each signal and tolerates only an `ESRCH` exit during that signal.

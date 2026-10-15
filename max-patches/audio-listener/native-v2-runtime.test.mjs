@@ -430,6 +430,204 @@ test("v2 ABI0 failed arm retains ownership until the exact stop receipt before i
   }
 });
 
+test("v2 spectrum failure numeric diagnostic survives deferred arm reply, timeout and post-armed failed result", async () => {
+  for (const phase of ["preflight", "capturing"])
+    for (const confirmed of [true, false]) {
+      const f = fixture();
+      try {
+        if (phase === "capturing") await f.start();
+        else f.dispatch("prepare");
+        const pending = phase === "preflight" ? f.dispatch("arm") : null;
+        const p = f.runtime.nativeController.pass;
+        const debug = [17, 2048, 0.125, 123.5, -0.25];
+        const packet = [64000, 24001, 1, 61952, 64000, 0];
+        f.handlers.native(p.generation, "spectrum-diagnostics", ...debug);
+        f.handlers.native(p.generation, "spectrum", ...packet);
+        await pending;
+        if (phase === "preflight")
+          assert.equal(
+            f.wire.some((frame) => frame.status === "failed"),
+            false,
+          );
+        if (confirmed) f.stopReceipt(p.generation);
+        else {
+          f.time(1000);
+          f.timers[0]();
+        }
+        const failures = f.wire.filter((frame) => frame.status === "failed");
+        assert.equal(
+          failures.length,
+          1,
+          JSON.stringify({
+            phase,
+            confirmed,
+            wire: f.wire,
+            outputs: f.outputs.slice(-5),
+          }),
+        );
+        const failed = failures[0];
+        assert.equal(
+          failed.type,
+          phase === "preflight" ? "listener.reply" : "listener.result",
+        );
+        assert.deepEqual(
+          failed.nativeFailureDiagnostic,
+          p.nativeFailureDiagnostic,
+        );
+        assert.deepEqual(failed.nativeFailureDiagnostic.packet, packet);
+        assert.deepEqual(failed.nativeFailureDiagnostic.fftDiagnostics, debug);
+        assert.equal(failed.nativeFailureDiagnostic.check, "centroid");
+        assert.equal(failed.nativeFailureDiagnostic.generation, p.generation);
+        assert.deepEqual(
+          failed.nativeFailureDiagnostic.metadata,
+          phase === "preflight"
+            ? {
+                dsp: null,
+                fftInfo: null,
+                clockAbi: null,
+                envelopeAbi: null,
+                spectrumAbi: null,
+              }
+            : {
+                dsp: [1, 48000, 64],
+                fftInfo: [2048, 2048, 2048, 1],
+                clockAbi: 2,
+                envelopeAbi: 2,
+                spectrumAbi: 2,
+              },
+        );
+        if (!confirmed && phase === "preflight")
+          assert(
+            failed.reason.endsWith("_native_stop_ack_timeout_unconfirmed"),
+          );
+        for (const key of [
+          "traceId",
+          "correlationId",
+          "passId",
+          "connectionEpoch",
+        ])
+          assert.equal(failed[key], f.command[key]);
+        assert(Buffer.byteLength(JSON.stringify(failed), "utf8") < 128 * 1024);
+        assert(
+          f.wire
+            .filter((frame) => frame.status !== "failed")
+            .every((frame) => frame.nativeFailureDiagnostic === undefined),
+        );
+        f.stopReceipt(p.generation);
+        assert.equal(
+          f.wire.filter((frame) => frame.status === "failed").length,
+          1,
+        );
+      } finally {
+        f.runtime.stop();
+      }
+    }
+});
+
+test("v2 diagnostic stays generation-owned through cancel, replacement, shutdown and pass identifier reuse", async () => {
+  for (const mode of [
+    "cancel",
+    "cancel-failure",
+    "identity",
+    "epoch",
+    "disconnect",
+    "stop",
+    "reuse",
+  ]) {
+    const f = fixture();
+    try {
+      f.dispatch("prepare");
+      const pending = f.dispatch("arm");
+      const p = f.runtime.nativeController.pass;
+      f.handlers.native(p.generation, "spectrum-diagnostics", 1, 2, 3, 4, 5);
+      if (mode === "cancel") await f.dispatch("cancel");
+      else
+        f.handlers.native(
+          p.generation,
+          "spectrum",
+          64000,
+          24001,
+          1,
+          61952,
+          64000,
+          0,
+        );
+      await pending;
+      if (mode === "cancel-failure") await f.dispatch("cancel");
+      if (mode === "identity")
+        f.handlers.identity(
+          JSON.stringify({
+            canonicalPath: "live_set tracks 1 devices 0",
+            track: { id: "3", name: "replacement" },
+            device: { id: "4", name: "Audio-Listener" },
+          }),
+        );
+      if (mode === "epoch") {
+        f.runtime.client.listener.connectionEpoch = "replacement-epoch";
+        f.runtime.refreshRegistration();
+      }
+      if (mode === "disconnect")
+        f.runtime.client.options.onStatus("live", "disconnected");
+      if (mode === "stop") f.runtime.stop();
+      f.stopReceipt(p.generation);
+      if (mode === "cancel")
+        assert(
+          f.wire.every((frame) => frame.nativeFailureDiagnostic === undefined),
+        );
+      if (["identity", "epoch", "disconnect", "stop"].includes(mode))
+        assert.equal(
+          f.wire.some((frame) => frame.status === "failed"),
+          false,
+        );
+      if (mode === "cancel-failure") {
+        const failed = f.wire.filter((frame) => frame.status === "failed");
+        assert.equal(failed.length, 1);
+        assert.deepEqual(
+          failed[0].nativeFailureDiagnostic,
+          p.nativeFailureDiagnostic,
+        );
+        assert.equal(
+          f.wire.some((frame) => frame.status === "cancelled"),
+          false,
+        );
+      }
+      if (mode === "reuse") {
+        f.dispatch("prepare");
+        const nextArm = f.dispatch("arm");
+        const next = f.runtime.nativeController.pass;
+        f.handlers.native(p.generation, "spectrum-diagnostics", 9, 9, 9, 9, 9);
+        f.handlers.native(
+          next.generation,
+          "spectrum",
+          64000,
+          -1,
+          1,
+          61952,
+          64000,
+          0,
+        );
+        await nextArm;
+        f.stopReceipt(p.generation);
+        assert.equal(
+          f.wire.filter((frame) => frame.status === "failed").length,
+          1,
+        );
+        f.stopReceipt(next.generation);
+        const failure = f.wire
+          .filter((frame) => frame.status === "failed")
+          .at(-1);
+        assert.equal(
+          failure.nativeFailureDiagnostic.generation,
+          next.generation,
+        );
+        assert.equal(failure.nativeFailureDiagnostic.fftDiagnostics, null);
+      }
+    } finally {
+      f.runtime.stop();
+    }
+  }
+});
+
 test("v2 failed-arm timeout preserves the primary failure and explicitly reports unconfirmed cleanup", async () => {
   const f = fixture();
   try {

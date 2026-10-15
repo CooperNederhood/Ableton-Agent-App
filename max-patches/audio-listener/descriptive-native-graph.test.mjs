@@ -97,6 +97,100 @@ test("all actual emitted v2 codeboxes put declarations before expressions", () =
     );
 });
 
+test("v2 spectrum diagnostics tap all five existing Gen fields and publish before main frame snapshots", () => {
+  const documents = nativeRuntimeDocuments({ nativeVersion: 2 });
+  const fft = documents["audio_listener_native_fft.maxpat"].patcher;
+  const objects = new Map(fft.boxes.map(({ box }) => [box.id, box]));
+  const has = (patcher, source, outlet, destination, inlet = 0) =>
+    patcher.lines.some(
+      ({ patchline: p }) =>
+        p.source[0] === source &&
+        p.source[1] === outlet &&
+        p.destination[0] === destination &&
+        p.destination[1] === inlet,
+    );
+  const diagnostic = objects.get("spectrumDiagnostics");
+  assert.ok(diagnostic, "v2 needs passive spectrum diagnostic taps");
+  assert.equal(diagnostic.numinlets, 6);
+  assert.equal(diagnostic.numoutlets, 1);
+  assert.equal(objects.get("infoOrder").text, "trigger b b b b b");
+  assert.equal(objects.get("infoOrder").numoutlets, 5);
+  // Right to left: fftinfo, fft_info, ABI, diagnostics, main frame snapshots.
+  for (const [outlet, target, inlet] of [
+    [4, "info", 0],
+    [3, "infoPack", 0],
+    [2, "nativeABI", 0],
+    [1, "spectrumDiagnostics", 5],
+    [0, "poll", 0],
+  ])
+    assert.ok(has(fft, "infoOrder", outlet, target, inlet));
+  assert.ok(has(fft, "spectrumDiagnostics", 0, "nativeIO"));
+  assert.equal(
+    fft.lines.filter(
+      ({ patchline }) => patchline.source[0] === "spectrumDiagnostics",
+    ).length,
+    1,
+  );
+  assert.equal(objects.get("energy").numoutlets, 11);
+  assert.ok(has(fft, "energy", 10, "nativeABI"));
+  assert.ok(has(fft, "pack", 0, "nativeIO"));
+  assert.equal(
+    objects.get("pack").text,
+    "pack spectrum_frame 0.125 0.125 0.125 0.125 0.125 0",
+  );
+  assert.equal(objects.get("pack").numinlets, 7);
+  const subpatch = diagnostic.patcher;
+  const taps = new Map(subpatch.boxes.map(({ box }) => [box.id, box]));
+  assert.equal(taps.get("poll").text, "trigger b b b b b b");
+  assert.equal(taps.get("poll").numoutlets, 6);
+  assert.equal(
+    taps.get("pack").text,
+    "pack spectrum_diagnostics 0.125 0.125 0.125 0.125 0.125",
+  );
+  assert.equal(taps.get("pack").numinlets, 6);
+  assert.equal(taps.get("command").maxclass, "inlet");
+  assert.equal(taps.get("out").maxclass, "outlet");
+  assert.ok(has(subpatch, "command", 0, "poll"));
+  assert.ok(has(subpatch, "poll", 0, "pack"));
+  assert.ok(has(subpatch, "pack", 0, "out"));
+  for (let index = 0; index < 5; index++) {
+    assert.ok(has(fft, "energy", 5 + index, "spectrumDiagnostics", index));
+    assert.equal(taps.get(`input${index}`).maxclass, "inlet");
+    assert.equal(taps.get(`input${index}`).numinlets, 0);
+    assert.deepEqual(taps.get(`input${index}`).outlettype, ["signal"]);
+    assert.equal(taps.get(`input${index}`).patching_rect[0], 10 + index * 150);
+    assert.ok(
+      taps.get(`input${index}`).patching_rect[0] <
+        taps.get("command").patching_rect[0],
+    );
+    assert.equal(taps.get(`snapshot${index}`).text, "snapshot~ @offset 0");
+    assert.equal(taps.get(`snapshot${index}`).numinlets, 2);
+    assert.ok(has(subpatch, `input${index}`, 0, `snapshot${index}`));
+    assert.ok(has(subpatch, "poll", 5 - index, `snapshot${index}`));
+    assert.ok(has(subpatch, `snapshot${index}`, 0, "pack", index + 1));
+  }
+  for (const { box } of subpatch.boxes)
+    assert.ok(
+      box.patching_rect[0] + box.patching_rect[2] <= 800 &&
+        box.patching_rect[1] + box.patching_rect[3] <= 380,
+    );
+
+  const legacy = nativeRuntimeDocuments();
+  assert.equal(
+    createHash("sha256").update(JSON.stringify(legacy)).digest("hex"),
+    "d102081c366e48f040661f4d08d0ae8c597f8549ee0493a341c3f0fd2fe4473e",
+  );
+  assert.deepEqual(nativeRuntimeDocuments({ nativeVersion: 1 }), legacy);
+  assert.equal(JSON.stringify(legacy).includes("spectrum_diagnostics"), false);
+  // Only FFT message/tap wiring changes, never the signal programs or other
+  // resources. Separate snapshot~ reads are NOT a vector-atomic certificate.
+  assert.equal(
+    documents["audio_listener_native_spectrum.gendsp"].patcher.boxes[0].box
+      .code,
+    `${descriptiveSpectrumCode()}\nout11 = 2;`,
+  );
+});
+
 test("v2 auxiliary configuration metadata snapshots the same capture Gen through envelope-owned IO only", () => {
   const documents = nativeRuntimeDocuments({ nativeVersion: 2 });
   for (const [resource, id, mode] of [

@@ -5,16 +5,240 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { URL } from "node:url";
+import { runInNewContext } from "node:vm";
 const { assertNativeCaptureObservationV2, nativeArmProofV2Schema } =
   await import("../../packages/protocol/src/native-listening-v2-schemas.ts");
 const require = createRequire(import.meta.url);
 const { v2Fixture, V2_OWNER } = require("./native-v2-fixture.cjs");
 const { NativeMessageIO } = require("./audio_listener_native_io.js");
 const {
+  NativeCaptureController,
+} = require("./audio_listener_native_controller.js");
+const {
   nativeV2Configuration,
 } = require("./audio_listener_native_coordinates.js");
+const { nativeFailureDiagnosticV2Schema } =
+  await import("../../packages/signal-routing/src/listener-v2-contracts.ts");
 const TEMPO_LIMITATION =
   "Constant tempo is assumed; stability is not independently verified; tempo automation is unsupported.";
+
+test("v2 spectrum rejection freezes exact numeric input, latest non-authority debug and actually received metadata", async () => {
+  for (const [check, patch] of [
+    ["end", { 0: 0 }],
+    ["start", { 3: -1 }],
+    ["frame", { 4: 0 }],
+    ["centroid", { 1: 24001 }],
+    ["energy", { 2: -1 }],
+    ["silence_centroid", { 1: 1, 2: 0 }],
+    ["invalid_frames", { 5: -1 }],
+    ["bracket", { 0: 64001 }],
+  ]) {
+    const f = v2Fixture();
+    f.controller.prepare(f.command);
+    const p = f.controller.pass;
+    const pending = f.controller.arm(V2_OWNER).catch((error) => error);
+    f.packet("dsp", [1, 48000, 64]);
+    f.packet("abi-clock", [2]);
+    f.packet("spectrum-diagnostics", [0, 1, 2, 3, 4]);
+    const debug = [5, -2, 0.5, Number.MAX_VALUE, 8];
+    f.packet("spectrum-diagnostics", debug);
+    assert.equal(f.controller.state, "preflight");
+    assert.equal(
+      f.sent.some((packet) => packet.action === "arm"),
+      false,
+    );
+    const values = Object.assign([64000, 1000, 1, 61952, 64000, 0], patch);
+    const expected = [...values];
+    f.packet("spectrum", values);
+    const error = await pending;
+    assert.match(
+      error.message,
+      new RegExp(`^invalid_native_spectrum_packet_${check}_`),
+    );
+    const diagnostic = p.nativeFailureDiagnostic;
+    nativeFailureDiagnosticV2Schema.parse(diagnostic);
+    assert.deepEqual(diagnostic, {
+      scope: "native-spectrum-rejection/v1",
+      generation: p.generation,
+      check,
+      packet: expected,
+      fftDiagnostics: debug,
+      metadata: {
+        dsp: [1, 48000, 64],
+        fftInfo: null,
+        clockAbi: 2,
+        envelopeAbi: null,
+        spectrumAbi: null,
+      },
+    });
+    assert(Object.isFrozen(diagnostic));
+    assert(Object.isFrozen(diagnostic.packet));
+    assert(Object.isFrozen(diagnostic.fftDiagnostics));
+    assert(Object.isFrozen(diagnostic.metadata));
+    assert(Object.isFrozen(diagnostic.metadata.dsp));
+    values[0] = 777;
+    debug[0] = 999;
+    assert.deepEqual(diagnostic.packet, expected);
+    assert.equal(diagnostic.fftDiagnostics[0], 5);
+    assert.deepEqual(p.metadata, {});
+    assert.equal(p.spectrumDiagnostics, null);
+    f.packet("stopped", [0, 0, 2], p.generation);
+  }
+});
+
+test("actual Max-JS spectrum_diagnostics handler forwards five finite values without fabricating missing metadata", async () => {
+  const f = v2Fixture();
+  f.controller.prepare(f.command);
+  const p = f.controller.pass;
+  const pending = f.controller.arm(V2_OWNER).catch((error) => error);
+  const wire = [];
+  const context = {
+    jsarguments: ["audio_listener_native_io.js", "spectrum", 2],
+    arrayfromargs: (args) => Array.from(args),
+    post() {},
+    outlet: (port, values) => {
+      if (port !== 0) return;
+      const packet = Array.from(values);
+      wire.push(packet);
+      f.packet(packet[2], packet.slice(3), packet[1]);
+    },
+  };
+  runInNewContext(
+    await readFile(
+      new URL("./audio_listener_native_io.js", import.meta.url),
+      "utf8",
+    ),
+    context,
+  );
+  context.begin(p.generation);
+  const debug = [1, 2048, Number.MAX_VALUE, 0, -0.25];
+  context.spectrum_diagnostics(...debug);
+  assert.deepEqual(wire[0], [
+    "native",
+    p.generation,
+    "spectrum-diagnostics",
+    ...debug,
+  ]);
+  context.spectrum_frame(64000, 24001, 1, 61952, 64000, 0);
+  await pending;
+  assert.deepEqual(p.nativeFailureDiagnostic.fftDiagnostics, debug);
+  assert.deepEqual(p.nativeFailureDiagnostic.metadata, {
+    dsp: null,
+    fftInfo: null,
+    clockAbi: null,
+    envelopeAbi: null,
+    spectrumAbi: null,
+  });
+  context.stop(p.generation);
+  f.packet("stopped", [0, 0, 2], p.generation);
+});
+
+test("v2 malformed debug fails boundedly and stale debug cannot replace a new owner's missing diagnostics", async () => {
+  for (const values of [
+    [1, 2],
+    [1, 2, 3, 4, NaN],
+    [1, 2, 3, 4, Infinity],
+  ]) {
+    const f = v2Fixture();
+    f.controller.prepare(f.command);
+    const p = f.controller.pass;
+    const pending = f.controller.arm(V2_OWNER).catch((error) => error);
+    f.packet("spectrum-diagnostics", values);
+    assert.equal((await pending).message, "invalid_native_io_packet");
+    assert.equal(p.nativeFailureDiagnostic, null);
+    f.packet("stopped", [0, 0, 2], p.generation);
+  }
+  const f = v2Fixture();
+  f.controller.prepare(f.command);
+  const first = f.controller.pass;
+  const cancelled = f.controller.arm(V2_OWNER).catch((error) => error);
+  f.packet("spectrum-diagnostics", [1, 2, 3, 4, 5]);
+  f.controller.cancel(V2_OWNER);
+  await cancelled;
+  assert.equal(first.nativeFailureDiagnostic, null);
+  f.packet("stopped", [0, 0, 2], first.generation);
+  f.controller.prepare(f.command);
+  const next = f.controller.pass;
+  const pending = f.controller.arm(V2_OWNER).catch((error) => error);
+  assert.equal(
+    f.packet("spectrum-diagnostics", [9, 9, 9, 9, 9], first.generation),
+    false,
+  );
+  f.packet("spectrum", [64000, -1, 1, 61952, 64000, 0]);
+  await pending;
+  assert.equal(next.nativeFailureDiagnostic.generation, next.generation);
+  assert.equal(next.nativeFailureDiagnostic.fftDiagnostics, null);
+  f.packet("stopped", [0, 0, 2], next.generation);
+});
+
+test("spectrum debug IO rejects malformed values once per generation and never loosens main packet guards", () => {
+  const generation = "a0f16f9f-a7cb-4dcf-8845-b4adef11a021";
+  const wire = [];
+  const io = new NativeMessageIO(
+    "spectrum",
+    (packet) => wire.push(packet),
+    () => {},
+    () => {},
+    2,
+  );
+  assert.equal(io.spectrumDiagnostics([1, 2, 3, 4, 5]), false);
+  io.begin(generation);
+  for (const values of [
+    [1],
+    [1, 2, 3, 4, NaN],
+    [1, 2, 3, 4, Infinity],
+    [1, 2, 3, 4, "5"],
+  ])
+    assert.equal(io.spectrumDiagnostics(values), false);
+  assert.deepEqual(wire, [["native", generation, "ioError", 1]]);
+  assert.equal(io.spectrumDiagnostics([1, 2, 3, 4, Number.MAX_VALUE]), true);
+  assert.equal(
+    io.packet("spectrum", [64000, 0, Number.MAX_VALUE, 61952, 64000, 0], 6),
+    false,
+  );
+  assert.equal(wire.filter((packet) => packet[2] === "spectrum").length, 0);
+  io.stop(generation);
+  io.release(generation);
+  assert.equal(io.spectrumDiagnostics([1, 2, 3, 4, 5]), false);
+  assert.equal(wire.filter((packet) => packet[2] === "ioError").length, 1);
+});
+
+test("default v1 spectrum failure preserves reason and has no numeric diagnostic fields", async () => {
+  const controller = new NativeCaptureController({
+    listenerId: "v1-listener",
+    send: () => true,
+    onArmed: () => true,
+  });
+  controller.prepare({
+    ...V2_OWNER,
+    traceId: "v1-trace",
+    correlationId: "v1-correlation",
+    causationId: "v1-root",
+    mode: "arrangement",
+    startBeat: 0,
+    endBeat: 4,
+  });
+  const p = controller.pass;
+  const pending = controller.arm(V2_OWNER).catch((error) => error);
+  controller.ingest({
+    generation: p.generation,
+    type: "spectrum",
+    values: [64000, -1, 1, 61952, 64000, 0],
+  });
+  assert.equal((await pending).message, "invalid_native_spectrum_packet");
+  assert.equal(Object.hasOwn(p, "nativeFailureDiagnostic"), false);
+  assert.equal(Object.hasOwn(p, "spectrumDiagnostics"), false);
+  const wire = [];
+  const io = new NativeMessageIO(
+    "spectrum",
+    (packet) => wire.push(packet),
+    () => {},
+    () => {},
+  );
+  io.begin(p.generation);
+  assert.equal(io.spectrumDiagnostics([1, 2, 3, 4, 5]), false);
+  assert.deepEqual(wire, [["native", p.generation, "ioError", 1]]);
+});
 
 test("recorded real v2 zero-spectrum ABI failure replays as a denial, never native capture authority", async () => {
   const recorded = JSON.parse(

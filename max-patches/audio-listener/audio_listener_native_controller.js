@@ -29,7 +29,11 @@ const LENGTHS = Object.freeze({
   envelope: 16,
   ioError: 1,
 });
-const LENGTHS_V2 = Object.freeze({ ...LENGTHS, config: 7 });
+const LENGTHS_V2 = Object.freeze({
+  ...LENGTHS,
+  config: 7,
+  "spectrum-diagnostics": 5,
+});
 const RESET_KEYS = [
   "launchClock",
   "sourceClock",
@@ -236,7 +240,14 @@ class NativeCaptureController {
       resolve: null,
       reject: null,
       ...(this.nativeVersion === 2
-        ? { timingWitnesses: {}, envelopeWindows: [], tempoEvidence: null }
+        ? {
+            timingWitnesses: {},
+            envelopeWindows: [],
+            tempoEvidence: null,
+            spectrumDiagnostics: null,
+            nativeFailureDiagnostic: null,
+            nativeFailureReason: null,
+          }
         : {}),
     };
     this.state = "prepared";
@@ -345,7 +356,10 @@ class NativeCaptureController {
       if (type === "ioError") throw new Error("native_io_packet_failed");
       if (type === "clock") this.clock(p, v);
       else if (type === "spectrum") this.spectrum(p, v);
-      else if (type === "envelope") this.envelope(p, v);
+      else if (type === "spectrum-diagnostics") {
+        p.spectrumDiagnostics = frozen(v);
+        return true;
+      } else if (type === "envelope") this.envelope(p, v);
       else this.metadata(p, type, v);
       if (this.pass !== p) return false;
       if (this.state === "preflight") this.tryPreflight(p);
@@ -640,6 +654,28 @@ class NativeCaptureController {
     return `invalid_native_spectrum_packet_${field}_e${end}_s${start}_f${frame}_b${bad}`;
   }
 
+  spectrumPacketError(p, v, check) {
+    const reason = this.spectrumPacketReason(v, check);
+    if (this.nativeVersion === 2 && !p.nativeFailureDiagnostic) {
+      p.nativeFailureDiagnostic = frozen({
+        scope: "native-spectrum-rejection/v1",
+        generation: p.generation,
+        check,
+        packet: v,
+        fftDiagnostics: p.spectrumDiagnostics,
+        metadata: {
+          dsp: p.metadata.dsp?.values ?? null,
+          fftInfo: p.metadata.fftInfo?.values ?? null,
+          clockAbi: p.metadata["abi-clock"]?.values[0] ?? null,
+          envelopeAbi: p.metadata["abi-envelope"]?.values[0] ?? null,
+          spectrumAbi: p.metadata["abi-spectrum"]?.values[0] ?? null,
+        },
+      });
+      p.nativeFailureReason = reason;
+    }
+    return new Error(reason);
+  }
+
   spectrum(p, v) {
     const invalidField = [
       ["end", !integer(v[0], 2048, 2 ** 44 - 1)],
@@ -653,8 +689,7 @@ class NativeCaptureController {
       ["silence_centroid", v[2] <= 1e-20 && v[1] !== 0],
       ["invalid_frames", !integer(v[5])],
     ].find(([, invalid]) => invalid)?.[0];
-    if (invalidField)
-      throw new Error(this.spectrumPacketReason(v, invalidField));
+    if (invalidField) throw this.spectrumPacketError(p, v, invalidField);
     const previous = p.spectrum;
     if (v[0] !== v[4] || v[0] - v[3] !== 2048) {
       if (
@@ -668,7 +703,7 @@ class NativeCaptureController {
         v[5] === previous[5]
       )
         return this.rejectBracket(p, "torn_native_spectrum");
-      throw new Error(this.spectrumPacketReason(v, "bracket"));
+      throw this.spectrumPacketError(p, v, "bracket");
     }
     if (
       previous &&
@@ -1047,6 +1082,17 @@ class NativeCaptureController {
         )
           event = { ...event, nativeLaunch: p.launched };
         if (
+          this.nativeVersion === 2 &&
+          event.type === "terminal" &&
+          event.status === "failed" &&
+          event.reason === p.nativeFailureReason &&
+          p.nativeFailureDiagnostic
+        )
+          event = {
+            ...event,
+            nativeFailureDiagnostic: p.nativeFailureDiagnostic,
+          };
+        if (
           callback(
             () => this.emit(frozen(event)),
             "native_result_publication_failed",
@@ -1172,7 +1218,10 @@ class NativeCaptureController {
     p.configurationReceipt = p.pendingArmAck = null;
     if (p.envelopeWindows) p.envelopeWindows.length = 0;
     if (p.timingWitnesses) p.timingWitnesses = {};
-    if (this.nativeVersion === 2) p.tempoEvidence = null;
+    if (this.nativeVersion === 2) {
+      p.tempoEvidence = null;
+      p.spectrumDiagnostics = null;
+    }
     p.before = p.after = p.armed = p.launched = p.spectralWindows = null;
   }
 

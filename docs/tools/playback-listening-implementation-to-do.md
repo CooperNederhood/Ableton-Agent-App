@@ -149,11 +149,16 @@ detected-tempo and timing/integrity guards stay in place.
   shared SDK/typed ingress and existing attributed failed History event.
   Fail-before contract/SDK coverage plus authenticated retention and malformed
   input/credential denial cover this non-authority data path.
-- [ ] Finish generation-owned controller/IO retention of actual rejected packet
+- [x] Finish generation-owned controller/IO retention of actual rejected packet
   and five existing FFT diagnostics, with honest nulls for unavailable data;
   never use diagnostics to relax validation or fabricate a native receipt.
-- [ ] Finish v2-only passive FFT diagnostic taps and snapshot ordering; retain
+  Cover frozen failure snapshots, missing metadata, malformed debug values,
+  pre-arm/active failure, stop timeout, stale owner and pass reuse. Native
+  diagnostic delivery remains subject to the next actual fixture load.
+- [x] Finish v2-only passive FFT diagnostic taps and snapshot ordering; retain
   frozen v1 graph bytes and avoid claiming atomicity across separate taps.
+  Offline regression confirms FFT metadata, ABI, five diagnostic taps, then main
+  spectrum ordering. Actual new native load/message delivery remains unverified.
 - [ ] Build and normally save a fresh immutable diagnostic fixture, then retain
   the actual first rejected numbers and compiler/metadata context.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size

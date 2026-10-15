@@ -70,6 +70,21 @@ NativeMessageIO.prototype.packet = function (type, values, length) {
   this.send(["native", this.generation, type].concat(values));
   return true;
 };
+NativeMessageIO.prototype.spectrumDiagnostics = function (values) {
+  if (!this.generation) return false;
+  if (
+    this.nativeVersion !== 2 ||
+    this.mode !== "spectrum" ||
+    values.length !== 5
+  )
+    return this.fail();
+  for (var i = 0; i < values.length; i++) {
+    if (typeof values[i] !== "number" || !isFinite(values[i]))
+      return this.fail();
+  }
+  this.send(["native", this.generation, "spectrum-diagnostics"].concat(values));
+  return true;
+};
 NativeMessageIO.prototype.begin = function (generation) {
   if (this.nativeVersion === 2 && this.generation) {
     if (generation !== this.generation && !this.staleReported)
@@ -339,6 +354,9 @@ function fft_info() {
 }
 function spectrum_frame() {
   return nativeIO.packet("spectrum", arrayfromargs(arguments), 6);
+}
+function spectrum_diagnostics() {
+  return nativeIO.spectrumDiagnostics(arrayfromargs(arguments));
 }
 function envelope_frame() {
   return nativeIO.envelope(arrayfromargs(arguments));

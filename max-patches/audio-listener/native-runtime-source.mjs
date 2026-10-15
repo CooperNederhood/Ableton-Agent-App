@@ -66,6 +66,58 @@ function replaceResources(document, resource) {
       box.text = box.text?.replace(resource(before), resource(after));
 }
 
+// Passive taps of existing Gen outputs 6..10: lastBadStart, lastBadBin,
+// lastBadActual, lastBadExpected, lastBadGuards. Explicit scheduler ordering
+// fills all cold pack inlets before emitting. Separate signal snapshots are
+// NOT vector-atomic and this packet supplies no capture/admission authority.
+function spectrumDiagnosticsPatcher() {
+  const document = {
+    patcher: {
+      fileversion: 1,
+      classnamespace: "box",
+      rect: [0, 0, 800, 380],
+      boxes: [],
+      lines: [],
+    },
+  };
+  add(document, "command", "", 0);
+  box(document, "command").maxclass = "inlet";
+  box(document, "command").patching_rect = [760, 10, 25, 25];
+  add(document, "poll", "trigger b b b b b b", 1, 6);
+  box(document, "poll").patching_rect = [100, 130, 180, 22];
+  add(
+    document,
+    "pack",
+    "pack spectrum_diagnostics 0.125 0.125 0.125 0.125 0.125",
+    6,
+  );
+  box(document, "pack").patching_rect = [10, 180, 460, 22];
+  add(document, "out", "", 1, 0);
+  box(document, "out").maxclass = "outlet";
+  box(document, "out").patching_rect = [10, 230, 50, 22];
+  document.patcher.lines.push(
+    wire("command", 0, "poll"),
+    wire("poll", 0, "pack"),
+    wire("pack", 0, "out"),
+  );
+  for (let index = 0; index < 5; index++) {
+    const input = `input${index}`;
+    const snapshot = `snapshot${index}`;
+    add(document, input, "", 0);
+    box(document, input).maxclass = "inlet";
+    box(document, input).outlettype = ["signal"];
+    box(document, input).patching_rect = [10 + index * 150, 10, 25, 25];
+    add(document, snapshot, "snapshot~ @offset 0", 2);
+    box(document, snapshot).patching_rect = [10 + index * 150, 70, 130, 22];
+    document.patcher.lines.push(
+      wire(input, 0, snapshot),
+      wire("poll", 5 - index, snapshot),
+      wire(snapshot, 0, "pack", index + 1),
+    );
+  }
+  return document.patcher;
+}
+
 // A separate message cohort. The v2 analysis graph routes it through its own
 // generation-owned envelope IO, never through the root broadcast. Both bookend
 // epochs come from the SAME capture Gen evaluation.
@@ -424,6 +476,27 @@ export function nativeRuntimeDocuments({
       [fft, "nativeIO"],
     ])
       box(document, id).text += " 2";
+
+    // Finish diagnostic reads/publication before beginning the main spectrum
+    // snapshots. Retain fft_info and ABI ordering and the six-value frame ABI.
+    box(fft, "infoOrder").text = "trigger b b b b b";
+    box(fft, "infoOrder").numoutlets = 5;
+    box(fft, "infoOrder").patching_rect[2] = 110;
+    for (const { patchline } of fft.patcher.lines)
+      if (patchline.source[0] === "infoOrder" && patchline.source[1] > 0)
+        patchline.source[1] += 1;
+    add(fft, "spectrumDiagnostics", "p native-spectrum-diagnostics", 6);
+    box(fft, "spectrumDiagnostics").patching_rect = [300, 305, 310, 22];
+    box(fft, "spectrumDiagnostics").patcher = spectrumDiagnosticsPatcher();
+    fft.patcher.lines.push(
+      wire("infoOrder", 1, "spectrumDiagnostics", 5),
+      wire("spectrumDiagnostics", 0, "nativeIO"),
+    );
+    for (let index = 0; index < 5; index++)
+      fft.patcher.lines.push(
+        wire("energy", 5 + index, "spectrumDiagnostics", index),
+      );
+
     box(analysis, "gen").numoutlets = 23;
     add(
       analysis,

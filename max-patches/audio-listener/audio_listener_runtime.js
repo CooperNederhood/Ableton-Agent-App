@@ -267,6 +267,19 @@ function createRuntime({
       message.connectionEpoch === client.listener?.connectionEpoch
     );
   }
+  function nativeFailureFields(message, value, pass) {
+    const diagnostic = pass?.nativeFailureDiagnostic;
+    return nativeVersion === 2 &&
+      value.status === "failed" &&
+      diagnostic &&
+      diagnostic.generation === pass.generation &&
+      value.reason === pass.nativeFailureReason &&
+      ["passId", "connectionEpoch", "traceId", "correlationId"].every(
+        (key) => pass.command[key] === message[key],
+      )
+      ? { nativeFailureDiagnostic: diagnostic }
+      : {};
+  }
   function queueNativeReply(message, value, pass, adapter, current) {
     const previous = pendingNativeReply;
     pendingNativeReply = {
@@ -274,7 +287,7 @@ function createRuntime({
       value:
         previous?.pass === pass && previous.value.status === "failed"
           ? previous.value
-          : value,
+          : { ...value, ...nativeFailureFields(message, value, pass) },
       pass,
       adapter,
       current,
@@ -318,6 +331,7 @@ function createRuntime({
       pending.message,
       receipt && !receipt.confirmed
         ? {
+            ...pending.value,
             status: "failed",
             reason: `${pending.value.reason}_native_stop_ack_timeout_unconfirmed`,
           }
@@ -716,6 +730,11 @@ function createRuntime({
       pendingNativeReply
     )
       return true;
+    const failureFields = nativeFailureFields(
+      selected,
+      event,
+      nativeController?.pass,
+    );
     control = null;
     nativePublished = false;
     discardNativeDiagnostics();
@@ -738,6 +757,7 @@ function createRuntime({
       ...(event.status === "complete"
         ? { nativeCapture: event.nativeCapture }
         : {}),
+      ...failureFields,
     });
   }
   function nativeControl(message, current) {

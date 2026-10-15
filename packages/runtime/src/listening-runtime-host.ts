@@ -1134,7 +1134,9 @@ export function createListeningRuntimeHost(
             listener.registration.version === 2 &&
             listener.registration.nativeStatus.scope ===
               NATIVE_LISTENER_SCOPE_V2 &&
-            listener.registration.nativeStatus.readiness === "READY",
+            (listener.registration.nativeStatus.readiness === "READY" ||
+              listener.registration.nativeStatus.reason ===
+                "fresh_per_pass_native_validation_required"),
         )
       ) {
         if (!dependencies.ableton.positionListeningPlayback)

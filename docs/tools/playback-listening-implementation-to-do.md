@@ -54,6 +54,10 @@ detected-tempo and timing/integrity guards stay in place.
   atomic publication while preserving legacy v1-only declarations.
 - [ ] Qualify actual v2 native capture through the ordinary production factory,
   not a synthetic producer.
+- [x] Align production-factory v2 admission with ingress/capture: exact scope
+  and the specific fresh-per-pass blocked reason may attempt genuine proof,
+  without changing readiness. Reproduce the first real runner admission failure
+  offline; retain all other blocked-reason denials before reservation/positioning.
 - [x] Extend the independent integration verifier with explicit v2 App expectations,
   exact native coverage, truthful quantized ranges and reopened alignment; retain
   an explicitly strict/zero legacy scenario without promoting old fixture evidence.
@@ -88,15 +92,25 @@ detected-tempo and timing/integrity guards stay in place.
   ownership and traced/redacted lifecycle, and archive exact old guard bytes.
   Generated v2 constructor wiring and physical long-pass cleanup must also be
   qualified; offline watchdog arithmetic alone does not prove device behavior.
+- [x] Handle actual forwarded v2 configuration/release selectors in the guard
+  without unknown-method errors, deadline renewal, foreign-generation cleanup
+  or fabricated native stopped/capture-complete claims.
 - [x] Wire reviewed descriptive fractional and 30-second runner scenarios with
   explicit v2 input, immutable pre-capture App expectations/approval bounds,
   actual accepted DSP geometry, sequential fresh owned processes, terminal/
   atomic-context/reopen verification and cleanup receipts. Preserve the old
   strict v1 scenario and deny missing/wrong/null versions before setup.
-- [ ] Provision a separately saved/pinned v2 fixture; execute fractional first,
+- [ ] Execute the separately saved/pinned v2 fixture: fractional first,
   then its owning group and remaining suite, followed by isolated Desktop UX.
   Do not mark actual capture or physical qualification complete from synthetic
   runner tests.
+- [x] Save and pin the separate v2 source Set with its Session source and
+  Arrangement copy; move only that new Set with operator approval and pass
+  strict immutable staging. Preserve all original Set/device/WAV pins.
+- [ ] Resolve the first post-admission real v2 failure: prepare succeeds but arm
+  reports `native_metadata_changed`, followed by unconfirmed cancellation.
+  Retain both failed runs and exact-owned process/fixture cleanup evidence;
+  do not retry without a narrow regression-backed correction.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

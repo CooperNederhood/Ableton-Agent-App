@@ -28,6 +28,8 @@ function heartbeat() { age = 0; nativeAge = 0; }
 // Diagnostics are application/runtime evidence, never commands to the DSP gate.
 function diagnostic() {}
 function native_diagnostic() {}
+// Generation-owned IO validates configuration; it cannot renew this monitor.
+function configure_v2() {}
 function validGeneration(value) {
   return typeof value === "string" &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -127,6 +129,10 @@ function arm(generation, epoch) {
 function stop(generation) {
   if (generation === nativeGeneration)
     finishNative("completed", "owned_monitor_stop", false);
+}
+function release(generation) {
+  if (generation === nativeGeneration)
+    finishNative("cancelled", "owned_monitor_release", true);
 }
 function analysis(enabled, reset, sampleRate) {
   // Clear FFT buffers and Gen histories before unmuting, also on every termination.

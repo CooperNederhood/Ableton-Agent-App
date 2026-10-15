@@ -132,6 +132,45 @@ test("explicit v1 constructor retains its 30-second bound", () => {
   assert.equal(events.at(-1).elapsedMs, 30000);
 });
 
+test("forwarded v2 configuration cannot renew the independent watchdog budget", () => {
+  const { context, controls, events, prepare } = fixture([
+    "audio_listener_guard.js",
+    2,
+  ]);
+  assert.equal(typeof context.configure_v2, "function");
+  prepare(a);
+  for (let i = 0; i < 240; i++) {
+    context.configure_v2(a, 1440000, 4800, 120, 0.25, 64);
+    context.heartbeat();
+    context.check();
+  }
+  assert.deepEqual(controls, [[2, "stop", a]]);
+  assert.equal(events.at(-1).reason, "native_total_timeout");
+  assert.equal(events.at(-1).elapsedMs, 60000);
+});
+
+test("forwarded release ends only its owned monitor without claiming a stopped receipt or capture completion", () => {
+  const { context, controls, events, prepare } = fixture([
+    "audio_listener_guard.js",
+    2,
+  ]);
+  assert.equal(typeof context.release, "function");
+  prepare(a);
+  context.release(b);
+  assert.equal(context.nativeGeneration, a);
+  assert.deepEqual(controls, []);
+  context.release(a);
+  assert.equal(context.nativeGeneration, null);
+  assert.deepEqual(controls, [[2, "stop", a]]);
+  assert.equal(events.at(-1).stage, "cancelled");
+  assert.equal(events.at(-1).reason, "owned_monitor_release");
+  assert.equal(events.at(-1).captureOutcome, "unknown");
+  assert.equal(events.at(-1).generation, a);
+  context.release(a);
+  context.notifydeleted();
+  assert.equal(controls.filter(([port]) => port === 2).length, 1);
+});
+
 test("native watchdog fails closed without context and cancels only its exact generation after lost heartbeat", () => {
   const { context, controls, events, prepare } = fixture();
   context.begin(a);

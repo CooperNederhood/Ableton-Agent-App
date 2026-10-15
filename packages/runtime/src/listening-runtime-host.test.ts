@@ -504,7 +504,8 @@ function descriptiveProductionFixture(
       nativeStatus: {
         version: 2,
         scope: "arrangement-descriptive/v2",
-        readiness: "READY",
+        readiness: "BLOCKED",
+        reason: "fresh_per_pass_native_validation_required",
         alignment: "approximate",
         verifiedAbsoluteErrorBoundSamples: null,
         acceptedSampleRates: [44_100, 48_000],
@@ -723,6 +724,42 @@ async function run(
 }
 
 describe("same-runtime production listening factory", () => {
+  it("admits a blocked v2 producer only for fresh per-pass proof without promoting readiness", async () => {
+    const f = descriptiveProductionFixture();
+    const status = f.inventory[0]!.registration.nativeStatus!;
+    Object.assign(status, {
+      readiness: "BLOCKED",
+      reason: "fresh_per_pass_native_validation_required",
+    });
+    const before = structuredClone(status);
+    const result = await run(f.host(), f.request);
+    expect(result.stage, result.error).toBe("completed");
+    expect(f.position).toHaveBeenCalledOnce();
+    expect(f.startListeningPlayback).toHaveBeenCalledOnce();
+    expect(f.publications).toHaveLength(1);
+    expect(status).toEqual(before);
+    expect(f.subscribers.size).toBe(0);
+    expect(f.releaseReservation).toHaveBeenCalledOnce();
+  });
+
+  it.each(["unsupported_native_dsp", "real_live_timing_validation_required"])(
+    "denies blocked v2 reason %s before positioning or reservation",
+    async (reason) => {
+      const f = descriptiveProductionFixture();
+      Object.assign(f.inventory[0]!.registration.nativeStatus!, {
+        readiness: "BLOCKED",
+        reason,
+      });
+      const result = await run(f.host(), f.request);
+      expect(result.stage).toBe("failed");
+      expect(f.position).not.toHaveBeenCalled();
+      expect(f.reservePass).not.toHaveBeenCalled();
+      expect(f.service.requestListenerControl).not.toHaveBeenCalled();
+      expect(f.startListeningPlayback).not.toHaveBeenCalled();
+      expect(f.publications).toEqual([]);
+    },
+  );
+
   it("discloses assumed rather than proven tempo stability before v2 playback", async () => {
     const f = descriptiveProductionFixture();
     const result = await f

@@ -249,6 +249,26 @@ fail closed. V2 watchdog lifecycle records retain redacted trace identity and
 the selected version/ceiling; monitor completion still leaves capture outcome
 unknown. Historical guard bytes are archived with their original source/hash,
 not substituted into old physical evidence.
+The shared control fanout is explicit: `configure_v2` is validated by envelope
+IO and cannot renew the guard deadline; generation-owned `release` ends the
+monitor with a cancelled/unknown-capture outcome and one best-effort stop,
+never fabricating a native stopped receipt.
+
+The production v2 factory admits the exact descriptive scope when registration
+is `READY`, or remains `BLOCKED` specifically because
+`fresh_per_pass_native_validation_required`. This matches capture and ingress
+admission; it does not promote registration or waive genuine arm, launch or
+completion proof. Other blocked reasons still deny before reservation or
+positioning. The first real v2 runner attempt exposed an inconsistent
+factory-only `READY` requirement and failed without context publication;
+that failed attempt remains evidence, not a native DSP qualification.
+After correcting admission, the next fresh-process attempt independently
+positioned beats 0.25–3.75 and completed native prepare at 48 kHz/vector64.
+Native arm then failed `native_metadata_changed`, before playback launch or
+publication. Cancellation was unconfirmed after an ownership-mismatch denial.
+The runner closed only its owned Live process and cleaned its copied fixture.
+This remains an open native integration failure; neither attempt is a successful
+v2 capture or justification for a wider timing budget.
 
 ### Reviewed descriptive native runner scenarios
 

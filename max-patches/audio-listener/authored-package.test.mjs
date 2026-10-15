@@ -1,4 +1,4 @@
-/* global structuredClone, AbortSignal, AbortController */
+/* global structuredClone, AbortSignal, AbortController, console */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { sourceDocuments } from "./native-source.mjs";
 import {
   build,
+  main,
   checkArtifact,
   prepareAuthoredDevice,
   SOURCE_DIRECTORY,
@@ -13,6 +14,7 @@ import {
   NATIVE_CANDIDATE_RESOURCES,
 } from "../../scripts/audio-listener-device.mjs";
 import { decodeAmxd, encodeAmxd } from "../../scripts/max-device-publisher.mjs";
+import { nativeRuntimeDocuments } from "./native-runtime-source.mjs";
 
 function fixture() {
   const d = sourceDocuments()["Audio-Listener.maxpat"];
@@ -69,6 +71,152 @@ function fixture() {
   return d;
 }
 
+test("explicit v2 candidate packages the matching bootstrap, generated ABI and honest descriptive limits", async (t) => {
+  const dir = await mkdtemp(
+    join(SOURCE_DIRECTORY, ".native-v2-authored-test-"),
+  );
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const source = join(SOURCE_DIRECTORY, "Machine-Listening-Development.amxd");
+  const before = await readFile(source);
+  const out = join(dir, "candidate");
+  const events = [];
+  const manifest = await build(out, {
+    authoredDevicePath: source,
+    nativeMode: true,
+    nativeVersion: 2,
+    traceId: "v2-package-trace",
+    correlationId: "v2-package-correlation",
+    causationId: "v2-package-cause",
+    onEvent: (event) => events.push(event),
+  });
+  assert.equal(manifest.nativeVersion, 2);
+  assert.equal(manifest.nativeScope, "arrangement-descriptive/v2");
+  assert.equal(manifest.algorithmVersion, "2.0.0");
+  assert.equal(manifest.observationSchema, "audio-observation/v2");
+  assert.equal(manifest.realLiveValidated, false);
+  assert.deepEqual(manifest.providerLimits, {
+    durationMs: 30000,
+    maxWindows: 300,
+    envelopeUpdatesPerSecond: 10,
+  });
+  assert.equal(manifest.planningCeilings.watchdogMs, 60000);
+  assert.equal(manifest.tempoPolicy, "constant-tempo-assumed");
+  assert.equal(manifest.tempoAutomationSupported, false);
+  const generated = nativeRuntimeDocuments({ nativeVersion: 2 });
+  assert.deepEqual(
+    manifest.resources.map(({ name }) => name),
+    [
+      ...ALL_RESOURCES,
+      "audio_listener_native_v2_max.js",
+      "audio_listener_native_io.js",
+      ...Object.keys(generated),
+    ],
+  );
+  for (const [name, expected] of Object.entries(generated)) {
+    assert.deepEqual(
+      JSON.parse(await readFile(join(out, name), "utf8")),
+      expected,
+    );
+  }
+  const { document } = decodeAmxd(
+    await readFile(join(out, manifest.deviceFile)),
+  );
+  assert.equal(
+    document.patcher.boxes.find(({ box }) => box.varname === "ml_runtime").box
+      .text,
+    "node.script audio_listener_native_v2_max.js @autostart 1 @watch 0",
+  );
+  assert.equal(
+    document.patcher.boxes.filter(({ box }) =>
+      box.text?.startsWith("node.script "),
+    ).length,
+    1,
+  );
+  assert.ok(
+    document.patcher.boxes.some(({ box }) => box.varname === "ml_panel_title"),
+  );
+  assert.doesNotMatch(
+    JSON.stringify(document),
+    /mcp_bridge|\/Users\/|copilot-worktrees/,
+  );
+  assert.deepEqual(await readFile(source), before);
+  assert.equal((await checkArtifact(out)).nativeVersion, 2);
+  assert.equal(events[0].stage, "queued");
+  assert.equal(events.at(-1).stage, "completed");
+  for (const event of events.filter(
+    ({ operation }) => operation === "m4l.audio-listener.package",
+  )) {
+    assert.equal(event.traceId, "v2-package-trace");
+    assert.equal(event.correlationId, "v2-package-correlation");
+    assert.equal(event.causationId, "v2-package-cause");
+    assert.ok(event.durationMs >= 0);
+  }
+  for (const change of [
+    { nativeVersion: 1 },
+    { nativeScope: "arrangement-beat0-120bpm-48000hz-vector64/v1" },
+    { algorithmVersion: "1.0.1" },
+    { observationSchema: "audio-observation/v1" },
+    { providerLimits: { ...manifest.providerLimits, maxWindows: 100 } },
+    { tempoAutomationSupported: true },
+  ]) {
+    await writeFile(
+      join(out, "audio-listener-manifest.json"),
+      JSON.stringify({ ...manifest, ...change }),
+    );
+    await assert.rejects(checkArtifact(out), /manifest|limit mismatch/);
+  }
+});
+
+test("native packaging rejects an implicit or unknown v2 selection before publication", async (t) => {
+  const dir = await mkdtemp(join(SOURCE_DIRECTORY, ".native-selection-test-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const source = join(SOURCE_DIRECTORY, "Machine-Listening-Development.amxd");
+  for (const [index, options] of [
+    { nativeVersion: 2 },
+    { nativeMode: false, nativeVersion: 2 },
+    { nativeMode: true, nativeVersion: 0 },
+    { nativeMode: true, nativeVersion: 3 },
+    { nativeMode: true, nativeVersion: "2" },
+  ].entries()) {
+    const events = [];
+    await assert.rejects(
+      build(join(dir, `invalid-${index}`), {
+        authoredDevicePath: source,
+        ...options,
+        onEvent: (event) => events.push(event),
+      }),
+      /native version/,
+    );
+    assert.equal(events.at(-1).stage, "failed");
+  }
+  const cancelled = [];
+  await assert.rejects(
+    build(join(dir, "cancelled"), {
+      authoredDevicePath: source,
+      nativeMode: true,
+      nativeVersion: 2,
+      signal: AbortSignal.abort(),
+      onEvent: (event) => cancelled.push(event),
+    }),
+    /cancelled/,
+  );
+  assert.equal(cancelled.at(-1).stage, "cancelled");
+});
+
+test("the explicit native v2 CLI stages rather than installs or promotes", async (t) => {
+  const dir = await mkdtemp(join(SOURCE_DIRECTORY, ".native-v2-cli-test-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const source = join(SOURCE_DIRECTORY, "Machine-Listening-Development.amxd");
+  const out = join(dir, "candidate");
+  t.mock.method(console, "log", () => {});
+  await main(["build-native-v2-authored", "--source", source, "--out", out]);
+  const manifest = await checkArtifact(out);
+  assert.equal(manifest.nativeVersion, 2);
+  assert.equal(manifest.realLiveValidated, false);
+  assert.equal(manifest.portable, true);
+  assert.equal(manifest.externalAuthoringBridge, false);
+});
+
 test("native candidate stages the authored UI and one SDK client with hashed relative native resources", async (t) => {
   const dir = await mkdtemp(join(SOURCE_DIRECTORY, ".native-authored-test-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -83,6 +231,8 @@ test("native candidate stages the authored UI and one SDK client with hashed rel
     onEvent: (event) => events.push(event),
   });
   assert.equal(manifest.nativeMode, true);
+  assert.equal(manifest.nativeVersion, undefined);
+  assert.equal(manifest.observationSchema, "audio-observation/v1");
   assert.equal(
     manifest.nativeScope,
     "arrangement-beat0-120bpm-48000hz-vector64/v1",

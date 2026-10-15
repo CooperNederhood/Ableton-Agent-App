@@ -72,6 +72,11 @@ detected-tempo and timing/integrity guards stay in place.
   qualify reviewed real-Live scenarios and Desktop UX using owned processes.
 - [ ] Package/reopen the portable device, measure resource cost and pass-through,
   and reconcile the original issue criteria and actual supported host versions.
+- [x] Add explicit v2 authored candidate staging with its matching bootstrap,
+  generated graph resources, hashed manifest and honest limits/tempo scope.
+  Preserve default/v1 behavior and deny implicit/mixed versions; cover source
+  preservation, failure/cancellation and traced packaging lifecycle offline.
+  This does not close native load/save/reopen or physical acceptance.
 
 ### Deferred follow-up, not a first-milestone release gate
 

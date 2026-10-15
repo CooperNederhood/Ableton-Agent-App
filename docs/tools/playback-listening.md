@@ -196,6 +196,28 @@ Native corruption, missing
 frames, unsafe recording/source state, stale ownership, timeout and unconfirmed
 cleanup remain hard failures regardless of the timing limit.
 
+### Explicit v2 candidate staging
+
+`node scripts/audio-listener-device.mjs build-native-v2-authored --source
+<authored-device.amxd> --out <fresh-staging-directory>` selects the v2 bootstrap
+and `nativeRuntimeDocuments({ nativeVersion: 2 })` resources. The equivalent
+build API requires both `nativeMode: true` and `nativeVersion: 2`; unknown or
+implicit version selections fail before publication.
+
+The authored UI/direct stereo and source device are preserved. The manifest
+pins every adjacent resource, selects algorithm 2.0.0 / `audio-observation/v2`,
+declares 30 seconds / 300 windows, and explicitly records the constant-tempo
+assumption and unsupported automation. Its 60-second watchdog value is a
+planning ceiling, not host qualification or a promise of measured execution.
+Artifact checking rejects mixed bootstrap/version/schema/scope/limit metadata.
+Default builds and `build-native-authored` retain their old v1 behavior and
+manifest compatibility.
+
+This command only stages a candidate. It never installs/promotes, changes
+`realLiveValidated: false`, rewrites a saved Set, or substitutes new resources
+for old physical evidence. Actual Max compilation, native receipt delivery,
+capture, save/reopen, pass-through and resource-cost acceptance remain required.
+
 ## Ownership and scope
 
 A listener is a transparent Max Audio Effect measuring the signal at its

@@ -669,5 +669,325 @@
     ],
     "rejectedAsFix": true
   },
-  "limitation": "The exact stopped armed +64 host/counter offset mismatch is distinct from a playing phase-lag tear: held phase cannot corroborate it. Its physical cause remains unproven. The ordinary run did not record its rejected row; do not transfer this diagnostic row to that run. The scheduler-only copy exhausted the unchanged acquisition quota and did not establish a fix. Neither diagnostic grants ordinary acceptance, cancellation confirmation or readiness."
+  "failOnlyLookahead": {
+    "runId": "7311ada2-826d-49fd-8735-467d6b11a2a1",
+    "instrumentation": "explicit-fail-only-runtime-prototype-instrumentation",
+    "terminalJob": {
+      "passId": "da85bd4b-fd26-4fa0-b3fa-5e49a7b183a0",
+      "stage": "failed",
+      "contextIds": [],
+      "error": "native_clock_discontinuity"
+    },
+    "nativeTerminalReason": "native_clock_discontinuity",
+    "nativeArm": {
+      "scope": "arrangement-beat0-120bpm-48000hz-vector64/v1",
+      "nativeEpoch": 1,
+      "armCounter": 889344,
+      "before": {
+        "dsp": [1, 48000, 64],
+        "frames": [
+          [0, 0, 872383, 31, 872384, 0, 872384, 0, 0, 872383, 31],
+          [0, 0, 872895, 31, 872896, 0, 872896, 0, 0, 872895, 31],
+          [0, 0, 873407, 31, 873408, 0, 873408, 0, 0, 873407, 31],
+          [0, 0, 873919, 31, 873920, 0, 873920, 0, 0, 873919, 31],
+          [0, 0, 874431, 31, 874432, 0, 874432, 0, 0, 874431, 31],
+          [0, 0, 874943, 31, 874944, 0, 874944, 0, 0, 874943, 31],
+          [0, 0, 875455, 31, 875456, 0, 875456, 0, 0, 875455, 31],
+          [0, 0, 875967, 31, 875968, 0, 875968, 0, 0, 875967, 31],
+          [0, 0, 876479, 31, 876480, 0, 876480, 0, 0, 876479, 31],
+          [0, 0, 876991, 31, 876992, 0, 876992, 0, 0, 876991, 31],
+          [0, 0, 877503, 31, 877504, 0, 877504, 0, 0, 877503, 31],
+          [0, 0, 878015, 31, 878016, 0, 878016, 0, 0, 878015, 31],
+          [0, 0, 878527, 31, 878528, 0, 878528, 0, 0, 878527, 31],
+          [0, 0, 879039, 31, 879040, 0, 879040, 0, 0, 879039, 31],
+          [0, 0, 879551, 31, 879552, 0, 879552, 0, 0, 879551, 31],
+          [0, 0, 880063, 31, 880064, 0, 880064, 0, 0, 880063, 31],
+          [0, 0, 880575, 31, 880576, 0, 880576, 0, 0, 880575, 31],
+          [0, 0, 881087, 31, 881088, 0, 881088, 0, 0, 881087, 31],
+          [0, 0, 881599, 31, 881600, 0, 881600, 0, 0, 881599, 31],
+          [0, 0, 882111, 31, 882112, 0, 882112, 0, 0, 882111, 31],
+          [0, 0, 882623, 31, 882624, 0, 882624, 0, 0, 882623, 31],
+          [0, 0, 883135, 31, 883136, 0, 883136, 0, 0, 883135, 31],
+          [0, 0, 883647, 31, 883648, 0, 883648, 0, 0, 883647, 31],
+          [0, 0, 884159, 31, 884160, 0, 884160, 0, 0, 884159, 31],
+          [0, 0, 884671, 31, 884672, 0, 884672, 0, 0, 884671, 31],
+          [0, 0, 885183, 31, 885184, 0, 885184, 0, 0, 885183, 31],
+          [0, 0, 885695, 31, 885696, 0, 885696, 0, 0, 885695, 31],
+          [0, 0, 886207, 31, 886208, 0, 886208, 0, 0, 886207, 31],
+          [0, 0, 886719, 31, 886720, 0, 886720, 0, 0, 886719, 31],
+          [0, 0, 887231, 31, 887232, 0, 887232, 0, 0, 887231, 31],
+          [0, 0, 887743, 31, 887744, 0, 887744, 0, 0, 887743, 31],
+          [0, 0, 888255, 31, 888256, 0, 888256, 0, 0, 888255, 31]
+        ]
+      },
+      "reset": {
+        "launchClock": -1,
+        "sourceClock": -1,
+        "onsetCount": 0,
+        "rejected": 0,
+        "active": 0,
+        "launchPhaseSamples": -1,
+        "firstSourceClock": -1,
+        "completedSamples": 0
+      }
+    },
+    "nativeLaunch": null,
+    "nativeCapture": null,
+    "publicationEventCount": 0,
+    "typedSession": {
+      "id": "24df2fea-f1c1-4709-976c-b528b5befd38",
+      "hasContextStore": false
+    },
+    "nativeReasonCounts": {
+      "waiting_native_reset": 2,
+      "native_arm_acknowledged": 2,
+      "native_clock_discontinuity": 1
+    },
+    "lifecycle": [
+      {
+        "sequence": 461,
+        "name": "output.listener.completed",
+        "occurredAt": "2026-10-15T02:40:21.342Z",
+        "durationMs": 412,
+        "trace": {
+          "traceId": "b4acec37-38ef-42c1-9c92-562c816363f9",
+          "spanId": "53b34132-0a2e-4b4b-84d1-7333d74e27b6"
+        },
+        "attributes": {
+          "passId": "da85bd4b-fd26-4fa0-b3fa-5e49a7b183a0",
+          "status": "armed"
+        }
+      },
+      {
+        "sequence": 472,
+        "name": "output.listener.native.preflight.queued",
+        "occurredAt": "2026-10-15T02:40:21.355Z",
+        "durationMs": 0,
+        "trace": {
+          "traceId": "b4acec37-38ef-42c1-9c92-562c816363f9",
+          "spanId": "8ba68dc7-0ed0-4548-8749-aa1392c7004d"
+        },
+        "attributes": {
+          "passId": "da85bd4b-fd26-4fa0-b3fa-5e49a7b183a0",
+          "eventId": "0b9b1a80-3524-4d0a-ae54-24dfb284d629",
+          "causationId": "toolu_01Esx5JiQiQgt7nHfj96qPJD",
+          "phase": "preflight",
+          "generation": "5290c0f6-71fa-48a7-92db-c98c6f9e7518",
+          "stage": "queued",
+          "nativeEpoch": 1,
+          "elapsedMs": 0,
+          "frames": 0
+        }
+      },
+      {
+        "sequence": 476,
+        "name": "output.listener.native.preflight.started",
+        "occurredAt": "2026-10-15T02:40:21.357Z",
+        "durationMs": 0,
+        "trace": {
+          "traceId": "b4acec37-38ef-42c1-9c92-562c816363f9",
+          "spanId": "89b02161-c784-4388-8545-ffd30d8d2929"
+        },
+        "attributes": {
+          "passId": "da85bd4b-fd26-4fa0-b3fa-5e49a7b183a0",
+          "eventId": "379f5616-f3e5-499b-a057-277e929b9df6",
+          "causationId": "0b9b1a80-3524-4d0a-ae54-24dfb284d629",
+          "phase": "preflight",
+          "generation": "5290c0f6-71fa-48a7-92db-c98c6f9e7518",
+          "stage": "started",
+          "nativeEpoch": 1,
+          "elapsedMs": 0,
+          "frames": 0
+        }
+      },
+      {
+        "sequence": 480,
+        "name": "output.listener.native.preflight.completed",
+        "occurredAt": "2026-10-15T02:40:21.359Z",
+        "durationMs": 384,
+        "trace": {
+          "traceId": "b4acec37-38ef-42c1-9c92-562c816363f9",
+          "spanId": "03946655-d8bf-41d2-8c11-bf4d0ad6f4ef"
+        },
+        "attributes": {
+          "passId": "da85bd4b-fd26-4fa0-b3fa-5e49a7b183a0",
+          "eventId": "bf65c72f-fd0b-4187-a7ea-89e46bcd42a7",
+          "causationId": "379f5616-f3e5-499b-a057-277e929b9df6",
+          "phase": "preflight",
+          "generation": "5290c0f6-71fa-48a7-92db-c98c6f9e7518",
+          "stage": "completed",
+          "nativeEpoch": 1,
+          "elapsedMs": 384,
+          "frames": 0
+        }
+      },
+      {
+        "sequence": 484,
+        "name": "output.listener.native.reset.queued",
+        "occurredAt": "2026-10-15T02:40:21.361Z",
+        "durationMs": 0,
+        "trace": {
+          "traceId": "b4acec37-38ef-42c1-9c92-562c816363f9",
+          "spanId": "8617549f-6849-4ae4-84dc-6e5e2928d044"
+        },
+        "attributes": {
+          "passId": "da85bd4b-fd26-4fa0-b3fa-5e49a7b183a0",
+          "eventId": "5461dd17-51ff-4008-b631-2285a0eaf2e5",
+          "causationId": "bf65c72f-fd0b-4187-a7ea-89e46bcd42a7",
+          "phase": "reset",
+          "generation": "5290c0f6-71fa-48a7-92db-c98c6f9e7518",
+          "stage": "queued",
+          "nativeEpoch": 1,
+          "elapsedMs": 0,
+          "frames": 0
+        }
+      },
+      {
+        "sequence": 488,
+        "name": "output.listener.native.reset.started",
+        "occurredAt": "2026-10-15T02:40:21.362Z",
+        "durationMs": 1,
+        "trace": {
+          "traceId": "b4acec37-38ef-42c1-9c92-562c816363f9",
+          "spanId": "1a93d6cf-183c-41ac-8334-849b613ce1a4"
+        },
+        "attributes": {
+          "passId": "da85bd4b-fd26-4fa0-b3fa-5e49a7b183a0",
+          "eventId": "79d7fbae-2ffa-444e-a3d0-2724bc0c7b47",
+          "causationId": "5461dd17-51ff-4008-b631-2285a0eaf2e5",
+          "phase": "reset",
+          "generation": "5290c0f6-71fa-48a7-92db-c98c6f9e7518",
+          "stage": "started",
+          "nativeEpoch": 1,
+          "elapsedMs": 1,
+          "frames": 0
+        }
+      },
+      {
+        "sequence": 500,
+        "name": "output.listener.native.reset.completed",
+        "occurredAt": "2026-10-15T02:40:21.367Z",
+        "durationMs": 20,
+        "trace": {
+          "traceId": "b4acec37-38ef-42c1-9c92-562c816363f9",
+          "spanId": "5b6f90a7-f809-458c-8a5a-5ac0b8495620"
+        },
+        "attributes": {
+          "passId": "da85bd4b-fd26-4fa0-b3fa-5e49a7b183a0",
+          "eventId": "19a03d78-81ce-4d3c-bb0b-9f0322b67554",
+          "causationId": "3722a705-34ff-43b3-bbf0-797e58bf85f7",
+          "phase": "reset",
+          "generation": "5290c0f6-71fa-48a7-92db-c98c6f9e7518",
+          "stage": "completed",
+          "nativeEpoch": 1,
+          "elapsedMs": 20,
+          "frames": 0,
+          "reason": "native_arm_acknowledged"
+        }
+      },
+      {
+        "sequence": 504,
+        "name": "output.listener.native.queued",
+        "occurredAt": "2026-10-15T02:40:21.368Z",
+        "durationMs": 0,
+        "trace": {
+          "traceId": "b4acec37-38ef-42c1-9c92-562c816363f9",
+          "spanId": "cc85e5a3-e07d-41d4-88ca-2bf20c955de0"
+        },
+        "attributes": {
+          "passId": "da85bd4b-fd26-4fa0-b3fa-5e49a7b183a0",
+          "eventId": "70a12fe8-59ee-423a-9d2a-d8a94d556404",
+          "causationId": "bf65c72f-fd0b-4187-a7ea-89e46bcd42a7",
+          "phase": "capture",
+          "generation": "5290c0f6-71fa-48a7-92db-c98c6f9e7518",
+          "stage": "queued",
+          "nativeEpoch": 1,
+          "elapsedMs": 0,
+          "frames": 0
+        }
+      },
+      {
+        "sequence": 508,
+        "name": "output.listener.native.started",
+        "occurredAt": "2026-10-15T02:40:21.369Z",
+        "durationMs": 0,
+        "trace": {
+          "traceId": "b4acec37-38ef-42c1-9c92-562c816363f9",
+          "spanId": "0364f513-c2b2-40a4-8486-dfa6924365c5"
+        },
+        "attributes": {
+          "passId": "da85bd4b-fd26-4fa0-b3fa-5e49a7b183a0",
+          "eventId": "fffa6df7-20fd-4428-88b8-9e9866077f3f",
+          "causationId": "70a12fe8-59ee-423a-9d2a-d8a94d556404",
+          "phase": "capture",
+          "generation": "5290c0f6-71fa-48a7-92db-c98c6f9e7518",
+          "stage": "started",
+          "nativeEpoch": 1,
+          "elapsedMs": 0,
+          "frames": 0
+        }
+      },
+      {
+        "sequence": 522,
+        "name": "output.listener.native.failed",
+        "occurredAt": "2026-10-15T02:40:22.566Z",
+        "durationMs": 1248,
+        "trace": {
+          "traceId": "b4acec37-38ef-42c1-9c92-562c816363f9",
+          "spanId": "a2d48111-6aca-4d2e-84e0-b4fc2eac4a1c"
+        },
+        "attributes": {
+          "passId": "da85bd4b-fd26-4fa0-b3fa-5e49a7b183a0",
+          "eventId": "326fddf1-d01a-42c5-84b2-09d0df67bfd1",
+          "causationId": "a3dec8d8-3d3b-4f1d-9c89-7b6b2e51cbaa",
+          "phase": "capture",
+          "generation": "5290c0f6-71fa-48a7-92db-c98c6f9e7518",
+          "stage": "failed",
+          "nativeEpoch": 1,
+          "elapsedMs": 1248,
+          "frames": 0,
+          "reason": "native_clock_discontinuity"
+        }
+      },
+      {
+        "sequence": 525,
+        "name": "output.listener.failed",
+        "occurredAt": "2026-10-15T02:40:22.570Z",
+        "durationMs": 1648,
+        "trace": {
+          "traceId": "b4acec37-38ef-42c1-9c92-562c816363f9",
+          "spanId": "cc1364cb-d239-468e-8931-6d58e89c9e1f"
+        },
+        "attributes": {
+          "passId": "da85bd4b-fd26-4fa0-b3fa-5e49a7b183a0",
+          "status": "failed",
+          "reason": "native_clock_discontinuity"
+        }
+      }
+    ],
+    "clock": {
+      "classification": "fail_only_clock_lookahead",
+      "maximumDelayMs": 100,
+      "initial": {
+        "row": [0, 0, 948160, 31, 948160, 0, 948160, 0, 0, 948160, 31],
+        "previous": [0, 0, 947647, 31, 947648, 0, 947648, 0, 0, 947647, 31],
+        "state": "armed"
+      },
+      "following": {
+        "row": [0, 0, 948672, 31, 948672, 0, 948672, 0, 0, 948672, 31],
+        "state": "armed"
+      },
+      "timedOut": false
+    },
+    "runtimeInstrumentation": {
+      "classification": "fail_only_clock_lookahead",
+      "maximumDelayMs": 100,
+      "expressionSha256": "9c7747683c65df58a2ca928da27a7e336175b5a2a739a3f5f39fc8f62d5f4a9f",
+      "acceptsFaultedCapture": false,
+      "note": "After the first stopped/armed clock fault, admit no data and force original failure on the next raw clock or 100ms timeout. Runtime prototype instrumentation is NOT unmodified execution or acceptance."
+    },
+    "resourceSourceOverrides": [],
+    "acceptancePassed": false
+  },
+  "limitation": "The exact stopped armed +64 host/counter offset mismatch is distinct from a playing phase-lag tear: held phase cannot corroborate it. Its physical cause remains unproven. A separate fail-only runtime-instrumented lookahead observed stopped offset -1 then 0 then 0; it blocked data after the fault and always failed, rather than accepting the changed binding. The ordinary run did not record its rejected row; do not transfer a diagnostic row to that run. The scheduler-only copy exhausted the unchanged acquisition quota and did not establish a fix. No diagnostic grants ordinary acceptance, cancellation confirmation or readiness."
 }

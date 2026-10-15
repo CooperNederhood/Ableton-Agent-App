@@ -1613,6 +1613,16 @@ and exact-generation cleanup, not a claimed recovery. Native clock acquisition
 and ordinary repeatability remain unresolved; no further group/suite acceptance
 is inferred from the earlier successful diagnostics.
 
+A subsequent explicitly fail-only runtime-instrumented diagnostic retained
+the next raw clock after a stopped/armed fault, admitting no intervening data
+and forcing the original failure on that row or a 100 ms deadline. It observed
+offsets -1, 0, 0 across previous/rejected/following stopped rows, not the earlier
++64 playing-phase cohort. Both native counter copies and host brackets agree
+within each row; the held phase remains 0. It failed before measured launch and
+published nothing. This shows another unresolved exact-binding case, not its
+physical cause or a tolerance decision. The same failure fixture preserves the
+runtime instrumentation separately; no production offset guard is loosened.
+
 Real runs also exposed a quit/exit race. Failed-quit fallback now first checks
 for an already exited exact owned PID, revalidates birth/executable identity
 before each signal and tolerates only an `ESRCH` exit during that signal.

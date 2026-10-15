@@ -1282,14 +1282,18 @@ test("actual stopped armed offset mismatch stays denied without independent play
   await armed;
   assert.equal(f.controller.state, "armed");
   const p = f.controller.pass;
-  const observed = hardenedFailure.diagnostic.clock;
-  const replay = { ...p, clock: observed.previous };
-  assert.throws(
-    () => f.controller.clock(replay, observed.row),
-    /native_clock_discontinuity/,
-  );
-  assert.equal(replay.clock, observed.previous);
-  assert.equal(replay.rejected, 0);
+  for (const observed of [
+    hardenedFailure.diagnostic.clock,
+    hardenedFailure.failOnlyLookahead.clock.initial,
+  ]) {
+    const replay = { ...p, clock: observed.previous };
+    assert.throws(
+      () => f.controller.clock(replay, observed.row),
+      /native_clock_discontinuity/,
+    );
+    assert.equal(replay.clock, observed.previous);
+    assert.equal(replay.rejected, 0);
+  }
 
   const previous = p.clock;
   const at = p.clockAt;

@@ -75,10 +75,44 @@ test("unsuccessful scheduler experiment retains quota failure and zero publicati
     experiment.sourceOverrides[0].sha256,
     experiment.sourceOverrides[0].previousSha256,
   );
-  for (const attempt of [evidence.ordinary, evidence.diagnostic, experiment]) {
+  for (const attempt of [
+    evidence.ordinary,
+    evidence.diagnostic,
+    experiment,
+    evidence.failOnlyLookahead,
+  ]) {
     assert.equal(attempt.terminalJob.stage, "failed");
     assert.deepEqual(attempt.terminalJob.contextIds, []);
     assert.equal(attempt.publicationEventCount, 0);
     assert.equal(attempt.typedSession.hasContextStore, false);
   }
+});
+
+test("fail-only stopped-clock lookahead records a distinct one-sample shift without accepting data or a new binding", () => {
+  const diagnostic = evidence.failOnlyLookahead;
+  const { initial, following, timedOut, maximumDelayMs } = diagnostic.clock;
+  assert.equal(initial.state, "armed");
+  assert.equal(following.state, "armed");
+  assert.equal(initial.previous[2] - initial.previous[4], -1);
+  assert.equal(initial.row[2] - initial.row[4], 0);
+  assert.equal(following.row[2] - following.row[4], 0);
+  for (const row of [initial.previous, initial.row, following.row]) {
+    assert.deepEqual(row.slice(0, 4), row.slice(7));
+    assert.equal(row[4], row[6]);
+    assert.equal(row[0], 0);
+    assert.equal(row[1], 0);
+    assert.equal(row[5], 0);
+  }
+  assert.equal(timedOut, false);
+  assert.equal(maximumDelayMs, 100);
+  assert.equal(diagnostic.runtimeInstrumentation.acceptsFaultedCapture, false);
+  assert.deepEqual(diagnostic.resourceSourceOverrides, []);
+  assert.equal(diagnostic.acceptancePassed, false);
+  assert.equal(diagnostic.nativeTerminalReason, "native_clock_discontinuity");
+  assert.equal(diagnostic.nativeLaunch, null);
+  assert.equal(diagnostic.nativeCapture, null);
+  assert.equal(
+    nativeArmProofSchema.parse(diagnostic.nativeArm).before.frames.length,
+    32,
+  );
 });

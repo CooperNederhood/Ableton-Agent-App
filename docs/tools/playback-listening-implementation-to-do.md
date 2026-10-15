@@ -727,6 +727,10 @@ checkpoint above. The production timing gate is unchanged.
   playing acquisition cohort; retain denial, exact-generation cleanup and zero
   publication. Record the failed copied `qmetro` -> `metro` experiment without
   promoting it or claiming its cancellation uncertainty is resolved.
+- [x] Record one fail-only runtime-instrumented stopped-clock lookahead:
+  offsets -1/0/0 across prior/rejected/following rows. No data is admitted after
+  the fault; failure is forced within 100 ms. Preserve this separate unknown
+  exact-binding case without changing production tolerance or acceptance.
 - [ ] Finish current-source and immutable-candidate cold-run qualification.
   Later clock-continuity/pre-arm failures remain unresolved and safely publish
   nothing. Do not turn a successful source-override diagnostic into standard

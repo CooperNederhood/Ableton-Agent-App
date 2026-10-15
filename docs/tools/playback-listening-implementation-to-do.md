@@ -38,6 +38,10 @@ Companion specification: [Playback Listening](playback-listening.md).
 - [x] Cover exact default64 acceptance/65 rejection, fractional44.1k/127.5BPM,
   one-hop/one-sample-tail/30s geometry, policy immutability, redacted failure and
   cancellation without transport rollback in the production factory.
+- [x] Compare identical frozen synthetic measurements under strict and
+  descriptive 0/1/64/128/480 policies at both supported rates, including each
+  limit-minus-one/exact/plus-one boundary. This pure policy matrix is not
+  physical timing evidence or recorded native replay.
 - [x] Finish Desktop supported-kind declaration compatibility through additive
   atomic publication while preserving legacy v1-only declarations.
 - [ ] Qualify actual v2 native capture through the ordinary production factory,

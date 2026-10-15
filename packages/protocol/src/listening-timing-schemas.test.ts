@@ -32,31 +32,72 @@ describe("descriptive listening timing policy", () => {
     expect(Object.isFrozen(DEFAULT_LISTENING_TIMING_POLICY)).toBe(true);
   });
 
-  it.each([0, 64, 480])("accepts the exact configured boundary %i", (limit) => {
-    const policy = {
-      mode: "descriptive" as const,
-      maxClockDisagreementSamples: limit,
-    };
-    for (const field of [
-      "observedClockDisagreementSamples",
-      "observedBeatDisagreementSamples",
-    ] as const) {
-      for (const observed of [Math.max(0, limit - 1), limit]) {
-        expect(
+  it.each([0, 1, 64, 128, 480])(
+    "accepts the exact configured boundary %i",
+    (limit) => {
+      const policy = {
+        mode: "descriptive" as const,
+        maxClockDisagreementSamples: limit,
+      };
+      for (const field of [
+        "observedClockDisagreementSamples",
+        "observedBeatDisagreementSamples",
+      ] as const) {
+        for (const observed of [Math.max(0, limit - 1), limit]) {
+          expect(
+            evaluateListeningAlignment(policy, {
+              ...measurements,
+              [field]: observed,
+            })[field],
+          ).toBe(observed);
+        }
+        expect(() =>
           evaluateListeningAlignment(policy, {
             ...measurements,
-            [field]: observed,
-          })[field],
-        ).toBe(observed);
+            [field]: limit + 1,
+          }),
+        ).toThrow("listening_alignment_budget_exceeded");
       }
-      expect(() =>
-        evaluateListeningAlignment(policy, {
+    },
+  );
+
+  it.each([44_100, 48_000])(
+    "compares unchanged measurements against every tuning policy at %i Hz",
+    (actualSampleRate) => {
+      for (const observed of [0, 1, 63, 64, 65, 127, 128, 129, 479, 480, 481]) {
+        const cohort = Object.freeze({
           ...measurements,
-          [field]: limit + 1,
-        }),
-      ).toThrow("listening_alignment_budget_exceeded");
-    }
-  });
+          sampleRate: actualSampleRate,
+          observedClockDisagreementSamples: observed,
+          observedBeatDisagreementSamples: observed,
+        });
+        const policies = [
+          { mode: "strict" as const, maxClockDisagreementSamples: 0 as const },
+          ...[0, 1, 64, 128, 480].map((limit) => ({
+            mode: "descriptive" as const,
+            maxClockDisagreementSamples: limit,
+          })),
+        ];
+        for (const policy of policies) {
+          if (observed > policy.maxClockDisagreementSamples) {
+            expect(() => evaluateListeningAlignment(policy, cohort)).toThrow(
+              "listening_alignment_budget_exceeded",
+            );
+          } else {
+            const accepted = evaluateListeningAlignment(policy, cohort);
+            expect(accepted).toMatchObject(cohort);
+            expect(accepted.policy).toEqual(policy);
+            expect(accepted.alignment).toBe("approximate");
+            expect(accepted.intendedUse).toBe("descriptive-only");
+            expect(accepted.estimatedAbsoluteErrorSamples).toBeNull();
+            expect(accepted.verifiedAbsoluteErrorBoundSamples).toBeNull();
+          }
+        }
+        expect(cohort.observedClockDisagreementSamples).toBe(observed);
+        expect(cohort.observedBeatDisagreementSamples).toBe(observed);
+      }
+    },
+  );
 
   it("never silently relaxes a strict policy or retries with a larger limit", () => {
     const policy = {

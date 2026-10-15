@@ -93,6 +93,16 @@ evidence on that connection. Watchdogs derive duration from native counts;
 failure, cancellation, sequencing, trace ownership and redaction use the same
 existing lifecycle rather than a parallel transport stack.
 
+The shared portable `AgentSignalClient` also negotiates the explicitly selected
+listener version. V2 requires matching observation schema, single capability
+and ingress advertisement; it cannot fall back to v1. Prepare alone carries
+the bounded coherent geometry/policy. Arm and cancel cannot replace it.
+Replies/results retain the selected version, connection epoch, sequence and
+causal owner. MIDI defaults and v1 wire behavior remain unchanged. Actual
+shared-client-to-ingress tests cover completed synthetic proof, confirmed
+cancellation and disconnect without complete publication; these do not
+establish physical native execution.
+
 The production playback host exposes negotiated v2 listeners with approximate,
 descriptive-only and unknown-absolute-accuracy limitations; metadata alone never
 sets `ready:true`. It snapshots Settings policy once per pass, derives geometry

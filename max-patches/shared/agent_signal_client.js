@@ -176,6 +176,64 @@ function validateDescriptor(value) {
   return value;
 }
 
+function hasExactKeys(value, keys) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === keys.length &&
+    keys.every((key) => Object.prototype.hasOwnProperty.call(value, key))
+  );
+}
+
+function validDescriptiveConfig(config) {
+  if (!hasExactKeys(config, ["geometry", "timingPolicy"])) return false;
+  const geometry = config.geometry;
+  const policy = config.timingPolicy;
+  if (
+    !hasExactKeys(geometry, [
+      "sampleRate",
+      "vectorSize",
+      "tempoBpm",
+      "startBeat",
+      "endBeat",
+      "hopSamples",
+      "totalSamples"
+    ]) ||
+    !hasExactKeys(policy, ["mode", "maxClockDisagreementSamples"])
+  )
+    return false;
+  return (
+    [44100, 48000].includes(geometry.sampleRate) &&
+    Number.isInteger(geometry.vectorSize) &&
+    geometry.vectorSize >= 1 &&
+    geometry.vectorSize <= 1024 &&
+    (geometry.vectorSize & (geometry.vectorSize - 1)) === 0 &&
+    Number.isFinite(geometry.tempoBpm) &&
+    geometry.tempoBpm >= 20 &&
+    geometry.tempoBpm <= 999 &&
+    Number.isFinite(geometry.startBeat) &&
+    geometry.startBeat >= 0 &&
+    Number.isFinite(geometry.endBeat) &&
+    geometry.endBeat > geometry.startBeat &&
+    geometry.endBeat <= 1576800 &&
+    geometry.hopSamples === Math.round(geometry.sampleRate / 10) &&
+    Number.isSafeInteger(geometry.totalSamples) &&
+    geometry.totalSamples >= geometry.hopSamples &&
+    geometry.totalSamples <= geometry.sampleRate * 30 &&
+    geometry.totalSamples ===
+      Math.round(
+        ((geometry.endBeat - geometry.startBeat) * geometry.sampleRate * 60) /
+          geometry.tempoBpm
+      ) &&
+    Number.isInteger(policy.maxClockDisagreementSamples) &&
+    policy.maxClockDisagreementSamples >= 0 &&
+    policy.maxClockDisagreementSamples <= 480 &&
+    (policy.mode === "descriptive" ||
+      (policy.mode === "strict" && policy.maxClockDisagreementSamples === 0))
+  );
+}
+
 class AgentSignalClient {
   constructor(options = {}) {
     const discovery = installedDiscoveryPaths();
@@ -231,6 +289,7 @@ class AgentSignalClient {
         ? "ableton-audio-listener"
         : "ableton-midi-capture");
     this.listener = options.listener || null;
+    this.listenerVersion = this.listener?.version;
     this.onListenerControl = options.onListenerControl || (() => {});
     this.onListenerFailure = options.onListenerFailure || (() => {});
     this.listenerSequence = 0;
@@ -240,9 +299,16 @@ class AgentSignalClient {
     if (
       this.listener &&
       (this.signalKind !== "audio" ||
-        this.schemaVersion !== "audio-observation/v1")
+        ![1, 2].includes(this.listenerVersion) ||
+        this.schemaVersion !== `audio-observation/v${this.listenerVersion}` ||
+        !Array.isArray(this.listener.capabilities) ||
+        this.listener.capabilities.length !== 1 ||
+        this.listener.capabilities[0] !==
+          `audio-listener/v${this.listenerVersion}`)
     ) {
-      throw new Error("listener capability requires audio-observation/v1");
+      throw new Error(
+        "listener capability requires matching audio-observation version"
+      );
     }
     this.producer = null;
     this.maxOfflineSamples = options.maxOfflineSamples || 32;
@@ -404,8 +470,10 @@ class AgentSignalClient {
     const descriptor = validateDescriptor(JSON.parse(text));
     if (
       this.listener &&
-      (!descriptor.listenerVersions?.includes(1) ||
-        !descriptor.listenerCapabilities?.includes("audio-listener/v1"))
+      (!descriptor.listenerVersions?.includes(this.listenerVersion) ||
+        !descriptor.listenerCapabilities?.includes(
+          `audio-listener/v${this.listenerVersion}`
+        ))
     ) {
       throw new Error("listener capability is not advertised by ingress");
     }
@@ -721,7 +789,7 @@ class AgentSignalClient {
       !this.authenticated ||
       !this.listener ||
       control.protocolVersion !== PROTOCOL_VERSION ||
-      control.listenerVersion !== 1 ||
+      control.listenerVersion !== this.listenerVersion ||
       control.connectionEpoch !== this.listener.connectionEpoch ||
       !keys.every(
         (key) =>
@@ -737,7 +805,12 @@ class AgentSignalClient {
     }
     if (
       this.listenerControlIds.has(control.requestId) ||
+      (this.listenerVersion === 2 &&
+        (control.action === "prepare"
+          ? !validDescriptiveConfig(control.config)
+          : control.config !== undefined)) ||
       (control.action === "prepare" &&
+        this.listenerVersion === 1 &&
         (!control.config ||
           !Number.isInteger(control.config.durationMs) ||
           control.config.durationMs < 1 ||
@@ -822,7 +895,7 @@ class AgentSignalClient {
       ...payload,
       type,
       protocolVersion: PROTOCOL_VERSION,
-      listenerVersion: 1,
+      listenerVersion: this.listenerVersion,
       requestId:
         type === "listener.reply"
           ? control.requestId

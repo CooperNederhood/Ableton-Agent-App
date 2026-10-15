@@ -452,6 +452,258 @@ function audioClient(descriptor, overrides = {}) {
   );
 }
 
+function descriptiveClient(descriptor, overrides = {}) {
+  return createClient(
+    {
+      ...descriptor,
+      listenerVersions: [1, 2],
+      listenerCapabilities: ["audio-listener/v1", "audio-listener/v2"],
+    },
+    {
+      signalKind: "audio",
+      schemaVersion: "audio-observation/v2",
+      listener: {
+        version: 2,
+        capabilities: ["audio-listener/v2"],
+        sampleRate: 44100,
+        vectorSize: 64,
+        algorithmVersion: "2.0.0",
+      },
+      ...overrides,
+    },
+  );
+}
+
+function descriptiveConfig() {
+  return {
+    geometry: {
+      sampleRate: 44100,
+      vectorSize: 64,
+      tempoBpm: 93,
+      startBeat: 5.25,
+      endBeat: 8.35,
+      hopSamples: 4410,
+      totalSamples: 88200,
+    },
+    timingPolicy: { mode: "descriptive", maxClockDisagreementSamples: 64 },
+  };
+}
+
+function descriptiveControl(client, action = "prepare") {
+  return {
+    type: "listener.control",
+    protocolVersion: 1,
+    listenerVersion: 2,
+    requestId: action,
+    connectionEpoch: client.listener.connectionEpoch,
+    jobId: "job",
+    passId: "pass",
+    traceId: "trace",
+    correlationId: "correlation",
+    causationId: "causation",
+    action,
+    ...(action === "prepare" ? { config: descriptiveConfig() } : {}),
+  };
+}
+
+test("explicit v2 clients negotiate their exact capability and preserve wire ownership and version", async () => {
+  const messages = [];
+  const failures = [];
+  let serverSocket;
+  const ingress = await createIngress((message, socket) => {
+    serverSocket = socket;
+    messages.push(message);
+    socket.write(
+      `${JSON.stringify({
+        type: "producer.ack",
+        protocolVersion: 1,
+        requestId: message.requestId,
+        action: message.type === "producer.hello" ? "hello" : "listener",
+        ...(message.type === "producer.hello"
+          ? { connectionId: "descriptive-connection" }
+          : {}),
+      })}\n`,
+    );
+  });
+  let client;
+  try {
+    client = descriptiveClient(ingress.descriptor, {
+      onListenerFailure: (reason) => failures.push(reason),
+      onListenerControl: (control) =>
+        client.sendListenerReply(control, { status: "ready" }),
+    });
+    client.start();
+    await waitFor(() => client.isConnected());
+    assert.equal(messages[0].producer.schemaVersion, "audio-observation/v2");
+    assert.equal(messages[0].listener.version, 2);
+    const control = descriptiveControl(client);
+    serverSocket.write(`${JSON.stringify(control)}\n`);
+    const reply = await waitFor(() =>
+      messages.find((message) => message.type === "listener.reply"),
+    );
+    for (const key of [
+      "listenerVersion",
+      "connectionEpoch",
+      "jobId",
+      "passId",
+      "traceId",
+      "correlationId",
+      "causationId",
+    ]) {
+      assert.equal(reply[key], control[key]);
+    }
+    client.sendListenerResult(control, {
+      status: "failed",
+      reason: "synthetic_capture_denial",
+    });
+    const result = await waitFor(() =>
+      messages.find((message) => message.type === "listener.result"),
+    );
+    assert.equal(result.listenerVersion, 2);
+    assert.equal(result.sequence, reply.sequence + 1);
+    assert.equal(client.listenerJob, null);
+    assert.deepEqual(failures, []);
+  } finally {
+    client?.stop();
+    await ingress.close();
+  }
+});
+
+test("v2 cannot fall back to v1 descriptor advertisement or mismatched schema", async () => {
+  const client = descriptiveClient({});
+  await assert.rejects(
+    () => client.loadDescriptor(),
+    /invalid ingress descriptor/,
+  );
+  const legacy = {
+    host: "127.0.0.1",
+    port: 12345,
+    protocol: "newline-delimited-json",
+    protocolVersion: 1,
+    maxFrameBytes: 128 * 1024,
+    listenerVersions: [1],
+    listenerCapabilities: ["audio-listener/v1"],
+  };
+  client.readText = async () => JSON.stringify(legacy);
+  await assert.rejects(() => client.loadDescriptor(), /not advertised/);
+  client.readText = async () =>
+    JSON.stringify({ ...legacy, listenerVersions: [1, 2] });
+  await assert.rejects(() => client.loadDescriptor(), /not advertised/);
+  assert.throws(
+    () => descriptiveClient({}, { schemaVersion: "audio-observation/v1" }),
+    /listener capability requires/,
+  );
+  for (const change of [
+    { version: 1 },
+    { version: 3 },
+    { version: "2" },
+    { capabilities: ["audio-listener/v1"] },
+    { capabilities: ["audio-listener/v1", "audio-listener/v2"] },
+  ]) {
+    assert.throws(
+      () =>
+        descriptiveClient({}, { listener: { ...client.listener, ...change } }),
+      /listener capability requires/,
+    );
+  }
+});
+
+test("v2 admits only bounded coherent prepare geometry and no configuration on arm or cancel", () => {
+  const client = descriptiveClient({});
+  client.listener.connectionEpoch = "epoch";
+  const failures = [];
+  const admitted = [];
+  client.authenticated = true;
+  client.socket = { destroy() {} };
+  client.onListenerFailure = (reason) => failures.push(reason);
+  client.onListenerControl = (control) => admitted.push(control);
+  const valid = descriptiveControl(client);
+  const invalid = [
+    { ...valid, listenerVersion: 1 },
+    { ...valid, config: undefined },
+    { ...valid, config: { ...valid.config, extra: 1 } },
+    {
+      ...valid,
+      config: {
+        ...valid.config,
+        geometry: { ...valid.config.geometry, totalSamples: 88201 },
+      },
+    },
+    {
+      ...valid,
+      config: {
+        ...valid.config,
+        geometry: { ...valid.config.geometry, vectorSize: 63 },
+      },
+    },
+    {
+      ...valid,
+      config: {
+        ...valid.config,
+        timingPolicy: { mode: "strict", maxClockDisagreementSamples: 64 },
+      },
+    },
+    {
+      ...valid,
+      config: {
+        ...valid.config,
+        timingPolicy: { mode: "descriptive", maxClockDisagreementSamples: 481 },
+      },
+    },
+    { ...descriptiveControl(client, "arm"), config: valid.config },
+    { ...descriptiveControl(client, "cancel"), config: valid.config },
+  ];
+  for (const control of invalid) client.handleListenerControl(control);
+  assert.equal(failures.length, invalid.length);
+  assert.equal(admitted.length, 0);
+  assert.equal(client.listenerJob, null);
+  client.handleListenerControl(valid);
+  assert.equal(admitted.length, 1);
+  assert.equal(client.listenerJob, valid);
+  client.handleListenerControl(descriptiveControl(client, "arm"));
+  assert.equal(admitted.length, 2);
+});
+
+test("v2 transport admits both actual-rate geometries, exact tails, maximum duration and all tuning budgets", () => {
+  for (const rate of [44100, 48000]) {
+    const hop = rate / 10;
+    for (const count of [hop, hop + 1, rate * 30]) {
+      for (const budget of [0, 1, 64, 128, 480]) {
+        const client = descriptiveClient({});
+        client.listener.connectionEpoch = "epoch";
+        client.authenticated = true;
+        const admitted = [];
+        client.onListenerControl = (control) => admitted.push(control);
+        const control = descriptiveControl(client);
+        control.config.geometry = {
+          ...control.config.geometry,
+          sampleRate: rate,
+          totalSamples: count,
+          hopSamples: hop,
+          endBeat: 5.25 + (count * 93) / (rate * 60),
+        };
+        control.config.timingPolicy.maxClockDisagreementSamples = budget;
+        client.handleListenerControl(control);
+        assert.equal(admitted.length, 1);
+        if (budget === 0) {
+          const strict = descriptiveClient({});
+          strict.listener.connectionEpoch = "epoch";
+          strict.authenticated = true;
+          strict.onListenerControl = (value) => admitted.push(value);
+          strict.handleListenerControl({
+            ...control,
+            config: {
+              ...control.config,
+              timingPolicy: { mode: "strict", maxClockDisagreementSamples: 0 },
+            },
+          });
+          assert.equal(admitted.length, 2);
+        }
+      }
+    }
+  }
+});
+
 test("audio controls preserve trace context, rotate reconnect epochs, and reject stale controls", async () => {
   const messages = [];
   const failures = [];

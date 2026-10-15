@@ -17,13 +17,13 @@ import { SignalRouter } from "./router.js";
 import type {
   ListenerControl,
   ListenerControlInput,
-  ListenerReply,
-  ListenerResult,
   ListenerResultEvent,
 } from "./listener-contracts.js";
 import {
   listenerControlV2Schema,
   type VersionedListenerControl,
+  type VersionedListenerReply,
+  type VersionedListenerResult,
 } from "./listener-v2-contracts.js";
 import { midiSample } from "./test-fixtures.js";
 
@@ -40,12 +40,15 @@ interface CommonProducerClient {
   isConnected(): boolean;
   sendSample(sample: unknown, capturedAt: number): boolean;
   sendListenerReply(
-    control: ListenerControl,
-    reply: Pick<ListenerReply, "status">,
+    control: VersionedListenerControl,
+    reply: Pick<VersionedListenerReply, "status" | "nativeArm" | "reason">,
   ): boolean;
   sendListenerResult(
-    control: ListenerControl,
-    result: Pick<ListenerResult, "status" | "observation">,
+    control: VersionedListenerControl,
+    result: Pick<
+      VersionedListenerResult,
+      "status" | "observation" | "nativeLaunch" | "nativeCapture" | "reason"
+    >,
   ): boolean;
 }
 const { AgentSignalClient } =
@@ -345,6 +348,120 @@ async function armedV2(
 }
 
 describe("explicit native v2 authenticated ingress", () => {
+  it.each(["complete", "cancel", "disconnect"] as const)(
+    "runs the real shared v2 client through authenticated %s with synthetic native proof",
+    async (outcome) => {
+      const { server, endpoint } = await start();
+      const results: ListenerResultEvent[] = [];
+      server.onListenerResult((event) => results.push(event));
+      const descriptor = {
+        ...endpoint,
+        protocol: "newline-delimited-json",
+        protocolVersion: 1,
+        maxFrameBytes: 128 * 1024,
+        listenerVersions: [1, 2],
+        listenerCapabilities: ["audio-listener/v1", "audio-listener/v2"],
+      };
+      const audio = new AgentSignalClient({
+        secret,
+        descriptorPath: "isolated-v2-fixture-descriptor.json",
+        signalKind: "audio",
+        schemaVersion: "audio-observation/v2",
+        producerIdPrefix: "ableton-audio-listener",
+        instanceId: "audio-v2",
+        readText: async () => JSON.stringify(descriptor),
+        listener: {
+          ...nativeV2Metadata,
+          version: 2,
+          capabilities: ["audio-listener/v2"],
+          sampleRate: 48000,
+          algorithmVersion: "2.0.0",
+          deviceCanonicalPath: "live_set tracks 1 devices 0",
+          trackCanonicalPath: "live_set tracks 1",
+          nativeStatus: {
+            ...nativeV2Metadata.nativeStatus,
+            readiness: "BLOCKED",
+            reason: "fresh_per_pass_native_validation_required",
+          },
+        },
+        onListenerControl(control: VersionedListenerControl) {
+          const fixture = createSyntheticNativeListeningFixtureV2({
+            listenerId: audio.producer.producerId,
+          });
+          audio.sendListenerReply(
+            control,
+            control.action === "arm"
+              ? { status: "armed", nativeArm: fixture.proof.armed }
+              : {
+                  status: control.action === "prepare" ? "ready" : "cancelled",
+                },
+          );
+          if (control.action === "arm" && outcome === "complete") {
+            audio.sendListenerResult(control, {
+              status: "progress",
+              nativeLaunch: fixture.proof.launched,
+            });
+            audio.sendListenerResult(control, {
+              status: "completed",
+              observation: { ...fixture.observation, passId: control.passId },
+              nativeCapture: fixture.proof,
+            });
+          }
+        },
+      });
+      clients.push(audio);
+      audio.configureProducer({
+        canonicalPath: "live_set tracks 1 devices 0",
+        track: { id: "3", name: "Audio" },
+        device: { id: "4", name: "Listener v2" },
+      });
+      audio.start();
+      await expect.poll(() => audio.isConnected()).toBe(true);
+      const connectionId = server.inspectListeners()[0]!.connectionId;
+      const context = v2Context();
+      await expect(
+        server.requestListenerControl(connectionId, context),
+      ).resolves.toMatchObject({ listenerVersion: 2, status: "ready" });
+      const { config, ...arm } = context;
+      expect(config.geometry.sampleRate).toBe(48000);
+      await expect(
+        server.requestListenerControl(connectionId, { ...arm, action: "arm" }),
+      ).resolves.toMatchObject({ listenerVersion: 2, status: "armed" });
+      if (outcome === "complete") {
+        await expect
+          .poll(() => results.at(-1)?.result.status)
+          .toBe("completed");
+        expect(results.map(({ result }) => result.sequence)).toEqual([2, 3]);
+        expect(results.at(-1)?.result.observation?.complete).toBe(true);
+        expect(results.at(-1)?.result).toMatchObject({
+          listenerVersion: 2,
+          traceId: context.traceId,
+          correlationId: context.correlationId,
+          causationId: context.causationId,
+          passId: context.passId,
+        });
+      } else if (outcome === "cancel") {
+        await expect(
+          server.requestListenerControl(connectionId, {
+            ...arm,
+            action: "cancel",
+          }),
+        ).resolves.toMatchObject({ listenerVersion: 2, status: "cancelled" });
+        expect(results).toEqual([]);
+      } else {
+        audio.stop();
+        await expect.poll(() => results.length).toBe(1);
+        expect(results[0]!.result).toMatchObject({
+          listenerVersion: 2,
+          status: "partial",
+          reason: "disconnected",
+        });
+        expect(results[0]!.result.observation).toBeUndefined();
+      }
+      expect(server.inspectListeners()[0]?.phase ?? "idle").toBe("idle");
+    },
+  );
+
   it.each(["wrong-secret", "missing-capability", "mixed-version"] as const)(
     "denies %s before registration",
     async (failure) => {

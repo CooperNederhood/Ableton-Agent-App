@@ -26,6 +26,10 @@ Companion specification: [Playback Listening](playback-listening.md).
   App-configured arm/launch/result checks, without changing legacy validators.
   Cover version pairing, immutable policy, exact prior-proof binding, counter
   replay, causal/timed lifecycle, failure, cancellation, redaction and watchdogs.
+- [x] Extend the existing portable shared client with explicit matching v2
+  schema/capability/descriptor/control/result versions and bounded prepare-only
+  geometry/policy. Preserve MIDI/v1 defaults and exercise actual authenticated
+  shared-client completion, cancellation and disconnect with synthetic proof.
 - [x] Keep the v1 App capture adapter from discovering or executing v2 until
   the separately validated playback/context integration is implemented.
 - [ ] Generalize controller, engine and native graphs for ordinary music/silence,

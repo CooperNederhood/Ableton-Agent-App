@@ -17,6 +17,8 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
   bounded byte size, plus a backward-compatible same-Song `firstSave` marker.
 - [x] Define the complete stable error-code union.
 - [x] Define command-specific request/result schemas.
+- [x] Add guarded Arrangement positioning-before-arm contracts, exact stopped
+  readback/request matching, bridge mutation serialization and cross-language fixtures.
   - [x] Define exact-reference Session clip launch, duplication, deletion, and
     conservative property request/result schemas.
   - [x] Define bounded Arrangement transport inspection, verified loop update,

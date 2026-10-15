@@ -120,6 +120,12 @@ Companion specification: [Remote Script](remote-script.md)
 
 ## Tests
 
+- [x] Add guarded Arrangement positioning-before-arm with deferred independent
+  marker/position reads, no redundant writes, source/revision/safety checks,
+  explicit partial failures, no start/stop/rollback and simulator persistence.
+- [ ] Qualify the new positioning command through the integrated ordinary
+  listening host against a fresh runner-owned Live 11 process.
+
 - [~] Build fake Song, Track, Clip, Device, Browser, and Application objects.
 - [x] Add capability-detected recording, grooves, selection/view, Live history,
   Session automation, warp-marker, Browser adapter, specialized-device, and

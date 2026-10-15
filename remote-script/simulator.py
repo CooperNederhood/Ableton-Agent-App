@@ -16,8 +16,8 @@ from AbletonAgent.protocol import FrameDecoder, encode_frame
 from AbletonAgent.errors import ProtocolFailure
 from AbletonAgent.listening_simulator import inspect_simulated_listening_context, build_listening_simulator_context
 from AbletonAgent.listening_playback import (
-    OWNERSHIP_LIMITATION, PLAYBACK_CAPABILITIES, START_LIMITATION,
-    start_listening_playback, stop_listening_playback,
+    OWNERSHIP_LIMITATION, PLAYBACK_CAPABILITIES, POSITION_LIMITATION, START_LIMITATION,
+    position_listening_playback, start_listening_playback, stop_listening_playback,
 )
 from AbletonAgent.core_domain_commands import (
     ROUTING_SNAPSHOT_LIMIT,
@@ -2581,9 +2581,11 @@ def handle(request, token, state):
     params = request.get("params", {})
     if command in PLAYBACK_CAPABILITIES:
         try:
-            if command == "listening.start_playback":
+            if command in ("listening.position_playback", "listening.start_playback"):
                 context = build_listening_simulator_context(state)
-                result = start_listening_playback(
+                operation = (position_listening_playback
+                             if command == "listening.position_playback" else start_listening_playback)
+                result = operation(
                     context, params, identity_builder=lambda _song: {"liveSetId": "simulated-live-set"})
                 settled, errors = [], []
                 result.start(settled.append, errors.append)
@@ -2596,6 +2598,8 @@ def handle(request, token, state):
                 if len(settled) != 1:
                     raise ProtocolFailure("lom_error", "Simulator guarded start did not settle")
                 result = settled[0]
+                state.arrangement_start_marker = context.song.start_time
+                state.current_song_time = context.song.current_song_time
                 return response(request, result)
             return response(request, stop_listening_playback(state, params))
         except ProtocolFailure as error:
@@ -2629,6 +2633,7 @@ def handle(request, token, state):
                     "live_set.get_identity": True,
                     "session.inspect": True,
                     "listening.inspect_context": True,
+                    "listening.position_playback": True,
                     "listening.start_playback": True,
                     "listening.stop_playback": False,
                     "transport.set_tempo": True,
@@ -2802,7 +2807,11 @@ def handle(request, token, state):
                 "evidence": "public" if supported else "unavailable",
                 "minimumLiveVersion": "11.0",
                 "testedLiveVersions": ["simulator"] if supported else [],
-                "limitations": ([START_LIMITATION if name == "listening.start_playback" else OWNERSHIP_LIMITATION]
+                "limitations": ([{
+                    "listening.position_playback": POSITION_LIMITATION,
+                    "listening.start_playback": START_LIMITATION,
+                    "listening.stop_playback": OWNERSHIP_LIMITATION,
+                }[name]]
                                 if name in PLAYBACK_CAPABILITIES else []),
             }
             for name, supported in capabilities.items()

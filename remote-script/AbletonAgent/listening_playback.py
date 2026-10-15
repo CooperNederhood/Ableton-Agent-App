@@ -1,4 +1,4 @@
-"""Guarded Arrangement marker start; deliberately never stops playback."""
+"""Guarded Arrangement positioning/start; deliberately never stops playback."""
 
 from .core_domain_commands import (
     _clip_target, _integer, _name, _number, _strict, _track_target, _uuid,
@@ -18,7 +18,14 @@ OWNERSHIP_LIMITATION = (
 SESSION_LIMITATION = (
     "Session listening playback is unsupported until actual quantized source onset is verified."
 )
-PLAYBACK_CAPABILITIES = ("listening.start_playback", "listening.stop_playback")
+PLAYBACK_CAPABILITIES = (
+    "listening.position_playback", "listening.start_playback", "listening.stop_playback",
+)
+POSITION_LIMITATION = (
+    "Arrangement only, stopped and recording-off; independently reads back insert marker "
+    "and stopped position before native arm. Does not start, stop, certify source onset, "
+    "or grant transport ownership."
+)
 START_LIMITATION = (
     "Arrangement only; the existing insert marker must match the requested start. "
     "Seek/start readbacks are deferred; playback continues after completion/cancellation. "
@@ -89,9 +96,10 @@ def _marker_guard(song, params):
                               details={"reason": "arrangement_start_marker_mismatch", "mutated": False})
 
 
-def _guards(context, params, identity_builder, check_revision=True):
+def _guards(context, params, identity_builder, check_revision=True, require_marker=True):
     _transport_guards(context, params, identity_builder, check_revision)
-    _marker_guard(context.song, params)
+    if require_marker:
+        _marker_guard(context.song, params)
     evidence = inspect_listening_context(context, {
         "schemaVersion": 1, "listeners": params["listeners"],
         "range": params["range"], "maxClips": 64, "maxParameters": 1,
@@ -102,7 +110,9 @@ def _guards(context, params, identity_builder, check_revision=True):
     ):
         raise ProtocolFailure("conflict", "Listener or clip recording/source evidence is unsafe or unknown")
     _transport_guards(context, params, identity_builder, check_revision)
-    _marker_guard(context.song, params)
+    if require_marker:
+        _marker_guard(context.song, params)
+    return evidence
 
 
 def _listener(value):
@@ -165,29 +175,138 @@ def validate_stop(params):
     return None
 
 
+def validate_position(params):
+    error = validate_start(params)
+    if error or params["mode"] != "arrangement":
+        return "Invalid Arrangement listening position parameters"
+    return None
+
+
 def _unmutated_start_failure(error):
     details = dict(error.details or {})
     details.update({"mutated": False, "cleanupPolicy": "leave-running"})
     return ProtocolFailure(error.code, error.message, details=details)
 
 
-def _start_failure(song, error, stage, mutation_attempted):
+def _start_failure(song, error, stage, mutation_attempted, operation="start"):
     if not mutation_attempted:
         if isinstance(error, ProtocolFailure):
             return _unmutated_start_failure(error)
-        return ProtocolFailure("lom_error", "Guarded start failed before a mutation attempt",
+        return ProtocolFailure("lom_error", "Guarded " + operation + " failed before a mutation attempt",
                                details={"stage": stage, "mutated": False,
                                         "cleanupPolicy": "leave-running"})
     playing = _safe_lom_getattr(song, "is_playing")
     beat = _safe_lom_getattr(song, "current_song_time")
     return ProtocolFailure(
-        "lom_error", "Guarded start failed after a mutation attempt; playback is left unchanged",
+        "lom_error", "Guarded " + operation + " failed after a mutation attempt; playback is left unchanged",
         details={
             "stage": stage, "mutationState": "indeterminate",
             "cleanupPolicy": "leave-running",
             "playing": playing if isinstance(playing, bool) else None,
             "currentBeat": beat if _number(beat, 0, 1576800) else None,
         })
+
+
+def position_listening_playback(context, params, identity_builder=build_live_identity):
+    error = validate_position(params)
+    if error:
+        raise ProtocolFailure("invalid_params", error)
+    song = context.song
+    if (not guarded_arrangement_start_supported(song)
+            or not callable(getattr(context, "schedule_message", None))):
+        raise ProtocolFailure("unsupported_capability", "Required Arrangement positioning primitives are unavailable",
+                              details={"mutated": False, "cleanupPolicy": "leave-running"})
+    try:
+        initial = _guards(context, params, identity_builder, require_marker=False)
+        initial_marker = _safe_lom_getattr(song, "start_time")
+        initial_position = _safe_lom_getattr(song, "current_song_time")
+        if not _number(initial_marker, 0, 1576800):
+            raise ProtocolFailure("conflict", "Listening insert marker is unknown")
+    except Exception as error:
+        raise _start_failure(song, error, "position_guard", False, "position")
+    target = params["range"]["startBeat"]
+    state = {"stage": "position_marker", "mutation_attempted": False, "settled": False}
+
+    def source_evidence(inspection):
+        return [
+            {field: item[field] for field in ("canonicalPath", "binding", "fingerprint")}
+            for item in inspection["listeners"]
+        ]
+
+    baseline = source_evidence(initial)
+
+    def revalidate():
+        current = _guards(
+            context, params, identity_builder,
+            check_revision=not state["mutation_attempted"], require_marker=False)
+        if source_evidence(current) != baseline:
+            raise ProtocolFailure("conflict", "Listening source changed during positioning")
+
+    def begin(on_success, on_failure, on_progress):
+        def failed(error):
+            if state["settled"]:
+                raise error
+            state["settled"] = True
+            on_failure(_start_failure(
+                song, error, state["stage"], state["mutation_attempted"], "position"))
+
+        def schedule(phase, callback):
+            if on_progress is not None:
+                on_progress({"phase": phase})
+            context.schedule_message(1, callback)
+
+        def verify_position():
+            if state["settled"]:
+                return
+            try:
+                revalidate()
+                _marker_guard(song, params)
+                position = _safe_lom_getattr(song, "current_song_time")
+                if position != target:
+                    raise ProtocolFailure("conflict", "Requested stopped position was not independently observed")
+                result = {
+                    "schemaVersion": 1, "mode": "arrangement",
+                    "cleanupPolicy": "leave-running", "sourceOnset": "unverified",
+                    "requestedStartBeat": target,
+                    "insertMarkerBeat": _safe_lom_getattr(song, "start_time"),
+                    "currentBeat": position, "playing": False,
+                    "changed": {
+                        "insertMarker": initial_marker != target,
+                        "currentPosition": initial_position != target,
+                    },
+                }
+            except Exception as error:
+                failed(error)
+                return
+            state["settled"] = True
+            on_success(result)
+
+        def verify_marker():
+            if state["settled"]:
+                return
+            try:
+                revalidate()
+                _marker_guard(song, params)
+                state["stage"] = "position_seek"
+                if _safe_lom_getattr(song, "current_song_time") != target:
+                    state["mutation_attempted"] = True
+                    song.current_song_time = target
+                state["stage"] = "position_verify"
+                schedule("listening_position_seek_verification", verify_position)
+            except Exception as error:
+                failed(error)
+
+        try:
+            revalidate()
+            if _safe_lom_getattr(song, "start_time") != target:
+                state["mutation_attempted"] = True
+                song.start_time = target
+            state["stage"] = "position_marker_verify"
+            schedule("listening_position_marker_verification", verify_marker)
+        except Exception as error:
+            failed(error)
+
+    return DeferredResult(begin, supports_progress=True)
 
 
 def start_listening_playback(context, params, identity_builder=build_live_identity):
@@ -292,6 +411,10 @@ def stop_listening_playback(context, params):
 
 
 def register_playback_commands(registry):
+    registry.register(
+        "listening.position_playback", position_listening_playback, mutates=True,
+        capability="listening.position_playback", validator=validate_position,
+    )
     registry.register(
         "listening.start_playback", start_listening_playback, mutates=True,
         capability="listening.start_playback", validator=validate_start,

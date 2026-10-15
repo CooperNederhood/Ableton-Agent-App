@@ -12,6 +12,9 @@ export interface AbletonService {
   inspectListeningContext?(
     params: Protocol.InspectListeningContextParams,
   ): Promise<Protocol.InspectListeningContextResult>;
+  positionListeningPlayback?(
+    params: Protocol.PositionListeningPlaybackParams,
+  ): Promise<Protocol.PositionListeningPlaybackResult>;
   startListeningPlayback?(
     params: Protocol.StartListeningPlaybackParams,
   ): Promise<Protocol.StartListeningPlaybackResult>;

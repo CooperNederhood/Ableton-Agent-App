@@ -7,6 +7,10 @@ import {
   inspectListeningContextResultSchema,
   type InspectListeningContextParams,
   type InspectListeningContextResult,
+  positionListeningPlaybackParamsSchema,
+  positionListeningPlaybackResultSchema,
+  type PositionListeningPlaybackParams,
+  type PositionListeningPlaybackResult,
   startListeningPlaybackParamsSchema,
   startListeningPlaybackResultSchema,
   stopListeningPlaybackParamsSchema,
@@ -961,6 +965,24 @@ export class AbletonBridgeService implements AbletonService {
     return inspectListeningContextResultSchema.parse(
       await this.#request("listening.inspect_context", validated),
     );
+  }
+
+  public async positionListeningPlayback(
+    params: PositionListeningPlaybackParams,
+  ): Promise<PositionListeningPlaybackResult> {
+    const validated = positionListeningPlaybackParamsSchema.parse(params);
+    this.#requireCapability("listening.position_playback");
+    const result = positionListeningPlaybackResultSchema.parse(
+      await this.#mutationRequest("listening.position_playback", validated),
+    );
+    if (result.requestedStartBeat !== validated.range.startBeat) {
+      throw new AbletonBridgeError(
+        "invalid_response",
+        "Listening position readback does not match the requested start",
+        false,
+      );
+    }
+    return result;
   }
 
   public async startListeningPlayback(

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   inspectListeningContextParamsSchema,
   inspectListeningContextResultSchema,
+  positionListeningPlaybackParamsSchema,
+  positionListeningPlaybackResultSchema,
   listeningDependencyFingerprintSchema,
   listeningCanonicalDevicePathSchema,
   listeningPathAttestationSchema,
@@ -31,6 +33,60 @@ const params = {
 };
 
 describe("bounded listening Live contracts", () => {
+  it("requires independently matching stopped Arrangement positioning without onset authority", () => {
+    const request = {
+      schemaVersion: 1,
+      mode: "arrangement",
+      ownerId: "session",
+      passId: listener.expectedDeviceReference,
+      expectedLiveSetId: "set",
+      expectedProjectRevision: 0,
+      listeners: [listener],
+      range: { startBeat: 5.25, endBeat: 9.5 },
+    };
+    expect(positionListeningPlaybackParamsSchema.parse(request)).toEqual(
+      request,
+    );
+    for (const change of [
+      { mode: "session" },
+      { schemaVersion: 2 },
+      { listeners: [listener, listener] },
+      { range: { startBeat: 5.25, endBeat: 5.25 } },
+      { stopAfterPosition: true },
+    ])
+      expect(
+        positionListeningPlaybackParamsSchema.safeParse({
+          ...request,
+          ...change,
+        }).success,
+      ).toBe(false);
+    const result = {
+      schemaVersion: 1,
+      mode: "arrangement",
+      cleanupPolicy: "leave-running",
+      sourceOnset: "unverified",
+      requestedStartBeat: 5.25,
+      insertMarkerBeat: 5.25,
+      currentBeat: 5.25,
+      playing: false,
+      changed: { insertMarker: true, currentPosition: true },
+    };
+    expect(positionListeningPlaybackResultSchema.parse(result)).toEqual(result);
+    for (const change of [
+      { playing: true },
+      { insertMarkerBeat: 5 },
+      { currentBeat: 5 },
+      { sourceOnset: "verified" },
+      { ownership: "owned" },
+      { changed: { insertMarker: true } },
+    ])
+      expect(
+        positionListeningPlaybackResultSchema.safeParse({
+          ...result,
+          ...change,
+        }).success,
+      ).toBe(false);
+  });
   it("retains explicit unverified native diagnostics and requires a bounded reason", () => {
     const status = {
       version: 1,

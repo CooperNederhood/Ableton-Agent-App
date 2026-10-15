@@ -80,6 +80,117 @@ afterEach(() => {
 });
 
 describe("AbletonBridgeService", () => {
+  it("positions fractional Arrangement playback before arm with fresh readback and correlated mutation lifecycle", async () => {
+    const port = await startSimulator(token, { listeningFixture: true });
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      telemetry: { enqueue: (event) => telemetry.push(event) },
+    });
+    await service.start();
+    try {
+      expect((await service.getCapabilities()).capabilities).toMatchObject({
+        "listening.position_playback": true,
+        "listening.start_playback": true,
+        "listening.stop_playback": false,
+      });
+      const inspection = await service.inspectListeningContext({
+        schemaVersion: 1,
+        listeners: [{ canonicalPath: "live_set tracks 0 devices 1" }],
+        range: { startBeat: 5.25, endBeat: 9.5 },
+      });
+      const params = {
+        schemaVersion: 1 as const,
+        mode: "arrangement" as const,
+        ownerId: "session",
+        passId: "10000000-0000-4000-8000-000000000001",
+        expectedLiveSetId: "simulated-live-set",
+        expectedProjectRevision: inspection.projectRevision,
+        listeners: [inspection.listeners[0]!.binding],
+        range: { startBeat: 5.25, endBeat: 9.5 },
+      };
+      for (const change of [
+        { expectedLiveSetId: "another-set" },
+        { expectedProjectRevision: inspection.projectRevision + 1 },
+      ])
+        await expect(
+          service.positionListeningPlayback({ ...params, ...change }),
+        ).rejects.toMatchObject({ code: "conflict" });
+      const read = () =>
+        service.inspectListeningContext({
+          schemaVersion: 1,
+          listeners: params.listeners,
+          range: params.range,
+        });
+      expect((await read()).transport).toMatchObject({
+        playing: false,
+        currentBeat: 0,
+      });
+      registerCorrelationContext({
+        correlationId: "guarded-position",
+        traceId: "11111111-1111-4111-8111-111111111111",
+        causationId: "approved-listening",
+      });
+      expect(
+        await withCorrelation("guarded-position", () =>
+          service.positionListeningPlayback(params),
+        ),
+      ).toMatchObject({
+        requestedStartBeat: 5.25,
+        insertMarkerBeat: 5.25,
+        currentBeat: 5.25,
+        playing: false,
+        sourceOnset: "unverified",
+        cleanupPolicy: "leave-running",
+        changed: { insertMarker: true, currentPosition: true },
+      });
+      expect((await read()).transport).toMatchObject({
+        playing: false,
+        currentBeat: 5.25,
+      });
+      expect((await service.positionListeningPlayback(params)).changed).toEqual(
+        {
+          insertMarker: false,
+          currentPosition: false,
+        },
+      );
+      const stages = telemetry.filter(
+        (event) =>
+          event.attributes.command === "listening.position_playback" &&
+          event.correlationId === "guarded-position",
+      );
+      expect(stages.map((event) => event.name)).toEqual([
+        "bridge.request.queued",
+        "bridge.request.dispatched",
+        "bridge.request.completed",
+      ]);
+      expect(
+        stages.every(
+          (event) =>
+            event.trace?.traceId === "11111111-1111-4111-8111-111111111111",
+        ),
+      ).toBe(true);
+      await service.startListeningPlayback({
+        ...params,
+        expectedProjectRevision: (await read()).projectRevision,
+      });
+      expect((await read()).transport).toMatchObject({
+        playing: true,
+        currentBeat: 5.25,
+      });
+      await expect(
+        service.positionListeningPlayback(params),
+      ).rejects.toMatchObject({
+        code: "conflict",
+      });
+      expect((await read()).transport.playing).toBe(true);
+    } finally {
+      unregisterCorrelationContext("guarded-position");
+      await service.stop();
+    }
+  });
   it("starts guarded Arrangement playback, leaves it running, and never enables stop ownership", async () => {
     const port = await startSimulator(token, { listeningFixture: true });
     const requests: string[] = [];

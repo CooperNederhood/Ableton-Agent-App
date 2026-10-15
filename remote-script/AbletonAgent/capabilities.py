@@ -763,12 +763,15 @@ def build_capability_document(
         "special_devices.",
     )
     tested_private_live_versions = ()
-    from .listening_playback import OWNERSHIP_LIMITATION, PLAYBACK_CAPABILITIES, START_LIMITATION, guarded_arrangement_start_supported
+    from .listening_playback import (
+        OWNERSHIP_LIMITATION, PLAYBACK_CAPABILITIES, POSITION_LIMITATION,
+        START_LIMITATION, guarded_arrangement_start_supported,
+    )
 
     for name in PLAYBACK_CAPABILITIES:
         if name in capabilities:
             capabilities[name] = (
-                name == "listening.start_playback"
+                name in ("listening.position_playback", "listening.start_playback")
                 and live_version.startswith("11.")
                 and guarded_arrangement_start_supported(song)
             )
@@ -779,7 +782,11 @@ def build_capability_document(
         evidence = "public" if supported else "unavailable"
         limitations = []
         if name in PLAYBACK_CAPABILITIES:
-            limitations.append(START_LIMITATION if name == "listening.start_playback" else OWNERSHIP_LIMITATION)
+            limitations.append({
+                "listening.position_playback": POSITION_LIMITATION,
+                "listening.start_playback": START_LIMITATION,
+                "listening.stop_playback": OWNERSHIP_LIMITATION,
+            }[name])
         tested_versions = [live_version] if supported and not private else []
         if private and detected:
             if live_version in tested_private_live_versions:

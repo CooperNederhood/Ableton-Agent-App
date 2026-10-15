@@ -2,6 +2,8 @@ import { z, type ZodType } from "zod";
 import {
   inspectListeningContextParamsSchema,
   inspectListeningContextResultSchema,
+  positionListeningPlaybackParamsSchema,
+  positionListeningPlaybackResultSchema,
   startListeningPlaybackParamsSchema,
   startListeningPlaybackResultSchema,
   stopListeningPlaybackParamsSchema,
@@ -726,6 +728,11 @@ export const commandCatalog = {
   "listening.inspect_context": command(
     inspectListeningContextParamsSchema,
     inspectListeningContextResultSchema,
+  ),
+  "listening.position_playback": command(
+    positionListeningPlaybackParamsSchema,
+    positionListeningPlaybackResultSchema,
+    { mutates: true },
   ),
   "listening.start_playback": command(
     startListeningPlaybackParamsSchema,

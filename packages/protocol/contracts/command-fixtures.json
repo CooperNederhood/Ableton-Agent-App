@@ -6439,12 +6439,12 @@
         }
       }
     },
-    "listening.start_playback": {
+    "listening.position_playback": {
       "request": {
         "protocolVersion": 6,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001122",
-        "command": "listening.start_playback",
+        "command": "listening.position_playback",
         "params": {
           "schemaVersion": 1,
           "ownerId": "x",
@@ -6478,6 +6478,67 @@
           "schemaVersion": 1,
           "mode": "arrangement",
           "cleanupPolicy": "leave-running",
+          "sourceOnset": "unverified",
+          "requestedStartBeat": 0,
+          "insertMarkerBeat": 0,
+          "currentBeat": 0,
+          "playing": false,
+          "changed": { "insertMarker": false, "currentPosition": false }
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 6,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001122",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden listening.position_playback failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "listening.start_playback": {
+      "request": {
+        "protocolVersion": 6,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001123",
+        "command": "listening.start_playback",
+        "params": {
+          "schemaVersion": 1,
+          "ownerId": "x",
+          "passId": "00000000-0000-4000-8000-000000000099",
+          "expectedLiveSetId": "x",
+          "expectedProjectRevision": 0,
+          "listeners": [
+            {
+              "track": {
+                "kind": "regular",
+                "index": 0,
+                "expectedReference": "00000000-0000-4000-8000-000000000099",
+                "expectedName": "x"
+              },
+              "deviceIndex": 0,
+              "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+              "expectedDeviceName": "x",
+              "expectedClassName": "MxDeviceAudioEffect"
+            }
+          ],
+          "range": { "startBeat": 0, "endBeat": 1 },
+          "mode": "arrangement"
+        }
+      },
+      "success": {
+        "protocolVersion": 6,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001123",
+        "ok": true,
+        "result": {
+          "schemaVersion": 1,
+          "mode": "arrangement",
+          "cleanupPolicy": "leave-running",
           "startedAtBeat": 0,
           "sourceOnset": "unverified"
         },
@@ -6486,7 +6547,7 @@
       "failure": {
         "protocolVersion": 6,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001122",
+        "requestId": "00000000-0000-4000-8000-000000001123",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -6500,7 +6561,7 @@
       "request": {
         "protocolVersion": 6,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001123",
+        "requestId": "00000000-0000-4000-8000-000000001124",
         "command": "listening.stop_playback",
         "params": {
           "schemaVersion": 1,
@@ -6515,7 +6576,7 @@
       "success": {
         "protocolVersion": 6,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001123",
+        "requestId": "00000000-0000-4000-8000-000000001124",
         "ok": true,
         "result": { "schemaVersion": 1, "ownership": "owned", "stopped": true },
         "warnings": []
@@ -6523,7 +6584,7 @@
       "failure": {
         "protocolVersion": 6,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001123",
+        "requestId": "00000000-0000-4000-8000-000000001124",
         "ok": false,
         "error": {
           "code": "lom_error",

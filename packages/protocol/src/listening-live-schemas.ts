@@ -316,6 +316,36 @@ export const startListeningPlaybackParamsSchema = z
         .size === value.listeners.length,
   );
 
+export const positionListeningPlaybackParamsSchema = z
+  .object({ ...playbackStart, mode: z.literal("arrangement") })
+  .strict()
+  .refine((value) => value.range.endBeat > value.range.startBeat)
+  .refine(
+    (value) =>
+      new Set(value.listeners.map((item) => item.expectedDeviceReference))
+        .size === value.listeners.length,
+  );
+export const positionListeningPlaybackResultSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    mode: z.literal("arrangement"),
+    cleanupPolicy: z.literal("leave-running"),
+    sourceOnset: z.literal("unverified"),
+    requestedStartBeat: beat,
+    insertMarkerBeat: beat,
+    currentBeat: beat,
+    playing: z.literal(false),
+    changed: z
+      .object({ insertMarker: z.boolean(), currentPosition: z.boolean() })
+      .strict(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.requestedStartBeat === value.insertMarkerBeat &&
+      value.requestedStartBeat === value.currentBeat,
+  );
+
 /** Connection-owned capability token, never a durable transport identity. */
 export const listeningPlaybackOwnershipSchema = z
   .object({
@@ -350,6 +380,12 @@ export const stopListeningPlaybackResultSchema = z
   .refine((value) => value.stopped === (value.ownership === "owned"));
 export type StartListeningPlaybackParams = z.input<
   typeof startListeningPlaybackParamsSchema
+>;
+export type PositionListeningPlaybackParams = z.input<
+  typeof positionListeningPlaybackParamsSchema
+>;
+export type PositionListeningPlaybackResult = z.infer<
+  typeof positionListeningPlaybackResultSchema
 >;
 export type ListeningPlaybackOwnership = z.infer<
   typeof listeningPlaybackOwnershipSchema

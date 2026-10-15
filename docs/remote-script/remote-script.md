@@ -277,13 +277,22 @@ See [Live Events](../events/live-events.md).
 
 ### Guarded listening playback
 
-`listening.start_playback` supports Arrangement only, inside one main-thread
-executor command: validate exact Set/revision and bounded listener targets,
-require stopped transport, all four recording flags off, known disabled loop
-and no Session override/pending launch, seek `current_song_time`, recheck
-recording/source/target guards, then call `continue_playing` (not
-`start_playing`, which uses the insert marker). It never modifies routing,
-solo/mute, loop or Back to Arrangement.
+`listening.position_playback` supports guarded stopped Arrangement positioning
+before native arm. It validates exact Set/revision, bounded listener targets,
+recording-off, disabled loop and no Session override/pending launch. It writes
+the requested insert marker only if needed, independently reads it on a later
+Live tick, writes the stopped position only if needed, then independently reads
+that position on another tick. Source fingerprints and safety/identity are
+revalidated between stages, including after our own revision-changing writes.
+It never starts or stops transport. Partial failures remain explicitly
+indeterminate; it does not restore a marker/position over user activity.
+
+`listening.start_playback` retains its matching-insert-marker guard, skips
+redundant seeks that could reset an armed native phase, independently verifies
+any needed seek, calls `start_playing` (not `continue_playing`, which resumes the
+old stopped location), and verifies playing on a later tick. Both commands
+leave routing, solo/mute, loop and Back to Arrangement unchanged. The App must
+freshly inspect source/revision after positioning and before native arm/start.
 
 The result is `{schemaVersion:1,mode:"arrangement",cleanupPolicy:"leave-running",
 startedAtBeat,sourceOnset:"unverified"}`. Playback deliberately continues after

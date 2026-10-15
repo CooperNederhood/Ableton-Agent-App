@@ -368,6 +368,7 @@ class ListeningPlaybackTest(unittest.TestCase):
         for version, expected in (("11.3.42", True), ("12.0", False)):
             application = types.SimpleNamespace(get_version_string=lambda: version)
             document = build_capability_document(application, self.song, registry)
+            self.assertIs(document["capabilities"]["listening.position_playback"], expected)
             self.assertIs(document["capabilities"]["listening.start_playback"], expected)
             self.assertFalse(document["capabilities"]["listening.stop_playback"])
         del self.song.start_playing

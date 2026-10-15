@@ -106,7 +106,10 @@ function sampleCommandParams(name, schema) {
     sample.range.endBeat = 1;
     sample.listeners[0].expectedClassName = "MxDeviceAudioEffect";
   }
-  if (name === "listening.start_playback") {
+  if (
+    name === "listening.start_playback" ||
+    name === "listening.position_playback"
+  ) {
     sample.range.endBeat = 1;
     sample.listeners[0].expectedClassName = "MxDeviceAudioEffect";
   }

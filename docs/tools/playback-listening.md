@@ -1576,13 +1576,17 @@ acquisition cohorts at frames 9 and 18, completed all 20 envelope/FFT windows an
 32/32 clock rows, and published one 96,000-frame observation. An independent
 typed read in a new process reopened the same context unchanged.
 `fixtures/native-acquisition-recovery.json` pins that capture's actual source
-hashes separately from the current source snapshot. Later formatted/current
-source qualification remains incomplete: subsequent cold trials failed closed,
-including clock continuity and pre-arm failure with unconfirmed cancellation.
+hashes separately from the current source snapshot. Exact current byte hashes
+subsequently completed an inspector-attached diagnostic without a rejection-site
+pause: both cohorts recovered at frames 13/15 and the complete observation
+reopened unchanged through typed reads in another process. This is current-byte
+diagnostic evidence, not immutable-candidate or standard-scenario acceptance.
+Earlier cold trials remain failed, including clock continuity and pre-arm
+failure with unconfirmed cancellation; repeatability is not yet qualified.
 No saved candidate, installed device or readiness was promoted. Historical DSP,
 engine/assembler/coordinate and unchanged SDK/watchdog pins remain exact;
-revised acquisition/diagnostic JavaScript has explicit separate provenance,
-not inherited historical byte-level qualification.
+revised acquisition/diagnostic JavaScript has explicit separate provenance and
+its own measured pass, not inherited historical byte-level qualification.
 
 Real runs also exposed a quit/exit race. Failed-quit fallback now first checks
 for an already exited exact owned PID, revalidates birth/executable identity

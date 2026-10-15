@@ -713,7 +713,10 @@ checkpoint above. The production timing gate is unchanged.
   clock binding; candidate restarts never extend the preflight deadline.
 - [x] Preserve actual diagnostic recovery of both cohorts, full native proof,
   publication and unchanged typed reopening in a new process. Keep capture
-  source hashes distinct from later unqualified current source revisions.
+  source hashes distinct from later revisions. Exact current bytes also
+  completed an inspector-attached diagnostic (recoveries at frames 13/15),
+  with independently valid proof and new-process typed retrieval. This does
+  not grant immutable-candidate or ordinary scenario acceptance.
 - [x] Protect failed-quit fallback against an already exited process, exit
   during signalling and replacement PID; reproduce all three regressions first.
 - [ ] Finish current-source and immutable-candidate cold-run qualification.

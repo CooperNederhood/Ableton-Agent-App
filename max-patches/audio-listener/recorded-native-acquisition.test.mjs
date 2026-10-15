@@ -84,15 +84,32 @@ test("instrumented numeric failures distinguish an unaccepted clock offset from 
   assert.equal(spectrum.terminal.stage, "failed");
 });
 
-test("diagnostic success and byte revisions never grant current-source, standard-runner or production qualification", () => {
+test("exact current bytes completed an instrumented capture without granting standard-runner or production qualification", () => {
   assert.equal(evidence.acceptancePassed, false);
   assert.equal(evidence.productionReady, false);
-  assert.equal(
-    evidence.currentSourceQualification.completeActualCapture,
-    false,
+  const qualified = evidence.currentSourceQualification;
+  assert.equal(qualified.completeActualCapture, true);
+  assert.equal(qualified.instrumentedDiagnosticOnly, true);
+  assert.equal(qualified.standardRunnerAccepted, false);
+  const proof = nativeCaptureProofSchema.parse(qualified.nativeCapture);
+  const observation = audioObservationSchema.parse(qualified.observation);
+  assertNativeCaptureObservation(proof, observation);
+  assert.equal(observation.samples.length, 20);
+  assert.equal(observation.endSample - observation.startSample, 96000);
+  assert.deepEqual(qualified.typedContext.observation, observation);
+  assert.equal(qualified.typedReadInNewProcessMatches, true);
+  assert.deepEqual(
+    qualified.recoveryEvents.map((event) => [
+      event.attributes.reason,
+      event.attributes.frames,
+    ]),
+    [
+      ["torn_native_spectrum", 13],
+      ["phase_torn_native_clock", 15],
+    ],
   );
   assert.match(
-    evidence.currentSourceQualification.latestDiagnosticError,
+    qualified.earlierFailedDiagnosticError,
     /native_clock_discontinuity/,
   );
   assert.equal(evidence.sourceOverridesAtCapture.length, 2);

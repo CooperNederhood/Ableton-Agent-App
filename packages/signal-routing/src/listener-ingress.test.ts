@@ -21,6 +21,7 @@ import type {
 } from "./listener-contracts.js";
 import {
   listenerControlV2Schema,
+  type NativeFailureDiagnosticV2,
   type VersionedListenerControl,
   type VersionedListenerReply,
   type VersionedListenerResult,
@@ -347,7 +348,123 @@ async function armedV2(
   return { control, fixture };
 }
 
+function spectrumFailureDiagnostic(): NativeFailureDiagnosticV2 {
+  return {
+    scope: "native-spectrum-rejection/v1",
+    generation: "55555555-5555-4555-8555-555555555555",
+    check: "end",
+    packet: [0, 0, 0, 0, 0, 37],
+    fftDiagnostics: [0, 1, 0, 2048, 253],
+    metadata: {
+      dsp: [1, 48000, 64],
+      fftInfo: [2048, 2048, 2048, 1],
+      clockAbi: 2,
+      envelopeAbi: 2,
+      spectrumAbi: 2,
+    },
+  };
+}
+
 describe("explicit native v2 authenticated ingress", () => {
+  it.each(["reply", "result"] as const)(
+    "retains bounded %s failure snapshots in attributed typed telemetry, never capture authority",
+    async (kind) => {
+      const events: TelemetryEventEnvelope[] = [];
+      const { server, endpoint } = await start({
+        telemetry: {
+          enqueue(event) {
+            events.push(event);
+            return true;
+          },
+        },
+      });
+      const received: ListenerResultEvent[] = [];
+      server.onListenerResult((event) => received.push(event));
+      const client = await listener(endpoint, nativeV2Metadata, 2);
+      const diagnostic = spectrumFailureDiagnostic();
+      if (kind === "reply") {
+        diagnostic.fftDiagnostics = null;
+        diagnostic.metadata.clockAbi = null;
+      }
+      const failure = {
+        status: "failed",
+        reason: "invalid_native_spectrum_packet",
+        nativeFailureDiagnostic: diagnostic,
+      };
+      if (kind === "reply") {
+        await prepareV2(server, client);
+        const { control, pending } = await beginArmV2(server, client);
+        client.send({ ...reply(control, 1, "failed"), ...failure });
+        await expect(pending).resolves.toMatchObject(failure);
+        expect(received).toEqual([]);
+      } else {
+        const { control } = await armedV2(server, client);
+        client.send(
+          result(control, 2, {
+            ...failure,
+            observation: undefined,
+          }),
+        );
+      }
+      expect((await client.next()).type).toBe("producer.ack");
+      await expect.poll(() => server.inspectListeners()[0]?.phase).toBe("idle");
+      const failureEvent = events.find(
+        (event) => event.name === "output.listener.failed",
+      );
+      expect(failureEvent).toMatchObject({
+        trace: { traceId: v2Context().traceId },
+        correlationId: v2Context().correlationId,
+        causationId: v2Context().causationId,
+        attributes: {
+          passId: v2Context().passId,
+          nativeFailureDiagnostic: diagnostic,
+        },
+      });
+      expect(failureEvent?.durationMs).toBeGreaterThanOrEqual(0);
+      expect(
+        received.some((event) => event.result.status === "completed"),
+      ).toBe(false);
+    },
+  );
+
+  it("denies malformed raw failure diagnostics without retaining embedded credentials or diagnostic authority", async () => {
+    const events: TelemetryEventEnvelope[] = [];
+    const { server, endpoint } = await start({
+      telemetry: {
+        enqueue(event) {
+          events.push(event);
+          return true;
+        },
+      },
+    });
+    const client = await listener(endpoint, nativeV2Metadata, 2);
+    await prepareV2(server, client);
+    const { control, pending } = await beginArmV2(server, client);
+    const diagnostic = spectrumFailureDiagnostic();
+    const credential = "Bearer private-diagnostic-credential";
+    client.send({
+      ...reply(control, 1, "failed"),
+      reason: "invalid_native_spectrum_packet",
+      nativeFailureDiagnostic: {
+        ...diagnostic,
+        metadata: { ...diagnostic.metadata, audio: credential },
+      },
+    });
+    expect(await client.next()).toMatchObject({
+      type: "producer.error",
+      code: "invalid-message",
+      fatal: true,
+    });
+    await expect(pending).rejects.toThrow();
+    await expect.poll(() => server.inspectListeners().length).toBe(0);
+    expect(JSON.stringify(events)).not.toContain(credential);
+    expect(
+      events.some(
+        (event) => event.attributes.nativeFailureDiagnostic !== undefined,
+      ),
+    ).toBe(false);
+  });
+
   it.each(["complete", "cancel", "disconnect"] as const)(
     "runs the real shared v2 client through authenticated %s with synthetic native proof",
     async (outcome) => {

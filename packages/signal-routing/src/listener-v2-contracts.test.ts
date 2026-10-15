@@ -88,6 +88,99 @@ function fixture() {
   };
 }
 
+const failureDiagnostic = {
+  scope: "native-spectrum-rejection/v1",
+  generation: "55555555-5555-4555-8555-555555555555",
+  check: "end",
+  packet: [0, 0, 0, 0, 0, 37],
+  fftDiagnostics: [0, 1, 0, 2048, 253],
+  metadata: {
+    dsp: [1, 48000, 64],
+    fftInfo: [2048, 2048, 2048, 1],
+    clockAbi: 2,
+    envelopeAbi: 2,
+    spectrumAbi: 2,
+  },
+};
+
+describe("bounded non-authority native failure diagnostics", () => {
+  it.each(["reply", "result"] as const)(
+    "retains exact finite snapshots only on a failed v2 %s",
+    (kind) => {
+      const schema =
+        kind === "reply" ? listenerReplyV2Schema : listenerResultV2Schema;
+      const value = {
+        ...wire,
+        type: `listener.${kind}`,
+        sequence: 1,
+        status: "failed",
+        reason: "invalid_native_spectrum_packet",
+        nativeFailureDiagnostic: structuredClone(failureDiagnostic),
+      };
+      const { nativeFailureDiagnostic, ...withoutDiagnostic } = value;
+      expect(schema.parse(value)).toMatchObject({ nativeFailureDiagnostic });
+      const legacySchema =
+        kind === "reply" ? listenerReplySchema : listenerResultSchema;
+      const legacyValue = { ...withoutDiagnostic, listenerVersion: 1 };
+      expect(legacySchema.safeParse(legacyValue).success).toBe(true);
+      expect(
+        legacySchema.safeParse({
+          ...legacyValue,
+          nativeFailureDiagnostic: failureDiagnostic,
+        }).success,
+      ).toBe(false);
+      expect(
+        schema.safeParse({
+          ...fixture()[kind],
+          nativeFailureDiagnostic: failureDiagnostic,
+        }).success,
+      ).toBe(false);
+      for (const status of [
+        "ready",
+        "armed",
+        "cancelled",
+        "progress",
+        "partial",
+      ])
+        expect(schema.safeParse({ ...value, status }).success).toBe(false);
+      for (const patch of [
+        { packet: [0, 0, 0, 0, 0] },
+        { packet: [0, 0, 0, 0, 0, Infinity] },
+        { fftDiagnostics: [0, 1, NaN, 2048, 253] },
+        { fftDiagnostics: [0, 1, 0, 2048, 253, 0] },
+        { metadata: { ...failureDiagnostic.metadata, spectrumAbi: "2" } },
+        { metadata: { ...failureDiagnostic.metadata, audio: "forbidden" } },
+        { generation: "credential=private-token" },
+        { check: "unknown" },
+        { scope: "completed-proof" },
+        { audio: "forbidden" },
+      ])
+        expect(
+          schema.safeParse({
+            ...value,
+            nativeFailureDiagnostic: { ...failureDiagnostic, ...patch },
+          }).success,
+        ).toBe(false);
+      expect(
+        schema.parse({
+          ...value,
+          nativeFailureDiagnostic: {
+            ...failureDiagnostic,
+            fftDiagnostics: null,
+            metadata: {
+              dsp: null,
+              fftInfo: null,
+              clockAbi: null,
+              envelopeAbi: null,
+              spectrumAbi: null,
+            },
+          },
+        }),
+      ).toHaveProperty("nativeFailureDiagnostic.fftDiagnostics", null);
+    },
+  );
+});
+
 describe("separate native v2 wire negotiation", () => {
   it("fits a validated30-second300-window result without raising the128KiB ingress ceiling", () => {
     const source = listenerResultV2Schema.parse(fixture().result);

@@ -550,6 +550,10 @@ export class SignalIngressServer implements ListenerService {
         ...("nativeCapture" in message && message.nativeCapture !== undefined
           ? { nativeCapture: message.nativeCapture }
           : {}),
+        ...("nativeFailureDiagnostic" in message &&
+        message.nativeFailureDiagnostic !== undefined
+          ? { nativeFailureDiagnostic: message.nativeFailureDiagnostic }
+          : {}),
       }),
     });
     if ("nativeLifecycle" in message && message.nativeLifecycle !== undefined) {

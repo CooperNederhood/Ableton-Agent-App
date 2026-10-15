@@ -145,6 +145,17 @@ detected-tempo and timing/integrity guards stay in place.
   fail-before coverage; retain all validation and v1 failure reasons.
 - [ ] Identify the actual rejected native spectrum snapshot/cause and complete
   fractional capture before escalating to the descriptive scenario group.
+- [x] Add strict, bounded, failed-v2-only numeric failure diagnostics to the
+  shared SDK/typed ingress and existing attributed failed History event.
+  Fail-before contract/SDK coverage plus authenticated retention and malformed
+  input/credential denial cover this non-authority data path.
+- [ ] Finish generation-owned controller/IO retention of actual rejected packet
+  and five existing FFT diagnostics, with honest nulls for unavailable data;
+  never use diagnostics to relax validation or fabricate a native receipt.
+- [ ] Finish v2-only passive FFT diagnostic taps and snapshot ordering; retain
+  frozen v1 graph bytes and avoid claiming atomicity across separate taps.
+- [ ] Build and normally save a fresh immutable diagnostic fixture, then retain
+  the actual first rejected numbers and compiler/metadata context.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

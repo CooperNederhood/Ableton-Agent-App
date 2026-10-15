@@ -312,6 +312,53 @@ function matchingDescriptiveLaunch(launch, job) {
   );
 }
 
+function validNativeFailureDiagnostic(value) {
+  const tuple = (values, length) =>
+    Array.isArray(values) &&
+    values.length === length &&
+    Array.from(values).every(Number.isFinite);
+  return (
+    hasExactKeys(value, [
+      "scope",
+      "generation",
+      "check",
+      "packet",
+      "fftDiagnostics",
+      "metadata"
+    ]) &&
+    value.scope === "native-spectrum-rejection/v1" &&
+    typeof value.generation === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      value.generation
+    ) &&
+    [
+      "end",
+      "start",
+      "frame",
+      "centroid",
+      "energy",
+      "silence_centroid",
+      "invalid_frames",
+      "bracket"
+    ].includes(value.check) &&
+    tuple(value.packet, 6) &&
+    (value.fftDiagnostics === null || tuple(value.fftDiagnostics, 5)) &&
+    hasExactKeys(value.metadata, [
+      "dsp",
+      "fftInfo",
+      "clockAbi",
+      "envelopeAbi",
+      "spectrumAbi"
+    ]) &&
+    (value.metadata.dsp === null || tuple(value.metadata.dsp, 3)) &&
+    (value.metadata.fftInfo === null || tuple(value.metadata.fftInfo, 4)) &&
+    ["clockAbi", "envelopeAbi", "spectrumAbi"].every(
+      (key) =>
+        value.metadata[key] === null || Number.isFinite(value.metadata[key])
+    )
+  );
+}
+
 // Wire pairing/stage guards; ingress independently validates complete native proof.
 function validDescriptivePayload(type, payload, job, producerId) {
   if (
@@ -323,21 +370,25 @@ function validDescriptivePayload(type, payload, job, producerId) {
     return false;
   const reply = type === "listener.reply";
   const keys = reply
-    ? ["status", "reason", "nativeArm"]
+    ? ["status", "reason", "nativeArm", "nativeFailureDiagnostic"]
     : [
         "status",
         "reason",
         "observation",
         "nativeLaunch",
         "nativeCapture",
-        "nativeLifecycle"
+        "nativeLifecycle",
+        "nativeFailureDiagnostic"
       ];
   if (
     Object.keys(payload).some((key) => !keys.includes(key)) ||
     (payload.reason !== undefined &&
       (typeof payload.reason !== "string" ||
         !payload.reason.length ||
-        payload.reason.length > 512))
+        payload.reason.length > 512)) ||
+    (payload.nativeFailureDiagnostic !== undefined &&
+      (payload.status !== "failed" ||
+        !validNativeFailureDiagnostic(payload.nativeFailureDiagnostic)))
   )
     return false;
   if (reply)

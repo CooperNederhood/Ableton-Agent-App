@@ -122,6 +122,79 @@ function fixture(options = {}) {
   };
 }
 
+test("v2 SDK retains bounded native failure snapshots without treating them as successful proof", () => {
+  const diagnostic = {
+    scope: "native-spectrum-rejection/v1",
+    generation: "55555555-5555-4555-8555-555555555555",
+    check: "end",
+    packet: [0, 0, 0, 0, 0, 37],
+    fftDiagnostics: [0, 1, 0, 2048, 253],
+    metadata: {
+      dsp: [1, 48000, 64],
+      fftInfo: [2048, 2048, 2048, 1],
+      clockAbi: 2,
+      envelopeAbi: 2,
+      spectrumAbi: 2
+    }
+  };
+  for (const type of ["reply", "result"]) {
+    const send = type === "reply" ? "sendListenerReply" : "sendListenerResult";
+    const schema =
+      type === "reply" ? listenerReplyV2Schema : listenerResultV2Schema;
+    const f = fixture();
+    const control = f.control();
+    f.client.handleListenerControl(control);
+    assert.equal(
+      f.client[send](control, {
+        status: "failed",
+        reason: "invalid_native_spectrum_packet",
+        nativeFailureDiagnostic: diagnostic
+      }),
+      true
+    );
+    assert.deepEqual(
+      schema.parse(f.wire.at(-1)).nativeFailureDiagnostic,
+      diagnostic
+    );
+    assert.equal(f.client.listenerJob, null);
+    for (const patch of [
+      { packet: Array(6) },
+      { packet: [0, 0, 0, 0, 0, Infinity] },
+      { fftDiagnostics: [0, 1, 0, 2048, 253, 0] },
+      { generation: SECRET },
+      { check: "unknown" },
+      { metadata: { ...diagnostic.metadata, audio: SECRET } },
+      { audio: SECRET }
+    ]) {
+      const g = fixture();
+      const prepare = g.control();
+      g.client.handleListenerControl(prepare);
+      assert.equal(
+        g.client[send](prepare, {
+          status: "failed",
+          reason: "invalid_native_spectrum_packet",
+          nativeFailureDiagnostic: { ...diagnostic, ...patch }
+        }),
+        false
+      );
+      assert.equal(g.wire.length, 0);
+      assert.equal(g.client.listenerSequence, 0);
+      assert(!JSON.stringify(g.failures).includes(SECRET));
+    }
+    const g = fixture();
+    const prepare = g.control();
+    g.client.handleListenerControl(prepare);
+    assert.equal(
+      g.client[send](prepare, {
+        status: type === "reply" ? "ready" : "progress",
+        nativeFailureDiagnostic: diagnostic
+      }),
+      false
+    );
+    assert.equal(g.wire.length, 0);
+  }
+});
+
 test("v2 discovery requires actual version/capability arrays, never substring matches or fallback", async () => {
   const f = fixture();
   listenerRegistrationV2Schema.parse(f.client.listener);
@@ -262,13 +335,19 @@ test("v2 cancellation replies preserve the contract's optional reason and releas
     const f = fixture();
     const prepare = f.control();
     f.client.handleListenerControl(prepare);
-    assert.equal(f.client.sendListenerReply(prepare, { status: "ready" }), true);
+    assert.equal(
+      f.client.sendListenerReply(prepare, { status: "ready" }),
+      true
+    );
     const cancel = f.control("cancel");
     f.client.handleListenerControl(cancel);
-    assert.equal(f.client.sendListenerReply(cancel, {
-      status: "cancelled",
-      ...(reason === undefined ? {} : { reason })
-    }), true);
+    assert.equal(
+      f.client.sendListenerReply(cancel, {
+        status: "cancelled",
+        ...(reason === undefined ? {} : { reason })
+      }),
+      true
+    );
     assert.equal(f.wire.length, 2);
     assert.equal(f.wire[1].sequence, 1);
     assert.equal(f.wire[1].reason, reason);

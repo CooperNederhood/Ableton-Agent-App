@@ -25,6 +25,60 @@ export const LISTENER_CAPABILITY_V2 = "audio-listener/v2" as const;
 
 export { listenerNativeStatusV2Schema };
 
+const diagnosticNumber = z.number().finite();
+export const nativeFailureDiagnosticV2Schema = z.strictObject({
+  scope: z.literal("native-spectrum-rejection/v1"),
+  generation: z
+    .string()
+    .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i),
+  check: z.enum([
+    "end",
+    "start",
+    "frame",
+    "centroid",
+    "energy",
+    "silence_centroid",
+    "invalid_frames",
+    "bracket",
+  ]),
+  packet: z.tuple([
+    diagnosticNumber,
+    diagnosticNumber,
+    diagnosticNumber,
+    diagnosticNumber,
+    diagnosticNumber,
+    diagnosticNumber,
+  ]),
+  fftDiagnostics: z
+    .tuple([
+      diagnosticNumber,
+      diagnosticNumber,
+      diagnosticNumber,
+      diagnosticNumber,
+      diagnosticNumber,
+    ])
+    .nullable(),
+  metadata: z.strictObject({
+    dsp: z
+      .tuple([diagnosticNumber, diagnosticNumber, diagnosticNumber])
+      .nullable(),
+    fftInfo: z
+      .tuple([
+        diagnosticNumber,
+        diagnosticNumber,
+        diagnosticNumber,
+        diagnosticNumber,
+      ])
+      .nullable(),
+    clockAbi: diagnosticNumber.nullable(),
+    envelopeAbi: diagnosticNumber.nullable(),
+    spectrumAbi: diagnosticNumber.nullable(),
+  }),
+});
+export type NativeFailureDiagnosticV2 = z.infer<
+  typeof nativeFailureDiagnosticV2Schema
+>;
+
 export const listenerRegistrationV2Schema = z
   .strictObject({
     ...listenerRegistrationSchema.shape,
@@ -99,6 +153,7 @@ export const listenerReplyV2Schema = wire
     status: z.enum(["ready", "armed", "cancelled", "failed"]),
     reason: z.string().min(1).max(512).optional(),
     nativeArm: nativeArmProofV2Schema.optional(),
+    nativeFailureDiagnostic: nativeFailureDiagnosticV2Schema.optional(),
   })
   .refine(
     (value) => (value.status === "armed") === (value.nativeArm !== undefined),
@@ -108,7 +163,14 @@ export const listenerReplyV2Schema = wire
   )
   .refine((value) => value.status !== "failed" || value.reason !== undefined, {
     message: "Failed v2 replies require a reason",
-  });
+  })
+  .refine(
+    (value) =>
+      value.nativeFailureDiagnostic === undefined || value.status === "failed",
+    {
+      message: "Native failure diagnostics are not capture authority",
+    },
+  );
 
 export const listenerResultV2Schema = wire
   .extend({
@@ -120,6 +182,7 @@ export const listenerResultV2Schema = wire
     nativeLaunch: nativeLaunchProofV2Schema.optional(),
     nativeCapture: nativeCaptureProofV2Schema.optional(),
     nativeLifecycle: nativeListenerLifecycleV2Schema.optional(),
+    nativeFailureDiagnostic: nativeFailureDiagnosticV2Schema.optional(),
   })
   .superRefine((value, ctx) => {
     if (
@@ -128,6 +191,8 @@ export const listenerResultV2Schema = wire
       (value.status !== "completed" && value.nativeCapture !== undefined) ||
       (value.status !== "progress" &&
         (value.nativeLaunch || value.nativeLifecycle)) ||
+      (value.nativeFailureDiagnostic !== undefined &&
+        value.status !== "failed") ||
       ((value.status === "failed" || value.status === "partial") &&
         value.reason === undefined) ||
       (value.observation &&

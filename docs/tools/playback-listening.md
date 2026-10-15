@@ -325,6 +325,25 @@ format. Fractional, negative or unsafe counter values are visibly marked invalid
 These diagnostics do not relax counter, energy, Nyquist, silence, interval or
 torn-snapshot validation; v1 reasons remain unchanged.
 
+For the next predeclared diagnostic load, v2 failed replies/results may also
+carry `nativeFailureDiagnostic` with scope `native-spectrum-rejection/v1`.
+This strictly bounded, non-authority object contains the generation UUID,
+failed-check enum, exact six finite spectrum values, the latest five finite
+Gen FFT diagnostics (or explicit null), and actually received DSP/FFT/ABI
+metadata (each unavailable entry is null). Unknown keys, strings in numeric
+slots, non-finite values, wrong lengths and diagnostic payloads on any
+non-failed stage are denied by both the shared producer SDK and typed ingress.
+No audio or arbitrary text body is admitted.
+
+The existing failed lifecycle record retains this object through the redacted
+application-owned journal and typed History, with the outer job/pass/trace/
+correlation/causation attribution and elapsed timing. It is never native arm,
+launch, completion or stop proof and cannot authorize context publication.
+The additional v2-only FFT taps are passive; their poll is ordered before the
+main spectrum snapshot but does not claim vector-atomic sampling across taps.
+V1 wire shapes and frozen graph bytes remain unchanged. These diagnostics must
+be paired with the updated v2 App/SDK, not silently downgraded for older readers.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

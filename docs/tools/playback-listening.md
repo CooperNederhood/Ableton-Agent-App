@@ -44,7 +44,9 @@ authenticated pass below is separate actual capture evidence.
 The approved next release uses descriptive timing by default, with a 64-sample
 observed-disagreement limit adjustable from 0 through 480 samples. Explicit
 strict mode accepts zero observed disagreement; it never silently falls back.
-These settings are **not yet wired into production capture or Desktop**.
+The App capture path and Desktop preferences/Settings are wired and covered
+deterministically. Actual native v2 capture and physical/visible qualification
+remain open; this is not a readiness promotion.
 
 The shared `listening-timing-schemas.ts` contract defines immutable per-evaluation
 policy snapshots, separate observed clock/beat disagreement and actual-rate
@@ -158,9 +160,11 @@ The probe source, numeric readbacks and exact process record are preserved in
 `max-patches/audio-listener/fixtures/arrangement-start-marker-probe*` with
 regression coverage. The production insert-marker guard remains unchanged.
 
-Generalized native device/controller capture, Desktop declaration compatibility,
-Settings/visible-quality acceptance and fresh end-to-end qualification remain
-required. Ordinary App positioning/configuration/capture/context wiring is
+Generalized native device/controller capture, real Settings/visible-quality
+acceptance and fresh end-to-end qualification remain required. Desktop
+supported-kind compatibility, Settings persistence and mixed v1/v2 historical
+typed reopening pass isolated component/IPC/Electron coverage. Ordinary App
+positioning/configuration/capture/context wiring is
 covered deterministically, not yet by an actual v2 native capture.
 The independent integration verifier now accepts v2 only with an explicit
 App-owned geometry/policy expectation, preserves requested versus quantized

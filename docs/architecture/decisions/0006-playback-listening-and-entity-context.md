@@ -43,15 +43,21 @@ accepts zero observed disagreement without claiming sample-exact physical
 accuracy. Versioned v2 observations retain approximate/descriptive-only
 alignment and unknown absolute error. The shared contracts, internal assembler
 prerequisites, independent v2 proof checks and explicit authenticated v2 channel
-negotiation are implemented. Production
-listening tools still use v1 until native production, playback, runtime
-validation, context and UI integration are independently qualified.
+negotiation are implemented. The App factory now selects v2 for default
+descriptive requests, snapshots trusted Settings policy once per pass,
+independently positions/re-inspects before arm, and preserves quality through
+typed context publication/resume and Desktop. Explicit strict mode retains the
+restricted v1 path without fallback. Native v2 execution and physical/visible
+qualification are still required; deterministic integration is not a readiness
+certificate.
 Recording/source safety, native integrity,
 ownership and cleanup are never softened by the timing policy.
 
 Persist immutable observations and typed entity links in an App-session-owned
-context repository. Register payload kinds explicitly; initially only
-`audio-observation/v1` is accepted. This is not a generic JSON dump or an agent
+context repository. Register `audio-observation/v1` and
+`audio-observation/v2` explicitly, require exact kind/payload-version agreement,
+and reconcile old v1-only declarations additively without rewriting history.
+This is not a generic JSON dump or an agent
 note-writing API. Context is associated with clips, tracks, and Arrangement
 ranges but does not modify the `.als` or live in an Ableton Project sidecar.
 

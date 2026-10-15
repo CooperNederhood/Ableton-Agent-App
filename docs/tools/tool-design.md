@@ -38,6 +38,16 @@ Context pruning is destructive and requires exact reviewed scope. Capability
 gates must not advertise unvalidated production audio timing solely because
 MCP development tools are connected.
 
+Listening timing policy is trusted application configuration, not a model
+argument or producer-selected budget. Freeze it once per pass. Default
+descriptive v2 accepts at most the configured observed disagreement (64 samples
+by default, advanced 0..480), independently of exact native coverage. Strict
+requires zero without fallback. Approximate/descriptive-only context and unknown
+absolute error never authorize sample-exact or real-time actions. Preserve v1
+history without relabelling it; a legacy device cannot silently satisfy a
+descriptive request. Actual native/visible qualification remains separate from
+the implemented App configuration, validation and typed context surfaces.
+
 ## Three levels
 
 ### Inspection tools

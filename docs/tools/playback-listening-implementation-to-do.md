@@ -38,8 +38,10 @@ Companion specification: [Playback Listening](playback-listening.md).
 - [x] Cover exact default64 acceptance/65 rejection, fractional44.1k/127.5BPM,
   one-hop/one-sample-tail/30s geometry, policy immutability, redacted failure and
   cancellation without transport rollback in the production factory.
-- [ ] Finish Desktop supported-kind declaration compatibility and qualify actual
-  v2 native capture through the ordinary production factory, not a synthetic producer.
+- [x] Finish Desktop supported-kind declaration compatibility through additive
+  atomic publication while preserving legacy v1-only declarations.
+- [ ] Qualify actual v2 native capture through the ordinary production factory,
+  not a synthetic producer.
 - [x] Extend the independent integration verifier with explicit v2 App expectations,
   exact native coverage, truthful quantized ranges and reopened alignment; retain
   an explicitly strict/zero legacy scenario without promoting old fixture evidence.
@@ -49,16 +51,18 @@ Companion specification: [Playback Listening](playback-listening.md).
 - [x] Register typed v2 publication/storage/query/IPC/resume payloads, preserve
   quality in summaries and history, keep requested/measured ranges separate,
   deny exclusive descriptive attribution and reconcile legacy kind declarations.
-- [ ] Add canonical profile preferences, per-pass snapshots, Settings and visible
+- [x] Add canonical profile preferences, per-pass snapshots, Settings and visible
   quality/warnings with component, IPC and Electron regression coverage.
 - [ ] Cover new lifecycle/trace/redaction/failure/cancellation boundaries, then
   qualify reviewed real-Live scenarios and Desktop UX using owned processes.
 - [ ] Package/reopen the portable device, measure resource cost and pass-through,
   and reconcile the original issue criteria and actual supported host versions.
 
-The completed contract/geometry items are prerequisites, not descriptive capture.
-The production listening tools still use the existing strict v1 capture path;
-new channel negotiation alone does not enable descriptive capture.
+The completed contract/geometry and App/Desktop integration items are
+prerequisites, not actual descriptive capture. The production factory selects
+explicit v2 for default descriptive mode and never falls back to v1; native
+device execution and physical/visible qualification remain open. Legacy v1
+remains restricted to explicitly selected strict mode.
 
 ## Issue 29 checkpoint - 2026-10-13
 

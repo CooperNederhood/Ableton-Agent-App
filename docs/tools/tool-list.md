@@ -41,10 +41,21 @@ if the target changed.
 App-session entity context is separate from event/Set History retention. The
 optional `ableton_context` surface uses typed list/get/prune actions, not SQL;
 the optional `ableton_listening` surface discovers listeners and coordinates
-bounded Session/Arrangement playback with capture. They are registered only
+bounded Arrangement playback with capture; Session capture remains unsupported
+until source onset is independently established. They are registered only
 when their application services are configured. Production enablement requires
 the timing, device, and integration gates in
 [Playback Listening](playback-listening.md).
+
+`play-arrangement-and-listen` uses the trusted policy saved in Settings, frozen
+once for the pass; the agent cannot raise its budget. Default descriptive v2
+supports a constant-tempo range from one approximately 100 ms hop through
+30 seconds at actual 44.1/48 kHz DSP geometry, with guarded nonzero/fractional
+positioning before arm. Completion, cancellation and failure leave playback
+running. Results retain approximate/descriptive-only alignment and unknown
+absolute timing error. A v1-only listener requires explicitly selected
+restricted strict mode; there is no automatic fallback. Native v2 and visible
+acceptance are not implied by this implemented App contract.
 
 | Tool | Purpose | Risk | Scope | Duration | Key inputs |
 | --- | --- | --- | --- | --- | --- |

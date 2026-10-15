@@ -218,6 +218,15 @@ This command only stages a candidate. It never installs/promotes, changes
 for old physical evidence. Actual Max compilation, native receipt delivery,
 capture, save/reopen, pass-through and resource-cost acceptance remain required.
 
+The immutable fixture stager also requires an explicit matching v2 caller
+selection and `nativeVersion: 2` in the pinned fixture input. It checks matching
+v2 manifest scope/schema/algorithm/limits/tempo disclosures before copying
+anything, preserves the Set and all device/code/manifest bytes, and regenerates
+only the copied profile discovery configuration through the shared storage
+resolver. Cancellation removes only its new owned copy. The existing strict
+v1 runner does not opt into v2 or accept v2 inputs; a separately reviewed v2
+scenario and newly saved/pinned fixture are still required.
+
 ## Ownership and scope
 
 A listener is a transparent Max Audio Effect measuring the signal at its

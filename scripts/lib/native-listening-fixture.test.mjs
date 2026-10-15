@@ -39,7 +39,7 @@ afterEach(async () => {
   );
 });
 
-export async function nativeFixtureInput() {
+export async function nativeFixtureInput({ nativeVersion = 1 } = {}) {
   const root = resolve(".test-artifacts", `native-unit-${randomUUID()}`);
   roots.push(root);
   const directory = join(root, "Native-Listener-Candidate");
@@ -50,7 +50,20 @@ export async function nativeFixtureInput() {
   const resource = Buffer.from("test-only code");
   const manifest = JSON.stringify({
     nativeMode: true,
-    nativeScope: "arrangement-beat0-120bpm-48000hz-vector64/v1",
+    nativeScope:
+      nativeVersion === 2
+        ? "arrangement-descriptive/v2"
+        : "arrangement-beat0-120bpm-48000hz-vector64/v1",
+    ...(nativeVersion === 2
+      ? {
+          nativeVersion: 2,
+          algorithmVersion: "2.0.0",
+          observationSchema: "audio-observation/v2",
+          providerLimits: { durationMs: 30000, maxWindows: 300 },
+          tempoPolicy: "constant-tempo-assumed",
+          tempoAutomationSupported: false,
+        }
+      : {}),
     realLiveValidated: false,
     deviceFile: "Candidate.amxd",
     deviceSha256: hash(device),
@@ -73,6 +86,7 @@ export async function nativeFixtureInput() {
   await writeFile(sourceSet, source);
   const input = {
     formatVersion: 1,
+    ...(nativeVersion === 2 ? { nativeVersion: 2 } : {}),
     sourceSet,
     sourceSetSha256: hash(source),
     candidateDirectory: directory,
@@ -96,11 +110,80 @@ export async function nativeFixtureInput() {
     input,
     storage,
     source,
+    nativeVersion,
     destination: join(root, "copied-set"),
   };
 }
 
 describe("native listening fixture staging", () => {
+  it("explicitly stages v2 without relabelling or rewriting the pinned Set, candidate or original discovery", async () => {
+    const f = await nativeFixtureInput({ nativeVersion: 2 });
+    const staged = await stageNativeListeningFixture(f);
+    expect(staged.nativeVersion).toBe(2);
+    expect(await readFile(staged.setPath)).toEqual(f.source);
+    expect(await readFile(f.input.sourceSet)).toEqual(f.source);
+    for (const name of [
+      "Candidate.amxd",
+      "engine.js",
+      "audio-listener-manifest.json",
+    ])
+      expect(
+        await readFile(join(f.destination, "Native-Listener-Candidate", name)),
+      ).toEqual(await readFile(join(f.input.candidateDirectory, name)));
+    expect(
+      await readFile(
+        join(f.input.candidateDirectory, "agent_signal_storage.js"),
+        "utf8",
+      ),
+    ).toBe("test-only old discovery, never executed");
+    await staged.cleanup();
+    await expect(access(f.destination)).rejects.toThrow();
+    await expect(access(f.input.sourceSet)).resolves.toBeUndefined();
+  });
+
+  it("requires matching explicit v2 caller, input and manifest selection before copying", async () => {
+    const f = await nativeFixtureInput({ nativeVersion: 2 });
+    for (const nativeVersion of [undefined, 1, 3])
+      await expect(
+        stageNativeListeningFixture({ ...f, nativeVersion }),
+      ).rejects.toThrow("native version");
+    delete f.input.nativeVersion;
+    await expect(stageNativeListeningFixture(f)).rejects.toThrow(
+      "native version",
+    );
+    await expect(access(f.destination)).rejects.toThrow();
+  });
+
+  it.each([
+    ["nativeVersion", 1],
+    ["nativeScope", "arrangement-beat0-120bpm-48000hz-vector64/v1"],
+    ["algorithmVersion", "1.0.1"],
+    ["observationSchema", "audio-observation/v1"],
+    ["providerLimits", { durationMs: 30000, maxWindows: 301 }],
+    ["tempoPolicy", "independently-verified"],
+    ["tempoAutomationSupported", true],
+    ["realLiveValidated", true],
+  ])(
+    "denies mixed or promoted v2 manifest %s before copying",
+    async (key, value) => {
+      const f = await nativeFixtureInput({ nativeVersion: 2 });
+      const path = join(
+        f.input.candidateDirectory,
+        "audio-listener-manifest.json",
+      );
+      const manifest = JSON.parse(await readFile(path, "utf8"));
+      manifest[key] = value;
+      const bytes = JSON.stringify(manifest);
+      await writeFile(path, bytes);
+      f.input.candidateManifestSha256 = hash(bytes);
+      await expect(stageNativeListeningFixture(f)).rejects.toThrow(
+        "native candidate",
+      );
+      await expect(access(f.destination)).rejects.toThrow();
+      expect(await readFile(f.input.sourceSet)).toEqual(f.source);
+    },
+  );
+
   it("copies immutable input bytes, pins code/device hashes and changes only owned discovery", async () => {
     const f = await nativeFixtureInput();
     const staged = await stageNativeListeningFixture(f);
@@ -800,20 +883,23 @@ describe("native listening fixture staging", () => {
     expect(await readdir(f.destination)).toEqual(["owned-by-someone-else"]);
   });
 
-  it("cleans a partially written owned copy on cancellation", async () => {
-    const f = await nativeFixtureInput();
-    const abort = new globalThis.AbortController();
-    let checks = 0;
-    const signal = {
-      throwIfAborted() {
-        if (++checks === 9) abort.abort(new Error("cancelled during copy"));
-        abort.signal.throwIfAborted();
-      },
-    };
-    await expect(stageNativeListeningFixture({ ...f, signal })).rejects.toThrow(
-      "cancelled",
-    );
-    await expect(access(f.destination)).rejects.toThrow();
-    expect(await readFile(f.input.sourceSet)).toEqual(f.source);
-  });
+  it.each([1, 2])(
+    "cleans a partially written v%i owned copy on cancellation",
+    async (nativeVersion) => {
+      const f = await nativeFixtureInput({ nativeVersion });
+      const abort = new globalThis.AbortController();
+      let checks = 0;
+      const signal = {
+        throwIfAborted() {
+          if (++checks === 9) abort.abort(new Error("cancelled during copy"));
+          abort.signal.throwIfAborted();
+        },
+      };
+      await expect(
+        stageNativeListeningFixture({ ...f, signal }),
+      ).rejects.toThrow("cancelled");
+      await expect(access(f.destination)).rejects.toThrow();
+      expect(await readFile(f.input.sourceSet)).toEqual(f.source);
+    },
+  );
 });

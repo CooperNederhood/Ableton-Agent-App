@@ -15,7 +15,10 @@ import { writeProducerDiscoveryConfiguration } from "../m4l-producer-companions.
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const hashPattern = /^[a-f0-9]{64}$/;
-const scope = "arrangement-beat0-120bpm-48000hz-vector64/v1";
+const scopes = {
+  1: "arrangement-beat0-120bpm-48000hz-vector64/v1",
+  2: "arrangement-descriptive/v2",
+};
 
 async function boundedFile(path, limit) {
   const info = await lstat(path);
@@ -108,11 +111,18 @@ export async function stageNativeListeningFixture({
   input,
   destination,
   storage,
+  nativeVersion = 1,
   signal,
   stage = async (_name, operation) => operation(),
 }) {
   return stage("fixture-stage", async () => {
     signal?.throwIfAborted();
+    if (
+      ![1, 2].includes(nativeVersion) ||
+      (input.nativeVersion === undefined ? 1 : input.nativeVersion) !==
+        nativeVersion
+    )
+      throw new Error("Explicit matching native version selection required");
     if (
       !hashPattern.test(input.sourceSetSha256) ||
       !hashPattern.test(input.deviceSha256) ||
@@ -146,11 +156,20 @@ export async function stageNativeListeningFixture({
     const manifest = JSON.parse(manifestBytes);
     if (
       manifest.nativeMode !== true ||
-      manifest.nativeScope !== scope ||
+      manifest.nativeScope !== scopes[nativeVersion] ||
       manifest.realLiveValidated !== false ||
       manifest.deviceFile !== input.deviceFile ||
       manifest.deviceSha256 !== input.deviceSha256 ||
-      manifest.externalAuthoringBridge !== false
+      manifest.externalAuthoringBridge !== false ||
+      (nativeVersion === 1
+        ? manifest.nativeVersion !== undefined
+        : manifest.nativeVersion !== 2 ||
+          manifest.algorithmVersion !== "2.0.0" ||
+          manifest.observationSchema !== "audio-observation/v2" ||
+          manifest.providerLimits?.durationMs !== 30000 ||
+          manifest.providerLimits?.maxWindows !== 300 ||
+          manifest.tempoPolicy !== "constant-tempo-assumed" ||
+          manifest.tempoAutomationSupported !== false)
     )
       throw new Error("Unsupported or promoted native candidate");
     const resources = new Map(
@@ -226,6 +245,7 @@ export async function stageNativeListeningFixture({
       const setPath = join(root, `${input.artifactPrefix}.als`);
       await writeFile(setPath, source, { flag: "wx", mode: 0o600 });
       return {
+        nativeVersion,
         setPath,
         sourceSetSha256: sha256(source),
         deviceSha256: input.deviceSha256,

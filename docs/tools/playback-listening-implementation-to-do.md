@@ -77,6 +77,11 @@ detected-tempo and timing/integrity guards stay in place.
   Preserve default/v1 behavior and deny implicit/mixed versions; cover source
   preservation, failure/cancellation and traced packaging lifecycle offline.
   This does not close native load/save/reopen or physical acceptance.
+- [x] Add explicitly selected v2 immutable fixture staging, reject mismatched
+  caller/input/manifest metadata before copying, and cover source preservation,
+  owned discovery-only changes and cancellation cleanup. Retain strict v1
+  runner admission; reviewed v2 scenario wiring and a separately pinned native
+  fixture remain open.
 
 ### Deferred follow-up, not a first-milestone release gate
 

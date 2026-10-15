@@ -208,7 +208,8 @@ The authored UI/direct stereo and source device are preserved. The manifest
 pins every adjacent resource, selects algorithm 2.0.0 / `audio-observation/v2`,
 declares 30 seconds / 300 windows, and explicitly records the constant-tempo
 assumption and unsupported automation. Its 60-second watchdog value is a
-planning ceiling, not host qualification or a promise of measured execution.
+fixed outer native-monitor ceiling, not host qualification or a promise of
+measured execution.
 Artifact checking rejects mixed bootstrap/version/schema/scope/limit metadata.
 Default builds and `build-native-authored` retain their old v1 behavior and
 manifest compatibility.
@@ -226,6 +227,18 @@ only the copied profile discovery configuration through the shared storage
 resolver. Cancellation removes only its new owned copy. The existing strict
 v1 runner does not opt into v2 or accept v2 inputs; a separately reviewed v2
 scenario and newly saved/pinned fixture are still required.
+
+The v2 graph must construct the independent Max-JS guard as
+`js audio_listener_guard.js 2`: its fixed 60-second begin-to-stop budget covers
+up to 30 seconds of audio plus bounded preparation, launch and postchecks.
+Default/explicit-v1 guards retain their 30-second total ceiling. Both retain
+the two-second heartbeat cutoff, exact-generation stop/replacement/deletion,
+and no transport control. Heartbeats and repeated arm requests cannot extend
+the total deadline; invalid constructor versions or supplied deadline arguments
+fail closed. V2 watchdog lifecycle records retain redacted trace identity and
+the selected version/ceiling; monitor completion still leaves capture outcome
+unknown. Historical guard bytes are archived with their original source/hash,
+not substituted into old physical evidence.
 
 ## Ownership and scope
 

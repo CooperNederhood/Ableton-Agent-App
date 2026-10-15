@@ -82,6 +82,12 @@ detected-tempo and timing/integrity guards stay in place.
   owned discovery-only changes and cancellation cleanup. Retain strict v1
   runner admission; reviewed v2 scenario wiring and a separately pinned native
   fixture remain open.
+- [x] Add explicit v2 independent Max-JS watchdog construction with a fixed
+  60-second total ceiling, unchanged two-second heartbeat and v1 30-second
+  defaults. Reject arbitrary version/deadline arguments, preserve generation
+  ownership and traced/redacted lifecycle, and archive exact old guard bytes.
+  Generated v2 constructor wiring and physical long-pass cleanup must also be
+  qualified; offline watchdog arithmetic alone does not prove device behavior.
 
 ### Deferred follow-up, not a first-milestone release gate
 

@@ -10,10 +10,11 @@ const source = await readFile(
 );
 const a = "11111111-1111-4111-8111-111111111111";
 const b = "22222222-2222-4222-8222-222222222222";
-function fixture() {
+function fixture(jsarguments) {
   const controls = [],
     events = [];
   const context = {
+    ...(jsarguments === undefined ? {} : { jsarguments }),
     Task: function () {
       this.repeat = () => {};
       this.cancel = () => {
@@ -31,6 +32,105 @@ function fixture() {
   };
   return { context, controls, events, prepare };
 }
+
+test("explicit v2 constructor covers 30-second audio plus setup/post stages but expires at a fixed 60 seconds", () => {
+  const { context, controls, events, prepare } = fixture([
+    "audio_listener_guard.js",
+    2,
+  ]);
+  prepare(a);
+  context.arm(a, 1);
+  for (let i = 0; i < 239; i++) {
+    context.heartbeat();
+    if (i === 150) context.arm(a, 1);
+    context.check();
+  }
+  assert.deepEqual(controls, []);
+  assert.equal(context.nativeGeneration, a);
+  context.heartbeat();
+  context.check();
+  assert.deepEqual(controls, [[2, "stop", a]]);
+  assert.equal(events.at(-1).reason, "native_total_timeout");
+  assert.equal(events.at(-1).elapsedMs, 60000);
+  assert.equal(events.at(-1).nativeVersion, 2);
+  assert.equal(events.at(-1).totalTimeoutMs, 60000);
+  assert.equal(events.at(-1).traceId, "trace");
+  assert.equal(events.at(-1).generation, a);
+  assert.equal(events.at(-1).captureOutcome, "unknown");
+  context.check();
+  assert.equal(controls.length, 1);
+});
+
+test("v2 keeps the two-second lost-heartbeat bound and exact-generation stop/replacement/deletion", () => {
+  const { context, controls, events, prepare } = fixture([
+    "audio_listener_guard.js",
+    2,
+  ]);
+  prepare(a);
+  prepare(b);
+  assert.deepEqual(controls, [[2, "stop", a]]);
+  context.stop(a);
+  context.arm(a, 1);
+  for (let i = 0; i < 8; i++) context.check();
+  assert.deepEqual(controls, [
+    [2, "stop", a],
+    [2, "stop", b],
+  ]);
+  assert.equal(events.at(-1).reason, "native_heartbeat_timeout");
+  assert.equal(events.at(-1).elapsedMs, 2000);
+  prepare(a);
+  context.stop(a);
+  assert.equal(events.at(-1).reason, "owned_monitor_stop");
+  assert.equal(events.at(-1).captureOutcome, "unknown");
+  assert.equal(controls.length, 2);
+  prepare(b);
+  context.notifydeleted();
+  assert.equal(events.at(-1).reason, "device_deleted");
+  assert.deepEqual(
+    controls.filter(([port]) => port === 2),
+    [
+      [2, "stop", a],
+      [2, "stop", b],
+      [2, "stop", b],
+    ],
+  );
+  assert.equal(context.timer.cancelled, true);
+});
+
+test("invalid constructor versions and caller-supplied deadlines fail closed, never become v2 or extend its bound", () => {
+  for (const args of [
+    [],
+    ["audio_listener_guard.js", 0],
+    ["audio_listener_guard.js", 3],
+    ["audio_listener_guard.js", "2"],
+    ["audio_listener_guard.js", 2, 120000],
+  ]) {
+    const { context, controls, events, prepare } = fixture(args);
+    prepare(a);
+    assert.equal(context.nativeGeneration, null);
+    assert.equal(context.pendingContext, null);
+    assert.deepEqual(controls, [[2, "stop", a]]);
+    assert.equal(events.at(-1).stage, "failed");
+    assert.equal(events.at(-1).reason, "invalid_native_watchdog_version");
+    assert.equal(events.at(-1).traceId, "trace");
+    assert.equal(events.at(-1).generation, a);
+  }
+});
+
+test("explicit v1 constructor retains its 30-second bound", () => {
+  const { context, controls, events, prepare } = fixture([
+    "audio_listener_guard.js",
+    1,
+  ]);
+  prepare(a);
+  for (let i = 0; i < 120; i++) {
+    context.heartbeat();
+    context.check();
+  }
+  assert.deepEqual(controls, [[2, "stop", a]]);
+  assert.equal(events.at(-1).reason, "native_total_timeout");
+  assert.equal(events.at(-1).elapsedMs, 30000);
+});
 
 test("native watchdog fails closed without context and cancels only its exact generation after lost heartbeat", () => {
   const { context, controls, events, prepare } = fixture();
@@ -114,33 +214,38 @@ test("native total bound expires despite healthy Node heartbeats and never contr
 });
 
 test("owned stop completes monitoring, not capture, and local trace payloads are bounded/redacted", () => {
-  const { context, controls, events } = fixture();
-  context.native_watchdog_context(
-    a,
-    "trace",
-    "token=private",
-    "github_pat_private",
-  );
-  context.begin(a);
-  context.stop(a);
-  assert.deepEqual(controls, []);
-  assert.equal(events.at(-1).stage, "completed");
-  assert.equal(events.at(-1).reason, "owned_monitor_stop");
-  assert.equal(events.at(-1).captureOutcome, "unknown");
-  assert.equal(events.at(-1).correlationId, "[redacted]");
-  assert.equal(events.at(-1).causationId, "[redacted]");
-  assert.doesNotMatch(
-    JSON.stringify(events),
-    /token=private|github_pat_private/,
-  );
-  context.native_watchdog_context(
-    "private-invalid-generation",
-    "trace",
-    "c",
-    "p",
-  );
-  assert.equal(events.at(-1).reason, "invalid_context_generation");
-  assert.doesNotMatch(JSON.stringify(events), /private-invalid-generation/);
+  for (const version of [1, 2]) {
+    const { context, controls, events } = fixture([
+      "audio_listener_guard.js",
+      version,
+    ]);
+    context.native_watchdog_context(
+      a,
+      "trace",
+      "token=private",
+      "github_pat_private",
+    );
+    context.begin(a);
+    context.stop(a);
+    assert.deepEqual(controls, []);
+    assert.equal(events.at(-1).stage, "completed");
+    assert.equal(events.at(-1).reason, "owned_monitor_stop");
+    assert.equal(events.at(-1).captureOutcome, "unknown");
+    assert.equal(events.at(-1).correlationId, "[redacted]");
+    assert.equal(events.at(-1).causationId, "[redacted]");
+    assert.doesNotMatch(
+      JSON.stringify(events),
+      /token=private|github_pat_private/,
+    );
+    context.native_watchdog_context(
+      "private-invalid-generation",
+      "trace",
+      "c",
+      "p",
+    );
+    assert.equal(events.at(-1).reason, "invalid_context_generation");
+    assert.doesNotMatch(JSON.stringify(events), /private-invalid-generation/);
+  }
 });
 
 test("pending context expires and deletion cancels owned DSP once while retaining legacy cleanup", () => {

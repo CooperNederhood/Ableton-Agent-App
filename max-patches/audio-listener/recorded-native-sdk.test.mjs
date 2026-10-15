@@ -13,7 +13,7 @@ import {
 } from "../../packages/protocol/src/native-listening-schemas.ts";
 import { createKnownListeningFixture } from "../../packages/test-support/src/listening-fixture.ts";
 import { nativeRuntimeDocuments } from "./native-runtime-source.mjs";
-import { ARCHIVED_NATIVE_ASSEMBLER } from "./native-assembler-archive.mjs";
+import { historicalNativeSourceURL } from "./native-assembler-archive.mjs";
 
 const { audioObservationSchema } =
   await import("../../packages/protocol/src/audio-observation-schemas.ts");
@@ -177,10 +177,7 @@ test("historical native math and SDK provenance stay pinned separately from unqu
     if (!name.endsWith(".js")) continue;
     const revision = revisions.currentSourceSnapshot[name];
     if (revision) assert.equal(revision.baselineSha256, expected);
-    const source =
-      name === "audio_listener_native_assembler.js"
-        ? ARCHIVED_NATIVE_ASSEMBLER.fixtureURL
-        : new URL(`./${name}`, import.meta.url);
+    const source = historicalNativeSourceURL(name);
     assert.equal(
       sha(await readFile(new URL(source))),
       revision?.sha256 ?? expected,

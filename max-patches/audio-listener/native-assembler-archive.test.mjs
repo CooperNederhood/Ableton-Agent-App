@@ -4,7 +4,11 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { ARCHIVED_NATIVE_ASSEMBLER } from "./native-assembler-archive.mjs";
+import {
+  ARCHIVED_NATIVE_ASSEMBLER,
+  ARCHIVED_NATIVE_V1_SOURCES,
+  historicalNativeSourceURL,
+} from "./native-assembler-archive.mjs";
 
 const require = createRequire(import.meta.url);
 const controller = require("./fixtures/native-controller-capture.json");
@@ -40,4 +44,28 @@ test("bounded archived assembler bytes retain source commit/path provenance and 
       ),
     ),
   );
+});
+
+test("archived pre-v2 native CJS blobs retain exact foundation commit provenance without qualifying current runtime", async () => {
+  assert.equal(
+    ARCHIVED_NATIVE_V1_SOURCES.sourceCommit,
+    "6cceef606aa3d557853db3795303006f22f6acbc",
+  );
+  const revisions = require("./fixtures/native-acquisition-recovery.json");
+  let total = 0;
+  for (const [name, expected] of Object.entries(
+    ARCHIVED_NATIVE_V1_SOURCES.sha256,
+  )) {
+    const bytes = await readFile(historicalNativeSourceURL(name));
+    total += bytes.length;
+    assert.equal(sourceHash(bytes), expected);
+    const revision = revisions.currentSourceSnapshot[name];
+    assert.equal(
+      expected,
+      revision?.sha256 ??
+        controller.codeSha256[name] ??
+        sdk.sdkCodeSha256[name],
+    );
+  }
+  assert(total <= 150000);
 });

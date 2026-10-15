@@ -1,4 +1,4 @@
-/* global Task, outlet, post, autowatch:writable, inlets:writable, outlets:writable */
+/* global Task, outlet, post, jsarguments, autowatch:writable, inlets:writable, outlets:writable */
 /* eslint no-unused-vars: "off" -- Max-JS invokes the named message/deletion handlers externally. */
 // Independent Max scheduler watchdog: a dead Node process cannot leave analysis on.
 autowatch = 1;
@@ -14,6 +14,12 @@ var pendingAge = 0;
 var nativeAge = 0;
 var nativeElapsed = 0;
 var nativeSequence = 0;
+var nativeVersion = 1;
+if (typeof jsarguments !== "undefined" && jsarguments.length !== 1) {
+  nativeVersion = jsarguments.length === 2 &&
+    (jsarguments[1] === 1 || jsarguments[1] === 2) ? jsarguments[1] : 0;
+}
+var nativeTotalTimeoutMs = nativeVersion === 2 ? 60000 : 30000;
 var timer = new Task(check, this);
 timer.interval = 250;
 timer.repeat();
@@ -37,6 +43,10 @@ function nativeEvent(stage, reason, context, duration) {
     type: "native-watchdog-stage", stage: stage, reason: reason,
     elapsedMs: duration, captureOutcome: "unknown"
   };
+  if (nativeVersion === 2) {
+    event.nativeVersion = 2;
+    event.totalTimeoutMs = nativeTotalTimeoutMs;
+  }
   if (context) {
     event.generation = context.generation;
     event.traceId = context.traceId;
@@ -74,6 +84,17 @@ function finishNative(stage, reason, stopDSP) {
 function begin(generation) {
   if (!validGeneration(generation)) {
     nativeEvent("failed", "invalid_begin_generation", null, 0);
+    return;
+  }
+  if (nativeVersion === 0) {
+    var rejectedContext = pendingContext && pendingContext.generation === generation ?
+      pendingContext : null;
+    if (rejectedContext) {
+      pendingContext = null;
+      pendingAge = 0;
+    }
+    outlet(2, "stop", generation);
+    nativeEvent("failed", "invalid_native_watchdog_version", rejectedContext, 0);
     return;
   }
   if (nativeGeneration === generation) {
@@ -129,7 +150,7 @@ function check() {
   if (nativeGeneration) {
     nativeAge += 250;
     nativeElapsed += 250;
-    if (nativeAge >= 2000 || nativeElapsed >= 30000)
+    if (nativeAge >= 2000 || nativeElapsed >= nativeTotalTimeoutMs)
       finishNative("failed",
         nativeAge >= 2000 ? "native_heartbeat_timeout" : "native_total_timeout", true);
   }

@@ -298,6 +298,16 @@ detected-tempo and timing/integrity guards stay in place.
   typed History proves ten positive-energy spectral windows, sum3888175.768319656.
   Source/proof/context reopening and exact-owned cleanup pass. This does not
   grant ordinary immutable-candidate acceptance or a physical timing bound.
+- [x] Qualify the normally saved immutable corrected candidate through ordinary
+  fractional playback with no inspector or copied-code override. Run83806005
+  completes84,000frames/18windows/onecontext, fresh-process typed reopening
+  and independent peak/energy/native-proof checks; groupa8785498 repeats the
+  fractional pass with a distinct context and exact-owned cleanup.
+- [ ] Resolve first actual 30-second failure in groupa8785498. Pass79e8621b
+  genuinely arms/launches, then reports33 capture frames at5151ms and fails
+  native_envelope_binding_changed with no context. Preserve the unknown raw
+  rejected row/code as null, isolate through the read-only observer, and fix
+  only the actual predicate. Do not relabel the failed group or widen timing.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

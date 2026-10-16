@@ -33,7 +33,7 @@
     "geometryPolicy": "Before actor playback, derive frozen geometry from independent stopped/recording-off/no-overrides 120 BPM inspection and the accepted v2 registration's 44100/48000 sample rate and vector size. Bind it to the App-owned queued pass ID before capture. Never derive expectations from returned proof or observation.",
     "positioningPolicy": "Existing production v2 positioning and source guards only; no runner seek, insert-marker repair, stop or retry.",
     "processPolicy": "Fresh exact-PID runner-owned process and unique artifact root for this scenario, even when sharing source pins with the 30-second scenario. Shutdown and fixture cleanup must finish before the next launch.",
-    "reviewStatus": "Deterministic wiring only; physical accuracy, copied-resource resolution and real-Live scenario acceptance remain unqualified."
+    "reviewStatus": "Ordinary immutable fractional capture, non-silent measurements and typed reopening qualified by run83806005 on Live11.3.43, repeated in groupa8785498. Physical timing accuracy, supported11.3.42 and the separate 30-second scenario remain unqualified."
   },
   "ordering": [
     {

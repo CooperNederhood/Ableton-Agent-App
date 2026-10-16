@@ -3,11 +3,11 @@ import { URL } from "node:url";
 import { describe, expect, it } from "vitest";
 import * as protocol from "@ableton-agent/protocol";
 
-async function evidence() {
+async function evidence(file = "native-v2-finite-word-capture.json") {
   return JSON.parse(
     await readFile(
       new URL(
-        "../../max-patches/audio-listener/fixtures/native-v2-finite-word-capture.json",
+        `../../max-patches/audio-listener/fixtures/${file}`,
         import.meta.url,
       ),
       "utf8",
@@ -47,6 +47,104 @@ describe("actual corrected v2 native capture and durable context", () => {
     expect(record.spectralEnergy).toBeGreaterThan(0);
     expect(observation.samples.at(-1).peak).toEqual([0, 0]);
     expect(observation.samples.at(-1).centroidHz).toBeNull();
+  });
+
+  describe("ordinary immutable v2 fractional capture", () => {
+    it("independently accepts actual native proof and non-silent signal without diagnostic overrides", async () => {
+      const record = await evidence(
+        "native-v2-ordinary-fractional-capture.json",
+      );
+      expect(() => validate(record)).not.toThrow();
+      expect(record.scope).toBe("ordinary-native-v2-qualification/v1");
+      expect(record.instrumentedDiagnosticOnly).toBe(false);
+      expect(record.inspectorAttached).toBe(false);
+      expect(record.sourceOverrides).toEqual([]);
+      expect(record.independentlyQualified).toBe(true);
+      expect(
+        record.observation.endSample - record.observation.startSample,
+      ).toBe(84000);
+      expect(record.observation.samples).toHaveLength(18);
+      expect(record.observation.summaries.peak).toEqual([0.5, 0.5]);
+      expect(record.positiveSpectralWindows).toBe(10);
+      expect(record.spectralEnergy).toBeGreaterThan(0);
+    });
+
+    describe("actual descriptive native group escalation", () => {
+      it("accepts the independently repeated fractional proof without relabelling its failed group", async () => {
+        const group = await evidence(
+          "native-v2-descriptive-group-observation.json",
+        );
+        expect(group.passed).toBe(false);
+        expect(group.fractional.parentGroupPassed).toBe(false);
+        expect(() => validate(group.fractional)).not.toThrow();
+        expect(group.fractional.contextId).toBe(
+          "220431ab-2274-47d9-a91a-3711345ddb7e",
+        );
+        expect(group.fractional.observation.summaries.peak).toEqual([0.5, 0.5]);
+        expect(group.fractional.positiveSpectralWindows).toBe(10);
+        expect(group.fractional.spectralEnergy).toBeGreaterThan(0);
+        expect(group.attemptOrder).toEqual([
+          "native-descriptive-fractional",
+          "native-descriptive-30-seconds",
+        ]);
+      });
+
+      it("keeps the actual post-launch long-capture failure unattributed with no published context", async () => {
+        const { thirtySecond } = await evidence(
+          "native-v2-descriptive-group-observation.json",
+        );
+        expect(thirtySecond.passed).toBe(false);
+        expect(thirtySecond.armObserved).toBe(true);
+        expect(thirtySecond.launchObserved).toBe(true);
+        expect(thirtySecond.reportedFrames).toBe(33);
+        expect(thirtySecond.captureElapsedMs).toBe(5151);
+        expect(thirtySecond.error).toBe("native_envelope_binding_changed");
+        expect(thirtySecond.rejectedEnvelope).toBeNull();
+        expect(thirtySecond.nativeRejectionCode).toBeNull();
+        expect(thirtySecond.contextIds).toEqual([]);
+        expect(thirtySecond.processCleanup).toEqual({
+          processStopped: true,
+          fixtureCleaned: true,
+          transportCleanup: "leave-running",
+        });
+      });
+    });
+
+    it("preserves typed reopening and owned cleanup without claiming supported-version or exact timing qualification", async () => {
+      const record = await evidence(
+        "native-v2-ordinary-fractional-capture.json",
+      );
+      expect(record.freshProcessTypedRead).toBe(true);
+      expect(record.contextId).toBe("bb6dead8-ff56-47c4-b619-513517f30a53");
+      expect(record.processCleanup).toEqual({
+        processStopped: true,
+        fixtureCleaned: true,
+        transportCleanup: "leave-running",
+      });
+      expect(record.evidence.attribution).toBe("unknown");
+      expect(record.evidence.freshness).toBe("unknown");
+      expect(record.evidence.alignment.intendedUse).toBe("descriptive-only");
+      expect(
+        record.evidence.alignment.verifiedAbsoluteErrorBoundSamples,
+      ).toBeNull();
+      expect(record.observedLiveVersion).toBe("11.3.43");
+      expect(record.supportedTargetQualified).toBe(false);
+    });
+
+    it("retains matching measured summaries across distinct diagnostic and ordinary passes", async () => {
+      const diagnostic = await evidence();
+      const ordinary = await evidence(
+        "native-v2-ordinary-fractional-capture.json",
+      );
+      expect(ordinary.observation.passId).not.toBe(
+        diagnostic.observation.passId,
+      );
+      expect(ordinary.contextId).not.toBe(diagnostic.contextId);
+      expect(ordinary.observation.summaries).toEqual(
+        diagnostic.observation.summaries,
+      );
+      expect(ordinary.spectralEnergy).toBe(diagnostic.spectralEnergy);
+    });
   });
 
   it.each(["missing-window", "erased-spectrum", "changed-range"])(

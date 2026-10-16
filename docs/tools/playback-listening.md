@@ -628,6 +628,24 @@ readiness promotion. Full bounded proof and typed-reopen evidence are retained
 in `fixtures/native-v2-finite-word-capture.json`; a fresh normally saved candidate
 and ordinary fractional/group qualification are still required.
 
+The freshly rebuilt candidate has since been normally saved and qualified
+without overrides or an inspector. Ordinary run `83806005` completes the same
+84,000-frame fractional passage and publishes context
+`bb6dead8-ff56-47c4-b619-513517f30a53`; a separate typed reopen and native-proof
+replay verify both0.5 peaks, ten positive-energy windows and exact coverage.
+The first ordinary proof is retained in
+`fixtures/native-v2-ordinary-fractional-capture.json`.
+
+Broader group run `a8785498` independently repeats the fractional success, but
+the 30-second case fails `native_envelope_binding_changed` after a genuine arm
+and observed launch. Native lifecycle reports33 capture frames at5151ms;
+no context publishes and owned process/fixture cleanup passes. Its rejected
+16-value row is not retained, so the native rejection code remains unknown:
+do not assign the earlier finite rejection15 or infer a phase fault from timing.
+The group remains failed and is not replaced with the earlier fractional pass.
+Next isolate that actual long-capture row under unchanged controls before
+altering any native guard or extending broader qualification.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

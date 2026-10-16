@@ -5,6 +5,9 @@
 Tests use filename and command-level classifications:
 
 - `*.test.ts` for deterministic unit and package integration tests.
+- Max patch `*.test.cjs` and `*.test.mjs` use `pnpm test:max-patches`
+  (`node:test`), not Vitest. Private `.test-artifacts/` diagnostic helpers also
+  stay outside Vitest discovery and run only through their explicit commands.
 - Generated protocol fixtures plus Python decoder tests for `contract`.
 - Simulator-backed bridge tests for `integration`.
 - Playwright projects named `electron` for packaged desktop tests.

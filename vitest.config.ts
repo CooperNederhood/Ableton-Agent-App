@@ -9,7 +9,8 @@ export default defineConfig({
     exclude: [
       ...configDefaults.exclude,
       "tests/electron/**",
-      "max-patches/**/*.test.cjs",
+      "max-patches/**/*.test.{cjs,mjs}",
+      ".test-artifacts/**",
     ],
     testTimeout: 10_000,
     hookTimeout: 10_000,

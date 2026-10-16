@@ -10,6 +10,8 @@ Companion specification: [Test Strategy](test-strategy.md)
 - [x] Build simulated Python Remote Script server.
 - [x] Build fake Copilot/session adapters for deterministic client tests.
 - [x] Define test tags for unit, contract, integration, Electron, and real Live.
+- [x] Keep Max CJS/MJS node:test suites and private diagnostic helpers out of
+  Vitest discovery; retain the dedicated Max test command.
 
 ## Coverage implementation
 

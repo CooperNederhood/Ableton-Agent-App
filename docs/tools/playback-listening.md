@@ -730,8 +730,25 @@ pretty-LF Gen is `be01a84ea0c4c86e95375401f59306ce67e7afab1b263ef9b3ffe6502f3dbb
 The pre-change `fixtures/native-v2-envelope-periodic-baseline-b732.gendsp`
 preserves exact historical code/document identity for prior evidence and
 private probes. Eight new regressions failed before correction; all nine new
-tests and 567 owning Max tests pass. Native compilation and full 30-second
-qualification of this correction remain pending.
+tests and 567 owning Max tests pass. The subsequent native capture proof is
+qualified below; end-to-end scenario acceptance remains separate.
+
+Owned current-Gen/current-controller run `dc7ade30` then completed the full
+30-second capture: 1,440,000 stereo frames, 300 envelope and 300 spectral windows,
+and 32 before/32 after timing rows. The actual proof independently validates
+against pre-capture queued geometry/policy, and a separate process retrieves
+identical canonical context `b456194e-7ab1-4d5b-a409-9b8066fcc4a0` through typed
+APIs. Peaks are 0.5 per channel, RMS -24.502382344333178 dBFS, with 10 positive
+spectral windows and energy 3964573.9027342475. Observed clock/beat disagreement
+is one sample under the existing 64-sample policy; physical bounds remain
+unknown and authority remains approximate/descriptive-only.
+
+The overall reviewed actor still **failed** its final leave-running/binding/
+recording-state assertion. Successful capture and exact-owned process/resource
+cleanup do not prove that separate application postcondition. No retry or
+ordinary acceptance is claimed. Full evidence, including the failed verdict,
+is `fixtures/native-v2-long-capture-with-failed-final-verifier.json`. Diagnose
+the exact final-state mismatch rather than weakening the assertion.
 
 ### Reviewed descriptive native runner scenarios
 

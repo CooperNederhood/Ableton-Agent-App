@@ -362,6 +362,77 @@ describe("actual corrected v2 native capture and durable context", () => {
     expect(record.cleanup.errors).toEqual([]);
   });
 
+  it("independently accepts the complete actual 30-second proof and fresh typed context", async () => {
+    const record = await evidence(
+      "native-v2-long-capture-with-failed-final-verifier.json",
+    );
+    expect(() => validate(record)).not.toThrow();
+    expect(record.observation.endSample - record.observation.startSample).toBe(
+      1440000,
+    );
+    expect(record.observation.samples).toHaveLength(300);
+    expect(record.nativeCapture.envelopeWindows).toHaveLength(300);
+    expect(record.nativeCapture.spectralWindows).toHaveLength(300);
+    expect(record.nativeCapture.armed.before.frames).toHaveLength(32);
+    expect(record.nativeCapture.after.frames).toHaveLength(32);
+    expect(record.nativeProofIndependentlyAccepted).toBe(true);
+    expect(record.freshProcessTypedRead).toBe(true);
+    expect(record.contextId).toBe("b456194e-7ab1-4d5b-a409-9b8066fcc4a0");
+    expect(record.observation.summaries.peak).toEqual([0.5, 0.5]);
+    expect(record.positiveSpectralWindows).toBe(10);
+    expect(
+      record.nativeCapture.spectralWindows.reduce(
+        (sum, window) => sum + window[3],
+        0,
+      ),
+    ).toBe(record.spectralEnergy);
+    expect(record.spectralEnergy).toBeGreaterThan(0);
+    expect(record.observation.alignment).toMatchObject({
+      alignment: "approximate",
+      intendedUse: "descriptive-only",
+      observedClockDisagreementSamples: 1,
+      observedBeatDisagreementSamples: 1,
+      verifiedAbsoluteErrorBoundSamples: null,
+      estimatedAbsoluteErrorSamples: null,
+    });
+  });
+
+  it("retains failed actor postconditions despite successful native capture and cleanup", async () => {
+    const record = await evidence(
+      "native-v2-long-capture-with-failed-final-verifier.json",
+    );
+    expect(record.actorPassed).toBe(false);
+    expect(record.actorError).toBe(
+      "Leave-running capture cleanup, immutable binding or recording state mismatch",
+    );
+    expect(record.captureOnlyAfterVerifierFailure).toBe(true);
+    expect(record.acceptancePassed).toBe(false);
+    expect(record.instrumentedDiagnosticOnly).toBe(true);
+    expect(
+      record.sourceOverrides.find(
+        (resource) =>
+          resource.kind === "unique-current-production-exact-endpoint-gen",
+      )?.sha256,
+    ).toBe("be01a84ea0c4c86e95375401f59306ce67e7afab1b263ef9b3ffe6502f3dbb91");
+    for (const key of [
+      "instrumentationRestored",
+      "processStopped",
+      "fixtureCleaned",
+      "copiedResourcesUnchanged",
+      "sourcePinsUnchanged",
+    ])
+      expect(record.cleanup[key]).toBe(true);
+    expect(record.cleanup.errors).toEqual([]);
+  });
+
+  it("rejects a missing interior window in the actual 300-window proof", async () => {
+    const record = await evidence(
+      "native-v2-long-capture-with-failed-final-verifier.json",
+    );
+    record.nativeCapture.envelopeWindows.splice(150, 1);
+    expect(() => validate(record)).toThrow();
+  });
+
   it.each(["missing-window", "erased-spectrum", "changed-range"])(
     "rejects %s instead of treating completed prose or context identity as sufficient",
     async (change) => {

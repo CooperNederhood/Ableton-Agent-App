@@ -344,10 +344,17 @@ detected-tempo and timing/integrity guards stay in place.
   code321fac8f/Genbe01a84e now use consistent exact endpoint semantics.
   Archive pre-change b732; eight regressions fail before, nine new tests and
   all567 owning Max checks pass. No v1/clock/spectrum/IO change.
- - [ ] Compile and qualify the exact-endpoint correction through an explicitly
+ - [x] Compile and qualify the exact-endpoint correction through an explicitly
   pinned current-Gen/current-controller copied control, independently validate
-  the complete 30-second proof/context/fresh typed read, then finish ordinary
-  immutable acceptance and the owning native group.
+  the complete 30-second proof/context/fresh typed read. Run dc7ade30 completes
+  1,440,000 frames/300 envelope and spectral windows/32 before+after; peaks0.5
+  and positive energy independently qualify. Observed disagreement1 sample;
+  physical bounds remain unknown. Overall actor final verifier still fails.
+ - [ ] Identify the exact failed leave-running/binding/recording-state condition
+  after the otherwise completed dc7ade30 capture. Preserve actor failure and
+  actual proof separately; add bounded diagnostic attribution if absent.
+  Do not weaken the assertion or infer success from owned-process cleanup.
+  Then finish ordinary immutable acceptance and the owning native group.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

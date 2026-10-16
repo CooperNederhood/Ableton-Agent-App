@@ -1,7 +1,53 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { URL } from "node:url";
+import { nativeRuntimeDocuments } from "./native-runtime-source.mjs";
+
+test("actual saturating clock observation pins the corrected resource without certifying capture", async () => {
+  const evidence = JSON.parse(
+    await readFile(
+      new URL(
+        "./fixtures/native-v2-saturating-clock-observation.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  const document = nativeRuntimeDocuments({ nativeVersion: 2 })[
+    "audio_listener_native_clock.gendsp"
+  ];
+  assert.equal(
+    createHash("sha256")
+      .update(`${JSON.stringify(document, null, 2)}\n`)
+      .digest("hex"),
+    evidence.clockGenSha256,
+  );
+  assert.deepEqual(evidence.metadata.dsp, [1, 48000, 64]);
+  assert.equal(evidence.metadata.clockAbi, 2);
+  let previousCounter = -1;
+  for (const { values } of evidence.clock.snapshots) {
+    assert(values[4] > previousCounter);
+    assert.equal(values[4], values[6]);
+    assert.equal(values[4], values[2]);
+    assert.equal(values[4], values[9]);
+    previousCounter = values[4];
+  }
+  assert.equal(evidence.clock.snapshots.length, 8);
+  assert.equal(evidence.clock.count, 83);
+  assert.equal(evidence.spectrum.last[0], -1);
+  assert.equal(evidence.acceptancePassed, false);
+  assert.equal(evidence.captureOrContextAuthorized, false);
+  assert.equal(evidence.instrumentation.measurementPacketsAdmitted, 0);
+  assert.equal(evidence.instrumentation.nativeArmControlsForwarded, 0);
+  assert.deepEqual(evidence.cleanup, {
+    processStopped: true,
+    fixtureCleaned: true,
+    sourcePinsUnchanged: true,
+    errors: [],
+  });
+});
 
 test("actual one-statement clock control advances counters but does not claim spectrum acceptance", async () => {
   const evidence = JSON.parse(

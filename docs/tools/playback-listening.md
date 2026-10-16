@@ -387,8 +387,14 @@ comparison and still denies the ceiling or higher. Epoch/configuration gates,
 other native sources, packet layouts and ABI2 remain unchanged. Boundary
 regressions cover zero/one, word rollover, ceiling-minus-one, ceiling, oversized
 states and configuration/cancellation/epoch denial; frozen v1 bytes remain
-unchanged. Native confirmation of this saturating implementation is still
-required; the earlier uncapped control does not provide it.
+unchanged. A separate fresh fail-only run of the exact corrected resource now
+confirms native advancement: 83 received clock packets with first4/last4
+counters 1012160 to 1054144 matching independent host samples at DSP48k/vector64,
+ABI2. Failure was forced after 900 ms with no admission/arm/playback/context;
+explicit cleanup and original-pin receipts succeeded. The resource hash and
+bounded evidence are in `fixtures/native-v2-saturating-clock-observation.json`.
+This confirms advancement at the observed values, not a physical ceiling test
+or ordinary capture acceptance. The separate spectrum rejection remains.
 
 ### Reviewed descriptive native runner scenarios
 

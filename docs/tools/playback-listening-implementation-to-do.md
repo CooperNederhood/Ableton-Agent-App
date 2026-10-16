@@ -187,9 +187,14 @@ detected-tempo and timing/integrity guards stay in place.
   Bounded high/low-word update and equivalent eligibility comparison retain
   saturation and denial; fail-before coverage includes rollover, ceiling edges,
   oversized integer states and epoch/configuration/cancellation boundaries.
-- [ ] Qualify the corrected saturating clock in an actual fresh diagnostic
-  process, then isolate the separate remaining spectrum failure using actual
-  FFT-local sample rate and retained per-frame failed-predicate flags.
+- [x] Confirm corrected saturating clock advancement in an actual fresh
+  diagnostic process. Run `dfd61716` retained 83 clock packets, first4/last4
+  counters 1012160 to 1054144 matching host at DSP48k/vector64/ABI2. Exact emitted
+  resource is pinned; forced failure at 900 ms, zero admission/arm/context and
+  successful cleanup/original-pin receipts. This is not a physical ceiling
+  test or ordinary capture acceptance.
+- [ ] Isolate the separate remaining spectrum failure using actual FFT-local
+  sample rate and retained per-frame failed-predicate flags.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

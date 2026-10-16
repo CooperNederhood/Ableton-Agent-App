@@ -65,6 +65,10 @@ The existing producer `onStatus` callback emits bounded, redacted `write_backpre
 queued, started, progress, completed, failed and cancelled lifecycle/timing
 records with request, trace, correlation, causation, job/pass and queue-count/
 byte attribution. Raw frames or audio bodies are not added to status records.
+Callback emission alone does not qualify application-owned History coverage:
+the current audio runtime drops these backpressure callbacks. Forwarding them
+through authenticated application ingress into typed, redacted local History
+remains required; Max console/outlet output is not a substitute.
 The module is shared by MIDI and audio producers, but the new FIFO applies only
 to audio. MIDI retains its existing immediate accepted-write behavior on false
 and existing offline sample policy. Subscription and agent delivery

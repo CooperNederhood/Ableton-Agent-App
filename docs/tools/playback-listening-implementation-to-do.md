@@ -380,6 +380,11 @@ detected-tempo and timing/integrity guards stay in place.
  - [ ] Provision a strict current immutable fixture without modifying old
   candidate/input pins; minimize any normal-save step under the existing
   reference inspector contract. Then qualify ordinary long/group/suite.
+  Hold the prepared current fixture's manual-save step until required status
+  forwarding is complete and the final resource bundle is frozen.
+ - [ ] Wire actual write-backpressure lifecycle into application-owned typed
+  History. Audio runtime currently ignores the client's onStatus callbacks;
+  preserve source timing/ownership/redaction and avoid recursive telemetry.
  - [x] Retain bounded typed before/after leave-running postcondition diagnostics
   with nine unchanged named checks, redacted scalar differences/structured
   hashes, lifecycle timing/trace attribution and failure/cleanup regressions.

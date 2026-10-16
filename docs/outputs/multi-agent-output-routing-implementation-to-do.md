@@ -25,6 +25,9 @@ Companion specification:
 - [x] Handle accepted producer writes under backpressure with bounded
   same-connection FIFO/drain, unchanged protocol ACK/authority, explicit failure
   and cancellation cleanup, and redacted attributed lifecycle status.
+- [ ] Forward the audio client's backpressure lifecycle callbacks through
+  authenticated ingress into typed local History. The current runtime ignores
+  them; callback tests/Max output are not end-to-end journal coverage.
 
 ## Desktop
 

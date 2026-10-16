@@ -833,6 +833,15 @@ and positive-window count. Approximate/descriptive-only authority and unknown
 physical timing bounds remain. No earlier failed verdict or missing exception
 is rewritten.
 
+A separate required observability gap remains: client559a7e93 emits bounded
+backpressure lifecycle callbacks, but the audio runtime ignores them. They do
+not reach application-owned local History. The passed898d6ca2 run contains no
+retained write-return/drain/watermark measurements, so its loaded-code identity
+does not independently prove whether that physical write entered backpressure.
+Do not call callback-only coverage journal coverage. Wire and qualify actual
+status forwarding before freezing the next ordinary candidate; the passed
+capture/ACK evidence remains valid under its original resource pins.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

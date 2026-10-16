@@ -690,6 +690,24 @@ previous phase remain unknown; no normalization or timing relaxation is
 justified yet. The original `41efa008` row/code remain null, and this later run
 does not prove physical recovery of the earlier `c6a024c9` acquisition.
 
+An additional passive fault-time latch compiled and observed run `1a8b61cd`.
+It identifies code 14's range branch, not the separate active phase-step branch.
+The transport reports raw phase 1, independently computed phase-minus-one 0,
+previous phase 0.999958333333333 and failed range recheck. Matching epoch 1 and
+serial 2 bookends bind the private record to the owned pass. The fault counter
+is 162000 samples after the launch origin; completed 158400 plus pending 3536
+and the existing 64-sample lookback reconcile to that count. Step rechecks were
+not evaluated and remain sentinel -1. Exact binary equality to 1 or a particular
+epsilon is not established by the transport-reported numbers.
+
+The main guards/outputs/control remain unchanged. No context was published;
+all 502 private observations were bounded, with 501 unwritten and one observed
+fault, no decoder errors, and exact handler/resource/process/fixture cleanup.
+The permanent evidence is `fixtures/native-v2-phase-boundary-observation.json`.
+This narrows the correction to periodic boundary semantics without authorizing
+arbitrary wrapping, a wider phase-step tolerance, or retroactive attribution
+to either earlier run.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

@@ -326,10 +326,17 @@ detected-tempo and timing/integrity guards stay in place.
   Run509eb299 retains actual separate later rejection14 with unchanged arm
   counter1083904 and158400 completed samples; no context and cleanup passes.
   Original41efa raw row/code stay null; earlier C6 recovery remains unproven.
- - [ ] Observe actual fault-time phase for the later rejection14 before changing
+ - [x] Observe actual fault-time phase for the later rejection14 before changing
   any phase guard. Packet held launch distance0 is not current raw phase.
   Preserve main outputs/guards/control/deadlines with a reversible passive
-  latch, then add an evidence-backed regression and finish30second acceptance.
+  latch. New run 1a8b61cd identifies the range branch with transport-reported
+  phase 1/residual 0 and previous phase 0.999958333333333; step checks unevaluated.
+  Exact binary endpoint/epsilon remains unproven; original earlier inputs remain
+  unknown. Preserve actual 27-field record, ownership, boundedness and cleanup.
+ - [ ] Correct only justified periodic boundary semantics, retaining the strict
+  0.01-sample step, counter, finite-input, configuration and coverage guards.
+  Do not add an arbitrary epsilon or unconditional wrapping. Establish further
+  native precision evidence if needed, then finish 30-second acceptance.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

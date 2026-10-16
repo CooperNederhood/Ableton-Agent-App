@@ -256,6 +256,69 @@ describe("actual corrected v2 native capture and durable context", () => {
     expect(record.cleanup.errors).toEqual([]);
   });
 
+  it("retains the actual phase-range fault and independent residual without claiming binary endpoint precision", async () => {
+    const record = await evidence("native-v2-phase-boundary-observation.json");
+    const fault = record.privateFault;
+    expect(fault.status).toBe("observed-fault");
+    expect(fault.values).toHaveLength(27);
+    expect(Object.values(fault.record)).toEqual(fault.values);
+    expect(fault.record).toMatchObject({
+      epochBegin: record.owner.nativeEpoch,
+      epochEnd: record.owner.nativeEpoch,
+      faultEpoch: record.owner.nativeEpoch,
+      serialBegin: 2,
+      serialEnd: 2,
+      written: 1,
+      branch: 1,
+      rawPhase: 1,
+      rawClass: 0,
+      rawPhaseMinusOne: 0,
+      phaseRangeAcceptedRecheck: 0,
+      phaseChangedRecheck: 1,
+    });
+    expect(fault.guardRecheckAgrees).toBe(true);
+    expect(fault.rawResidualValid).toBe(true);
+    expect(fault.previousResidualValid).toBe(true);
+    expect(fault.record.previousPhase).toBe(0.999958333333333);
+    expect(fault.record.previousPhaseMinusOne).toBe(-0.000041666666667);
+    expect(fault.exactBinaryEndpointProven).toBe(false);
+    expect(fault.values.slice(14, 19)).toEqual([-1, -1, -1, -1, -1]);
+    expect(fault.record.completed).toBe(record.rejectedEnvelope[12]);
+    expect(fault.record.armCounter).toBe(record.originalArmCounter);
+    expect(fault.record.nativeCounter - record.rejectedEnvelope[14]).toBe(
+      162000,
+    );
+    expect(fault.record.clock - record.rejectedEnvelope[1]).toBe(162000);
+    expect(fault.record.completed + fault.record.n + 64).toBe(162000);
+  });
+
+  it("keeps the native phase observation bounded, private and outside capture acceptance", async () => {
+    const record = await evidence("native-v2-phase-boundary-observation.json");
+    expect(record.instrumentedDiagnosticOnly).toBe(true);
+    expect(record.acceptancePassed).toBe(false);
+    expect(record.contextIds).toEqual([]);
+    expect(record.privateFault.notVectorAtomic).toBe(true);
+    expect(record.observer.statuses).toEqual({
+      unwritten: 501,
+      incoherent: 0,
+      stale: 0,
+      "observed-fault": 1,
+    });
+    expect(record.observer.privateCount).toBe(502);
+    expect(record.observer.privateDecoderErrors).toBe(0);
+    expect(record.observer.handlerRegisteredBeforeActor).toBe(true);
+    expect(record.observer.handlerRemoved).toBe(true);
+    for (const key of [
+      "instrumentationRestored",
+      "processStopped",
+      "fixtureCleaned",
+      "copiedResourcesUnchanged",
+      "sourcePinsUnchanged",
+    ])
+      expect(record.cleanup[key]).toBe(true);
+    expect(record.cleanup.errors).toEqual([]);
+  });
+
   it.each(["missing-window", "erased-spectrum", "changed-range"])(
     "rejects %s instead of treating completed prose or context identity as sufficient",
     async (change) => {

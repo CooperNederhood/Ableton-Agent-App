@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "scope": "native-v2-phase-boundary-observation/v1",
+  "runId": "1a8b61cd-8734-40bd-bf71-361e58853fa9",
+  "scenarioId": "native-descriptive-30-seconds",
+  "instrumentedDiagnosticOnly": true,
+  "acceptancePassed": false,
+  "contextIds": [],
+  "owner": {
+    "generation": "946f6ccf-c5b3-4f34-852f-61b996c898a7",
+    "passId": "f62d2806-8a25-4154-bb31-85eef38155d6",
+    "connectionEpoch": "c19998c7-cb5b-4195-842e-8050cf689233",
+    "traceId": "848bfc28-553f-4823-a77b-7ff576bb49f4",
+    "correlationId": "848bfc28-553f-4823-a77b-7ff576bb49f4",
+    "nativeEpoch": 1
+  },
+  "pins": {
+    "controller": "f6e1e2de0230c86fe2d534f98400648edb3160deaacbb2bb88e74bf667d6c9d2",
+    "baselineGenDocument": "b732aed30d37910c72362c790160758dd96f5087e5093e2dff3a8924d7c7b508",
+    "baselineAnalysisDocument": "b0f85f4833c79a1c34d1dad715fc6befac394a882e6c1100d92b93ecaed7aade",
+    "probeModule": "a1e65c932efcaf183e96657067313cb52bb9f41abfe411b59554f0eea5a2b26f",
+    "probeCode": "813a80d5b290845bfab4bf12721875bbe0875682b0d66d78ea5be6998404e4fa",
+    "probeGenDocument": "3c5fe8d9b1f777f16ac7e08d37ecfb17bf3380d6b4c37695a44d86fcc0ef1750",
+    "decoder": "a2bd27272752e7557cc033ae84c8afca91089546afc1f436d4504935ac4ea123",
+    "copiedAnalysis": "71813c97f60e6efe6990679d090adea735118850d1d95d2960dfa9bbd97d0721",
+    "combinedManifest": "2e5512d7737868bc18015b1fb51a509e2359662359328dd32d6a801cf3fc3751"
+  },
+  "rejectedEnvelope": [
+    1, 83968, -1, 0, 14, 0, 0, -1, 0, 0, 0, 0, 158400, 1124864, 1208832, 2
+  ],
+  "originalArmCounter": 1124864,
+  "controllerState": "capturing",
+  "privateFault": {
+    "scope": "native-envelope-phase-guard-probe/v1",
+    "receivedAfterFirstEnvelopeMs": 5501.823917031288,
+    "status": "observed-fault",
+    "values": [
+      1, 2, 1, 1, 1, 48000, 1, 0, 0, 0.999958333333333, 0, -0.000041666666667,
+      0, 1, -1, -1, -1, -1, -1, 1370832, 245968, 158400, 3536, 120, 1124864, 2,
+      1
+    ],
+    "record": {
+      "epochBegin": 1,
+      "serialBegin": 2,
+      "written": 1,
+      "faultEpoch": 1,
+      "branch": 1,
+      "sampleRate": 48000,
+      "rawPhase": 1,
+      "rawClass": 0,
+      "rawPhaseMinusOne": 0,
+      "previousPhase": 0.999958333333333,
+      "previousClass": 0,
+      "previousPhaseMinusOne": -0.000041666666667,
+      "phaseRangeAcceptedRecheck": 0,
+      "phaseChangedRecheck": 1,
+      "wrappedStepRecheck": -1,
+      "stepClass": -1,
+      "stepErrorSamplesRecheck": -1,
+      "stepErrorClass": -1,
+      "stepRejectedRecheck": -1,
+      "nativeCounter": 1370832,
+      "clock": 245968,
+      "completed": 158400,
+      "n": 3536,
+      "tempoBpm": 120,
+      "armCounter": 1124864,
+      "serialEnd": 2,
+      "epochEnd": 1
+    },
+    "guardRecheckAgrees": true,
+    "rawResidualValid": true,
+    "previousResidualValid": true,
+    "notVectorAtomic": true,
+    "exactBinaryEndpointProven": false
+  },
+  "observer": {
+    "mainCount": 540,
+    "privateCount": 502,
+    "statuses": {
+      "unwritten": 501,
+      "incoherent": 0,
+      "stale": 0,
+      "observed-fault": 1
+    },
+    "foreignCalls": 0,
+    "malformedRows": 0,
+    "observerErrors": 0,
+    "privateDecoderErrors": 0,
+    "handlerRegisteredBeforeActor": true,
+    "handlerRemoved": true
+  },
+  "cleanup": {
+    "instrumentationRestored": true,
+    "processStopped": true,
+    "fixtureCleaned": true,
+    "copiedResourcesUnchanged": true,
+    "sourcePinsUnchanged": true,
+    "livePid": 30937,
+    "nativeNodePid": 31755,
+    "errors": []
+  },
+  "limitations": [
+    "This new run establishes the actual range-rejection branch, not the active phase-step branch.",
+    "Phase1 and residual0 are transport-reported values, not proof of exact binary equality or a particular epsilon.",
+    "Step fields remain unevaluated sentinels; the strict0.01sample phase-step guard was not tested at the fault.",
+    "Earlier41efa008 and509eb299 fault-time inputs remain unobserved; do not retroassign this branch or scalar.",
+    "Matching private bookends do not establish vector atomicity, capture acceptance, physical timing bounds, or earlier spectrum recovery."
+  ]
+}

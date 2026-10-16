@@ -1,0 +1,192 @@
+{
+  "schemaVersion": 1,
+  "scope": "native-v2-long-connection-change-observation/v1",
+  "runId": "b27296c3-e0ca-4ab9-9389-39e4cbb1229a",
+  "instrumentedDiagnosticOnly": true,
+  "acceptancePassed": false,
+  "actorPassed": false,
+  "actorError": "Leave-running capture cleanup, immutable binding or recording state mismatch: connectionUnchanged, registrationUnchanged",
+  "owner": {
+    "generation": "063194cc-93ff-4915-9b70-1eb05e45be17",
+    "passId": "8694af6b-1ab2-4492-9d81-e9579065f776",
+    "connectionEpoch": "4d7b32cd-9edb-4626-90af-9f500fb02b24",
+    "traceId": "37f267fb-b5ab-484b-99c4-7d597a0c4402",
+    "correlationId": "37f267fb-b5ab-484b-99c4-7d597a0c4402"
+  },
+  "postconditions": {
+    "schema": "native-listening-postconditions/v1",
+    "passed": false,
+    "checks": {
+      "snapshotPlaying": true,
+      "transportPlaying": true,
+      "recordingInactive": true,
+      "listenerIdle": true,
+      "listenerPassReleased": true,
+      "listenerJobReleased": true,
+      "connectionUnchanged": false,
+      "registrationUnchanged": false,
+      "bindingUnchanged": true
+    },
+    "failedChecks": ["connectionUnchanged", "registrationUnchanged"],
+    "before": {
+      "snapshotPlaying": {
+        "type": "boolean",
+        "value": false
+      },
+      "transportPlaying": {
+        "type": "boolean",
+        "value": false
+      },
+      "recording": {
+        "type": "object",
+        "sha256": "34273b0ade199171b1d5980b36c3b33b28f98058c054d459fd59e6d8e40b9c45"
+      },
+      "phase": {
+        "type": "string",
+        "value": "idle"
+      },
+      "passId": {
+        "type": "undefined"
+      },
+      "jobId": {
+        "type": "undefined"
+      },
+      "connectionId": {
+        "type": "string",
+        "value": "b7223c86-86cc-4938-8c94-c6fa862122ba"
+      },
+      "registration": {
+        "type": "object",
+        "sha256": "36081647db1731af872d9da01d46baf6590a0cfba1cc34b13eb85ac27d7aa91d"
+      },
+      "inspection": {
+        "type": "array",
+        "sha256": "5b497a66dd39c885baa1fc9f18f0507eb1f9673d7ca484379bc422293b4afefd"
+      }
+    },
+    "after": {
+      "snapshotPlaying": {
+        "type": "boolean",
+        "value": true
+      },
+      "transportPlaying": {
+        "type": "boolean",
+        "value": true
+      },
+      "recording": {
+        "type": "object",
+        "sha256": "34273b0ade199171b1d5980b36c3b33b28f98058c054d459fd59e6d8e40b9c45"
+      },
+      "phase": {
+        "type": "string",
+        "value": "idle"
+      },
+      "passId": {
+        "type": "undefined"
+      },
+      "jobId": {
+        "type": "undefined"
+      },
+      "connectionId": {
+        "type": "string",
+        "value": "bff8084e-cd5d-4659-a8a5-0c38358731f7"
+      },
+      "registration": {
+        "type": "object",
+        "sha256": "427dc936c7f7873c26ea95b593b95d2ddff0e7cdb04fcdf38885d7b4e0808599"
+      },
+      "inspection": {
+        "type": "array",
+        "sha256": "5b497a66dd39c885baa1fc9f18f0507eb1f9673d7ca484379bc422293b4afefd"
+      }
+    },
+    "differences": [
+      {
+        "path": "listener.connectionId",
+        "before": {
+          "type": "string",
+          "value": "b7223c86-86cc-4938-8c94-c6fa862122ba"
+        },
+        "after": {
+          "type": "string",
+          "value": "bff8084e-cd5d-4659-a8a5-0c38358731f7"
+        }
+      },
+      {
+        "path": "listener.registration.connectionEpoch",
+        "before": {
+          "type": "string",
+          "value": "4d7b32cd-9edb-4626-90af-9f500fb02b24"
+        },
+        "after": {
+          "type": "string",
+          "value": "0b3cdfee-8b5c-47dd-8cd1-ac03d986c15b"
+        }
+      }
+    ],
+    "differencesTruncated": false
+  },
+  "capture": {
+    "nativeProofIndependentlyAccepted": true,
+    "freshProcessTypedRead": true,
+    "reopenProcessPid": 61656,
+    "contextId": "54c4b1b7-8c52-4f85-8cef-a4b1ac38cc0d",
+    "frameCount": 1440000,
+    "envelopeWindows": 300,
+    "spectralWindows": 300,
+    "beforeTimingFrames": 32,
+    "afterTimingFrames": 32,
+    "alignment": {
+      "schema": "listening-alignment/v2",
+      "policy": {
+        "mode": "descriptive",
+        "maxClockDisagreementSamples": 64
+      },
+      "sampleRate": 48000,
+      "vectorSize": 64,
+      "observedClockDisagreementSamples": 1,
+      "observedBeatDisagreementSamples": 1,
+      "alignment": "approximate",
+      "intendedUse": "descriptive-only",
+      "estimatedAbsoluteErrorSamples": null,
+      "verifiedAbsoluteErrorBoundSamples": null
+    },
+    "summaries": {
+      "peak": [0.5, 0.5],
+      "rmsDbfs": [-24.502382344333178, -24.502382344333178],
+      "centroidHz": 451.38889484672416
+    },
+    "spectralEnergy": 3964573.9027342475,
+    "observationSha256": "cbe299378d45defdffe2be1629692f44a0492a51789144c830e2a1a4f7654af0"
+  },
+  "cleanup": {
+    "instrumentationRestored": true,
+    "processStopped": true,
+    "fixtureCleaned": true,
+    "copiedResourcesUnchanged": true,
+    "sourcePinsUnchanged": true,
+    "processReceipt": {
+      "processStopped": true,
+      "observedAt": "2026-10-16T19:11:03.483Z",
+      "live": {
+        "pid": 59663,
+        "startedAt": "Fri Oct 16 15:09:48 2026",
+        "executable": "/Applications/Ableton Live 11 Suite.app/Contents/MacOS/Live",
+        "state": "absent"
+      },
+      "nativeNode": {
+        "pid": 60585,
+        "startedAt": "Fri Oct 16 15:09:55 2026",
+        "executable": "/Applications/Ableton Live 11 Suite.app/Contents/App-Resources/Max/Max.app/Contents/Resources/C74/packages/Node for Max/source/bin/osx/node/node",
+        "state": "absent"
+      }
+    },
+    "errors": []
+  },
+  "earlierFailure": {
+    "runId": "dc7ade30-2374-4288-9507-0d397914be62",
+    "failedChecks": null
+  },
+  "connectionChangeTimingProven": false,
+  "connectionChangeCauseProven": false
+}

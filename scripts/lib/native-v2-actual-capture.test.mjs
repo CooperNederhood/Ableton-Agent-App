@@ -433,6 +433,67 @@ describe("actual corrected v2 native capture and durable context", () => {
     expect(() => validate(record)).toThrow();
   });
 
+  it("attributes the new final-state failure only to the observed connection and registration change", async () => {
+    const record = await evidence(
+      "native-v2-long-connection-change-observation.json",
+    );
+    expect(record.actorPassed).toBe(false);
+    expect(record.postconditions.passed).toBe(false);
+    expect(record.postconditions.checks).toEqual({
+      snapshotPlaying: true,
+      transportPlaying: true,
+      recordingInactive: true,
+      listenerIdle: true,
+      listenerPassReleased: true,
+      listenerJobReleased: true,
+      connectionUnchanged: false,
+      registrationUnchanged: false,
+      bindingUnchanged: true,
+    });
+    expect(record.postconditions.failedChecks).toEqual([
+      "connectionUnchanged",
+      "registrationUnchanged",
+    ]);
+    expect(
+      record.postconditions.differences.map((difference) => difference.path),
+    ).toEqual([
+      "listener.connectionId",
+      "listener.registration.connectionEpoch",
+    ]);
+    expect(record.postconditions.differencesTruncated).toBe(false);
+    expect(record.connectionChangeTimingProven).toBe(false);
+    expect(record.connectionChangeCauseProven).toBe(false);
+    expect(record.earlierFailure.failedChecks).toBeNull();
+  });
+
+  it("retains repeated native long-capture success without waiving changed connection postconditions", async () => {
+    const record = await evidence(
+      "native-v2-long-connection-change-observation.json",
+    );
+    expect(record.acceptancePassed).toBe(false);
+    expect(record.capture).toMatchObject({
+      nativeProofIndependentlyAccepted: true,
+      freshProcessTypedRead: true,
+      frameCount: 1440000,
+      envelopeWindows: 300,
+      spectralWindows: 300,
+      beforeTimingFrames: 32,
+      afterTimingFrames: 32,
+      contextId: "54c4b1b7-8c52-4f85-8cef-a4b1ac38cc0d",
+    });
+    expect(record.capture.summaries.peak).toEqual([0.5, 0.5]);
+    expect(record.capture.spectralEnergy).toBeGreaterThan(0);
+    expect(record.postconditions.before.inspection.sha256).toBe(
+      record.postconditions.after.inspection.sha256,
+    );
+    expect(record.postconditions.before.recording.sha256).toBe(
+      record.postconditions.after.recording.sha256,
+    );
+    expect(record.cleanup.processStopped).toBe(true);
+    expect(record.cleanup.fixtureCleaned).toBe(true);
+    expect(record.cleanup.errors).toEqual([]);
+  });
+
   it.each(["missing-window", "erased-spectrum", "changed-range"])(
     "rejects %s instead of treating completed prose or context identity as sufficient",
     async (change) => {

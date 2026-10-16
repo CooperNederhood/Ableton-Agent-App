@@ -768,6 +768,18 @@ cannot be reconstructed from those records. No synthetic poststate is assigned
 to that actual run, and no retry or corrective policy change follows from the
 generic error alone.
 
+The separately attributed observation `b27296c3` again completes and independently
+validates the full 30-second native proof/context. Its new final diagnostics
+identify exactly `connectionUnchanged` and `registrationUnchanged` as failed:
+the connection ID and registration connection epoch changed. Both playing
+flags, inactive recording, idle/released listener and normalized binding all
+pass. This rules out those seven conditions for this run, not for historical
+`dc7ade30`. The timing and cause of the connection change remain unproven;
+trace them before deciding whether the runtime or the verifier needs correction.
+Bounded actual evidence is
+`fixtures/native-v2-long-connection-change-observation.json`. The overall actor
+remains failed; no connection invariant is waived.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

@@ -355,6 +355,10 @@ detected-tempo and timing/integrity guards stay in place.
   actual proof separately; add bounded diagnostic attribution if absent.
   Do not weaken the assertion or infer success from owned-process cleanup.
   Then finish ordinary immutable acceptance and the owning native group.
+  Separate observed run b27296c3 identifies only connection/registration
+  changes; all seven other checks pass and full native proof/context qualifies.
+  Preserve dc7ade30's unknown field; establish the actual reconnect timeline
+  and cause before correcting runtime or verifier scope.
  - [x] Retain bounded typed before/after leave-running postcondition diagnostics
   with nine unchanged named checks, redacted scalar differences/structured
   hashes, lifecycle timing/trace attribution and failure/cleanup regressions.

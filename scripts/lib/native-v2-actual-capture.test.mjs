@@ -89,6 +89,60 @@ describe("actual corrected v2 native capture and durable context", () => {
         ]);
       });
 
+      describe("distinct long-capture spectrum acquisition failure", () => {
+        it("retains the actual old interval with a final tag advanced exactly one FFT frame", async () => {
+          const record = await evidence(
+            "native-v2-long-spectrum-observation.json",
+          );
+          const diagnostic = record.nativeFailureDiagnostic;
+          expect(diagnostic.scope).toBe("native-spectrum-rejection/v1");
+          expect(diagnostic.check).toBe("bracket");
+          expect(diagnostic.packet).toEqual([
+            1134592, 0, 0, 1132544, 1136640, 0,
+          ]);
+          const [end, centroid, energy, start, final, invalid] =
+            diagnostic.packet;
+          expect(end - start).toBe(2048);
+          expect(final - end).toBe(2048);
+          expect(final).not.toBe(end);
+          expect([centroid, energy, invalid]).toEqual([0, 0, 0]);
+          expect(diagnostic.fftDiagnostics).toEqual([-1, -1, -1, -1, 0]);
+          expect(diagnostic.metadata).toEqual({
+            dsp: [1, 48000, 64],
+            fftInfo: [2048, 2048, 2048, 1],
+            clockAbi: 2,
+            envelopeAbi: 2,
+            spectrumAbi: 2,
+          });
+        });
+
+        it("keeps this pre-launch-receipt failure separate from the unresolved 33-frame envelope fault", async () => {
+          const record = await evidence(
+            "native-v2-long-spectrum-observation.json",
+          );
+          expect(record.nativeLifecycle).toEqual({
+            phase: "capture",
+            elapsedMs: 1706,
+            reportedFrames: 0,
+            armAcknowledged: true,
+            nativeLaunchReceiptRetained: false,
+          });
+          expect(record.observer.rejectedEnvelope).toBeNull();
+          expect(record.originalLongFailure.nativeRejectionCode).toBeNull();
+          expect(record.originalLongFailure.rejectedEnvelope).toBeNull();
+          expect(record.contextIds).toEqual([]);
+          expect(record.acceptancePassed).toBe(false);
+          expect(record.cleanup.errors).toEqual([]);
+          expect(record.cleanup).toMatchObject({
+            instrumentationRestored: true,
+            processStopped: true,
+            fixtureCleaned: true,
+            copiedResourcesUnchanged: true,
+            sourcePinsUnchanged: true,
+          });
+        });
+      });
+
       it("keeps the actual post-launch long-capture failure unattributed with no published context", async () => {
         const { thirtySecond } = await evidence(
           "native-v2-descriptive-group-observation.json",

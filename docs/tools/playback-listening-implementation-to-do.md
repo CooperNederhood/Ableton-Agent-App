@@ -308,6 +308,13 @@ detected-tempo and timing/integrity guards stay in place.
   native_envelope_binding_changed with no context. Preserve the unknown raw
   rejected row/code as null, isolate through the read-only observer, and fix
   only the actual predicate. Do not relabel the failed group or widen timing.
+- [ ] Resolve the distinct earlier spectrum acquisition failure observed by
+  long-scenario observerc6a024c9 before an envelope rejection can be retained.
+  Actual packet1134592/0/0/1132544/1136640/0 has an old complete interval and
+  final tag advanced one2048sample frame, clean FFT diagnostics/ABI2, with
+  0 reported frames at1706ms. Assess existing narrowly bounded discard policy;
+  never admit/interpolate/rebind the incoherent packet or increase budgets.
+  Keep the original33-frame envelope row/code unknown until actually observed.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

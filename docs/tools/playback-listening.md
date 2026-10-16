@@ -646,6 +646,20 @@ The group remains failed and is not replaced with the earlier fractional pass.
 Next isolate that actual long-capture row under unchanged controls before
 altering any native guard or extending broader qualification.
 
+The read-only long-scenario observer subsequently stops at a different, earlier
+spectrum acquisition fault in run `c6a024c9`, before retaining an envelope
+rejection. The typed failure diagnostic preserves
+`[1134592,0,0,1132544,1136640,0]`: first end/start still describe the old complete
+2,048-sample interval while the final end tag advances exactly one FFT frame;
+invalid count is0, FFT diagnostics are clean and all three ABIs are2.
+Capture lifecycle reports0 frames at1706ms after arm, with no retained native
+launch receipt. This does not prove transport never started, reproduce the
+earlier33-frame failure, or authorize admitting an incoherent packet.
+No context publishes and all observer/source/code/audio/process/fixture cleanup
+checks pass. Preserve this distinct actual case in
+`fixtures/native-v2-long-spectrum-observation.json` while assessing only
+narrowly identified acquisition discard under existing quotas and deadlines.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

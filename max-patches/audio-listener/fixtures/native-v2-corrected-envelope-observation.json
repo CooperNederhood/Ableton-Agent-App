@@ -1,0 +1,71 @@
+{
+  "formatVersion": 1,
+  "evidenceKind": "actual-instrumented-nonaccepting-corrected-native-guards",
+  "runId": "b9d11054-c5b4-49c5-8754-983169aa33ad",
+  "baselineRunId": "c7e9153f-6e6f-47c7-a243-5257a3b42850",
+  "acceptancePassed": false,
+  "captureOrContextAuthorized": false,
+  "dsp": [1, 48000, 64],
+  "pins": {
+    "clockCodeSha256": "d64283544620de3cf19f6dd062c07f3fa3f0b8fc30b5a515b79d44a28be722a9",
+    "clockGenSha256": "39b40099140ceda608c824174f25f9755e66a1fa46f5b001c6be405e47a3caf6",
+    "envelopeCodeSha256": "8045e102ba54b8a63dbcc00ff490007943e01298d38ed1e371614ab58ce11fb7",
+    "envelopeGenSha256": "f633c46d00e998473013512652e86b5778c75b692b79cba82d5a58cc36e83589",
+    "privateProbeCodeSha256": "2c3440c1bd7e246acb20fe92a32710b39c61be689eb1fc71172ce41b6b16a34c",
+    "privateProbeGenSha256": "b173d2c7690e374208c10d3b5185e1059920f077b7877d97d7dbfa711cad28aa",
+    "spectrumCodeSha256": "5bd377dc1eee13b58e1567880fb1a1d99cd0da0d1b20a104a913fbbfd08e34f4"
+  },
+  "clock": {
+    "packetCount": 83,
+    "first": [0, 0.25, 1254336, 31, 1254336, 0, 1254336, 0, 0.25, 1254336, 31],
+    "last": [0, 0.25, 1296320, 31, 1296320, 0, 1296320, 0, 0.25, 1296320, 31]
+  },
+  "spectrum": {
+    "packetCount": 88,
+    "first": [1251328, 0, 0, 1249280, 1251328, 0],
+    "last": [1294336, 0, 0, 1292288, 1294336, 0]
+  },
+  "envelope": {
+    "scope": "native-envelope-guard-probe/v2",
+    "same26FieldMapAsBaseline": true,
+    "originalOutputs1Through23Preserved": true,
+    "originalConfigurationControlsAndStoppedAckPreserved": true,
+    "notVectorAtomic": true,
+    "forwardedToSdk": false,
+    "packetCount": 88,
+    "first": [
+      48000, 1254272, 0, 0, 1, 0, 1, 1, 1, 1254080, 1, 1734016, 0, 0, 0, 0, 0,
+      0, 0, -1, 0, 1253952, 1253953, 0, 0, 0
+    ],
+    "last": [
+      48000, 1296320, 0, 0, 1, 0, 1, 1, 1, 1296320, 1, 1776320, 0, 0, 0, 0, 0,
+      0, 0, -1, 0, 1296320, 1296321, 0, 0, 0
+    ]
+  },
+  "instrumentation": {
+    "failureAfterBeginMs": 902,
+    "maximumDelayMs": 1000,
+    "measurementPacketsAdmitted": 0,
+    "nativeArmControlsForwarded": 0,
+    "forwardedStopAcks": 1,
+    "privateHandlerRegisteredBeforeBegin": true,
+    "privateHandlerRemoved": true,
+    "malformedMessages": 0,
+    "foreignMessages": 0
+  },
+  "cleanup": {
+    "processStopped": true,
+    "fixtureCleaned": true,
+    "sourcePinsUnchanged": true,
+    "errors": []
+  },
+  "limitations": [
+    "The envelope is deliberately disarmed and unconfigured; no actual arm or completed capture is qualified.",
+    "The isolated epoch1 tests the current comparison only and never controls the live epoch.",
+    "Private diagnostic taps are not vector atomic; the first tuple retains different sample counters across taps.",
+    "The wide-literal tap remains zero and explicitly untrusted; corrected guards never use it.",
+    "A private observer is not a production failure diagnostic, native ownership proof or stopped receipt.",
+    "No measurement admission, playback, context publication or readiness promotion.",
+    "Installed Live11.3.43 observations do not qualify Live11.3.42."
+  ]
+}

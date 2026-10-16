@@ -469,7 +469,23 @@ code rather than rewriting their physical evidence. Current clock resource
 hash `39b40099140ceda608c824174f25f9755e66a1fa46f5b001c6be405e47a3caf6`
 and envelope resource hash
 `f633c46d00e998473013512652e86b5778c75b692b79cba82d5a58cc36e83589`
-still require their own native confirmation.
+are bound to the subsequent native observation.
+
+Actual nonaccepting run `b9d11054` confirms corrected idle behavior: 83
+continuous-clock packets advance with host counters, and 88 private envelope
+tuples show advancing local clocks, next-clock equal to pre-update clock plus
+one, valid input-counter bounds and no headroom rejection. The isolated
+comparison-only epoch1 now passes its bound/full gate. The untrusted wide-literal
+tap remains zero and is not used by corrected guards. Live epoch stays zero,
+configuration stays unset, and no arm or sealed receipt is claimed. The first
+tuple retains different sample counters across taps, explicitly demonstrating
+why these observations are not vector-atomic. Current full-range FFT still
+publishes 88 clean idle silence frames. Forced failure at 902 ms, zero admission/
+arm/playback/context, genuine stopped acknowledgement, callback removal and
+exact-owned process/fixture/original-pin cleanup all succeed. See
+`fixtures/native-v2-corrected-envelope-observation.json`. The next gate is a
+fresh normally saved immutable candidate and genuine fractional capture, not
+another widening of timing limits.
 
 ### Reviewed descriptive native runner scenarios
 

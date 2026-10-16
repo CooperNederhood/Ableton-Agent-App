@@ -231,10 +231,18 @@ detected-tempo and timing/integrity guards stay in place.
   epoch gate. Fail-before regressions cover the actual endpoints and modeled
   86-poll replay, boundary/nonfinite/rollover/reset/cancellation/continuity,
   sealed-ACK distinctions and final tails.
-- [ ] Observe the corrected native predicates from their exact current clock
+- [x] Observe the corrected native predicates from their exact current clock
   and envelope resources before creating another normally saved immutable
-  capture candidate. Historical source reversal and passing synthetic tests
-  do not qualify the changed resources or an armed passage capture.
+  capture candidate. Run `b9d11054` retains 83 advancing current-clock packets
+  and 88 private envelope tuples with advancing local clocks, correct next
+  update, passing isolated epoch1/counter bounds and no headroom rejection.
+  The untrusted literal remains zero; live epoch/configuration remain disarmed.
+  Current FFT retains 88 clean silence frames. Forced failure902ms, zero
+  admission/arm/context and successful genuine-stop/callback/process/fixture/
+  original-pin cleanup preserve the nonaccepting scope.
+- [ ] Normally save/reopen the separately staged corrected candidate, strictly
+  pin its actual Set/device/resources/audio, and retry ordinary fractional
+  capture. Idle diagnostic success does not qualify a genuine arm or capture.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

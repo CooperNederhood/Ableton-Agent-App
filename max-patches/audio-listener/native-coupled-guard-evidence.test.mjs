@@ -17,6 +17,109 @@ async function readEvidence() {
   );
 }
 
+test("actual corrected native envelope advances and admits valid comparisons while remaining disarmed", async () => {
+  const evidence = JSON.parse(
+    await readFile(
+      new URL(
+        "./fixtures/native-v2-corrected-envelope-observation.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  const baseline = await readEvidence();
+  assert.equal(evidence.baselineRunId, baseline.runId);
+  const documents = nativeRuntimeDocuments({ nativeVersion: 2 });
+  for (const name of ["clock", "envelope"]) {
+    const document = documents[`audio_listener_native_${name}.gendsp`];
+    const code = document.patcher.boxes.find(({ box }) => box.id === "code").box
+      .code;
+    assert.equal(
+      createHash("sha256").update(code).digest("hex"),
+      evidence.pins[`${name}CodeSha256`],
+    );
+    assert.equal(
+      createHash("sha256")
+        .update(`${JSON.stringify(document, null, 2)}\n`)
+        .digest("hex"),
+      evidence.pins[`${name}GenSha256`],
+    );
+  }
+  assert.equal(evidence.pins.spectrumCodeSha256, baseline.spectrum.codeSha256);
+  assert.deepEqual(evidence.dsp, baseline.dsp);
+  assert.equal(evidence.envelope.same26FieldMapAsBaseline, true);
+  assert.equal(evidence.envelope.originalOutputs1Through23Preserved, true);
+  assert.equal(
+    evidence.envelope.originalConfigurationControlsAndStoppedAckPreserved,
+    true,
+  );
+  assert.equal(evidence.envelope.notVectorAtomic, true);
+  assert.equal(evidence.envelope.forwardedToSdk, false);
+  assert.equal(evidence.envelope.scope, "native-envelope-guard-probe/v2");
+  assert.equal(evidence.envelope.packetCount, 88);
+  const samples = [evidence.envelope.first, evidence.envelope.last].map(
+    (values) => {
+      assert.equal(values.length, baseline.envelope.fields.length);
+      assert(values.every(Number.isFinite));
+      return Object.fromEntries(
+        baseline.envelope.fields.map((name, index) => [name, values[index]]),
+      );
+    },
+  );
+  for (const sample of samples) {
+    assert.equal(sample.actualGenSampleRate, 48000);
+    assert.equal(sample.liveEpoch, 0);
+    assert.equal(sample.liveEpochBound, 1);
+    assert.equal(sample.liveEpochFullGate, 0);
+    assert.equal(sample.isolatedProbeEpoch, 1);
+    assert.equal(sample.probeEpochBound, 1);
+    assert.equal(sample.probeEpochFullGate, 1);
+    assert.equal(sample.actualCounterValid, 1);
+    assert.equal(sample.headroomReject, 0);
+    assert(sample.clockOnEntry > 1048576);
+    assert(sample.actualInputCounter > 1048576);
+    assert.equal(sample.computedCappedNextClock, sample.clockBeforeUpdate + 1);
+    assert.equal(sample.evaluatedWideLiteral, 0);
+    assert.equal(sample.actualConfigValid, 0);
+    assert.equal(sample.wasRunningOnEntry, 0);
+    assert.equal(sample.newLiveRequest, 0);
+    assert.equal(sample.sealedEpochAfter, 0);
+    assert.equal(sample.armCounterAfter, -1);
+  }
+  assert(samples[1].clockOnEntry > samples[0].clockOnEntry);
+  assert(samples[1].actualInputCounter > samples[0].actualInputCounter);
+  assert.notEqual(samples[0].clockOnEntry, samples[0].clockBeforeUpdate);
+  assert.equal(evidence.clock.packetCount, 83);
+  for (const values of [evidence.clock.first, evidence.clock.last]) {
+    assert.equal(values[4], values[2]);
+    assert.equal(values[4], values[6]);
+    assert.equal(values[4], values[9]);
+  }
+  assert(evidence.clock.last[4] > evidence.clock.first[4]);
+  assert.equal(evidence.spectrum.packetCount, 88);
+  for (const values of [evidence.spectrum.first, evidence.spectrum.last]) {
+    assert.equal(values[0], values[4]);
+    assert.equal(values[0] - values[3], 2048);
+    assert.deepEqual([values[1], values[2], values[5]], [0, 0, 0]);
+  }
+  assert.equal(evidence.acceptancePassed, false);
+  assert.equal(evidence.captureOrContextAuthorized, false);
+  assert.equal(evidence.instrumentation.measurementPacketsAdmitted, 0);
+  assert.equal(evidence.instrumentation.nativeArmControlsForwarded, 0);
+  assert.equal(evidence.instrumentation.forwardedStopAcks, 1);
+  assert.equal(
+    evidence.instrumentation.privateHandlerRegisteredBeforeBegin,
+    true,
+  );
+  assert.equal(evidence.instrumentation.privateHandlerRemoved, true);
+  assert.deepEqual(evidence.cleanup, {
+    processStopped: true,
+    fixtureCleaned: true,
+    sourcePinsUnchanged: true,
+    errors: [],
+  });
+});
+
 test("actual current full-range FFT publishes native silence without capture authority", async () => {
   const evidence = await readEvidence();
   const document = nativeRuntimeDocuments({ nativeVersion: 2 })[

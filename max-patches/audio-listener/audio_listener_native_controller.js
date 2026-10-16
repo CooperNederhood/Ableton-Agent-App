@@ -698,9 +698,17 @@ class NativeCaptureController {
         ) &&
         previous &&
         v[0] === previous[0] &&
-        v[3] === previous[0] &&
         v[4] === previous[0] + 2048 &&
-        v[5] === previous[5]
+        v[5] === previous[5] &&
+        (v[3] === previous[0] ||
+          (this.nativeVersion === 2 &&
+            previous[4] === previous[0] &&
+            previous[0] - previous[3] === 2048 &&
+            v[3] === previous[3] &&
+            v[1] === previous[1] &&
+            v[2] === previous[2] &&
+            this.now() - p.spectrumAt >= 0 &&
+            this.now() - p.spectrumAt <= 1000))
       )
         return this.rejectBracket(p, "torn_native_spectrum");
       throw this.spectrumPacketError(p, v, "bracket");

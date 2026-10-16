@@ -660,6 +660,24 @@ checks pass. Preserve this distinct actual case in
 `fixtures/native-v2-long-spectrum-observation.json` while assessing only
 narrowly identified acquisition discard under existing quotas and deadlines.
 
+The current controller adds v2-only discard handling for that ordering only
+when a retained coherent frame exactly matches the packet's old interval,
+centroid, energy and invalid-frame counter, the final tag advances exactly one
+FFT frame, and the retained observation is within the existing1,000ms freshness
+limit. It charges the existing shared64-rejection quota and existing rejection
+event. The incoherent packet is never admitted; no retained timestamp is
+refreshed, deadline extended, counter repaired or capture binding replaced.
+V1 recovery behavior and the Gen/coordinates/IO resources are unchanged.
+New controller SHA is
+`f6e1e2de0230c86fe2d534f98400648edb3160deaacbb2bb88e74bf667d6c9d2`.
+
+The actual `c6a024c9` diagnostic did not retain its preceding coherent payload.
+The exact-packet regression therefore uses explicitly modeled matching prior
+state; physical recoverability is not established by that test. A missing or
+different prior payload still fails. Qualify the explicitly pinned current
+controller in an owned copied-resource diagnostic before claiming this earlier
+fault is resolved or returning to the unknown later envelope rejection.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

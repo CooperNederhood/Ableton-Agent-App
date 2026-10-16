@@ -315,6 +315,14 @@ detected-tempo and timing/integrity guards stay in place.
   0 reported frames at1706ms. Assess existing narrowly bounded discard policy;
   never admit/interpolate/rebind the incoherent packet or increase budgets.
   Keep the original33-frame envelope row/code unknown until actually observed.
+- [x] Add narrowly scoped v2 old-interval/new-final acquisition discard only
+  with an exact matching retained coherent payload/counter, one FFT advance,
+  existing1,000ms freshness and shared64-rejection quota. Never admit the packet,
+  refresh timestamps, extend deadlines or change v1 recovery.
+- [ ] Physically qualify current controllerf6e1e2de through an explicitly pinned
+  copied-resource control. C6 did not retain its preceding coherent payload;
+  exact-packet regression uses modeled prior state, not observed recovery.
+  Then observe the separate later envelope rejection without retroattribution.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

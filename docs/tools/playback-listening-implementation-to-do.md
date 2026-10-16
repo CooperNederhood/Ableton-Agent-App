@@ -279,18 +279,25 @@ detected-tempo and timing/integrity guards stay in place.
   inclusive1e12 bounded words, preserving qualified FFT bytes, frozen v1,
   original controls/timing/phase/coverage/stop rules and descriptor mathematics.
   Share the emitted finite-predicate generator without changing FFT bytes.
-- [ ] Qualify an explicitly pinned copied-current-envelope control before requesting
+- [x] Qualify an explicitly pinned copied-current-envelope control before requesting
   another normal immutable candidate save.
+  Run `5f8282f5` completes84,000frames/18envelope/18spectral/32before+after with
+  a2,400sample tail, one atomic context and exact canonical fresh-process typed
+  reopening. Keep the explicit override/inspector run diagnostic-only.
 - [x] Copy verified project-owned WAV snapshots into each isolated fixture at
   their exact project-relative paths before launch, rather than merely hashing
   originals. Fail-before v1/v2 tests, nested/reference/tamper/duplicate/symlink/
   snapshot-race/cancellation/cleanup and legacy absolute-source coverage pass;
   dry staging verifies the three real pinned WAVs and unchanged Set. Persist
   bounded count/hash/size receipts without audio bodies or new raw filenames.
-- [ ] Verify actual owned Live loading and processed source audio after the
+- [x] Verify actual owned Live loading and processed source audio after the
   fixture-copy repair; prior file-open exceptions do not prove zero input.
   Run `96f88bf6` has no fresh WAV-open error and all copied-audio pins pass,
   but its two delayed zeros at fault0 do not qualify non-silent source playback.
+  New `5f8282f5` passes predeclared bothpeak0.4..0.6 with actual0.5/0.5; retained
+  typed History proves ten positive-energy spectral windows, sum3888175.768319656.
+  Source/proof/context reopening and exact-owned cleanup pass. This does not
+  grant ordinary immutable-candidate acceptance or a physical timing bound.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

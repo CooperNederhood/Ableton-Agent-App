@@ -602,6 +602,32 @@ This source correction still requires fresh actual capture qualification.
 Historical idle-envelope observations bind the archived f633 resource, not
 this changed production revision.
 
+The corrected 23-output production envelope now completes an actual
+instrumented fractional capture in run `5f8282f5`: beats0.25..3.75, 84,000
+stereo frames, 18 envelope/18 spectral windows, a 2,400-sample final partial
+window and 32 before/32 after frames. Independent App validation accepts the
+proof and atomically publishes context `781dd134-6876-4148-816f-63d5f219be4d`
+for pass `ef6ee80a-9c63-4cd4-951d-893256d638e2`. A separate process retrieves
+the same canonical observation through the production typed context API.
+
+This is measured non-silent input, not only a complete zero-valued proof:
+both peaks are0.5 within the predeclared0.4..0.6 fixture range. Typed
+application History retains the exact native terminal proof; ten spectral
+windows have positive numeric energy, totaling3888175.768319656. The measured
+summary is RMS-12.161550283999496 dBFS per channel and centroid451.99794073445076 Hz.
+Neither centroid nor actor success substitutes for the energy check. Warped
+plugin input is not assumed exactly equal to raw-file RMS.
+
+The result remains approximate/descriptive-only, with observed clock/beat
+disagreement0 under policy64 and both physical error bounds unknown. The
+415-row read-only observer records no rejection/error; source/copied code/audio
+pins, instrumentation restoration, exact owned96890/97670 exit and fixture
+cleanup pass. The explicit copied-current-envelope override and inspector make
+this diagnostic completion, not ordinary immutable-candidate acceptance or
+readiness promotion. Full bounded proof and typed-reopen evidence are retained
+in `fixtures/native-v2-finite-word-capture.json`; a fresh normally saved candidate
+and ordinary fractional/group qualification are still required.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

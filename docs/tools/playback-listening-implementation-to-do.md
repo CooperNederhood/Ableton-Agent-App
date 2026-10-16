@@ -206,9 +206,15 @@ detected-tempo and timing/integrity guards stay in place.
   publish with zero invalid count and diagnostics `[48000,0,0,-1,0]`. Retain
   comparison-only scope, zero capture admission/arm/context, 902 ms forced
   failure and explicit successful cleanup/pin receipts.
-- [ ] Implement and natively confirm an equivalent finite-input guard retaining
-  the original inclusive 1e12 production bound. The stricter diagnostic control
-  must not replace it; compiler internals remain unproven.
+- [x] Implement an equivalent finite-input guard retaining the original inclusive
+  1e12 production bound. Bounded `2^20` words with high953674/remainder331776
+  replace only the four finite comparisons, with normalized remainder
+  arithmetic, fail-before emitted-code tests and independent bounds/adjacent
+  doubles/sign/nonfinite/overflow regressions. All other guards/math/rate/ABI
+  and frozen v1 remain unchanged.
+- [ ] Natively confirm the corrected full-range finite guard. The stricter
+  diagnostic control is not a production replacement or resource qualification;
+  compiler internals remain unproven.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

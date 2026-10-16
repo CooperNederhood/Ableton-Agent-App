@@ -421,6 +421,16 @@ arm/playback/context and successful explicit cleanup/pin receipts. See
 `fixtures/native-v2-finite-bound-control.json`. Idle silence-frame publication
 does not qualify capture of a played passage.
 
+The v2 production guard now uses bounded `2^20` words with high threshold
+953674 and remainder 331776, preserving the original inclusive absolute 1e12
+limit for every FFT component. Normalized remainder arithmetic avoids a wide
+literal comparison without narrowing the accepted range. Boundary regressions
+cover exact limits and adjacent doubles, signs, subword values, overflow,
+NaN/Infinity and the actual zero-input failure pattern at both rates. Other
+guards, spectral math, rate handling, ABI/wire and frozen v1 bytes remain
+unchanged. This corrected resource still requires native confirmation; the
+stricter control is not a substitute for it.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

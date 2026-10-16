@@ -56,6 +56,25 @@ export function clockSplitDocument() {
 // Same full-frame/native split-counter layout; rate comes from DSP, not the
 // calibration default. Publication still names the actual complete 2048 frame.
 export function descriptiveSpectrumCode() {
+  // Inclusive 1e12 is 953674 whole 2^20 words plus 331776. Never materialize
+  // that wide ceiling in Gen. Valid remainders also reject unordered/infinite
+  // inputs without relying on a large floating literal or a smaller limit.
+  // Subtract normalized words before scaling to keep remainder arithmetic small.
+  const components = [1, 2, 3, 4];
+  const finiteWords = components
+    .map(
+      (n) => `finiteHigh${n} = floor(abs(in${n}) / 1048576);
+finiteLow${n} = (abs(in${n}) / 1048576 - finiteHigh${n}) * 1048576;`,
+    )
+    .join("\n");
+  const finiteChecks = components
+    .map(
+      (
+        n,
+      ) => `(finiteHigh${n} >= 0 && finiteLow${n} >= 0 && finiteLow${n} < 1048576 &&
+      (finiteHigh${n} < 953674 || (finiteHigh${n} == 953674 && finiteLow${n} <= 331776)))`,
+    )
+    .join(" &&\n    ");
   return (
     TAGGED_SPECTRUM_CODE.replace(
       "Param sourceSampleRate(48000);",
@@ -74,11 +93,11 @@ if (in5 > 0 && sourceClock`,
       )
       .replace(
         SPECTRUM_STEP,
-        `if (!(samplerate == 44100 || samplerate == 48000) ||
+        `${finiteWords}
+if (!(samplerate == 44100 || samplerate == 48000) ||
     !(in5 >= 0 && in5 <= 2047 && floor(in5) == in5) ||
     (in5 != 0 && in5 != previousBin + 1) ||
-    !(abs(in1) <= 1000000000000 && abs(in2) <= 1000000000000 &&
-      abs(in3) <= 1000000000000 && abs(in4) <= 1000000000000) ||
+    !(${finiteChecks}) ||
     !(in6 >= 0 && in6 < 1048576 && floor(in6) == in6 &&
       in7 >= 0 && in7 < 16777216 && floor(in7) == in7)) { frameValid = 0; }
 ${SPECTRUM_STEP}

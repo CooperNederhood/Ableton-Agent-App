@@ -1227,6 +1227,129 @@ function spectral(rate, left, right, mutate = () => {}) {
   return out;
 }
 
+test("v2 spectrum finite checks avoid the physically failing wide comparison ceiling", () => {
+  const text = code(
+    nativeRuntimeDocuments({ nativeVersion: 2 })[
+      "audio_listener_native_spectrum.gendsp"
+    ],
+  );
+  // Native ae0be55a rejected zero on all four finite checks; eeaff22d's
+  // diagnostic-only smaller-ceiling contrast published the same silent input.
+  // The numeric subset alone accepted the old native-failing expression.
+  for (const [literal] of text.matchAll(/\b\d+(?:\.\d+)?\b/g))
+    assert.ok(
+      Number(literal) <= 2147483647,
+      `native spectrum reintroduced wide finite ceiling: ${literal}`,
+    );
+  assert.equal(1000000000000n / 1048576n, 953674n);
+  assert.equal(1000000000000n % 1048576n, 331776n);
+});
+
+test("v2 finite change reverses exactly to historical source without touching other guards, rate, math or ABI", () => {
+  const text = code(
+    nativeRuntimeDocuments({ nativeVersion: 2 })[
+      "audio_listener_native_spectrum.gendsp"
+    ],
+  );
+  const assignments = /^(?:finiteHigh[1-4]|finiteLow[1-4]) = [^;\n]+;\n/gm;
+  assert.equal([...text.matchAll(assignments)].length, 8);
+  const withoutWords = text.replace(assignments, "");
+  const finiteClause = / {4}!\(\(finiteHigh1[\s\S]*?\|\|\n {4}!\(in6/g;
+  assert.equal([...withoutWords.matchAll(finiteClause)].length, 1);
+  const previous = withoutWords.replace(
+    finiteClause,
+    `    !(abs(in1) <= 1000000000000 && abs(in2) <= 1000000000000 &&
+      abs(in3) <= 1000000000000 && abs(in4) <= 1000000000000) ||
+    !(in6`,
+  );
+  assert.equal(
+    createHash("sha256").update(previous).digest("hex"),
+    "78c98638f4c84578c3410a6998f42aa3bfc3f58c1fee5f72975fd37a4e0f33e6",
+  );
+});
+
+test("v2 finite word comparisons preserve inclusive absolute 1e12 at adjacent doubles for every component", () => {
+  const limit = 1_000_000_000_000;
+  const bits = new DataView(new ArrayBuffer(8));
+  bits.setFloat64(0, limit);
+  const representation = bits.getBigUint64(0);
+  bits.setBigUint64(0, representation - 1n);
+  const inside = bits.getFloat64(0);
+  bits.setBigUint64(0, representation + 1n);
+  const outside = bits.getFloat64(0);
+  assert.ok(inside < limit && outside > limit);
+  assert.equal(limit - inside, 2 ** -13);
+  assert.equal(outside - limit, 2 ** -13);
+  const magnitudes = [
+    0,
+    Number.MIN_VALUE,
+    Number.EPSILON,
+    0.5,
+    1,
+    1048575,
+    1048576,
+    1048576.5,
+    953674 * 1048576 - 1,
+    953674 * 1048576,
+    953674 * 1048576 + 1,
+    inside,
+    limit,
+    outside,
+    953675 * 1048576,
+    Number.MAX_SAFE_INTEGER,
+    Number.MAX_VALUE,
+    Infinity,
+    NaN,
+  ];
+  const text = code(
+    nativeRuntimeDocuments({ nativeVersion: 2 })[
+      "audio_listener_native_spectrum.gendsp"
+    ],
+  );
+  for (const rate of [44100, 48000])
+    for (let component = 0; component < 4; component++)
+      for (const magnitude of magnitudes)
+        for (const value of [magnitude, -magnitude]) {
+          const gen = genModel(text, 11, rate);
+          let row;
+          for (let bin = 0; bin < 2048; bin++) {
+            const counter = 1048500 + bin;
+            const inputs = [
+              0,
+              0,
+              0,
+              0,
+              bin,
+              counter % 1048576,
+              Math.floor(counter / 1048576),
+            ];
+            if (bin === 13) inputs[component] = value;
+            row = gen.step(...inputs);
+          }
+          // Independent direct-double oracle, not the production word formula.
+          const accepted = Number.isFinite(value) && Math.abs(value) <= limit;
+          assert.equal(
+            row[4],
+            accepted ? 0 : 1,
+            `rate=${rate}, component=${component}, value=${value}`,
+          );
+          assert.equal(row[2], accepted ? 1048500 : -1);
+          assert.equal(row[3], accepted ? 1050548 : -1);
+          assert.equal(row[10], 2);
+          assert.ok(row.every(Number.isFinite));
+        }
+  // Actual failed native signature was zero-valued FFT input, not an attack.
+  const silent = genModel(text, 11, 48000);
+  let row;
+  for (let bin = 0; bin < 2048; bin++)
+    row = silent.step(0, 0, 0, 0, bin, bin, 0);
+  assert.deepEqual(
+    [row[3], row[0], row[1], row[2], row[3], row[4]],
+    [2048, 0, 0, 0, 2048, 0],
+  );
+  assert.deepEqual(row.slice(5, 10), [-1, -1, -1, -1, 0]);
+});
+
 test("v2 stereo FFT is finite, Nyquist/rate aware, silence-zero and counter-tagged independently of final tails", () => {
   const zero = Array(2048).fill(0);
   for (const rate of [44100, 48000]) {

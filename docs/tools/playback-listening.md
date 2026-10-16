@@ -455,6 +455,22 @@ zero measurement admission/native arm/playback/context, removal of the private
 callback, and exact-owned process/fixture/original-pin cleanup all succeeded.
 Idle FFT publication does not qualify an armed passage capture or Live11.3.42.
 
+The directly coupled v2 envelope correction now replaces its local-clock cap
+with the same bounded-word saturation, evaluated after any epoch reset.
+Envelope epoch/counter/projected-headroom bounds and the continuous-clock
+epoch gate use equivalent high-word comparisons, retaining the exact `2^44`
+ceiling and original integer, positivity, strictness, configuration, timing,
+continuity and stopped-receipt rules. No timing budget, spectral math, wire
+layout, audio path or frozen v1 behavior changes. Fail-before regressions cover
+the actual endpoint failure pattern, modeled 86-poll idle replay, nonfinite and
+ceiling edges, rollover, reset ordering, cancellation, sealed-ACK distinctions
+and final tails. Historical reversal reproduces the archived clock and envelope
+code rather than rewriting their physical evidence. Current clock resource
+hash `39b40099140ceda608c824174f25f9755e66a1fa46f5b001c6be405e47a3caf6`
+and envelope resource hash
+`f633c46d00e998473013512652e86b5778c75b692b79cba82d5a58cc36e83589`
+still require their own native confirmation.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

@@ -88,6 +88,21 @@ export const DESCRIPTIVE_CONFIG_VALID = `configValid =
   captureVector == 64 || captureVector == 128 || captureVector == 256 ||
   captureVector == 512 || captureVector == 1024);`;
 
+// Exact 2^44 comparisons without a wide Gen literal. Keep positivity/integer
+// checks at their original call sites; >= is not !< for unordered inputs.
+export function descriptiveCounterBound(value, atOrAbove = false) {
+  return `floor((${value}) / 1048576) ${atOrAbove ? ">=" : "<"} 16777216`;
+}
+
+export function descriptiveEpochGate(value = "epoch") {
+  return `${value} > seenEpoch && ${descriptiveCounterBound(value)} && floor(${value}) == ${value}`;
+}
+
+export const DESCRIPTIVE_CLOCK_WORDS = `clockHigh = floor(clock / 1048576);
+clockLow = clock - clockHigh * 1048576;`;
+export const DESCRIPTIVE_CLOCK_ADVANCE = `if (clockHigh < 16777216) { clock = clock + 1; }
+else { clock = clock - clockLow - (clockHigh - 16777216) * 1048576; }`;
+
 /**
  * Descriptive-only signal-rate alignment. No attack or quiet-input certificate.
  * The first phase transition resolves a nearby requested origin, not absolute
@@ -111,7 +126,7 @@ ${extraState}
 ${DESCRIPTIVE_CONFIG_VALID}
 reportSamples = configValid ? floor((totalSamples + hopSamples - 1) / hopSamples) * hopSamples : 0;
 newRequest = epoch != seenEpoch && epoch != 0;
-counterValid = in4 >= 0 && in4 < 17592186044416 && floor(in4) == in4;
+counterValid = in4 >= 0 && ${descriptiveCounterBound("in4")} && floor(in4) == in4;
 phaseValid = in1 >= 0 && in1 < 1;
 wasRunning = armed > 0 || active > 0;
 configurationSealed = epoch > 0 && epoch == seenEpoch && sealedEpoch == seenEpoch;
@@ -122,7 +137,7 @@ if ((wasRunning || configurationSealed) &&
  armed = 0; active = 0; rejected = 13; sealedEpoch = 0;
 }
 if (newRequest) {
- if (!(epoch > seenEpoch && epoch < 17592186044416 && floor(epoch) == epoch)) {
+ if (!(${descriptiveEpochGate()})) {
   armed = 0; active = 0; rejected = 6;
  } else {
   seenEpoch = epoch; sealedEpoch = 0;
@@ -134,7 +149,7 @@ if (newRequest) {
    passTotal = totalSamples; passHop = hopSamples; passTempo = tempoBpm;
    passFraction = startBeatFraction; passVector = captureVector; passRate = samplerate;
    if (!(configValid)) { rejected = 13; }
-   else if (!(counterValid) || in4 + 10 * samplerate + reportSamples + captureVector >= 17592186044416) { rejected = 12; }
+   else if (!(counterValid) || ${descriptiveCounterBound("in4 + 10 * samplerate + reportSamples + captureVector", true)}) { rejected = 12; }
    else if (!(phaseValid) || in1 != previousPhase || stablePhaseSamples < captureVector) { rejected = 1; }
    else if (retainedSamples < captureVector) { rejected = 10; }
    else { armed = 1; sealedEpoch = seenEpoch; }
@@ -182,7 +197,8 @@ out4 = onsetCount; out5 = rejected; out6 = active;
 out7 = launchPhaseSamples; out8 = firstSourceClock;
 previousPhase = in1;
 retainedSamples = min(1024, retainedSamples + 1);
-clock = min(17592186044416, clock + 1);`;
+${DESCRIPTIVE_CLOCK_WORDS}
+${DESCRIPTIVE_CLOCK_ADVANCE}`;
 }
 
 // Native counter never resets on request/zero/cancel. Epoch high-water survives
@@ -193,17 +209,15 @@ clock = min(17592186044416, clock + 1);`;
 export const DESCRIPTIVE_CLOCK_CODE = `${DESCRIPTIVE_PARAMETERS}
 History clock(0); History seenEpoch(0); History resetAt(0);
 ${DESCRIPTIVE_CONFIG_VALID}
-if (epoch > seenEpoch && epoch < 17592186044416 && floor(epoch) == epoch) {
+if (${descriptiveEpochGate()}) {
  seenEpoch = epoch; resetAt = clock;
 }
 position = clock - resetAt;
 vector = configValid ? captureVector : 1;
-clockHigh = floor(clock / 1048576);
-clockLow = clock - clockHigh * 1048576;
+${DESCRIPTIVE_CLOCK_WORDS}
 out1 = position; out2 = clock;
 out3 = floor(clock / vector); out4 = clock - floor(clock / vector) * vector;
 out5 = seenEpoch; out6 = resetAt;
 out7 = configValid && epoch == seenEpoch && epoch > 0 && cancel == 0 && clockHigh < 16777216 ? 1 : 0;
 out8 = 2;
-if (clockHigh < 16777216) { clock = clock + 1; }
-else { clock = clock - clockLow - (clockHigh - 16777216) * 1048576; }`;
+${DESCRIPTIVE_CLOCK_ADVANCE}`;

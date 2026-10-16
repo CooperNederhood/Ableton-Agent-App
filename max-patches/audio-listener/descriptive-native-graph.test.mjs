@@ -901,10 +901,10 @@ test("v2 clock update and clock eligibility avoid the physically failing wide ce
         `native clock update/eligibility reintroduced wide ceiling: ${literal}`,
       );
   assert.doesNotMatch(update, /\bmin\s*\(/);
-  // This bounded fix must not retune the independently scoped epoch gate.
+  // The physically observed coupled epoch bound now uses the same small words.
   assert.match(
     text,
-    /epoch > seenEpoch && epoch < 17592186044416 && floor\(epoch\) == epoch/,
+    /epoch > seenEpoch && floor\(\(epoch\) \/ 1048576\) < 16777216 && floor\(epoch\) == epoch/,
   );
 });
 

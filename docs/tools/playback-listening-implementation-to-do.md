@@ -224,11 +224,17 @@ detected-tempo and timing/integrity guards stay in place.
   epoch1 fails its bound; actual advancing counters below the ceiling fail
   validity and projected ends below the ceiling trigger headroom rejection.
   Live epoch remains zero; unconfigured idle state is not an arm failure.
-- [ ] Correct the directly coupled v2 envelope clock and epoch/counter/headroom
+- [x] Correct the directly coupled v2 envelope clock and epoch/counter/headroom
   predicates with equivalent bounded arithmetic, preserving original ceilings,
   strictness, generation/configuration/stop semantics and frozen v1.
-  Add fail-before regressions and then observe the corrected native predicates
-  before creating another normally saved immutable capture candidate.
+  Compute local-clock saturation after epoch reset; include the continuous-clock
+  epoch gate. Fail-before regressions cover the actual endpoints and modeled
+  86-poll replay, boundary/nonfinite/rollover/reset/cancellation/continuity,
+  sealed-ACK distinctions and final tails.
+- [ ] Observe the corrected native predicates from their exact current clock
+  and envelope resources before creating another normally saved immutable
+  capture candidate. Historical source reversal and passing synthetic tests
+  do not qualify the changed resources or an armed passage capture.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

@@ -719,6 +719,20 @@ Evidence is `fixtures/native-v2-exact-endpoint-observation.json`; no context
 was published and all owned resources/processes were cleaned up. Do not
 retroassign the new native comparison to earlier runs with weaker probes.
 
+Production v2 now canonicalizes only native phase exactly equal to 1 into 0,
+consistently for validity, launch, step, stall and previous-phase history.
+This is periodic endpoint semantics, not a timing-policy relaxation: adjacent
+values above 1 still reject, as do negative/nonfinite inputs and genuine jumps;
+the strict 0.01-sample step guard, counters, configuration, coverage and all
+23 outputs remain. Frozen v1, clock and spectrum bytes are unchanged.
+New envelope code is `321fac8f61507154dc05c63d6fe0360a8e20780ee050a3a24b402b077eb1f8ac`;
+pretty-LF Gen is `be01a84ea0c4c86e95375401f59306ce67e7afab1b263ef9b3ffe6502f3dbb91`.
+The pre-change `fixtures/native-v2-envelope-periodic-baseline-b732.gendsp`
+preserves exact historical code/document identity for prior evidence and
+private probes. Eight new regressions failed before correction; all nine new
+tests and 567 owning Max tests pass. Native compilation and full 30-second
+qualification of this correction remain pending.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

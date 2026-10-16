@@ -26,7 +26,11 @@ const predicate = ["L", "R"]
   )
   .join(" &&\n    ");
 function historical(text) {
-  return text.replace(`${words}\n`, "").replace(predicate, oldPredicate);
+  return text
+    .replace("periodicPhase = in1 == 1 ? 0 : in1;\n", "")
+    .replaceAll(/\bperiodicPhase\b/g, "in1")
+    .replace(`${words}\n`, "")
+    .replace(predicate, oldPredicate);
 }
 function replaceObservedComparisons(text) {
   // Actual B96f88bf6 observed both delayed values0 and both original rechecks0.

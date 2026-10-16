@@ -271,6 +271,11 @@ test("v2 coupled changes reverse exactly to historical clock and envelope code w
     if (name === "envelope") {
       previous = replaceOne(
         previous,
+        "periodicPhase = in1 == 1 ? 0 : in1;\n",
+        "",
+      ).replaceAll(/\bperiodicPhase\b/g, "in1");
+      previous = replaceOne(
+        previous,
         `${["L", "R"].map((side) => descriptiveFiniteWords(`delayed${side}`, side)).join("\n")}\n`,
         "",
       );

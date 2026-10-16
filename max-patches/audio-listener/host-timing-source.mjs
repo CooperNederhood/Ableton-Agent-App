@@ -120,6 +120,7 @@ else { clock = clock - clockLow - (clockHigh - 16777216) * 1048576; }`;
  * The first phase transition resolves a nearby requested origin, not absolute
  * accuracy: vector retention is a bounded assumption awaiting Max qualification.
  * in4 is the continuously running native counter; no scheduler timestamps.
+ * Only the exact closed endpoint1 aliases0; overshoot remains invalid.
  */
 export function descriptiveHostTimingCode({
   extraState = "",
@@ -135,11 +136,12 @@ History sealedEpoch(0);
 History passTotal(0); History passHop(0); History passTempo(0);
 History passFraction(0); History passVector(0); History passRate(0);
 ${extraState}
+periodicPhase = in1 == 1 ? 0 : in1;
 ${DESCRIPTIVE_CONFIG_VALID}
 reportSamples = configValid ? floor((totalSamples + hopSamples - 1) / hopSamples) * hopSamples : 0;
 newRequest = epoch != seenEpoch && epoch != 0;
 counterValid = in4 >= 0 && ${descriptiveCounterBound("in4")} && floor(in4) == in4;
-phaseValid = in1 >= 0 && in1 < 1;
+phaseValid = periodicPhase >= 0 && periodicPhase < 1;
 wasRunning = armed > 0 || active > 0;
 configurationSealed = epoch > 0 && epoch == seenEpoch && sealedEpoch == seenEpoch;
 if ((wasRunning || configurationSealed) &&
@@ -162,7 +164,7 @@ if (newRequest) {
    passFraction = startBeatFraction; passVector = captureVector; passRate = samplerate;
    if (!(configValid)) { rejected = 13; }
    else if (!(counterValid) || ${descriptiveCounterBound("in4 + 10 * samplerate + reportSamples + captureVector", true)}) { rejected = 12; }
-   else if (!(phaseValid) || in1 != previousPhase || stablePhaseSamples < captureVector) { rejected = 1; }
+   else if (!(phaseValid) || periodicPhase != previousPhase || stablePhaseSamples < captureVector) { rejected = 1; }
    else if (retainedSamples < captureVector) { rejected = 10; }
    else { armed = 1; sealedEpoch = seenEpoch; }
   }
@@ -181,8 +183,8 @@ if ((armed > 0 || active > 0) && !(phaseValid)) {
 }
 if (armed > 0 && clock >= 10 * passRate) { armed = 0; rejected = 2; }
 beatSamples = passTempo > 0 ? passRate * 60 / passTempo : 1;
-if (armed > 0 && in1 != previousPhase) {
- phaseDistance = in1 - passFraction;
+if (armed > 0 && periodicPhase != previousPhase) {
+ phaseDistance = periodicPhase - passFraction;
  if (phaseDistance < 0) { phaseDistance = phaseDistance + 1; }
  launchPhaseSamples = round(phaseDistance * beatSamples);
  origin = clock - launchPhaseSamples;
@@ -192,14 +194,14 @@ if (armed > 0 && in1 != previousPhase) {
  } else {
   launchClock = clock; armed = 0; active = 1;
  }
-} else if (active > 0 && in1 != previousPhase) {
- phaseStep = in1 - previousPhase;
+} else if (active > 0 && periodicPhase != previousPhase) {
+ phaseStep = periodicPhase - previousPhase;
  if (phaseStep < 0) { phaseStep = phaseStep + 1; }
  if (abs(phaseStep * beatSamples - 1) > 0.01) {
   active = 0; rejected = 14;
  }
 }
-stablePhaseSamples = in1 == previousPhase ? min(1024, stablePhaseSamples + 1) : 0;
+stablePhaseSamples = periodicPhase == previousPhase ? min(1024, stablePhaseSamples + 1) : 0;
 if (active > 0 && stablePhaseSamples >= passVector) { active = 0; rejected = 3; }
 ${beforeOutputs || "if (active > 0 && clock - launchClock + launchPhaseSamples - passVector >= passTotal) { active = 0; }"}
 // Disarm reports zero on the wire, without lowering the internal high-water
@@ -207,7 +209,7 @@ ${beforeOutputs || "if (active > 0 && clock - launchClock + launchPhaseSamples -
 out1 = epoch == 0 ? 0 : seenEpoch; out2 = launchClock; out3 = sourceClock;
 out4 = onsetCount; out5 = rejected; out6 = active;
 out7 = launchPhaseSamples; out8 = firstSourceClock;
-previousPhase = in1;
+previousPhase = periodicPhase;
 retainedSamples = min(1024, retainedSamples + 1);
 ${DESCRIPTIVE_CLOCK_WORDS}
 ${DESCRIPTIVE_CLOCK_ADVANCE}`;

@@ -337,10 +337,17 @@ detected-tempo and timing/integrity guards stay in place.
    independently scaled residual. Run cb1d2aba reports native equal-to-one 1,
    above-one/below-one 0 and scaled residual 0, with coherent owned fault record.
    Earlier probes retain their original precision limits.
- - [ ] Canonicalize only the exact periodic endpoint 1 to 0, retaining the strict
+ - [x] Canonicalize only the exact periodic endpoint 1 to 0, retaining the strict
   0.01-sample step, counter, finite-input, configuration and coverage guards.
   Do not add an arbitrary epsilon or unconditional wrapping. Establish further
-  native precision evidence if needed, then finish 30-second acceptance.
+  native precision evidence if needed. Native equality established in cb1d2aba;
+  code321fac8f/Genbe01a84e now use consistent exact endpoint semantics.
+  Archive pre-change b732; eight regressions fail before, nine new tests and
+  all567 owning Max checks pass. No v1/clock/spectrum/IO change.
+ - [ ] Compile and qualify the exact-endpoint correction through an explicitly
+  pinned current-Gen/current-controller copied control, independently validate
+  the complete 30-second proof/context/fresh typed read, then finish ordinary
+  immutable acceptance and the owning native group.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

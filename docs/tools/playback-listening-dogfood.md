@@ -21,6 +21,9 @@ need validation. This document is a test plan, not a claim those gates passed.
 
 - [ ] Freeze and normally save the final device bundle, retaining its sibling
       resources; verify the saved references and packaged source identity.
+- [ ] Bind discovery to the intended normal Desktop profile through the shared
+      storage resolver, not a preparation-only automation profile. Verify normal
+      app connection; a runner's disposable discovery rewrite is not this proof.
 - [ ] Run ordinary, non-instrumented short fractional and 30-second captures.
       Require real signal, correct track/range, durable retrieval and cleanup.
 - [ ] Exercise the visible app's successful capture plus an actionable
@@ -43,7 +46,7 @@ when available. Start with a simple constant-tempo Arrangement at 48 kHz.
 | Basic usefulness | Listen to a short region containing obvious audio. Ask for loudness/dynamics and brightness, then retrieve the saved result. | A terminal completed pass and matching track/range context, not just queued acceptance or confident assistant prose. Clearly audible input must not inexplicably become empty analysis. |
 | Musical contrast | Capture comparable regions of silence, sustained sound and percussive sound. | Measurements and descriptions broadly distinguish the inputs. No invented pitch, transcription or exact clip ownership. A genuinely silent region is valid, not automatically a failure. |
 | Correct target | Use two audibly different tracks and two different regions. Capture each explicitly. | Each result belongs to the requested listener/track/range. No swapped target or previous-pass data. |
-| Boundaries and duration | Try a short nonzero/fractional range, then a 30-second range. | Requested coverage completes without a truncated tail, endless running state or unexplained timing rejection. More than 30 seconds should be refused clearly, not silently truncated or widened. |
+| Boundaries and duration | Try a short nonzero/fractional range, then a 30-second range. | Requested coverage completes without a truncated tail, endless running state or unexplained timing rejection. A single capture over 30 seconds must be refused, not silently truncated or widened; an explicit multi-pass plan is different. |
 | Repeatability | Repeat a region several times, including while transport is already playing. | New passes finish and retain separate identities. No reconnect requirement, stuck busy state or accidental overwrite. Exact FFT-derived summaries need not be bit-identical. |
 | Persistence | Note a saved result, close normally, reopen the same saved project/app and retrieve it. | The historical result remains available with its original identity/range. Missing or misattributed context is a priority bug. |
 | Cancellation and recovery | Cancel a running listening pass through its operation control, then try a short capture. | Cancellation is explicit, partial work is not advertised as complete, and the next pass works without restarting everything. Record actual playback behavior rather than assuming cancellation stops transport. |

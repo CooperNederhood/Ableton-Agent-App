@@ -366,6 +366,19 @@ No native arm/playback/context was authorized. Copied resources and original
 pins were unchanged, and exact-owned cleanup was verified. The bounded record is
 `fixtures/native-v2-counter-observation.json`, not ordinary capture acceptance.
 
+The predeclared fresh-process B control changed only the final emitted clock
+update from `clock = min(17592186044416, clock + 1);` to `clock = clock + 1;`
+in a uniquely named Gen copy, with one parent reference and declared manifest
+updates. At the same actual DSP geometry, its first4/last4 native counters
+advance from 1048512 to 1090496, matching independent host counters. This isolates
+the capped update expression in that contrast, not the compiler's internal
+cause. Uncapped B is not a production correction: saturation at the original
+counter ceiling must be preserved. Spectrum frames still failed publication,
+now with advancing diagnostic frame starts and no recorded continuity-failure
+bin. The fail-only probe admitted no data or arm/playback/context and forced
+failure after 901 ms. Cleanup and unchanged original pins have explicit
+receipts. See `fixtures/native-v2-clock-update-control.json`.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

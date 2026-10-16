@@ -1,0 +1,113 @@
+{
+  "formatVersion": 1,
+  "evidenceKind": "actual-instrumented-nonaccepting-clock-expression-control",
+  "baselineRunId": "e7b07595-7778-4a28-bb7f-5693cc7da2d9",
+  "runId": "b391dacf-b002-413d-af56-c951c3cfd6d9",
+  "baselineEvidence": "native-v2-counter-observation.json",
+  "variant": "B",
+  "acceptancePassed": false,
+  "productionCorrection": false,
+  "clockUpdate": {
+    "before": "clock = min(17592186044416, clock + 1);",
+    "after": "clock = clock + 1;",
+    "codeboxUpdateCount": 1,
+    "baselineSha256": "5e3b97e93fbe77bfd4714fa3be6089846faaa84fac1dc52acb7324b79d00a4b3",
+    "sha256": "88026e2a82c834eb2cc9ce028b35c7a24591df0586f78bfb53a3c5bd183c1abe",
+    "resourceName": "ml_counter_b_b391dacfb002413daf56c951c3cfd6d9.gendsp"
+  },
+  "packagingControl": {
+    "originalPackagedGenRetained": true,
+    "epochConfigurationDefaultsAndRoutingUnchanged": true,
+    "referenceUpdateCount": 1,
+    "baselineParentSha256": "05f0d06d26a4082b1840dcc721685ed25cc5cf4dd19da2a9488f33394444142c",
+    "parentSha256": "488b27593f92f3eab652d766f784cd3c9dd929587019897000e6db4611381e19",
+    "baselineManifestSha256": "0bdf2f029a5ce1f801f44f2843b3299dab7fb094a4392794eef9eef399730c6c",
+    "manifestSha256": "859edcd58ee7d26413cfe2fd314109278691aab143d1c4781722d1a880b938ed",
+    "copiedResourcesMatchDeclaredOverride": true
+  },
+  "metadata": {
+    "dsp": [1, 48000, 64],
+    "clockAbi": 2,
+    "spectrumAbi": 2
+  },
+  "clock": {
+    "count": 83,
+    "snapshotPolicy": "first4_last4_disjoint",
+    "snapshots": [
+      {
+        "receivedAfterBeginMs": 18,
+        "values": [
+          0, 0.25, 1048512, 31, 1048512, 0, 1048512, 0, 0.25, 1048512, 31
+        ]
+      },
+      {
+        "receivedAfterBeginMs": 27,
+        "values": [
+          0, 0.25, 1049024, 31, 1049024, 0, 1049024, 0, 0.25, 1049024, 31
+        ]
+      },
+      {
+        "receivedAfterBeginMs": 40,
+        "values": [
+          0, 0.25, 1049536, 31, 1049536, 0, 1049536, 0, 0.25, 1049536, 31
+        ]
+      },
+      {
+        "receivedAfterBeginMs": 49,
+        "values": [
+          0, 0.25, 1050048, 31, 1050048, 0, 1050048, 0, 0.25, 1050048, 31
+        ]
+      },
+      {
+        "receivedAfterBeginMs": 860,
+        "values": [
+          0, 0.25, 1088960, 31, 1088960, 0, 1088960, 0, 0.25, 1088960, 31
+        ]
+      },
+      {
+        "receivedAfterBeginMs": 871,
+        "values": [
+          0, 0.25, 1089472, 31, 1089472, 0, 1089472, 0, 0.25, 1089472, 31
+        ]
+      },
+      {
+        "receivedAfterBeginMs": 882,
+        "values": [
+          0, 0.25, 1089984, 31, 1089984, 0, 1089984, 0, 0.25, 1089984, 31
+        ]
+      },
+      {
+        "receivedAfterBeginMs": 892,
+        "values": [
+          0, 0.25, 1090496, 31, 1090496, 0, 1090496, 0, 0.25, 1090496, 31
+        ]
+      }
+    ]
+  },
+  "spectrum": {
+    "count": 86,
+    "first": [-1, 0, 0, -1, -1, 511],
+    "last": [-1, 0, 0, -1, -1, 531],
+    "firstDiagnostics": [1044480, -1, -1, -1, 255],
+    "lastDiagnostics": [1085440, -1, -1, -1, 255]
+  },
+  "instrumentation": {
+    "failureAfterBeginMs": 901,
+    "maximumDelayMs": 1000,
+    "measurementPacketsAdmitted": 0,
+    "nativeArmControlsForwarded": 0
+  },
+  "cleanup": {
+    "processStopped": true,
+    "fixtureCleaned": true,
+    "sourcePinsUnchanged": true,
+    "errors": []
+  },
+  "limitations": [
+    "Isolates the capped update expression in this fresh-process contrast, not compiler internals.",
+    "Uncapped B is not a production correction; the original saturation requirement remains.",
+    "Spectrum still rejects completed frames; advancing clock is not complete capture acceptance.",
+    "First4/last4 clock snapshots retained, not all samples or packets.",
+    "No native arm, playback, capture admission, context publication or readiness promotion."
+  ]
+}

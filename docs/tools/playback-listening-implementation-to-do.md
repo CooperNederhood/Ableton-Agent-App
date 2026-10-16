@@ -174,9 +174,17 @@ detected-tempo and timing/integrity guards stay in place.
   forced failure at 902 ms, zero admission/arm/context, genuine stop ACK and
   verified source/process/fixture preservation. Missing messages are not the
   cause in this probe; the source/update/output distinction remains open.
-- [ ] Isolate the zero clock using a predeclared fresh diagnostic-only capped
+- [x] Isolate the zero clock using a predeclared fresh diagnostic-only capped
   versus uncapped clock-update contrast, without promoting the uncapped
   expression to production or changing saturation requirements.
+  Actual B `b391dacf` changes only the final clock update plus unique resource
+  reference/manifest plumbing; received native counters now advance with host
+  counters at the same DSP geometry. Spectrum still rejects frames. Preserve
+  both outcomes, forced failure at 901 ms, zero admission/arm/context and
+  explicit exact-owned cleanup/original-pin receipts.
+- [ ] Replace the defective capped update with an equivalent saturating v2
+  implementation, preserving the original counter ceiling and frozen v1.
+  Qualify the corrected clock and the separate remaining spectrum failure.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

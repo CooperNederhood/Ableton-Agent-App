@@ -153,14 +153,21 @@ detected-tempo and timing/integrity guards stay in place.
   and five existing FFT diagnostics, with honest nulls for unavailable data;
   never use diagnostics to relax validation or fabricate a native receipt.
   Cover frozen failure snapshots, missing metadata, malformed debug values,
-  pre-arm/active failure, stop timeout, stale owner and pass reuse. Native
-  diagnostic delivery remains subject to the next actual fixture load.
+  pre-arm/active failure, stop timeout, stale owner and pass reuse. The fresh
+  `fbfcbeb` load now verifies native diagnostic delivery to typed History.
 - [x] Finish v2-only passive FFT diagnostic taps and snapshot ordering; retain
   frozen v1 graph bytes and avoid claiming atomicity across separate taps.
   Offline regression confirms FFT metadata, ABI, five diagnostic taps, then main
-  spectrum ordering. Actual new native load/message delivery remains unverified.
-- [ ] Build and normally save a fresh immutable diagnostic fixture, then retain
-  the actual first rejected numbers and compiler/metadata context.
+  spectrum ordering. The actual load retained five diagnostic values; separate
+  taps still do not establish vector atomicity.
+- [x] Build and normally save a fresh immutable diagnostic fixture, then retain
+  the actual first rejected numbers and received metadata context. Run
+  `3de2099b` failed arm after 42 ms with packet `[-1,0,0,-1,-1,494]`, latest
+  FFT diagnostics `[0,1,0,1,255]`, FFT metadata `[2048,2048,2048,1]` and spectrum
+  ABI 2. Other metadata remains honestly null. Preserve the actual attributed
+  failed journal record, no context and successful exact-owned cleanup in
+  `fixtures/native-v2-spectrum-fault-diagnostic.json`; physical cause and
+  successful fractional capture remain open.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

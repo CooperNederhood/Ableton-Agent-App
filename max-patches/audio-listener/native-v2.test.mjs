@@ -22,6 +22,43 @@ const { nativeFailureDiagnosticV2Schema } =
 const TEMPO_LIMITATION =
   "Constant tempo is assumed; stability is not independently verified; tempo automation is unsupported.";
 
+test("actual diagnostic load retains the unpublished spectrum sentinel and denies arm", async () => {
+  const evidence = JSON.parse(
+    await readFile(
+      new URL(
+        "./fixtures/native-v2-spectrum-fault-diagnostic.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  const recorded = evidence.journalEvidence.nativeFailureDiagnostic;
+  nativeFailureDiagnosticV2Schema.parse(recorded);
+  const f = v2Fixture();
+  f.controller.prepare(f.command);
+  const p = f.controller.pass;
+  const pending = f.controller.arm(V2_OWNER).catch((error) => error);
+  f.packet("fftInfo", recorded.metadata.fftInfo);
+  f.packet("abi-spectrum", [recorded.metadata.spectrumAbi]);
+  f.packet("spectrum-diagnostics", recorded.fftDiagnostics);
+  f.packet("spectrum", recorded.packet);
+  const error = await pending;
+  assert.equal(error.message, evidence.failureReason);
+  assert.deepEqual(p.nativeFailureDiagnostic, {
+    ...recorded,
+    generation: p.generation,
+  });
+  assert.equal(
+    f.sent.some((packet) => packet.action === "arm"),
+    false,
+  );
+  assert.equal(evidence.outcome.completed, false);
+  assert.deepEqual(evidence.outcome.contextIds, []);
+  assert.equal(evidence.outcome.processStopped, true);
+  assert.equal(evidence.outcome.fixtureCleaned, true);
+  f.packet("stopped", [0, 0, 2], p.generation);
+});
+
 test("v2 spectrum rejection freezes exact numeric input, latest non-authority debug and actually received metadata", async () => {
   for (const [check, patch] of [
     ["end", { 0: 0 }],

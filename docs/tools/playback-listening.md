@@ -325,8 +325,8 @@ format. Fractional, negative or unsafe counter values are visibly marked invalid
 These diagnostics do not relax counter, energy, Nyquist, silence, interval or
 torn-snapshot validation; v1 reasons remain unchanged.
 
-For the next predeclared diagnostic load, v2 failed replies/results may also
-carry `nativeFailureDiagnostic` with scope `native-spectrum-rejection/v1`.
+V2 failed replies/results may also carry `nativeFailureDiagnostic` with scope
+`native-spectrum-rejection/v1`.
 This strictly bounded, non-authority object contains the generation UUID,
 failed-check enum, exact six finite spectrum values, the latest five finite
 Gen FFT diagnostics (or explicit null), and actually received DSP/FFT/ABI
@@ -343,6 +343,17 @@ The additional v2-only FFT taps are passive; their poll is ordered before the
 main spectrum snapshot but does not claim vector-atomic sampling across taps.
 V1 wire shapes and frozen graph bytes remain unchanged. These diagnostics must
 be paired with the updated v2 App/SDK, not silently downgraded for older readers.
+
+The fresh diagnostic load at implementation `fbfcbeb` verified this complete
+native-to-typed-journal path. Arm failed after 42 ms with the actual spectrum
+packet `[-1, 0, 0, -1, -1, 494]` and latest FFT diagnostics `[0, 1, 0, 1, 255]`.
+FFT metadata was `[2048, 2048, 2048, 1]` and spectrum ABI was 2; the other
+metadata entries had not arrived at rejection and remain null. These separately
+polled diagnostics do not establish a physical cause or vector-atomic snapshot.
+The bounded evidence is `fixtures/native-v2-spectrum-fault-diagnostic.json`.
+No launch/context occurred, and exact-owned process/fixture cleanup succeeded.
+The spectrum failure remains unresolved; diagnostic delivery is not capture
+acceptance and does not replace the earlier run's missing raw values.
 
 ### Reviewed descriptive native runner scenarios
 

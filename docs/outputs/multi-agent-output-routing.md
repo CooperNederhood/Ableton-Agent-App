@@ -80,7 +80,13 @@ reconnect is deduplicated. Diagnostic writes suppress self-instrumentation.
 No measurement data is replayed and cancellation/shutdown is not delayed.
 
 Ingress records typed, redacted source lifecycle/timing and actual socket
-metrics. Frozen originating request receipts validate delayed capture
+metrics as `output.producer.write-backpressure.{stage}`. Coverage diagnostics
+use `output.producer.diagnostics.{coverage-gap,source-gap,handler-failed}`.
+IDs are at most 128 string units; source age must be below 60 seconds, with at
+most one second future tolerance. App audit receipts and source-order streams
+are capped at 2,048 each, dedup identities at 4,096, all with 60-second TTL.
+Dedup identity is authenticated producer + instance + source event ID.
+Frozen originating request receipts validate delayed capture
 ownership after release; the current delivery connection is recorded separately,
 never substituted as the source capture owner. Transport-only writes have no
 fabricated capture ownership. Diagnostics remain journal-only, not signal
@@ -92,6 +98,10 @@ journal guarantee. Producer death before delivery can leave source coverage
 unknown; record the App-observed disconnect/gap rather than inventing a source
 completion/cancellation. Software callback-to-authenticated-ingress-to-typed-
 journal coverage passes; real-native History qualification remains separate.
+The first new-resource physical attempt (`f3b93259`) passes native capture and
+final checks but retains no source write-lifecycle rows, only an unknown-coverage
+disconnect. Neither source callbacks/write-return nor its cause were observed;
+the separately retained failed History gate must not be promoted to a pass.
 The module is shared by MIDI and audio producers, but the new FIFO applies only
 to audio. MIDI retains its existing immediate accepted-write behavior on false
 and existing offline sample policy. Subscription and agent delivery

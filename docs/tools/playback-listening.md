@@ -6,7 +6,25 @@ Companion checklist:
 Architecture decision:
 [ADR 0006](../architecture/decisions/0006-playback-listening-and-entity-context.md).
 
-## Current acceptance checkpoint
+## Current target: developer dogfood
+
+The user-approved target is developer dogfooding, not exhaustive release
+certification. Current controlled real-Live runs complete 30-second captures,
+independently validate native proof, preserve all nine final checks and the
+terminal connection/ACK, and retrieve durable track/range context in a fresh
+process. The newest device bundle still needs a normal save and ordinary
+short/long capture plus a representative isolated desktop handoff check.
+
+Use the [developer checklist](playback-listening-dogfood.md) for bounded handoff
+gates, exploratory weak spots and bug-report evidence. Missing low-level
+backpressure History rows are an explicit diagnostic uncertainty, not a
+dogfood blocker absent a demonstrated functional, safety, storage or recovery
+defect. Authentication, exact binding, native completeness, recording guards
+and honest failure/cancellation remain mandatory; no integrity guard is waived.
+The checkpoints below retain historical evidence, not additional requirements
+to exhaust before developer use.
+
+## Earlier acceptance checkpoint
 
 At code baseline `b7569dd`, one actual authenticated native Arrangement pass
 completes and publishes a typed, retrievable context entry: beats 0-4,
@@ -850,8 +868,22 @@ and explicit coverage limitations follow the
 [Output transport contract](../outputs/multi-agent-output-routing.md#producer-transport-backpressure).
 Seven typed-journal boundary regressions and 592 full Max checks pass, including
 the previously missing ordinary-runtime callback path. Native controllerf6 and
-Gen321 remain unchanged. Actual-native History qualification is still pending;
-hold the final candidate/save until the separately pinned resources are exercised.
+Gen321 remain unchanged.
+
+Actual new-resource run `f3b93259` passed full30 native capture, all nine final
+checks, the same-connection terminal ACK and fresh typed context retrieval.
+Before/after loaded client AND runtime identity checks passed; all owned cleanup
+passed. However, a complete typed query of all nine producer diagnostic event
+names found zero source write-lifecycle rows and only one App-observed
+disconnect coverage gap (`sourceLifecycleCoverage: unknown`). This is NOT a
+History qualification pass. The six-second post-actor heartbeat opportunity is
+not delivery proof. Actual callback emission, socket write-return and the cause
+of the missing rows remain unproven; do not infer backpressure from packet size.
+Full actual evidence is retained in
+`native-v2-observability-history-observation.json`. Under the newer developer
+dogfood target this diagnostic uncertainty is deferred, not relabelled a pass.
+Proceed with normal candidate/save and bounded handoff checks; do not retry
+solely to manufacture backpressure evidence or weaken the capture checks.
 
 ### Reviewed descriptive native runner scenarios
 

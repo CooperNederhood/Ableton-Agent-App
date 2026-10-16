@@ -31,6 +31,9 @@ Companion specification:
   diagnostic errors and deduplicate metadata-only normal reconnect delivery.
 - [ ] Qualify real-native lifecycle rows and socket metrics in typed History;
   callback/console output and a heartbeat ACK alone are not proof of persistence.
+  First new-resource attempt f3b93259 passes capture/final checks, but complete
+  producer History has only an unknown-coverage disconnect and no source rows;
+  actual callbacks/write-return/cause remain unproven.
 
 ## Desktop
 

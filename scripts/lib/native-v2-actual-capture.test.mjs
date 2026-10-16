@@ -24,6 +24,78 @@ function validate(record) {
 }
 
 describe("actual corrected v2 native capture and durable context", () => {
+  describe("actual new-resource History qualification attempt", () => {
+    it("accepts the full native proof and nine final checks without manufacturing a History pass", async () => {
+      const record = await evidence(
+        "native-v2-observability-history-observation.json",
+      );
+      expect(() => validate(record)).not.toThrow();
+      expect(record.actorPassed).toBe(true);
+      expect(record.freshProcessTypedRead).toBe(true);
+      expect(record.nativeCapture.envelopeWindows).toHaveLength(300);
+      expect(record.nativeCapture.spectralWindows).toHaveLength(300);
+      expect(record.observation.summaries.peak).toEqual([0.5, 0.5]);
+      expect(record.positiveSpectralWindows).toBe(10);
+      expect(record.spectralEnergy).toBeGreaterThan(0);
+      expect(Object.values(record.postconditions.checks)).toEqual(
+        Array(9).fill(true),
+      );
+      expect(record.terminalAck.attributes.connectionId).toBe(
+        record.postconditions.before.connectionId.value,
+      );
+      expect(record.historyQualification.passed).toBe(false);
+      expect(record.instrumentedDiagnosticOnly).toBe(true);
+      expect(record.acceptancePassed).toBe(false);
+    });
+
+    it("preserves the complete actual unknown-coverage record without inferring socket callbacks or a cause", async () => {
+      const record = await evidence(
+        "native-v2-observability-history-observation.json",
+      );
+      expect(record.historyQualification.completeTypedProducerQuery).toBe(true);
+      expect(record.historyQualification.events).toHaveLength(1);
+      expect(record.historyQualification.events[0]).toMatchObject({
+        name: "output.producer.diagnostics.coverage-gap",
+        outcome: "unknown",
+        attributes: {
+          reason: "disconnected",
+          sourceLifecycleCoverage: "unknown",
+        },
+      });
+      expect(record.qualificationLimits).toMatchObject({
+        nativeHistoryQualified: false,
+        actualSourceCallbackEmissionObserved: null,
+        actualSocketWriteFalseObserved: null,
+        diagnosticNegotiationConfirmed: null,
+        missingHistoryCauseEstablished: false,
+        heartbeatOpportunityIsDeliveryProof: false,
+      });
+    });
+
+    it("retains actual before/after loaded client and runtime identities and exact owned cleanup", async () => {
+      const record = await evidence(
+        "native-v2-observability-history-observation.json",
+      );
+      for (const phase of ["before", "after"]) {
+        expect(record.sourceAttestation[phase]).toMatchObject({
+          verified: true,
+          alreadyLoadedBeforeAttestation: true,
+          runtimeChildBindingVerified: true,
+          bothModuleCacheBindingsVerified: true,
+          clientSha256:
+            "3825e643cbaedd78e277af5c8f5fd30b881e49042f2b494b66bb0d063baa6374",
+          runtimeSha256:
+            "d04205d1fae3e0e777ce2414fdaa38dee5983ea2167bcd3474fc21b4357a8a9c",
+        });
+      }
+      expect(record.cleanup.errors).toEqual([]);
+      expect(record.cleanup.processReceipt.live.state).toBe("absent");
+      expect(record.cleanup.processReceipt.nativeNode.state).toBe("absent");
+      expect(record.heartbeatOpportunity.forcedFlush).toBe(false);
+      expect(record.heartbeatOpportunity.deliveryProven).toBe(false);
+    });
+  });
+
   it("independently accepts the actual nonzero fractional capture and exact partial final window", async () => {
     const record = await evidence();
     expect(() => validate(record)).not.toThrow();

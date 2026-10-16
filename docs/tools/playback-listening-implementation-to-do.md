@@ -2,6 +2,21 @@
 
 Companion specification: [Playback Listening](playback-listening.md).
 
+## Current priority: developer dogfood
+
+The user-approved target is a usable developer build plus documented weak spots,
+not exhaustive certification. See the
+[dogfood handoff and user checklist](playback-listening-dogfood.md).
+
+- [ ] Finalize the normally saved current device bundle without source overrides.
+- [ ] Pass ordinary short fractional and 30-second capture/storage checks.
+- [ ] Pass a representative isolated desktop success/recovery walkthrough.
+- [x] Document prioritized developer tests, known uncertainties and bug-report
+  evidence. Defer unresolved diagnostic completeness unless it demonstrates a
+  functional, safety, persistence or recovery defect.
+
+Earlier qualification tasks remain tracked below; they are not all dogfood gates.
+
 ## Approved descriptive-listening finish-up
 
 The first milestone assumes constant tempo; it does not promise independently
@@ -379,16 +394,21 @@ detected-tempo and timing/integrity guards stay in place.
   This is still instrumented, not ordinary immutable acceptance.
  - [ ] Provision a strict current immutable fixture without modifying old
   candidate/input pins; minimize any normal-save step under the existing
-  reference inspector contract. Then qualify ordinary long/group/suite.
-  Hold the prepared current fixture's manual-save step until required status
-  forwarding is complete and the final resource bundle is frozen.
+  reference inspector contract. Status forwarding is implemented and the
+  current bundle is frozen: proceed to the normal save and ordinary short/long
+  dogfood checks. Broader group/suite qualification remains tracked separately.
  - [x] Wire actual write-backpressure callbacks through ordinary runtime and
   negotiated authenticated heartbeats into application-owned typed History.
   Preserve frozen source ownership/timing, bounds/redaction, deduplication and
   nonfatal explicit coverage gaps without recursive telemetry or data replay.
  - [ ] Qualify actual native History/socket metrics with new client3825e643 and
   runtime d04205d1 while preserving all capture/ACK/final-state checks. Software
-  source/journal tests do not replace this physical qualification.
+  source/journal tests do not replace this physical qualification. Actual
+  f3b93259 passes capture/all nine checks/ACK/fresh context and both loaded
+  modules, but complete producer History has no source write rows, only an
+  unknown-coverage disconnect. Cause/callback emission/write-return unproven;
+  retain as deferred diagnostic uncertainty under the developer dogfood target,
+  without blocking the normal save or claiming a History pass.
  - [x] Retain bounded typed before/after leave-running postcondition diagnostics
   with nine unchanged named checks, redacted scalar differences/structured
   hashes, lifecycle timing/trace attribution and failure/cleanup regressions.

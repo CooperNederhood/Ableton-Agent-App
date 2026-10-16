@@ -262,14 +262,24 @@ detected-tempo and timing/integrity guards stay in place.
   finite-input guard after render-index/continuity validation. Do not confuse
   it with phase14/launch-distance9, interpret rounded phase distance as raw
   phase, or infer actual audio from unchanged held descriptors.
-- [ ] Latch actual delayed inputs and explicit classification/original per-
+- [x] Latch actual delayed inputs and explicit classification/original per-
   channel guard/passive equivalent word-guard results at rejection15, with exact
   render/counter state, before implementing a production correction. Preserve
   original guards, outputs, controls, timers, stop and admission in the probe.
-- [ ] Correct/minimize native compilation of the passive finite-input probe.
+  Actual `96f88bf6` retains displayable unclipped left/right0, original rechecks0
+  and equivalent word checks1, composite rejection1 at n/render/completed0,
+  epoch1/serial3 with matching bookends. No inference from held descriptors.
+- [x] Correct/minimize native compilation of the passive finite-input probe.
   First run `1da066a2` fails envelope ABI0 with actual Gen compiler errors before
   arm; no delayed values are observed. Preserve the unchanged production
   baseline, failed helper pins and unconfirmed native-stop outcome.
+  Separate local-distance B executes and collects the owned fault. It is not a
+  matched A/B against the missing-Audio run or proof of compiler internals.
+- [ ] Correct the production v2 delayed-stereo finite guard with equivalent
+  inclusive1e12 bounded words, preserving qualified FFT bytes, frozen v1,
+  original controls/timing/phase/coverage/stop rules and descriptor mathematics.
+  Qualify an explicitly pinned copied-current-envelope control before requesting
+  another normal immutable candidate save.
 - [x] Copy verified project-owned WAV snapshots into each isolated fixture at
   their exact project-relative paths before launch, rather than merely hashing
   originals. Fail-before v1/v2 tests, nested/reference/tamper/duplicate/symlink/
@@ -278,6 +288,8 @@ detected-tempo and timing/integrity guards stay in place.
   bounded count/hash/size receipts without audio bodies or new raw filenames.
 - [ ] Verify actual owned Live loading and processed source audio after the
   fixture-copy repair; prior file-open exceptions do not prove zero input.
+  Run `96f88bf6` has no fresh WAV-open error and all copied-audio pins pass,
+  but its two delayed zeros at fault0 do not qualify non-silent source playback.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

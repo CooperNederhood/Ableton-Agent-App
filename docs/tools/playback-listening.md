@@ -566,6 +566,29 @@ acknowledgement is unconfirmed; owned process shutdown, instrumentation
 restoration, fixture cleanup and source/copied pin preservation succeed.
 No failing helper, packet or input is treated as acceptance evidence.
 
+The separate local-distance observer variant now executes natively. Owned run
+`96f88bf6` retains an actual coherent latched rejection15 tuple: delayed left and
+right are both displayable, unclipped `0`, not NaN/unknown placeholders. Both
+original inclusive1e12 comparison rechecks return false; both equivalent
+bounded-word checks return true, and the composite rejection recheck agrees
+with the actual native rejection. The fault records render index/n/completed0,
+48 kHz/vector64, epoch1 and matching serial3 bookends. Its actual rejected main
+packet keeps arm counter1157632 unchanged. These observations justify an
+equivalent finite-guard correction; they do not justify relaxing the bound.
+
+The observer collects 178 owned tuples, including exactly one observed fault,
+with no foreign/malformed/decoder errors. Fresh owned-load log bytes contain
+neither Gen compile nor WAV-open errors. All original SDK/control/admission/
+validation/timer/stop/context paths are unchanged; no completed capture or
+context follows. Observer restoration, exact owned Live/Node exit, fixture
+cleanup and original/copied code/audio pins pass. B is not a matched compile
+comparison against the earlier missing-Audio A, nor proof of compiler internals
+or non-silent source playback. Consumer receipt times are not native sample
+timestamps. Permanent bounded evidence and the exact historical production
+envelope resource are retained in
+`fixtures/native-v2-envelope-finite-guard-observation.json` and
+`fixtures/native-v2-envelope-wide-finite-bd4eb41.gendsp`.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

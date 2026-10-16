@@ -22,6 +22,9 @@ Companion specification:
   Output and Live Event schemas, inventories, routing, and UI separate.
 - [x] Preserve subscriptions while producers are missing and reconnect by ID.
 - [x] Exclude disconnected history from the current producer inventory.
+- [x] Handle accepted producer writes under backpressure with bounded
+  same-connection FIFO/drain, unchanged protocol ACK/authority, explicit failure
+  and cancellation cleanup, and redacted attributed lifecycle status.
 
 ## Desktop
 
@@ -38,6 +41,9 @@ Companion specification:
 - [ ] Test independent next-prompt acknowledgement.
 - [ ] Test automatic fan-out and per-agent errors.
 - [x] Test disconnected producer recovery and current-inventory cleanup.
+- [x] Cover large native results through authenticated TCP, exact-once delivery,
+  stable connection/epoch, and shared MIDI compatibility; include drain timeout,
+  byte/pending quotas, callback errors, cancellation and stale callbacks.
 - [ ] Test legacy assignment migration.
 - [ ] Add renderer, preload, main-process, and real-MIDI integration coverage.
 - [ ] Test journal redaction, trace continuity, fan-out attribution, and the

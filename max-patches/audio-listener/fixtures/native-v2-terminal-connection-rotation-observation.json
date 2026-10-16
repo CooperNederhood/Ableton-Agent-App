@@ -1,0 +1,192 @@
+{
+  "schema": "native-v2-connection-rotation-diagnosis/v1",
+  "runId": "b27296c3-e0ca-4ab9-9389-39e4cbb1229a",
+  "artifactPath": ".test-artifacts/native-v2-envelope-rejection-b27296c3-e0ca-4ab9-9389-39e4cbb1229a.json",
+  "artifactSha256": "d37161933ab982d8dee38664f65e114f26f0fc652b23cea7b8d3236d475baa9c",
+  "actorPassed": false,
+  "sourcePins": [
+    {
+      "name": "agent_signal_client_common.js",
+      "path": "max-patches/shared/agent_signal_client.js",
+      "sha256": "bac0eea7cea1949cf8671c16fe91fd980c5652daa6272c493d034865974b881a"
+    },
+    {
+      "name": "audio_listener_runtime.js",
+      "path": "max-patches/audio-listener/audio_listener_runtime.js",
+      "sha256": "0e47d5b8a54b7c78c71943acd47a1ddbeeed70c74f6dc4458762df2d8ade45c9"
+    }
+  ],
+  "typedJournalEventsRead": 928,
+  "allPagesRead": true,
+  "oldConnectionId": "b7223c86-86cc-4938-8c94-c6fa862122ba",
+  "newConnectionId": "bff8084e-cd5d-4659-a8a5-0c38358731f7",
+  "oldEpoch": "4d7b32cd-9edb-4626-90af-9f500fb02b24",
+  "newEpoch": "0b3cdfee-8b5c-47dd-8cd1-ac03d986c15b",
+  "epochDifference": {
+    "path": "listener.registration.connectionEpoch",
+    "before": {
+      "type": "string",
+      "value": "4d7b32cd-9edb-4626-90af-9f500fb02b24"
+    },
+    "after": {
+      "type": "string",
+      "value": "0b3cdfee-8b5c-47dd-8cd1-ac03d986c15b"
+    }
+  },
+  "timeline": [
+    {
+      "sequence": 763,
+      "occurredAt": "2026-10-16T19:10:55.865Z",
+      "name": "output.listener.native.completed",
+      "id": "5ee5814c-52df-4e4c-81ec-7919b2f23d28",
+      "trace": {
+        "traceId": "37f267fb-b5ab-484b-99c4-7d597a0c4402",
+        "spanId": "5ee5814c-52df-4e4c-81ec-7919b2f23d28"
+      },
+      "correlationId": "37f267fb-b5ab-484b-99c4-7d597a0c4402",
+      "attributes": {
+        "connectionId": "b7223c86-86cc-4938-8c94-c6fa862122ba",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "c1c70395-b5c8-4d57-b058-3dbe3c1aba37",
+        "connectionEpoch": "4d7b32cd-9edb-4626-90af-9f500fb02b24",
+        "jobId": "6f00ff29-2805-4c11-b4f3-9761b04c3f6a",
+        "passId": "8694af6b-1ab2-4492-9d81-e9579065f776",
+        "eventId": "313da32a-2cf7-49d3-9ef4-17e368c632ad",
+        "causationId": "369be802-2355-4228-bc79-de9de8cfc2ed",
+        "phase": "capture",
+        "generation": "063194cc-93ff-4915-9b70-1eb05e45be17",
+        "stage": "completed",
+        "nativeEpoch": 1,
+        "elapsedMs": 32295,
+        "frames": 300,
+        "reason": "range_complete",
+        "scope": "arrangement-descriptive/v2"
+      }
+    },
+    {
+      "sequence": 766,
+      "occurredAt": "2026-10-16T19:10:55.897Z",
+      "name": "output.listener.completed",
+      "id": "322e6f6c-0d36-4a98-b622-42016964cc2a",
+      "trace": {
+        "traceId": "37f267fb-b5ab-484b-99c4-7d597a0c4402",
+        "spanId": "48ed6921-5843-4717-8228-284e23ec8d90"
+      },
+      "correlationId": "37f267fb-b5ab-484b-99c4-7d597a0c4402",
+      "attributes": {
+        "connectionId": "b7223c86-86cc-4938-8c94-c6fa862122ba",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "c1c70395-b5c8-4d57-b058-3dbe3c1aba37",
+        "trackId": "2",
+        "deviceId": "1",
+        "connectionEpoch": "4d7b32cd-9edb-4626-90af-9f500fb02b24",
+        "jobId": "6f00ff29-2805-4c11-b4f3-9761b04c3f6a",
+        "passId": "8694af6b-1ab2-4492-9d81-e9579065f776",
+        "requestId": "listener-57",
+        "listenerVersion": 2,
+        "status": "completed",
+        "reason": "range_complete"
+      }
+    },
+    {
+      "sequence": 772,
+      "occurredAt": "2026-10-16T19:10:55.951Z",
+      "name": "output.ingress.failed",
+      "id": "7752c212-1c11-4882-9dd4-e5093c9bddc5",
+      "trace": {
+        "traceId": "2daa345b-848d-4d48-8ccf-1fa1e1c38553",
+        "spanId": "2daa345b-848d-4d48-8ccf-1fa1e1c38553"
+      },
+      "attributes": {
+        "code": "internal-error",
+        "fatal": true,
+        "connectionId": "b7223c86-86cc-4938-8c94-c6fa862122ba"
+      }
+    },
+    {
+      "sequence": 791,
+      "occurredAt": "2026-10-16T19:10:55.991Z",
+      "name": "listening.runtime.publication.completed",
+      "id": "cac182f2-7bf9-4087-bbc6-5bb921f76e35",
+      "trace": {
+        "traceId": "37f267fb-b5ab-484b-99c4-7d597a0c4402",
+        "spanId": "66bfab96-54c5-4080-bf6f-eb337cc877a2"
+      },
+      "correlationId": "37f267fb-b5ab-484b-99c4-7d597a0c4402",
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "sequence": 801,
+      "occurredAt": "2026-10-16T19:10:55.994Z",
+      "name": "integration.native_listening.terminal-job.completed",
+      "id": "d93d98a4-1250-4cd1-83af-48c88c48fec0",
+      "trace": {
+        "traceId": "b7180c64-e091-45b4-824b-fbd1b23608b3",
+        "spanId": "d93d98a4-1250-4cd1-83af-48c88c48fec0"
+      },
+      "correlationId": "b27296c3-e0ca-4ab9-9389-39e4cbb1229a",
+      "attributes": {}
+    },
+    {
+      "sequence": 892,
+      "occurredAt": "2026-10-16T19:10:56.136Z",
+      "name": "output.ingress.acknowledged",
+      "id": "10bd9576-8ed0-4ad7-892b-b33bd9b820c2",
+      "trace": {
+        "traceId": "d5987630-6129-4829-8994-08dbede8ade5",
+        "spanId": "8d661e34-f586-4569-865c-f4476ffb8d90",
+        "parentSpanId": "d5987630-6129-4829-8994-08dbede8ade5"
+      },
+      "correlationId": "hello-58",
+      "attributes": {
+        "requestId": "hello-58",
+        "action": "hello",
+        "connectionId": "bff8084e-cd5d-4659-a8a5-0c38358731f7"
+      }
+    },
+    {
+      "sequence": 900,
+      "occurredAt": "2026-10-16T19:10:57.233Z",
+      "name": "integration.native_listening.leave-running-postconditions.failed",
+      "id": "c6fddba9-3616-496b-84db-c795f3856a90",
+      "trace": {
+        "traceId": "b7180c64-e091-45b4-824b-fbd1b23608b3",
+        "spanId": "c6fddba9-3616-496b-84db-c795f3856a90"
+      },
+      "correlationId": "b27296c3-e0ca-4ab9-9389-39e4cbb1229a",
+      "attributes": {
+        "message": "Leave-running capture cleanup, immutable binding or recording state mismatch: connectionUnchanged, registrationUnchanged"
+      }
+    }
+  ],
+  "terminalRequestId": "listener-57",
+  "terminalAckRecorded": false,
+  "nativeFailureEvents": 0,
+  "underlyingIngressExceptionRetained": false,
+  "conclusion": "Unexpected fatal ingress exception after accepted native terminal result but before context publication/job completion; reconnect hello followed job completion. Not a mid-capture native failure and not established as an expected benign idle reconnect.",
+  "sourcePath": [
+    "SignalIngressServer.#pump catch -> #fail(internal-error,true) -> socket end/destroy",
+    "AgentSignalClient server fatal/close -> scheduleReconnect -> connect assigns fresh connectionEpoch",
+    "SignalIngressServer.#hello assigns fresh connectionId"
+  ],
+  "uncertainty": "The fatal event omits its exception message, and terminal ACK is absent. Exact throwing operation, original client close trigger and whether the peer had already closed before the server fatal path cannot be assigned from retained evidence. Client backpressure/socket-write behavior is a source hypothesis only, not actual attribution.",
+  "nextBoundedObservation": {
+    "ingress": [
+      "redacted bounded exception message",
+      "active requestId/messageType",
+      "operation phase: validate/deliver/terminal-release/ack",
+      "connectionId/epoch",
+      "listenerPhase and owner-present before fatal cleanup",
+      "socket destroyed/writableLength/writableHighWaterMark"
+    ],
+    "producer": [
+      "write result and encoded frame bytes",
+      "writableLength/writableHighWaterMark/pending count",
+      "bounded local failure reason"
+    ],
+    "constraints": "Observe existing failure paths only; retain all guards, budgets and fatal behavior. No retry authorized here."
+  },
+  "earlierDc7SpecificField": "unknown; no retroactive assignment"
+}

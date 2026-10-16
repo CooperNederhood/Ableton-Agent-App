@@ -800,20 +800,24 @@ for (const listenerVersion of [1, 2])
     await ingress.close();
   });
 
-test("audio backpressure is an explicit failure rather than lossy offline coalescing", () => {
+test("audio backpressure waits for drain rather than failure or lossy offline coalescing", () => {
   const failures = [];
   const client = audioClient(
     {},
     { onListenerFailure: (reason) => failures.push(reason) },
   );
   client.authenticated = true;
-  client.socket = {
+  client.socket = Object.assign(new (require("node:events").EventEmitter)(), {
     destroyed: false,
+    writableLength: 1,
     write: () => false,
     destroy() {
       this.destroyed = true;
     },
-  };
+    end() {
+      this.destroy();
+    },
+  });
   const control = {
     connectionEpoch: client.listener.connectionEpoch,
     requestId: "r",
@@ -823,10 +827,15 @@ test("audio backpressure is an explicit failure rather than lossy offline coales
     correlationId: "c",
     causationId: "a",
   };
-  assert.equal(client.sendListenerReply(control, { status: "ready" }), false);
-  assert.ok(failures.includes("backpressure"));
-  assert.equal(client.socket.destroyed, true);
+  assert.equal(client.sendListenerReply(control, { status: "ready" }), true);
+  assert.deepEqual(failures, []);
+  assert.equal(client.socket.destroyed, false);
+  assert.equal(client.socket.listenerCount("drain"), 1);
+  client.socket.emit("drain");
+  assert.equal(client.socket.listenerCount("drain"), 0);
+  assert.equal(client.writeDrain, null);
   assert.equal(client.offlineQueue.length, 0);
+  client.stop();
 });
 
 test("audio refuses old ingress descriptors without listener opt-in", async () => {

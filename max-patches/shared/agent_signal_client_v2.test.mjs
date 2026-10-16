@@ -3,6 +3,7 @@ import "../audio-listener/native-protocol-test-loader.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { Writable } from "node:stream";
 
 const require = createRequire(import.meta.url);
 const { AgentSignalClient } = require("./agent_signal_client.js");
@@ -121,6 +122,69 @@ function fixture(options = {}) {
     control
   };
 }
+
+test("v2 drain preserves ordered ownership, sequence, cancellation and protocol ACK semantics", async () => {
+  const f = fixture();
+  const written = [],
+    callbacks = [];
+  f.client.socket = new Writable({
+    highWaterMark: 1,
+    write(chunk, encoding, done) {
+      written.push(JSON.parse(chunk.toString()));
+      callbacks.push(done);
+    }
+  });
+  try {
+    const prepare = f.control();
+    f.client.handleListenerControl(prepare);
+    const epoch = f.client.listener.connectionEpoch;
+    assert.equal(
+      f.client.sendListenerReply(prepare, { status: "ready" }),
+      true
+    );
+    assert.equal(f.client.listenerJob.requestId, prepare.requestId);
+    const cancel = f.control("cancel");
+    f.client.handleListenerControl(cancel);
+    assert.equal(
+      f.client.sendListenerReply(cancel, { status: "cancelled" }),
+      true
+    );
+    assert.equal(f.client.listenerJob, null);
+    assert.equal(f.client.listenerSequence, 2);
+    assert.equal(written.length, 1);
+    callbacks.shift()();
+    await Promise.resolve();
+    assert.equal(written.length, 2);
+    callbacks.shift()();
+    await Promise.resolve();
+    assert.deepEqual(
+      written.map((frame) => frame.sequence),
+      [0, 1]
+    );
+    assert.deepEqual(
+      written.map((frame) => frame.requestId),
+      [prepare.requestId, cancel.requestId]
+    );
+    for (const frame of written) listenerReplyV2Schema.parse(frame);
+    assert.equal(f.client.listener.connectionEpoch, epoch);
+    assert.equal(f.client.pending.size, 2);
+    for (const frame of written)
+      f.client.handleResponse(
+        JSON.stringify({
+          type: "producer.ack",
+          protocolVersion: 1,
+          requestId: frame.requestId,
+          action: "listener"
+        })
+      );
+    assert.equal(f.client.pending.size, 0);
+    assert.equal(f.client.writeDrain, null);
+    assert.equal(f.client.offlineQueue.length, 0);
+    assert.deepEqual(f.failures, []);
+  } finally {
+    f.client.stop();
+  }
+});
 
 test("v2 SDK retains bounded native failure snapshots without treating them as successful proof", () => {
   const diagnostic = {

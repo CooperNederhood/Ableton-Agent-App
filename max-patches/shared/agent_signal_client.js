@@ -8,6 +8,7 @@ const path = require("node:path");
 
 const PROTOCOL_VERSION = 1;
 const DEFAULT_MAX_FRAME_BYTES = 128 * 1024;
+const OUTBOUND_DRAIN_TIMEOUT_MS = 1000;
 const DEFAULT_DESCRIPTOR_ENV = "ABLETON_AGENT_SIGNAL_INGRESS_DESCRIPTOR";
 const DEFAULT_SECRET_ENV = "ABLETON_AGENT_SIGNAL_INGRESS_SECRET";
 const DEFAULT_SECRET_PATH_ENV = "ABLETON_AGENT_SIGNAL_INGRESS_SECRET_PATH";
@@ -589,6 +590,10 @@ class AgentSignalClient {
     this.requestSequence = 0;
     this.offlineQueue = [];
     this.pending = new Map();
+    this.writeDrain = null;
+    this.writeQueue = [];
+    this.writeQueueBytes = 0;
+    this.failedWriteSocket = null;
     this.reconnectTimer = null;
     this.heartbeatTimer = null;
     this.reconnectDelay = this.reconnectInitialMs;
@@ -692,6 +697,7 @@ class AgentSignalClient {
       return;
     }
     this.socket = socket;
+    this.failedWriteSocket = null;
     if (this.listener) {
       this.listener = { ...this.listener, connectionEpoch: this.randomUUID() };
       if (this.listenerVersion === 2)
@@ -949,24 +955,150 @@ class AgentSignalClient {
     }
     if (this.pending.size >= this.maxPendingRequests) {
       this.emitStatus("live", "backpressure", this.maxPendingRequests);
+      this.clearWriteDrain("failed", "pending_quota_exceeded");
       this.socket.destroy();
+      return false;
+    }
+    const queued = this.writeDrain !== null || this.writeQueue.length > 0;
+    if (
+      queued &&
+      this.writeQueueBytes +
+        this.socket.writableLength +
+        Buffer.byteLength(encoded, "utf8") >
+        this.maxFrameBytes() * 2
+    ) {
+      this.failWrite(this.socket, "outbound_queue_quota_exceeded");
       return false;
     }
     this.pending.set(message.requestId, message.type.replace("producer.", ""));
+    const context = {
+      requestId: message.requestId,
+      traceId: message.traceId,
+      correlationId: message.correlationId,
+      causationId: message.causationId,
+      jobId: message.jobId,
+      passId: message.passId
+    };
+    if (queued) {
+      this.writeQueue.push({ context, encoded });
+      this.writeQueueBytes += Buffer.byteLength(encoded, "utf8");
+      if (this.writeDrain) this.writeDrainStatus("progress", this.writeDrain);
+      return true;
+    }
+    return this.writeAccepted(this.socket, context, encoded);
+  }
+
+  writeAccepted(socket, context, encoded) {
     try {
-      const writable = this.socket.write(encoded);
-      if (!writable && this.signalKind === "audio") {
-        this.listenerFailure("backpressure");
-        this.socket.destroy();
-        return false;
-      }
+      const writable =
+        this.signalKind === "audio"
+          ? socket.write(encoded, (error) => {
+              if (error) this.failWrite(socket, "outbound_write_failed", error);
+            })
+          : socket.write(encoded);
+      // false accepts this frame; only subsequent frames wait for drain.
+      if (
+        !writable &&
+        this.signalKind === "audio" &&
+        !this.stopping &&
+        !socket.destroyed &&
+        socket === this.socket
+      )
+        this.waitForDrain(socket, context);
       return true;
     } catch (error) {
-      this.pending.delete(message.requestId);
+      this.pending.delete(context.requestId);
       this.emitStatus("live", "socket_error", boundedMessage(error.message));
-      this.socket.destroy();
+      if (this.signalKind === "audio")
+        this.failWrite(socket, "outbound_write_failed", error);
+      else socket.destroy();
       return false;
     }
+  }
+
+  waitForDrain(socket, context) {
+    const drain = {
+      socket,
+      context,
+      startedAt: this.now(),
+      onDrain: () => {
+        if (this.writeDrain !== drain || socket !== this.socket) return;
+        this.clearWriteDrain("completed");
+        while (
+          this.writeQueue.length > 0 &&
+          !this.writeDrain &&
+          socket === this.socket &&
+          !socket.destroyed &&
+          !this.stopping
+        ) {
+          const queued = this.writeQueue.shift();
+          this.writeQueueBytes -= Buffer.byteLength(queued.encoded, "utf8");
+          if (!this.writeAccepted(socket, queued.context, queued.encoded))
+            break;
+        }
+      },
+      onClose: () => this.failWrite(socket, "disconnected"),
+      onError: (error) => this.failWrite(socket, "outbound_write_failed", error)
+    };
+    this.writeDrain = drain;
+    socket.once("drain", drain.onDrain);
+    socket.once("close", drain.onClose);
+    socket.once("error", drain.onError);
+    drain.timer = this.setTimeout(() => {
+      if (this.writeDrain === drain)
+        this.failWrite(socket, "outbound_drain_timeout");
+    }, OUTBOUND_DRAIN_TIMEOUT_MS);
+    drain.timer.unref?.();
+    this.writeDrainStatus("queued", drain);
+    if (this.writeDrain === drain) this.writeDrainStatus("started", drain);
+  }
+
+  writeDrainStatus(stage, drain, reason = "") {
+    const context = drain.context;
+    this.emitStatus(
+      "live",
+      "write_backpressure",
+      stage,
+      context.requestId,
+      context.traceId || "",
+      context.correlationId || "",
+      context.causationId || "",
+      context.jobId || "",
+      context.passId || "",
+      Math.max(0, this.now() - drain.startedAt),
+      this.writeQueue.length,
+      this.writeQueueBytes,
+      reason
+    );
+  }
+
+  clearWriteDrain(stage, reason) {
+    const drain = this.writeDrain;
+    this.writeDrain = null;
+    if (drain) {
+      this.clearTimeout(drain.timer);
+      drain.socket.off("drain", drain.onDrain);
+      drain.socket.off("close", drain.onClose);
+      drain.socket.off("error", drain.onError);
+      this.writeDrainStatus(stage, drain, reason);
+    }
+    if (stage !== "completed") {
+      for (const queued of this.writeQueue)
+        this.pending.delete(queued.context.requestId);
+      this.writeQueue.length = 0;
+      this.writeQueueBytes = 0;
+    }
+  }
+
+  failWrite(socket, reason, error) {
+    if (socket !== this.socket || this.failedWriteSocket === socket) return;
+    this.failedWriteSocket = socket;
+    this.clearWriteDrain("failed", reason);
+    this.pending.clear();
+    if (error)
+      this.emitStatus("live", "socket_error", this.listenerErrorReason(error));
+    socket.destroy();
+    this.listenerFailure(reason);
   }
 
   maxFrameBytes() {
@@ -987,7 +1119,12 @@ class AgentSignalClient {
     if (socket !== this.socket) {
       return;
     }
+    this.clearWriteDrain(
+      this.stopping ? "cancelled" : "failed",
+      "disconnected"
+    );
     this.socket = null;
+    this.failedWriteSocket = null;
     this.authenticated = false;
     this.connectionId = null;
     this.buffer = "";
@@ -1308,6 +1445,7 @@ class AgentSignalClient {
       this.reconnectTimer = null;
     }
     this.stopHeartbeat();
+    this.clearWriteDrain("cancelled", "stopped");
     if (this.listenerJob) this.listenerFailure("stopped");
     this.listenerJob = null;
     this.listenerJobControlIds.clear();
@@ -1323,6 +1461,7 @@ class AgentSignalClient {
       socket?.destroy();
     }
     this.socket = null;
+    this.failedWriteSocket = null;
     this.authenticated = false;
     this.connectionId = null;
     this.pending.clear();

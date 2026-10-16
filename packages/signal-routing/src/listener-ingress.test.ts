@@ -1,4 +1,4 @@
-import { connect, type Socket } from "node:net";
+import { connect, Socket } from "node:net";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AudioObservation } from "@ableton-agent/protocol";
@@ -31,6 +31,7 @@ import { midiSample } from "./test-fixtures.js";
 const require = createRequire(import.meta.url);
 interface CommonProducerClient {
   readonly producer: { producerId: string };
+  readonly pending: ReadonlyMap<string, string>;
   configureProducer(identity: {
     canonicalPath: string;
     track: { id: string; name: string };
@@ -366,6 +367,201 @@ function spectrumFailureDiagnostic(): NativeFailureDiagnosticV2 {
 }
 
 describe("explicit native v2 authenticated ingress", () => {
+  it("attributes a controlled terminal-ACK exception after valid completion without inventing a native capture failure", async () => {
+    const events: TelemetryEventEnvelope[] = [];
+    const { server, endpoint } = await start({
+      telemetry: {
+        enqueue: (event) => {
+          events.push(event);
+          return true;
+        },
+      },
+    });
+    const received: ListenerResultEvent[] = [];
+    server.onListenerResult((event) => received.push(event));
+    const client = await listener(endpoint, nativeV2Metadata, 2);
+    const { control, fixture } = await armedV2(server, client);
+    client.send(
+      result(control, 2, {
+        status: "progress",
+        observation: undefined,
+        nativeLaunch: fixture.proof.launched,
+      }),
+    );
+    await client.next();
+    const requestId = "controlled-terminal-ack";
+    const token = `ghp_${"b".repeat(40)}`;
+    const originalWrite: unknown = Reflect.get(Socket.prototype, "write");
+    if (typeof originalWrite !== "function")
+      throw new Error("Missing original socket writer");
+    const spy = vi.spyOn(Socket.prototype, "write");
+    let injected = 0;
+    spy.mockImplementation(function (this: Socket, chunk, ...args) {
+      if (
+        typeof chunk === "string" &&
+        chunk.includes('"type":"producer.ack"') &&
+        chunk.includes(`"requestId":"${requestId}"`)
+      ) {
+        injected++;
+        throw new Error(
+          `controlled ACK exception ${token} ${"x".repeat(1000)}`,
+        );
+      }
+      const result: unknown = Reflect.apply(originalWrite, this, [
+        chunk,
+        ...args,
+      ]);
+      if (typeof result !== "boolean")
+        throw new Error("Unexpected socket write result");
+      return result;
+    });
+    try {
+      client.send(
+        result(control, 3, {
+          requestId,
+          status: "completed",
+          observation: fixture.observation,
+          nativeCapture: fixture.proof,
+        }),
+      );
+      expect(await client.next()).toMatchObject({
+        type: "producer.error",
+        code: "internal-error",
+        fatal: true,
+      });
+      await expect.poll(() => server.inspectListeners().length).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(injected).toBe(1);
+    expect(
+      received.filter((event) => event.result.status === "completed"),
+    ).toHaveLength(1);
+    expect(
+      received.some((event) =>
+        ["failed", "partial"].includes(event.result.status),
+      ),
+    ).toBe(false);
+    const failure = events.find(
+      (event) => event.name === "output.ingress.failed",
+    )!;
+    expect(failure.attributes).toMatchObject({
+      code: "internal-error",
+      fatal: true,
+      connectionId: client.connectionId,
+      connectionEpoch: control.connectionEpoch,
+      processingRequestId: requestId,
+      processingMessageType: "listener.result",
+      processingPhase: "ack-write",
+      listenerPhase: "idle",
+      listenerOwnerPresent: false,
+    });
+    expect(failure.attributes.message).toContain("controlled ACK exception");
+    expect(typeof failure.attributes.writableLength).toBe("number");
+    expect(typeof failure.attributes.writableHighWaterMark).toBe("number");
+    expect(failure.attributes.message).toContain("[REDACTED]");
+    expect(String(failure.attributes.message).length).toBeLessThanOrEqual(512);
+    expect(JSON.stringify(events)).not.toContain(token);
+    expect(failure.trace?.traceId).toBe(control.traceId);
+    expect(failure.correlationId).toBe(control.correlationId);
+    expect(failure.causationId).toBe(control.causationId);
+    expect(failure.durationMs).toBeGreaterThanOrEqual(0);
+    const completed = events.find(
+      (event) =>
+        event.name === "output.listener.completed" &&
+        event.attributes.status === "completed",
+    )!;
+    expect(events.indexOf(completed)).toBeLessThan(events.indexOf(failure));
+    expect(
+      events.some(
+        (event) =>
+          event.name === "output.ingress.acknowledged" &&
+          event.attributes.requestId === requestId,
+      ),
+    ).toBe(false);
+  });
+
+  it("distinguishes an owned active-pass sequence failure even when explicit failure cleanup already released its owner", async () => {
+    const events: TelemetryEventEnvelope[] = [];
+    const { server, endpoint } = await start({
+      telemetry: {
+        enqueue: (event) => {
+          events.push(event);
+          return true;
+        },
+      },
+    });
+    const client = await listener(endpoint, nativeV2Metadata, 2);
+    const { control } = await armedV2(server, client);
+    client.send(
+      result(control, 99, { status: "progress", observation: undefined }),
+    );
+    expect(await client.next()).toMatchObject({
+      code: "sequence-replay",
+      fatal: true,
+    });
+    await expect.poll(() => server.inspectListeners().length).toBe(0);
+    const failure = events.find(
+      (event) => event.name === "output.ingress.failed",
+    )!;
+    expect(failure.attributes).toMatchObject({
+      code: "sequence-replay",
+      processingMessageType: "listener.result",
+      processingPhase: "dispatch",
+      listenerPhase: "idle",
+      listenerOwnerPresent: false,
+      connectionEpoch: control.connectionEpoch,
+      listenerPhaseAtDispatch: "armed",
+      listenerOwnerPresentAtDispatch: true,
+    });
+    expect(typeof failure.attributes.requestElapsedMs).toBe("number");
+    expect(failure.trace?.traceId).toBe(control.traceId);
+    expect(
+      events.some(
+        (event) =>
+          event.name === "output.listener.completed" &&
+          event.attributes.status === "completed",
+      ),
+    ).toBe(false);
+  });
+
+  it("clears processed-request attribution after ACK rather than attributing a later idle timeout to that request", async () => {
+    const events: TelemetryEventEnvelope[] = [];
+    let now = 1000;
+    const { server, endpoint } = await start({
+      now: () => now,
+      idleTimeoutMs: 1000,
+      idleCheckIntervalMs: 5,
+      telemetry: {
+        enqueue: (event) => {
+          events.push(event);
+          return true;
+        },
+      },
+    });
+    const client = await listener(endpoint, nativeV2Metadata, 2);
+    const { control } = await armedV2(server, client);
+    now += 1001;
+    expect(await client.next()).toMatchObject({
+      code: "idle-timeout",
+      fatal: true,
+    });
+    await expect.poll(() => server.inspectListeners().length).toBe(0);
+    const failure = events.find(
+      (event) => event.name === "output.ingress.failed",
+    )!;
+    expect(failure.attributes).toMatchObject({
+      code: "idle-timeout",
+      processingPhase: "idle",
+      listenerPhase: "armed",
+      listenerOwnerPresent: true,
+      connectionEpoch: control.connectionEpoch,
+    });
+    expect(failure.attributes.processingRequestId).toBeUndefined();
+    expect(failure.attributes.processingMessageType).toBeUndefined();
+    expect(failure.trace?.traceId).toBe(control.traceId);
+  });
+
   it.each(["reply", "result"] as const)(
     "retains bounded %s failure snapshots in attributed typed telemetry, never capture authority",
     async (kind) => {
@@ -465,10 +661,21 @@ describe("explicit native v2 authenticated ingress", () => {
     ).toBe(false);
   });
 
-  it.each(["complete", "cancel", "disconnect"] as const)(
+  it.each(["complete", "cancel", "disconnect", "backpressure"] as const)(
     "runs the real shared v2 client through authenticated %s with synthetic native proof",
     async (outcome) => {
-      const { server, endpoint } = await start();
+      const events: TelemetryEventEnvelope[] = [];
+      const statuses: string[][] = [];
+      const { server, endpoint } = await start({
+        telemetry: {
+          enqueue(event) {
+            events.push(event);
+            return true;
+          },
+        },
+      });
+      const endBeat = outcome === "backpressure" ? 60 : 4;
+      let producerSocket: Socket | undefined;
       const results: ListenerResultEvent[] = [];
       server.onListenerResult((event) => results.push(event));
       const descriptor = {
@@ -487,6 +694,12 @@ describe("explicit native v2 authenticated ingress", () => {
         producerIdPrefix: "ableton-audio-listener",
         instanceId: "audio-v2",
         readText: async () => JSON.stringify(descriptor),
+        createConnection(options: { host: string; port: number }) {
+          const streamOptions = { ...options, highWaterMark: 16384 };
+          producerSocket = connect(streamOptions);
+          return producerSocket;
+        },
+        onStatus: (...values: string[]) => statuses.push(values),
         listener: {
           ...nativeV2Metadata,
           version: 2,
@@ -504,6 +717,7 @@ describe("explicit native v2 authenticated ingress", () => {
         onListenerControl(control: VersionedListenerControl) {
           const fixture = createSyntheticNativeListeningFixtureV2({
             listenerId: audio.producer.producerId,
+            endBeat,
           });
           audio.sendListenerReply(
             control,
@@ -513,16 +727,28 @@ describe("explicit native v2 authenticated ingress", () => {
                   status: control.action === "prepare" ? "ready" : "cancelled",
                 },
           );
-          if (control.action === "arm" && outcome === "complete") {
+          if (
+            control.action === "arm" &&
+            (outcome === "complete" || outcome === "backpressure")
+          ) {
             audio.sendListenerResult(control, {
               status: "progress",
               nativeLaunch: fixture.proof.launched,
             });
-            audio.sendListenerResult(control, {
-              status: "completed",
-              observation: { ...fixture.observation, passId: control.passId },
-              nativeCapture: fixture.proof,
-            });
+            const socket = producerSocket!;
+            if (outcome === "backpressure") socket.cork();
+            expect(
+              audio.sendListenerResult(control, {
+                status: "completed",
+                observation: { ...fixture.observation, passId: control.passId },
+                nativeCapture: fixture.proof,
+              }),
+            ).toBe(true);
+            if (outcome === "backpressure") {
+              expect(socket.writableNeedDrain).toBe(true);
+              expect(socket.writableLength).toBeGreaterThanOrEqual(16384);
+              socket.uncork();
+            }
           }
         },
       });
@@ -535,7 +761,15 @@ describe("explicit native v2 authenticated ingress", () => {
       audio.start();
       await expect.poll(() => audio.isConnected()).toBe(true);
       const connectionId = server.inspectListeners()[0]!.connectionId;
-      const context = v2Context();
+      const before = server.inspectListeners()[0]!;
+      const proof = createSyntheticNativeListeningFixtureV2({ endBeat }).proof;
+      const context = {
+        ...v2Context(),
+        config: {
+          geometry: proof.armed.geometry,
+          timingPolicy: proof.armed.policy,
+        },
+      };
       await expect(
         server.requestListenerControl(connectionId, context),
       ).resolves.toMatchObject({ listenerVersion: 2, status: "ready" });
@@ -544,7 +778,7 @@ describe("explicit native v2 authenticated ingress", () => {
       await expect(
         server.requestListenerControl(connectionId, { ...arm, action: "arm" }),
       ).resolves.toMatchObject({ listenerVersion: 2, status: "armed" });
-      if (outcome === "complete") {
+      if (outcome === "complete" || outcome === "backpressure") {
         await expect
           .poll(() => results.at(-1)?.result.status)
           .toBe("completed");
@@ -557,6 +791,34 @@ describe("explicit native v2 authenticated ingress", () => {
           causationId: context.causationId,
           passId: context.passId,
         });
+        if (outcome === "backpressure") {
+          await expect.poll(() => audio.pending.size).toBe(0);
+          expect(
+            results.filter(({ result }) => result.status === "completed"),
+          ).toHaveLength(1);
+          expect(server.inspectListeners()[0]).toMatchObject({
+            connectionId: before.connectionId,
+            registration: {
+              connectionEpoch: before.registration.connectionEpoch,
+            },
+          });
+          expect(
+            statuses.some(
+              (status) =>
+                status[1] === "write_backpressure" && status[2] === "completed",
+            ),
+          ).toBe(true);
+          expect(
+            events.some((event) => event.name === "output.ingress.failed"),
+          ).toBe(false);
+          expect(
+            events.some(
+              (event) =>
+                event.name === "output.ingress.acknowledged" &&
+                event.attributes.requestId === results.at(-1)?.result.requestId,
+            ),
+          ).toBe(true);
+        }
       } else if (outcome === "cancel") {
         await expect(
           server.requestListenerControl(connectionId, {

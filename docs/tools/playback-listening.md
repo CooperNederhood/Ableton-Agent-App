@@ -780,6 +780,42 @@ Bounded actual evidence is
 `fixtures/native-v2-long-connection-change-observation.json`. The overall actor
 remains failed; no connection invariant is waived.
 
+A complete 928-event typed-journal trace places the b27296c3 change at terminal
+delivery: native capture completed at 19:10:55.865Z, result `listener-57` was
+accepted at .897Z, and the old connection recorded fatal ingress `internal-error`
+at .951Z. Context publication/job completion followed at .991Z/.994Z; a new
+connection hello was acknowledged at 19:10:56.136Z. No terminal ACK was recorded.
+This is neither a mid-capture native failure nor established as a benign idle
+reconnect. The original exception was not retained; do not infer peer-close,
+backpressure or any particular throwing operation from this timeline alone.
+Evidence is `fixtures/native-v2-terminal-connection-rotation-observation.json`.
+
+Enriched `output.ingress.failed` diagnostics retain a bounded redacted error,
+processing phase, active request/dispatch ownership, request timing, socket
+metrics and retained owner trace attribution. These fields add attribution
+only; authentication, sequencing, frame limits, ACK and close decisions remain
+unchanged. A controlled terminal-ACK failure, active sequence denial and stale
+ownership cleanup have regression coverage.
+
+The shared producer did contain a separately proven Node write-semantics bug:
+it treated `socket.write(false)` as failed delivery and immediately destroyed
+the socket. On the installed Node 16.6.0, a 16384-byte write (including newline)
+returns false while still delivering the data. A controlled 45879-byte replay
+of the retained long-result body delivered once but lost the original client
+connection before its delayed ACK. The corrected shared client drains, retains
+the connection and consumes the ACK without resending. Server ACKs contain
+metadata only and already handle drain correctly.
+
+The new client is `559a7e93552f2e09e1c5b9a11e3b508d147d15b5d173aa2f3933731b30442302`
+(46629 bytes). Its bounded FIFO, one-second drain timeout, cancellation and
+status contract are specified in
+[Output routing](../outputs/multi-agent-output-routing.md#producer-transport-backpressure).
+Eleven changed-path regressions fail against the pinned original; corrected
+producer/ingress and full Max checks pass. This proves the semantic bug, not
+the unretained b272 exception. Saved candidates still contain historical
+`bac0eea7`; physical follow-up must explicitly declare the corrected-client
+override and preserve original pins, rather than silently rebasing them.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

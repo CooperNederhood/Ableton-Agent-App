@@ -126,6 +126,23 @@ interface ClientState {
   nativeArmV2?: NativeArmProofV2;
   nativeLaunchV2?: NativeLaunchProofV2;
   lastNativeCounterV2?: number;
+  processing?: {
+    readonly requestId: string;
+    readonly messageType: string;
+    readonly receivedAt: number;
+    readonly listenerPhaseAtDispatch: ListenerDescriptor["phase"];
+    readonly listenerOwnerPresentAtDispatch: boolean;
+    phase:
+      | "dispatch"
+      | "result-delivery"
+      | "terminal-release"
+      | "ack-write"
+      | "ack-record";
+    owner?: Pick<
+      ListenerControl,
+      "traceId" | "correlationId" | "causationId" | "jobId" | "passId"
+    >;
+  };
 }
 
 interface PendingListenerControl {
@@ -782,12 +799,14 @@ export class SignalIngressServer implements ListenerService {
             break;
           }
           await this.#handleLine(state, entry.line, entry.receivedAt);
+          delete state.processing;
         }
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Unknown ingress error";
         await this.#fail(state, "internal-error", message, true);
       } finally {
+        delete state.processing;
         state.pumping = false;
         if (!state.closing) {
           state.socket.resume();
@@ -844,6 +863,14 @@ export class SignalIngressServer implements ListenerService {
       return;
     }
     const message = parsed.data;
+    state.processing = {
+      requestId: message.requestId,
+      messageType: message.type,
+      phase: "dispatch",
+      receivedAt,
+      listenerPhaseAtDispatch: state.listenerPhase,
+      listenerOwnerPresentAtDispatch: state.listenerOwner !== undefined,
+    };
     const traceId =
       message.type === "signal.frame" && state.connectionId !== undefined
         ? stableTelemetryId(
@@ -1038,6 +1065,14 @@ export class SignalIngressServer implements ListenerService {
       );
       return;
     }
+    if (state.processing)
+      state.processing.owner = {
+        traceId: owner.traceId,
+        correlationId: owner.correlationId,
+        causationId: owner.causationId,
+        jobId: owner.jobId,
+        passId: owner.passId,
+      };
     if (message.sequence !== state.listenerSequence + 1) {
       this.#publishListenerFailure(state, "sequence_gap");
       await this.#fail(
@@ -1190,11 +1225,13 @@ export class SignalIngressServer implements ListenerService {
         state,
         message,
       );
+      if (state.processing) state.processing.phase = "result-delivery";
       this.#emitListenerResult(state, message);
       if (
         message.status !== "progress" &&
         state.listenerPhase !== "cancelling"
       ) {
+        if (state.processing) state.processing.phase = "terminal-release";
         delete state.listenerOwner;
         delete state.listenerDeadline;
         delete state.nativeArmV2;
@@ -1429,7 +1466,9 @@ export class SignalIngressServer implements ListenerService {
       action,
       ...(connectionId === undefined ? {} : { connectionId }),
     };
+    if (state.processing) state.processing.phase = "ack-write";
     await this.#write(state, response);
+    if (state.processing) state.processing.phase = "ack-record";
     const traceId =
       action === "signal" &&
       state.connectionId !== undefined &&
@@ -1466,12 +1505,52 @@ export class SignalIngressServer implements ListenerService {
     requestId?: string,
     startedAt = this.#now(),
   ): Promise<void> {
+    const owner = state.processing?.owner ?? state.listenerOwner;
+    const context = sanitizeTelemetryAttributes({
+      message: sanitizePersistedText(message).slice(
+        0,
+        MAX_DIAGNOSTIC_MESSAGE_LENGTH,
+      ),
+      listenerPhase: state.listenerPhase,
+      listenerOwnerPresent: state.listenerOwner !== undefined,
+      socketDestroyed: state.socket.destroyed,
+      writableLength: state.socket.writableLength,
+      writableHighWaterMark: state.socket.writableHighWaterMark,
+      ...(state.listener === undefined
+        ? {}
+        : { connectionEpoch: state.listener.connectionEpoch }),
+      ...(state.processing === undefined
+        ? { processingPhase: "idle" }
+        : {
+            processingRequestId: state.processing.requestId,
+            processingMessageType: state.processing.messageType,
+            processingPhase: state.processing.phase,
+            requestElapsedMs: Math.max(
+              0,
+              this.#now() - state.processing.receivedAt,
+            ),
+            listenerPhaseAtDispatch: state.processing.listenerPhaseAtDispatch,
+            listenerOwnerPresentAtDispatch:
+              state.processing.listenerOwnerPresentAtDispatch,
+          }),
+      ...(owner === undefined
+        ? {}
+        : { jobId: owner.jobId, passId: owner.passId }),
+    });
     if (fatal) {
       state.closing = true;
       this.#publishListenerFailure(state, code);
     }
     this.#diagnostic(code, message, state.connectionId);
-    this.#recordFailure(code, requestId, state.connectionId, fatal, startedAt);
+    this.#recordFailure(
+      code,
+      requestId,
+      state.connectionId,
+      fatal,
+      startedAt,
+      context,
+      owner,
+    );
     const response: ProducerErrorResponse = {
       type: "producer.error",
       protocolVersion: PRODUCER_PROTOCOL_VERSION,
@@ -1507,19 +1586,37 @@ export class SignalIngressServer implements ListenerService {
     connectionId: string | undefined,
     fatal: boolean,
     startedAt: number,
+    context: ReturnType<typeof sanitizeTelemetryAttributes>,
+    owner?: Pick<ListenerControl, "traceId" | "correlationId" | "causationId">,
   ): void {
-    const traceId = stableTelemetryId(
-      `output-ingress-request:${requestId ?? `${connectionId ?? "unknown"}:${startedAt}`}`,
-    );
+    const traceId =
+      owner?.traceId ??
+      stableTelemetryId(
+        `output-ingress-request:${requestId ?? `${connectionId ?? "unknown"}:${startedAt}`}`,
+      );
     recordSignalTelemetry(this.#options.telemetry, {
       name: "output.ingress.failed",
       source: "output-ingress",
-      ...(requestId === undefined ? {} : { correlationId: requestId }),
+      ...(owner === undefined
+        ? requestId === undefined
+          ? {}
+          : { correlationId: requestId }
+        : {
+            correlationId: owner.correlationId,
+            causationId: owner.causationId,
+          }),
       level: "warn",
       outcome: "failure",
       durationMs: this.#now() - startedAt,
-      trace: { traceId, spanId: traceId },
+      trace: {
+        traceId,
+        spanId:
+          owner === undefined
+            ? traceId
+            : stableTelemetryId(`${traceId}:ingress-failure:${startedAt}`),
+      },
       attributes: {
+        ...context,
         code,
         fatal,
         ...(requestId === undefined ? {} : { requestId }),

@@ -359,6 +359,21 @@ detected-tempo and timing/integrity guards stay in place.
   changes; all seven other checks pass and full native proof/context qualifies.
   Preserve dc7ade30's unknown field; establish the actual reconnect timeline
   and cause before correcting runtime or verifier scope.
+  The complete typed timeline places fatal ingress after terminal acceptance
+  and before context/job completion, with a new hello afterward. Underlying
+  exception and initial close trigger remain unretained; do not call it a
+  benign idle reconnect.
+ - [x] Add bounded redacted ingress failure attribution for processing phase,
+  request/ownership/timing/socket state and retained owner trace IDs without
+  changing authentication, sequence, ACK, queue, deadline or close policy.
+ - [x] Correct the independently reproduced shared-client `write(false)` misuse:
+  bounded same-connection FIFO/drain, no resend, unchanged ACK/auth/epoch/
+  sequence authority, explicit limits/failure/cancel cleanup and lifecycle.
+  Installed Node16.6 threshold and controlled long-body replay discriminate
+  accepted data from delivery failure; eleven changed paths fail on old bac0.
+ - [ ] Physically qualify explicit corrected client559a7e93 with current
+  Gen321/be01 and controllerf6; require actual terminal ACK and all unchanged
+  final connection/registration checks. Historical b272 exception stays unknown.
  - [x] Retain bounded typed before/after leave-running postcondition diagnostics
   with nine unchanged named checks, redacted scalar differences/structured
   hashes, lifecycle timing/trace attribution and failure/cleanup regressions.

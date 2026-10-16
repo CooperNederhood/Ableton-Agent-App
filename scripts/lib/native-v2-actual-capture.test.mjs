@@ -494,6 +494,81 @@ describe("actual corrected v2 native capture and durable context", () => {
     expect(record.cleanup.errors).toEqual([]);
   });
 
+  it("locates connection rotation at terminal delivery without inventing its missing exception", async () => {
+    const record = await evidence(
+      "native-v2-terminal-connection-rotation-observation.json",
+    );
+    const event = (name) => record.timeline.find((item) => item.name === name);
+    const nativeCompleted = event("output.listener.native.completed");
+    const terminal = event("output.listener.completed");
+    const failed = event("output.ingress.failed");
+    const published = event("listening.runtime.publication.completed");
+    const job = event("integration.native_listening.terminal-job.completed");
+    const hello = event("output.ingress.acknowledged");
+    const sequence = [nativeCompleted, terminal, failed, published, job, hello];
+    expect(sequence.map((item) => item.sequence)).toEqual([
+      763, 766, 772, 791, 801, 892,
+    ]);
+    for (let index = 1; index < sequence.length; index++)
+      expect(sequence[index].occurredAt > sequence[index - 1].occurredAt).toBe(
+        true,
+      );
+    expect(terminal.attributes.requestId).toBe("listener-57");
+    expect(failed.attributes).toEqual({
+      code: "internal-error",
+      fatal: true,
+      connectionId: record.oldConnectionId,
+    });
+    expect(hello.attributes.connectionId).toBe(record.newConnectionId);
+    expect(record.terminalAckRecorded).toBe(false);
+    expect(record.underlyingIngressExceptionRetained).toBe(false);
+    expect(record.nativeFailureEvents).toBe(0);
+    expect(record.allPagesRead).toBe(true);
+    expect(record.typedJournalEventsRead).toBe(928);
+    expect(record.actorPassed).toBe(false);
+  });
+
+  it("keeps the controlled backpressure proof distinct from unretained historical native exceptions", async () => {
+    const record = await evidence("native-v2-socket-write-semantics.json");
+    expect(record.controlledSoftwareOnly).toBe(true);
+    expect(record.liveOrMaxHostsStarted).toBe(false);
+    expect(record.actualActorPassed).toBe(false);
+    expect(record.actualB272UnderlyingExceptionRecovered).toBe(false);
+    expect(record.runtime.version).toBe("v16.6.0");
+    expect(record.runtime.standardNetCases).toEqual([
+      { wireBytes: 16383, writeReturn: true, deliveredFully: true },
+      {
+        wireBytes: 16384,
+        writeReturn: false,
+        deliveredFully: true,
+        drained: true,
+      },
+      {
+        wireBytes: 16385,
+        writeReturn: false,
+        deliveredFully: true,
+        drained: true,
+      },
+      {
+        wireBytes: 45773,
+        writeReturn: false,
+        deliveredFully: true,
+        drained: true,
+      },
+    ]);
+    expect(record.originalProducer.controlledReplayDeliveredFrames).toBe(1);
+    expect(
+      record.originalProducer.controlledReplayImmediateSocketDestroyed,
+    ).toBe(true);
+    expect(record.correctedProducer.controlledReplayDeliveredFrames).toBe(1);
+    expect(record.correctedProducer.controlledReplayDelayedAckConsumed).toBe(
+      true,
+    );
+    expect(record.correctedProducer.controlledReplayPendingAfterAck).toBe(0);
+    expect(record.correctedProducer.acceptedFrameResent).toBe(false);
+    expect(record.serverTrace.analogousFalseMeansFailureBugFound).toBe(false);
+  });
+
   it.each(["missing-window", "erased-spectrum", "changed-range"])(
     "rejects %s instead of treating completed prose or context identity as sufficient",
     async (change) => {

@@ -200,9 +200,15 @@ detected-tempo and timing/integrity guards stay in place.
   maximum component magnitude zero. Original guards/math/main outputs/ABI stay
   unchanged; test-only diagnostic values never enter production SDK/History.
   Zero admission/arm/context and explicit cleanup/pin receipts remain intact.
-- [ ] Contrast original wide finite-input comparisons with a stricter
-  small-bound diagnostic control on real inputs, then implement only an
-  evidence-backed equivalent production guard retaining the original bound.
+- [x] Contrast original wide finite-input comparisons with a stricter
+  small-bound diagnostic control on real inputs. Run `eeaff22d` changes only
+  4 main/8 passive comparisons from 1e12 to 1048576; native silence frames now
+  publish with zero invalid count and diagnostics `[48000,0,0,-1,0]`. Retain
+  comparison-only scope, zero capture admission/arm/context, 902 ms forced
+  failure and explicit successful cleanup/pin receipts.
+- [ ] Implement and natively confirm an equivalent finite-input guard retaining
+  the original inclusive 1e12 production bound. The stricter diagnostic control
+  must not replace it; compiler internals remain unproven.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

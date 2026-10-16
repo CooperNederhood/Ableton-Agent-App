@@ -405,9 +405,21 @@ continued advancing, but original spectrum publication still failed. These
 repurposed private diagnostic outputs never entered the SDK/typed failure
 contract; live rate and retained flags are not atomic. The bounded evidence is
 `fixtures/native-v2-fft-guard-observation.json`. No production finite-bound
-rewrite follows from this observation alone; a stricter small-bound contrast
-is the next declared experiment. Forced failure at 902 ms admitted no capture,
-and exact-owned cleanup/original-pin receipts succeeded.
+rewrite follows from this observation alone. Forced failure at 902 ms admitted
+no capture, and exact-owned cleanup/original-pin receipts succeeded.
+
+The declared stricter comparison control then changed only the original four
+finite-input comparisons and eight passive observer comparisons from the
+inclusive 1e12 ceiling to 1048576 in a unique test Gen. Native silence frames
+now publish: first `[1083392,0,0,1081344,1083392,0]`, last
+`[1126400,0,0,1124352,1126400,0]`, with no invalid frames and diagnostic tuple
+`[48000,0,0,-1,0]`. This isolates the comparison-ceiling expression in that
+contrast, not compiler internals. The stricter test ceiling is not a production
+correction; production must retain the original inclusive 1e12 range. The
+900 ms nonaccepting tap again forced failure at 902 ms with zero admission/
+arm/playback/context and successful explicit cleanup/pin receipts. See
+`fixtures/native-v2-finite-bound-control.json`. Idle silence-frame publication
+does not qualify capture of a played passage.
 
 ### Reviewed descriptive native runner scenarios
 

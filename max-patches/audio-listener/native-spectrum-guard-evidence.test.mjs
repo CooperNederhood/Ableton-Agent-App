@@ -3,6 +3,66 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { URL } from "node:url";
 
+test("actual stricter finite-bound control publishes native silence frames without capture authority", async () => {
+  const evidence = JSON.parse(
+    await readFile(
+      new URL(
+        "./fixtures/native-v2-finite-bound-control.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  const baseline = JSON.parse(
+    await readFile(
+      new URL(
+        "./fixtures/native-v2-fft-guard-observation.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  assert.equal(evidence.baselineRunId, baseline.runId);
+  assert.equal(
+    evidence.pins.baselineProbeDocumentSha256,
+    baseline.pins.probeSpectrumGenSha256,
+  );
+  assert(evidence.controlBound < evidence.originalBound);
+  assert.equal(evidence.strictSubset, true);
+  assert.equal(evidence.mainComparisonsChanged, 4);
+  assert.equal(evidence.passiveComparisonsChanged, 8);
+  assert.equal(evidence.totalComparisonsChanged, 12);
+  assert.deepEqual(evidence.observed.diagnosticFirst, [48000, 0, 0, -1, 0]);
+  assert.deepEqual(
+    evidence.observed.diagnosticLast,
+    evidence.observed.diagnosticFirst,
+  );
+  for (const packet of [
+    evidence.observed.spectrumFirst,
+    evidence.observed.spectrumLast,
+  ]) {
+    assert(packet[0] > 0);
+    assert.equal(packet[0], packet[4]);
+    assert.equal(packet[0] - packet[3], 2048);
+    assert.equal(packet[1], 0);
+    assert.equal(packet[2], 0);
+    assert.equal(packet[5], 0);
+  }
+  assert(
+    evidence.observed.spectrumLast[0] > evidence.observed.spectrumFirst[0],
+  );
+  assert.equal(evidence.productionCorrection, false);
+  assert.equal(evidence.acceptancePassed, false);
+  assert.equal(evidence.instrumentation.measurementPacketsAdmitted, 0);
+  assert.equal(evidence.instrumentation.nativeArmControlsForwarded, 0);
+  assert.deepEqual(evidence.cleanup, {
+    processStopped: true,
+    fixtureCleaned: true,
+    sourcePinsUnchanged: true,
+    errors: [],
+  });
+});
+
 test("actual passive FFT probe identifies finite-comparison failure, not unsupported local rate", async () => {
   const evidence = JSON.parse(
     await readFile(

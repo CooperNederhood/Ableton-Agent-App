@@ -1,0 +1,49 @@
+{
+  "formatVersion": 1,
+  "evidenceKind": "actual-instrumented-nonaccepting-finite-bound-control",
+  "scope": "native-spectrum-finite-bound-control/v1",
+  "runId": "eeaff22d-83d8-4f76-b022-f83fa12fc5dc",
+  "baselineRunId": "ae0be55a-e172-4f53-8bda-7e033b3e6969",
+  "acceptancePassed": false,
+  "productionCorrection": false,
+  "originalBound": 1000000000000,
+  "controlBound": 1048576,
+  "strictSubset": true,
+  "mainComparisonsChanged": 4,
+  "passiveComparisonsChanged": 8,
+  "totalComparisonsChanged": 12,
+  "reversibleEditCount": 6,
+  "pins": {
+    "baselineProbeCodeSha256": "f97dd86c7ec15e36a544080b997ddf0ed1a0846ed65da4a2789d48ab8c3e766a",
+    "baselineProbeDocumentSha256": "b9750d7e2b8573d5a4b9fc9aa6bcb51feb96c67dd6279fd9f2640d049919664e",
+    "codeSha256": "7a92f53421be68425520ccb885a2ce52723f504356eb48683002d47d8a2467d9",
+    "documentSha256": "90b68bea241b9eb1b22d0af62e21f88e8434939a53a30d1a3d90200f95a4f576"
+  },
+  "observed": {
+    "packetCount": 85,
+    "snapshotPolicy": "first4_last4_disjoint",
+    "diagnosticFirst": [48000, 0, 0, -1, 0],
+    "diagnosticLast": [48000, 0, 0, -1, 0],
+    "spectrumFirst": [1083392, 0, 0, 1081344, 1083392, 0],
+    "spectrumLast": [1126400, 0, 0, 1124352, 1126400, 0]
+  },
+  "instrumentation": {
+    "failureAfterBeginMs": 902,
+    "maximumDelayMs": 1000,
+    "measurementPacketsAdmitted": 0,
+    "nativeArmControlsForwarded": 0
+  },
+  "cleanup": {
+    "processStopped": true,
+    "fixtureCleaned": true,
+    "sourcePinsUnchanged": true,
+    "errors": []
+  },
+  "limitations": [
+    "Silence-frame native publication is preflight evidence, not an armed passage capture.",
+    "Only the comparison ceiling changed; main arithmetic and other guards were unchanged.",
+    "A stricter diagnostic ceiling must not replace the production inclusive1e12 range.",
+    "Comparison-expression causality is isolated; compiler internals remain unproven.",
+    "No measurement admission, native arm, playback, context publication or readiness promotion."
+  ]
+}

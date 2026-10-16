@@ -640,7 +640,13 @@ async function runnerV2(
             liveSetName: `${manifest.artifactPrefix}${runId}`,
             liveVersion: "test-only",
           }),
-          inspectSession: async () => ({ isPlaying: playing, trackCount: 1 }),
+          inspectSession: async () => ({
+            isPlaying:
+              failure === "postconditions" && job?.stage === "completed"
+                ? false
+                : playing,
+            trackCount: 1,
+          }),
           subscribe: (fn) => {
             events.add(fn);
             return () => events.delete(fn);
@@ -726,6 +732,8 @@ describe("v2 runner expectation forwarding and production typed context reopenin
         const result = await f.runner.run(async () => {});
         expect(result.error).toBeUndefined();
         expect(result.ok).toBe(true);
+        expect(result.postconditions.passed).toBe(true);
+        expect(result.postconditions.failedChecks).toEqual([]);
         expect(result.fixture.nativeVersion).toBe(2);
         expect(result.evidence.envelopeWindows).toBe(windows);
         const expected =
@@ -794,5 +802,58 @@ describe("v2 runner expectation forwarding and production typed context reopenin
     } finally {
       await f.runner.close({ processStopped: true });
     }
+  });
+  it("keeps synthetic native completion/context separate from a failed final snapshot and retains exact diagnostic lifecycle through cleanup", async () => {
+    const f = await runnerV2(ids[1], { failure: "postconditions" });
+    try {
+      const result = await f.runner.run(async () => {});
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe(
+        "Leave-running capture cleanup, immutable binding or recording state mismatch: snapshotPlaying",
+      );
+      expect(result.jobs).toHaveLength(1);
+      expect(result.jobs[0].stage).toBe("completed");
+      expect(result.jobs[0].contextIds).toHaveLength(1);
+      expect(result.postconditions.failedChecks).toEqual(["snapshotPlaying"]);
+      expect(result.postconditions.before.snapshotPlaying).toEqual({
+        type: "boolean",
+        value: false,
+      });
+      expect(result.postconditions.after.snapshotPlaying).toEqual({
+        type: "boolean",
+        value: false,
+      });
+      const events = result.lifecycle.filter((e) =>
+        e.name.startsWith(
+          "integration.native_listening.leave-running-postconditions.",
+        ),
+      );
+      expect(events.map((e) => e.stage)).toEqual([
+        "queued",
+        "started",
+        "progress",
+        "failed",
+      ]);
+      expect(events.at(-1).attributes.postconditions.failedChecks).toEqual([
+        "snapshotPlaying",
+      ]);
+      expect(events.at(-1).correlationId).toBe(
+        result.lifecycle[0].correlationId,
+      );
+      expect(events.at(-1).trace.traceId).toBe(
+        result.lifecycle[0].trace.traceId,
+      );
+      expect(
+        result.lifecycle.some((e) =>
+          e.name.endsWith("independent-verification.started"),
+        ),
+      ).toBe(false);
+    } finally {
+      await f.runner.close({ processStopped: true });
+    }
+    expect(f.appStop).toHaveBeenCalledOnce();
+    expect(f.ingressStop).toHaveBeenCalledOnce();
+    expect(f.events.size).toBe(0);
+    expect(f.results.size).toBe(0);
   });
 });

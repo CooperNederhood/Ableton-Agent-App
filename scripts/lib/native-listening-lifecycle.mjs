@@ -8,10 +8,10 @@ export function createNativeRunnerLifecycle({
   signal,
 }) {
   const events = [];
-  const stage = async (name, operation) => {
+  const stage = async (name, operation, attributes = {}) => {
     const started = performance.now();
     let cause = trace.causationId;
-    const emit = (phase, attributes = {}) => {
+    const emit = (phase, details = {}) => {
       const id = randomUUID();
       const event = {
         version: 2,
@@ -34,7 +34,7 @@ export function createNativeRunnerLifecycle({
         trace: { traceId: trace.traceId, spanId: id },
         correlationId: trace.correlationId,
         causationId: cause,
-        attributes: sanitize(attributes),
+        attributes: sanitize({ ...attributes, ...details }),
       };
       cause = id;
       if (events.length < 128) events.push(event);

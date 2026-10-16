@@ -750,6 +750,24 @@ ordinary acceptance is claimed. Full evidence, including the failed verdict,
 is `fixtures/native-v2-long-capture-with-failed-final-verifier.json`. Diagnose
 the exact final-state mismatch rather than weakening the assertion.
 
+The runner retains `native-listening-postconditions/v1` diagnostics for the
+original nine leave-running checks: both playing flags, inactive recording,
+idle listener, released pass/job, unchanged connection/registration, and
+unchanged normalized binding inspection. Runner results and application-owned
+`leave-running-postconditions` lifecycle events retain named failed checks,
+redacted before/after scalar values, structured-value hashes, and up to eight
+field-level differences (bounded traversal and explicit truncation). They do
+not persist full inspection graphs or change any postcondition. Failed
+postconditions still prevent independent scenario acceptance, even after a
+completed native job and published context.
+
+These diagnostics were absent from `dc7ade30`. Its retained bridge events
+record the final `listening.inspect_context` and `session.inspect` request
+identities/timing, not their response values; the historical failed field
+cannot be reconstructed from those records. No synthetic poststate is assigned
+to that actual run, and no retry or corrective policy change follows from the
+generic error alone.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

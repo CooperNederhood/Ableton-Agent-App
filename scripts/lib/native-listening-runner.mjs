@@ -7,6 +7,7 @@ import { stageNativeListeningFixture } from "./native-listening-fixture.mjs";
 import { createNativeRunnerLifecycle } from "./native-listening-lifecycle.mjs";
 import {
   createNativeScenarioApproval,
+  inspectNativeListeningPostconditions,
   verifyNativeListeningEvidence,
 } from "./native-listening-verification.mjs";
 
@@ -409,6 +410,7 @@ export async function createNativeListeningRunner({
     stage: lifecycle.stage,
     async run(validateOwnership) {
       let result;
+      let postconditions;
       try {
         manager = makeManager();
         const contextHost = d.createSessionContextHost({
@@ -609,9 +611,8 @@ export async function createNativeListeningRunner({
             endBeat: reviewed.capture.endBeat,
           });
         }
-        const baseline = normalizeSnapshot(
-          await runtime.application.inspectSession(),
-        );
+        const baselineSnapshot = await runtime.application.inspectSession();
+        const baseline = normalizeSnapshot(baselineSnapshot);
         const actorConfiguration = {
           instanceId: owner.agentId,
           productionSessionId: owner.sessionId,
@@ -831,25 +832,27 @@ export async function createNativeListeningRunner({
         const finalListener = runtime.signals.listeners
           .inspectListeners()
           .find((item) => item.producer.producerId === binding.listenerId);
-        assert(
-          finalSnapshot.isPlaying === true &&
-            finalInspection.transport.playing === true &&
-            Object.values(finalInspection.transport.recording).every(
-              (value) => value === false,
-            ) &&
-            finalListener?.phase === "idle" &&
-            finalListener.passId === undefined &&
-            finalListener.jobId === undefined &&
-            finalListener.connectionId === listener.connectionId &&
-            isDeepStrictEqual(
-              finalListener.registration,
-              listener.registration,
-            ) &&
-            isDeepStrictEqual(
-              normalizeInspection(inspected),
-              normalizeInspection(finalInspection),
+        postconditions = inspectNativeListeningPostconditions(
+          {
+            baselineSnapshot,
+            finalSnapshot,
+            inspected,
+            finalInspection,
+            listener,
+            finalListener,
+            beforeBinding: normalizeInspection(inspected),
+            afterBinding: normalizeInspection(finalInspection),
+          },
+          d.sanitizePersistedText,
+        );
+        await lifecycle.stage(
+          "leave-running-postconditions",
+          async () =>
+            assert(
+              postconditions.passed,
+              `Leave-running capture cleanup, immutable binding or recording state mismatch: ${postconditions.failedChecks.join(", ")}`,
             ),
-          "Leave-running capture cleanup, immutable binding or recording state mismatch",
+          { postconditions },
         );
         const evidence = await lifecycle.stage(
           "independent-verification",
@@ -941,6 +944,9 @@ export async function createNativeListeningRunner({
       }
       return {
         ...result,
+        ...(postconditions === undefined
+          ? {}
+          : { postconditions: d.sanitizeTelemetryAttributes(postconditions) }),
         approvals: approvals.decisions.map((item) =>
           d.sanitizeTelemetryAttributes(item),
         ),

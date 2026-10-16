@@ -62,4 +62,50 @@ describe("native runner application lifecycle", () => {
       "cancelled",
     ]);
   });
+  it("persists named diagnostic attributes through failure with redaction, timing and chained attribution", async () => {
+    const f = fixture();
+    const token = `ghp_${"b".repeat(40)}`;
+    await expect(
+      f.stage(
+        "leave-running-postconditions",
+        async () => {
+          throw new Error("unchanged postcondition rejected");
+        },
+        {
+          postconditions: {
+            schema: "native-listening-postconditions/v1",
+            failedChecks: ["registrationUnchanged"],
+            differences: [
+              {
+                path: "listener.registration.description",
+                before: { type: "string", value: token },
+                after: { type: "string", value: "changed" },
+              },
+            ],
+          },
+        },
+      ),
+    ).rejects.toThrow("unchanged postcondition rejected");
+    expect(f.events.map((event) => event.stage)).toEqual([
+      "queued",
+      "started",
+      "progress",
+      "failed",
+    ]);
+    for (const [index, event] of f.events.entries()) {
+      telemetryEventEnvelopeSchema.parse(event);
+      expect(event.attributes.postconditions.failedChecks).toEqual([
+        "registrationUnchanged",
+      ]);
+      expect(event.attributes.postconditions.differences[0].path).toBe(
+        "listener.registration.description",
+      );
+      expect(event.durationMs).toBeGreaterThanOrEqual(0);
+      expect(event.correlationId).toBe("run");
+      expect(event.causationId).toBe(
+        index === 0 ? "request" : f.events[index - 1].id,
+      );
+    }
+    expect(JSON.stringify(f.events)).not.toContain(token);
+  });
 });

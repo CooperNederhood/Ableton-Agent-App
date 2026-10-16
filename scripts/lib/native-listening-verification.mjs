@@ -1,7 +1,128 @@
+import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 
 function requireValue(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+export function inspectNativeListeningPostconditions(input, sanitizeText) {
+  const {
+    baselineSnapshot,
+    finalSnapshot,
+    inspected,
+    finalInspection,
+    listener,
+    finalListener,
+    beforeBinding,
+    afterBinding,
+  } = input;
+  const checks = {
+    snapshotPlaying: finalSnapshot.isPlaying === true,
+    transportPlaying: finalInspection.transport.playing === true,
+    recordingInactive: Object.values(finalInspection.transport.recording).every(
+      (value) => value === false,
+    ),
+    listenerIdle: finalListener?.phase === "idle",
+    listenerPassReleased:
+      finalListener !== undefined && finalListener.passId === undefined,
+    listenerJobReleased:
+      finalListener !== undefined && finalListener.jobId === undefined,
+    connectionUnchanged:
+      finalListener !== undefined &&
+      finalListener.connectionId === listener.connectionId,
+    registrationUnchanged:
+      finalListener !== undefined &&
+      isDeepStrictEqual(finalListener.registration, listener.registration),
+    bindingUnchanged: isDeepStrictEqual(beforeBinding, afterBinding),
+  };
+  const before = {
+    snapshotPlaying: baselineSnapshot.isPlaying,
+    transportPlaying: inspected.transport.playing,
+    recording: inspected.transport.recording,
+    phase: listener.phase,
+    passId: listener.passId,
+    jobId: listener.jobId,
+    connectionId: listener.connectionId,
+    registration: listener.registration,
+    inspection: beforeBinding,
+  };
+  const after = {
+    snapshotPlaying: finalSnapshot.isPlaying,
+    transportPlaying: finalInspection.transport.playing,
+    recording: finalInspection.transport.recording,
+    phase: finalListener?.phase,
+    passId: finalListener?.passId,
+    jobId: finalListener?.jobId,
+    connectionId: finalListener?.connectionId,
+    registration: finalListener?.registration,
+    inspection: afterBinding,
+  };
+  const summarize = (value) => {
+    if (value === undefined) return { type: "undefined" };
+    if (value === null) return { type: "null" };
+    if (typeof value === "string")
+      return { type: "string", value: sanitizeText(value).slice(0, 256) };
+    if (typeof value !== "object") return { type: typeof value, value };
+    const text = sanitizeText(JSON.stringify(value));
+    return {
+      type: Array.isArray(value) ? "array" : "object",
+      sha256: createHash("sha256").update(text).digest("hex"),
+    };
+  };
+  const differences = [];
+  let visited = 0,
+    differencesTruncated = false;
+  const diff = (path, left, right, depth = 0) => {
+    if (isDeepStrictEqual(left, right)) return;
+    if (differences.length >= 8 || ++visited > 128) {
+      differencesTruncated = true;
+      return;
+    }
+    if (
+      depth < 10 &&
+      left !== null &&
+      right !== null &&
+      typeof left === "object" &&
+      typeof right === "object" &&
+      Array.isArray(left) === Array.isArray(right)
+    ) {
+      for (const key of [
+        ...new Set([...Object.keys(left), ...Object.keys(right)]),
+      ].sort()) {
+        diff(`${path}.${key}`, left[key], right[key], depth + 1);
+        if (differencesTruncated) break;
+      }
+    } else
+      differences.push({
+        path: sanitizeText(path).slice(0, 256),
+        before: summarize(left),
+        after: summarize(right),
+      });
+  };
+  for (const [path, left, right] of [
+    ["transport.recording", before.recording, after.recording],
+    ["listener.phase", before.phase, after.phase],
+    ["listener.passId", before.passId, after.passId],
+    ["listener.jobId", before.jobId, after.jobId],
+    ["listener.connectionId", before.connectionId, after.connectionId],
+    ["listener.registration", before.registration, after.registration],
+    ["inspection", before.inspection, after.inspection],
+  ])
+    diff(path, left, right);
+  return {
+    schema: "native-listening-postconditions/v1",
+    passed: Object.values(checks).every(Boolean),
+    checks,
+    failedChecks: Object.keys(checks).filter((name) => !checks[name]),
+    before: Object.fromEntries(
+      Object.entries(before).map(([key, value]) => [key, summarize(value)]),
+    ),
+    after: Object.fromEntries(
+      Object.entries(after).map(([key, value]) => [key, summarize(value)]),
+    ),
+    differences,
+    differencesTruncated,
+  };
 }
 
 export function verifyNativeListeningEvidence(input, protocol) {

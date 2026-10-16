@@ -355,6 +355,12 @@ detected-tempo and timing/integrity guards stay in place.
   actual proof separately; add bounded diagnostic attribution if absent.
   Do not weaken the assertion or infer success from owned-process cleanup.
   Then finish ordinary immutable acceptance and the owning native group.
+ - [x] Retain bounded typed before/after leave-running postcondition diagnostics
+  with nine unchanged named checks, redacted scalar differences/structured
+  hashes, lifecycle timing/trace attribution and failure/cleanup regressions.
+  The dc7ade30 response values were not retained: its actual failed field stays
+  unknown, and successful native capture/context remains distinct from the
+  failed end-to-end actor verdict. No host retry or assertion relaxation.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,
